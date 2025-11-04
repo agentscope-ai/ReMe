@@ -3,11 +3,11 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Tool Memory Summary Ops" href="tool_summary_ops.html"><link rel="prev" title="Tool Memory" href="tool_memory.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="MCP Quick Start Guide" href="../mcp_quick_start.html"><link rel="prev" title="Tool Memory Benchmark" href="../tool_memory/tool_bench.html">
         <link rel="prefetch" href="../_static/logo.svg" as="image">
 
     <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
-        <title>Tool Memory Retrieval Ops - AgentScope ReMe</title>
+        <title>SOP Memory: Combining Atomic Operations into Complex Workflows - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="../_static/togglebutton.css?v=13237357" />
@@ -212,7 +212,11 @@
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../quick_start.html">Quick Start</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../library/library.html">Ready-to-Use Memories</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Library</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../library/library.html">Memory Library</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../library/use_library.html">Use Library</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Personal Memory</span></p>
 <ul>
@@ -223,20 +227,24 @@
 <p class="caption" role="heading"><span class="caption-text">Task Memory</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../task_memory/task_memory.html">Task Memory</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../task_memory/task_retrieve_ops.html">Task Memory Retrieval Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../task_memory/task_summary_ops.html">Task Memory Summary Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../task_memory/task_retrieve_ops.html">Task Memory Retrieval Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../task_memory/task_summary_ops.html">Task Summary Operations</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Tool Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_memory.html">Tool Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_retrieve_ops.html">Tool Memory Retrieval Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_summary_ops.html">Tool Memory Summary Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">SOP Memory</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="tool_memory.html">Tool Memory</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Tool Memory Retrieval Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tool_summary_ops.html">Tool Memory Summary Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="tool_bench.html">Tool Memory Benchmark</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">SOP Memory: Combining Atomic Operations into Complex Workflows</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">Vector Store API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">🚀 Vector Store API Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -247,6 +255,7 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Others</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../future_work.html">Future Work</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../contribution.html">Contribute to ReMe</a></li>
 </ul>
 
@@ -267,7 +276,7 @@
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="" title="View this page">
+  <a class="muted-link" href="https://github.com/modelscope/ReMe/blob/main/docs/sop_memory/making_sop_memories.md?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
@@ -284,26 +293,145 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section class="tex2jax_ignore mathjax_ignore" id="tool-memory-retrieval-ops">
-<h1>Tool Memory Retrieval Ops<a class="headerlink" href="#tool-memory-retrieval-ops" title="Link to this heading">¶</a></h1>
-<section id="retrievetoolmemoryop">
-<h2>RetrieveToolMemoryOp<a class="headerlink" href="#retrievetoolmemoryop" title="Link to this heading">¶</a></h2>
-<section id="purpose">
-<h3>Purpose<a class="headerlink" href="#purpose" title="Link to this heading">¶</a></h3>
-<p>Retrieves tool memories from the vector database based on tool names, providing usage patterns, best practices, and historical call data.</p>
-</section>
-<section id="functionality">
-<h3>Functionality<a class="headerlink" href="#functionality" title="Link to this heading">¶</a></h3>
+          <section id="sop-memory-combining-atomic-operations-into-complex-workflows">
+<h1>SOP Memory: Combining Atomic Operations into Complex Workflows<a class="headerlink" href="#sop-memory-combining-atomic-operations-into-complex-workflows" title="Link to this heading">¶</a></h1>
+<section id="background">
+<h2>1. Background<a class="headerlink" href="#background" title="Link to this heading">¶</a></h2>
+<p>In LLM application development, we often need to combine multiple basic operations (atomic operations) into more complex
+workflows. These workflows can handle complex tasks such as data retrieval, code generation, multi-turn dialogues, and
+more. By combining these atomic operations into Standard Operating Procedures (SOPs), we can:</p>
 <ul class="simple">
-<li><p>Accepts comma-separated tool names as input</p></li>
-<li><p>Searches the vector store for exact tool name matches</p></li>
-<li><p>Validates that retrieved memories are of type “tool”</p></li>
-<li><p>Returns complete tool memories including usage guidelines and call history</p></li>
+<li><p>Improve code reusability</p></li>
+<li><p>Simplify implementation of complex tasks</p></li>
+<li><p>Standardize common workflows</p></li>
+<li><p>Reduce development and maintenance costs</p></li>
+</ul>
+<p>This document introduces how to combine atomic operations (Ops) to form new composite operation tools using the FlowLLM
+framework.</p>
+</section>
+<section id="technical-solution">
+<h2>2. Technical Solution<a class="headerlink" href="#technical-solution" title="Link to this heading">¶</a></h2>
+<section id="atomic-operation-definition">
+<h3>2.1 Atomic Operation Definition<a class="headerlink" href="#atomic-operation-definition" title="Link to this heading">¶</a></h3>
+<p>Each operation (Op) needs to define the following core attributes:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">BaseAsyncToolOp</span><span class="p">:</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># Description of the operation</span>
+    <span class="n">input_schema</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ParamAttr</span><span class="p">]</span>  <span class="c1"># Input parameter schema definition</span>
+    <span class="n">output_schema</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ParamAttr</span><span class="p">]</span>  <span class="c1"># Output parameter schema definition</span>
+</pre></div>
+</div>
+</div>
+</div>
+<p>Where <code class="docutils literal notranslate"><span class="pre">ParamAttr</span></code> defines parameter type, whether it’s required, and other attributes:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ParamAttr</span><span class="p">:</span>
+    <span class="nb">type</span><span class="p">:</span> <span class="n">Type</span>  <span class="c1"># Parameter type, such as str, int, Dict, etc.</span>
+    <span class="n">required</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># Whether it must be provided</span>
+    <span class="n">default</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># Default value</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>  <span class="c1"># Parameter description</span>
+</pre></div>
+</div>
+</div>
+</div>
+</section>
+<section id="sop-composition-process">
+<h3>2.2 SOP Composition Process<a class="headerlink" href="#sop-composition-process" title="Link to this heading">¶</a></h3>
+<section id="step-1-create-atomic-operation-instances">
+<h4>Step 1: Create Atomic Operation Instances<a class="headerlink" href="#step-1-create-atomic-operation-instances" title="Link to this heading">¶</a></h4>
+<p>First, instantiate the required atomic operations:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.op.gallery.mock_op</span><span class="w"> </span><span class="kn">import</span> <span class="n">MockOp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.op.search.tavily_search_op</span><span class="w"> </span><span class="kn">import</span> <span class="n">TavilySearchOp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.op.agent.react_v2_op</span><span class="w"> </span><span class="kn">import</span> <span class="n">ReactV2Op</span>
+
+<span class="c1"># Create atomic operation instances</span>
+<span class="n">search_op</span> <span class="o">=</span> <span class="n">TavilySearchOp</span><span class="p">()</span>
+<span class="n">react_op</span> <span class="o">=</span> <span class="n">ReactV2Op</span><span class="p">()</span>
+<span class="n">summary_op</span> <span class="o">=</span> <span class="n">MockOp</span><span class="p">(</span>
+    <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Summarize search results&quot;</span><span class="p">,</span>
+    <span class="n">input_schema</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;search_results&quot;</span><span class="p">:</span> <span class="n">ParamAttr</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Search results to summarize&quot;</span><span class="p">)},</span>
+    <span class="n">output_schema</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;summary&quot;</span><span class="p">:</span> <span class="n">ParamAttr</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Summarized content&quot;</span><span class="p">)}</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</section>
+<section id="step-2-define-data-flow-between-operations">
+<h4>Step 2: Define Data Flow Between Operations<a class="headerlink" href="#step-2-define-data-flow-between-operations" title="Link to this heading">¶</a></h4>
+<p>Set up input-output relationships between operations, defining how data flows between them:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Set input parameter sources</span>
+<span class="n">react_op</span><span class="o">.</span><span class="n">set_input</span><span class="p">(</span><span class="s2">&quot;context&quot;</span><span class="p">,</span>
+                   <span class="s2">&quot;search_summary&quot;</span><span class="p">)</span>  <span class="c1"># react_op&#39;s context parameter is retrieved from search_summary in memory</span>
+
+<span class="c1"># Set output parameter destinations</span>
+<span class="n">search_op</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="s2">&quot;results&quot;</span><span class="p">,</span> <span class="s2">&quot;search_results&quot;</span><span class="p">)</span>  <span class="c1"># search_op&#39;s results output to search_results in memory</span>
+<span class="n">summary_op</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="s2">&quot;search_summary&quot;</span><span class="p">)</span>  <span class="c1"># summary_op&#39;s summary output to search_summary in memory</span>
+</pre></div>
+</div>
+</div>
+</div>
+</section>
+<section id="step-3-build-operation-flow-graph">
+<h4>Step 3: Build Operation Flow Graph<a class="headerlink" href="#step-3-build-operation-flow-graph" title="Link to this heading">¶</a></h4>
+<p>Use operators to build the operation flow graph, defining execution order and parallel relationships:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Build operation flow graph</span>
+<span class="n">flow</span> <span class="o">=</span> <span class="n">search_op</span> <span class="o">&gt;&gt;</span> <span class="n">summary_op</span> <span class="o">&gt;&gt;</span> <span class="n">react_op</span>
+
+<span class="c1"># Or more complex flows</span>
+<span class="c1"># Parallel operations use the | operator, sequential operations use the &gt;&gt; operator</span>
+<span class="n">complex_flow</span> <span class="o">=</span> <span class="p">(</span><span class="n">search_op</span> <span class="o">&gt;&gt;</span> <span class="n">summary_op</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">another_search_op</span> <span class="o">&gt;&gt;</span> <span class="n">another_summary_op</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="n">react_op</span>
+</pre></div>
+</div>
+</div>
+</div>
+<p>Operator explanation:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&gt;&gt;</span></code>: Sequential execution, execute the next operation after the previous one completes</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">|</span></code>: Parallel execution, execute multiple operations simultaneously</p></li>
 </ul>
 </section>
-<section id="parameters">
-<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h3>
-<p>This operation has no configurable parameters. It uses the default vector store configuration.</p>
+<section id="step-4-create-composite-operation-class">
+<h4>Step 4: Create Composite Operation Class<a class="headerlink" href="#step-4-create-composite-operation-class" title="Link to this heading">¶</a></h4>
+<p>Encapsulate the built operation flow into a new composite operation class:</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">SearchAndReactOp</span><span class="p">(</span><span class="n">BaseToolOp</span><span class="p">):</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="s2">&quot;Search for information and generate a response based on search results&quot;</span>
+    <span class="n">input_schema</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="n">output_schema</span> <span class="o">=</span> <span class="o">...</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_flow</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">search_op</span> <span class="o">=</span> <span class="n">TavilySearchOp</span><span class="p">()</span>
+        <span class="n">summary_op</span> <span class="o">=</span> <span class="n">MockOp</span><span class="p">()</span>
+        <span class="n">react_op</span> <span class="o">=</span> <span class="n">ReactV2Op</span><span class="p">()</span>
+
+        <span class="c1"># Set data flow</span>
+        <span class="n">search_op</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="s2">&quot;results&quot;</span><span class="p">,</span> <span class="s2">&quot;search_results&quot;</span><span class="p">)</span>
+        <span class="n">summary_op</span><span class="o">.</span><span class="n">set_input</span><span class="p">(</span><span class="s2">&quot;search_results&quot;</span><span class="p">,</span> <span class="s2">&quot;search_results&quot;</span><span class="p">)</span>
+        <span class="n">summary_op</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="s2">&quot;summary&quot;</span><span class="p">,</span> <span class="s2">&quot;search_summary&quot;</span><span class="p">)</span>
+        <span class="n">react_op</span><span class="o">.</span><span class="n">set_input</span><span class="p">(</span><span class="s2">&quot;context&quot;</span><span class="p">,</span> <span class="s2">&quot;search_summary&quot;</span><span class="p">)</span>
+        <span class="n">react_op</span><span class="o">.</span><span class="n">set_output</span><span class="p">(</span><span class="s2">&quot;response&quot;</span><span class="p">,</span> <span class="s2">&quot;response&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Build operation flow graph</span>
+        <span class="k">return</span> <span class="n">search_op</span> <span class="o">&gt;&gt;</span> <span class="n">summary_op</span> <span class="o">&gt;&gt;</span> <span class="n">react_op</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">inputs</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+        <span class="c1"># Execute operation flow</span>
+        <span class="k">return</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">inputs</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</section>
 </section>
 </section>
 </section>
@@ -321,7 +449,7 @@
         },
         kernelOptions: {
             name: "python3",
-            path: "./tool_memory"
+            path: "./sop_memory"
         },
         predefinedOutput: true
     }
@@ -332,23 +460,23 @@
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="tool_summary_ops.html">
+          <a class="next-page" href="../mcp_quick_start.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Tool Memory Summary Ops</div>
+                <div class="title">MCP Quick Start Guide</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="tool_memory.html">
+          <a class="prev-page" href="../tool_memory/tool_bench.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Tool Memory</div>
+                <div class="title">Tool Memory Benchmark</div>
                 
               </div>
             </a>
@@ -361,11 +489,11 @@
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-04</div>
+              Last updated on 2025-10-23</div>
           </div>
           <div class="right-details">
             <div class="icons">
-              <a class="muted-link " href="https://reme.agentscope.io" aria-label="GitHub"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+              <a class="muted-link " href="https://github.com/modelscope/ReMe" aria-label="GitHub"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
     <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
 </svg>
 </a>
@@ -388,11 +516,17 @@
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Tool Memory Retrieval Ops</a><ul>
-<li><a class="reference internal" href="#retrievetoolmemoryop">RetrieveToolMemoryOp</a><ul>
-<li><a class="reference internal" href="#purpose">Purpose</a></li>
-<li><a class="reference internal" href="#functionality">Functionality</a></li>
-<li><a class="reference internal" href="#parameters">Parameters</a></li>
+<li><a class="reference internal" href="#">SOP Memory: Combining Atomic Operations into Complex Workflows</a><ul>
+<li><a class="reference internal" href="#background">1. Background</a></li>
+<li><a class="reference internal" href="#technical-solution">2. Technical Solution</a><ul>
+<li><a class="reference internal" href="#atomic-operation-definition">2.1 Atomic Operation Definition</a></li>
+<li><a class="reference internal" href="#sop-composition-process">2.2 SOP Composition Process</a><ul>
+<li><a class="reference internal" href="#step-1-create-atomic-operation-instances">Step 1: Create Atomic Operation Instances</a></li>
+<li><a class="reference internal" href="#step-2-define-data-flow-between-operations">Step 2: Define Data Flow Between Operations</a></li>
+<li><a class="reference internal" href="#step-3-build-operation-flow-graph">Step 3: Build Operation Flow Graph</a></li>
+<li><a class="reference internal" href="#step-4-create-composite-operation-class">Step 4: Create Composite Operation Class</a></li>
+</ul>
+</li>
 </ul>
 </li>
 </ul>
