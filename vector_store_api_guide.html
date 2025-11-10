@@ -6,8 +6,8 @@
 <link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Experiement Overview" href="cookbook/experiment_overview.html"><link rel="prev" title="MCP Quick Start Guide" href="mcp_quick_start.html">
         <link rel="prefetch" href="_static/logo.svg" as="image">
 
-    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
-        <title>Vector Store API Guide - AgentScope ReMe</title>
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.09.25 -->
+        <title>Vector Store Configuration Guide - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="_static/togglebutton.css?v=13237357" />
@@ -236,7 +236,7 @@
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Vector Store API Guide</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Vector Store Configuration Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -284,9 +284,9 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section class="tex2jax_ignore mathjax_ignore" id="vector-store-api-guide">
-<h1>Vector Store API Guide<a class="headerlink" href="#vector-store-api-guide" title="Link to this heading">¶</a></h1>
-<p>This guide covers the vector store implementations available in ReMe, their APIs, and how to use them effectively.</p>
+          <section class="tex2jax_ignore mathjax_ignore" id="vector-store-configuration-guide">
+<h1>Vector Store Configuration Guide<a class="headerlink" href="#vector-store-configuration-guide" title="Link to this heading">¶</a></h1>
+<p>This guide covers how to configure vector store backends in ReMe using the <code class="docutils literal notranslate"><span class="pre">default.yaml</span></code> configuration file.</p>
 <section id="overview">
 <h2>📋 Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
 <p>ReMe provides multiple vector store backends for different use cases:</p>
@@ -387,71 +387,30 @@
 </table>
 </div>
 </section>
-<section id="common-api-methods">
-<h2>🔄 Common API Methods<a class="headerlink" href="#common-api-methods" title="Link to this heading">¶</a></h2>
-<p>All vector store implementations share these core methods:</p>
-<section id="async-support">
-<h3>🔄 Async Support<a class="headerlink" href="#async-support" title="Link to this heading">¶</a></h3>
-<p>All vector stores provide both synchronous and asynchronous versions of every method:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Synchronous methods</span>
-<span class="n">store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;example&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;workspace&quot;</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<span class="n">store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;workspace&quot;</span><span class="p">)</span>
-
-<span class="c1"># Asynchronous methods (with async_ prefix)</span>
-<span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">async_search</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="s2">&quot;example&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;workspace&quot;</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<span class="k">await</span> <span class="n">store</span><span class="o">.</span><span class="n">async_insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;workspace&quot;</span><span class="p">)</span>
+<section id="configuration-in-default-yaml">
+<h2>⚙️ Configuration in default.yaml<a class="headerlink" href="#configuration-in-default-yaml" title="Link to this heading">¶</a></h2>
+<p>All vector stores are configured in the <code class="docutils literal notranslate"><span class="pre">vector_store</span></code> section of <code class="docutils literal notranslate"><span class="pre">reme_ai/config/default.yaml</span></code>. The configuration structure is:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;backend_name&gt;</span><span class="w">        </span><span class="c1"># Required: local, chroma, elasticsearch, qdrant, or memory</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">        </span><span class="c1"># Required: Name of the embedding model configuration</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span><span class="w">                         </span><span class="c1"># Optional: Backend-specific parameters</span>
+<span class="w">      </span><span class="c1"># Backend-specific parameters go here</span>
 </pre></div>
 </div>
-</section>
-<section id="workspace-management">
-<h3>Workspace Management<a class="headerlink" href="#workspace-management" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Check if workspace exists</span>
-<span class="n">store</span><span class="o">.</span><span class="n">exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
-
-<span class="c1"># Create a new workspace</span>
-<span class="n">store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># Delete a workspace</span>
-<span class="n">store</span><span class="o">.</span><span class="n">delete_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># Copy a workspace</span>
-<span class="n">store</span><span class="o">.</span><span class="n">copy_workspace</span><span class="p">(</span><span class="n">src_workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">dest_workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="data-operations">
-<h3>Data Operations<a class="headerlink" href="#data-operations" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Insert nodes (single or list)</span>
-<span class="n">store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">:</span> <span class="n">VectorNode</span> <span class="o">|</span> <span class="n">List</span><span class="p">[</span><span class="n">VectorNode</span><span class="p">],</span> <span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># Delete nodes by ID</span>
-<span class="n">store</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">node_ids</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># Search for similar nodes</span>
-<span class="n">store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">query</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">VectorNode</span><span class="p">]</span>
-
-<span class="c1"># Iterate through workspace nodes</span>
-<span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">store</span><span class="o">.</span><span class="n">iter_workspace_nodes</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
-    <span class="c1"># Process each node</span>
-</pre></div>
-</div>
-</section>
-<section id="import-export">
-<h3>Import/Export<a class="headerlink" href="#import-export" title="Link to this heading">¶</a></h3>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Export workspace to file</span>
-<span class="n">store</span><span class="o">.</span><span class="n">dump_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">callback_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-
-<span class="c1"># Import workspace from file</span>
-<span class="n">store</span><span class="o">.</span><span class="n">load_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">nodes</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">VectorNode</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> 
-                    <span class="n">callback_fn</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
-</pre></div>
-</div>
+<section id="configuration-fields">
+<h3>Configuration Fields<a class="headerlink" href="#configuration-fields" title="Link to this heading">¶</a></h3>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">backend</span></code></strong> (required): The vector store backend to use. Valid values: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">chroma</span></code>, <code class="docutils literal notranslate"><span class="pre">elasticsearch</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>, <code class="docutils literal notranslate"><span class="pre">memory</span></code></p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">embedding_model</span></code></strong> (required): The name of the embedding model configuration from the <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> section</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">params</span></code></strong> (optional): A dictionary of backend-specific parameters that will be passed to the vector store constructor</p></li>
+</ul>
 </section>
 </section>
-<section id="vector-store-implementations">
-<h2>⚡ Vector Store Implementations<a class="headerlink" href="#vector-store-implementations" title="Link to this heading">¶</a></h2>
+<section id="vector-store-backend-configurations">
+<h2>📁 Vector Store Backend Configurations<a class="headerlink" href="#vector-store-backend-configurations" title="Link to this heading">¶</a></h2>
 <section id="localvectorstore-backend-local">
-<h3>1. 📁 LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)<a class="headerlink" href="#localvectorstore-backend-local" title="Link to this heading">¶</a></h3>
+<h3>1. LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)<a class="headerlink" href="#localvectorstore-backend-local" title="Link to this heading">¶</a></h3>
 <p>A simple file-based vector store that saves data to local JSONL files.</p>
 <section id="when-to-use">
 <h4>💡 When to Use<a class="headerlink" href="#when-to-use" title="Link to this heading">¶</a></h4>
@@ -463,64 +422,26 @@
 </section>
 <section id="configuration">
 <h4>⚙️ Configuration<a class="headerlink" href="#configuration" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.storage.vector_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">LocalVectorStore</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.utils.common_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_env</span>
-
-<span class="c1"># Load environment variables (for API keys)</span>
-<span class="n">load_env</span><span class="p">()</span>
-
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">)</span>
-
-<span class="c1"># Initialize vector store</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">LocalVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">store_dir</span><span class="o">=</span><span class="s2">&quot;./file_vector_store&quot;</span><span class="p">,</span>  <span class="c1"># Directory to store JSONL files</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>                   <span class="c1"># Batch size for operations</span>
-<span class="p">)</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./local_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory to store JSONL files (default: &quot;./local_vector_store&quot;)</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
 </pre></div>
 </div>
 </section>
-<section id="example-usage">
-<h4>💻 Example Usage<a class="headerlink" href="#example-usage" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="c1"># Create workspace</span>
-<span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;my_workspace&quot;</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Create nodes</span>
-<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node1&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Artificial intelligence is revolutionizing technology&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;tech&quot;</span><span class="p">,</span> <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;article1&quot;</span><span class="p">}</span>
-    <span class="p">),</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node2&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Machine learning enables data-driven insights&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;tech&quot;</span><span class="p">,</span> <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;article2&quot;</span><span class="p">}</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-
-<span class="c1"># Insert nodes</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Search</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;What is AI?&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metadata: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;score&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
+<section id="configuration-parameters">
+<h4>Configuration Parameters<a class="headerlink" href="#configuration-parameters" title="Link to this heading">¶</a></h4>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path where workspace files are stored. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./local_vector_store&quot;</span></code></p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
+</ul>
 </section>
 </section>
 <section id="chromavectorstore-backend-chroma">
-<h3>2. 🔮 ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)<a class="headerlink" href="#chromavectorstore-backend-chroma" title="Link to this heading">¶</a></h3>
+<h3>2. ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)<a class="headerlink" href="#chromavectorstore-backend-chroma" title="Link to this heading">¶</a></h3>
 <p>An embedded vector database that provides persistent storage with advanced features.</p>
 <section id="id1">
 <h4>💡 When to Use<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h4>
@@ -532,73 +453,26 @@
 </section>
 <section id="id2">
 <h4>⚙️ Configuration<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.storage.vector_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChromaVectorStore</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.utils.common_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_env</span>
-
-<span class="c1"># Load environment variables</span>
-<span class="n">load_env</span><span class="p">()</span>
-
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">)</span>
-
-<span class="c1"># Initialize vector store</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">ChromaVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">store_dir</span><span class="o">=</span><span class="s2">&quot;./chroma_vector_store&quot;</span><span class="p">,</span>  <span class="c1"># Directory for Chroma database</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>                     <span class="c1"># Batch size for operations</span>
-<span class="p">)</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chroma</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./chroma_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory for Chroma database (default: &quot;./chroma_vector_store&quot;)</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
 </pre></div>
 </div>
 </section>
 <section id="id3">
-<h4>💻 Example Usage<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;chroma_workspace&quot;</span>
-
-<span class="c1"># Check if workspace exists and create if needed</span>
-<span class="k">if</span> <span class="ow">not</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">):</span>
-    <span class="n">vector_store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Create nodes with metadata</span>
-<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node1&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Deep learning models require large datasets&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span> 
-            <span class="s2">&quot;difficulty&quot;</span><span class="p">:</span> <span class="s2">&quot;advanced&quot;</span><span class="p">,</span> 
-            <span class="s2">&quot;topic&quot;</span><span class="p">:</span> <span class="s2">&quot;deep_learning&quot;</span>
-        <span class="p">}</span>
-    <span class="p">),</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node2&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Transformer architecture revolutionized NLP&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;difficulty&quot;</span><span class="p">:</span> <span class="s2">&quot;intermediate&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;topic&quot;</span><span class="p">:</span> <span class="s2">&quot;transformers&quot;</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-
-<span class="c1"># Insert nodes</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Search</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;deep learning&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metadata: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
+<h4>Configuration Parameters<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h4>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path where ChromaDB data is persisted. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./chroma_vector_store&quot;</span></code></p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
+</ul>
 </section>
 </section>
 <section id="esvectorstore-backend-elasticsearch">
-<h3>3. 🔍 EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)<a class="headerlink" href="#esvectorstore-backend-elasticsearch" title="Link to this heading">¶</a></h3>
+<h3>3. EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)<a class="headerlink" href="#esvectorstore-backend-elasticsearch" title="Link to this heading">¶</a></h3>
 <p>Production-grade vector search using Elasticsearch with advanced filtering and scaling capabilities.</p>
 <section id="id4">
 <h4>💡 When to Use<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h4>
@@ -635,115 +509,28 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 </section>
 <section id="id5">
 <h4>⚙️ Configuration<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.storage.vector_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">EsVectorStore</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.utils.common_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_env</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-
-<span class="c1"># Load environment variables</span>
-<span class="n">load_env</span><span class="p">()</span>
-
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">)</span>
-
-<span class="c1"># Initialize vector store</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">EsVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">hosts</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FLOW_ES_HOSTS&quot;</span><span class="p">,</span> <span class="s2">&quot;http://localhost:9200&quot;</span><span class="p">),</span>  <span class="c1"># Elasticsearch hosts</span>
-    <span class="n">basic_auth</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>                                           <span class="c1"># (&quot;username&quot;, &quot;password&quot;) for auth</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>                                           <span class="c1"># Batch size for bulk operations</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="advanced-filtering">
-<h4>🎯 Advanced Filtering<a class="headerlink" href="#advanced-filtering" title="Link to this heading">¶</a></h4>
-<p>EsVectorStore supports advanced filtering capabilities through the <code class="docutils literal notranslate"><span class="pre">filter_dict</span></code> parameter:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Term filters (exact match)</span>
-<span class="n">term_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;technology&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;research_team&quot;</span>
-<span class="p">}</span>
-
-<span class="c1"># Range filters (numeric and date ranges)</span>
-<span class="n">range_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.8</span><span class="p">},</span>  <span class="c1"># Score &gt;= 0.8</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;lte&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">},</span>  <span class="c1"># Between 0.5 and 0.9</span>
-    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-01&quot;</span><span class="p">,</span> <span class="s2">&quot;lte&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-12-31&quot;</span><span class="p">}</span>
-<span class="p">}</span>
-
-<span class="c1"># Combined filters (filters are combined with AND logic)</span>
-<span class="n">combined_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">}</span>
-<span class="p">}</span>
-
-<span class="c1"># Search with filters applied</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;machine learning&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">filter_dict</span><span class="o">=</span><span class="n">combined_filter</span><span class="p">)</span>
-</pre></div>
-</div>
-</section>
-<section id="performance-optimization">
-<h4>⚡ Performance Optimization<a class="headerlink" href="#performance-optimization" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Refresh index for immediate availability (useful after bulk inserts)</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">refresh</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># Auto-refresh</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">refresh</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>  <span class="c1"># Manual refresh</span>
-
-<span class="c1"># Bulk operations with custom batch size</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">large_node_list</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">refresh</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>  <span class="c1"># Skip refresh for speed</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">refresh</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>  <span class="c1"># Refresh once after all inserts</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:9200&quot;</span><span class="w">     </span><span class="c1"># Elasticsearch host(s) - can be string or list (default: from FLOW_ES_HOSTS env var or &quot;http://localhost:9200&quot;)</span>
+<span class="w">      </span><span class="nt">basic_auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                    </span><span class="c1"># Optional: (&quot;username&quot;, &quot;password&quot;) tuple for authentication</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for bulk operations (default: 1024)</span>
 </pre></div>
 </div>
 </section>
 <section id="id6">
-<h4>💻 Example Usage<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="c1"># Define workspace</span>
-<span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;production_workspace&quot;</span>
-
-<span class="c1"># Create workspace if needed</span>
-<span class="k">if</span> <span class="ow">not</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">):</span>
-    <span class="n">vector_store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Create nodes with rich metadata</span>
-<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;doc1&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Transformer architecture revolutionized NLP&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;subcategory&quot;</span><span class="p">:</span> <span class="s2">&quot;NLP&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;research_team&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-01-15&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.95</span><span class="p">,</span>
-            <span class="s2">&quot;tags&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;transformer&quot;</span><span class="p">,</span> <span class="s2">&quot;nlp&quot;</span><span class="p">,</span> <span class="s2">&quot;attention&quot;</span><span class="p">]</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-
-<span class="c1"># Insert with refresh for immediate availability</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">refresh</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-<span class="c1"># Advanced search with filters</span>
-<span class="n">filter_dict</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">}</span>
-<span class="p">}</span>
-
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;transformer models&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">filter_dict</span><span class="o">=</span><span class="n">filter_dict</span><span class="p">)</span>
-
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;score&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metadata: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
+<h4>Configuration Parameters<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h4>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">hosts</span></code></strong> (optional): Elasticsearch host(s) as a string or list of strings. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_ES_HOSTS</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">&quot;http://localhost:9200&quot;</span></code> if not set</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">basic_auth</span></code></strong> (optional): Tuple of <code class="docutils literal notranslate"><span class="pre">(&quot;username&quot;,</span> <span class="pre">&quot;password&quot;)</span></code> for basic authentication. Default: <code class="docutils literal notranslate"><span class="pre">null</span></code> (no authentication)</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
+</ul>
 </section>
 </section>
 <section id="qdrantvectorstore-backend-qdrant">
-<h3>4. 🎯 QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)<a class="headerlink" href="#qdrantvectorstore-backend-qdrant" title="Link to this heading">¶</a></h3>
+<h3>4. QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)<a class="headerlink" href="#qdrantvectorstore-backend-qdrant" title="Link to this heading">¶</a></h3>
 <p>A high-performance vector database designed for production workloads with native async support and advanced filtering.</p>
 <section id="id7">
 <h4>💡 When to Use<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h4>
@@ -788,288 +575,45 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 </section>
 <section id="id9">
 <h4>⚙️ Configuration<a class="headerlink" href="#id9" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.storage.vector_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">QdrantVectorStore</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.utils.common_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_env</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
-
-<span class="c1"># Load environment variables</span>
-<span class="n">load_env</span><span class="p">()</span>
-
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">)</span>
-
-<span class="c1"># Option 1: Use localhost with environment variables</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">QdrantVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">host</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FLOW_QDRANT_HOST&quot;</span><span class="p">,</span> <span class="s2">&quot;localhost&quot;</span><span class="p">),</span>
-    <span class="n">port</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getenv</span><span class="p">(</span><span class="s2">&quot;FLOW_QDRANT_PORT&quot;</span><span class="p">,</span> <span class="s2">&quot;6333&quot;</span><span class="p">)),</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>
-<span class="p">)</span>
-
-<span class="c1"># Option 2: Use URL (for Qdrant Cloud or remote servers)</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">QdrantVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">url</span><span class="o">=</span><span class="s2">&quot;http://your-qdrant-server:6333&quot;</span><span class="p">,</span>
-    <span class="n">api_key</span><span class="o">=</span><span class="s2">&quot;your-api-key&quot;</span><span class="p">,</span>  <span class="c1"># Optional, for cloud</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>
-<span class="p">)</span>
-
-<span class="c1"># Option 3: Specify custom distance metric</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">qdrant_client.http.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">Distance</span>
-
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">QdrantVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">host</span><span class="o">=</span><span class="s2">&quot;localhost&quot;</span><span class="p">,</span>
-    <span class="n">port</span><span class="o">=</span><span class="mi">6333</span><span class="p">,</span>
-    <span class="n">distance</span><span class="o">=</span><span class="n">Distance</span><span class="o">.</span><span class="n">COSINE</span><span class="p">,</span>  <span class="c1"># or Distance.EUCLIDEAN, Distance.DOT</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>
-<span class="p">)</span>
+<section id="local-qdrant-instance">
+<h5>Local Qdrant Instance<a class="headerlink" href="#local-qdrant-instance" title="Link to this heading">¶</a></h5>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;localhost&quot;</span><span class="w">                   </span><span class="c1"># Qdrant host (default: from FLOW_QDRANT_HOST env var or &quot;localhost&quot;)</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6333</span><span class="w">                          </span><span class="c1"># Qdrant port (default: from FLOW_QDRANT_PORT env var or 6333)</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
+<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span><span class="w">                  </span><span class="c1"># Distance metric: &quot;COSINE&quot;, &quot;EUCLIDEAN&quot;, or &quot;DOT&quot; (default: &quot;COSINE&quot;)</span>
 </pre></div>
 </div>
+</section>
+<section id="qdrant-cloud-or-remote-server">
+<h5>Qdrant Cloud or Remote Server<a class="headerlink" href="#qdrant-cloud-or-remote-server" title="Link to this heading">¶</a></h5>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://your-cluster.qdrant.io:6333&quot;</span><span class="w">  </span><span class="c1"># Qdrant server URL (if provided, host and port are ignored)</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-key&quot;</span><span class="w">                     </span><span class="c1"># API key for Qdrant Cloud authentication</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                            </span><span class="c1"># Batch size for operations (default: 1024)</span>
+<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span><span class="w">                          </span><span class="c1"># Distance metric (default: &quot;COSINE&quot;)</span>
+</pre></div>
+</div>
+</section>
 </section>
 <section id="id10">
-<h4>🎯 Advanced Filtering<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h4>
-<p>QdrantVectorStore supports advanced filtering capabilities similar to Elasticsearch:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Term filters (exact match)</span>
-<span class="n">term_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span>
-<span class="p">}</span>
-
-<span class="c1"># Range filters (numeric)</span>
-<span class="n">range_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.8</span><span class="p">,</span> <span class="s2">&quot;lte&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">},</span>  <span class="c1"># Between 0.8 and 1.0</span>
-    <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gt&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">}</span>  <span class="c1"># Greater than 0.5</span>
-<span class="p">}</span>
-
-<span class="c1"># Combined filters (all conditions must match - AND logic)</span>
-<span class="n">combined_filter</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">},</span>
-    <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span>
-<span class="p">}</span>
-
-<span class="c1"># Search with filters</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
-    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;machine learning&quot;</span><span class="p">,</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-    <span class="n">top_k</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span>
-    <span class="n">filter_dict</span><span class="o">=</span><span class="n">combined_filter</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<section id="filter-operations-supported">
-<h5>Filter Operations Supported:<a class="headerlink" href="#filter-operations-supported" title="Link to this heading">¶</a></h5>
+<h4>Configuration Parameters<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h4>
 <ul class="simple">
-<li><p><strong>Exact match</strong>: <code class="docutils literal notranslate"><span class="pre">{&quot;field&quot;:</span> <span class="pre">&quot;value&quot;}</span></code></p></li>
-<li><p><strong>Range queries</strong>:</p>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">gte</span></code>: Greater than or equal</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lte</span></code>: Less than or equal</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">gt</span></code>: Greater than</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">lt</span></code>: Less than</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">url</span></code></strong> (optional): Complete URL for connecting to Qdrant. If provided, <code class="docutils literal notranslate"><span class="pre">host</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code> are ignored. Useful for Qdrant Cloud or custom deployments</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">host</span></code></strong> (optional): Host address of the Qdrant server. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_HOST</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">&quot;localhost&quot;</span></code> if not set</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">port</span></code></strong> (optional): Port number of the Qdrant server. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_PORT</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">6333</span></code> if not set</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">api_key</span></code></strong> (optional): API key for authentication (required for Qdrant Cloud). Can also be set via <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_API_KEY</span></code> environment variable</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">distance</span></code></strong> (optional): Distance metric for vector similarity. Valid values: <code class="docutils literal notranslate"><span class="pre">&quot;COSINE&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;EUCLIDEAN&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;DOT&quot;</span></code>. Default: <code class="docutils literal notranslate"><span class="pre">&quot;COSINE&quot;</span></code></p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
 </ul>
-</li>
-</ul>
-</section>
-</section>
-<section id="async-operations">
-<h4>⚡ Async Operations<a class="headerlink" href="#async-operations" title="Link to this heading">¶</a></h4>
-<p>QdrantVectorStore provides <strong>native async support</strong> for all operations:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
-    <span class="c1"># All operations have async equivalents</span>
-    
-    <span class="c1"># Check if workspace exists</span>
-    <span class="n">exists</span> <span class="o">=</span> <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Create workspace</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">exists</span><span class="p">:</span>
-        <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Insert nodes with async embedding</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Search with async embedding</span>
-    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_search</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="s2">&quot;AI research&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-        <span class="n">filter_dict</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">}</span>
-    <span class="p">)</span>
-    
-    <span class="c1"># Delete nodes</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_delete</span><span class="p">(</span><span class="n">node_ids</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Delete workspace</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_delete_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Close client</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_close</span><span class="p">()</span>
-
-<span class="c1"># Run async operations</span>
-<span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
-</pre></div>
-</div>
-</section>
-<section id="id11">
-<h4>💻 Example Usage<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;qdrant_workspace&quot;</span>
-
-<span class="c1"># Check and create workspace</span>
-<span class="k">if</span> <span class="ow">not</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">):</span>
-    <span class="n">vector_store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Create nodes with rich metadata</span>
-<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node1&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Artificial intelligence is revolutionizing technology&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.95</span><span class="p">,</span>
-            <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;research_team&quot;</span>
-        <span class="p">}</span>
-    <span class="p">),</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node2&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Machine learning models require large datasets&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;tutorial&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.85</span><span class="p">,</span>
-            <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;education_team&quot;</span>
-        <span class="p">}</span>
-    <span class="p">),</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node3&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Deep learning excels at image recognition&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.92</span><span class="p">,</span>
-            <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;research_team&quot;</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-
-<span class="c1"># Insert nodes (upsert - creates or updates)</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Simple search</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;What is AI?&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;score&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metadata: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;-&quot;</span> <span class="o">*</span> <span class="mi">50</span><span class="p">)</span>
-
-<span class="c1"># Advanced search with filters</span>
-<span class="n">filter_dict</span> <span class="o">=</span> <span class="p">{</span>
-    <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span><span class="p">,</span>
-    <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;gte&quot;</span><span class="p">:</span> <span class="mf">0.9</span><span class="p">}</span>
-<span class="p">}</span>
-
-<span class="n">filtered_results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span>
-    <span class="n">query</span><span class="o">=</span><span class="s2">&quot;AI technology&quot;</span><span class="p">,</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-    <span class="n">top_k</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
-    <span class="n">filter_dict</span><span class="o">=</span><span class="n">filter_dict</span>
-<span class="p">)</span>
-
-<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Found </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">filtered_results</span><span class="p">)</span><span class="si">}</span><span class="s2"> filtered results&quot;</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">filtered_results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metadata: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-<span class="c1"># Iterate through all nodes</span>
-<span class="nb">print</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">All nodes in workspace:&quot;</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">iter_workspace_nodes</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;ID: </span><span class="si">{</span><span class="n">node</span><span class="o">.</span><span class="n">unique_id</span><span class="si">}</span><span class="s2">, Content: </span><span class="si">{</span><span class="n">node</span><span class="o">.</span><span class="n">content</span><span class="p">[:</span><span class="mi">50</span><span class="p">]</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
-
-<span class="c1"># Update a node (delete + insert)</span>
-<span class="n">updated_node</span> <span class="o">=</span> <span class="n">VectorNode</span><span class="p">(</span>
-    <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;node1&quot;</span><span class="p">,</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-    <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Artificial intelligence is transforming industries worldwide&quot;</span><span class="p">,</span>
-    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-        <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;AI&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;node_type&quot;</span><span class="p">:</span> <span class="s2">&quot;research&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;confidence&quot;</span><span class="p">:</span> <span class="mf">0.98</span><span class="p">,</span>
-        <span class="s2">&quot;author&quot;</span><span class="p">:</span> <span class="s2">&quot;research_team&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;updated&quot;</span><span class="p">:</span> <span class="kc">True</span>
-    <span class="p">}</span>
-<span class="p">)</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="s2">&quot;node1&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">updated_node</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Export workspace for backup</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">dump_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;./qdrant_backup&quot;</span><span class="p">)</span>
-
-<span class="c1"># Clean up</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</pre></div>
-</div>
-</section>
-<section id="async-example">
-<h4>🔄 Async Example<a class="headerlink" href="#async-example" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">async_example</span><span class="p">():</span>
-    <span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;async_qdrant_workspace&quot;</span>
-    
-    <span class="c1"># Create workspace</span>
-    <span class="k">if</span> <span class="ow">not</span> <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_exist_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">):</span>
-        <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Create nodes</span>
-    <span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">VectorNode</span><span class="p">(</span>
-            <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;async_node1&quot;</span><span class="p">,</span>
-            <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-            <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Async operations enable better performance&quot;</span><span class="p">,</span>
-            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;performance&quot;</span><span class="p">,</span> <span class="s2">&quot;async&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
-        <span class="p">),</span>
-        <span class="n">VectorNode</span><span class="p">(</span>
-            <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;async_node2&quot;</span><span class="p">,</span>
-            <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-            <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Concurrent requests improve throughput&quot;</span><span class="p">,</span>
-            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;performance&quot;</span><span class="p">,</span> <span class="s2">&quot;async&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
-        <span class="p">)</span>
-    <span class="p">]</span>
-    
-    <span class="c1"># Insert with async embedding</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-    
-    <span class="c1"># Search with async embedding</span>
-    <span class="n">results</span> <span class="o">=</span> <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_search</span><span class="p">(</span>
-        <span class="n">query</span><span class="o">=</span><span class="s2">&quot;performance optimization&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">top_k</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
-        <span class="n">filter_dict</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;async&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
-    <span class="p">)</span>
-    
-    <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;score&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    
-    <span class="c1"># Cleanup</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_delete_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-    <span class="k">await</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">async_close</span><span class="p">()</span>
-
-<span class="c1"># Run async example</span>
-<span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">async_example</span><span class="p">())</span>
-</pre></div>
-</div>
 </section>
 <section id="key-features">
 <h4>🌟 Key Features<a class="headerlink" href="#key-features" title="Link to this heading">¶</a></h4>
@@ -1084,32 +628,12 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 <li><p><strong>Efficient Iteration</strong> - Scroll through large collections with pagination</p></li>
 </ul>
 </section>
-<section id="important-notes">
-<h4>🚨 Important Notes<a class="headerlink" href="#important-notes" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Collection = Workspace</strong> - Qdrant uses “collections” which map to workspace_id</p></li>
-<li><p><strong>Automatic Embedding</strong> - Nodes without vectors are automatically embedded</p></li>
-<li><p><strong>ID-based Upsert</strong> - Using the same unique_id will update existing nodes</p></li>
-<li><p><strong>Metadata Indexing</strong> - All metadata fields are automatically indexed for filtering</p></li>
-<li><p><strong>Connection Management</strong> - Call <code class="docutils literal notranslate"><span class="pre">close()</span></code> or <code class="docutils literal notranslate"><span class="pre">async_close()</span></code> to cleanup connections</p></li>
-</ul>
-</section>
-<section id="performance-tips">
-<h4>📊 Performance Tips<a class="headerlink" href="#performance-tips" title="Link to this heading">¶</a></h4>
-<ol class="arabic simple">
-<li><p><strong>Batch Operations</strong> - Insert multiple nodes at once for better performance</p></li>
-<li><p><strong>Use Async</strong> - For high-concurrency scenarios, use async methods</p></li>
-<li><p><strong>Optimize Filters</strong> - Use indexed metadata fields for faster filtering</p></li>
-<li><p><strong>Pagination</strong> - Use <code class="docutils literal notranslate"><span class="pre">iter_workspace_nodes()</span></code> with appropriate <code class="docutils literal notranslate"><span class="pre">limit</span></code> for large collections</p></li>
-<li><p><strong>Distance Metric</strong> - Choose appropriate distance metric for your use case (COSINE for normalized vectors)</p></li>
-</ol>
-</section>
 </section>
 <section id="memoryvectorstore-backend-memory">
-<h3>5. ⚡ MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)<a class="headerlink" href="#memoryvectorstore-backend-memory" title="Link to this heading">¶</a></h3>
+<h3>5. MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)<a class="headerlink" href="#memoryvectorstore-backend-memory" title="Link to this heading">¶</a></h3>
 <p>An ultra-fast in-memory vector store that keeps all data in RAM for maximum performance.</p>
-<section id="id12">
-<h4>💡 When to Use<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h4>
+<section id="id11">
+<h4>💡 When to Use<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h4>
 <ul class="simple">
 <li><p><strong>Testing and development</strong> - Fastest possible operations for unit tests 🧪</p></li>
 <li><p><strong>Small to medium datasets</strong> that fit in memory (&lt; 1M vectors) 💾</p></li>
@@ -1117,76 +641,24 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 <li><p><strong>Temporary workspaces</strong> that don’t need persistence 🚀</p></li>
 </ul>
 </section>
-<section id="id13">
-<h4>⚙️ Configuration<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.storage.vector_store</span><span class="w"> </span><span class="kn">import</span> <span class="n">MemoryVectorStore</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.utils.common_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_env</span>
-
-<span class="c1"># Load environment variables</span>
-<span class="n">load_env</span><span class="p">()</span>
-
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span><span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">)</span>
-
-<span class="c1"># Initialize vector store</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">MemoryVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">store_dir</span><span class="o">=</span><span class="s2">&quot;./memory_vector_store&quot;</span><span class="p">,</span>  <span class="c1"># Directory for backup/restore operations</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">1024</span>                     <span class="c1"># Batch size for operations</span>
-<span class="p">)</span>
+<section id="id12">
+<h4>⚙️ Configuration<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h4>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./memory_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory for backup/restore operations (default: &quot;./memory_vector_store&quot;)</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                     </span><span class="c1"># Batch size for operations (default: 1024)</span>
 </pre></div>
 </div>
 </section>
-<section id="id14">
-<h4>💻 Example Usage<a class="headerlink" href="#id14" title="Link to this heading">¶</a></h4>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="n">workspace_id</span> <span class="o">=</span> <span class="s2">&quot;memory_workspace&quot;</span>
-
-<span class="c1"># Create workspace in memory</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">create_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Create nodes</span>
-<span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;mem_node1&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Memory stores provide ultra-fast access to data&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;performance&quot;</span><span class="p">,</span> 
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;memory&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;speed&quot;</span><span class="p">:</span> <span class="s2">&quot;ultra_fast&quot;</span>
-        <span class="p">}</span>
-    <span class="p">),</span>
-    <span class="n">VectorNode</span><span class="p">(</span>
-        <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;mem_node2&quot;</span><span class="p">,</span>
-        <span class="n">workspace_id</span><span class="o">=</span><span class="n">workspace_id</span><span class="p">,</span>
-        <span class="n">content</span><span class="o">=</span><span class="s2">&quot;In-memory databases excel at low-latency operations&quot;</span><span class="p">,</span>
-        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
-            <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;performance&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;database&quot;</span><span class="p">,</span>
-            <span class="s2">&quot;latency&quot;</span><span class="p">:</span> <span class="s2">&quot;low&quot;</span>
-        <span class="p">}</span>
-    <span class="p">)</span>
-<span class="p">]</span>
-
-<span class="c1"># Insert nodes (stored in memory)</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">)</span>
-
-<span class="c1"># Ultra-fast search</span>
-<span class="n">results</span> <span class="o">=</span> <span class="n">vector_store</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s2">&quot;fast memory access&quot;</span><span class="p">,</span> <span class="n">workspace_id</span><span class="p">,</span> <span class="n">top_k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
-<span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Content: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">content</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Score: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;score&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;N/A&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-
-<span class="c1"># Optional: Save to disk for backup</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">dump_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;./backup&quot;</span><span class="p">)</span>
-
-<span class="c1"># Optional: Load from disk to memory</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">load_workspace</span><span class="p">(</span><span class="n">workspace_id</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s2">&quot;./backup&quot;</span><span class="p">)</span>
-</pre></div>
-</div>
+<section id="id13">
+<h4>Configuration Parameters<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h4>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path for backup/restore operations. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./memory_vector_store&quot;</span></code></p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
+</ul>
 </section>
 <section id="performance-benefits">
 <h4>⚡ Performance Benefits<a class="headerlink" href="#performance-benefits" title="Link to this heading">¶</a></h4>
@@ -1197,8 +669,8 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 <li><p><strong>Memory efficient</strong> - Only stores what you need</p></li>
 </ul>
 </section>
-<section id="id15">
-<h4>🚨 Important Notes<a class="headerlink" href="#id15" title="Link to this heading">¶</a></h4>
+<section id="important-notes">
+<h4>🚨 Important Notes<a class="headerlink" href="#important-notes" title="Link to this heading">¶</a></h4>
 <ul class="simple">
 <li><p><strong>Data is volatile</strong> - Lost when process ends unless explicitly saved</p></li>
 <li><p><strong>Memory usage</strong> - Entire dataset must fit in available RAM</p></li>
@@ -1208,69 +680,89 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 </section>
 </section>
 </section>
-<section id="working-with-vectornode">
-<h2>📝 Working with VectorNode<a class="headerlink" href="#working-with-vectornode" title="Link to this heading">¶</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">VectorNode</span></code> class is the fundamental data unit for all vector stores:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.schema.vector_node</span><span class="w"> </span><span class="kn">import</span> <span class="n">VectorNode</span>
-
-<span class="c1"># Create a node</span>
-<span class="n">node</span> <span class="o">=</span> <span class="n">VectorNode</span><span class="p">(</span>
-    <span class="n">unique_id</span><span class="o">=</span><span class="s2">&quot;unique_identifier&quot;</span><span class="p">,</span>     <span class="c1"># Unique ID for the node (required)</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;my_workspace&quot;</span><span class="p">,</span>       <span class="c1"># Workspace ID (required)</span>
-    <span class="n">content</span><span class="o">=</span><span class="s2">&quot;Text content to embed&quot;</span><span class="p">,</span>   <span class="c1"># Content to be embedded (required)</span>
-    <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>                         <span class="c1"># Optional metadata</span>
-        <span class="s2">&quot;source&quot;</span><span class="p">:</span> <span class="s2">&quot;document1&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="s2">&quot;technology&quot;</span><span class="p">,</span>
-        <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="s2">&quot;2024-08-29&quot;</span>
-    <span class="p">},</span>
-    <span class="n">vector</span><span class="o">=</span><span class="kc">None</span>                        <span class="c1"># Vector will be generated automatically if None</span>
-<span class="p">)</span>
+<section id="example-configurations">
+<h2>📝 Example Configurations<a class="headerlink" href="#example-configurations" title="Link to this heading">¶</a></h2>
+<section id="minimal-configuration-memory-store">
+<h3>Minimal Configuration (Memory Store)<a class="headerlink" href="#minimal-configuration-memory-store" title="Link to this heading">¶</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 </pre></div>
 </div>
 </section>
-<section id="import-export-example">
-<h2>🔄 Import/Export Example<a class="headerlink" href="#import-export-example" title="Link to this heading">¶</a></h2>
-<p>Export and import workspaces for backup or transfer:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Export workspace to file</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">dump_workspace</span><span class="p">(</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;my_workspace&quot;</span><span class="p">,</span>
-    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;./backup_data&quot;</span>  <span class="c1"># Directory to store the exported data</span>
-<span class="p">)</span>
-
-<span class="c1"># Import workspace from file</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">load_workspace</span><span class="p">(</span>
-    <span class="n">workspace_id</span><span class="o">=</span><span class="s2">&quot;new_workspace&quot;</span><span class="p">,</span>
-    <span class="n">path</span><span class="o">=</span><span class="s2">&quot;./backup_data&quot;</span>  <span class="c1"># Directory containing the exported data</span>
-<span class="p">)</span>
-
-<span class="c1"># Copy workspace within the same store</span>
-<span class="n">vector_store</span><span class="o">.</span><span class="n">copy_workspace</span><span class="p">(</span>
-    <span class="n">src_workspace_id</span><span class="o">=</span><span class="s2">&quot;original_workspace&quot;</span><span class="p">,</span>
-    <span class="n">dest_workspace_id</span><span class="o">=</span><span class="s2">&quot;copied_workspace&quot;</span>
-<span class="p">)</span>
+<section id="local-file-storage">
+<h3>Local File Storage<a class="headerlink" href="#local-file-storage" title="Link to this heading">¶</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./my_vector_store&quot;</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048</span>
 </pre></div>
 </div>
+</section>
+<section id="elasticsearch-production-setup">
+<h3>Elasticsearch Production Setup<a class="headerlink" href="#elasticsearch-production-setup" title="Link to this heading">¶</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://elasticsearch.example.com:9200&quot;</span>
+<span class="w">      </span><span class="nt">basic_auth</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;username&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;password&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048</span>
+</pre></div>
+</div>
+</section>
+<section id="qdrant-cloud-setup">
+<h3>Qdrant Cloud Setup<a class="headerlink" href="#qdrant-cloud-setup" title="Link to this heading">¶</a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://your-cluster.qdrant.io:6333&quot;</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-key-here&quot;</span>
+<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span>
+<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="environment-variables">
+<h2>🔄 Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">¶</a></h2>
+<p>Some vector store backends support environment variables for configuration:</p>
+<ul class="simple">
+<li><p><strong>Elasticsearch</strong>: <code class="docutils literal notranslate"><span class="pre">FLOW_ES_HOSTS</span></code> - Elasticsearch host(s)</p></li>
+<li><p><strong>Qdrant</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_HOST</span></code> - Qdrant host (default: “localhost”)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_PORT</span></code> - Qdrant port (default: 6333)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_API_KEY</span></code> - Qdrant API key for authentication</p></li>
+</ul>
+</li>
+</ul>
+<p>Environment variables are used as fallbacks when parameters are not explicitly set in the YAML configuration.</p>
 </section>
 <section id="integration-with-embedding-models">
 <h2>🧩 Integration with Embedding Models<a class="headerlink" href="#integration-with-embedding-models" title="Link to this heading">¶</a></h2>
-<p>All vector stores require an embedding model to function:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">flowllm.embedding_model</span><span class="w"> </span><span class="kn">import</span> <span class="n">OpenAICompatibleEmbeddingModel</span>
+<p>All vector stores require an embedding model configuration. The <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> field in the vector store configuration references a model defined in the <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> section of <code class="docutils literal notranslate"><span class="pre">default.yaml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">embedding_model</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai_compatible</span>
+<span class="w">    </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">text-embedding-v4</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">dimensions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
 
-<span class="c1"># Initialize embedding model</span>
-<span class="n">embedding_model</span> <span class="o">=</span> <span class="n">OpenAICompatibleEmbeddingModel</span><span class="p">(</span>
-    <span class="n">dimensions</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>               <span class="c1"># Embedding dimensions</span>
-    <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;text-embedding-v4&quot;</span><span class="p">,</span>  <span class="c1"># Model name</span>
-    <span class="n">batch_size</span><span class="o">=</span><span class="mi">32</span>                <span class="c1"># Batch size for embedding generation</span>
-<span class="p">)</span>
-
-<span class="c1"># Pass to vector store (example with LocalVectorStore)</span>
-<span class="c1"># You can also use: ChromaVectorStore, EsVectorStore, QdrantVectorStore, or MemoryVectorStore</span>
-<span class="n">vector_store</span> <span class="o">=</span> <span class="n">LocalVectorStore</span><span class="p">(</span>
-    <span class="n">embedding_model</span><span class="o">=</span><span class="n">embedding_model</span><span class="p">,</span>
-    <span class="n">store_dir</span><span class="o">=</span><span class="s2">&quot;./vector_store&quot;</span>
-<span class="p">)</span>
+<span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">  </span><span class="c1"># References the embedding_model.default configuration</span>
 </pre></div>
 </div>
+<p>The embedding model configuration provides the model name, backend, and parameters needed for generating vector embeddings.</p>
 </section>
 </section>
 
@@ -1327,7 +819,7 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-04</div>
+              Last updated on 2025-11-11</div>
           </div>
           <div class="right-details">
             <div class="icons">
@@ -1354,30 +846,27 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Vector Store API Guide</a><ul>
+<li><a class="reference internal" href="#">Vector Store Configuration Guide</a><ul>
 <li><a class="reference internal" href="#overview">📋 Overview</a></li>
 <li><a class="reference internal" href="#comparison-table">📊 Comparison Table</a></li>
-<li><a class="reference internal" href="#common-api-methods">🔄 Common API Methods</a><ul>
-<li><a class="reference internal" href="#async-support">🔄 Async Support</a></li>
-<li><a class="reference internal" href="#workspace-management">Workspace Management</a></li>
-<li><a class="reference internal" href="#data-operations">Data Operations</a></li>
-<li><a class="reference internal" href="#import-export">Import/Export</a></li>
+<li><a class="reference internal" href="#configuration-in-default-yaml">⚙️ Configuration in default.yaml</a><ul>
+<li><a class="reference internal" href="#configuration-fields">Configuration Fields</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#vector-store-implementations">⚡ Vector Store Implementations</a><ul>
-<li><a class="reference internal" href="#localvectorstore-backend-local">1. 📁 LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)</a><ul>
+<li><a class="reference internal" href="#vector-store-backend-configurations">📁 Vector Store Backend Configurations</a><ul>
+<li><a class="reference internal" href="#localvectorstore-backend-local">1. LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)</a><ul>
 <li><a class="reference internal" href="#when-to-use">💡 When to Use</a></li>
 <li><a class="reference internal" href="#configuration">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#example-usage">💻 Example Usage</a></li>
+<li><a class="reference internal" href="#configuration-parameters">Configuration Parameters</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#chromavectorstore-backend-chroma">2. 🔮 ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)</a><ul>
+<li><a class="reference internal" href="#chromavectorstore-backend-chroma">2. ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)</a><ul>
 <li><a class="reference internal" href="#id1">💡 When to Use</a></li>
 <li><a class="reference internal" href="#id2">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id3">💻 Example Usage</a></li>
+<li><a class="reference internal" href="#id3">Configuration Parameters</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#esvectorstore-backend-elasticsearch">3. 🔍 EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)</a><ul>
+<li><a class="reference internal" href="#esvectorstore-backend-elasticsearch">3. EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)</a><ul>
 <li><a class="reference internal" href="#id4">💡 When to Use</a></li>
 <li><a class="reference internal" href="#setup-elasticsearch">🛠️ Setup Elasticsearch</a><ul>
 <li><a class="reference internal" href="#option-1-docker-run">Option 1: Docker Run</a></li>
@@ -1385,12 +874,10 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 </ul>
 </li>
 <li><a class="reference internal" href="#id5">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#advanced-filtering">🎯 Advanced Filtering</a></li>
-<li><a class="reference internal" href="#performance-optimization">⚡ Performance Optimization</a></li>
-<li><a class="reference internal" href="#id6">💻 Example Usage</a></li>
+<li><a class="reference internal" href="#id6">Configuration Parameters</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#qdrantvectorstore-backend-qdrant">4. 🎯 QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)</a><ul>
+<li><a class="reference internal" href="#qdrantvectorstore-backend-qdrant">4. QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)</a><ul>
 <li><a class="reference internal" href="#id7">💡 When to Use</a></li>
 <li><a class="reference internal" href="#setup-qdrant">🛠️ Setup Qdrant</a><ul>
 <li><a class="reference internal" href="#option-1-docker-run-recommended-for-development">Option 1: Docker Run (Recommended for Development)</a></li>
@@ -1398,31 +885,33 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
 <li><a class="reference internal" href="#id8">Environment Configuration</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#id9">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id10">🎯 Advanced Filtering</a><ul>
-<li><a class="reference internal" href="#filter-operations-supported">Filter Operations Supported:</a></li>
+<li><a class="reference internal" href="#id9">⚙️ Configuration</a><ul>
+<li><a class="reference internal" href="#local-qdrant-instance">Local Qdrant Instance</a></li>
+<li><a class="reference internal" href="#qdrant-cloud-or-remote-server">Qdrant Cloud or Remote Server</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#async-operations">⚡ Async Operations</a></li>
-<li><a class="reference internal" href="#id11">💻 Example Usage</a></li>
-<li><a class="reference internal" href="#async-example">🔄 Async Example</a></li>
+<li><a class="reference internal" href="#id10">Configuration Parameters</a></li>
 <li><a class="reference internal" href="#key-features">🌟 Key Features</a></li>
-<li><a class="reference internal" href="#important-notes">🚨 Important Notes</a></li>
-<li><a class="reference internal" href="#performance-tips">📊 Performance Tips</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#memoryvectorstore-backend-memory">5. ⚡ MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)</a><ul>
-<li><a class="reference internal" href="#id12">💡 When to Use</a></li>
-<li><a class="reference internal" href="#id13">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id14">💻 Example Usage</a></li>
+<li><a class="reference internal" href="#memoryvectorstore-backend-memory">5. MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)</a><ul>
+<li><a class="reference internal" href="#id11">💡 When to Use</a></li>
+<li><a class="reference internal" href="#id12">⚙️ Configuration</a></li>
+<li><a class="reference internal" href="#id13">Configuration Parameters</a></li>
 <li><a class="reference internal" href="#performance-benefits">⚡ Performance Benefits</a></li>
-<li><a class="reference internal" href="#id15">🚨 Important Notes</a></li>
+<li><a class="reference internal" href="#important-notes">🚨 Important Notes</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#working-with-vectornode">📝 Working with VectorNode</a></li>
-<li><a class="reference internal" href="#import-export-example">🔄 Import/Export Example</a></li>
+<li><a class="reference internal" href="#example-configurations">📝 Example Configurations</a><ul>
+<li><a class="reference internal" href="#minimal-configuration-memory-store">Minimal Configuration (Memory Store)</a></li>
+<li><a class="reference internal" href="#local-file-storage">Local File Storage</a></li>
+<li><a class="reference internal" href="#elasticsearch-production-setup">Elasticsearch Production Setup</a></li>
+<li><a class="reference internal" href="#qdrant-cloud-setup">Qdrant Cloud Setup</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#environment-variables">🔄 Environment Variables</a></li>
 <li><a class="reference internal" href="#integration-with-embedding-models">🧩 Integration with Embedding Models</a></li>
 </ul>
 </li>
@@ -1436,7 +925,7 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
     </aside>
   </div>
 </div><script src="_static/documentation_options.js?v=a8e58a58"></script>
-    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -1450,6 +939,8 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
     <script src="_static/design-tabs.js?v=f930bc37"></script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script async="async" src="_static/sphinx-thebe.js?v=c100c467"></script>
+    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script src="_static/language.js"></script>
     <script src="_static/memory-lib/memory-lib.js?v=d34abfda"></script>
     </body>

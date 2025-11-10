@@ -38,8 +38,8 @@ class BenchmarkStats:
 
     def add_result(self, result: Dict[str, Any]):
         """添加一个工具调用结果
-        
-        Note: 
+
+        Note:
         - score: Quality/relevance of the result (0.0 or 1.0)
         """
         self.total_count += 1
@@ -54,13 +54,13 @@ class BenchmarkStats:
             return {
                 "name": self.name,
                 "total_calls": 0,
-                "avg_score": 0.0
+                "avg_score": 0.0,
             }
 
         return {
             "name": self.name,
             "total_calls": self.total_count,
-            "avg_score": round(sum(self.scores) / len(self.scores), 3)
+            "avg_score": round(sum(self.scores) / len(self.scores), 3),
         }
 
 
@@ -87,18 +87,18 @@ def delete_workspace(workspace_id: str) -> bool:
 def load_queries(query_file: str = "query.json") -> Dict[str, Any]:
     """加载查询数据"""
     query_path = Path(__file__).parent / query_file
-    with open(query_path, 'r', encoding='utf-8') as f:
+    with open(query_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def run_use_mock_search(workspace_id: str, queries: List[str], prompt_template: str = "") -> List[ToolCallResult]:
     """运行use_mock_search并收集结果（支持并发）
-    
+
     Args:
         workspace_id: 工作空间ID
         queries: 查询列表
         prompt_template: 提示模板
-    
+
     Returns:
         工具调用结果列表
     """
@@ -112,10 +112,13 @@ def run_use_mock_search(workspace_id: str, queries: List[str], prompt_template: 
         # 提交之前sleep 1秒
         time.sleep(1)
 
-        result = api_call("use_mock_search", {
-            "workspace_id": workspace_id,
-            "query": prompt_template.format(query=query),
-        })
+        result = api_call(
+            "use_mock_search",
+            {
+                "workspace_id": workspace_id,
+                "query": prompt_template.format(query=query),
+            },
+        )
 
         if result:
             tool_call_result = result.get("answer")
@@ -128,8 +131,7 @@ def run_use_mock_search(workspace_id: str, queries: List[str], prompt_template: 
     with ThreadPoolExecutor(max_workers=4) as executor:
         # 提交所有任务
         future_to_query = {
-            executor.submit(process_single_query, idx, query): (idx, query)
-            for idx, query in enumerate(queries)
+            executor.submit(process_single_query, idx, query): (idx, query) for idx, query in enumerate(queries)
         }
 
         # 收集结果（按完成顺序）
@@ -153,11 +155,11 @@ def run_use_mock_search(workspace_id: str, queries: List[str], prompt_template: 
 
 def add_tool_call_results(workspace_id: str, results: List[ToolCallResult]) -> List[ToolCallResult]:
     """批量添加工具调用结果到记忆库，并返回带评分的结果
-    
+
     Args:
         workspace_id: 工作空间ID
         results: 工具调用结果列表
-    
+
     Returns:
         从API返回的memory_list中提取的带评分的ToolCallResult列表
     """
@@ -171,10 +173,13 @@ def add_tool_call_results(workspace_id: str, results: List[ToolCallResult]) -> L
     logger.info(f"Adding tool call results to {workspace_id}: {len(tool_call_results)} results")
 
     # 统一调用API，让后端自动按tool_name分组处理
-    api_result = api_call("add_tool_call_result", {
-        "workspace_id": workspace_id,
-        "tool_call_results": tool_call_results
-    })
+    api_result = api_call(
+        "add_tool_call_result",
+        {
+            "workspace_id": workspace_id,
+            "tool_call_results": tool_call_results,
+        },
+    )
 
     if not api_result:
         logger.error("Failed to add results")
@@ -206,10 +211,13 @@ def add_tool_call_results(workspace_id: str, results: List[ToolCallResult]) -> L
 def summarize_tool_memory(workspace_id: str, tool_names: str) -> bool:
     """总结工具记忆"""
     logger.info(f"Summarizing tool memory for {workspace_id}: {tool_names}")
-    result = api_call("summary_tool_memory", {
-        "workspace_id": workspace_id,
-        "tool_names": tool_names
-    })
+    result = api_call(
+        "summary_tool_memory",
+        {
+            "workspace_id": workspace_id,
+            "tool_names": tool_names,
+        },
+    )
 
     if result:
         memory_list = result.get("metadata", {}).get("memory_list", [])
@@ -221,19 +229,22 @@ def summarize_tool_memory(workspace_id: str, tool_names: str) -> bool:
 
 def retrieve_tool_memory(workspace_id: str, tool_names: str) -> str:
     """检索工具记忆并返回格式化的内容
-    
+
     Args:
         workspace_id: 工作空间ID
         tool_names: 逗号分隔的工具名称
-    
+
     Returns:
         格式化的工具记忆内容，每个工具名称作为一级markdown标题
     """
     logger.info(f"Retrieving tool memory for {workspace_id}: {tool_names}")
-    result = api_call("retrieve_tool_memory", {
-        "workspace_id": workspace_id,
-        "tool_names": tool_names
-    })
+    result = api_call(
+        "retrieve_tool_memory",
+        {
+            "workspace_id": workspace_id,
+            "tool_names": tool_names,
+        },
+    )
 
     if not result:
         logger.error("Failed to retrieve tool memory")
@@ -251,8 +262,9 @@ def retrieve_tool_memory(workspace_id: str, tool_names: str) -> str:
             tool_name = tool_memory.when_to_use or "Unknown Tool"
             formatted_section = f"# {tool_name}\n\n{tool_memory.content}"
             formatted_contents.append(formatted_section)
-            logger.info(f"Retrieved content for tool: {tool_name}, "
-                        f"content_length={len(tool_memory.content)}")
+            logger.info(
+                f"Retrieved content for tool: {tool_name}, " f"content_length={len(tool_memory.content)}",
+            )
 
     # 用两个换行符分隔不同工具的记忆
     joined_content = "\n\n".join(formatted_contents)
@@ -265,7 +277,7 @@ def collect_statistics(results: List[ToolCallResult], stats: BenchmarkStats) -> 
     """从结果列表中收集统计数据"""
     for result in results:
         # 转换为字典用于统计
-        result_dict = result.model_dump() if hasattr(result, 'model_dump') else result
+        result_dict = result.model_dump() if hasattr(result, "model_dump") else result
         stats.add_result(result_dict)
 
 
@@ -276,11 +288,13 @@ def print_comparison_table(stats_list: List[BenchmarkStats]) -> None:
 
     for stats in stats_list:
         summary = stats.get_summary()
-        rows.append([
-            summary["name"],
-            summary["total_calls"],
-            summary["avg_score"]
-        ])
+        rows.append(
+            [
+                summary["name"],
+                summary["total_calls"],
+                summary["avg_score"],
+            ],
+        )
 
     print("\n" + "=" * 100)
     print("BENCHMARK RESULTS COMPARISON")
@@ -299,8 +313,7 @@ def calculate_improvements(baseline_stats: BenchmarkStats, improved_stats: Bench
 
     # 平均分数改进（相对提升百分比）
     if baseline["avg_score"] > 0:
-        improvements["avg_score"] = ((improved["avg_score"] - baseline["avg_score"])
-                                     / baseline["avg_score"] * 100)
+        improvements["avg_score"] = (improved["avg_score"] - baseline["avg_score"]) / baseline["avg_score"] * 100
     else:
         improvements["avg_score"] = 0.0
 
@@ -314,7 +327,7 @@ def print_improvements(improvements: Dict[str, float]) -> None:
     print("=" * 100)
 
     metric_labels = {
-        "avg_score": "Average Score"
+        "avg_score": "Average Score",
     }
 
     for metric, improvement in improvements.items():
@@ -328,19 +341,19 @@ def print_improvements(improvements: Dict[str, float]) -> None:
 def save_results(results: Dict[str, Any], filename: str = "benchmark_results.json") -> None:
     """保存结果到文件"""
     output_path = Path(__file__).parent / filename
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     logger.info(f"Results saved to {output_path}")
 
 
 def run_single_epoch(epoch_num: int, train_queries: List[str], test_queries: List[str]) -> Dict[str, Any]:
     """运行单个epoch的benchmark
-    
+
     Args:
         epoch_num: epoch编号（从1开始）
         train_queries: 训练查询列表
         test_queries: 测试查询列表
-    
+
     Returns:
         包含该epoch统计结果的字典
     """
@@ -422,7 +435,7 @@ def run_single_epoch(epoch_num: int, train_queries: List[str], test_queries: Lis
     tool_names_set = set()
     results_to_use = train_scored_results if train_scored_results else train_results_no_memory
     for result in results_to_use:
-        tool_name = result.tool_name if hasattr(result, 'tool_name') else None
+        tool_name = result.tool_name if hasattr(result, "tool_name") else None
         if tool_name:
             tool_names_set.add(tool_name)
 
@@ -507,15 +520,15 @@ def run_single_epoch(epoch_num: int, train_queries: List[str], test_queries: Lis
         "statistics": {
             "train_no_memory": train_no_memory_stats.get_summary(),
             "test_no_memory": test_no_memory_stats.get_summary(),
-            "test_with_memory": test_with_memory_stats.get_summary()
+            "test_with_memory": test_with_memory_stats.get_summary(),
         },
-        "improvements": improvements
+        "improvements": improvements,
     }
 
 
 def main(test_mode: bool = False, run_epoch: int = 3):
     """主函数：运行完整的benchmark流程
-    
+
     Args:
         test_mode: 如果为True，只使用每个难度级别的前3个查询进行快速测试
         run_epoch: 运行的epoch数量，默认为3
@@ -567,11 +580,14 @@ def main(test_mode: bool = False, run_epoch: int = 3):
 
     # 计算每个场景的平均分数
     avg_train_no_memory = sum(e["statistics"]["train_no_memory"]["avg_score"] for e in all_epoch_results) / len(
-        all_epoch_results)
+        all_epoch_results,
+    )
     avg_test_no_memory = sum(e["statistics"]["test_no_memory"]["avg_score"] for e in all_epoch_results) / len(
-        all_epoch_results)
+        all_epoch_results,
+    )
     avg_test_with_memory = sum(e["statistics"]["test_with_memory"]["avg_score"] for e in all_epoch_results) / len(
-        all_epoch_results)
+        all_epoch_results,
+    )
 
     # 计算平均改进
     avg_improvement = sum(e["improvements"]["avg_score"] for e in all_epoch_results) / len(all_epoch_results)
@@ -581,7 +597,7 @@ def main(test_mode: bool = False, run_epoch: int = 3):
     rows = [
         ["Train (No Memory)", f"{avg_train_no_memory:.3f}"],
         ["Test (No Memory)", f"{avg_test_no_memory:.3f}"],
-        ["Test (With Memory)", f"{avg_test_with_memory:.3f}"]
+        ["Test (With Memory)", f"{avg_test_with_memory:.3f}"],
     ]
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
@@ -597,13 +613,15 @@ def main(test_mode: bool = False, run_epoch: int = 3):
     headers = ["Epoch", "Train (No Mem)", "Test (No Mem)", "Test (With Mem)", "Improvement %"]
     rows = []
     for e in all_epoch_results:
-        rows.append([
-            f"Epoch {e['epoch']}",
-            f"{e['statistics']['train_no_memory']['avg_score']:.3f}",
-            f"{e['statistics']['test_no_memory']['avg_score']:.3f}",
-            f"{e['statistics']['test_with_memory']['avg_score']:.3f}",
-            f"{e['improvements']['avg_score']:+.2f}%"
-        ])
+        rows.append(
+            [
+                f"Epoch {e['epoch']}",
+                f"{e['statistics']['train_no_memory']['avg_score']:.3f}",
+                f"{e['statistics']['test_no_memory']['avg_score']:.3f}",
+                f"{e['statistics']['test_with_memory']['avg_score']:.3f}",
+                f"{e['improvements']['avg_score']:+.2f}%",
+            ],
+        )
 
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
@@ -616,9 +634,9 @@ def main(test_mode: bool = False, run_epoch: int = 3):
             "train_no_memory": avg_train_no_memory,
             "test_no_memory": avg_test_no_memory,
             "test_with_memory": avg_test_with_memory,
-            "improvement": avg_improvement
+            "improvement": avg_improvement,
         },
-        "per_epoch_results": all_epoch_results
+        "per_epoch_results": all_epoch_results,
     }
 
     save_results(benchmark_summary, "tool_memory_benchmark_results.json")

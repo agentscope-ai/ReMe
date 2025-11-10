@@ -6,7 +6,7 @@
 <link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="prev" title="AppWorld" href="cookbook/appworld/quickstart.html">
         <link rel="prefetch" href="_static/logo.svg" as="image">
 
-    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.09.25 -->
         <title>Contribute to ReMe - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=580074bf" />
@@ -236,7 +236,7 @@
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="vector_store_api_guide.html">Vector Store API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="vector_store_api_guide.html">Vector Store Configuration Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -319,6 +319,34 @@
 <h3>Making Changes<a class="headerlink" href="#making-changes" title="Link to this heading">¶</a></h3>
 <p>With your new branch checked out, you can now make your changes to the code. Remember to keep your changes as focused as possible. If you’re addressing multiple issues or features, it’s better to create separate branches and pull requests for each.</p>
 </section>
+<section id="set-up-pre-commit-hooks">
+<h3>Set Up Pre-commit Hooks<a class="headerlink" href="#set-up-pre-commit-hooks" title="Link to this heading">¶</a></h3>
+<p>Before committing your changes, you should set up pre-commit hooks to ensure code quality and consistency. Pre-commit hooks will automatically check your code for common issues and format it according to the project’s standards.</p>
+<p><strong>Install pre-commit:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>pre-commit
+</pre></div>
+</div>
+<p><strong>Install the git hooks:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>install
+</pre></div>
+</div>
+<p><strong>Run pre-commit manually (optional):</strong>
+If you want to run pre-commit checks on all files before committing, you can run:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pre-commit<span class="w"> </span>run<span class="w"> </span>--all-files
+</pre></div>
+</div>
+<p>After installation, pre-commit will automatically run on <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">commit</span></code> to check your code. The hooks will check for:</p>
+<ul class="simple">
+<li><p>Code syntax and AST validation</p></li>
+<li><p>YAML, XML, TOML, and JSON format validation</p></li>
+<li><p>Trailing whitespace</p></li>
+<li><p>Code formatting (Black)</p></li>
+<li><p>Code style (Flake8)</p></li>
+<li><p>Code quality (Pylint)</p></li>
+<li><p>Package metadata (Pyroma)</p></li>
+</ul>
+<p>If any checks fail, please fix the issues before committing.</p>
+</section>
 <section id="commit-your-changes">
 <h3>Commit Your Changes<a class="headerlink" href="#commit-your-changes" title="Link to this heading">¶</a></h3>
 <p>Once you’ve made your changes, it’s time to commit them. Write clear and concise commit messages that explain your changes.</p>
@@ -384,7 +412,7 @@ We will review your pull request. This process might involve some discussion, ad
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-04</div>
+              Last updated on 2025-11-11</div>
           </div>
           <div class="right-details">
             <div class="icons">
@@ -417,6 +445,7 @@ We will review your pull request. This process might involve some discussion, ad
 <li><a class="reference internal" href="#fork-and-clone-the-repository">Fork and Clone the Repository</a></li>
 <li><a class="reference internal" href="#create-a-new-branch">Create a New Branch</a></li>
 <li><a class="reference internal" href="#making-changes">Making Changes</a></li>
+<li><a class="reference internal" href="#set-up-pre-commit-hooks">Set Up Pre-commit Hooks</a></li>
 <li><a class="reference internal" href="#commit-your-changes">Commit Your Changes</a></li>
 <li><a class="reference internal" href="#submit-a-pull-request">Submit a Pull Request</a></li>
 <li><a class="reference internal" href="#code-review">Code Review</a></li>
@@ -434,7 +463,7 @@ We will review your pull request. This process might involve some discussion, ad
     </aside>
   </div>
 </div><script src="_static/documentation_options.js?v=a8e58a58"></script>
-    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/doctools.js?v=9a2dae69"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -448,6 +477,8 @@ We will review your pull request. This process might involve some discussion, ad
     <script src="_static/design-tabs.js?v=f930bc37"></script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script async="async" src="_static/sphinx-thebe.js?v=c100c467"></script>
+    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script src="_static/language.js"></script>
     <script src="_static/memory-lib/memory-lib.js?v=d34abfda"></script>
     </body>

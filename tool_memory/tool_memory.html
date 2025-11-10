@@ -6,7 +6,7 @@
 <link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Tool Memory Retrieval Ops" href="tool_retrieve_ops.html"><link rel="prev" title="Task Memory Summary Ops" href="../task_memory/task_summary_ops.html">
         <link rel="prefetch" href="../_static/logo.svg" as="image">
 
-    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
+    <!-- Generated with Sphinx 7.4.7 and Furo 2025.09.25 -->
         <title>Tool Memory - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=580074bf" />
@@ -236,7 +236,7 @@
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">Vector Store API Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">Vector Store Configuration Guide</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -301,9 +301,9 @@
 </ul>
 <p><strong>Example: Web Search Tools</strong></p>
 <p>Imagine an LLM choosing between three search tools:</p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Tool A: &quot;Search the web for information&quot;
-Tool B: &quot;Perform web searches with customizable parameters&quot;  
-Tool C: &quot;Query search engines and return results&quot;
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Tool</span> <span class="n">A</span><span class="p">:</span> <span class="s2">&quot;Search the web for information&quot;</span>
+<span class="n">Tool</span> <span class="n">B</span><span class="p">:</span> <span class="s2">&quot;Perform web searches with customizable parameters&quot;</span>
+<span class="n">Tool</span> <span class="n">C</span><span class="p">:</span> <span class="s2">&quot;Query search engines and return results&quot;</span>
 </pre></div>
 </div>
 <p>The descriptions are nearly identical, but in reality:</p>
@@ -331,19 +331,19 @@ Tool C: &quot;Query search engines and return results&quot;
 </ul>
 <p><strong>3. Enhanced Context for LLM Decision-Making</strong></p>
 <p>Instead of just a tool description, the LLM now receives:</p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Tool: web_search
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Tool</span><span class="p">:</span> <span class="n">web_search</span>
 
-Static Description:
-&quot;Search the web for information&quot;
+<span class="n">Static</span> <span class="n">Description</span><span class="p">:</span>
+<span class="s2">&quot;Search the web for information&quot;</span>
 
-+ Tool Memory Context:
-&quot;Based on 150 historical calls:
-- Success rate: 92% (138 successful, 12 failed)
-- Avg time: 2.3s, Avg tokens: 150
-- Best for: Technical documentation, tutorials (95% success)
-- Optimal params: max_results=5-20, language=&#39;en&#39;
-- Common failures: Generic queries timeout, max_results&gt;50 unreliable
-- Recommendation: Use specific multi-word queries with filter_type=&#39;technical_docs&#39;&quot;
+<span class="o">+</span> <span class="n">Tool</span> <span class="n">Memory</span> <span class="n">Context</span><span class="p">:</span>
+<span class="s2">&quot;Based on 150 historical calls:</span>
+<span class="o">-</span> <span class="n">Success</span> <span class="n">rate</span><span class="p">:</span> <span class="mi">92</span><span class="o">%</span> <span class="p">(</span><span class="mi">138</span> <span class="n">successful</span><span class="p">,</span> <span class="mi">12</span> <span class="n">failed</span><span class="p">)</span>
+<span class="o">-</span> <span class="n">Avg</span> <span class="n">time</span><span class="p">:</span> <span class="mf">2.3</span><span class="n">s</span><span class="p">,</span> <span class="n">Avg</span> <span class="n">tokens</span><span class="p">:</span> <span class="mi">150</span>
+<span class="o">-</span> <span class="n">Best</span> <span class="k">for</span><span class="p">:</span> <span class="n">Technical</span> <span class="n">documentation</span><span class="p">,</span> <span class="n">tutorials</span> <span class="p">(</span><span class="mi">95</span><span class="o">%</span> <span class="n">success</span><span class="p">)</span>
+<span class="o">-</span> <span class="n">Optimal</span> <span class="n">params</span><span class="p">:</span> <span class="n">max_results</span><span class="o">=</span><span class="mi">5</span><span class="o">-</span><span class="mi">20</span><span class="p">,</span> <span class="n">language</span><span class="o">=</span><span class="s1">&#39;en&#39;</span>
+<span class="o">-</span> <span class="n">Common</span> <span class="n">failures</span><span class="p">:</span> <span class="n">Generic</span> <span class="n">queries</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">max_results</span><span class="o">&gt;</span><span class="mi">50</span> <span class="n">unreliable</span>
+<span class="o">-</span> <span class="n">Recommendation</span><span class="p">:</span> <span class="n">Use</span> <span class="n">specific</span> <span class="n">multi</span><span class="o">-</span><span class="n">word</span> <span class="n">queries</span> <span class="k">with</span> <span class="n">filter_type</span><span class="o">=</span><span class="s1">&#39;technical_docs&#39;</span><span class="s2">&quot;</span>
 </pre></div>
 </div>
 <p>This enriched context enables the LLM to:</p>
@@ -357,33 +357,33 @@ Static Description:
 <section id="the-impact-from-static-descriptions-to-dynamic-intelligence">
 <h3>The Impact: From Static Descriptions to Dynamic Intelligence<a class="headerlink" href="#the-impact-from-static-descriptions-to-dynamic-intelligence" title="Link to this heading">¶</a></h3>
 <p><strong>Traditional Approach (Static Descriptions Only):</strong></p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>LLM: &quot;I have 50 search tools, all with similar descriptions&quot;
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>LLM: &quot;I have 50 search tools, all with similar descriptions&quot;
 → Random choice or first match
 → Trial-and-error parameter selection
 → 75% success rate, repeated failures
 </pre></div>
 </div>
 <p><strong>Tool Memory Approach (Description + Historical Context):</strong></p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>LLM: &quot;I have 50 search tools, but Tool A has 95% success for technical queries&quot;
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>LLM: &quot;I have 50 search tools, but Tool A has 95% success for technical queries&quot;
 → Informed choice based on data
 → Use proven parameter configurations
 → 92% success rate, optimized performance
 </pre></div>
 </div>
 <p><strong>Real-World Impact:</strong></p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Before Tool Memory:
-- Success rate: 75%
-- Average time cost: 5.2s  
-- Token cost: 200+ per call
-- Repeated parameter errors
-- Random tool selection
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Before</span> <span class="n">Tool</span> <span class="n">Memory</span><span class="p">:</span>
+<span class="o">-</span> <span class="n">Success</span> <span class="n">rate</span><span class="p">:</span> <span class="mi">75</span><span class="o">%</span>
+<span class="o">-</span> <span class="n">Average</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">5.2</span><span class="n">s</span>
+<span class="o">-</span> <span class="n">Token</span> <span class="n">cost</span><span class="p">:</span> <span class="mi">200</span><span class="o">+</span> <span class="n">per</span> <span class="n">call</span>
+<span class="o">-</span> <span class="n">Repeated</span> <span class="n">parameter</span> <span class="n">errors</span>
+<span class="o">-</span> <span class="n">Random</span> <span class="n">tool</span> <span class="n">selection</span>
 
-After Tool Memory:
-- Success rate: 92% (+17%)
-- Average time cost: 2.8s (-46%)
-- Token cost: 150 per call (-25%)
-- Consistent best practices
-- Data-driven tool selection
+<span class="n">After</span> <span class="n">Tool</span> <span class="n">Memory</span><span class="p">:</span>
+<span class="o">-</span> <span class="n">Success</span> <span class="n">rate</span><span class="p">:</span> <span class="mi">92</span><span class="o">%</span> <span class="p">(</span><span class="o">+</span><span class="mi">17</span><span class="o">%</span><span class="p">)</span>
+<span class="o">-</span> <span class="n">Average</span> <span class="n">time</span> <span class="n">cost</span><span class="p">:</span> <span class="mf">2.8</span><span class="n">s</span> <span class="p">(</span><span class="o">-</span><span class="mi">46</span><span class="o">%</span><span class="p">)</span>
+<span class="o">-</span> <span class="n">Token</span> <span class="n">cost</span><span class="p">:</span> <span class="mi">150</span> <span class="n">per</span> <span class="n">call</span> <span class="p">(</span><span class="o">-</span><span class="mi">25</span><span class="o">%</span><span class="p">)</span>
+<span class="o">-</span> <span class="n">Consistent</span> <span class="n">best</span> <span class="n">practices</span>
+<span class="o">-</span> <span class="n">Data</span><span class="o">-</span><span class="n">driven</span> <span class="n">tool</span> <span class="n">selection</span>
 </pre></div>
 </div>
 </section>
@@ -933,7 +933,7 @@ curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </spa
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">max_history_tool_call_cnt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span><span class="w">      </span><span class="c1"># Keep more history</span>
 <span class="w">      </span><span class="nt">evaluation_sleep_interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">      </span><span class="c1"># Faster evaluation</span>
-<span class="w">  </span>
+
 <span class="w">  </span><span class="nt">summary_tool_memory_op</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">recent_call_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">               </span><span class="c1"># Analyze more calls</span>
@@ -945,7 +945,7 @@ curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </spa
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">max_history_tool_call_cnt</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">       </span><span class="c1"># Less history needed</span>
 <span class="w">      </span><span class="nt">evaluation_sleep_interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">      </span><span class="c1"># Standard rate</span>
-<span class="w">  </span>
+
 <span class="w">  </span><span class="nt">summary_tool_memory_op</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">recent_call_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">               </span><span class="c1"># Analyze fewer calls</span>
@@ -961,10 +961,10 @@ curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </spa
 <div class="cell_input docutils container">
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span>   <span class="n">memory</span> <span class="o">=</span> <span class="n">retrieve_tool_memory</span><span class="p">(</span><span class="s2">&quot;web_search&quot;</span><span class="p">)[</span><span class="s1">&#39;metadata&#39;</span><span class="p">][</span><span class="s1">&#39;memory_list&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
    <span class="n">stats</span> <span class="o">=</span> <span class="n">ToolMemory</span><span class="p">(</span><span class="o">**</span><span class="n">memory</span><span class="p">)</span><span class="o">.</span><span class="n">statistic</span><span class="p">(</span><span class="n">recent_frequency</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
-   
+
    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Success Rate: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_rate&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2%</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Avg Score: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;avg_score&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.2f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-   
+
    <span class="k">if</span> <span class="n">stats</span><span class="p">[</span><span class="s1">&#39;success_rate&#39;</span><span class="p">]</span> <span class="o">&lt;</span> <span class="mf">0.7</span><span class="p">:</span>
        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;⚠️ Low success rate - investigate tool issues&quot;</span><span class="p">)</span>
 </pre></div>
@@ -1239,7 +1239,7 @@ python<span class="w"> </span>use_tool_memory_demo.py
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-04</div>
+              Last updated on 2025-11-11</div>
           </div>
           <div class="right-details">
             <div class="icons">
@@ -1344,7 +1344,7 @@ python<span class="w"> </span>use_tool_memory_demo.py
     </aside>
   </div>
 </div><script src="../_static/documentation_options.js?v=a8e58a58"></script>
-    <script src="../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../_static/doctools.js?v=9a2dae69"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -1358,6 +1358,8 @@ python<span class="w"> </span>use_tool_memory_demo.py
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script async="async" src="../_static/sphinx-thebe.js?v=c100c467"></script>
+    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs"></script>
     <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.2.0/dist/mermaid.esm.min.mjs";import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.1.4/dist/mermaid-layout-elk.esm.min.mjs";mermaid.registerLayoutLoaders(elkLayouts);mermaid.initialize({startOnLoad:false});</script>
