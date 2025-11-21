@@ -44,6 +44,3 @@ class BatchWriteFileOp(BaseAsyncOp):
             write_op = WriteFileOp(save_answer=self.save_answer)
             await write_op.async_call(file_path=file_path, content=content)
             result.append(write_op.output)
-
-        # Combine all results into a single response
-        self.context.response.answer = "\n".join(result)
