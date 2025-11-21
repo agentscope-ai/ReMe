@@ -32,13 +32,26 @@ classifiers = [
 keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http"]
 
 dependencies = [
-    "flowllm[reme]>=0.2.0.0",
+    "flowllm[reme]>=0.2.0.3",
 ]
 
 [project.optional-dependencies]
-dev = ["jupyter-book", "ghp-import", "myst-nb", "sphinxcontrib-bibtex", "furo", "sphinxcontrib-mermaid"]
+dev = [
+    "jupyter-book",
+    "ghp-import",
+    "myst-nb",
+    "sphinxcontrib-bibtex",
+    "furo",
+    "sphinxcontrib-mermaid"
+]
 
-full = ["reme_ai[dev]"]
+token = [
+    "flowllm[token]>=0.2.0.3"
+]
+
+full = [
+    "reme_ai[dev,token]"
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

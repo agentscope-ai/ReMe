@@ -8,7 +8,7 @@ reasoning and search actions.
 import asyncio
 
 from flowllm.core.context import C, FlowContext
-from flowllm.gallery import ReactSearchOp
+from flowllm.gallery.agent import ReactSearchOp
 
 
 @C.register_op()

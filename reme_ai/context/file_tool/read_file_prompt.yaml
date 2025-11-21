@@ -1,0 +1,20 @@
+tool_desc: |
+  读取指定文件内容的工具；对文本文件可通过 offset 与 limit 获取特定行区间，便于分页浏览大文件。
+tool_desc_zh: |
+  Reads and returns the content of a specified file. For text files, it can read specific line ranges using the 'offset' and 'limit' parameters. Use offset and limit to paginate through large files.
+
+absolute_path: |
+  必填：待读取文件的绝对路径（如 "/home/user/project/file.txt"），不支持相对路径。
+absolute_path_zh: |
+  The absolute path to the file to read (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.
+
+offset: |
+  可选：文本文件起始读取的 0 基行号；需与 limit 同时使用，适合分页查看大文件。
+offset_zh: |
+  Optional: For text files, the 0-based line number to start reading from. Requires 'limit' to be set. Use for paginating through large files.
+
+limit: |
+  可选：文本文件最多读取的行数；与 offset 配合实现分页，若仅设 offset 则会读到文件末尾。
+limit_zh: |
+  Optional: For text files, maximum number of lines to read. Use with 'offset' to paginate through large files. If omitted when offset is provided, reads from offset to the end of the file.
+

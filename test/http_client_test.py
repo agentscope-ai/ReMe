@@ -129,6 +129,26 @@ async def run3(session):
         print(json.dumps(result, ensure_ascii=False))
 
 
+async def run4(session):
+    workspace_id = "default4"
+
+    async with session.post(
+            f"{base_url}/agentic_retrieve",
+            json={
+                "messages": [
+                    {"role": "user", "content": "hello" * 10000},
+                ],
+                "workspace_id": workspace_id,
+                "context_manage_mode": "auto",
+                "keep_recent_count": 0,
+                "max_total_tokens": 10000,
+            },
+            headers={"Content-Type": "application/json"},
+    ) as response:
+        result = await response.json()
+        print(json.dumps(result, ensure_ascii=False))
+
+
 async def main():
 
     async with aiohttp.ClientSession() as session:
@@ -137,7 +157,8 @@ async def main():
 
         # await run1(session)
         # await run2(session)
-        await run3(session)
+        # await run3(session)
+        await run4(session)
 
 
 if __name__ == "__main__":

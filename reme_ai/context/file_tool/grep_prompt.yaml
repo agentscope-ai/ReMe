@@ -1,0 +1,25 @@
+tool_desc: |
+  一个支持完整正则语法（如 "log.*Error"、"function\\s+\\w+"）的高效搜索工具，可用 glob 过滤文件并限制返回结果，适合跨文件快速定位代码或文本内容。
+tool_desc_zh: |
+  A powerful search tool for finding patterns in files using regular expressions. Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+"), glob pattern filtering, and result limiting. Ideal for searching code or text content across multiple files.
+
+pattern: |
+  需要在文件内容中匹配的正则表达式模式。
+pattern_zh: |
+  The regular expression pattern to search for in file contents.
+
+path: |
+  可选：要执行搜索的目录，默认为当前工作目录。
+path_zh: |
+  Optional: The directory to search in. Defaults to current working directory.
+
+glob: |
+  可选：用于过滤目标文件的 glob 模式（如 "*.js"、"*.{ts,tsx}"）。
+glob_zh: |
+  Optional: Glob pattern to filter files (e.g., "*.js", "*.{ts,tsx}").
+
+limit: |
+  可选：设置最多返回的匹配行数；未指定时会返回所有匹配。
+limit_zh: |
+  Optional: Maximum number of matching lines to return. Shows all matches if not specified.
+

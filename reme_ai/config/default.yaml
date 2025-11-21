@@ -156,44 +156,166 @@ flow:
         description: "user query"
         required: true
 
+  agentic_retrieve:
+    flow_content: AgenticRetrieveOp()
+
+  context_offload:
+    flow_content: ContextOffloadOp() >> BatchWriteFileOp()
+    description: "Manages context window limits by compacting tool messages and compressing conversation history. First compacts large tool messages by storing full content in external files, then applies LLM-based compression if compaction ratio exceeds threshold. This helps reduce token usage while preserving important information."
+    input_schema:
+      messages:
+        type: array
+        description: "List of conversation messages to process for context offloading"
+        required: true
+      context_manage_mode:
+        type: string
+        description: "Context management mode: 'compact' only applies compaction to tool messages, 'compress' only applies LLM-based compression, 'auto' applies compaction first then compression if compaction ratio exceeds threshold. Defaults to 'auto'."
+        required: false
+        enum: ["compact", "compress", "auto"]
+      max_total_tokens:
+        type: integer
+        description: "Maximum token count threshold for triggering compression/compaction. For compaction, this is the total token count threshold. For compression, this excludes keep_recent_count messages and system messages. Defaults to 20000."
+        required: false
+      max_tool_message_tokens:
+        type: integer
+        description: "Maximum token count per tool message before compaction is applied. Tool messages exceeding this threshold will have their full content stored in external files with only a preview kept in context. Defaults to 2000."
+        required: false
+      group_token_threshold:
+        type: integer
+        description: "Maximum token count per compression group when using LLM-based compression. If None or 0, all messages are compressed in a single group. Messages exceeding this threshold individually will form their own group. Only used in 'compress' or 'auto' mode."
+        required: false
+      keep_recent_count:
+        type: integer
+        description: "Number of recent messages to preserve without compression or compaction. These messages remain unchanged to maintain conversation context. Defaults to 1 for compaction and 2 for compression."
+        required: false
+      store_dir:
+        type: string
+        description: "Directory path for storing offloaded message content. Full tool message content and compressed message groups are saved as files in this directory. Required for compaction and compression operations."
+        required: false
+      chat_id:
+        type: string
+        description: "Unique identifier for the chat session, used for file naming when storing compressed message groups. If not provided, a UUID will be generated automatically."
+        required: false
+
+  context_offload_for_agentscope:
+    flow_content: ContextOffloadOp()
+    description: "Context offload operation for AgentScope integration. Manages context window limits by compacting tool messages and compressing conversation history without batch file writing. Same functionality as context_offload but without the BatchWriteFileOp step."
+    input_schema:
+      messages:
+        type: array
+        description: "List of conversation messages to process for context offloading"
+        required: true
+      context_manage_mode:
+        type: string
+        description: "Context management mode: 'compact' only applies compaction to tool messages, 'compress' only applies LLM-based compression, 'auto' applies compaction first then compression if compaction ratio exceeds threshold. Defaults to 'auto'."
+        required: true
+        enum: ["compact", "compress", "auto"]
+      max_total_tokens:
+        type: integer
+        description: "Maximum token count threshold for triggering compression/compaction. For compaction, this is the total token count threshold. For compression, this excludes keep_recent_count messages and system messages. Defaults to 20000."
+        required: false
+      max_tool_message_tokens:
+        type: integer
+        description: "Maximum token count per tool message before compaction is applied. Tool messages exceeding this threshold will have their full content stored in external files with only a preview kept in context. Defaults to 2000."
+        required: false
+      group_token_threshold:
+        type: integer
+        description: "Maximum token count per compression group when using LLM-based compression. If None or 0, all messages are compressed in a single group. Messages exceeding this threshold individually will form their own group. Only used in 'compress' or 'auto' mode."
+        required: false
+      keep_recent_count:
+        type: integer
+        description: "Number of recent messages to preserve without compression or compaction. These messages remain unchanged to maintain conversation context. Defaults to 1 for compaction and 2 for compression."
+        required: false
+      store_dir:
+        type: string
+        description: "Directory path for storing offloaded message content. Full tool message content and compressed message groups are saved as files in this directory. Required for compaction and compression operations."
+        required: false
+      chat_id:
+        type: string
+        description: "Unique identifier for the chat session, used for file naming when storing compressed message groups. If not provided, a UUID will be generated automatically."
+        required: false
+
+
 llm:
   default:
     backend: openai_compatible
     model_name: qwen3-30b-a3b-instruct-2507
     params:
       temperature: 0.6
+    token_count: # Optional
+      backend: base
 
   qwen3_30b_instruct:
     backend: openai_compatible
     model_name: qwen3-30b-a3b-instruct-2507
+    token_count: # Optional
+      model_name: Qwen/Qwen3-30B-A3B-Instruct-2507
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_30b_thinking:
     backend: openai_compatible
     model_name: qwen3-30b-a3b-thinking-2507
+    token_count: # Optional
+      model_name: Qwen/Qwen3-30B-A3B-Thinking-2507
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_235b_instruct:
     backend: openai_compatible
     model_name: qwen3-235b-a22b-instruct-2507
+    token_count: # Optional
+      model_name: Qwen/Qwen3-235B-A22B-Instruct-2507
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_235b_thinking:
     backend: openai_compatible
     model_name: qwen3-235b-a22b-thinking-2507
+    token_count: # Optional
+      model_name: Qwen/Qwen3-235B-A22B-Thinking-2507
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_80b_instruct:
     backend: openai_compatible
     model_name: qwen3-next-80b-a3b-instruct
+    token_count: # Optional
+      model_name: Qwen/Qwen3-Next-80B-A3B-Instruct
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_80b_thinking:
     backend: openai_compatible
     model_name: qwen3-next-80b-a3b-thinking
+    token_count: # Optional
+      model_name: Qwen/Qwen3-Next-80B-A3B-Thinking
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen3_max_instruct:
     backend: openai_compatible
     model_name: qwen3-max
+    token_count: # Optional
+      model_name: Qwen/Qwen3-Next-80B-A3B-Instruct  # NOTE: We use another model as a substitute.
+      backend: hf
+      params:
+        use_mirror: true
 
   qwen25_max_instruct:
     backend: openai_compatible
     model_name: qwen-max-2025-01-25
+    token_count: # Optional
+      model_name: Qwen/Qwen2.5-72B-Instruct  # NOTE: We use another model as a substitute.
+      backend: hf
+      params:
+        use_mirror: true
 
 embedding_model:
   default:

@@ -130,3 +130,24 @@ def parse_update_insight_response(response_text: str, language: str = "en") -> s
 
     logger.warning("No insight content found in response")
     return ""
+
+
+def extract_xml_tag_content(text: str, tag_name: str) -> str | None:
+    """Extract content from XML tag in text.
+
+    Args:
+        text: The text containing XML tags.
+        tag_name: The name of the XML tag to extract (e.g., 'state_snapshot').
+
+    Returns:
+        str: The content inside the XML tag, or None if not found.
+    """
+    # Use re.DOTALL to make . match newline characters
+    pattern = rf"<{tag_name}>(.*?)</{tag_name}>"
+    match = re.search(pattern, text, re.DOTALL)
+
+    if match:
+        content = match.group(1).strip()
+        return content
+
+    return None
