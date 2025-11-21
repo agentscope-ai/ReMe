@@ -353,7 +353,7 @@ curl -X POST http://0.0.0.0:8002/context_offload \
     "context_manage_mode": "auto",
     "max_total_tokens": 20000,
     "max_tool_message_tokens": 2000,
-    "keep_recent_count": 2,
+    "keep_recent_count": 0,
     "store_dir": "/workspace/context_store",
     "chat_id": "research_session_001"
   }'
@@ -386,46 +386,85 @@ curl -X POST http://0.0.0.0:8002/context_offload \
     "chat_id": "chat_session_002"
   }'
 ```
-# TODO 这里需要确认一下具体返回信息是什么
+
 **Response**:
 ```json
 {
   "success": true,
-  "answer": "Context offload completed successfully. Reduced from 95,000 to 18,000 tokens (81% reduction).",
-  "metadata": {
-    "offload_summary": {
-      "original_token_count": 95000,
-      "final_token_count": 18000,
-      "reduction_percentage": 81,
-      "compaction_applied": true,
-      "compression_applied": true,
-      "compacted_messages": 12,
-      "compressed_message_groups": 3,
-      "files_created": 15
+  "answer": "Successfully created and wrote to new file: /workspace/context_store/tool_call_123.txt\nSuccessfully created and wrote to new file: /workspace/context_store/7851c684dee246ebaef3f6cbfbbe322c.txt",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful assistant\n\n<state_snapshot>\n<overall_goal>Research on AI context management techniques...</overall_goal>\n<progress>Completed 15 tool calls, analyzed 5 papers...</progress>\n</state_snapshot>"
     },
-    "compacted_files": [
-      "/workspace/context_store/tool_call_123.txt",
-      "/workspace/context_store/tool_call_456.txt",
-      ...
-    ],
-    "compressed_files": [
-      "/workspace/context_store/compressed_group_research_session_001_0.json",
-      "/workspace/context_store/compressed_group_research_session_001_1.json",
-      ...
-    ],
-    "offloaded_messages": [
-      {
-        "role": "tool",
-        "tool_call_id": "call_123",
-        "content": "Full search results for AI papers... (detailed result is stored in /workspace/context_store/tool_call_123.txt)",
-        "original_tokens": 8200,
-        "current_tokens": 150
-      },
-      ...
-    ]
+    {
+      "role": "user",
+      "content": "Search for AI papers on context management"
+    },
+    {
+      "role": "assistant",
+      "content": "I'll search for relevant papers",
+      "tool_calls": [{"id": "call_123", "name": "web_search", "arguments": {...}}]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_123",
+      "content": "Found 20 papers on context management... (detailed result is stored in /workspace/context_store/c9ff64d623eb4ab389819abe40d294fe.txt)"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_456",
+      "content": "Full webpage content... (detailed result is stored in /workspace/context_store/7851c684dee246ebaef3f6cbfbbe322c.txt)"
+    }
+  ],
+  "metadata": {
+    "write_file_dict": {
+      "context_store/c9ff64d623eb4ab389819abe40d294fe.txt": "Full search results for AI papers...\n[Complete 8,200 token content of tool output]\n...",
+      "context_store/7851c684dee246ebaef3f6cbfbbe322c.txt": "Complete webpage content...\n[Complete 7,800 token content of webpage]\n..."
+    }
   }
 }
 ```
+
+**Response Fields:**
+- `success`: Boolean indicating operation success
+- `answer`: Summary message listing files created during offload
+- `messages`: **Most important** - The processed message list with reduced token count
+  - System messages may include `<state_snapshot>` with compressed history
+  - Tool messages contain previews with file references
+  - Recent messages preserved unchanged
+  - **Use this as your new message history for subsequent LLM calls**
+- `metadata.write_file_dict`: Dictionary mapping file paths to their stored content
+  - Keys: Relative file paths where content was stored
+  - Values: Full content that was offloaded from messages
+
+**How to Use the Response:**
+
+1. **Replace your message history** with the `messages` field:
+   ```python
+   # Before offload
+   messages = [msg1, msg2, msg3, ...]  # 95,000 tokens
+
+   # After offload
+   result = offload_context(messages)
+   messages = result['messages']  # 18,000 tokens
+
+   # Continue with reduced context
+   response = llm_api.call(messages=messages)
+   ```
+
+2. **Access offloaded content when needed** using the file paths in `write_file_dict`:
+   ```python
+   # If you need to retrieve full content later
+   file_paths = list(result['metadata']['write_file_dict'].keys())
+   full_content = read_file(absolute_path=file_paths[0])
+   ```
+
+3. **Track offload operations** using the `answer` field for logging:
+   ```python
+   print(result['answer'])
+   # "Successfully created and wrote to new file: ..."
+   ```
 
 #### Usage with Python
 
@@ -474,14 +513,22 @@ messages = [
 result = offload_context(messages, mode="auto")
 
 if result['success']:
-    summary = result['metadata']['offload_summary']
-    print(f"Token reduction: {summary['original_token_count']} → {summary['final_token_count']}")
-    print(f"Reduction rate: {summary['reduction_percentage']}%")
-    print(f"Compacted messages: {summary['compacted_messages']}")
-    print(f"Compressed groups: {summary['compressed_message_groups']}")
+    # Get processed messages with reduced token count
+    processed_messages = result['messages']
+    print(f"Original message count: {len(messages)}")
+    print(f"Processed message count: {len(processed_messages)}")
 
-    # Use offloaded messages in next API call
-    offloaded_messages = result['metadata']['offloaded_messages']
+    # Check offloaded files
+    write_file_dict = result['metadata'].get('write_file_dict', {})
+    print(f"Files created: {len(write_file_dict)}")
+    for file_path, content_preview in write_file_dict.items():
+        print(f"  - {file_path}: {len(content_preview)} chars")
+
+    # Use processed messages in next API call
+    # These messages have reduced token count and can be safely sent to LLM
+    next_messages = processed_messages + [
+        {"role": "user", "content": "Continue the task..."}
+    ]
     # Continue conversation with reduced context...
 ```
 
@@ -500,3 +547,391 @@ if result['success']:
 - **Compress**: Dialogue-heavy workflows with minimal tool usage (customer support, tutoring)
 
 ### 3.2 `context_reload`
+
+**Purpose**: Retrieve and restore the full content of offloaded messages by locating file references and reading stored content. This operation combines `grep` and `read_file` tools to enable on-demand access to compacted or compressed information.
+
+**Flow**:
+```yaml
+# No dedicated flow - manual combination of tools
+grep:
+  flow_content: GrepOp()
+read_file:
+  flow_content: ReadFileOp()
+```
+
+**Process**:
+
+Context reload is achieved through a two-step manual process:
+
+**Step 1: Locate Offloaded Content with `grep`**
+- Search for file references in message history
+- Pattern matching identifies stored file paths
+- Supports filtering by file type or directory
+
+**Step 2: Retrieve Full Content with `read_file`**
+- Read complete content from identified file paths
+- Supports pagination for large files
+- Returns original uncompacted/uncompressed data
+
+**Use Cases:**
+
+1. **Restore Compacted Tool Messages**
+   - Locate: `grep` finds references like "stored in /context_store/tool_call_123.txt"
+   - Retrieve: `read_file` loads full tool output
+
+2. **Access Compressed Message Groups**
+   - Locate: `grep` finds compressed group files
+   - Retrieve: `read_file` loads original conversation history
+
+3. **Debug Context Offload Operations**
+   - Locate: `grep` searches for specific offload markers
+   - Retrieve: `read_file` examines stored content structure
+
+### Configuration
+
+**Grep Tool**:
+```yaml
+op:
+  grep:
+    flow_content: GrepOp()
+    # Parameters defined in tool call
+```
+
+**ReadFile Tool**:
+```yaml
+op:
+  read_file:
+    flow_content: ReadFileOp()
+    # Parameters defined in tool call
+```
+
+#### Usage with curl
+
+**Example 1: Search for Offloaded Files**
+
+```bash
+# Search for files containing specific pattern
+curl -X POST http://0.0.0.0:8002/grep \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pattern": "tool",
+    "path": "./cache_file/",
+    "glob": "*.txt",
+    "limit": 100
+  }'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "answer": "Found 15 matches for pattern \"tool\" in path \"./cache_file/\" (filter: \"*.txt\"):\n---\nFile: xxxxx.txt\nL1: tool1 tool1 ...",
+  "messages": [],
+  "metadata": {}
+}
+```
+
+**Note**: The `answer` field contains the complete search results in text format. Each match shows the filename and matching line(s).
+
+**Example 2: Read Full Content of Offloaded File**
+
+```bash
+# Read complete file content
+curl -X POST http://0.0.0.0:8002/read_file \
+  -H "Content-Type: application/json" \
+  -d '{
+    "absolute_path": "./cache_file/xxxxx.txt"
+  }'
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "answer": "[Tool response here]",
+  "messages": [],
+  "metadata": {}
+}
+```
+
+**Note**: The `answer` field contains the complete file content directly.
+
+**Example 3: Paginate Through Large Files**
+
+```bash
+# Read first 100 lines
+curl -X POST http://0.0.0.0:8002/read_file \
+  -H "Content-Type: application/json" \
+  -d '{
+    "absolute_path": "./cache_file/large_file.txt",
+    "offset": 0,
+    "limit": 100
+  }'
+
+# Read next 100 lines
+curl -X POST http://0.0.0.0:8002/read_file \
+  -H "Content-Type: application/json" \
+  -d '{
+    "absolute_path": "./cache_file/large_file.txt",
+    "offset": 100,
+    "limit": 100
+  }'
+```
+
+#### Usage with Python
+
+```{code-cell}
+import requests
+
+# API endpoint
+BASE_URL = "http://0.0.0.0:8002/"
+
+
+def find_offloaded_files(store_dir: str = "./cache_file/", pattern: str = "tool") -> dict:
+    """
+    Find all offloaded file references in the context store
+
+    Args:
+        store_dir: Directory where offloaded content is stored
+        pattern: Search pattern for file references
+
+    Returns:
+        Full response dict with search results in 'answer' field
+    """
+    response = requests.post(
+        url=f"{BASE_URL}grep",
+        json={
+            "pattern": pattern,
+            "path": store_dir,
+            "glob": "*.txt",
+            "limit": 100
+        }
+    )
+
+    return response.json()
+
+
+def reload_offloaded_content(file_path: str, offset: int = None, limit: int = None) -> dict:
+    """
+    Reload full content from an offloaded file
+
+    Args:
+        file_path: Path to the offloaded file (can be relative or absolute)
+        offset: Optional line offset for pagination
+        limit: Optional line limit for pagination
+
+    Returns:
+        Full response dict with file content in 'answer' field
+    """
+    params = {"absolute_path": file_path}
+    if offset is not None:
+        params["offset"] = offset
+    if limit is not None:
+        params["limit"] = limit
+
+    response = requests.post(
+        url=f"{BASE_URL}read_file",
+        json=params
+    )
+    return response.json()
+
+
+# Example Usage
+if __name__ == "__main__":
+    # Example 1: Search for offloaded files
+    store_dir = "./cache_file/"
+    search_result = find_offloaded_files(store_dir, pattern="tool")
+
+    print("=== Grep Search Result ===")
+    print(f"Success: {search_result['success']}")
+    if search_result['success']:
+        # The answer field contains the full search results as text
+        print(f"Search results:\n{search_result['answer']}")
+
+        # Parse file names from the answer if needed
+        import re
+        file_pattern = r'File: ([\w\.]+)'
+        file_names = re.findall(file_pattern, search_result['answer'])
+        print(f"\nFound {len(file_names)} files: {file_names[:3]}...")
+
+    # Example 2: Read specific offloaded file
+    file_path = "./cache_file/16995f21aab44f26ad55e3cd6068e6eb.txt"
+    content_result = reload_offloaded_content(file_path)
+
+    print("\n=== Read File Result ===")
+    print(f"Success: {content_result['success']}")
+    if content_result['success']:
+        # The answer field contains the file content directly
+        content = content_result['answer']
+        print(f"File: {file_path}")
+        print(f"Content length: {len(content)} chars")
+        print(f"Content preview: {content[:100]}...")
+
+    # Example 3: Reload file with pagination
+    large_file_path = "./cache_file/large_file.txt"
+    page1 = reload_offloaded_content(large_file_path, offset=0, limit=100)
+    page2 = reload_offloaded_content(large_file_path, offset=100, limit=100)
+
+    print("\n=== Paginated Read ===")
+    if page1['success']:
+        print(f"Page 1: {len(page1['answer'])} chars")
+    if page2['success']:
+        print(f"Page 2: {len(page2['answer'])} chars")
+
+    # Example 4: Batch reload from grep results
+    print("\n=== Batch Reload ===")
+    search_result = find_offloaded_files(store_dir, pattern="tool")
+    if search_result['success']:
+        # Extract file names from grep answer
+        import re
+        file_pattern = r'File: ([\w\.]+)'
+        file_names = re.findall(file_pattern, search_result['answer'])
+
+        for file_name in file_names[:5]:  # Load first 5 files
+            full_path = f"{store_dir}{file_name}"
+            result = reload_offloaded_content(full_path)
+            if result['success']:
+                content = result['answer']
+                print(f"Loaded {file_name}: {len(content)} chars")
+```
+
+**Complete examples**: See `test_op/useREME1.py` for the minimal working example.
+
+#### Grep Tool Parameters
+
+- `pattern` (string, **required**): Regular expression pattern to search for
+  - Examples: `"tool"`, `"compressed_group"`, `".*\\.txt"`
+
+- `path` (string, optional): Directory to search in
+  - Supports both relative and absolute paths
+  - Default: current working directory
+  - Examples: `"./cache_file/"`, `"/workspace/context_store"`
+
+- `glob` (string, optional): Glob pattern to filter files
+  - Examples: `"*.txt"`, `"*.json"`, `"compressed_*.json"`
+
+- `limit` (number, optional): Maximum number of matches to return
+  - Default: unlimited
+  - Example: `100`
+
+**Grep Response Format:**
+```json
+{
+  "success": true,
+  "answer": "Found N matches for pattern \"...\" in path \"...\":\n---\nFile: file1.txt\nL1: matching content...\n---\nFile: file2.txt\nL1: matching content...\n---",
+  "messages": [],
+  "metadata": {}
+}
+```
+
+**Note**: Parse the `answer` field to extract file names. Each match is separated by `---` and includes the filename and matching line(s).
+
+#### ReadFile Tool Parameters
+
+- `absolute_path` (string, **required**): Path to the file
+  - Supports both relative and absolute paths
+  - Examples:
+    - Relative: `"./cache_file/16995f21aab44f26ad55e3cd6068e6eb.txt"`
+    - Absolute: `"/workspace/context_store/tool_call_123.txt"`
+
+- `offset` (number, optional): Starting line number (0-based)
+  - Used for pagination
+  - Example: `0` (first line)
+
+- `limit` (number, optional): Maximum number of lines to read
+  - Used with offset for pagination
+  - Example: `100` (read 100 lines)
+
+**ReadFile Response Format:**
+```json
+{
+  "success": true,
+  "answer": "file content here...",
+  "messages": [],
+  "metadata": {}
+}
+```
+
+**Note**: The `answer` field contains the complete file content as a string.
+
+**Best Practices:**
+
+1. **Organize Storage Directory**: Use a dedicated directory for offloaded content
+   - Recommended: `./cache_file/` or `/workspace/context_store`
+   - Files are named with unique IDs (e.g., `c9ff64d623eb4ab389819abe40d294fe.txt`)
+
+2. **Use Grep to Find Files**: Search by pattern before attempting to read
+   ```python
+   result = find_offloaded_files("./cache_file/", pattern="tool")
+   # Parse file names from answer field
+   import re
+   file_names = re.findall(r'File: ([\w\.]+)', result['answer'])
+   ```
+
+3. **Check Success Before Processing**: Always verify the response
+   ```python
+   if result['success']:
+       content = result['answer']  # Content is directly in answer field
+   ```
+
+4. **Paginate Large Files**: Use `offset` and `limit` for files over 1000 lines
+   ```python
+   page1 = reload_offloaded_content(file_path, offset=0, limit=100)
+   page2 = reload_offloaded_content(file_path, offset=100, limit=100)
+   ```
+
+5. **Batch Processing**: Use grep to find multiple files, then iterate
+   ```python
+   search_result = find_offloaded_files(store_dir, pattern="tool")
+   for file_path in search_result['metadata']['matches']:
+       content_result = reload_offloaded_content(file_path)
+   ```
+
+**Common Reload Patterns:**
+
+**Pattern 1: Search and Reload**
+```python
+import re
+
+# Step 1: Find files using grep
+search_result = find_offloaded_files("./cache_file/", pattern="tool")
+
+# Step 2: Parse file names from answer
+if search_result['success']:
+    file_names = re.findall(r'File: ([\w\.]+)', search_result['answer'])
+
+    # Step 3: Reload each file
+    for file_name in file_names:
+        file_path = f"./cache_file/{file_name}"
+        content_result = reload_offloaded_content(file_path)
+        if content_result['success']:
+            content = content_result['answer']
+            print(f"Loaded {file_name}: {len(content)} chars")
+```
+
+**Pattern 2: Direct Reload by Path**
+```python
+# If you know the exact file path from context_offload response
+file_path = "./cache_file/tool_call_123.txt"
+result = reload_offloaded_content(file_path)
+if result['success']:
+    full_content = result['answer']  # Content is directly in answer field
+    print(f"Content: {full_content}")
+```
+
+**Pattern 3: Integration with Context Offload**
+```python
+# After offloading
+offload_result = offload_context(messages, mode="auto", store_dir="./cache_file/")
+
+# Extract file paths from write_file_dict
+file_paths = list(offload_result['metadata']['write_file_dict'].keys())
+
+# Later, reload when needed
+for file_path in file_paths:
+    full_path = f"./{file_path}"  # Add ./ prefix if needed
+    content_result = reload_offloaded_content(full_path)
+    if content_result['success']:
+        content = content_result['answer']
+        print(f"Reloaded: {content[:100]}...")
+```
