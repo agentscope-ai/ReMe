@@ -6,7 +6,6 @@ which extends FlowLLM with specialized memory management capabilities including:
 - Task Memory: Store and retrieve task execution histories
 - Tool Memory: Track tool usage patterns and experiences
 - Personal Memory: Manage user preferences and personal information
-- SOP Memory: Standard Operating Procedures for recurring workflows
 """
 
 import asyncio
