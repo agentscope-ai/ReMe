@@ -159,6 +159,12 @@ flow:
   agentic_retrieve:
     flow_content: AgenticRetrieveOp()
 
+  grep:
+    flow_content: GrepOp()
+
+  read_file:
+    flow_content: ReadFileOp()
+
   context_offload:
     flow_content: ContextOffloadOp() >> BatchWriteFileOp()
     description: "Manages context window limits by compacting tool messages and compressing conversation history. First compacts large tool messages by storing full content in external files, then applies LLM-based compression if compaction ratio exceeds threshold. This helps reduce token usage while preserving important information."
