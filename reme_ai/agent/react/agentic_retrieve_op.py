@@ -85,7 +85,7 @@ class AgenticRetrieveOp(ReactAgentOp):
             },
         )
 
-    def build_tool_op_dict(self) -> dict:
+    async def build_tool_op_dict(self) -> dict:
         """Collect available tool operators from the execution context."""
         from reme_ai.context.file_tool import GrepOp, ReadFileOp
 
@@ -98,7 +98,7 @@ class AgenticRetrieveOp(ReactAgentOp):
 
         return tool_op_dict
 
-    def build_messages(self) -> List[Message]:
+    async def build_messages(self) -> List[Message]:
         """Build the initial message history for the LLM."""
         return self.context.messages
 

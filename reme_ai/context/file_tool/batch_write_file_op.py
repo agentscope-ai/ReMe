@@ -20,6 +20,10 @@ class BatchWriteFileOp(BaseAsyncOp):
     WriteFileOp. Returns a combined result of all write operations.
     """
 
+    def __init__(self, save_answer: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.save_answer: bool = save_answer
+
     async def async_execute(self):
         """Execute the batch write file operation.
 
@@ -37,7 +41,7 @@ class BatchWriteFileOp(BaseAsyncOp):
         # Process each file in the dictionary
         result = []
         for file_path, content in write_file_dict.items():
-            write_op = WriteFileOp()
+            write_op = WriteFileOp(save_answer=self.save_answer)
             await write_op.async_call(file_path=file_path, content=content)
             result.append(write_op.output)
 

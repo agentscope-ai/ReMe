@@ -249,7 +249,6 @@ llm:
     params:
       temperature: 0.6
     token_count: # Optional
-      model_name: Qwen/Qwen3-30B-A3B-Instruct-2507
       backend: base
 
   qwen3_30b_instruct:
