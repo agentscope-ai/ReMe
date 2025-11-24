@@ -160,10 +160,12 @@ print(result["answer"])  # Agent's final response
 print(result["success"])  # True if successful
 ```
 
+
+
 ### Notes
 
 - The agent automatically manages tool selection and invocation based on the conversation context
 - Context management is crucial for long conversations to avoid exceeding token limits
 - Stored files in `store_dir` can be reused across sessions when referenced by the agent
 - The agent follows a ReAct pattern: it reasons about what to do next, takes action through tools, observes results, and continues until the task is complete
-
+- For more implementation details, please refer to: [test/test_agent_retrieve.py](file://../test/test_agent_retrieve.py)

@@ -168,8 +168,7 @@ After Compaction:
 {
   role: "tool",
   tool_call_id: "call_123",
-  content: "{path: '/workspace/data.json', content: '...[first 100 chars]...'
-            (detailed result is stored in /context_store/call_123.txt)}"
+  content: "...[first 100 chars]...(detailed result is stored in /context_store/call_123.txt)}"
 }
 Token count: 150 tokens (98% reduction)
 
@@ -272,13 +271,6 @@ Decision Logic:
 
 **Purpose**: Manages context window limits by intelligently offloading message content to external storage, supporting three strategies: compaction (reversible), compression (LLM-based), and auto (adaptive hybrid).
 
-**Flow**:
-```yaml
-context_offload:
-  flow_content: ContextOffloadOp() >> BatchWriteFileOp()
-  description: "Manages context window limits by compacting tool messages and compressing conversation history"
-```
-
 **Process**:
 
 The operation supports three context management modes:
@@ -301,28 +293,6 @@ The operation supports three context management modes:
 2. Calculates compaction ratio: `tokens_after / tokens_before`
 3. If ratio > 0.75 (compaction insufficient): applies compression to remaining messages
 4. If ratio ≤ 0.75 (compaction sufficient): stops processing
-
-**Configuration** (`default.yaml`):
-```yaml
-op:
-  context_offload:
-    flow_content: ContextOffloadOp() >> BatchWriteFileOp()
-    params:
-      # Mode selection
-      context_manage_mode: "auto"           # Options: "compact", "compress", "auto"
-
-      # Compaction parameters
-      max_tool_message_tokens: 2000         # Threshold for compacting individual tool messages
-      max_total_tokens: 20000               # Total token threshold for triggering offload
-
-      # Compression parameters
-      group_token_threshold: 0              # Max tokens per compression group (0 = single group)
-
-      # Common parameters
-      keep_recent_count: null               # Recent messages to preserve (1 for compact, 2 for compress)
-      store_dir: "/path/to/store"           # Directory for storing offloaded content
-      chat_id: null                         # Chat session identifier (auto-generated if null)
-```
 
 **Key Parameters Explained:**
 - `context_manage_mode`: Strategy selection
@@ -356,34 +326,6 @@ curl -X POST http://0.0.0.0:8002/context_offload \
     "keep_recent_count": 0,
     "store_dir": "/workspace/context_store",
     "chat_id": "research_session_001"
-  }'
-```
-
-**Example 2: Compact Only Mode**
-```bash
-curl -X POST http://0.0.0.0:8002/context_offload \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [...],
-    "context_manage_mode": "compact",
-    "max_tool_message_tokens": 2000,
-    "keep_recent_count": 1,
-    "store_dir": "/workspace/context_store"
-  }'
-```
-
-**Example 3: Compress Only Mode**
-```bash
-curl -X POST http://0.0.0.0:8002/context_offload \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [...],
-    "context_manage_mode": "compress",
-    "max_total_tokens": 20000,
-    "group_token_threshold": 5000,
-    "keep_recent_count": 2,
-    "store_dir": "/workspace/context_store",
-    "chat_id": "chat_session_002"
   }'
 ```
 
@@ -438,34 +380,6 @@ curl -X POST http://0.0.0.0:8002/context_offload \
   - Keys: Relative file paths where content was stored
   - Values: Full content that was offloaded from messages
 
-**How to Use the Response:**
-
-1. **Replace your message history** with the `messages` field:
-   ```python
-   # Before offload
-   messages = [msg1, msg2, msg3, ...]  # 95,000 tokens
-
-   # After offload
-   result = offload_context(messages)
-   messages = result['messages']  # 18,000 tokens
-
-   # Continue with reduced context
-   response = llm_api.call(messages=messages)
-   ```
-
-2. **Access offloaded content when needed** using the file paths in `write_file_dict`:
-   ```python
-   # If you need to retrieve full content later
-   file_paths = list(result['metadata']['write_file_dict'].keys())
-   full_content = read_file(absolute_path=file_paths[0])
-   ```
-
-3. **Track offload operations** using the `answer` field for logging:
-   ```python
-   print(result['answer'])
-   # "Successfully created and wrote to new file: ..."
-   ```
-
 #### Usage with Python
 
 ```{code-cell}
@@ -511,53 +425,13 @@ messages = [
 
 # Auto mode (recommended)
 result = offload_context(messages, mode="auto")
-
-if result['success']:
-    # Get processed messages with reduced token count
-    processed_messages = result['messages']
-    print(f"Original message count: {len(messages)}")
-    print(f"Processed message count: {len(processed_messages)}")
-
-    # Check offloaded files
-    write_file_dict = result['metadata'].get('write_file_dict', {})
-    print(f"Files created: {len(write_file_dict)}")
-    for file_path, content_preview in write_file_dict.items():
-        print(f"  - {file_path}: {len(content_preview)} chars")
-
-    # Use processed messages in next API call
-    # These messages have reduced token count and can be safely sent to LLM
-    next_messages = processed_messages + [
-        {"role": "user", "content": "Continue the task..."}
-    ]
-    # Continue conversation with reduced context...
 ```
 
-**Complete examples**: See `cookbook/simple_demo/` for full working code with context offload integration.
-
-**Best Practices:**
-1. **Use Auto Mode**: Adapts automatically based on context characteristics
-2. **Set Appropriate Thresholds**: Adjust `max_tool_message_tokens` based on your use case (1000-3000 typical)
-3. **Preserve Recent Context**: Keep `keep_recent_count` at 2-3 for optimal agent performance
-4. **Organize Storage**: Use dedicated `store_dir` per workspace/session for easy management
-5. **Monitor Reduction Ratio**: If consistently >75% after compaction, consider tuning thresholds
-
-**When to Use Each Mode:**
-- **Auto**: General agent applications, unknown context patterns (**Recommended**)
-- **Compact**: Tool-heavy workflows with large outputs (web scraping, file processing)
-- **Compress**: Dialogue-heavy workflows with minimal tool usage (customer support, tutoring)
 
 ### 3.2 `context_reload`
 
 **Purpose**: Retrieve and restore the full content of offloaded messages by locating file references and reading stored content. This operation combines `grep` and `read_file` tools to enable on-demand access to compacted or compressed information.
 
-**Flow**:
-```yaml
-# No dedicated flow - manual combination of tools
-grep:
-  flow_content: GrepOp()
-read_file:
-  flow_content: ReadFileOp()
-```
 
 **Process**:
 
@@ -588,22 +462,6 @@ Context reload is achieved through a two-step manual process:
    - Retrieve: `read_file` examines stored content structure
 
 ### Configuration
-
-**Grep Tool**:
-```yaml
-op:
-  grep:
-    flow_content: GrepOp()
-    # Parameters defined in tool call
-```
-
-**ReadFile Tool**:
-```yaml
-op:
-  read_file:
-    flow_content: ReadFileOp()
-    # Parameters defined in tool call
-```
 
 #### Usage with curl
 
@@ -655,28 +513,6 @@ curl -X POST http://0.0.0.0:8002/read_file \
 ```
 
 **Note**: The `answer` field contains the complete file content directly.
-
-**Example 3: Paginate Through Large Files**
-
-```bash
-# Read first 100 lines
-curl -X POST http://0.0.0.0:8002/read_file \
-  -H "Content-Type: application/json" \
-  -d '{
-    "absolute_path": "./cache_file/large_file.txt",
-    "offset": 0,
-    "limit": 100
-  }'
-
-# Read next 100 lines
-curl -X POST http://0.0.0.0:8002/read_file \
-  -H "Content-Type: application/json" \
-  -d '{
-    "absolute_path": "./cache_file/large_file.txt",
-    "offset": 100,
-    "limit": 100
-  }'
-```
 
 #### Usage with Python
 
@@ -734,65 +570,6 @@ def reload_offloaded_content(file_path: str, offset: int = None, limit: int = No
         json=params
     )
     return response.json()
-
-
-# Example Usage
-if __name__ == "__main__":
-    # Example 1: Search for offloaded files
-    store_dir = "./cache_file/"
-    search_result = find_offloaded_files(store_dir, pattern="tool")
-
-    print("=== Grep Search Result ===")
-    print(f"Success: {search_result['success']}")
-    if search_result['success']:
-        # The answer field contains the full search results as text
-        print(f"Search results:\n{search_result['answer']}")
-
-        # Parse file names from the answer if needed
-        import re
-        file_pattern = r'File: ([\w\.]+)'
-        file_names = re.findall(file_pattern, search_result['answer'])
-        print(f"\nFound {len(file_names)} files: {file_names[:3]}...")
-
-    # Example 2: Read specific offloaded file
-    file_path = "./cache_file/16995f21aab44f26ad55e3cd6068e6eb.txt"
-    content_result = reload_offloaded_content(file_path)
-
-    print("\n=== Read File Result ===")
-    print(f"Success: {content_result['success']}")
-    if content_result['success']:
-        # The answer field contains the file content directly
-        content = content_result['answer']
-        print(f"File: {file_path}")
-        print(f"Content length: {len(content)} chars")
-        print(f"Content preview: {content[:100]}...")
-
-    # Example 3: Reload file with pagination
-    large_file_path = "./cache_file/large_file.txt"
-    page1 = reload_offloaded_content(large_file_path, offset=0, limit=100)
-    page2 = reload_offloaded_content(large_file_path, offset=100, limit=100)
-
-    print("\n=== Paginated Read ===")
-    if page1['success']:
-        print(f"Page 1: {len(page1['answer'])} chars")
-    if page2['success']:
-        print(f"Page 2: {len(page2['answer'])} chars")
-
-    # Example 4: Batch reload from grep results
-    print("\n=== Batch Reload ===")
-    search_result = find_offloaded_files(store_dir, pattern="tool")
-    if search_result['success']:
-        # Extract file names from grep answer
-        import re
-        file_pattern = r'File: ([\w\.]+)'
-        file_names = re.findall(file_pattern, search_result['answer'])
-
-        for file_name in file_names[:5]:  # Load first 5 files
-            full_path = f"{store_dir}{file_name}"
-            result = reload_offloaded_content(full_path)
-            if result['success']:
-                content = result['answer']
-                print(f"Loaded {file_name}: {len(content)} chars")
 ```
 
 **Complete examples**: See `test_op/useREME1.py` for the minimal working example.
@@ -852,86 +629,3 @@ if __name__ == "__main__":
 }
 ```
 
-**Note**: The `answer` field contains the complete file content as a string.
-
-**Best Practices:**
-
-1. **Organize Storage Directory**: Use a dedicated directory for offloaded content
-   - Recommended: `./cache_file/` or `/workspace/context_store`
-   - Files are named with unique IDs (e.g., `c9ff64d623eb4ab389819abe40d294fe.txt`)
-
-2. **Use Grep to Find Files**: Search by pattern before attempting to read
-   ```python
-   result = find_offloaded_files("./cache_file/", pattern="tool")
-   # Parse file names from answer field
-   import re
-   file_names = re.findall(r'File: ([\w\.]+)', result['answer'])
-   ```
-
-3. **Check Success Before Processing**: Always verify the response
-   ```python
-   if result['success']:
-       content = result['answer']  # Content is directly in answer field
-   ```
-
-4. **Paginate Large Files**: Use `offset` and `limit` for files over 1000 lines
-   ```python
-   page1 = reload_offloaded_content(file_path, offset=0, limit=100)
-   page2 = reload_offloaded_content(file_path, offset=100, limit=100)
-   ```
-
-5. **Batch Processing**: Use grep to find multiple files, then iterate
-   ```python
-   search_result = find_offloaded_files(store_dir, pattern="tool")
-   for file_path in search_result['metadata']['matches']:
-       content_result = reload_offloaded_content(file_path)
-   ```
-
-**Common Reload Patterns:**
-
-**Pattern 1: Search and Reload**
-```python
-import re
-
-# Step 1: Find files using grep
-search_result = find_offloaded_files("./cache_file/", pattern="tool")
-
-# Step 2: Parse file names from answer
-if search_result['success']:
-    file_names = re.findall(r'File: ([\w\.]+)', search_result['answer'])
-
-    # Step 3: Reload each file
-    for file_name in file_names:
-        file_path = f"./cache_file/{file_name}"
-        content_result = reload_offloaded_content(file_path)
-        if content_result['success']:
-            content = content_result['answer']
-            print(f"Loaded {file_name}: {len(content)} chars")
-```
-
-**Pattern 2: Direct Reload by Path**
-```python
-# If you know the exact file path from context_offload response
-file_path = "./cache_file/tool_call_123.txt"
-result = reload_offloaded_content(file_path)
-if result['success']:
-    full_content = result['answer']  # Content is directly in answer field
-    print(f"Content: {full_content}")
-```
-
-**Pattern 3: Integration with Context Offload**
-```python
-# After offloading
-offload_result = offload_context(messages, mode="auto", store_dir="./cache_file/")
-
-# Extract file paths from write_file_dict
-file_paths = list(offload_result['metadata']['write_file_dict'].keys())
-
-# Later, reload when needed
-for file_path in file_paths:
-    full_path = f"./{file_path}"  # Add ./ prefix if needed
-    content_result = reload_offloaded_content(full_path)
-    if content_result['success']:
-        content = content_result['answer']
-        print(f"Reloaded: {content[:100]}...")
-```

@@ -442,7 +442,7 @@ def test_original_example():
 member.
 
 如果你认为这个内容很重要，那么你开始阅读时，你需要用一种方式来提醒自己，这个内容很重要。"""},
-            {"role": "user", "content": "请你就四细节观察练习再展开讲讲，用一个json描述你搜索的结果。"},
+            {"role": "user", "content": "请你就四细节观察练习再展开讲讲，返回一个json描述你搜索的结果。"},
         ],
         "context_manage_mode": "compact",
         "max_total_tokens": 200,
