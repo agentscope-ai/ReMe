@@ -31,9 +31,48 @@ def test_compact_mode():
         "messages": [
             {"role": "system", "content": "You are a helpful assistant"},
             {"role": "user", "content": "Query 1"},
-            {"role": "assistant", "content": "Response 1"},
-            {"role": "user", "content": "Query 2 " * 5},
-            {"role": "tool", "content": "Large tool output " * 50},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query1\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query2\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
             {"role": "user", "content": "Query 3"},
         ],
         "context_manage_mode": "compact",
@@ -45,10 +84,7 @@ def test_compact_mode():
     }
 
     result = send_request(payload)
-    if result:
-        print("\n结果:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    return result
+    return result.json()
 
 
 def test_compress_mode():
@@ -59,23 +95,62 @@ def test_compress_mode():
 
     payload = {
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Hello, how are you?"},
-            {"role": "assistant", "content": "I'm doing well, thank you!"},
-            {"role": "user", "content": "Can you help me with Python?"},
-            {"role": "assistant", "content": "Of course! I'd be happy to help with Python."},
-            {"role": "user", "content": "What's the latest question?"},
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "user", "content": "Query 1"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query1\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query2\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
+            {"role": "user", "content": "Query 3"},
         ],
         "context_manage_mode": "compress",
-        "max_total_tokens": 5000,
-        "group_token_threshold": 1000,
+        "max_total_tokens": 10,
+        "group_token_threshold": None,
         "keep_recent_count": 2,
         "store_dir": CACHE_DIR,
         "chat_id": "test_compress"
     }
 
     result = send_request(payload)
-    print(result.json())
+    return result.json()
 
 
 def test_auto_mode():
@@ -86,11 +161,51 @@ def test_auto_mode():
 
     payload = {
         "messages": [
-            {"role": "system", "content": "You are a helpful assistant. 你要习惯于grep，再进行readfile"},
-            {"role": "user", "content": "Hello " * 100},
-            {"role": "assistant", "content": "Hi there! " * 50},
-            {"role": "tool", "content": "Tool result data " * 200},
-            {"role": "user", "content": "Final question " * 50},
+            {"role": "system", "content": "You are a helpful assistant"},
+            {"role": "user", "content": "Query 1"},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query1\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
+            {
+                "role": "assistant",
+                "content": "",
+                "reasoning_content": "",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_6befd06ce58843ba9225c7",
+                        "type": "function",
+                        "name": "mock_tool",
+                        "arguments": "{\"mock_query\": \"search query2\"}",
+                        "description": "",
+                        "input_schema": {},
+                        "output_schema": {}
+                    }
+                ],
+                "tool_call_id": "",
+                "time_created": "2025-11-21 14:46:29",
+                "metadata": {}
+            },
+            {"role": "tool", "content": "response1 " * 50},
+            {"role": "user", "content": "Query 3"},
         ],
         "context_manage_mode": "auto",
         "max_total_tokens": 100,
@@ -101,16 +216,13 @@ def test_auto_mode():
     }
 
     result = send_request(payload)
-    if result:
-        print("\n结果:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-    return result
+    return result.json()
 
 
 def test_original_example():
     """原始测试用例"""
     print("\n" + "="*60)
-    print("测试 6: 原始测试用例")
+    print("测试 4: 模拟真实场景测试用例")
     print("="*60)
 
     payload = {
@@ -329,22 +441,19 @@ def test_original_example():
 例如，你正在阅读一本书，并开始阅读某一段内容。你开始阅读时，你正在思考，这个内容是不是很重要，或者这个内容是不是 important enough to re
 member.
 
-如果你认为这个内容很重要，那么你开始阅读时，你需要用一种方式来提醒自己，这个内容很重要。你可以用一种方式来提醒自己，这个内容很重要，比如在阅
-读过程中，你可以用一种方式来提醒自己，这个内容很重要。
-
-当你开始阅读时，你需要用一种方式来提醒自己，这个内容很重要。你可以"""},
-            {"role": "user", "content": "请你就四细节观察练习再展开讲讲，最后用json格式恢复回复我"},
+如果你认为这个内容很重要，那么你开始阅读时，你需要用一种方式来提醒自己，这个内容很重要。"""},
+            {"role": "user", "content": "请你就四细节观察练习再展开讲讲，用一个json描述你搜索的结果。"},
         ],
         "context_manage_mode": "compact",
-        "max_total_tokens": 50,
-        "max_tool_message_tokens": 50,
-        "keep_recent_count": 3,
+        "max_total_tokens": 200,
+        "max_tool_message_tokens": 100,
+        "keep_recent_count": 2,
         "store_dir": CACHE_DIR,
         "chat_id": "research_session_001"
     }
 
     result = send_request(payload)
-    print(result.json())
+    return result.json()
 
 
 def run_all_tests():
@@ -366,6 +475,7 @@ def run_all_tests():
     for test_func in tests:
         try:
             result = test_func()
+            print(f"输出结果为：{result}")
             results.append((test_func.__name__, "✓ 成功" if result else "✗ 失败"))
         except Exception as e:
             print(f"\n错误: {e}")
@@ -387,5 +497,3 @@ if __name__ == "__main__":
 
     # 或者只运行某个特定测试，例如:
     # test_compact_mode()
-    # test_simple_query()
-    # test_original_example()

@@ -23,7 +23,7 @@ A ReAct (Reasoning + Acting) agent that answers user queries by interacting with
 ### Functionality
 
 - Implements the ReAct pattern: alternating between reasoning about the task and taking actions through tool calls
-- Automatically selects and invokes appropriate tools (e.g., `Grep`, `ReadFile`, `search_web`) based on user queries
+- Automatically selects and invokes appropriate tools (e.g., `Grep`, `ReadFile`) based on user queries
 - Supports intelligent context management to handle long conversations and large tool outputs
 - Integrates seamlessly with context offloading mechanisms (compact/compress/auto modes)
 - Provides structured responses with reasoning traces and final answers
@@ -145,8 +145,8 @@ payload = {
         }
     ],
     "context_manage_mode": "compact",
-    "max_total_tokens": 50,
-    "max_tool_message_tokens": 50,
+    "max_total_tokens": 200,
+    "max_tool_message_tokens": 200,
     "keep_recent_count": 3,
     "store_dir": "/path/to/cache_file",
     "chat_id": "research_session_001"
