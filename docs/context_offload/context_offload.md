@@ -266,6 +266,7 @@ Decision Logic:
 - Production-proven strategy
 
 ## 3. Operation Details: How to Use Each Component
+- For more implementation details, please refer to: [docs/agent_retrieve.md](../agent/agent_retrieve.md) and [test_op/test_context_offload_op.py](../../test_op/test_context_offload_op.py)
 
 ### 3.1 `context_offload`
 
