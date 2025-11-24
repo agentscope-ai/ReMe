@@ -572,7 +572,6 @@ def reload_offloaded_content(file_path: str, offset: int = None, limit: int = No
     return response.json()
 ```
 
-**Complete examples**: See `test_op/useREME1.py` for the minimal working example.
 
 #### Grep Tool Parameters
 
