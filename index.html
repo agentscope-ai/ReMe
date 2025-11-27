@@ -312,14 +312,16 @@
 <hr class="docutils" />
 <p>ReMe provides AI agents with a unified memory system—enabling the ability to extract, reuse, and share memories across
 users, tasks, and agents.</p>
-<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Personal Memory + Task Memory + Tool Memory = Agent Memory
+<p>Agent memory can be viewed as:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Agent Memory = Long-Term Memory + Short-Term Memory
+             = (Personal + Task + Tool) Memory + (Working Memory)
 </pre></div>
 </div>
-<p>Personal memory helps “<strong>understand user preferences</strong>”, task memory helps agents “<strong>perform better</strong>”, and tool memory enables “<strong>smarter tool usage</strong>”.</p>
+<p>Personal memory helps “<strong>understand user preferences</strong>”, task memory helps agents “<strong>perform better</strong>”, and tool memory enables “<strong>smarter tool usage</strong>”. Working memory provides <strong>short-term contextual memory</strong> by keeping recent reasoning and tool results compact and accessible without overflowing the model’s context window.</p>
 <section id="architecture-design">
 <h2>Architecture Design<a class="headerlink" href="#architecture-design" title="Link to this heading">¶</a></h2>
 <p align="center">
- <img src="_static/figure/reme_structure.jpg" alt="ReMe Logo" width="100%">
+ <img src="_static/figure/reme_usage.jpg" alt="ReMe Logo" width="100%">
 </p>
 <p>ReMe integrates three complementary memory capabilities:</p>
 <div class="note admonition">
@@ -355,6 +357,25 @@ users, tasks, and agents.</p>
 </ul>
 </div>
 <p>Learn more about how to use tool memory from <a class="reference internal" href="tool_memory/tool_memory.html"><span class="std std-doc">tool memory</span></a></p>
+<div class="note admonition">
+<p class="admonition-title">Working Memory</p>
+<p>Short‑term contextual memory for long‑running agents via <strong>message offload &amp; reload</strong>:</p>
+<ul class="simple">
+<li><p><strong>Message Offload</strong>: Compact large tool outputs to external files or LLM summaries</p></li>
+<li><p><strong>Message Reload</strong>: Search (<code class="docutils literal notranslate"><span class="pre">grep_working_memory</span></code>) and read (<code class="docutils literal notranslate"><span class="pre">read_working_memory</span></code>) offloaded content on demand</p></li>
+</ul>
+<p><strong>📖 Concept &amp; API</strong>:</p>
+<ul class="simple">
+<li><p>Message offload overview: <a class="reference internal" href="work_memory/message_offload.html"><span class="std std-doc">Message Offload</span></a></p></li>
+<li><p>Offload / reload operators: <a class="reference internal" href="work_memory/message_offload_ops.html"><span class="std std-doc">Message Offload Ops</span></a>, <a class="reference internal" href="work_memory/message_reload_ops.html"><span class="std std-doc">Message Reload Ops</span></a></p></li>
+</ul>
+<p><strong>💻 End‑to‑End Demo</strong>:</p>
+<ul class="simple">
+<li><p>Working memory quick start: <a class="reference internal" href="cookbook/working/quick_start.html"><span class="std std-doc">Working Memory Quick Start</span></a></p></li>
+<li><p>ReAct agent with working memory: <a class="reference download internal" download="" href="_downloads/98ef23b2fe45f8ab95256e10271d374d/react_agent_with_working_memory.py"><span class="xref download myst">react_agent_with_working_memory.py</span></a></p></li>
+<li><p>Runnable demo: <a class="reference download internal" download="" href="_downloads/52902f42cf8a81d3af3b4415af69c598/work_memory_demo.py"><span class="xref download myst">work_memory_demo.py</span></a></p></li>
+</ul>
+</div>
 </section>
 <hr class="docutils" />
 <section id="ready-to-use-memories">

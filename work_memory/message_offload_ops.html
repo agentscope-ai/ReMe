@@ -306,7 +306,20 @@
 <h2>MessageOffloadOp<a class="headerlink" href="#messageoffloadop" title="Link to this heading">¶</a></h2>
 <section id="purpose">
 <h3>Purpose<a class="headerlink" href="#purpose" title="Link to this heading">¶</a></h3>
-<p>Manages context window limits by intelligently offloading message content through compaction and compression strategies to reduce token usage while preserving important information.</p>
+<p>As AI agents evolved from simple chatbots to sophisticated autonomous systems, the focus shifted from “prompt engineering” to “context engineering”. Agentic systems work by binding LLMs with tools and running them in a loop where the agent decides which tools to call and feeds results back into the message history. This creates a <strong>context explosion</strong> problem:</p>
+<ul class="simple">
+<li><p><strong>Rapid Growth</strong>: A seemingly simple task can trigger 50+ tool calls, with production agents often running hundreds of conversation turns</p></li>
+<li><p><strong>Large Outputs</strong>: Each tool call can return substantial text, consuming massive amounts of tokens</p></li>
+<li><p><strong>Memory Pressure</strong>: The context window quickly fills up as messages and tool results accumulate chronologically</p></li>
+</ul>
+<p>When context grows too large, model performance degrades significantly—a phenomenon known as <strong>“context rot”</strong>:</p>
+<ul class="simple">
+<li><p><strong>Repetitive Responses</strong>: The model starts generating redundant or circular answers</p></li>
+<li><p><strong>Slower Reasoning</strong>: Inference becomes noticeably slower as context length increases</p></li>
+<li><p><strong>Quality Degradation</strong>: Overall response quality and coherence decline</p></li>
+<li><p><strong>Lost Focus</strong>: The model struggles to identify relevant information in the bloated context</p></li>
+</ul>
+<p><strong>MessageOffloadOp</strong> addresses this fundamental challenge by managing context window limits through intelligent offloading strategies. It implements compaction and compression techniques to reduce token usage while preserving important information, enabling agents to handle arbitrarily long conversations and complex tasks while maintaining optimal performance throughout.</p>
 </section>
 <section id="functionality">
 <h3>Functionality<a class="headerlink" href="#functionality" title="Link to this heading">¶</a></h3>
