@@ -6,7 +6,7 @@
 <link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Task Memory" href="../task_memory/task_memory.html"><link rel="prev" title="Personal Memory Retrieve Ops" href="personal_retrieve_ops.html">
         <link rel="prefetch" href="../_static/logo.svg" as="image">
 
-    <!-- Generated with Sphinx 7.4.7 and Furo 2025.09.25 -->
+    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
         <title>Personal Memory Summary Ops - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=580074bf" />
@@ -233,10 +233,25 @@
 <li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_summary_ops.html">Tool Memory Summary Ops</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">Working Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload.html">Message Offload</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload_ops.html">Message Offload Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_reload_ops.html">Message Reload Ops</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">Vector Store Configuration Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html">Vector Store User Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#core-concepts">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#available-implementations">Available Implementations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#core-features">Core Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#synchronous-and-asynchronous-interfaces">Synchronous and Asynchronous Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#configuration-file-examples">Configuration File Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#metadata-filtering">Metadata Filtering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#usage-recommendations">Usage Recommendations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../vector_store_api_guide.html#important-notes">Important Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -244,6 +259,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../cookbook/frozenlake/quickstart.html">FrozenLake</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cookbook/bfcl/quickstart.html">BFCL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../cookbook/appworld/quickstart.html">AppWorld</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cookbook/working/quick_start.html">Working Memory Demo</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Others</span></p>
 <ul>
@@ -539,7 +555,7 @@
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-11</div>
+              Last updated on 2025-11-27</div>
           </div>
           <div class="right-details">
             <div class="icons">
@@ -633,7 +649,7 @@
     </aside>
   </div>
 </div><script src="../_static/documentation_options.js?v=a8e58a58"></script>
-    <script src="../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=46bd48cc"></script>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
@@ -647,8 +663,6 @@
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script async="async" src="../_static/sphinx-thebe.js?v=c100c467"></script>
-    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
-    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script src="../_static/language.js"></script>
     <script src="../_static/memory-lib/memory-lib.js?v=d34abfda"></script>
     </body>

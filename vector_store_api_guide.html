@@ -6,8 +6,8 @@
 <link rel="index" title="Index" href="genindex.html"><link rel="search" title="Search" href="search.html"><link rel="next" title="Experiement Overview" href="cookbook/experiment_overview.html"><link rel="prev" title="MCP Quick Start Guide" href="mcp_quick_start.html">
         <link rel="prefetch" href="_static/logo.svg" as="image">
 
-    <!-- Generated with Sphinx 7.4.7 and Furo 2025.09.25 -->
-        <title>Vector Store Configuration Guide - AgentScope ReMe</title>
+    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
+        <title>Vector Store User Guide - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="_static/togglebutton.css?v=13237357" />
@@ -187,7 +187,7 @@
           <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
         </button>
       </div>
-      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+      <label class="toc-overlay-icon toc-header-icon no-toc" for="__toc">
         <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
       </label>
     </div>
@@ -233,10 +233,25 @@
 <li class="toctree-l1"><a class="reference internal" href="tool_memory/tool_summary_ops.html">Tool Memory Summary Ops</a></li>
 <li class="toctree-l1"><a class="reference internal" href="tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
 </ul>
+<p class="caption" role="heading"><span class="caption-text">Working Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="work_memory/message_offload.html">Message Offload</a></li>
+<li class="toctree-l1"><a class="reference internal" href="work_memory/message_offload_ops.html">Message Offload Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="work_memory/message_reload_ops.html">Message Reload Ops</a></li>
+</ul>
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="mcp_quick_start.html">MCP Quick Start Guide</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Vector Store Configuration Guide</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Vector Store User Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#core-concepts">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#available-implementations">Available Implementations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#core-features">Core Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#synchronous-and-asynchronous-interfaces">Synchronous and Asynchronous Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#configuration-options">Configuration Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#configuration-file-examples">Configuration File Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#metadata-filtering">Metadata Filtering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#usage-recommendations">Usage Recommendations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="#important-notes">Important Notes</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
 <ul>
@@ -244,6 +259,7 @@
 <li class="toctree-l1"><a class="reference internal" href="cookbook/frozenlake/quickstart.html">FrozenLake</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cookbook/bfcl/quickstart.html">BFCL</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cookbook/appworld/quickstart.html">AppWorld</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cookbook/working/quick_start.html">Working Memory Demo</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Others</span></p>
 <ul>
@@ -279,491 +295,315 @@
               <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
             </button>
           </div>
-          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+          <label class="toc-overlay-icon toc-content-icon no-toc" for="__toc">
             <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section class="tex2jax_ignore mathjax_ignore" id="vector-store-configuration-guide">
-<h1>Vector Store Configuration Guide<a class="headerlink" href="#vector-store-configuration-guide" title="Link to this heading">¶</a></h1>
-<p>This guide covers how to configure vector store backends in ReMe using the <code class="docutils literal notranslate"><span class="pre">default.yaml</span></code> configuration file.</p>
-<section id="overview">
-<h2>📋 Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
-<p>ReMe provides multiple vector store backends for different use cases:</p>
+          <section id="vector-store-user-guide">
+<h1>Vector Store User Guide<a class="headerlink" href="#vector-store-user-guide" title="Link to this heading">¶</a></h1>
+<p>Vector Store is a component designed for storing, managing, and retrieving vector embeddings. It supports features such as workspace management, similarity search, and metadata filtering.</p>
+</section>
+<section id="core-concepts">
+<h1>Core Concepts<a class="headerlink" href="#core-concepts" title="Link to this heading">¶</a></h1>
+<p><strong>Workspace</strong>: Each workspace is an independent vector storage unit used to organize and manage related vector nodes.</p>
+<p><strong>VectorNode</strong>: A data unit containing text content, vector embedding, and metadata. It serves as the fundamental unit for storage and retrieval.</p>
+<p><strong>Embedding Model</strong>: Used to convert text into vector embeddings. It supports automatic generation of both node vectors and query vectors.</p>
+</section>
+<section id="available-implementations">
+<h1>Available Implementations<a class="headerlink" href="#available-implementations" title="Link to this heading">¶</a></h1>
+<p>FlowLLM provides multiple Vector Store implementations tailored to different use cases:</p>
 <ul class="simple">
-<li><p><strong>LocalVectorStore</strong> (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>) - 📁 Simple file-based storage for development and small datasets</p></li>
-<li><p><strong>ChromaVectorStore</strong> (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>) - 🔮 Embedded vector database for moderate scale</p></li>
-<li><p><strong>EsVectorStore</strong> (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>) - 🔍 Elasticsearch-based storage for production and large scale</p></li>
-<li><p><strong>QdrantVectorStore</strong> (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>) - 🎯 High-performance vector database with advanced filtering</p></li>
-<li><p><strong>MemoryVectorStore</strong> (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>) - ⚡ In-memory storage for ultra-fast access and testing</p></li>
+<li><p><strong>LocalVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/local_vector_store.py">source code</a>): A file-based local implementation that persists data in JSONL format. Suitable for single-machine deployments and small-scale datasets.</p></li>
+<li><p><strong>MemoryVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/memory_vector_store.py">source code</a>): An in-memory implementation offering fast access speeds. Ideal for temporary data or testing scenarios.</p></li>
+<li><p><strong>QdrantVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/qdrant_vector_store.py">source code</a>): Built on the Qdrant vector database, supporting high-performance vector search. Recommended for large-scale production environments.</p></li>
+<li><p><strong>ChromaVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/chroma_vector_store.py">source code</a>): Based on ChromaDB, providing persistent storage and metadata filtering capabilities.</p></li>
+<li><p><strong>EsVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/es_vector_store.py">source code</a>): Built on Elasticsearch, enabling powerful combined full-text and vector search functionalities.</p></li>
 </ul>
-<p>All vector stores implement the <code class="docutils literal notranslate"><span class="pre">BaseVectorStore</span></code> interface, providing a consistent API across implementations.</p>
+<p>All Vector Store implementations inherit from <strong>BaseVectorStore</strong> (<a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/base_vector_store.py">source code</a>), ensuring a consistent interface specification.</p>
 </section>
-<section id="comparison-table">
-<h2>📊 Comparison Table<a class="headerlink" href="#comparison-table" title="Link to this heading">¶</a></h2>
-<div class="table-wrapper colwidths-auto docutils container">
-<table class="docutils align-default">
-<thead>
-<tr class="row-odd"><th class="head"><p>Feature</p></th>
-<th class="head"><p>LocalVectorStore</p></th>
-<th class="head"><p>ChromaVectorStore</p></th>
-<th class="head"><p>EsVectorStore</p></th>
-<th class="head"><p>QdrantVectorStore</p></th>
-<th class="head"><p>MemoryVectorStore</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>Storage</strong></p></td>
-<td><p>File (JSONL)</p></td>
-<td><p>Embedded DB</p></td>
-<td><p>Elasticsearch</p></td>
-<td><p>Qdrant Server</p></td>
-<td><p>In-Memory</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Performance</strong></p></td>
-<td><p>Medium</p></td>
-<td><p>Good</p></td>
-<td><p>Excellent</p></td>
-<td><p>Excellent</p></td>
-<td><p>Ultra-Fast</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Scalability</strong></p></td>
-<td><p>&lt; 10K vectors</p></td>
-<td><p>&lt; 1M vectors</p></td>
-<td><p>&gt; 1M vectors</p></td>
-<td><p>&gt; 10M vectors</p></td>
-<td><p>&lt; 1M vectors</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Persistence</strong></p></td>
-<td><p>✅ Auto</p></td>
-<td><p>✅ Auto</p></td>
-<td><p>✅ Auto</p></td>
-<td><p>✅ Auto</p></td>
-<td><p>⚠️ Manual</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Setup Complexity</strong></p></td>
-<td><p>🟢 Simple</p></td>
-<td><p>🟡 Medium</p></td>
-<td><p>🔴 Complex</p></td>
-<td><p>🟡 Medium</p></td>
-<td><p>🟢 Simple</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Dependencies</strong></p></td>
-<td><p>None</p></td>
-<td><p>ChromaDB</p></td>
-<td><p>Elasticsearch</p></td>
-<td><p>Qdrant</p></td>
-<td><p>None</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Filtering</strong></p></td>
-<td><p>❌ Basic</p></td>
-<td><p>✅ Metadata</p></td>
-<td><p>✅ Advanced</p></td>
-<td><p>✅ Advanced</p></td>
-<td><p>❌ Basic</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Concurrency</strong></p></td>
-<td><p>❌ Limited</p></td>
-<td><p>✅ Good</p></td>
-<td><p>✅ Excellent</p></td>
-<td><p>✅ Excellent</p></td>
-<td><p>❌ Single Process</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Async Support</strong></p></td>
-<td><p>❌ No</p></td>
-<td><p>❌ No</p></td>
-<td><p>❌ No</p></td>
-<td><p>✅ Native</p></td>
-<td><p>❌ No</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Best For</strong></p></td>
-<td><p>Development</p></td>
-<td><p>Local Apps</p></td>
-<td><p>Production</p></td>
-<td><p>Production/Cloud</p></td>
-<td><p>Testing</p></td>
-</tr>
-</tbody>
-</table>
-</div>
+<section id="core-features">
+<h1>Core Features<a class="headerlink" href="#core-features" title="Link to this heading">¶</a></h1>
+<section id="workspace-management">
+<h2>Workspace Management<a class="headerlink" href="#workspace-management" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Create Workspace</strong>: Create a new workspace for storing vector nodes.</p></li>
+<li><p><strong>Delete Workspace</strong>: Remove a workspace along with all its data.</p></li>
+<li><p><strong>Check Workspace Existence</strong>: Verify whether a specified workspace exists.</p></li>
+<li><p><strong>List Workspaces</strong>: Retrieve a list of all existing workspaces.</p></li>
+<li><p><strong>Copy Workspace</strong>: Duplicate data from one workspace to another.</p></li>
+</ul>
 </section>
-<section id="configuration-in-default-yaml">
-<h2>⚙️ Configuration in default.yaml<a class="headerlink" href="#configuration-in-default-yaml" title="Link to this heading">¶</a></h2>
-<p>All vector stores are configured in the <code class="docutils literal notranslate"><span class="pre">vector_store</span></code> section of <code class="docutils literal notranslate"><span class="pre">reme_ai/config/default.yaml</span></code>. The configuration structure is:</p>
+<section id="node-operations">
+<h2>Node Operations<a class="headerlink" href="#node-operations" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Insert Nodes</strong>: Insert vector nodes into a workspace, supporting single or batch insertion with automatic vector embedding generation.</p></li>
+<li><p><strong>Delete Nodes</strong>: Remove specific nodes by their IDs.</p></li>
+<li><p><strong>Iterate Nodes</strong>: Traverse all nodes within a workspace.</p></li>
+</ul>
+</section>
+<section id="vector-search">
+<h2>Vector Search<a class="headerlink" href="#vector-search" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Similarity Search</strong>: Perform vector similarity searches based on text queries, returning the top-K most similar results.</p></li>
+<li><p><strong>Metadata Filtering</strong>: Apply filtering conditions based on metadata, including exact matches and range queries.</p></li>
+<li><p><strong>Similarity Scores</strong>: Search results include similarity scores to evaluate match quality.</p></li>
+</ul>
+</section>
+<section id="data-import-export">
+<h2>Data Import/Export<a class="headerlink" href="#data-import-export" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>Export Workspace</strong>: Export workspace data to a file or specified path.</p></li>
+<li><p><strong>Import Workspace</strong>: Import data into a workspace from a file or a list of nodes.</p></li>
+<li><p><strong>Callback Functions</strong>: Support callback functions during import/export for data transformation.</p></li>
+</ul>
+</section>
+</section>
+<section id="synchronous-and-asynchronous-interfaces">
+<h1>Synchronous and Asynchronous Interfaces<a class="headerlink" href="#synchronous-and-asynchronous-interfaces" title="Link to this heading">¶</a></h1>
+<p>All Vector Store implementations provide both synchronous and asynchronous interfaces:</p>
+<ul class="simple">
+<li><p><strong>Synchronous Interface</strong>: Direct method calls suitable for synchronous code environments.</p></li>
+<li><p><strong>Asynchronous Interface</strong>: Prefixed with <code class="docutils literal notranslate"><span class="pre">async_</span></code>, designed for asynchronous environments and offering better concurrency performance.</p></li>
+</ul>
+<p>The asynchronous interface is particularly useful in the following scenarios:</p>
+<ul class="simple">
+<li><p>Using asynchronous embedding models for vector generation.</p></li>
+<li><p>Performing batch operations in high-concurrency environments.</p></li>
+<li><p>Integrating with other asynchronous components.</p></li>
+</ul>
+</section>
+<section id="configuration-options">
+<h1>Configuration Options<a class="headerlink" href="#configuration-options" title="Link to this heading">¶</a></h1>
+<section id="general-configuration">
+<h2>General Configuration<a class="headerlink" href="#general-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>embedding_model</strong>: Instance of the embedding model used to generate vector embeddings.</p></li>
+<li><p><strong>batch_size</strong>: Batch size for bulk operations (default: 1024).</p></li>
+</ul>
+</section>
+<section id="localvectorstore-configuration">
+<h2>LocalVectorStore Configuration<a class="headerlink" href="#localvectorstore-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>store_dir</strong>: Storage directory path (default: <code class="docutils literal notranslate"><span class="pre">./local_vector_store</span></code>).</p></li>
+</ul>
+</section>
+<section id="memoryvectorstore-configuration">
+<h2>MemoryVectorStore Configuration<a class="headerlink" href="#memoryvectorstore-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>store_dir</strong>: Persistence directory (default: <code class="docutils literal notranslate"><span class="pre">./memory_vector_store</span></code>).</p></li>
+</ul>
+</section>
+<section id="qdrantvectorstore-configuration">
+<h2>QdrantVectorStore Configuration<a class="headerlink" href="#qdrantvectorstore-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>url</strong>: Qdrant service URL (optional; used for Qdrant Cloud or custom deployments).</p></li>
+<li><p><strong>host</strong>: Qdrant server host (default: <code class="docutils literal notranslate"><span class="pre">localhost</span></code>).</p></li>
+<li><p><strong>port</strong>: Qdrant server port (default: <code class="docutils literal notranslate"><span class="pre">6333</span></code>).</p></li>
+<li><p><strong>api_key</strong>: API key for Qdrant Cloud authentication.</p></li>
+<li><p><strong>distance</strong>: Distance metric—supports COSINE, EUCLIDEAN, DOT (default: COSINE).</p></li>
+</ul>
+</section>
+<section id="chromavectorstore-configuration">
+<h2>ChromaVectorStore Configuration<a class="headerlink" href="#chromavectorstore-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>store_dir</strong>: ChromaDB data storage directory (default: <code class="docutils literal notranslate"><span class="pre">./chroma_vector_store</span></code>).</p></li>
+</ul>
+</section>
+<section id="esvectorstore-configuration">
+<h2>EsVectorStore Configuration<a class="headerlink" href="#esvectorstore-configuration" title="Link to this heading">¶</a></h2>
+<ul class="simple">
+<li><p><strong>hosts</strong>: Elasticsearch host address(es), either a string or a list (default: <code class="docutils literal notranslate"><span class="pre">http://localhost:9200</span></code>).</p></li>
+<li><p><strong>basic_auth</strong>: Basic authentication credentials (username and password).</p></li>
+</ul>
+</section>
+</section>
+<section id="configuration-file-examples">
+<h1>Configuration File Examples<a class="headerlink" href="#configuration-file-examples" title="Link to this heading">¶</a></h1>
+<p>Configure Vector Store in <code class="docutils literal notranslate"><span class="pre">flowllm/config/default.yaml</span></code> under the <code class="docutils literal notranslate"><span class="pre">vector_store</span></code> section. The basic structure is as follows:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;backend_name&gt;</span><span class="w">        </span><span class="c1"># Required: local, chroma, elasticsearch, qdrant, or memory</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">        </span><span class="c1"># Required: Name of the embedding model configuration</span>
-<span class="w">    </span><span class="nt">params</span><span class="p">:</span><span class="w">                         </span><span class="c1"># Optional: Backend-specific parameters</span>
-<span class="w">      </span><span class="c1"># Backend-specific parameters go here</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;backend_name&gt;</span><span class="w">        </span><span class="c1"># Required: vector store backend type</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">       </span><span class="c1"># Required: name of embedding model config</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span><span class="w">                        </span><span class="c1"># Optional: backend-specific parameters</span>
+<span class="w">      </span><span class="c1"># Backend-specific parameters</span>
 </pre></div>
 </div>
-<section id="configuration-fields">
-<h3>Configuration Fields<a class="headerlink" href="#configuration-fields" title="Link to this heading">¶</a></h3>
+<section id="configuration-field-descriptions">
+<h2>Configuration Field Descriptions<a class="headerlink" href="#configuration-field-descriptions" title="Link to this heading">¶</a></h2>
 <ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">backend</span></code></strong> (required): The vector store backend to use. Valid values: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">chroma</span></code>, <code class="docutils literal notranslate"><span class="pre">elasticsearch</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>, <code class="docutils literal notranslate"><span class="pre">memory</span></code></p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">embedding_model</span></code></strong> (required): The name of the embedding model configuration from the <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> section</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">params</span></code></strong> (optional): A dictionary of backend-specific parameters that will be passed to the vector store constructor</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">backend</span></code></strong> (required): Vector store backend type. Options: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">memory</span></code>, <code class="docutils literal notranslate"><span class="pre">chroma</span></code>, <code class="docutils literal notranslate"><span class="pre">qdrant</span></code>, <code class="docutils literal notranslate"><span class="pre">elasticsearch</span></code>.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">embedding_model</span></code></strong> (required): Name of the embedding model configuration, referencing the <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> section.</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">params</span></code></strong> (optional): Dictionary of backend-specific parameters passed to the vector store constructor.</p></li>
 </ul>
 </section>
-</section>
-<section id="vector-store-backend-configurations">
-<h2>📁 Vector Store Backend Configurations<a class="headerlink" href="#vector-store-backend-configurations" title="Link to this heading">¶</a></h2>
-<section id="localvectorstore-backend-local">
-<h3>1. LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)<a class="headerlink" href="#localvectorstore-backend-local" title="Link to this heading">¶</a></h3>
-<p>A simple file-based vector store that saves data to local JSONL files.</p>
-<section id="when-to-use">
-<h4>💡 When to Use<a class="headerlink" href="#when-to-use" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Development and testing</strong> - No external dependencies required 🛠️</p></li>
-<li><p><strong>Small datasets</strong> - Suitable for datasets with &lt; 10,000 vectors 📊</p></li>
-<li><p><strong>Single-user applications</strong> - Limited concurrent access support 👤</p></li>
-</ul>
-</section>
-<section id="configuration">
-<h4>⚙️ Configuration<a class="headerlink" href="#configuration" title="Link to this heading">¶</a></h4>
+<section id="configuration-examples-by-type">
+<h2>Configuration Examples by Type<a class="headerlink" href="#configuration-examples-by-type" title="Link to this heading">¶</a></h2>
+<section id="id1">
+<h3>1. LocalVectorStore Configuration<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
+<p>Simplest local file-based storage, ideal for development and testing.</p>
+<p><strong>Implementation</strong>: <a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/local_vector_store.py"><code class="docutils literal notranslate"><span class="pre">flowllm/core/vector_store/local_vector_store.py</span></code></a></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
 <span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./local_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory to store JSONL files (default: &quot;./local_vector_store&quot;)</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./local_vector_store&quot;</span><span class="w">  </span><span class="c1"># Storage directory (optional; default: &quot;./local_vector_store&quot;)</span>
 </pre></div>
 </div>
 </section>
-<section id="configuration-parameters">
-<h4>Configuration Parameters<a class="headerlink" href="#configuration-parameters" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path where workspace files are stored. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./local_vector_store&quot;</span></code></p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
-</ul>
-</section>
-</section>
-<section id="chromavectorstore-backend-chroma">
-<h3>2. ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)<a class="headerlink" href="#chromavectorstore-backend-chroma" title="Link to this heading">¶</a></h3>
-<p>An embedded vector database that provides persistent storage with advanced features.</p>
-<section id="id1">
-<h4>💡 When to Use<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Local development</strong> with persistence requirements 🏠</p></li>
-<li><p><strong>Medium-scale applications</strong> (10K - 1M vectors) 📈</p></li>
-<li><p><strong>Applications requiring metadata filtering</strong> 🔍</p></li>
-</ul>
-</section>
 <section id="id2">
-<h4>⚙️ Configuration<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h4>
+<h3>2. MemoryVectorStore Configuration<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h3>
+<p>In-memory storage with fast access, suitable for temporary data or testing.</p>
+<p><strong>Implementation</strong>: <a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/memory_vector_store.py"><code class="docutils literal notranslate"><span class="pre">flowllm/core/vector_store/memory_vector_store.py</span></code></a></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./memory_vector_store&quot;</span><span class="w">  </span><span class="c1"># Persistence directory (optional; default: &quot;./memory_vector_store&quot;)</span>
+</pre></div>
+</div>
+</section>
+<section id="id3">
+<h3>3. ChromaVectorStore Configuration<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h3>
+<p>Persistent storage based on ChromaDB with metadata filtering support.</p>
+<p><strong>Implementation</strong>: <a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/chroma_vector_store.py"><code class="docutils literal notranslate"><span class="pre">flowllm/core/vector_store/chroma_vector_store.py</span></code></a></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">chroma</span>
 <span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./chroma_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory for Chroma database (default: &quot;./chroma_vector_store&quot;)</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
+<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./chroma_vector_store&quot;</span><span class="w">  </span><span class="c1"># ChromaDB data directory (optional; default: &quot;./chroma_vector_store&quot;)</span>
 </pre></div>
 </div>
 </section>
-<section id="id3">
-<h4>Configuration Parameters<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path where ChromaDB data is persisted. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./chroma_vector_store&quot;</span></code></p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
-</ul>
-</section>
-</section>
-<section id="esvectorstore-backend-elasticsearch">
-<h3>3. EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)<a class="headerlink" href="#esvectorstore-backend-elasticsearch" title="Link to this heading">¶</a></h3>
-<p>Production-grade vector search using Elasticsearch with advanced filtering and scaling capabilities.</p>
 <section id="id4">
-<h4>💡 When to Use<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Production environments</strong> requiring high availability 🏭</p></li>
-<li><p><strong>Large-scale applications</strong> (1M+ vectors) 🚀</p></li>
-<li><p><strong>Complex filtering requirements</strong> on metadata 🎯</p></li>
-</ul>
-</section>
-<section id="setup-elasticsearch">
-<h4>🛠️ Setup Elasticsearch<a class="headerlink" href="#setup-elasticsearch" title="Link to this heading">¶</a></h4>
-<p>Before using EsVectorStore, set up Elasticsearch:</p>
-<section id="option-1-docker-run">
-<h5>Option 1: Docker Run<a class="headerlink" href="#option-1-docker-run" title="Link to this heading">¶</a></h5>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Pull the latest Elasticsearch image</span>
-docker<span class="w"> </span>pull<span class="w"> </span>docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.0.0
-
-<span class="c1"># Run Elasticsearch container</span>
-docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">9200</span>:9200<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span><span class="s2">&quot;discovery.type=single-node&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span><span class="s2">&quot;xpack.security.enabled=false&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span><span class="s2">&quot;xpack.license.self_generated.type=trial&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-e<span class="w"> </span><span class="s2">&quot;http.host=0.0.0.0&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>docker.elastic.co/elasticsearch/elasticsearch-wolfi:9.0.0
+<h3>4. QdrantVectorStore Configuration<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h3>
+<p><strong>Implementation</strong>: <a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/qdrant_vector_store.py"><code class="docutils literal notranslate"><span class="pre">flowllm/core/vector_store/qdrant_vector_store.py</span></code></a></p>
+<p><strong>Local Qdrant Instance</strong>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;localhost&quot;</span><span class="w">      </span><span class="c1"># Qdrant server host (optional; default: localhost)</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6333</span><span class="w">             </span><span class="c1"># Qdrant server port (optional; default: 6333)</span>
+<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span><span class="w">     </span><span class="c1"># Distance metric (optional; default: COSINE; options: COSINE, EUCLIDEAN, DOT)</span>
 </pre></div>
 </div>
-</section>
-<section id="environment-configuration">
-<h5>Environment Configuration<a class="headerlink" href="#environment-configuration" title="Link to this heading">¶</a></h5>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">FLOW_ES_HOSTS</span><span class="o">=</span>http://localhost:9200
+<p><strong>Qdrant Cloud Configuration</strong>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://your-cluster.qdrant.io:6333&quot;</span><span class="w">  </span><span class="c1"># Qdrant Cloud URL</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-key-here&quot;</span><span class="w">                 </span><span class="c1"># API key</span>
+<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span>
 </pre></div>
 </div>
-</section>
 </section>
 <section id="id5">
-<h4>⚙️ Configuration<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h4>
+<h3>5. EsVectorStore Configuration<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h3>
+<p><strong>Implementation</strong>: <a class="reference external" href="https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/es_vector_store.py"><code class="docutils literal notranslate"><span class="pre">flowllm/core/vector_store/es_vector_store.py</span></code></a></p>
+<p><strong>Basic Configuration (Local Elasticsearch)</strong>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
 <span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:9200&quot;</span><span class="w">     </span><span class="c1"># Elasticsearch host(s) - can be string or list (default: from FLOW_ES_HOSTS env var or &quot;http://localhost:9200&quot;)</span>
-<span class="w">      </span><span class="nt">basic_auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">                    </span><span class="c1"># Optional: (&quot;username&quot;, &quot;password&quot;) tuple for authentication</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for bulk operations (default: 1024)</span>
+<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:9200&quot;</span><span class="w">  </span><span class="c1"># Elasticsearch host(s) (optional; default: http://localhost:9200)</span>
 </pre></div>
 </div>
-</section>
-<section id="id6">
-<h4>Configuration Parameters<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">hosts</span></code></strong> (optional): Elasticsearch host(s) as a string or list of strings. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_ES_HOSTS</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">&quot;http://localhost:9200&quot;</span></code> if not set</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">basic_auth</span></code></strong> (optional): Tuple of <code class="docutils literal notranslate"><span class="pre">(&quot;username&quot;,</span> <span class="pre">&quot;password&quot;)</span></code> for basic authentication. Default: <code class="docutils literal notranslate"><span class="pre">null</span></code> (no authentication)</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
-</ul>
-</section>
-</section>
-<section id="qdrantvectorstore-backend-qdrant">
-<h3>4. QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)<a class="headerlink" href="#qdrantvectorstore-backend-qdrant" title="Link to this heading">¶</a></h3>
-<p>A high-performance vector database designed for production workloads with native async support and advanced filtering.</p>
-<section id="id7">
-<h4>💡 When to Use<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Production environments</strong> requiring high performance and reliability 🏭</p></li>
-<li><p><strong>Large-scale applications</strong> (10M+ vectors) with excellent horizontal scaling 🚀</p></li>
-<li><p><strong>Applications requiring native async operations</strong> for better concurrency ⚡</p></li>
-<li><p><strong>Complex filtering and metadata queries</strong> on large datasets 🎯</p></li>
-<li><p><strong>Cloud-native deployments</strong> with Qdrant Cloud support ☁️</p></li>
-</ul>
-</section>
-<section id="setup-qdrant">
-<h4>🛠️ Setup Qdrant<a class="headerlink" href="#setup-qdrant" title="Link to this heading">¶</a></h4>
-<p>Before using QdrantVectorStore, set up Qdrant:</p>
-<section id="option-1-docker-run-recommended-for-development">
-<h5>Option 1: Docker Run (Recommended for Development)<a class="headerlink" href="#option-1-docker-run-recommended-for-development" title="Link to this heading">¶</a></h5>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Pull the latest Qdrant image</span>
-docker<span class="w"> </span>pull<span class="w"> </span>qdrant/qdrant
-
-<span class="c1"># Run Qdrant container</span>
-docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span><span class="m">6333</span>:6333<span class="w"> </span>-p<span class="w"> </span><span class="m">6334</span>:6334<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span><span class="k">$(</span><span class="nb">pwd</span><span class="k">)</span>/qdrant_storage:/qdrant/storage:z<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>qdrant/qdrant
-</pre></div>
-</div>
-</section>
-<section id="option-2-qdrant-cloud">
-<h5>Option 2: Qdrant Cloud<a class="headerlink" href="#option-2-qdrant-cloud" title="Link to this heading">¶</a></h5>
-<p>For production, you can use <a class="reference external" href="https://cloud.qdrant.io/">Qdrant Cloud</a> for managed hosting.</p>
-</section>
-<section id="id8">
-<h5>Environment Configuration<a class="headerlink" href="#id8" title="Link to this heading">¶</a></h5>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># For local setup</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">FLOW_QDRANT_HOST</span><span class="o">=</span>localhost
-<span class="nb">export</span><span class="w"> </span><span class="nv">FLOW_QDRANT_PORT</span><span class="o">=</span><span class="m">6333</span>
-
-<span class="c1"># For cloud setup (optional)</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">FLOW_QDRANT_API_KEY</span><span class="o">=</span>your-api-key
-</pre></div>
-</div>
-</section>
-</section>
-<section id="id9">
-<h4>⚙️ Configuration<a class="headerlink" href="#id9" title="Link to this heading">¶</a></h4>
-<section id="local-qdrant-instance">
-<h5>Local Qdrant Instance<a class="headerlink" href="#local-qdrant-instance" title="Link to this heading">¶</a></h5>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
-<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;localhost&quot;</span><span class="w">                   </span><span class="c1"># Qdrant host (default: from FLOW_QDRANT_HOST env var or &quot;localhost&quot;)</span>
-<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">6333</span><span class="w">                          </span><span class="c1"># Qdrant port (default: from FLOW_QDRANT_PORT env var or 6333)</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                    </span><span class="c1"># Batch size for operations (default: 1024)</span>
-<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span><span class="w">                  </span><span class="c1"># Distance metric: &quot;COSINE&quot;, &quot;EUCLIDEAN&quot;, or &quot;DOT&quot; (default: &quot;COSINE&quot;)</span>
-</pre></div>
-</div>
-</section>
-<section id="qdrant-cloud-or-remote-server">
-<h5>Qdrant Cloud or Remote Server<a class="headerlink" href="#qdrant-cloud-or-remote-server" title="Link to this heading">¶</a></h5>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
-<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://your-cluster.qdrant.io:6333&quot;</span><span class="w">  </span><span class="c1"># Qdrant server URL (if provided, host and port are ignored)</span>
-<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-key&quot;</span><span class="w">                     </span><span class="c1"># API key for Qdrant Cloud authentication</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                            </span><span class="c1"># Batch size for operations (default: 1024)</span>
-<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span><span class="w">                          </span><span class="c1"># Distance metric (default: &quot;COSINE&quot;)</span>
-</pre></div>
-</div>
-</section>
-</section>
-<section id="id10">
-<h4>Configuration Parameters<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">url</span></code></strong> (optional): Complete URL for connecting to Qdrant. If provided, <code class="docutils literal notranslate"><span class="pre">host</span></code> and <code class="docutils literal notranslate"><span class="pre">port</span></code> are ignored. Useful for Qdrant Cloud or custom deployments</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">host</span></code></strong> (optional): Host address of the Qdrant server. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_HOST</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">&quot;localhost&quot;</span></code> if not set</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">port</span></code></strong> (optional): Port number of the Qdrant server. Defaults to the <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_PORT</span></code> environment variable or <code class="docutils literal notranslate"><span class="pre">6333</span></code> if not set</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">api_key</span></code></strong> (optional): API key for authentication (required for Qdrant Cloud). Can also be set via <code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_API_KEY</span></code> environment variable</p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">distance</span></code></strong> (optional): Distance metric for vector similarity. Valid values: <code class="docutils literal notranslate"><span class="pre">&quot;COSINE&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;EUCLIDEAN&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;DOT&quot;</span></code>. Default: <code class="docutils literal notranslate"><span class="pre">&quot;COSINE&quot;</span></code></p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
-</ul>
-</section>
-<section id="key-features">
-<h4>🌟 Key Features<a class="headerlink" href="#key-features" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Native Async Support</strong> - All operations have async equivalents for better concurrency</p></li>
-<li><p><strong>Upsert Operations</strong> - Insert automatically updates existing nodes with the same ID</p></li>
-<li><p><strong>Advanced Filtering</strong> - Support for term and range filters on metadata</p></li>
-<li><p><strong>High Performance</strong> - Optimized for large-scale vector similarity search</p></li>
-<li><p><strong>Horizontal Scaling</strong> - Supports clustering for distributed deployments</p></li>
-<li><p><strong>Multiple Distance Metrics</strong> - Cosine, Euclidean, and Dot Product similarity</p></li>
-<li><p><strong>Persistent Storage</strong> - Data is automatically persisted to disk</p></li>
-<li><p><strong>Efficient Iteration</strong> - Scroll through large collections with pagination</p></li>
-</ul>
-</section>
-</section>
-<section id="memoryvectorstore-backend-memory">
-<h3>5. MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)<a class="headerlink" href="#memoryvectorstore-backend-memory" title="Link to this heading">¶</a></h3>
-<p>An ultra-fast in-memory vector store that keeps all data in RAM for maximum performance.</p>
-<section id="id11">
-<h4>💡 When to Use<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Testing and development</strong> - Fastest possible operations for unit tests 🧪</p></li>
-<li><p><strong>Small to medium datasets</strong> that fit in memory (&lt; 1M vectors) 💾</p></li>
-<li><p><strong>Applications requiring ultra-low latency</strong> search operations ⚡</p></li>
-<li><p><strong>Temporary workspaces</strong> that don’t need persistence 🚀</p></li>
-</ul>
-</section>
-<section id="id12">
-<h4>⚙️ Configuration<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h4>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
-<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./memory_vector_store&quot;</span><span class="w">  </span><span class="c1"># Directory for backup/restore operations (default: &quot;./memory_vector_store&quot;)</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span><span class="w">                     </span><span class="c1"># Batch size for operations (default: 1024)</span>
-</pre></div>
-</div>
-</section>
-<section id="id13">
-<h4>Configuration Parameters<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong> (optional): Directory path for backup/restore operations. Default: <code class="docutils literal notranslate"><span class="pre">&quot;./memory_vector_store&quot;</span></code></p></li>
-<li><p><strong><code class="docutils literal notranslate"><span class="pre">batch_size</span></code></strong> (optional): Batch size for bulk operations. Default: <code class="docutils literal notranslate"><span class="pre">1024</span></code></p></li>
-</ul>
-</section>
-<section id="performance-benefits">
-<h4>⚡ Performance Benefits<a class="headerlink" href="#performance-benefits" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Zero I/O latency</strong> - All operations happen in RAM</p></li>
-<li><p><strong>Instant search results</strong> - No disk or network overhead</p></li>
-<li><p><strong>Perfect for testing</strong> - Fast setup and teardown</p></li>
-<li><p><strong>Memory efficient</strong> - Only stores what you need</p></li>
-</ul>
-</section>
-<section id="important-notes">
-<h4>🚨 Important Notes<a class="headerlink" href="#important-notes" title="Link to this heading">¶</a></h4>
-<ul class="simple">
-<li><p><strong>Data is volatile</strong> - Lost when process ends unless explicitly saved</p></li>
-<li><p><strong>Memory usage</strong> - Entire dataset must fit in available RAM</p></li>
-<li><p><strong>No persistence</strong> - Use <code class="docutils literal notranslate"><span class="pre">dump_workspace()</span></code> to save to disk</p></li>
-<li><p><strong>Single process</strong> - Not suitable for distributed applications</p></li>
-</ul>
-</section>
-</section>
-</section>
-<section id="example-configurations">
-<h2>📝 Example Configurations<a class="headerlink" href="#example-configurations" title="Link to this heading">¶</a></h2>
-<section id="minimal-configuration-memory-store">
-<h3>Minimal Configuration (Memory Store)<a class="headerlink" href="#minimal-configuration-memory-store" title="Link to this heading">¶</a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
-</pre></div>
-</div>
-</section>
-<section id="local-file-storage">
-<h3>Local File Storage<a class="headerlink" href="#local-file-storage" title="Link to this heading">¶</a></h3>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
-<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">store_dir</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;./my_vector_store&quot;</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048</span>
-</pre></div>
-</div>
-</section>
-<section id="elasticsearch-production-setup">
-<h3>Elasticsearch Production Setup<a class="headerlink" href="#elasticsearch-production-setup" title="Link to this heading">¶</a></h3>
+<p><strong>Configuration with Authentication</strong>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
 <span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://elasticsearch.example.com:9200&quot;</span>
-<span class="w">      </span><span class="nt">basic_auth</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;username&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;password&quot;</span><span class="p p-Indicator">]</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2048</span>
+<span class="w">      </span><span class="nt">basic_auth</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;username&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;password&quot;</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Basic auth credentials</span>
 </pre></div>
 </div>
-</section>
-<section id="qdrant-cloud-setup">
-<h3>Qdrant Cloud Setup<a class="headerlink" href="#qdrant-cloud-setup" title="Link to this heading">¶</a></h3>
+<p><strong>Multi-Host Configuration</strong>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qdrant</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
 <span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://your-cluster.qdrant.io:6333&quot;</span>
-<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;your-api-key-here&quot;</span>
-<span class="w">      </span><span class="nt">distance</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;COSINE&quot;</span>
-<span class="w">      </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;http://es-node1:9200&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;http://es-node2:9200&quot;</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;http://es-node3:9200&quot;</span>
 </pre></div>
 </div>
 </section>
 </section>
-<section id="environment-variables">
-<h2>🔄 Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">¶</a></h2>
-<p>Some vector store backends support environment variables for configuration:</p>
-<ul class="simple">
-<li><p><strong>Elasticsearch</strong>: <code class="docutils literal notranslate"><span class="pre">FLOW_ES_HOSTS</span></code> - Elasticsearch host(s)</p></li>
-<li><p><strong>Qdrant</strong>:</p>
-<ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_HOST</span></code> - Qdrant host (default: “localhost”)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_PORT</span></code> - Qdrant port (default: 6333)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_API_KEY</span></code> - Qdrant API key for authentication</p></li>
-</ul>
-</li>
-</ul>
-<p>Environment variables are used as fallbacks when parameters are not explicitly set in the YAML configuration.</p>
-</section>
-<section id="integration-with-embedding-models">
-<h2>🧩 Integration with Embedding Models<a class="headerlink" href="#integration-with-embedding-models" title="Link to this heading">¶</a></h2>
-<p>All vector stores require an embedding model configuration. The <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> field in the vector store configuration references a model defined in the <code class="docutils literal notranslate"><span class="pre">embedding_model</span></code> section of <code class="docutils literal notranslate"><span class="pre">default.yaml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">embedding_model</span><span class="p">:</span>
+<section id="complete-configuration-example">
+<h2>Complete Configuration Example<a class="headerlink" href="#complete-configuration-example" title="Link to this heading">¶</a></h2>
+<p>Below is a complete <code class="docutils literal notranslate"><span class="pre">default.yaml</span></code> example including both embedding model and vector store configurations:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Embedding model configuration</span>
+<span class="nt">embedding_model</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openai_compatible</span>
 <span class="w">    </span><span class="nt">model_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">text-embedding-v4</span>
 <span class="w">    </span><span class="nt">params</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">dimensions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
 
+<span class="c1"># Vector store configuration</span>
 <span class="nt">vector_store</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">default</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">memory</span>
-<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">  </span><span class="c1"># References the embedding_model.default configuration</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">elasticsearch</span>
+<span class="w">    </span><span class="nt">embedding_model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">params</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">hosts</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://localhost:9200&quot;</span>
 </pre></div>
 </div>
-<p>The embedding model configuration provides the model name, backend, and parameters needed for generating vector embeddings.</p>
 </section>
+<section id="environment-variable-support">
+<h2>Environment Variable Support<a class="headerlink" href="#environment-variable-support" title="Link to this heading">¶</a></h2>
+<p>Certain Vector Stores support environment variables as a supplement to YAML configuration:</p>
+<ul class="simple">
+<li><p><strong>Elasticsearch</strong>: <code class="docutils literal notranslate"><span class="pre">FLOW_ES_HOSTS</span></code> – Elasticsearch host address.</p></li>
+<li><p><strong>Qdrant</strong>:</p>
+<ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_HOST</span></code> – Qdrant host (default: <code class="docutils literal notranslate"><span class="pre">localhost</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_PORT</span></code> – Qdrant port (default: <code class="docutils literal notranslate"><span class="pre">6333</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">FLOW_QDRANT_API_KEY</span></code> – Qdrant API key</p></li>
+</ul>
+</li>
+</ul>
+<p>When parameters are not explicitly specified in the YAML configuration, the system falls back to environment variables.</p>
+</section>
+</section>
+<section id="metadata-filtering">
+<h1>Metadata Filtering<a class="headerlink" href="#metadata-filtering" title="Link to this heading">¶</a></h1>
+<p>Two types of metadata filtering are supported:</p>
+<ul class="simple">
+<li><p><strong>Exact Match</strong>: Specify field values for exact matching.</p></li>
+<li><p><strong>Range Queries</strong>: Use operators <code class="docutils literal notranslate"><span class="pre">gte</span></code>, <code class="docutils literal notranslate"><span class="pre">lte</span></code>, <code class="docutils literal notranslate"><span class="pre">gt</span></code>, <code class="docutils literal notranslate"><span class="pre">lt</span></code> for numeric range queries.</p></li>
+<li><p><strong>Nested Fields</strong>: Access nested metadata fields using dot notation.</p></li>
+</ul>
+</section>
+<section id="usage-recommendations">
+<h1>Usage Recommendations<a class="headerlink" href="#usage-recommendations" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p><strong>Development &amp; Testing</strong>: Use MemoryVectorStore or LocalVectorStore—no additional services required.</p></li>
+<li><p><strong>Small-Scale Applications</strong>: Use LocalVectorStore or ChromaVectorStore for simplicity and ease of use.</p></li>
+<li><p><strong>Production Environments</strong>: Use QdrantVectorStore or EsVectorStore for high performance and scalability.</p></li>
+<li><p><strong>Hybrid Search</strong>: Use EsVectorStore to combine vector search with full-text search capabilities.</p></li>
+</ul>
+</section>
+<section id="important-notes">
+<h1>Important Notes<a class="headerlink" href="#important-notes" title="Link to this heading">¶</a></h1>
+<ul class="simple">
+<li><p>Ensure the embedding model’s output dimension matches the Vector Store configuration.</p></li>
+<li><p>For large-scale data, use professional vector databases (e.g., Qdrant, Elasticsearch).</p></li>
+<li><p>Asynchronous interfaces deliver better performance in asynchronous environments.</p></li>
+<li><p>Regularly back up critical data, especially when using in-memory storage.</p></li>
+<li><p>Choose an appropriate batch size based on your data scale to optimize performance.</p></li>
+</ul>
 </section>
 
     <script type="text/x-thebe-config">
@@ -819,7 +659,7 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2025-11-11</div>
+              Last updated on 2025-11-27</div>
           </div>
           <div class="right-details">
             <div class="icons">
@@ -834,98 +674,14 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
         
       </footer>
     </div>
-    <aside class="toc-drawer">
+    <aside class="toc-drawer no-toc">
       
-      
-      <div class="toc-sticky toc-scroll">
-        <div class="toc-title-container">
-          <span class="toc-title">
-            On this page
-          </span>
-        </div>
-        <div class="toc-tree-container">
-          <div class="toc-tree">
-            <ul>
-<li><a class="reference internal" href="#">Vector Store Configuration Guide</a><ul>
-<li><a class="reference internal" href="#overview">📋 Overview</a></li>
-<li><a class="reference internal" href="#comparison-table">📊 Comparison Table</a></li>
-<li><a class="reference internal" href="#configuration-in-default-yaml">⚙️ Configuration in default.yaml</a><ul>
-<li><a class="reference internal" href="#configuration-fields">Configuration Fields</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#vector-store-backend-configurations">📁 Vector Store Backend Configurations</a><ul>
-<li><a class="reference internal" href="#localvectorstore-backend-local">1. LocalVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=local</span></code>)</a><ul>
-<li><a class="reference internal" href="#when-to-use">💡 When to Use</a></li>
-<li><a class="reference internal" href="#configuration">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#configuration-parameters">Configuration Parameters</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#chromavectorstore-backend-chroma">2. ChromaVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=chroma</span></code>)</a><ul>
-<li><a class="reference internal" href="#id1">💡 When to Use</a></li>
-<li><a class="reference internal" href="#id2">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id3">Configuration Parameters</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#esvectorstore-backend-elasticsearch">3. EsVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=elasticsearch</span></code>)</a><ul>
-<li><a class="reference internal" href="#id4">💡 When to Use</a></li>
-<li><a class="reference internal" href="#setup-elasticsearch">🛠️ Setup Elasticsearch</a><ul>
-<li><a class="reference internal" href="#option-1-docker-run">Option 1: Docker Run</a></li>
-<li><a class="reference internal" href="#environment-configuration">Environment Configuration</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#id5">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id6">Configuration Parameters</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#qdrantvectorstore-backend-qdrant">4. QdrantVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=qdrant</span></code>)</a><ul>
-<li><a class="reference internal" href="#id7">💡 When to Use</a></li>
-<li><a class="reference internal" href="#setup-qdrant">🛠️ Setup Qdrant</a><ul>
-<li><a class="reference internal" href="#option-1-docker-run-recommended-for-development">Option 1: Docker Run (Recommended for Development)</a></li>
-<li><a class="reference internal" href="#option-2-qdrant-cloud">Option 2: Qdrant Cloud</a></li>
-<li><a class="reference internal" href="#id8">Environment Configuration</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#id9">⚙️ Configuration</a><ul>
-<li><a class="reference internal" href="#local-qdrant-instance">Local Qdrant Instance</a></li>
-<li><a class="reference internal" href="#qdrant-cloud-or-remote-server">Qdrant Cloud or Remote Server</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#id10">Configuration Parameters</a></li>
-<li><a class="reference internal" href="#key-features">🌟 Key Features</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#memoryvectorstore-backend-memory">5. MemoryVectorStore (<code class="docutils literal notranslate"><span class="pre">backend=memory</span></code>)</a><ul>
-<li><a class="reference internal" href="#id11">💡 When to Use</a></li>
-<li><a class="reference internal" href="#id12">⚙️ Configuration</a></li>
-<li><a class="reference internal" href="#id13">Configuration Parameters</a></li>
-<li><a class="reference internal" href="#performance-benefits">⚡ Performance Benefits</a></li>
-<li><a class="reference internal" href="#important-notes">🚨 Important Notes</a></li>
-</ul>
-</li>
-</ul>
-</li>
-<li><a class="reference internal" href="#example-configurations">📝 Example Configurations</a><ul>
-<li><a class="reference internal" href="#minimal-configuration-memory-store">Minimal Configuration (Memory Store)</a></li>
-<li><a class="reference internal" href="#local-file-storage">Local File Storage</a></li>
-<li><a class="reference internal" href="#elasticsearch-production-setup">Elasticsearch Production Setup</a></li>
-<li><a class="reference internal" href="#qdrant-cloud-setup">Qdrant Cloud Setup</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#environment-variables">🔄 Environment Variables</a></li>
-<li><a class="reference internal" href="#integration-with-embedding-models">🧩 Integration with Embedding Models</a></li>
-</ul>
-</li>
-</ul>
-
-          </div>
-        </div>
-      </div>
       
       
     </aside>
   </div>
 </div><script src="_static/documentation_options.js?v=a8e58a58"></script>
-    <script src="_static/doctools.js?v=9a2dae69"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=46bd48cc"></script>
     <script src="_static/clipboard.min.js?v=a7894cd8"></script>
@@ -939,8 +695,6 @@ docker<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </sp
     <script src="_static/design-tabs.js?v=f930bc37"></script>
     <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script async="async" src="_static/sphinx-thebe.js?v=c100c467"></script>
-    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
-    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
     <script src="_static/language.js"></script>
     <script src="_static/memory-lib/memory-lib.js?v=d34abfda"></script>
     </body>

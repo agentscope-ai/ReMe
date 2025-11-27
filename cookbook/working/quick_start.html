@@ -1,0 +1,677 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="../../">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="index" title="Index" href="../../genindex.html"><link rel="search" title="Search" href="../../search.html"><link rel="next" title="Contribute to ReMe" href="../../contribution.html"><link rel="prev" title="AppWorld" href="../appworld/quickstart.html">
+        <link rel="prefetch" href="../../_static/logo.svg" as="image">
+
+    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
+        <title>Working Memory Demo - AgentScope ReMe</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d75fae25" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo.css?v=580074bf" />
+    <link rel="stylesheet" type="text/css" href="../../_static/togglebutton.css?v=13237357" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/mystnb.8ecb98da25f57f5357bf6f572d296f466b2cfe2517ffebfabe82451661e28f02.css?v=6644e6bb" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-thebe.css?v=4fa983c6" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=7dd80ba7" />
+    <link rel="stylesheet" type="text/css" href="../../_static/memory-lib/memory-lib.css?v=ed507882" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f0f0f0;
+  --color-code-foreground: black;
+  --color-brand-primary: #2196f3;
+  --color-brand-content: #2196f3;
+  --color-admonition-background: #f8f9fa;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  --color-brand-primary: #64b5f6;
+  --color-brand-content: #64b5f6;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  --color-brand-primary: #64b5f6;
+  --color-brand-content: #64b5f6;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="../../index.html"><div class="brand"><div style='text-align:center'> <span style='font-weight:700;color:#2196f3;'>AgentScope</span><br> <span style='font-weight:900;color:#ff5722;'>ReMe</span> </div></div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><div class="sidebar-scroll"><a class="sidebar-brand" href="../../index.html">
+  <div class="sidebar-logo-container">
+    <img class="sidebar-logo" src="../../_static/logo.svg" alt="Logo"/>
+  </div>
+  
+  <span class="sidebar-brand-text"><div style='text-align:center'> <span style='font-weight:700;color:#2196f3;'>AgentScope</span><br> <span style='font-weight:900;color:#ff5722;'>ReMe</span> </div></span>
+  
+</a><form class="sidebar-search-container" method="get" action="../../search.html" role="search">
+  <input class="sidebar-search" placeholder="Search" name="q" aria-label="Search">
+  <input type="hidden" name="check_keywords" value="yes">
+  <input type="hidden" name="area" value="default">
+</form>
+<div id="searchbox"></div><div class="sidebar-tree">
+  <p class="caption" role="heading"><span class="caption-text">Setup Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../quick_start.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../library/library.html">Ready-to-Use Memories</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Personal Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../personal_memory/personal_memory.html">Personal Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../personal_memory/personal_retrieve_ops.html">Personal Memory Retrieve Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../personal_memory/personal_summary_ops.html">Personal Memory Summary Ops</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Task Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../task_memory/task_memory.html">Task Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../task_memory/task_retrieve_ops.html">Task Memory Retrieval Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../task_memory/task_summary_ops.html">Task Memory Summary Ops</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Tool Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../tool_memory/tool_memory.html">Tool Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tool_memory/tool_retrieve_ops.html">Tool Memory Retrieval Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tool_memory/tool_summary_ops.html">Tool Memory Summary Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Working Memory</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../work_memory/message_offload.html">Message Offload</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../work_memory/message_offload_ops.html">Message Offload Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../work_memory/message_reload_ops.html">Message Reload Ops</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../mcp_quick_start.html">MCP Quick Start Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html">Vector Store User Guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#core-concepts">Core Concepts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#available-implementations">Available Implementations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#core-features">Core Features</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#synchronous-and-asynchronous-interfaces">Synchronous and Asynchronous Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#configuration-options">Configuration Options</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#configuration-file-examples">Configuration File Examples</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#metadata-filtering">Metadata Filtering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#usage-recommendations">Usage Recommendations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../vector_store_api_guide.html#important-notes">Important Notes</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Experiments</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../experiment_overview.html">Experiement Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../frozenlake/quickstart.html">FrozenLake</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../bfcl/quickstart.html">BFCL</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../appworld/quickstart.html">AppWorld</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Working Memory Demo</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">Others</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../contribution.html">Contribute to ReMe</a></li>
+</ul>
+
+</div>
+</div>
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          <div class="view-this-page">
+  <a class="muted-link" href="" title="View this page">
+    <svg><use href="#svg-eye"></use></svg>
+    <span class="visually-hidden">View this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section class="tex2jax_ignore mathjax_ignore" id="working-memory-demo">
+<h1>Working Memory Demo<a class="headerlink" href="#working-memory-demo" title="Link to this heading">¶</a></h1>
+<p>This demo showcases how to use ReMe’s working memory capabilities with a ReAct agent. The working memory system automatically manages context by compressing and summarizing conversation history, enabling efficient long-context processing.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">¶</a></h2>
+<section id="install-from-pypi-recommended">
+<h3>Install from PyPI (Recommended)<a class="headerlink" href="#install-from-pypi-recommended" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>reme-ai
+</pre></div>
+</div>
+</section>
+<section id="install-from-source">
+<h3>Install from Source<a class="headerlink" href="#install-from-source" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/agentscope-ai/ReMe.git
+<span class="nb">cd</span><span class="w"> </span>ReMe
+pip<span class="w"> </span>install<span class="w"> </span>.
+</pre></div>
+</div>
+</section>
+<section id="environment-configuration">
+<h3>Environment Configuration<a class="headerlink" href="#environment-configuration" title="Link to this heading">¶</a></h3>
+<p>Copy <code class="docutils literal notranslate"><span class="pre">example.env</span></code> to <code class="docutils literal notranslate"><span class="pre">.env</span></code> and modify the corresponding parameters:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">FLOW_LLM_API_KEY</span><span class="o">=</span>sk-xxxx
+<span class="nv">FLOW_LLM_BASE_URL</span><span class="o">=</span>https://xxxx/v1
+<span class="nv">FLOW_EMBEDDING_API_KEY</span><span class="o">=</span>sk-xxxx
+<span class="nv">FLOW_EMBEDDING_BASE_URL</span><span class="o">=</span>https://xxxx/v1
+</pre></div>
+</div>
+</section>
+</section>
+<section id="starting-the-services">
+<h2>Starting the Services<a class="headerlink" href="#starting-the-services" title="Link to this heading">¶</a></h2>
+<p>Before running the demo, you need to start both the HTTP and MCP services:</p>
+<section id="start-mcp-service">
+<h3>Start MCP Service<a class="headerlink" href="#start-mcp-service" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>reme<span class="w"> </span><span class="nv">backend</span><span class="o">=</span>mcp<span class="w"> </span>mcp.port<span class="o">=</span><span class="m">8002</span>
+</pre></div>
+</div>
+<p>The MCP service provides tools for working memory management including:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">grep_working_memory</span></code>: Search for content in working memory</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_working_memory</span></code>: Read specific sections of working memory</p></li>
+</ul>
+</section>
+<section id="start-http-service">
+<h3>Start HTTP Service<a class="headerlink" href="#start-http-service" title="Link to this heading">¶</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>reme<span class="w"> </span><span class="nv">backend</span><span class="o">=</span>http<span class="w"> </span>http.port<span class="o">=</span><span class="m">8003</span>
+</pre></div>
+</div>
+<p>The HTTP service provides the flow execution endpoint for memory operations.</p>
+</section>
+</section>
+<section id="running-the-demo">
+<h2>Running the Demo<a class="headerlink" href="#running-the-demo" title="Link to this heading">¶</a></h2>
+<p>Once both services are running, execute the demo:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>cookbook/working_memory
+python<span class="w"> </span>work_memory_demo.py
+</pre></div>
+</div>
+<section id="what-the-demo-does">
+<h3>What the Demo Does<a class="headerlink" href="#what-the-demo-does" title="Link to this heading">¶</a></h3>
+<p>The demo simulates a scenario where:</p>
+<ol class="arabic simple">
+<li><p>A large README content is loaded (repeated 4 times to create a long context)</p></li>
+<li><p>The agent needs to search through this content and extract specific information</p></li>
+<li><p>Working memory automatically compresses the context from ~24,586 tokens to ~1,565 tokens (compression ratio: 0.06)</p></li>
+<li><p>The agent can still accurately answer questions about the content</p></li>
+</ol>
+</section>
+</section>
+<section id="core-code-explanation">
+<h2>Core Code Explanation<a class="headerlink" href="#core-code-explanation" title="Link to this heading">¶</a></h2>
+<section id="reactagent-with-working-memory-react-agent-with-working-memory-py">
+<h3>ReactAgent with Working Memory (<code class="docutils literal notranslate"><span class="pre">react_agent_with_working_memory.py</span></code>)<a class="headerlink" href="#reactagent-with-working-memory-react-agent-with-working-memory-py" title="Link to this heading">¶</a></h3>
+<section id="agent-initialization">
+<h4>1. Agent Initialization<a class="headerlink" href="#agent-initialization" title="Link to this heading">¶</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">ReactAgent</span><span class="p">:</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">max_steps</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">):</span>
+        <span class="c1"># Use your own LLM class</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">llm</span> <span class="o">=</span> <span class="n">OpenAICompatibleLLM</span><span class="p">(</span><span class="n">model_name</span><span class="o">=</span><span class="n">model_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_steps</span> <span class="o">=</span> <span class="n">max_steps</span>
+</pre></div>
+</div>
+<p>The agent is initialized with an LLM model and a maximum number of reasoning steps.</p>
+</section>
+<section id="service-connection">
+<h4>2. Service Connection<a class="headerlink" href="#service-connection" title="Link to this heading">¶</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">async</span> <span class="k">with</span> <span class="n">FastMcpClient</span><span class="p">(</span><span class="s2">&quot;reme_mcp_server&quot;</span><span class="p">,</span> <span class="p">{</span>
+    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;sse&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;url&quot;</span><span class="p">:</span> <span class="s2">&quot;http://0.0.0.0:8002/sse&quot;</span><span class="p">,</span>
+<span class="p">})</span> <span class="k">as</span> <span class="n">mcp_client</span><span class="p">,</span> <span class="n">HttpClient</span><span class="p">(</span><span class="n">base_url</span><span class="o">=</span><span class="s2">&quot;http://localhost:8003&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">http_client</span><span class="p">:</span>
+</pre></div>
+</div>
+<p>The agent connects to both:</p>
+<ul class="simple">
+<li><p><strong>MCP Client</strong>: For tool execution (grep, read operations)</p></li>
+<li><p><strong>HTTP Client</strong>: For flow execution (memory summarization)</p></li>
+</ul>
+</section>
+<section id="tool-registration">
+<h4>3. Tool Registration<a class="headerlink" href="#tool-registration" title="Link to this heading">¶</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">tool_calls</span> <span class="o">=</span> <span class="k">await</span> <span class="n">mcp_client</span><span class="o">.</span><span class="n">list_tool_calls</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">tool_call</span> <span class="ow">in</span> <span class="n">tool_calls</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">tool_call</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;grep_working_memory&quot;</span><span class="p">,</span> <span class="s2">&quot;read_working_memory&quot;</span><span class="p">]:</span>
+        <span class="n">tool_dict</span><span class="p">[</span><span class="n">tool_call</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">tool_call</span>
+</pre></div>
+</div>
+<p>The agent registers working memory tools that will be available to the LLM.</p>
+<blockquote>
+<div><p>Note: <code class="docutils literal notranslate"><span class="pre">summary_working_memory</span></code> is <strong>not</strong> an MCP tool.
+It is a <strong>flow</strong> exposed by the HTTP service and is invoked via <code class="docutils literal notranslate"><span class="pre">HttpClient.execute_flow</span></code>,
+as shown in the next section.</p>
+</div></blockquote>
+</section>
+<section id="working-memory-summarization-key-feature">
+<h4>4. Working Memory Summarization (Key Feature)<a class="headerlink" href="#working-memory-summarization-key-feature" title="Link to this heading">¶</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">http_client</span><span class="o">.</span><span class="n">execute_flow</span><span class="p">(</span><span class="s2">&quot;summary_working_memory&quot;</span><span class="p">,</span>
+                                        <span class="n">messages</span><span class="o">=</span><span class="p">[</span><span class="n">x</span><span class="o">.</span><span class="n">simple_dump</span><span class="p">()</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">messages</span><span class="p">],</span>
+                                        <span class="n">working_summary_mode</span><span class="o">=</span><span class="s2">&quot;auto&quot;</span><span class="p">,</span>
+                                        <span class="n">compact_ratio_threshold</span><span class="o">=</span><span class="mf">0.75</span><span class="p">,</span>
+                                        <span class="n">max_total_tokens</span><span class="o">=</span><span class="mi">20000</span><span class="p">,</span>
+                                        <span class="n">max_tool_message_tokens</span><span class="o">=</span><span class="mi">2000</span><span class="p">,</span>
+                                        <span class="n">group_token_threshold</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                                        <span class="n">keep_recent_count</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                                        <span class="n">store_dir</span><span class="o">=</span><span class="s2">&quot;./test_working_memory&quot;</span><span class="p">)</span>
+
+<span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="o">**</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">answer</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><strong>This is the core of working memory management.</strong> Before each LLM call:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">working_summary_mode=&quot;auto&quot;</span></code></strong>: Automatically decides when to compress</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">compact_ratio_threshold=0.75</span></code></strong>: Triggers compression when context exceeds 75% of max tokens</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">max_total_tokens=20000</span></code></strong>: Maximum total tokens allowed</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">max_tool_message_tokens=2000</span></code></strong>: Maximum tokens per tool message</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">keep_recent_count=1</span></code></strong>: Keeps the most recent message uncompressed</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">store_dir</span></code></strong>: Directory to store compressed memory</p></li>
+</ul>
+<p>The summarization process:</p>
+<ol class="arabic simple">
+<li><p>Analyzes the current message history</p></li>
+<li><p>Identifies compressible content (especially long tool outputs)</p></li>
+<li><p>Compresses/summarizes old messages while preserving semantic information</p></li>
+<li><p>Returns a condensed message list that maintains context</p></li>
+</ol>
+</section>
+<section id="react-loop">
+<h4>5. ReAct Loop<a class="headerlink" href="#react-loop" title="Link to this heading">¶</a></h4>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_steps</span><span class="p">):</span>
+    <span class="c1"># Summarize working memory before each LLM call</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">http_client</span><span class="o">.</span><span class="n">execute_flow</span><span class="p">(</span><span class="s2">&quot;summary_working_memory&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">)</span>
+    <span class="n">messages</span> <span class="o">=</span> <span class="p">[</span><span class="n">Message</span><span class="p">(</span><span class="o">**</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">answer</span><span class="p">]</span>
+
+    <span class="c1"># LLM generates next action</span>
+    <span class="n">assistant_message</span> <span class="o">=</span> <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">llm</span><span class="o">.</span><span class="n">achat</span><span class="p">(</span><span class="n">messages</span><span class="o">=</span><span class="n">messages</span><span class="p">,</span> <span class="n">tools</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+    <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">assistant_message</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">assistant_message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">:</span>
+        <span class="k">break</span>
+
+    <span class="c1"># Execute tools</span>
+    <span class="k">for</span> <span class="n">tool_call</span> <span class="ow">in</span> <span class="n">assistant_message</span><span class="o">.</span><span class="n">tool_calls</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">mcp_client</span><span class="o">.</span><span class="n">call_tool</span><span class="p">(</span><span class="n">tool_call</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                                           <span class="n">arguments</span><span class="o">=</span><span class="n">tool_call</span><span class="o">.</span><span class="n">argument_dict</span><span class="p">)</span>
+        <span class="n">messages</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Message</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="n">Role</span><span class="o">.</span><span class="n">TOOL</span><span class="p">,</span> <span class="n">content</span><span class="o">=</span><span class="n">result</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>The ReAct loop:</p>
+<ol class="arabic simple">
+<li><p><strong>Compress</strong>: Summarize working memory to reduce context size</p></li>
+<li><p><strong>Reason</strong>: LLM decides what tool to use</p></li>
+<li><p><strong>Act</strong>: Execute the tool</p></li>
+<li><p><strong>Observe</strong>: Add tool result to messages</p></li>
+<li><p>Repeat until task is complete or max steps reached</p></li>
+</ol>
+</section>
+</section>
+<section id="benefits-of-working-memory">
+<h3>Benefits of Working Memory<a class="headerlink" href="#benefits-of-working-memory" title="Link to this heading">¶</a></h3>
+<ol class="arabic simple">
+<li><p><strong>Context Efficiency</strong>: Reduces token usage by ~94% (24,586 → 1,565 tokens in the demo)</p></li>
+<li><p><strong>Cost Reduction</strong>: Lower token counts mean lower API costs</p></li>
+<li><p><strong>Performance</strong>: Faster inference with smaller contexts</p></li>
+<li><p><strong>Scalability</strong>: Handle much longer conversations and tool outputs</p></li>
+<li><p><strong>Accuracy</strong>: Maintains semantic information despite compression</p></li>
+</ol>
+</section>
+</section>
+<section id="model-configuration">
+<h2>Model Configuration<a class="headerlink" href="#model-configuration" title="Link to this heading">¶</a></h2>
+<p>The demo uses an OpenAI-compatible LLM configured via environment variables:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">FLOW_LLM_API_KEY</span></code> / <code class="docutils literal notranslate"><span class="pre">FLOW_LLM_BASE_URL</span></code></strong>: LLM API credentials and endpoint</p></li>
+<li><p>The model name is specified in <code class="docutils literal notranslate"><span class="pre">work_memory_demo.py</span></code>, for example:</p></li>
+</ul>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">model_name</span> <span class="o">=</span> <span class="s2">&quot;qwen3-coder-30b-a3b-instruct&quot;</span>
+<span class="n">agent</span> <span class="o">=</span> <span class="n">ReactAgent</span><span class="p">(</span><span class="n">model_name</span><span class="o">=</span><span class="n">model_name</span><span class="p">,</span> <span class="n">max_steps</span><span class="o">=</span><span class="mi">50</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>You can change <code class="docutils literal notranslate"><span class="pre">model_name</span></code> to any model that your backend supports, as long as it follows the OpenAI-compatible API.</p>
+</section>
+<section id="expected-output">
+<h2>Expected Output<a class="headerlink" href="#expected-output" title="Link to this heading">¶</a></h2>
+<p>When running the demo, you should see:</p>
+<ul class="simple">
+<li><p>Token count before compression: ~24,586 tokens</p></li>
+<li><p>Token count after compression: ~1,565 tokens</p></li>
+<li><p>Compression ratio: ~0.06 (6% of original size)</p></li>
+<li><p>The agent successfully answers the question about task memory performance in AppWorld</p></li>
+</ul>
+</section>
+<section id="customization">
+<h2>Customization<a class="headerlink" href="#customization" title="Link to this heading">¶</a></h2>
+<p>You can customize the working memory behavior by adjusting parameters in the <code class="docutils literal notranslate"><span class="pre">summary_working_memory</span></code> call:</p>
+<ul class="simple">
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">compact_ratio_threshold</span></code></strong>: Lower values trigger compression earlier</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">max_total_tokens</span></code></strong>: Adjust based on your model’s context window</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">max_tool_message_tokens</span></code></strong>: Control individual tool output size</p></li>
+<li><p><strong><code class="docutils literal notranslate"><span class="pre">keep_recent_count</span></code></strong>: Keep more recent messages uncompressed for better context</p></li>
+</ul>
+</section>
+<section id="troubleshooting">
+<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">¶</a></h2>
+<ol class="arabic simple">
+<li><p><strong>Services not starting</strong>: Ensure ports 8002 and 8003 are available</p></li>
+<li><p><strong>Connection errors</strong>: Verify both MCP and HTTP services are running</p></li>
+<li><p><strong>API errors</strong>: Check your <code class="docutils literal notranslate"><span class="pre">.env</span></code> file has valid API keys and endpoints</p></li>
+<li><p><strong>Memory errors</strong>: Adjust <code class="docutils literal notranslate"><span class="pre">max_total_tokens</span></code> based on your available memory</p></li>
+</ol>
+</section>
+</section>
+
+    <script type="text/x-thebe-config">
+    {
+        requestKernel: true,
+        binderOptions: {
+            repo: "binder-examples/jupyter-stacks-datascience",
+            ref: "master",
+        },
+        codeMirrorConfig: {
+            theme: "abcdef",
+            mode: "python"
+        },
+        kernelOptions: {
+            name: "python3",
+            path: "./cookbook/working"
+        },
+        predefinedOutput: true
+    }
+    </script>
+    <script>kernelName = 'python3'</script>
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="../../contribution.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Contribute to ReMe</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="../appworld/quickstart.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">AppWorld</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2025, Tongyi Lab, Alibaba Inc.
+            </div>
+            Made with 
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            <div class="last-updated">
+              Last updated on 2025-11-27</div>
+          </div>
+          <div class="right-details">
+            <div class="icons">
+              <a class="muted-link " href="https://reme.agentscope.io" aria-label="GitHub"><svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+</svg>
+</a>
+              
+            </div>
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Working Memory Demo</a><ul>
+<li><a class="reference internal" href="#installation">Installation</a><ul>
+<li><a class="reference internal" href="#install-from-pypi-recommended">Install from PyPI (Recommended)</a></li>
+<li><a class="reference internal" href="#install-from-source">Install from Source</a></li>
+<li><a class="reference internal" href="#environment-configuration">Environment Configuration</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#starting-the-services">Starting the Services</a><ul>
+<li><a class="reference internal" href="#start-mcp-service">Start MCP Service</a></li>
+<li><a class="reference internal" href="#start-http-service">Start HTTP Service</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#running-the-demo">Running the Demo</a><ul>
+<li><a class="reference internal" href="#what-the-demo-does">What the Demo Does</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#core-code-explanation">Core Code Explanation</a><ul>
+<li><a class="reference internal" href="#reactagent-with-working-memory-react-agent-with-working-memory-py">ReactAgent with Working Memory (<code class="docutils literal notranslate"><span class="pre">react_agent_with_working_memory.py</span></code>)</a><ul>
+<li><a class="reference internal" href="#agent-initialization">1. Agent Initialization</a></li>
+<li><a class="reference internal" href="#service-connection">2. Service Connection</a></li>
+<li><a class="reference internal" href="#tool-registration">3. Tool Registration</a></li>
+<li><a class="reference internal" href="#working-memory-summarization-key-feature">4. Working Memory Summarization (Key Feature)</a></li>
+<li><a class="reference internal" href="#react-loop">5. ReAct Loop</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#benefits-of-working-memory">Benefits of Working Memory</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#model-configuration">Model Configuration</a></li>
+<li><a class="reference internal" href="#expected-output">Expected Output</a></li>
+<li><a class="reference internal" href="#customization">Customization</a></li>
+<li><a class="reference internal" href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="../../_static/documentation_options.js?v=a8e58a58"></script>
+    <script src="../../_static/doctools.js?v=9bcbadda"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/scripts/furo.js?v=46bd48cc"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=f281be69"></script>
+    <script src="../../_static/scripts/sphinx-book-theme.js"></script>
+    <script>let toggleHintShow = 'Click to show';</script>
+    <script>let toggleHintHide = 'Click to hide';</script>
+    <script>let toggleOpenOnPrint = 'true';</script>
+    <script src="../../_static/togglebutton.js?v=4a39c7ea"></script>
+    <script>var togglebuttonSelector = '.toggle, .admonition.dropdown';</script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>const THEBE_JS_URL = "https://unpkg.com/thebe@0.8.2/lib/index.js"; const thebe_selector = ".thebe,.cell"; const thebe_selector_input = "pre"; const thebe_selector_output = ".output, .cell_output"</script>
+    <script async="async" src="../../_static/sphinx-thebe.js?v=c100c467"></script>
+    <script src="../../_static/language.js"></script>
+    <script src="../../_static/memory-lib/memory-lib.js?v=d34abfda"></script>
+    </body>
+</html>

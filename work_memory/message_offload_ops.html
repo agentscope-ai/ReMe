@@ -3,11 +3,11 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Personal Memory Summary Ops" href="personal_summary_ops.html"><link rel="prev" title="Personal Memory" href="personal_memory.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Message Reload Ops" href="message_reload_ops.html"><link rel="prev" title="Message Offload" href="message_offload.html">
         <link rel="prefetch" href="../_static/logo.svg" as="image">
 
     <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
-        <title>Personal Memory Retrieve Ops - AgentScope ReMe</title>
+        <title>Message Offload Ops - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="../_static/togglebutton.css?v=13237357" />
@@ -215,10 +215,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../library/library.html">Ready-to-Use Memories</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Personal Memory</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="personal_memory.html">Personal Memory</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Personal Memory Retrieve Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="personal_summary_ops.html">Personal Memory Summary Ops</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_memory.html">Personal Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_retrieve_ops.html">Personal Memory Retrieve Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_summary_ops.html">Personal Memory Summary Ops</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Task Memory</span></p>
 <ul>
@@ -234,10 +234,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Working Memory</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload.html">Message Offload</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload_ops.html">Message Offload Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_reload_ops.html">Message Reload Ops</a></li>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="message_offload.html">Message Offload</a></li>
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Message Offload Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="message_reload_ops.html">Message Reload Ops</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
@@ -300,206 +300,111 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section class="tex2jax_ignore mathjax_ignore" id="personal-memory-retrieve-ops">
-<h1>Personal Memory Retrieve Ops<a class="headerlink" href="#personal-memory-retrieve-ops" title="Link to this heading">¶</a></h1>
-<section id="setqueryop">
-<h2>SetQueryOp<a class="headerlink" href="#setqueryop" title="Link to this heading">¶</a></h2>
+          <section class="tex2jax_ignore mathjax_ignore" id="message-offload-ops">
+<h1>Message Offload Ops<a class="headerlink" href="#message-offload-ops" title="Link to this heading">¶</a></h1>
+<section id="messageoffloadop">
+<h2>MessageOffloadOp<a class="headerlink" href="#messageoffloadop" title="Link to this heading">¶</a></h2>
+<section id="purpose">
+<h3>Purpose<a class="headerlink" href="#purpose" title="Link to this heading">¶</a></h3>
+<p>Manages context window limits by intelligently offloading message content through compaction and compression strategies to reduce token usage while preserving important information.</p>
+</section>
 <section id="functionality">
 <h3>Functionality<a class="headerlink" href="#functionality" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">SetQueryOp</span></code> prepares the query for memory retrieval by setting the query and its associated timestamp into the context. It’s the first operation in the personal memory retrieval flow.</p>
+<ul class="simple">
+<li><p>Supports three working summary modes: <code class="docutils literal notranslate"><span class="pre">compact</span></code>, <code class="docutils literal notranslate"><span class="pre">compress</span></code>, and <code class="docutils literal notranslate"><span class="pre">auto</span></code></p></li>
+<li><p><strong>Compact mode</strong>: Stores full content of large tool messages in external files, keeping only previews in context</p></li>
+<li><p><strong>Compress mode</strong>: Uses LLM to generate concise summaries of older message groups</p></li>
+<li><p><strong>Auto mode</strong> (recommended): Applies compaction first, then compression if compaction ratio exceeds <code class="docutils literal notranslate"><span class="pre">compact_ratio_threshold</span></code></p></li>
+<li><p>Automatically writes offloaded content to files via <code class="docutils literal notranslate"><span class="pre">BatchWriteFileOp</span></code></p></li>
+<li><p>Preserves recent messages and system messages to maintain conversation coherence</p></li>
+<li><p>Configurable token thresholds for both compaction and compression operations</p></li>
+</ul>
 </section>
 <section id="parameters">
 <h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h3>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.set_query_op.params.timestamp</span></code>: (Optional) Integer timestamp to use instead of the current time. If not provided, the current timestamp will be used.</p></li>
-</ul>
-</section>
-<section id="implementation-details">
-<h3>Implementation Details<a class="headerlink" href="#implementation-details" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Takes the query from the context (which is guaranteed to exist as a flow input requirement)</p></li>
-<li><p>Sets a timestamp (either current time or from parameters)</p></li>
-<li><p>Stores the query and timestamp as a tuple in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="extracttimeop">
-<h2>ExtractTimeOp<a class="headerlink" href="#extracttimeop" title="Link to this heading">¶</a></h2>
-<section id="id1">
-<h3>Functionality<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">ExtractTimeOp</span></code> identifies and extracts time-related information from the query. It uses an LLM to analyze the query text and determine any temporal references or constraints.</p>
-</section>
-<section id="id2">
-<h3>Parameters<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.extract_time_op.params.language</span></code>: Language for time extraction (defaults to “en”)</p></li>
-</ul>
-</section>
-<section id="id3">
-<h3>Implementation Details<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Checks if the query contains datetime keywords</p></li>
-<li><p>If time-related words are found, it prepares a prompt for the LLM with:</p>
-<ul class="simple">
-<li><p>System instructions</p></li>
-<li><p>Few-shot examples</p></li>
-<li><p>The user’s query and current time</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">messages</span></code> (array, <strong>required</strong>):</p>
+<ul>
+<li><p>List of conversation messages to process for working memory summarization</p></li>
+<li><p>Messages are analyzed for token count and processed according to management mode</p></li>
 </ul>
 </li>
-<li><p>Parses the LLM response to extract time information (year, month, day, etc.)</p></li>
-<li><p>Stores the extracted time dictionary in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="retrievememoryop">
-<h2>RetrieveMemoryOp<a class="headerlink" href="#retrievememoryop" title="Link to this heading">¶</a></h2>
-<section id="id4">
-<h3>Functionality<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">RetrieveMemoryOp</span></code> retrieves memories from the vector store based on the query. It extends the <code class="docutils literal notranslate"><span class="pre">RecallVectorStoreOp</span></code> class to provide memory retrieval functionality.</p>
-</section>
-<section id="id5">
-<h3>Parameters<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.recall_key</span></code>: Key in the context to use as the query (default: “query”)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.top_k</span></code>: Maximum number of memories to retrieve (default: 3)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.threshold_score</span></code>: (Optional) Minimum similarity score for memories (filters out memories below this threshold)</p></li>
-</ul>
-</section>
-<section id="id6">
-<h3>Implementation Details<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the query from the context</p></li>
-<li><p>Searches the vector store for relevant memories based on the query</p></li>
-<li><p>Removes duplicate memories</p></li>
-<li><p>Filters memories by threshold score if specified</p></li>
-<li><p>Stores the retrieved memories in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="semanticrankop">
-<h2>SemanticRankOp<a class="headerlink" href="#semanticrankop" title="Link to this heading">¶</a></h2>
-<section id="id7">
-<h3>Functionality<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">SemanticRankOp</span></code> ranks memories based on their semantic relevance to the query using an LLM. This improves the quality of retrieved memories by considering deeper semantic relationships beyond vector similarity.</p>
-</section>
-<section id="id8">
-<h3>Parameters<a class="headerlink" href="#id8" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.semantic_rank_op.params.enable_ranker</span></code>: Whether to enable semantic ranking (default: true)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.semantic_rank_op.params.output_memory_max_count</span></code>: Maximum number of memories to output (default: 10)</p></li>
-</ul>
-</section>
-<section id="id9">
-<h3>Implementation Details<a class="headerlink" href="#id9" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the memory list from the context</p></li>
-<li><p>If ranking is enabled and there are more memories than the output limit:</p>
-<ul class="simple">
-<li><p>Removes duplicates based on content</p></li>
-<li><p>Formats memories for LLM ranking</p></li>
-<li><p>Asks the LLM to rank memories by relevance on a scale of 0.0 to 1.0</p></li>
-<li><p>Parses the ranking results and applies scores to memories</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">working_summary_mode</span></code> (string, optional, default: <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>):</p>
+<ul>
+<li><p>Working summary strategy to use</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;compact&quot;</span></code>: Only applies compaction to large tool messages</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;compress&quot;</span></code>: Only applies LLM-based compression</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>: Applies compaction first then compression if compaction ratio exceeds threshold</p></li>
+<li><p>Allowed values: <code class="docutils literal notranslate"><span class="pre">[&quot;compact&quot;,</span> <span class="pre">&quot;compress&quot;,</span> <span class="pre">&quot;auto&quot;]</span></code></p></li>
 </ul>
 </li>
-<li><p>Sorts memories by score</p></li>
-<li><p>Stores the ranked memories in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="fusererankop">
-<h2>FuseRerankOp<a class="headerlink" href="#fusererankop" title="Link to this heading">¶</a></h2>
-<section id="id10">
-<h3>Functionality<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">FuseRerankOp</span></code> performs the final reranking of memories by combining multiple factors: semantic scores, memory types, and temporal relevance. It also formats the final output.</p>
-</section>
-<section id="id11">
-<h3>Parameters<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_score_threshold</span></code>: Minimum score threshold for memories (default: 0.1)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_ratio_dict</span></code>: Dictionary of memory type to score multiplier ratios (default: {“conversation”: 0.5, “observation”: 1, “obs_customized”: 1.2, “insight”: 2.0})</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_time_ratio</span></code>: Score multiplier for time-relevant memories (default: 2.0)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.output_memory_max_count</span></code>: Maximum number of memories to output (default: 5)</p></li>
-</ul>
-</section>
-<section id="id12">
-<h3>Implementation Details<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves extracted time information and memory list from the context</p></li>
-<li><p>For each memory:</p>
-<ul class="simple">
-<li><p>Checks if the memory score is above the threshold</p></li>
-<li><p>Applies a type-based adjustment factor based on the memory type</p></li>
-<li><p>Determines time relevance by matching memory time metadata with extracted time</p></li>
-<li><p>Calculates the final score by multiplying the original score by type and time factors</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">compact_ratio_threshold</span></code> (number, optional, default: <code class="docutils literal notranslate"><span class="pre">0.75</span></code>):</p>
+<ul>
+<li><p>Only used in <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code> mode</p></li>
+<li><p>Threshold for compaction ratio (tokens after compaction divided by original tokens)</p></li>
+<li><p>When the ratio is greater than this value, an additional LLM-based compression pass is triggered</p></li>
+<li><p>Example: If ratio is 0.76 (76%) and threshold is 0.75, compression will be applied</p></li>
 </ul>
 </li>
-<li><p>Sorts memories by the reranked scores</p></li>
-<li><p>Selects the top-K memories based on the output limit</p></li>
-<li><p>Formats memories for output with timestamps if available</p></li>
-<li><p>Stores both the formatted output and the memory list in the context</p></li>
-</ol>
-</section>
-</section>
-<section id="printmemoryop">
-<h2>PrintMemoryOp<a class="headerlink" href="#printmemoryop" title="Link to this heading">¶</a></h2>
-<section id="id13">
-<h3>Functionality<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">PrintMemoryOp</span></code> formats the retrieved memories for display to the user. It provides a clean, structured representation of the memory content.</p>
-</section>
-<section id="id14">
-<h3>Parameters<a class="headerlink" href="#id14" title="Link to this heading">¶</a></h3>
-<p>No specific parameters for this operation.</p>
-</section>
-<section id="id15">
-<h3>Implementation Details<a class="headerlink" href="#id15" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the memory list from the context</p></li>
-<li><p>Formats each memory with:</p>
-<ul class="simple">
-<li><p>Memory index</p></li>
-<li><p>When to use information</p></li>
-<li><p>Content</p></li>
-<li><p>Additional metadata (if available)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_total_tokens</span></code> (integer, optional, default: <code class="docutils literal notranslate"><span class="pre">20000</span></code>):</p>
+<ul>
+<li><p>Maximum token count threshold for triggering compression/compaction</p></li>
+<li><p>For compaction mode: this is the total token count threshold</p></li>
+<li><p>For compression mode: excludes <code class="docutils literal notranslate"><span class="pre">keep_recent_count</span></code> messages and system messages</p></li>
+<li><p>Operation is skipped if token count is below this threshold</p></li>
 </ul>
 </li>
-<li><p>Joins the formatted memories into a single string</p></li>
-<li><p>Stores the formatted string in the context as the response answer</p></li>
-</ol>
-</section>
-</section>
-<section id="readmessageop">
-<h2>ReadMessageOp<a class="headerlink" href="#readmessageop" title="Link to this heading">¶</a></h2>
-<section id="id16">
-<h3>Functionality<a class="headerlink" href="#id16" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">ReadMessageOp</span></code> fetches unmemorized chat messages from the context. This is useful for retrieving recent conversations that haven’t been processed into memories yet.</p>
-</section>
-<section id="id17">
-<h3>Parameters<a class="headerlink" href="#id17" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.read_message_op.params.contextual_msg_max_count</span></code>: Maximum number of contextual messages to retrieve (default: 10)</p></li>
-</ul>
-</section>
-<section id="id18">
-<h3>Implementation Details<a class="headerlink" href="#id18" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves chat messages from the context</p></li>
-<li><p>Filters for messages that:</p>
-<ul class="simple">
-<li><p>Are not marked as memorized</p></li>
-<li><p>Contain the target name</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">max_tool_message_tokens</span></code> (integer, optional, default: <code class="docutils literal notranslate"><span class="pre">2000</span></code>):</p>
+<ul>
+<li><p>Maximum token count per individual tool message before compaction is applied</p></li>
+<li><p>Tool messages exceeding this threshold will have full content stored in external files</p></li>
+<li><p>Only a preview is kept in context with a reference to the stored file</p></li>
 </ul>
 </li>
-<li><p>Flattens the messages into a single list</p></li>
-<li><p>Sorts messages by creation time if available</p></li>
-<li><p>Stores the filtered messages back in the context</p></li>
-</ol>
+<li><p><code class="docutils literal notranslate"><span class="pre">group_token_threshold</span></code> (integer, optional):</p>
+<ul>
+<li><p>Maximum token count per compression group when using LLM-based compression</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">None</span></code> or <code class="docutils literal notranslate"><span class="pre">0</span></code>, all messages are compressed in a single group</p></li>
+<li><p>Messages exceeding this threshold individually will form their own group</p></li>
+<li><p>Only used in <code class="docutils literal notranslate"><span class="pre">&quot;compress&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code> mode</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">keep_recent_count</span></code> (integer, optional, default: <code class="docutils literal notranslate"><span class="pre">1</span></code> for compaction, <code class="docutils literal notranslate"><span class="pre">2</span></code> for compression):</p>
+<ul>
+<li><p>Number of recent messages to preserve without compression or compaction</p></li>
+<li><p>These messages remain unchanged to maintain conversation context</p></li>
+<li><p>Does not include system messages (which are always preserved)</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">store_dir</span></code> (string, optional):</p>
+<ul>
+<li><p>Directory path for storing summarized message content</p></li>
+<li><p>Full tool message content and compressed message groups are saved as files in this directory</p></li>
+<li><p>Required for compaction and compression operations</p></li>
+</ul>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">chat_id</span></code> (string, optional):</p>
+<ul>
+<li><p>Unique identifier for the chat session</p></li>
+<li><p>Used for file naming when storing compressed message groups</p></li>
+<li><p>If not provided, a UUID will be generated automatically</p></li>
+</ul>
+</li>
+</ul>
+</section>
+<section id="usage-pattern">
+<h3>Usage Pattern<a class="headerlink" href="#usage-pattern" title="Link to this heading">¶</a></h3>
+<p>For complete working examples of how to use MessageOffloadOp in practice, please refer to:
+<a class="reference download internal" download="" href="../_downloads/595e0e14b0c15f5fb7edaf9a786c417f/test_message_offload_op.py"><span class="xref download myst">test_message_offload_op.py</span></a></p>
+<p>This test file demonstrates:</p>
+<ul class="simple">
+<li><p><strong>Compact mode</strong>: How to configure and use compaction-only strategy</p></li>
+<li><p><strong>Compress mode</strong>: How to apply LLM-based compression strategy</p></li>
+<li><p><strong>Auto mode</strong>: How to combine compaction and compression intelligently</p></li>
+<li><p>Proper parameter settings for different scenarios</p></li>
+<li><p>Integration with <code class="docutils literal notranslate"><span class="pre">BatchWriteFileOp</span></code> for file writing</p></li>
+<li><p>Real-world message sequences with various token sizes</p></li>
+</ul>
 </section>
 </section>
 </section>
@@ -517,7 +422,7 @@
         },
         kernelOptions: {
             name: "python3",
-            path: "./personal_memory"
+            path: "./work_memory"
         },
         predefinedOutput: true
     }
@@ -528,23 +433,23 @@
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="personal_summary_ops.html">
+          <a class="next-page" href="message_reload_ops.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Personal Memory Summary Ops</div>
+                <div class="title">Message Reload Ops</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="personal_memory.html">
+          <a class="prev-page" href="message_offload.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Personal Memory</div>
+                <div class="title">Message Offload</div>
                 
               </div>
             </a>
@@ -584,47 +489,12 @@
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Personal Memory Retrieve Ops</a><ul>
-<li><a class="reference internal" href="#setqueryop">SetQueryOp</a><ul>
+<li><a class="reference internal" href="#">Message Offload Ops</a><ul>
+<li><a class="reference internal" href="#messageoffloadop">MessageOffloadOp</a><ul>
+<li><a class="reference internal" href="#purpose">Purpose</a></li>
 <li><a class="reference internal" href="#functionality">Functionality</a></li>
 <li><a class="reference internal" href="#parameters">Parameters</a></li>
-<li><a class="reference internal" href="#implementation-details">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#extracttimeop">ExtractTimeOp</a><ul>
-<li><a class="reference internal" href="#id1">Functionality</a></li>
-<li><a class="reference internal" href="#id2">Parameters</a></li>
-<li><a class="reference internal" href="#id3">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#retrievememoryop">RetrieveMemoryOp</a><ul>
-<li><a class="reference internal" href="#id4">Functionality</a></li>
-<li><a class="reference internal" href="#id5">Parameters</a></li>
-<li><a class="reference internal" href="#id6">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#semanticrankop">SemanticRankOp</a><ul>
-<li><a class="reference internal" href="#id7">Functionality</a></li>
-<li><a class="reference internal" href="#id8">Parameters</a></li>
-<li><a class="reference internal" href="#id9">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#fusererankop">FuseRerankOp</a><ul>
-<li><a class="reference internal" href="#id10">Functionality</a></li>
-<li><a class="reference internal" href="#id11">Parameters</a></li>
-<li><a class="reference internal" href="#id12">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#printmemoryop">PrintMemoryOp</a><ul>
-<li><a class="reference internal" href="#id13">Functionality</a></li>
-<li><a class="reference internal" href="#id14">Parameters</a></li>
-<li><a class="reference internal" href="#id15">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#readmessageop">ReadMessageOp</a><ul>
-<li><a class="reference internal" href="#id16">Functionality</a></li>
-<li><a class="reference internal" href="#id17">Parameters</a></li>
-<li><a class="reference internal" href="#id18">Implementation Details</a></li>
+<li><a class="reference internal" href="#usage-pattern">Usage Pattern</a></li>
 </ul>
 </li>
 </ul>

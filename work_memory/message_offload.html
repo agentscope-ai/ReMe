@@ -3,11 +3,11 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Personal Memory Summary Ops" href="personal_summary_ops.html"><link rel="prev" title="Personal Memory" href="personal_memory.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="Message Offload Ops" href="message_offload_ops.html"><link rel="prev" title="Tool Memory Benchmark" href="../tool_memory/tool_bench.html">
         <link rel="prefetch" href="../_static/logo.svg" as="image">
 
     <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
-        <title>Personal Memory Retrieve Ops - AgentScope ReMe</title>
+        <title>Message Offload - AgentScope ReMe</title>
       <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=d75fae25" />
     <link rel="stylesheet" type="text/css" href="../_static/styles/furo.css?v=580074bf" />
     <link rel="stylesheet" type="text/css" href="../_static/togglebutton.css?v=13237357" />
@@ -215,10 +215,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../library/library.html">Ready-to-Use Memories</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Personal Memory</span></p>
-<ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="personal_memory.html">Personal Memory</a></li>
-<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Personal Memory Retrieve Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="personal_summary_ops.html">Personal Memory Summary Ops</a></li>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_memory.html">Personal Memory</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_retrieve_ops.html">Personal Memory Retrieve Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../personal_memory/personal_summary_ops.html">Personal Memory Summary Ops</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Task Memory</span></p>
 <ul>
@@ -234,10 +234,10 @@
 <li class="toctree-l1"><a class="reference internal" href="../tool_memory/tool_bench.html">Tool Memory Benchmark</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Working Memory</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload.html">Message Offload</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_offload_ops.html">Message Offload Ops</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../work_memory/message_reload_ops.html">Message Reload Ops</a></li>
+<ul class="current">
+<li class="toctree-l1 current current-page"><a class="current reference internal" href="#">Message Offload</a></li>
+<li class="toctree-l1"><a class="reference internal" href="message_offload_ops.html">Message Offload Ops</a></li>
+<li class="toctree-l1"><a class="reference internal" href="message_reload_ops.html">Message Reload Ops</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Extensions</span></p>
 <ul>
@@ -300,206 +300,186 @@
           </label>
         </div>
         <article role="main" id="furo-main-content">
-          <section class="tex2jax_ignore mathjax_ignore" id="personal-memory-retrieve-ops">
-<h1>Personal Memory Retrieve Ops<a class="headerlink" href="#personal-memory-retrieve-ops" title="Link to this heading">¶</a></h1>
-<section id="setqueryop">
-<h2>SetQueryOp<a class="headerlink" href="#setqueryop" title="Link to this heading">¶</a></h2>
-<section id="functionality">
-<h3>Functionality<a class="headerlink" href="#functionality" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">SetQueryOp</span></code> prepares the query for memory retrieval by setting the query and its associated timestamp into the context. It’s the first operation in the personal memory retrieval flow.</p>
-</section>
-<section id="parameters">
-<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h3>
+          <section class="tex2jax_ignore mathjax_ignore" id="message-offload">
+<h1>Message Offload<a class="headerlink" href="#message-offload" title="Link to this heading">¶</a></h1>
+<section id="background-why-message-offload">
+<h2>1. Background: Why Message Offload?<a class="headerlink" href="#background-why-message-offload" title="Link to this heading">¶</a></h2>
+<section id="the-agent-context-challenge">
+<h3>The Agent Context Challenge<a class="headerlink" href="#the-agent-context-challenge" title="Link to this heading">¶</a></h3>
+<p>In modern AI agent systems, LLMs interact with tools through iterative loops, accumulating conversation history and tool results. With each iteration, a critical problem emerges:</p>
+<p><strong>The Core Problem: Context Window Explosion</strong></p>
+<p>When an agent executes complex tasks, it relies on maintaining conversation history to track progress and make informed decisions. However:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.set_query_op.params.timestamp</span></code>: (Optional) Integer timestamp to use instead of the current time. If not provided, the current timestamp will be used.</p></li>
+<li><p><strong>Rapid Context Growth</strong>: Each tool call appends input parameters and output results to message history</p></li>
+<li><p><strong>Token Consumption</strong>: A single tool call can consume hundreds or thousands of tokens, especially for data-heavy operations</p></li>
+<li><p><strong>Context Window Limits</strong>: Most LLMs have finite context windows (e.g., 128K, 200K tokens)</p></li>
+<li><p><strong>Context Rot</strong>: As context grows beyond optimal thresholds, model performance degrades significantly</p></li>
+</ul>
+<p><strong>Example: Web Research Agent</strong></p>
+<p>Imagine an agent performing research across multiple sources:</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Iteration 1: web_search(&quot;AI context management&quot;) → 3,500 tokens
+Iteration 2: read_webpage(url_1) → 8,200 tokens
+Iteration 3: web_search(&quot;context compression techniques&quot;) → 4,100 tokens
+Iteration 4: read_webpage(url_2) → 7,800 tokens
+...
+Iteration 15: summarize_findings() → Total context: 95,000 tokens
+</pre></div>
+</div>
+<p>As context accumulates:</p>
+<ul class="simple">
+<li><p><strong>At 50K tokens</strong>: Agent performs normally, accurate responses</p></li>
+<li><p><strong>At 100K tokens</strong>: Responses become repetitive, slower inference</p></li>
+<li><p><strong>At 150K tokens</strong>: Significant quality degradation, “context rot” sets in</p></li>
+<li><p><strong>At 200K tokens</strong>: Context window exhausted, cannot continue</p></li>
+</ul>
+<p><strong>Without context management, agents hit walls after just 15-20 complex tool calls.</strong></p>
+</section>
+<section id="the-solution-message-offload-as-context-engineering">
+<h3>The Solution: Message Offload as Context Engineering<a class="headerlink" href="#the-solution-message-offload-as-context-engineering" title="Link to this heading">¶</a></h3>
+<p>Message Offload solves this by <strong>intelligently moving non-essential information out of active context</strong>, allowing agents to operate indefinitely while maintaining optimal performance:</p>
+<p><strong>1. Message Compaction</strong> (Reversible Strategy)</p>
+<ul class="simple">
+<li><p><strong>Selective Storage</strong>: Large tool results stored in external files</p></li>
+<li><p><strong>Reference Retention</strong>: Only file paths kept in message history</p></li>
+<li><p><strong>On-Demand Retrieval</strong>: Full content can be retrieved when needed</p></li>
+</ul>
+<p><strong>2. Message Compression</strong> (LLM-Based Strategy)</p>
+<ul class="simple">
+<li><p><strong>Intelligent Summarization</strong>: LLM generates concise summaries of older message groups</p></li>
+<li><p><strong>Priority Preservation</strong>: Recent messages and system prompts remain intact</p></li>
+<li><p><strong>Information Density</strong>: Maintains key information while reducing token count</p></li>
+</ul>
+<p><strong>3. Hybrid Auto Mode</strong> (Adaptive Strategy)</p>
+<ul class="simple">
+<li><p><strong>Compaction First</strong>: Applies compaction to tool messages</p></li>
+<li><p><strong>Compression When Needed</strong>: Triggers compression if compaction ratio exceeds threshold</p></li>
+<li><p><strong>Dynamic Adjustment</strong>: Adapts strategy based on context characteristics</p></li>
 </ul>
 </section>
-<section id="implementation-details">
-<h3>Implementation Details<a class="headerlink" href="#implementation-details" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Takes the query from the context (which is guaranteed to exist as a flow input requirement)</p></li>
-<li><p>Sets a timestamp (either current time or from parameters)</p></li>
-<li><p>Stores the query and timestamp as a tuple in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="extracttimeop">
-<h2>ExtractTimeOp<a class="headerlink" href="#extracttimeop" title="Link to this heading">¶</a></h2>
-<section id="id1">
-<h3>Functionality<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">ExtractTimeOp</span></code> identifies and extracts time-related information from the query. It uses an LLM to analyze the query text and determine any temporal references or constraints.</p>
-</section>
-<section id="id2">
-<h3>Parameters<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h3>
+<section id="enhanced-work-memory-management">
+<h3>Enhanced work memory management<a class="headerlink" href="#enhanced-work-memory-management" title="Link to this heading">¶</a></h3>
+<p>Instead of letting context grow uncontrollably, the agent now benefits from:</p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Traditional Approach (No Context Management):
+50 messages → 95,000 tokens → Context rot begins
+- Response quality: Degraded
+- Inference speed: Slow
+- Can continue: No (approaching limit)
+- Information lost: No, but unusable
+
++ Message Offload Approach:
+50 messages → 15,000 tokens (after offload) → Optimal performance maintained
+- Response quality: High
+- Inference speed: Fast
+- Can continue: Yes (85% headroom remaining)
+- Information lost: No (stored externally, retrievable)
+
+Offload Details:
+- 20 tool messages compacted → Stored in /context_store/
+- 15 older messages compressed → Summarized in system message
+- 5 recent messages preserved → Full content intact
+- External storage: 80,000 tokens offloaded
+- Active context: 15,000 tokens (84% reduction)
+</pre></div>
+</div>
+<p>This managed context enables the agent to:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.extract_time_op.params.language</span></code>: Language for time extraction (defaults to “en”)</p></li>
+<li><p><strong>Operate Indefinitely</strong>: No hard limit on conversation length</p></li>
+<li><p><strong>Maintain Performance</strong>: Stay within optimal token range (10-30K tokens)</p></li>
+<li><p><strong>Preserve Information</strong>: All data accessible through file system or summaries</p></li>
+<li><p><strong>Optimize Costs</strong>: Reduce token consumption by 70-90% in long conversations</p></li>
 </ul>
 </section>
-<section id="id3">
-<h3>Implementation Details<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Checks if the query contains datetime keywords</p></li>
-<li><p>If time-related words are found, it prepares a prompt for the LLM with:</p>
+<section id="the-impact-from-context-explosion-to-controlled-growth">
+<h3>The Impact: From Context Explosion to Controlled Growth<a class="headerlink" href="#the-impact-from-context-explosion-to-controlled-growth" title="Link to this heading">¶</a></h3>
+<p><strong>Traditional Approach (No Work Memory Management):</strong></p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Agent: &quot;I&#39;ve executed 20 tool calls, context is now 100K tokens&quot;
+→ Performance degradation begins
+→ Slower responses, repetitive outputs
+→ Cannot continue beyond 30 calls
+→ Task abandoned due to context limits
+</pre></div>
+</div>
+<p><strong>Message Offload Approach (Intelligent Management):</strong></p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Agent: &quot;I&#39;ve executed 100 tool calls, active context maintained at 18K tokens&quot;
+→ Optimal performance throughout
+→ Fast, accurate responses
+→ Can continue indefinitely
+→ All historical data accessible when needed
+</pre></div>
+</div>
+<p><strong>Real-World Impact:</strong></p>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>Before Message Offload (20 tool calls):
+- Active context: 95,000 tokens
+- Performance: Degraded (context rot)
+- Can continue: No (near limit)
+- Response quality: 6/10
+- Inference time: 8-12 seconds
+- Max task complexity: Low (15-20 calls)
+
+After Message Offload (100 tool calls):
+- Active context: 18,000 tokens (-81%)
+- Performance: Optimal
+- Can continue: Yes (90% headroom)
+- Response quality: 9/10
+- Inference time: 2-4 seconds (-70%)
+- Max task complexity: High (100+ calls)
+</pre></div>
+</div>
+</section>
+</section>
+<section id="implementation-in-reme">
+<h2>2. Implementation in ReMe<a class="headerlink" href="#implementation-in-reme" title="Link to this heading">¶</a></h2>
+<p>ReMe has fully implemented the above-mentioned message offload and reload mechanisms, inspired by <a class="reference external" href="https://www.youtube.com/watch?v=6_BcCthVvb8">Context Engineering for AI Agents with LangChain and Manus</a>. The implementation provides two core operation primitives:</p>
+<section id="message-offload-operations">
+<h3>(1) Message Offload Operations<a class="headerlink" href="#message-offload-operations" title="Link to this heading">¶</a></h3>
+<p>Operations for intelligently reducing context size through compaction and compression strategies.</p>
+<p>📖 <strong>Detailed Usage Guide</strong>: <a class="reference internal" href="message_offload_ops.html"><span class="std std-doc">Message Offload Ops</span></a></p>
+<p>Key features:</p>
 <ul class="simple">
-<li><p>System instructions</p></li>
-<li><p>Few-shot examples</p></li>
-<li><p>The user’s query and current time</p></li>
-</ul>
-</li>
-<li><p>Parses the LLM response to extract time information (year, month, day, etc.)</p></li>
-<li><p>Stores the extracted time dictionary in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="retrievememoryop">
-<h2>RetrieveMemoryOp<a class="headerlink" href="#retrievememoryop" title="Link to this heading">¶</a></h2>
-<section id="id4">
-<h3>Functionality<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">RetrieveMemoryOp</span></code> retrieves memories from the vector store based on the query. It extends the <code class="docutils literal notranslate"><span class="pre">RecallVectorStoreOp</span></code> class to provide memory retrieval functionality.</p>
-</section>
-<section id="id5">
-<h3>Parameters<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.recall_key</span></code>: Key in the context to use as the query (default: “query”)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.top_k</span></code>: Maximum number of memories to retrieve (default: 3)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.retrieve_memory_op.params.threshold_score</span></code>: (Optional) Minimum similarity score for memories (filters out memories below this threshold)</p></li>
-</ul>
-</section>
-<section id="id6">
-<h3>Implementation Details<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the query from the context</p></li>
-<li><p>Searches the vector store for relevant memories based on the query</p></li>
-<li><p>Removes duplicate memories</p></li>
-<li><p>Filters memories by threshold score if specified</p></li>
-<li><p>Stores the retrieved memories in the context for downstream operations</p></li>
-</ol>
-</section>
-</section>
-<section id="semanticrankop">
-<h2>SemanticRankOp<a class="headerlink" href="#semanticrankop" title="Link to this heading">¶</a></h2>
-<section id="id7">
-<h3>Functionality<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">SemanticRankOp</span></code> ranks memories based on their semantic relevance to the query using an LLM. This improves the quality of retrieved memories by considering deeper semantic relationships beyond vector similarity.</p>
-</section>
-<section id="id8">
-<h3>Parameters<a class="headerlink" href="#id8" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.semantic_rank_op.params.enable_ranker</span></code>: Whether to enable semantic ranking (default: true)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.semantic_rank_op.params.output_memory_max_count</span></code>: Maximum number of memories to output (default: 10)</p></li>
+<li><p>Three working summary modes: compact, compress, and auto</p></li>
+<li><p>Intelligent token threshold management</p></li>
+<li><p>Integration with file storage system</p></li>
+<li><p>Complete working examples in test files</p></li>
 </ul>
 </section>
-<section id="id9">
-<h3>Implementation Details<a class="headerlink" href="#id9" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the memory list from the context</p></li>
-<li><p>If ranking is enabled and there are more memories than the output limit:</p>
+<section id="message-reload-operations">
+<h3>(2) Message Reload Operations<a class="headerlink" href="#message-reload-operations" title="Link to this heading">¶</a></h3>
+<p>Operations for retrieving and accessing offloaded content when needed.</p>
+<p>📖 <strong>Detailed Usage Guide</strong>: <a class="reference internal" href="message_reload_ops.html"><span class="std std-doc">Message Reload Ops</span></a></p>
+<p>Key features:</p>
 <ul class="simple">
-<li><p>Removes duplicates based on content</p></li>
-<li><p>Formats memories for LLM ranking</p></li>
-<li><p>Asks the LLM to rank memories by relevance on a scale of 0.0 to 1.0</p></li>
-<li><p>Parses the ranking results and applies scores to memories</p></li>
+<li><p>Text search within offloaded files (GrepOp)</p></li>
+<li><p>Efficient file reading with pagination (ReadFileOp)</p></li>
+<li><p>Support for both absolute and relative paths</p></li>
+<li><p>Complete working examples in test files</p></li>
 </ul>
-</li>
-<li><p>Sorts memories by score</p></li>
-<li><p>Stores the ranked memories in the context for downstream operations</p></li>
-</ol>
+<p>Both operation primitives are production-ready and can be integrated into your agent workflows. Refer to the linked documentation for API specifications, parameter details, and practical usage examples.</p>
 </section>
 </section>
-<section id="fusererankop">
-<h2>FuseRerankOp<a class="headerlink" href="#fusererankop" title="Link to this heading">¶</a></h2>
-<section id="id10">
-<h3>Functionality<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">FuseRerankOp</span></code> performs the final reranking of memories by combining multiple factors: semantic scores, memory types, and temporal relevance. It also formats the final output.</p>
-</section>
-<section id="id11">
-<h3>Parameters<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h3>
+<section id="integrating-working-memory-with-agents">
+<h2>3. Integrating Working Memory with Agents<a class="headerlink" href="#integrating-working-memory-with-agents" title="Link to this heading">¶</a></h2>
+<p>ReMe provides a complete tutorial on integrating working memory mechanisms with agent workflows. This integration enables agents to handle long-running tasks efficiently while maintaining optimal context window usage.</p>
+<section id="resources">
+<h3>Resources<a class="headerlink" href="#resources" title="Link to this heading">¶</a></h3>
+<p>📖 <strong>Tutorial Guide</strong>: <a class="reference internal" href="../cookbook/working/quick_start.html"><span class="std std-doc">Working Memory Quick Start</span></a></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_score_threshold</span></code>: Minimum score threshold for memories (default: 0.1)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_ratio_dict</span></code>: Dictionary of memory type to score multiplier ratios (default: {“conversation”: 0.5, “observation”: 1, “obs_customized”: 1.2, “insight”: 2.0})</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.fuse_time_ratio</span></code>: Score multiplier for time-relevant memories (default: 2.0)</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">op.fuse_rerank_op.params.output_memory_max_count</span></code>: Maximum number of memories to output (default: 5)</p></li>
+<li><p>Step-by-step guide on integrating working memory with agents</p></li>
+<li><p>Configuration examples and best practices</p></li>
+<li><p>Real-world usage scenarios</p></li>
 </ul>
-</section>
-<section id="id12">
-<h3>Implementation Details<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves extracted time information and memory list from the context</p></li>
-<li><p>For each memory:</p>
+<p>💻 <strong>Implementation Reference</strong>: <a class="reference download internal" download="" href="../_downloads/98ef23b2fe45f8ab95256e10271d374d/react_agent_with_working_memory.py"><span class="xref download myst">react_agent_with_working_memory.py</span></a></p>
 <ul class="simple">
-<li><p>Checks if the memory score is above the threshold</p></li>
-<li><p>Applies a type-based adjustment factor based on the memory type</p></li>
-<li><p>Determines time relevance by matching memory time metadata with extracted time</p></li>
-<li><p>Calculates the final score by multiplying the original score by type and time factors</p></li>
+<li><p>Complete implementation of a ReAct agent with working memory</p></li>
+<li><p>Shows how to configure message offload and reload operations</p></li>
+<li><p>Production-ready code template</p></li>
 </ul>
-</li>
-<li><p>Sorts memories by the reranked scores</p></li>
-<li><p>Selects the top-K memories based on the output limit</p></li>
-<li><p>Formats memories for output with timestamps if available</p></li>
-<li><p>Stores both the formatted output and the memory list in the context</p></li>
-</ol>
-</section>
-</section>
-<section id="printmemoryop">
-<h2>PrintMemoryOp<a class="headerlink" href="#printmemoryop" title="Link to this heading">¶</a></h2>
-<section id="id13">
-<h3>Functionality<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">PrintMemoryOp</span></code> formats the retrieved memories for display to the user. It provides a clean, structured representation of the memory content.</p>
-</section>
-<section id="id14">
-<h3>Parameters<a class="headerlink" href="#id14" title="Link to this heading">¶</a></h3>
-<p>No specific parameters for this operation.</p>
-</section>
-<section id="id15">
-<h3>Implementation Details<a class="headerlink" href="#id15" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves the memory list from the context</p></li>
-<li><p>Formats each memory with:</p>
+<p>🚀 <strong>Demo Application</strong>: <a class="reference download internal" download="" href="../_downloads/52902f42cf8a81d3af3b4415af69c598/work_memory_demo.py"><span class="xref download myst">work_memory_demo.py</span></a></p>
 <ul class="simple">
-<li><p>Memory index</p></li>
-<li><p>When to use information</p></li>
-<li><p>Content</p></li>
-<li><p>Additional metadata (if available)</p></li>
+<li><p>Runnable demonstration of working memory in action</p></li>
+<li><p>Practical examples with different scenarios</p></li>
+<li><p>Easy to adapt for your own use cases</p></li>
 </ul>
-</li>
-<li><p>Joins the formatted memories into a single string</p></li>
-<li><p>Stores the formatted string in the context as the response answer</p></li>
-</ol>
-</section>
-</section>
-<section id="readmessageop">
-<h2>ReadMessageOp<a class="headerlink" href="#readmessageop" title="Link to this heading">¶</a></h2>
-<section id="id16">
-<h3>Functionality<a class="headerlink" href="#id16" title="Link to this heading">¶</a></h3>
-<p><code class="docutils literal notranslate"><span class="pre">ReadMessageOp</span></code> fetches unmemorized chat messages from the context. This is useful for retrieving recent conversations that haven’t been processed into memories yet.</p>
-</section>
-<section id="id17">
-<h3>Parameters<a class="headerlink" href="#id17" title="Link to this heading">¶</a></h3>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">op.read_message_op.params.contextual_msg_max_count</span></code>: Maximum number of contextual messages to retrieve (default: 10)</p></li>
-</ul>
-</section>
-<section id="id18">
-<h3>Implementation Details<a class="headerlink" href="#id18" title="Link to this heading">¶</a></h3>
-<p>The operation:</p>
-<ol class="arabic simple">
-<li><p>Retrieves chat messages from the context</p></li>
-<li><p>Filters for messages that:</p>
-<ul class="simple">
-<li><p>Are not marked as memorized</p></li>
-<li><p>Contain the target name</p></li>
-</ul>
-</li>
-<li><p>Flattens the messages into a single list</p></li>
-<li><p>Sorts messages by creation time if available</p></li>
-<li><p>Stores the filtered messages back in the context</p></li>
-</ol>
+<p>These resources provide everything you need to add intelligent working memory management to your agent applications.</p>
 </section>
 </section>
 </section>
@@ -517,7 +497,7 @@
         },
         kernelOptions: {
             name: "python3",
-            path: "./personal_memory"
+            path: "./work_memory"
         },
         predefinedOutput: true
     }
@@ -528,23 +508,23 @@
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="personal_summary_ops.html">
+          <a class="next-page" href="message_offload_ops.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">Personal Memory Summary Ops</div>
+                <div class="title">Message Offload Ops</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
-          <a class="prev-page" href="personal_memory.html">
+          <a class="prev-page" href="../tool_memory/tool_bench.html">
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
               <div class="page-info">
                 <div class="context">
                   <span>Previous</span>
                 </div>
                 
-                <div class="title">Personal Memory</div>
+                <div class="title">Tool Memory Benchmark</div>
                 
               </div>
             </a>
@@ -584,47 +564,21 @@
         <div class="toc-tree-container">
           <div class="toc-tree">
             <ul>
-<li><a class="reference internal" href="#">Personal Memory Retrieve Ops</a><ul>
-<li><a class="reference internal" href="#setqueryop">SetQueryOp</a><ul>
-<li><a class="reference internal" href="#functionality">Functionality</a></li>
-<li><a class="reference internal" href="#parameters">Parameters</a></li>
-<li><a class="reference internal" href="#implementation-details">Implementation Details</a></li>
+<li><a class="reference internal" href="#">Message Offload</a><ul>
+<li><a class="reference internal" href="#background-why-message-offload">1. Background: Why Message Offload?</a><ul>
+<li><a class="reference internal" href="#the-agent-context-challenge">The Agent Context Challenge</a></li>
+<li><a class="reference internal" href="#the-solution-message-offload-as-context-engineering">The Solution: Message Offload as Context Engineering</a></li>
+<li><a class="reference internal" href="#enhanced-work-memory-management">Enhanced work memory management</a></li>
+<li><a class="reference internal" href="#the-impact-from-context-explosion-to-controlled-growth">The Impact: From Context Explosion to Controlled Growth</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#extracttimeop">ExtractTimeOp</a><ul>
-<li><a class="reference internal" href="#id1">Functionality</a></li>
-<li><a class="reference internal" href="#id2">Parameters</a></li>
-<li><a class="reference internal" href="#id3">Implementation Details</a></li>
+<li><a class="reference internal" href="#implementation-in-reme">2. Implementation in ReMe</a><ul>
+<li><a class="reference internal" href="#message-offload-operations">(1) Message Offload Operations</a></li>
+<li><a class="reference internal" href="#message-reload-operations">(2) Message Reload Operations</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#retrievememoryop">RetrieveMemoryOp</a><ul>
-<li><a class="reference internal" href="#id4">Functionality</a></li>
-<li><a class="reference internal" href="#id5">Parameters</a></li>
-<li><a class="reference internal" href="#id6">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#semanticrankop">SemanticRankOp</a><ul>
-<li><a class="reference internal" href="#id7">Functionality</a></li>
-<li><a class="reference internal" href="#id8">Parameters</a></li>
-<li><a class="reference internal" href="#id9">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#fusererankop">FuseRerankOp</a><ul>
-<li><a class="reference internal" href="#id10">Functionality</a></li>
-<li><a class="reference internal" href="#id11">Parameters</a></li>
-<li><a class="reference internal" href="#id12">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#printmemoryop">PrintMemoryOp</a><ul>
-<li><a class="reference internal" href="#id13">Functionality</a></li>
-<li><a class="reference internal" href="#id14">Parameters</a></li>
-<li><a class="reference internal" href="#id15">Implementation Details</a></li>
-</ul>
-</li>
-<li><a class="reference internal" href="#readmessageop">ReadMessageOp</a><ul>
-<li><a class="reference internal" href="#id16">Functionality</a></li>
-<li><a class="reference internal" href="#id17">Parameters</a></li>
-<li><a class="reference internal" href="#id18">Implementation Details</a></li>
+<li><a class="reference internal" href="#integrating-working-memory-with-agents">3. Integrating Working Memory with Agents</a><ul>
+<li><a class="reference internal" href="#resources">Resources</a></li>
 </ul>
 </li>
 </ul>
