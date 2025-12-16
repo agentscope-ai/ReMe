@@ -1,0 +1,5 @@
+system_prompt: |
+  You are a helpful assistant. The current time is {time}.
+
+system_prompt_zh: |
+  你是一个有用的助手。当前时间是 {time}。

@@ -1,0 +1,17 @@
+tool: |
+  Retrieve a memory from the memory store using vector similarity search.
+  Use this tool to find relevant memories based on semantic similarity to the query.
+  The search returns the most relevant memories ranked by similarity score.
+
+tool_multiple: |
+  Retrieve memories from the memory store using vector similarity search.
+  Use this tool to find relevant memories based on semantic similarity to the queries.
+  The search returns the most relevant memories ranked by similarity score.
+
+query: |
+  The query text for vector similarity search.
+  Use descriptive queries that capture the semantic meaning of what you're looking for.
+
+queries: |
+  A list of query texts for vector similarity search.
+  Use descriptive queries that capture the semantic meaning of what you're looking for.
