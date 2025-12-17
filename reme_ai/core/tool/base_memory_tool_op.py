@@ -105,12 +105,4 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
 
     @property
     def workspace_id(self) -> str:
-        """
-        Get the workspace ID from service configuration or context.
-
-        Returns:
-            str: The workspace ID, defaults to "default" if not found.
-        """
-        return self.service_config_metadata.get(
-            "workspace_id",
-            self.context.get("workspace_id", "default"))
+        return self.context.get("workspace_id", "default")

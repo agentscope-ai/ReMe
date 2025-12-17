@@ -7,7 +7,7 @@ memories in the ReMe system.
 import datetime
 import hashlib
 from typing import Any, Self
-
+import json
 from flowllm.core.schema import VectorNode
 from pydantic import BaseModel, Field, model_validator
 
@@ -158,7 +158,10 @@ class MemoryNode(BaseModel):
         Returns:
             str: Formatted string with when_to_use, content, and ref_memory_id.
         """
-        parts: list[str] = []
+        parts: list[str] = [
+            f"memory_id={self.memory_id}"
+            f"modified_time={self.time_modified}"
+        ]
 
         if self.when_to_use:
             parts.append(self.when_to_use)
@@ -166,8 +169,11 @@ class MemoryNode(BaseModel):
         if self.content:
             parts.append(self.content)
 
+        if self.metadata:
+            parts.append(f"metadata={json.dumps(self.metadata, ensure_ascii=False)}")
+
         if self.ref_memory_id:
-            parts.append(f"(refer to history memory: {self.ref_memory_id})")
+            parts.append(f"history_memory.ref_memory_id={self.ref_memory_id}")
 
         return " ".join(parts)
 
