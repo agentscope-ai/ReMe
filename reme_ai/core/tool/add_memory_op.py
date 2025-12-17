@@ -26,9 +26,9 @@ class AddMemoryOp(BaseMemoryToolOp):
             dict: Input schema for adding a single memory.
         """
         return {
-            "query": {
+            "memory_content": {
                 "type": "string",
-                "description": self.get_prompt("query"),
+                "description": self.get_prompt("memory_content"),
                 "required": True,
             },
             "metadata": {
@@ -52,30 +52,30 @@ class AddMemoryOp(BaseMemoryToolOp):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "query": {
+                        "memory_content": {
                             "type": "string",
-                            "description": self.get_prompt("query"),
+                            "description": self.get_prompt("memory_content"),
                         },
                         "metadata": {
                             "type": "object",
                             "description": self.get_prompt("metadata"),
                         }
                     },
-                    "required": ["query"]
+                    "required": ["memory_content"]
                 },
             }
         }
 
     def _build_memory_node(
             self,
-            query: str,
+            memory_content: str,
             metadata: Dict[str, Any],
             workspace_id: str,
     ) -> MemoryNode:
-        """Build a MemoryNode from query and metadata.
+        """Build a MemoryNode from memory_content and metadata.
 
         Args:
-            query: The memory content.
+            memory_content: The memory content.
             metadata: Additional metadata for the memory.
             workspace_id: The workspace ID.
 
@@ -87,7 +87,7 @@ class AddMemoryOp(BaseMemoryToolOp):
             memory_type=self.memory_type,
             memory_target=self.memory_target,
             when_to_use="",
-            content=query,
+            content=memory_content,
             ref_memory_id=self.ref_memory_id,
             author=self.author,
             metadata=metadata,
@@ -111,16 +111,16 @@ class AddMemoryOp(BaseMemoryToolOp):
         if self.enable_multiple:
             memories: List[Dict[str, Any]] = self.input_dict.get("memories", [])
             for mem in memories:
-                query = mem.get("query", "")
-                if not query:
+                memory_content = mem.get("memory_content", "")
+                if not memory_content:
                     continue
                 metadata = mem.get("metadata", {}) or {}
-                memory_nodes.append(self._build_memory_node(query, metadata, workspace_id))
+                memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
         else:
-            query = self.input_dict.get("query", "")
-            if query:
+            memory_content = self.input_dict.get("memory_content", "")
+            if memory_content:
                 metadata = self.input_dict.get("metadata", {}) or {}
-                memory_nodes.append(self._build_memory_node(query, metadata, workspace_id))
+                memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
 
         if not memory_nodes:
             self.set_output("No valid memories provided for addition.")

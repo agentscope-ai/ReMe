@@ -6,7 +6,7 @@ tool_multiple: |
   Add multiple memories to the vector store for future retrieval.
   Use this tool to store multiple pieces of important information that should be remembered, such as "I am very happy" (meta), "John prefers dark mode" (personal), "To deploy, run build then push" (procedural), or "search_tool works best with short queries" (tool).
 
-query: |
+memory_content: |
   The content of the memory to store.
   Should be a clear, concise statement that captures the information to remember.
 
@@ -17,6 +17,6 @@ metadata: |
 
 memories: |
   A list of memory objects to store. Each object should contain:
-  - query (required): The content of the memory to store.
+  - memory_content (required): The content of the memory to store.
   - metadata (optional): Additional metadata for the memory.
 
