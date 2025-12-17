@@ -88,8 +88,8 @@ class ReactAgentOp(BaseAsyncToolOp):
         )
         messages.append(assistant_message)
         logger.info(f"round{step + 1}.assistant={assistant_message.model_dump_json()}")
-        should_continue = bool(assistant_message.tool_calls)
-        return assistant_message, should_continue
+        should_act = bool(assistant_message.tool_calls)
+        return assistant_message, should_act
 
     async def _acting_step(
             self,
@@ -151,9 +151,9 @@ class ReactAgentOp(BaseAsyncToolOp):
 
         messages = await self.build_messages()
         for step in range(self.max_steps):
-            assistant_message, should_continue = await self._reasoning_step(messages, tool_op_dict, step)
+            assistant_message, should_act = await self._reasoning_step(messages, tool_op_dict, step)
 
-            if not should_continue:
+            if not should_act:
                 break
 
             tool_result_messages = await self._acting_step(assistant_message, tool_op_dict, think_op, step)
