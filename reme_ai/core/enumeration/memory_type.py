@@ -8,7 +8,7 @@ class MemoryType(str, Enum):
     Three-layer memory architecture for agent memory management.
 
     Layer 1 - High-level Abstraction Memory:
-        - META: Self-cognition (identity, personality, current state)
+        - IDENTITY: Self-cognition (identity, personality, current state)
         - PERSONAL: Person-specific memory (preferences and context about specific individuals)
         - PROCEDURAL: Procedural memory (how-to knowledge, e.g., 4 steps to write financial reports)
         - TOOL: Tool memory (tool usage patterns, success rates, token consumption, latency)
@@ -17,7 +17,7 @@ class MemoryType(str, Enum):
     Layer 3 - History Memory (Raw): Raw message history
     """
 
-    META = "meta"
+    IDENTITY = "identity"
     PERSONAL = "personal"
     PROCEDURAL = "procedural"
     TOOL = "tool"

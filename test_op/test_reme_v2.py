@@ -1,7 +1,7 @@
 import asyncio
 
 from reme_ai import ReMeApp
-from reme_ai.core.agent import SimpleSummaryAgentOp, SimpleRetrieveAgentOp
+from reme_ai.core.agent.personal import SimpleSummaryAgentOp, SimpleRetrieveAgentOp
 from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryOp, UpdateMemoryOp, VectorRetrieveMemoryOp
 
 

@@ -4,10 +4,10 @@ from typing import List, Dict, Optional
 
 from loguru import logger
 
-from .think_tool_op import ThinkToolOp
 from .. import BaseAsyncToolOp
 from ..enumeration import Role, MemoryType
 from ..schema import Message, ToolCall
+from ..tool import ThinkToolOp
 
 
 class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):

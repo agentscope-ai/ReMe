@@ -1,15 +1,22 @@
 import datetime
 from typing import List
 
-from .base_memory_agent_op import BaseMemoryAgentOp
-from .. import C
-from ..enumeration import Role, MemoryType
-from ..schema import Message
+from ... import C
+from ..base_memory_agent_op import BaseMemoryAgentOp
+from ...enumeration import Role, MemoryType
+from ...schema import Message
 
 
 @C.register_op()
-class SimpleSummaryAgentOp(BaseMemoryAgentOp):
-    memory_type: MemoryType = MemoryType.PERSONAL
+class ProceduralSummaryAgentOp(BaseMemoryAgentOp):
+    """Agent for extracting and storing procedural memories.
+
+    This agent analyzes conversation context to extract procedural knowledge
+    such as workflows, step-by-step procedures, how-to guides, and best practices,
+    then stores them in the memory system.
+    """
+
+    memory_type: MemoryType = MemoryType.PROCEDURAL
 
     async def build_messages(self) -> List[Message]:
         now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -48,3 +55,4 @@ class SimpleSummaryAgentOp(BaseMemoryAgentOp):
             ),
         ]
         return messages
+
