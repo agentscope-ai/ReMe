@@ -54,7 +54,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
                     "ref_memory_id": {
                         "type": "string",
                         "description": "ref_memory_id",
-                        "required": True,
+                        "required": False,
                     },
                 },
             },
@@ -66,7 +66,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
 
     @property
     def ref_memory_id(self) -> str:
-        return self.input_dict["ref_memory_id"]
+        return self.input_dict.get("ref_memory_id", "")
 
     @property
     def workspace_id(self) -> str:

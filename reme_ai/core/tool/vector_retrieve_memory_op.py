@@ -22,7 +22,7 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
     controlled by the `enable_multiple` parameter inherited from BaseMemoryToolOp.
     """
 
-    def __init__(self, enable_summary_memory: bool, top_k: int = 10, **kwargs):
+    def __init__(self, enable_summary_memory: bool = False, top_k: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.enable_summary_memory: bool = enable_summary_memory
         self.top_k: int = self.service_config_metadata.get("top_k", top_k)
@@ -70,7 +70,7 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
         if self.enable_summary_memory:
             memory_type_list.append(MemoryType.SUMMARY)
 
-        nodes: List[VectorNode] = await self.vector_store.search(
+        nodes: List[VectorNode] = await self.vector_store.async_search(
             query=query,
             workspace_id=workspace_id,
             top_k=self.top_k,
@@ -79,7 +79,7 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
                 "metadata.memory_target": [self.memory_target],
             },
         )
-        return [MemoryNode.vector_node_to_memory(n) for n in nodes]
+        return [MemoryNode.from_vector_node(n) for n in nodes]
 
     async def async_execute(self):
         """Execute the vector retrieve memory operation.

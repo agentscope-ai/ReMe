@@ -21,6 +21,7 @@ class SimpleSummaryAgentOp(BaseMemoryAgentOp):
         elif "messages" in self.input_dict:
             input_messages = self.input_dict["messages"]
             input_messages = [Message(**x) for x in input_messages if isinstance(x, dict)]
+            input_messages = [x for x in input_messages if x.role is not Role.SYSTEM]
             summary_context = "\n".join([x.format_message(
                 add_time_created=True,
                 use_name_first=True,

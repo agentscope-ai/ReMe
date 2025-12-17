@@ -78,7 +78,7 @@ class ReadHistoryOp(BaseMemoryToolOp):
             return
 
         # Perform search by IDs using filter
-        nodes: List[VectorNode] = await self.vector_store.search(
+        nodes: List[VectorNode] = await self.vector_store.async_search(
             query="",
             workspace_id=workspace_id,
             top_k=len(memory_ids),

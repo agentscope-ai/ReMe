@@ -6,8 +6,9 @@ memories in the ReMe system.
 
 import datetime
 import hashlib
-from typing import Any, Self
 import json
+from typing import Any
+
 from flowllm.core.schema import VectorNode
 from pydantic import BaseModel, Field, model_validator
 
@@ -19,10 +20,6 @@ MEMORY_ID_LENGTH: int = 16
 
 def _get_current_timestamp() -> str:
     """Get current timestamp in YYYY-MM-DD HH:MM:SS format.
-
-    Example:
-        >>> _get_current_timestamp()
-        '2024-01-15 14:30:45'
 
     Returns:
         str: Current timestamp string in format 'YYYY-MM-DD HH:MM:SS'.
@@ -64,7 +61,7 @@ class MemoryNode(BaseModel):
 
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
-    def _update_modified_time(self) -> Self:
+    def _update_modified_time(self) -> "MemoryNode":
         """Update time_modified to current timestamp.
 
         Returns:
@@ -73,7 +70,7 @@ class MemoryNode(BaseModel):
         self.time_modified = _get_current_timestamp()
         return self
 
-    def _update_memory_id(self) -> Self:
+    def _update_memory_id(self) -> "MemoryNode":
         """Generate memory_id from SHA-256 hash of content.
 
         Takes the first MEMORY_ID_LENGTH characters of the hash.
@@ -90,7 +87,7 @@ class MemoryNode(BaseModel):
         return self
 
     @model_validator(mode='after')
-    def _update_after_init(self) -> Self:
+    def _update_after_init(self) -> "MemoryNode":
         """Post-initialization validator.
 
         Auto-generates memory_id from content if not provided.
@@ -178,7 +175,7 @@ class MemoryNode(BaseModel):
         return " ".join(parts)
 
     @classmethod
-    def from_vector_node(cls, node: VectorNode) -> Self:
+    def from_vector_node(cls, node: VectorNode) -> "MemoryNode":
         """Reconstruct MemoryNode from VectorNode.
 
         Reverses the to_vector_node conversion:

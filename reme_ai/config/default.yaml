@@ -254,14 +254,14 @@ llm:
   default:
     backend: openai_compatible
     model_name: qwen3-30b-a3b-instruct-2507
-    params:
-      temperature: 0.6
     token_count: # Optional
       backend: base
 
   qwen3_coder_plus:
     backend: openai_compatible
     model_name: qwen3-coder-plus
+    params:
+      temperature: 0.6
     token_count: # Optional
       model_name: Qwen/Qwen3-Coder-480B-A35B-Instruct
       backend: hf
@@ -367,7 +367,7 @@ embedding_model:
 
 vector_store:
   default:
-    backend: memory
+    backend: local
     embedding_model: default
 #    params:
 #      hosts: "http://localhost:9200"
