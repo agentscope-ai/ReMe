@@ -16,7 +16,7 @@ system_prompt: |
   3. **update_memory**: Update existing memories with new content (use when information needs to be modified or expanded).
   4. **delete_memory**: Delete outdated, incorrect, or redundant memories.
 
-  ## Your Workflow:
+  ## Your Task:
   1. **Analyze and Extract** potential memories from the conversation context:
      - Determine if the conversation contains important information worth remembering, including but not limited to:
        - User preferences, habits, or personal information
@@ -76,7 +76,7 @@ system_prompt_zh: |
   3. **update_memory**：更新现有记忆（当信息需要修改或扩展时使用）。
   4. **delete_memory**：删除过时、不准确或冗余的记忆。
 
-  ## 工作流程：
+  ## 你的任务：
   1. **分析并提取**对话上下文中的潜在记忆：
       - 判断对话是否包含值得记住的重要信息，包括但不限于：
         - 用户偏好、习惯或个人信息

@@ -14,7 +14,7 @@ system_prompt: |
   1. **vector_retrieve_memory**: Search memories using semantic similarity. 
   2. **read_history**: Read the full content of original history messages by their `ref_memory_id`. Use this only when vector retrieval does not surface sufficient information or when additional detail from a retrieved `ref_memory_id` is required.
 
-  ## Your Workflow:
+  ## Your Task:
   1. **Analyze** the conversation context to determine if retrieval is needed:
      - If the question can be answered directly from the given context, output `<NO_RETRIEVAL_NEEDED>` and stop.
      - If additional information is needed, proceed to retrieval.
@@ -49,7 +49,7 @@ system_prompt_zh: |
   1. **vector_retrieve_memory**：使用语义相似度搜索记忆。
   2. **read_history**：通过 `ref_memory_id` 查看原始历史消息内容，仅在 vector 检索无法提供足够信息或需要审查 ref_memory_id 关联的详细内容时使用。
 
-  ## 工作流程：
+  ## 你的任务：
   1. **分析**对话上下文以判断是否需要检索：
       - 如果问题可以直接通过现有上下文回答，则输出 `<NO_RETRIEVAL_NEEDED>` 并停止
       - 如果需要额外信息，则继续检索
