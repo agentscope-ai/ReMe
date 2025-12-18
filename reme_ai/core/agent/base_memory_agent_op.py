@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from loguru import logger
 
@@ -26,55 +26,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         self.add_think_tool: bool = add_think_tool
 
     def build_tool_call(self) -> ToolCall:
-        return ToolCall(
-            **{
-                "description": "",
-                "input_schema": {
-                    "workspace_id": {
-                        "type": "string",
-                        "description": "memory_target",
-                        "required": True,
-                    },
-                    "memory_target": {
-                        "type": "string",
-                        "description": "memory_target",
-                        "required": True,
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "query",
-                        "required": False,
-                    },
-                    "messages": {
-                        "type": "array",
-                        "description": "messages",
-                        "required": False,
-                        "items": {"type": "string"},
-                    },
-                    "ref_memory_id": {
-                        "type": "string",
-                        "description": "ref_memory_id",
-                        "required": False,
-                    },
-                },
-            },
-        )
-
-    @property
-    def memory_target(self) -> str:
-        return self.input_dict["memory_target"]
-
-    @property
-    def ref_memory_id(self) -> str:
-        return self.input_dict.get("ref_memory_id", "")
-
-    @property
-    def workspace_id(self) -> str:
-        return self.input_dict["workspace_id"]
-
-    @property
-    def author(self) -> str:
-        return self.llm_config.model_name
+        raise NotImplementedError("Subclasses must implement `build_tool_call`")
 
     async def build_tool_op_dict(self) -> dict:
         tool_op_dict: Dict[str, BaseAsyncToolOp] = {
@@ -85,8 +37,19 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         return tool_op_dict
 
     async def build_messages(self) -> List[Message]:
-        """build messages"""
-        raise NotImplementedError("Subclasses must implement build_messages()")
+        raise NotImplementedError("Subclasses must implement `build_messages`")
+
+    @staticmethod
+    def format_messages(messages: List[Dict[str, Any]]):
+        messages = [Message(**x) for x in messages if isinstance(x, dict)]
+        messages = [x for x in messages if x.role is not Role.SYSTEM]
+        messages_context = "\n".join([x.format_message(
+            add_time_created=True,
+            use_name_first=True,
+            add_reasoning_content=True,
+            add_tool_calls=True,
+        ) for x in messages])
+        return messages_context
 
     async def _reasoning_step(
             self,
@@ -185,3 +148,19 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         else:
             self.set_output("")
         self.context.response.metadata["messages"] = messages
+
+    @property
+    def memory_target(self) -> str:
+        return self.input_dict.get("memory_target", "")
+
+    @property
+    def ref_memory_id(self) -> str:
+        return self.input_dict.get("ref_memory_id", "")
+
+    @property
+    def workspace_id(self) -> str:
+        return self.input_dict.get("workspace_id", "default")
+
+    @property
+    def author(self) -> str:
+        return self.llm_config.model_name

@@ -7,6 +7,7 @@ This module provides the ReadMetaMemoryOp class for reading memory metadata
 from typing import List, Dict
 
 from ..base_memory_tool_op import BaseMemoryToolOp
+from ...enumeration.memory_type import MemoryType
 from ... import C
 
 
@@ -14,9 +15,16 @@ from ... import C
 class ReadMetaMemoryOp(BaseMemoryToolOp):
     """Operation for reading memory metadata from file storage."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, include_identity: bool = False, **kwargs):
+        """Initialize the ReadMetaMemoryOp.
+
+        Args:
+            include_identity: Whether to include IDENTITY type meta memory. Defaults to True.
+            **kwargs: Additional keyword arguments passed to parent class.
+        """
         kwargs["enable_multiple"] = False
         super().__init__(**kwargs)
+        self.include_identity = include_identity
 
     def _load_meta_memories(self, workspace_id: str) -> List[Dict[str, str]]:
         """Load meta memories from file.
@@ -29,7 +37,12 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
         """
         metadata_handler = self.get_metadata_handler(f"{workspace_id}/meta")
         result = self.load_metadata_value(metadata_handler, "meta_memories")
-        return result if result is not None else []
+        memories = result if result is not None else []
+
+        if not self.include_identity:
+            memories = [m for m in memories if MemoryType(m.get("memory_type")) is not MemoryType.IDENTITY]
+
+        return memories
 
     def _format_memory_metadata(self, memories: List[Dict[str, str]]) -> str:
         """Format memory metadata into a readable string.
@@ -62,7 +75,6 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
 
         if memories:
             formatted = self._format_memory_metadata(memories)
-            output = f"Available meta memories (format: \"- <memory_type>(<memory_target>): <description>\"):\n{formatted}"
-            self.set_output(output)
+            self.set_output(formatted)
         else:
             self.set_output(f"No memory metadata found in workspace={workspace_id}.")
