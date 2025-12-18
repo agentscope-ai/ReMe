@@ -1,0 +1,9 @@
+tool: |
+  Add history memory to the vector store from a list of messages.
+  Use this tool to store conversation history as memory for future retrieval.
+  The messages will be formatted and stored as a single history memory entry.
+
+messages: |
+  A list of message objects to store as history memory.
+  Each message should contain role, content, and optional fields like name, tool_calls, etc.
+

@@ -2,7 +2,7 @@ import asyncio
 
 from reme_ai import ReMeApp
 from reme_ai.core.agent.personal import SimpleSummaryAgentOp, SimpleRetrieveAgentOp
-from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryOp, UpdateMemoryOp, VectorRetrieveMemoryOp
+from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryMemoryOp, UpdateMemoryOp, VectorRetrieveMemoryOp
 
 
 async def test_summary_and_retrieve():
@@ -57,7 +57,7 @@ async def test_summary_and_retrieve():
         # Step 2: Retrieve agent to retrieve relevant memories
         retrieve_agent = SimpleRetrieveAgentOp() << [
             VectorRetrieveMemoryOp(enable_summary_memory=True, top_k=10),
-            ReadHistoryOp(),
+            ReadHistoryMemoryOp(),
         ]
         await retrieve_agent.async_call(
             query="What does Alice like?",
