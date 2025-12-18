@@ -1,5 +1,5 @@
 tool: |
-  Write the identity memory for the agent.
+  Update the identity memory for the agent.
   Use this tool to store self-cognition information, such as identity, personality, or current state of the agent.
 
 identity_memory: |
