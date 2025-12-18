@@ -19,24 +19,30 @@ class AddMemoryOp(BaseMemoryToolOp):
     controlled by the `enable_multiple` parameter inherited from BaseMemoryToolOp.
     """
 
+    def __init__(self, add_metadata: bool = True, **kwargs):
+        super().__init__(**kwargs)
+        self.add_metadata: bool = add_metadata
+
     def build_input_schema(self) -> dict:
         """Build input schema for single memory addition mode.
 
         Returns:
             dict: Input schema for adding a single memory.
         """
-        return {
+        schema = {
             "memory_content": {
                 "type": "string",
                 "description": self.get_prompt("memory_content"),
                 "required": True,
             },
-            "metadata": {
+        }
+        if self.add_metadata:
+            schema["metadata"] = {
                 "type": "object",
                 "description": self.get_prompt("metadata"),
                 "required": False,
             }
-        }
+        return schema
 
     def build_multiple_input_schema(self) -> dict:
         """Build input schema for multiple memory addition mode.
@@ -44,6 +50,17 @@ class AddMemoryOp(BaseMemoryToolOp):
         Returns:
             dict: Input schema for adding multiple memories.
         """
+        item_properties = {
+            "memory_content": {
+                "type": "string",
+                "description": self.get_prompt("memory_content"),
+            },
+        }
+        if self.add_metadata:
+            item_properties["metadata"] = {
+                "type": "object",
+                "description": self.get_prompt("metadata"),
+            }
         return {
             "memories": {
                 "type": "array",
@@ -51,16 +68,7 @@ class AddMemoryOp(BaseMemoryToolOp):
                 "required": True,
                 "items": {
                     "type": "object",
-                    "properties": {
-                        "memory_content": {
-                            "type": "string",
-                            "description": self.get_prompt("memory_content"),
-                        },
-                        "metadata": {
-                            "type": "object",
-                            "description": self.get_prompt("metadata"),
-                        }
-                    },
+                    "properties": item_properties,
                     "required": ["memory_content"]
                 },
             }

@@ -69,3 +69,65 @@ async def test_summary_and_retrieve():
 
 if __name__ == "__main__":
     asyncio.run(test_summary_and_retrieve())
+
+
+"""
+# tool
+add_memory()
+delete_memory()
+update_memory()
+retrieve_memory()
+retrieve_history()
+
+read_tool_memory()
+update_tool_memory()
+
+read_identity_memory()
+update_identity_memory(memory_content)
+
+summary_context(thinking, summary)
+hand_off_agent(thinking, type, target)
+
+retrieve_personal_memory(think, target, query)
+retrieve_procedural_memory(think, target, query)
+retrieve_tool_memory(think, target, tool_name)
+
+
+
+# summary agent
+meta-summarizer
+identity_summary_agent
+personal_summary_agent
+procedural_summary_agent
+tool_summary_agent
+
+# retrieve agent
+meta-retrieve
+llm_agent
+
+
+meta-summarizer << [
+    summary_context(thinking, summary)
+    hand_off_agent(thinking, type, target)
+]
+
+hand_off_agent << [
+    identity_summary_agent << [update_identity_memory]
+    personal_summary_agent << [add_memory, delete_memory, update_memory, retrieve_memory]
+    procedural_summary_agent << [add_memory, delete_memory, update_memory, retrieve_memory]
+    tool_summary_agent << [update_tool_memory]
+]
+
+meta-retrieve << [
+    retrieve_personal_memory(think, target, query)
+    retrieve_procedural_memory(think, target, query)
+    retrieve_tool_memory(think, target, tool_name)
+    retrieve_history(think, id)
+]
+
+llm_agent << [
+    read_identity_memory() 主动读取
+    ...
+]
+
+"""

@@ -1,19 +1,20 @@
+from flowllm.core.storage import CacheHandler
+
+from . import BaseMemoryToolOp
 from .. import C, BaseAsyncToolOp
 from ..schema import ToolCall
 
 
 @C.register_op()
-class ThinkToolOp(BaseAsyncToolOp):
+class ReadIdentityMemoryOp(BaseAsyncToolOp):
     """Utility operation that prompts the model for explicit reflection text."""
+    def __init__(self, ):
 
-    def __init__(self, add_output_reflection: bool = False, **kwargs):
-        super().__init__(**kwargs)
-        self.add_output_reflection: bool = add_output_reflection
 
     def build_tool_call(self) -> ToolCall:
         return ToolCall(
             **{
-                "description": self.get_prompt("tool"),
+                "description": "",
                 "input_schema": {
                     "reflection": {
                         "type": "string",
@@ -25,6 +26,8 @@ class ThinkToolOp(BaseAsyncToolOp):
         )
 
     async def async_execute(self):
+        cache: CacheHandler = CacheHandler()
+
         if self.add_output_reflection:
             self.set_output(self.input_dict["reflection"])
         else:

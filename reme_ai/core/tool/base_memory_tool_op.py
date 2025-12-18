@@ -89,11 +89,11 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
 
     @property
     def memory_type(self) -> MemoryType:
-        return MemoryType(self.context["memory_type"])
+        return MemoryType(self.context.get("memory_type"))
 
     @property
     def memory_target(self) -> str:
-        return self.context["memory_target"]
+        return self.context.get("memory_target", "")
 
     @property
     def ref_memory_id(self) -> str:
