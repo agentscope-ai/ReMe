@@ -1,0 +1,22 @@
+tool: |
+  Add a single memory metadata entry for the agent.
+  Use this tool to register a new memory type and target.
+
+tool_multiple: |
+  Add multiple memory metadata entries for the agent.
+  Use this tool to register multiple memory types and targets at once.
+
+meta_memories: |
+  A list of memory metadata entries to add. Each entry contains memory_type and memory_target.
+
+memory_type: |
+  The type of memory. Valid values are: identity, personal, procedural, tool, summary, history.
+  - identity: Self-cognition information (identity, personality, current state)
+  - personal: Person-specific memory (preferences and context about specific individuals)
+  - procedural: Procedural memory (how-to knowledge)
+  - tool: Tool memory (tool usage patterns, success rates)
+
+memory_target: |
+  The target of the memory. For example, in personal memory, this would be the person's name.
+  For identity memory, this can be empty or a specific aspect of identity.
+

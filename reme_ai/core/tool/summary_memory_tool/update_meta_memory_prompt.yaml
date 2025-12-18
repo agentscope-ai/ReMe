@@ -1,0 +1,18 @@
+tool: |
+  Update memory metadata for the agent.
+  Use this tool to specify memory type and target for various types of memories.
+
+meta_memories: |
+  A list of memory metadata entries. Each entry contains memory_type and memory_target.
+
+memory_type: |
+  The type of memory. Valid values are: identity, personal, procedural, tool, summary, history.
+  - identity: Self-cognition information (identity, personality, current state)
+  - personal: Person-specific memory (preferences and context about specific individuals)
+  - procedural: Procedural memory (how-to knowledge)
+  - tool: Tool memory (tool usage patterns, success rates)
+
+memory_target: |
+  The target of the memory. For example, in personal memory, this would be the person's name.
+  For identity memory, this can be empty or a specific aspect of identity.
+
