@@ -72,27 +72,25 @@ if __name__ == "__main__":
 
 
 """
-# tool
+## summary memory
+load_meta_skills()
+summary_context(thinking, summary)
+hand_off_agent(thinking, type, target)
+
 add_memory()
 delete_memory()
 update_memory()
 retrieve_memory()
-retrieve_history()
 
-read_tool_memory()
 update_tool_memory()
-
-read_identity_memory()
 update_identity_memory(memory_content)
 
-summary_context(thinking, summary)
-hand_off_agent(thinking, type, target)
-
+## retrieve memory
+load_meta_memory() << read_identity_memory()
 retrieve_personal_memory(think, target, query)
 retrieve_procedural_memory(think, target, query)
 retrieve_tool_memory(think, target, tool_name)
-
-
+read_history()
 
 # summary agent
 meta-summarizer
@@ -104,6 +102,23 @@ tool_summary_agent
 # retrieve agent
 meta-retrieve
 llm_agent
+
+
+# summary working memory
+compact
+compress
+auto
+
+# reload working memory
+grep_content(query, -5, 5, 0, 10)
+
+
+## retrieve skills
+load_meta_skills()
+load_skills()
+load_reference_skills()
+execute_shell(skill_name, parameters)
+
 
 
 meta-summarizer << [

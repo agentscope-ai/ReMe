@@ -8,10 +8,10 @@ from typing import List
 
 from flowllm.core.schema import VectorNode
 
-from .base_memory_tool_op import BaseMemoryToolOp
-from .. import C
-from ..enumeration import MemoryType
-from ..schema import MemoryNode
+from ..base_memory_tool_op import BaseMemoryToolOp
+from ... import C
+from ...enumeration import MemoryType
+from ...schema import MemoryNode
 
 
 @C.register_op()

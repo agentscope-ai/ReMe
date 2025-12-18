@@ -1,6 +1,9 @@
 from abc import ABC
+from pathlib import Path
+from typing import Any
 
 from flowllm.core.schema import ToolCall
+from flowllm.core.storage import CacheHandler
 
 from .. import C, BaseAsyncToolOp
 from ..enumeration import MemoryType
@@ -18,6 +21,7 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
     def __init__(self,
                  enable_multiple: bool = True,
                  enable_thinking_params: bool = False,
+                 memory_metadata_dir: str = "./memory_metadata",
                  **kwargs):
         """
         Initialize the BaseMemoryToolOp.
@@ -28,9 +32,9 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
             **kwargs: Additional keyword arguments passed to the parent class.
         """
         super().__init__(**kwargs)
-        self.enable_multiple: bool = C.service_config.metadata.get("enable_multiple", enable_multiple)
-        self.enable_thinking_params: bool = C.service_config.metadata.get(
-            "enable_thinking_params", enable_thinking_params)
+        self.enable_multiple: bool = enable_multiple
+        self.enable_thinking_params: bool = enable_thinking_params
+        self.memory_metadata_dir: Path = Path(memory_metadata_dir)
 
     def build_input_schema(self) -> dict:
         """
@@ -42,6 +46,7 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
         Returns:
             dict: The input schema definition.
         """
+        return {}
 
     def build_multiple_input_schema(self) -> dict:
         """
@@ -53,6 +58,7 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
         Returns:
             dict: The input schema definition for multiple items.
         """
+        return {}
 
     def build_tool_call(self) -> ToolCall:
         """
@@ -86,6 +92,17 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
                 "input_schema": input_schema,
             }
         )
+
+    def get_metadata_handler(self, path: str) -> CacheHandler:
+        return CacheHandler(self.memory_metadata_dir / path)
+
+    @staticmethod
+    def load_metadata_value(metadata_handler: CacheHandler, key: str):
+        return metadata_handler.load(key)
+
+    @staticmethod
+    def save_metadata_value(metadata_handler: CacheHandler, key: str, value: Any):
+        metadata_handler.save(key, value)
 
     @property
     def memory_type(self) -> MemoryType:

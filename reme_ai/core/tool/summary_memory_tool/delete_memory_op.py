@@ -6,8 +6,8 @@ by their IDs from the vector store.
 
 from typing import List
 
-from .base_memory_tool_op import BaseMemoryToolOp
-from .. import C
+from ..base_memory_tool_op import BaseMemoryToolOp
+from ... import C
 
 
 @C.register_op()

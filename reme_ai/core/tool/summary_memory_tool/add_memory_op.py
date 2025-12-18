@@ -6,9 +6,9 @@ to the vector store with support for both single and multiple memory modes.
 
 from typing import Any, Dict, List
 
-from .base_memory_tool_op import BaseMemoryToolOp
-from .. import C
-from ..schema import MemoryNode
+from ..base_memory_tool_op import BaseMemoryToolOp
+from ... import C
+from ...schema import MemoryNode
 
 
 @C.register_op()
