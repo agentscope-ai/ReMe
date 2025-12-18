@@ -8,10 +8,16 @@ tool_multiple: |
   Use this tool to find relevant memories based on semantic similarity to the queries.
   The search returns the most relevant memories ranked by similarity score.
 
+memory_type: |
+  The type of memory to search for. Must be one of: "identity", "personal", "procedural", "tool".
+
+memory_target: |
+  The target of the memory. For example, in personal memory, this would be the person's name.
+
 query: |
   The query text for vector similarity search.
   Use descriptive queries that capture the semantic meaning of what you're looking for.
 
-queries: |
-  A list of query texts for vector similarity search.
-  Use descriptive queries that capture the semantic meaning of what you're looking for.
+query_items: |
+  A list of query items for vector similarity search.
+  Each item should contain memory_type, memory_target, and query fields.

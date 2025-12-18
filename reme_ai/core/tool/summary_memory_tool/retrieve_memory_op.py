@@ -1,7 +1,7 @@
-"""Vector retrieve memory operation for searching memories from the vector store.
+"""Retrieve memory operation for searching memories from the memory store.
 
-This module provides the VectorRetrieveMemoryOp class for retrieving memories
-by query texts using vector similarity search.
+This module provides the RetrieveMemoryOp class for retrieving memories
+by query texts.
 """
 
 from typing import List
@@ -15,8 +15,8 @@ from ...schema import MemoryNode
 
 
 @C.register_op()
-class VectorRetrieveMemoryOp(BaseMemoryToolOp):
-    """Operation for retrieving memories from the vector store using vector similarity search.
+class RetrieveMemoryOp(BaseMemoryToolOp):
+    """Operation for retrieving memories from the memory store.
 
     This operation supports both single and multiple query modes,
     controlled by the `enable_multiple` parameter inherited from BaseMemoryToolOp.
@@ -82,11 +82,10 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
         return [MemoryNode.from_vector_node(n) for n in nodes]
 
     async def async_execute(self):
-        """Execute the vector retrieve memory operation.
+        """Execute the retrieve memory operation.
 
-        Retrieves memories from the vector store based on query texts using
-        vector similarity search. The operation handles both single query (string)
-        and multiple queries (list) inputs.
+        Retrieves memories from the memory store based on query texts.
+        The operation handles both single query (string) and multiple queries (list) inputs.
 
         Raises:
             ValueError: If no valid query texts are provided.
@@ -110,6 +109,15 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
         memories: List[MemoryNode] = []
         for query in query_list:
             memories.extend(await self.retrieve_by_query(query, workspace_id))
+
+        # Deduplicate by memory_id
+        seen_ids: set = set()
+        unique_memories: List[MemoryNode] = []
+        for m in memories:
+            if m.memory_id not in seen_ids:
+                seen_ids.add(m.memory_id)
+                unique_memories.append(m)
+        memories = unique_memories
 
         # Format output message
         if not memories:

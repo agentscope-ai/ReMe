@@ -12,7 +12,7 @@ class SimpleRetrieveAgentOp(BaseMemoryAgentOp):
     """Agent for retrieving memories from the vector store.
 
     This agent analyzes conversation context to determine if retrieval is needed,
-    then uses vector_retrieve_memory and read_history tools to find relevant memories.
+    then uses retrieve_memory and read_history tools to find relevant memories.
     """
 
     memory_type: MemoryType = MemoryType.PERSONAL

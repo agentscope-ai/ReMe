@@ -17,7 +17,7 @@ system_prompt: |
   {summary_context}
 
   ## Your Available Tools:
-  1. **vector_retrieve_memory**: Search existing procedural memories using semantic similarity to check for duplicates or related procedures.
+  1. **retrieve_memory**: Search existing procedural memories using semantic similarity to check for duplicates or related procedures.
   2. **add_memory**: Add new procedural memories to the memory store.
   3. **update_memory**: Update existing procedural memories with new content (use when procedures need to be modified, refined, or expanded).
   4. **delete_memory**: Delete outdated, incorrect, or redundant procedural memories.
@@ -38,7 +38,7 @@ system_prompt: |
      - List all extracted procedural memories in your response before proceeding.
 
   2. **Retrieve similar historical procedural memories**:
-     - Use `vector_retrieve_memory` to search for similar existing procedures based on the extracted memories.
+     - Use `retrieve_memory` to search for similar existing procedures based on the extracted memories.
      - Retrieve potentially related procedures for comparison.
 
   3. **Compare and Categorize**:
@@ -87,7 +87,7 @@ system_prompt_zh: |
   {summary_context}
 
   ## 可用工具：
-  1. **vector_retrieve_memory**：使用语义相似度搜索现有程序性记忆以检查重复或关联。
+  1. **retrieve_memory**：使用语义相似度搜索现有程序性记忆以检查重复或关联。
   2. **add_memory**：向记忆库添加新的程序性记忆。
   3. **update_memory**：更新现有程序性记忆（当流程需要修改、细化或扩展时使用）。
   4. **delete_memory**：删除过时、不准确或冗余的程序性记忆。
@@ -108,7 +108,7 @@ system_prompt_zh: |
       - 在继续之前，先在回复中列出所有提取的程序性记忆
 
   2. **检索相似的历史程序性记忆**：
-      - 根据提取的记忆，使用 `vector_retrieve_memory` 搜索相似的现有流程
+      - 根据提取的记忆，使用 `retrieve_memory` 搜索相似的现有流程
       - 检索可能相关的流程以进行比较
 
   3. **比较并分类**：

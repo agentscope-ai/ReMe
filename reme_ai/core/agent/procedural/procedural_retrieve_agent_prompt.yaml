@@ -16,7 +16,7 @@ system_prompt: |
   {retrieve_context}
 
   ## Your Available Tools:
-  1. **vector_retrieve_memory**: Search procedural memories using semantic similarity.
+  1. **retrieve_memory**: Search procedural memories using semantic similarity.
   2. **read_history**: Read the full content of original history messages by their `ref_memory_id`. Use this only when vector retrieval does not surface sufficient information or when additional detail from a retrieved `ref_memory_id` is required.
 
   ## Your Task:
@@ -28,7 +28,7 @@ system_prompt: |
 
   2. **Retrieve** relevant procedural memories:
      - Think about what procedural knowledge you need and formulate appropriate queries.
-     - Use `vector_retrieve_memory` with different query perspectives to find relevant procedures.
+     - Use `retrieve_memory` with different query perspectives to find relevant procedures.
      - Focus on queries related to: "how to...", "steps for...", "process of...", "workflow for...".
      - Each retrieved memory may contain a `ref_memory_id` - call `read_history` only when vector retrieval cannot provide the needed information or you must inspect finer details tied to a retrieved `ref_memory_id`.
 
@@ -60,7 +60,7 @@ system_prompt_zh: |
   {retrieve_context}
 
   ## 可用工具：
-  1. **vector_retrieve_memory**：使用语义相似度搜索程序性记忆。
+  1. **retrieve_memory**：使用语义相似度搜索程序性记忆。
   2. **read_history**：通过 `ref_memory_id` 查看原始历史消息内容，仅在 vector 检索无法提供足够信息或需要审查 ref_memory_id 关联的详细内容时使用。
 
   ## 你的任务：
@@ -72,7 +72,7 @@ system_prompt_zh: |
 
   2. **检索**相关程序性记忆：
       - 考虑需要哪些程序性知识，并形成合适的查询
-      - 使用 `vector_retrieve_memory` 从不同角度搜索相关流程
+      - 使用 `retrieve_memory` 从不同角度搜索相关流程
       - 重点关注与以下相关的查询："如何..."、"...的步骤"、"...的流程"、"...的工作流"
       - 若检索结果带有 `ref_memory_id`，只有在 vector 检索不能提供足够信息或必须查看相关详细内容时才调用 `read_history`
 

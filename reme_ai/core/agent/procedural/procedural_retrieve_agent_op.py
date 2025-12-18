@@ -12,7 +12,7 @@ class ProceduralRetrieveAgentOp(BaseMemoryAgentOp):
     """Agent for retrieving procedural memories from the vector store.
 
     This agent analyzes conversation context to determine if procedural knowledge
-    retrieval is needed, then uses vector_retrieve_memory and read_history tools
+    retrieval is needed, then uses retrieve_memory and read_history tools
     to find relevant how-to knowledge, workflows, and step-by-step procedures.
     """
 
