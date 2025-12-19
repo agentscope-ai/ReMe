@@ -117,22 +117,29 @@ async def call_agent(messages: List[Message]) -> List[Message]:
 ```
 or 
 ```
-基于reme-http-server提供核心统一框架的summary接口
-基于reme-mcp-server提供load_meta_memory、RetrieveMemory、ReadHistory三个核心MCP
-agent << [load_meta_memory, RetrieveMemory, ReadHistory]
+reme-agent << [load_meta_memory, RetrieveMemory, ReadHistory]
++ async call summary_service
 ```
 
 ### 项目组织
 新的方案：experimental or v2 or core
 老的方案：v1 or 废弃
-- 文档&READ如何设计
+- 文档&README如何组织这几部分
 - CookBook
-- Samples
+  - reme-agent
+  - 使用mem-agent和agentscope、langchain结合
+  - mini-reme
+v1->v2->v3?
+personal -> 多种记忆 -> 融合多种记忆+agentic+渐进式 -> 文件系统？
+                    -> MemoryModel
 
 ### 对外接口，对齐mem0
-- import/http：只有summary_memory & retrieve_memory两个接口，大幅降低developer的使用成本
-- import/http: db的memory相关接口，包括workspace & memory的更加详细的操作接口
-- mcp: 提供retrieve的[load_meta_memory, RetrieveMemory, ReadHistory]
+- http[reme-http-server]：
+  - 只有summary_memory & retrieve_memory两个接口，大幅降低developer的使用成本
+  - db的memory相关接口，包括workspace & memory的更加详细的操作接口
+- import: 和http相同
+- mcp[reme-mcp-server]: 
+  - 提供retrieve的[load_meta_memory, RetrieveMemory, ReadHistory]
 
 ### 文件系统-涉及后续的代码再次重写
 难点：retrieve/add/update/delete 需要变化吗？
@@ -142,3 +149,18 @@ grep/grob/ls/read_file/write_file/edit_file?
 
 ### short-term-memory
 TODO, 单独设计
+
+
+### 论文
+1. mem0
+2. agentscope
+3. datajuicer
+
+### 模型
+xxx
+
+### hagging face建设
+1. 金融？
+2. bfcl/appworld
+
+
