@@ -6,9 +6,9 @@ This module provides the ReadMetaMemoryOp class for reading memory metadata
 
 from typing import List, Dict
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ...enumeration.memory_type import MemoryType
-from ... import C
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
+from ..enumeration.memory_type import MemoryType
 
 
 @C.register_op()
@@ -35,7 +35,7 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
         Returns:
             List[Dict[str, str]]: List of memory metadata entries.
         """
-        metadata_handler = self.get_metadata_handler(f"{workspace_id}/meta")
+        metadata_handler = self.get_metadata_handler(workspace_id)
         result = self.load_metadata_value(metadata_handler, "meta_memories")
         memories = result if result is not None else []
 

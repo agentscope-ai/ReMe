@@ -4,8 +4,8 @@ This module provides the UpdateIdentityMemoryOp class for updating identity memo
 using file-based storage with CacheHandler.
 """
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ... import C
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
 
 
 @C.register_op()
@@ -40,8 +40,7 @@ class UpdateIdentityMemoryOp(BaseMemoryToolOp):
         Returns:
             bool: Whether the save was successful.
         """
-        # Get metadata handler for the workspace identity directory
-        metadata_handler = self.get_metadata_handler(f"{workspace_id}/identity")
+        metadata_handler = self.get_metadata_handler(workspace_id)
         return self.save_metadata_value(metadata_handler, "identity_memory", identity_memory)
 
     async def async_execute(self):

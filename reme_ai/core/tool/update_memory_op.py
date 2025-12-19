@@ -6,9 +6,9 @@ by deleting the old memory and inserting a new one with updated content.
 
 from typing import Any, Dict, List
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ... import C
-from ...schema import MemoryNode
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
+from ..schema import MemoryNode
 
 
 @C.register_op()

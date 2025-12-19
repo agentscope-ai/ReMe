@@ -4,8 +4,8 @@ This module provides the ReadIdentityMemoryOp class for reading identity memorie
 using file-based storage with CacheHandler.
 """
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ... import C
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
 
 
 @C.register_op()
@@ -25,7 +25,7 @@ class ReadIdentityMemoryOp(BaseMemoryToolOp):
         Returns:
             str: The identity memory content, or empty string if not found.
         """
-        metadata_handler = self.get_metadata_handler(f"{workspace_id}/identity")
+        metadata_handler = self.get_metadata_handler(workspace_id)
         result = self.load_metadata_value(metadata_handler, "identity_memory")
         return result if result is not None else ""
 

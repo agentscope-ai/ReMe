@@ -6,10 +6,10 @@ from message lists to the vector store.
 
 from typing import Any, Dict, List
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ... import C
-from ...enumeration import MemoryType
-from ...schema import Message, MemoryNode
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
+from ..enumeration import MemoryType
+from ..schema import Message, MemoryNode
 
 
 @C.register_op()

@@ -7,9 +7,9 @@ This module provides the AddMetaMemoryOp class for adding memory metadata
 import json
 from typing import List
 
-from ..base_memory_tool_op import BaseMemoryToolOp
-from ... import C
-from ...enumeration import MemoryType
+from .base_memory_tool_op import BaseMemoryToolOp
+from .. import C
+from ..enumeration import MemoryType
 
 
 @C.register_op()
@@ -74,7 +74,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
         Returns:
             List[dict]: List of existing memory metadata entries.
         """
-        metadata_handler = self.get_metadata_handler(f"{workspace_id}/meta")
+        metadata_handler = self.get_metadata_handler(workspace_id)
         result = self.load_metadata_value(metadata_handler, "meta_memories")
         return result if result is not None else []
 
@@ -88,7 +88,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
         Returns:
             bool: Whether the save was successful.
         """
-        metadata_handler = self.get_metadata_handler(f"{workspace_id}/meta")
+        metadata_handler = self.get_metadata_handler(workspace_id)
         return self.save_metadata_value(metadata_handler, "meta_memories", memories)
 
     async def async_execute(self):

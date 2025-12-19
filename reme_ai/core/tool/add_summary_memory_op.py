@@ -6,7 +6,7 @@ the summarized content.
 """
 
 from .add_memory_op import AddMemoryOp
-from ... import C
+from .. import C
 
 
 @C.register_op()
