@@ -44,7 +44,7 @@ system_prompt: |
     - Choose the appropriate operation based on the situation:
       - If the guideline already exists and is consistent: skip, no action needed.
       - If existing guideline needs supplementation or refinement: use `update_memory` to update the existing guideline.
-      - If existing guideline is outdated or incorrect: use `delete_memory` to delete it, followed by `add_memory` to add the correct version.
+      - If existing guideline is outdated or incorrect: use `update_memory` to replace it with the correct version.
       - If multiple guidelines exist for the same tool: use `delete_memory` on the duplicates, then `update_memory` on the remaining one to merge all useful information.
       - If the guideline is entirely new: use `add_memory` to add it to the memory repository.
 
@@ -93,7 +93,7 @@ system_prompt_zh: |
       - 根据实际情况灵活选择操作：
           - 若指南已存在且一致：跳过，无需操作
           - 若需要补充或完善现有指南：使用 `update_memory` 更新现有指南
-          - 若现有指南已过时或错误：使用 `delete_memory` 删除后再用 `add_memory` 添加正确版本
+          - 若现有指南已过时或错误：使用 `update_memory` 替换为正确版本
           - 若同一工具存在多条指南：使用 `delete_memory` 删除重复项，然后对剩余的一条使用 `update_memory` 合并所有有用信息
           - 若为全新指南：使用 `add_memory` 添加到记忆库
 
