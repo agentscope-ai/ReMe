@@ -4,7 +4,7 @@ This module provides the VectorRetrieveMemoryOp class for retrieving memories
 by query texts using vector similarity search.
 """
 
-from typing import List
+from typing import Dict, List
 
 from flowllm.core.schema import VectorNode
 
@@ -20,31 +20,30 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
 
     This operation supports both single and multiple query modes,
     controlled by the `enable_multiple` parameter inherited from BaseMemoryToolOp.
+
+    When `add_memory_type_target` is False, memory_type and memory_target are not
+    included in the tool call schema, and will be retrieved from context instead.
     """
 
-    def __init__(self, enable_summary_memory: bool = True, top_k: int = 10, **kwargs):
+    def __init__(
+            self,
+            enable_summary_memory: bool = False,
+            add_memory_type_target: bool = False,
+            top_k: int = 20,
+            **kwargs
+    ):
         super().__init__(**kwargs)
         self.enable_summary_memory: bool = enable_summary_memory
+        self.add_memory_type_target: bool = add_memory_type_target
         self.top_k: int = self.service_config_metadata.get("top_k", top_k)
 
-    def build_input_schema(self) -> dict:
-        """Build input schema for single query mode.
+    def _build_query_schema(self) -> Dict[str, dict]:
+        """Build query field schema.
 
         Returns:
-            dict: Input schema for retrieving memories with memory_type, memory_target, and query.
+            Dict[str, dict]: Query field schema definition.
         """
         return {
-            "memory_type": {
-                "type": "string",
-                "description": self.get_prompt("memory_type"),
-                "enum": [mt.value for mt in MemoryType],
-                "required": True,
-            },
-            "memory_target": {
-                "type": "string",
-                "description": self.get_prompt("memory_target"),
-                "required": True,
-            },
             "query": {
                 "type": "string",
                 "description": self.get_prompt("query"),
@@ -52,12 +51,70 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
             },
         }
 
+    def _build_memory_type_target_schema(self) -> Dict[str, dict]:
+        """Build memory_type and memory_target field schemas.
+
+        Returns:
+            Dict[str, dict]: Memory type and target field schema definitions.
+        """
+
+        return {
+            "memory_type": {
+                "type": "string",
+                "description": self.get_prompt("memory_type"),
+                "enum": [
+                    MemoryType.IDENTITY.value,
+                    MemoryType.PERSONAL.value,
+                    MemoryType.PROCEDURAL.value,
+                ],
+                "required": True,
+            },
+            "memory_target": {
+                "type": "string",
+                "description": self.get_prompt("memory_target"),
+                "required": True,
+            },
+        }
+
+    def build_input_schema(self) -> dict:
+        """Build input schema for single query mode.
+
+        Returns:
+            dict: Input schema for retrieving memories. When add_memory_type_target is True,
+                  includes memory_type, memory_target, and query. Otherwise only query.
+        """
+        schema = self._build_query_schema()
+
+        if self.add_memory_type_target:
+            schema = {**self._build_memory_type_target_schema(), **schema}
+
+        return schema
+
     def build_multiple_input_schema(self) -> dict:
         """Build input schema for multiple query mode.
 
         Returns:
             dict: Input schema for retrieving memories with list of query items.
+                  When add_memory_type_target is True, each item includes memory_type,
+                  memory_target, and query. Otherwise only query.
         """
+        # Build item properties by combining schemas
+        item_properties = {}
+        item_required = []
+
+        if self.add_memory_type_target:
+            # Remove 'required' key from schema fields for array items
+            type_target_schema = self._build_memory_type_target_schema()
+            for key, value in type_target_schema.items():
+                item_properties[key] = {k: v for k, v in value.items() if k != "required"}
+                item_required.append(key)
+
+        # Add query schema
+        query_schema = self._build_query_schema()
+        for key, value in query_schema.items():
+            item_properties[key] = {k: v for k, v in value.items() if k != "required"}
+            item_required.append(key)
+
         return {
             "query_items": {
                 "type": "array",
@@ -65,25 +122,25 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
                 "required": True,
                 "items": {
                     "type": "object",
-                    "properties": {
-                        "memory_type": {
-                            "type": "string",
-                            "description": self.get_prompt("memory_type"),
-                            "enum": [mt.value for mt in MemoryType],
-                        },
-                        "memory_target": {
-                            "type": "string",
-                            "description": self.get_prompt("memory_target"),
-                        },
-                        "query": {
-                            "type": "string",
-                            "description": self.get_prompt("query"),
-                        },
-                    },
-                    "required": ["memory_type", "memory_target", "query"],
+                    "properties": item_properties,
+                    "required": item_required,
                 },
             }
         }
+
+    def _get_memory_type_list(self, memory_type: str) -> List[MemoryType]:
+        """Get list of memory types to search, including summary if enabled.
+
+        Args:
+            memory_type: The primary memory type to search for.
+
+        Returns:
+            List[MemoryType]: List of memory types to include in search.
+        """
+        memory_type_list = [MemoryType(memory_type)]
+        if self.enable_summary_memory:
+            memory_type_list.append(MemoryType.SUMMARY)
+        return memory_type_list
 
     async def retrieve_by_query(
         self, query: str, memory_type: str, memory_target: str, workspace_id: str
@@ -99,9 +156,7 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
         Returns:
             List[MemoryNode]: List of matching memories.
         """
-        memory_type_list = [MemoryType(memory_type)]
-        if self.enable_summary_memory:
-            memory_type_list.append(MemoryType.SUMMARY)
+        memory_type_list = self._get_memory_type_list(memory_type)
 
         nodes: List[VectorNode] = await self.vector_store.async_search(
             query=query,
@@ -112,7 +167,31 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
                 "metadata.memory_target": [memory_target],
             },
         )
-        return [MemoryNode.from_vector_node(n) for n in nodes]
+        memory_nodes: List[MemoryNode] = [MemoryNode.from_vector_node(n) for n in nodes]
+        filtered_memory_nodes = []
+        for memory_node in memory_nodes:
+            # For TOOL type memories, only keep those where when_to_use matches the query (tool name)
+            if memory_node.memory_type == MemoryType.TOOL and memory_node.when_to_use != query:
+                continue
+            filtered_memory_nodes.append(memory_node)
+
+        return filtered_memory_nodes
+
+    @staticmethod
+    def _deduplicate_memories(memories: List[MemoryNode]) -> List[MemoryNode]:
+        """Remove duplicate memories based on memory_id while preserving order.
+
+        Args:
+            memories: List of memory nodes that may contain duplicates.
+
+        Returns:
+            List[MemoryNode]: Deduplicated list of memory nodes.
+        """
+        seen_memories: Dict[str, MemoryNode] = {}
+        for memory in memories:
+            if memory.memory_id not in seen_memories:
+                seen_memories[memory.memory_id] = memory
+        return list(seen_memories.values())
 
     async def async_execute(self):
         """Execute the retrieve memory operation.
@@ -120,20 +199,23 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
         Retrieves memories from the memory store based on query texts.
         The operation handles both single query and multiple queries inputs.
 
-        Raises:
-            ValueError: If no valid query texts are provided.
+        When add_memory_type_target is False, memory_type and memory_target
+        are retrieved from self.input_dict instead of from each query item.
         """
         workspace_id: str = self.workspace_id
 
+        # Get default memory_type and memory_target from input_dict
+        default_memory_type: str = self.input_dict.get("memory_type", "")
+        default_memory_target: str = self.input_dict.get("memory_target", "")
+
         # Get query items based on mode
-        # Each item contains: memory_type, memory_target, query
         if self.enable_multiple:
             query_items: List[dict] = self.input_dict.get("query_items", [])
         else:
             query_items: List[dict] = [
                 {
-                    "memory_type": self.input_dict.get("memory_type", ""),
-                    "memory_target": self.input_dict.get("memory_target", ""),
+                    "memory_type": default_memory_type,
+                    "memory_target": default_memory_target,
                     "query": self.input_dict.get("query", ""),
                 }
             ]
@@ -145,29 +227,27 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
             self.set_output("No valid query texts provided for retrieval.")
             return
 
-        # Perform retrieval
+        # Perform retrieval for all query items
         memories: List[MemoryNode] = []
         for item in query_items:
-            memories.extend(
-                await self.retrieve_by_query(
-                    query=item["query"],
-                    memory_type=item["memory_type"],
-                    memory_target=item["memory_target"],
-                    workspace_id=workspace_id,
-                )
+            # Use item's memory_type/memory_target if available,
+            # otherwise fall back to default values from input_dict
+            memory_type = item.get("memory_type") or default_memory_type
+            memory_target = item.get("memory_target") or default_memory_target
+
+            retrieved = await self.retrieve_by_query(
+                query=item["query"],
+                memory_type=memory_type,
+                memory_target=memory_target,
+                workspace_id=workspace_id,
             )
+            memories.extend(retrieved)
 
-        # Deduplicate by memory_id
-        seen_ids: set = set()
-        unique_memories: List[MemoryNode] = []
-        for m in memories:
-            if m.memory_id not in seen_ids:
-                seen_ids.add(m.memory_id)
-                unique_memories.append(m)
-        memories = unique_memories
+        # Deduplicate and format output
+        memories = self._deduplicate_memories(memories)
 
-        # Format output message
         if not memories:
-            self.set_output(f"No memories found in workspace={workspace_id}.")
+            output = f"No memories found in workspace={workspace_id}."
         else:
-            self.set_output("\n".join([m.format_memory() for m in memories]))
+            output = "\n".join([m.format_memory() for m in memories])
+        self.set_output(output)

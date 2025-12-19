@@ -24,12 +24,6 @@ system_prompt: |
   ## Memory Target:
   You are managing {memory_type} memories for **{memory_target}**. Focus on extracting and storing procedural knowledge such as: step-by-step processes and workflows, how-to guides and instructions, best practices and methodologies, established procedures and routines, problem-solving methods and techniques, task completion strategies.
 
-  ## Available Tools:
-  1. **retrieve_memory**: Use semantic similarity to search existing memories for duplicates or related entries.
-  2. **add_memory**: Add a new memory to the memory repository.
-  3. **update_memory**: Update an existing memory.
-  4. **delete_memory**: Delete outdated, inaccurate, or redundant memories.
-
   ## Your Tasks:
   1. **Analyze and Extract** potential memories from the dialogue context:
     - Determine whether the conversation contains procedural knowledge worth remembering, including but not limited to: multi-step processes or workflows; instructions for completing specific tasks; best practices or recommended approaches; problem-solving methods or debugging techniques; configuration or setup procedures.
@@ -43,17 +37,17 @@ system_prompt: |
     - Avoid storing trivial or temporary information.
     - Before proceeding, list all extracted memories in your response.
 
-  2. **Retrieve Similar Historical Memories**:
-    - Based on the extracted memories, use `retrieve_memory` to search for similar existing memories.
-    - Retrieve potentially relevant memories for comparison.
+  2. **Retrieve Similar Historical Memories** using `vector_retrieve_memory`:
+    - Based on the extracted memories, use semantic similarity to search for similar existing memories.
+    - Retrieve potentially relevant memories for comparison to check for duplicates or related entries.
 
-  3. **Compare and Decide**:
+  3. **Compare and Decide** on memory operations:
     - Compare the extracted memories with historical ones to ensure no duplicates or contradictions exist in the final memory repository.
     - Choose the appropriate operation based on the situation:
       - If the information already exists and is consistent: skip, no action needed.
-      - If existing memory needs supplementation or correction: use `update_memory`.
-      - If existing memory is outdated or incorrect: use `delete_memory` followed by `add_memory`.
-      - If the information is entirely new: use `add_memory`.
+      - If existing memory needs supplementation or correction: use `update_memory` to update the existing memory.
+      - If existing memory is outdated or incorrect: use `delete_memory` to delete it, followed by `add_memory` to add the correct version.
+      - If the information is entirely new: use `add_memory` to add it to the memory repository.
 
   4. **Output** the result:
     - If no memory operation is required, output `<NO_MEMORY_NEEDED>`.
@@ -81,12 +75,6 @@ system_prompt_zh: |
   ## 记忆目标：
   你正在为 **{memory_target}** 管理 {memory_type} 记忆。专注于提取并存储程序性知识，例如：分步骤流程和工作流、操作指南和说明、最佳实践和方法论、已建立的流程和例程、问题解决方法和技巧、任务完成策略。
 
-  ## 可用工具：
-  1. **retrieve_memory**：使用语义相似度搜索现有记忆以检查重复或关联。
-  2. **add_memory**：向记忆库添加新记忆。
-  3. **update_memory**：更新现有记忆。
-  4. **delete_memory**：删除过时、不准确或冗余的记忆。
-
   ## 你的任务：
   1. **分析并提取**对话上下文中的潜在记忆：
       - 判断对话是否包含值得记住的程序性知识，包括但不限于：多步骤流程或工作流；完成特定任务的说明；最佳实践或推荐方法；问题解决方法或调试技巧；配置或设置流程
@@ -100,17 +88,17 @@ system_prompt_zh: |
       - 避免存储琐碎或临时性的信息
       - 在继续之前，先在回复中列出所有提取的记忆
 
-  2. **检索相似的历史记忆**：
-      - 根据提取的记忆，使用 `retrieve_memory` 搜索相似的现有记忆
-      - 检索可能相关的记忆以进行比较
+  2. **检索相似的历史记忆**，使用 `vector_retrieve_memory`：
+      - 根据提取的记忆，使用语义相似度搜索相似的现有记忆
+      - 检索可能相关的记忆以进行比较，检查重复或关联
 
-  3. **比较并决策**：
+  3. **比较并决策**记忆操作：
       - 将提取的记忆与历史记忆进行对比，确保最终记忆库中不存在重复或冲突的内容
       - 根据实际情况灵活选择操作：
           - 若信息已存在且一致：跳过，无需操作
-          - 若需要补充或修正现有记忆：使用 `update_memory`
-          - 若现有记忆已过时或错误：使用 `delete_memory` 删除后再 `add_memory`
-          - 若为全新信息：使用 `add_memory` 添加
+          - 若需要补充或修正现有记忆：使用 `update_memory` 更新现有记忆
+          - 若现有记忆已过时或错误：使用 `delete_memory` 删除后再用 `add_memory` 添加正确版本
+          - 若为全新信息：使用 `add_memory` 添加到记忆库
 
   4. **输出**结果：
       - 若无需记忆操作，输出 `<NO_MEMORY_NEEDED>`
