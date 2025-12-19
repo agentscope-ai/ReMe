@@ -41,4 +41,3 @@ class ReadIdentityMemoryOp(BaseMemoryToolOp):
             self.set_output(f"Identity memory:\n{identity_memory}")
         else:
             self.set_output(f"No identity memory found in workspace={workspace_id}.")
-
