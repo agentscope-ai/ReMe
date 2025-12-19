@@ -1,6 +1,6 @@
 import asyncio
 from abc import ABC
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 
 from loguru import logger
 
@@ -28,12 +28,17 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
     def build_tool_call(self) -> ToolCall:
         raise NotImplementedError("Subclasses must implement `build_tool_call`")
 
-    async def build_tool_op_dict(self) -> dict:
+    async def build_tool_op_dict(self) -> Dict[str, BaseAsyncToolOp]:
         tool_op_dict: Dict[str, BaseAsyncToolOp] = {
             op.tool_call.name: op for op in self.ops.values() if isinstance(op, BaseAsyncToolOp)
         }
         for op in tool_op_dict.values():
             op.language = self.language
+
+        if self.add_think_tool:
+            think_op = ThinkToolOp(language=self.language)
+            tool_op_dict["think_tool"] = think_op
+        
         return tool_op_dict
 
     async def build_messages(self) -> List[Message]:
@@ -70,7 +75,6 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
             self,
             assistant_message: Message,
             tool_op_dict: Dict[str, BaseAsyncToolOp],
-            think_op: Optional[BaseAsyncToolOp],
             step: int,
     ) -> List[Message]:
         if not assistant_message.tool_calls:
@@ -79,6 +83,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         op_list: List[BaseAsyncToolOp] = []
         has_think_tool_flag: bool = False
         tool_result_messages: List[Message] = []
+        think_op = tool_op_dict.get("think_tool", None)
 
         for j, tool_call in enumerate(assistant_message.tool_calls):
             if think_op is not None and tool_call.name == think_op.tool_call.name:
@@ -122,32 +127,37 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
 
         return tool_result_messages
 
+    async def react(self, messages: List[Message], tool_op_dict: Dict[str, BaseAsyncToolOp]):
+        success: bool = False
+        for step in range(self.max_steps):
+            assistant_message, should_act = await self._reasoning_step(messages, tool_op_dict, step)
+
+            if not should_act:
+                success = True
+                break
+
+            tool_result_messages = await self._acting_step(assistant_message, tool_op_dict, step)
+            messages.extend(tool_result_messages)
+
+        return messages, success
+
     async def async_execute(self):
         tool_op_dict = await self.build_tool_op_dict()
-        if self.add_think_tool:
-            think_op = ThinkToolOp(language=self.language)
-            tool_op_dict["think_tool"] = think_op
-        else:
-            think_op = None
 
         messages = await self.build_messages()
         for i, message in enumerate(messages):
             logger.info(f"step0.{i} {message.role} {message.name or ''} {message.simple_dump()}")
 
-        for step in range(self.max_steps):
-            assistant_message, should_act = await self._reasoning_step(messages, tool_op_dict, step)
-
-            if not should_act:
-                break
-
-            tool_result_messages = await self._acting_step(assistant_message, tool_op_dict, think_op, step)
-            messages.extend(tool_result_messages)
-
+        messages, success = await self.react(messages, tool_op_dict)
         if messages:
-            self.set_output(messages[-1].content)
+            if success:
+                self.set_output(messages[-1].content)
+            else:
+                self.set_output(f"react is not complete with content:\n{messages[-1].content}")
         else:
-            self.set_output("")
+            self.set_output("empty messages")
         self.context.response.metadata["messages"] = messages
+        self.context.response.metadata["success"] = success
 
     @property
     def memory_target(self) -> str:

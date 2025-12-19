@@ -1,8 +1,0 @@
-tool: |
-  Read the memory for a specific tool.
-  Use this tool to retrieve tool-specific knowledge or preferences that have been previously stored.
-
-tool_name: |
-  The name of the tool to retrieve memory for.
-  Should be the exact name of the tool as used in the system.
-
