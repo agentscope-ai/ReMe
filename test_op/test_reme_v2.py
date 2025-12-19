@@ -145,4 +145,60 @@ llm_agent << [
     ...
 ]
 
+
+
+1. memory: layers
+2. op: agent + tools
+2. retrieve: skills渐进式agentic
+    retriever << [
+        load_meta_memory(),
+            ```
+            格式："- <memory_type>(<memory_target>): <description>"
+            personal jinli xxxxx
+            personal jiaji xxxxx
+            personal jinli&jiaji xxxxx
+            procedural appworld xxxxx
+            procedural bfcl-v3 xxxxx
+            tool tool_guidelines  xxxxx
+            identity self   xxxxx
+            ```
+        RetrieveMemory(list(memory_type, memory_target, query))), layer1+layer2
+        ReadHistory(ref_memory_id), layer3
+    ]
+
+
+personal ref_memory_id  -> history
+
+
+3. summary:
+    messages -> add_history_memory -> db (layer1 memory)
+    meta-summarizer << [
+        load_meta_memory(),
+        
+        add_meta_memory(list(memory_type, memory_target)),
+        
+        add_summary_memory(summary_memory),  -> layer2 memory
+        
+        hands_off_agent(list(memory_type, memory_target)) ,
+    ]
+    personal_summary_agent << [add_memory, update_memory, delete_memory, VectorRetrieveMemoryOp(only layer1)]
+    procedural_summary_agent << [add_memory, update_memory, delete_memory, VectorRetrieveMemoryOp(only layer1)]  # todo
+    tool_summary_agent << [add_memory, update_memory, VectorRetrieveMemoryOp(only layer1)]
+    identity_summary_agent << [read_identity_memory, update_identity_memory]
+
+5. thinking实验
+
+6. multi模式实验
+
+7. dialog_agent / hooking
+
+
+kit/system
+what is reme
+key diff
+develop
+file system
+
+
+experimental / v1 / v2 ?
 """

@@ -138,4 +138,3 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
         # Format output
         added_str = json.dumps(new_memories, ensure_ascii=False)
         self.set_output(f"Successfully added {len(new_memories)} meta memory entries: {added_str}")
-

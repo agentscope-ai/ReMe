@@ -19,4 +19,3 @@ memories: |
   A list of memory objects to store. Each object should contain:
   - memory_content (required): The content of the memory to store.
   - metadata (optional): Additional metadata for the memory.
-
