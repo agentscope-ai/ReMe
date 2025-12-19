@@ -1,15 +1,15 @@
 import datetime
 from typing import List
 
-from ..base_memory_agent_op import BaseMemoryAgentOp
-from ... import C
-from ...enumeration import Role, MemoryType
-from ...schema import Message, ToolCall
+from .base_memory_agent_op import BaseMemoryAgentOp
+from .. import C
+from ..enumeration import Role, MemoryType
+from ..schema import Message, ToolCall
 
 
 @C.register_op()
-class PersonalSummaryAgentV1Op(BaseMemoryAgentOp):
-    memory_type: MemoryType = MemoryType.PERSONAL
+class ToolSummaryAgentV1Op(BaseMemoryAgentOp):
+    memory_type: MemoryType = MemoryType.TOOL
 
     def build_tool_call(self) -> ToolCall:
         return ToolCall(
@@ -18,22 +18,22 @@ class PersonalSummaryAgentV1Op(BaseMemoryAgentOp):
                 "input_schema": {
                     "workspace_id": {
                         "type": "string",
-                        "description": "memory_target",
+                        "description": "workspace_id",
                         "required": True,
                     },
                     "memory_target": {
                         "type": "string",
-                        "description": "memory_target",
+                        "description": "tool_name to extract guidelines for",
                         "required": True,
                     },
                     "query": {
                         "type": "string",
-                        "description": "query",
+                        "description": "tool_name (same as memory_target)",
                         "required": False,
                     },
                     "messages": {
                         "type": "array",
-                        "description": "messages",
+                        "description": "messages containing tool calls and results",
                         "required": False,
                         "items": {"type": "string"},
                     },
@@ -51,7 +51,7 @@ class PersonalSummaryAgentV1Op(BaseMemoryAgentOp):
 
         context: str = ""
         if "query" in self.input_dict:
-            context += self.input_dict["query"]
+            context += f"Tool Name: {self.input_dict['query']}\n\n"
         if "messages" in self.input_dict:
             context += self.format_messages(self.input_dict["messages"])
 
@@ -73,3 +73,4 @@ class PersonalSummaryAgentV1Op(BaseMemoryAgentOp):
             ),
         ]
         return messages
+

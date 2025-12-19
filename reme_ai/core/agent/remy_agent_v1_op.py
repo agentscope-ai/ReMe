@@ -8,12 +8,11 @@ running a standard ReAct loop with available tools.
 import datetime
 from typing import List
 
-from ..base_memory_agent_op import BaseMemoryAgentOp
-from ... import C
-from ...enumeration import Role
-from ...schema import Message, ToolCall
-from ...tool.read_identity_memory_op import ReadIdentityMemoryOp
-from ...tool.read_meta_memory_op import ReadMetaMemoryOp
+from .base_memory_agent_op import BaseMemoryAgentOp
+from .. import C
+from ..enumeration import Role
+from ..schema import Message, ToolCall
+from ..tool import ReadIdentityMemoryOp, ReadMetaMemoryOp
 
 
 @C.register_op()

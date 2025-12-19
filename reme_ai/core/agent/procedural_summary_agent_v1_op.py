@@ -1,10 +1,10 @@
 import datetime
 from typing import List
 
-from ..base_memory_agent_op import BaseMemoryAgentOp
-from ... import C
-from ...enumeration import Role, MemoryType
-from ...schema import Message, ToolCall
+from .base_memory_agent_op import BaseMemoryAgentOp
+from .. import C
+from ..enumeration import Role, MemoryType
+from ..schema import Message, ToolCall
 
 
 @C.register_op()
