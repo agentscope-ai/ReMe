@@ -15,16 +15,23 @@ from ..enumeration.memory_type import MemoryType
 class ReadMetaMemoryOp(BaseMemoryToolOp):
     """Operation for reading memory metadata from file storage."""
 
-    def __init__(self, include_identity: bool = False, **kwargs):
+    def __init__(
+        self,
+        enable_tool_memory: bool = True,
+        enable_identity_memory: bool = False,
+        **kwargs
+    ):
         """Initialize the ReadMetaMemoryOp.
 
         Args:
-            include_identity: Whether to include IDENTITY type meta memory. Defaults to True.
+            enable_tool_memory: Whether to include TOOL type meta memory. Defaults to True.
+            enable_identity_memory: Whether to include IDENTITY type meta memory. Defaults to False.
             **kwargs: Additional keyword arguments passed to parent class.
         """
         kwargs["enable_multiple"] = False
         super().__init__(**kwargs)
-        self.include_identity = include_identity
+        self.enable_tool_memory = enable_tool_memory
+        self.enable_identity_memory = enable_identity_memory
 
     def _load_meta_memories(self, workspace_id: str) -> List[Dict[str, str]]:
         """Load meta memories from file.
@@ -37,12 +44,24 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
         """
         metadata_handler = self.get_metadata_handler(workspace_id)
         result = self.load_metadata_value(metadata_handler, "meta_memories")
-        memories = result if result is not None else []
+        all_memories = result if result is not None else []
 
-        if not self.include_identity:
-            memories = [m for m in memories if MemoryType(m.get("memory_type")) is not MemoryType.IDENTITY]
+        # Filter to only include PERSONAL and PROCEDURAL by default
+        filtered_memories = []
+        for m in all_memories:
+            memory_type = MemoryType(m.get("memory_type"))
+            memory_target = m.get("memory_target")
+            
+            if memory_type in (MemoryType.PERSONAL, MemoryType.PROCEDURAL):
+                filtered_memories.append(m)
+        
+        if self.enable_tool_memory:
+            filtered_memories.append({"memory_type": MemoryType.TOOL.value, "memory_target": "tool_guidelines"})
+        
+        if self.enable_identity_memory:
+            filtered_memories.append({"memory_type": MemoryType.IDENTITY.value, "memory_target": "self"})
 
-        return memories
+        return filtered_memories
 
     def _format_memory_metadata(self, memories: List[Dict[str, str]]) -> str:
         """Format memory metadata into a readable string.

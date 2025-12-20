@@ -1,11 +1,10 @@
 import datetime
 from typing import List
 
-from .base_memory_agent_op import BaseMemoryAgentOp
-from .. import C
-from ..enumeration import Role
-from ..schema import Message, ToolCall
-from ..tool import ReadMetaMemoryOp
+from ..base_memory_agent_op import BaseMemoryAgentOp
+from ... import C
+from ...enumeration import Role
+from ...schema import Message, ToolCall
 
 
 @C.register_op()
@@ -18,7 +17,7 @@ class ReMeRetrieveAgentV1Op(BaseMemoryAgentOp):
                 "input_schema": {
                     "workspace_id": {
                         "type": "string",
-                        "description": "memory_target",
+                        "description": "workspace_id",
                         "required": True,
                     },
                     "query": {
@@ -37,6 +36,8 @@ class ReMeRetrieveAgentV1Op(BaseMemoryAgentOp):
         )
 
     async def _load_meta_memories(self) -> str:
+        from ...tool import ReadMetaMemoryOp
+
         op = ReadMetaMemoryOp(language=self.language)
         await op.async_call(workspace_id=self.workspace_id)
         return str(op.output)
@@ -52,10 +53,10 @@ class ReMeRetrieveAgentV1Op(BaseMemoryAgentOp):
         meta_memory_info = await self._load_meta_memories()
 
         context: str = ""
-        if "query" in self.input_dict:
-            context += self.input_dict["query"]
-        if "messages" in self.input_dict:
-            context += self.format_messages(self.input_dict["messages"])
+        if "query" in self.context:
+            context += self.context["query"]
+        if "messages" in self.context:
+            context += self.format_messages(self.context["messages"])
 
         assert context, "input_dict must contain either `query` or `messages`"
 

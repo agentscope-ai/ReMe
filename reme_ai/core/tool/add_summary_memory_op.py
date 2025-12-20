@@ -51,8 +51,8 @@ class AddSummaryMemoryOp(AddMemoryOp):
         summarize the context before calling this tool with the summary_memory parameter.
         """
         # Map summary_memory to memory_content for parent class
-        summary_memory = self.input_dict.get("summary_memory", "")
-        self.input_dict["memory_content"] = summary_memory
+        summary_memory = self.context.get("summary_memory", "")
+        self.context["memory_content"] = summary_memory
 
         # Call parent's async_execute
         await super().async_execute()

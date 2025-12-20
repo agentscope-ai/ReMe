@@ -21,5 +21,7 @@ class MemoryType(str, Enum):
     PERSONAL = "personal"
     PROCEDURAL = "procedural"
     TOOL = "tool"
+    
     SUMMARY = "summary"
+    
     HISTORY = "history"

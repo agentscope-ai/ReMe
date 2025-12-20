@@ -50,7 +50,7 @@ class UpdateIdentityMemoryOp(BaseMemoryToolOp):
         """
         workspace_id: str = self.workspace_id
 
-        identity_memory = self.input_dict.get("identity_memory", "")
+        identity_memory = self.context.get("identity_memory", "")
 
         if not identity_memory:
             self.set_output("No valid identity memory provided for update.")

@@ -161,15 +161,15 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
 
     @property
     def memory_target(self) -> str:
-        return self.input_dict.get("memory_target", "")
+        return self.context.get("memory_target", "")
 
     @property
     def ref_memory_id(self) -> str:
-        return self.input_dict.get("ref_memory_id", "")
+        return self.context.get("ref_memory_id", "")
 
     @property
     def workspace_id(self) -> str:
-        return self.input_dict.get("workspace_id", "default")
+        return self.context.get("workspace_id", "default")
 
     @property
     def author(self) -> str:

@@ -1,0 +1,14 @@
+tool: |
+  Distribute a single memory summarization task to the appropriate sub agent.
+  Based on the meta memory present in the context, fill in the corresponding memory_type and memory_target.
+  Use this tool to hand off a memory task to the corresponding memory agent.
+
+tool_multiple: |
+  Distribute multiple memory summarization tasks to the appropriate sub agents.
+  Based on the meta memory present in the context, fill in the corresponding memory_type and memory_target for each task.
+  Use this tool to hand off multiple memory tasks to their corresponding memory agents in parallel.
+
+memory_tasks: |
+  A list of memory tasks to distribute. Each task contains memory_type and memory_target.
+
+

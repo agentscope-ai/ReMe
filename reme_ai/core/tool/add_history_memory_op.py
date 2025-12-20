@@ -74,7 +74,7 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
         Returns the created memory.
         """
         workspace_id: str = self.workspace_id
-        messages: List[Dict[str, Any]] = self.input_dict.get("messages", [])
+        messages: List[Dict[str, Any]] = self.context.get("messages", [])
 
         if not messages:
             self.set_output("No messages provided for history memory addition.")

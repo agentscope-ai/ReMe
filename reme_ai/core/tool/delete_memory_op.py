@@ -60,9 +60,9 @@ class DeleteMemoryOp(BaseMemoryToolOp):
 
         # Get memory_ids based on mode
         if self.enable_multiple:
-            memory_ids: List[str] = self.input_dict.get("memory_ids", [])
+            memory_ids: List[str] = self.context.get("memory_ids", [])
         else:
-            memory_ids: List[str] = [self.input_dict.get("memory_id", "")]
+            memory_ids: List[str] = [self.context.get("memory_id", "")]
 
         # Filter out empty strings
         memory_ids = [memory_id for memory_id in memory_ids if memory_id]

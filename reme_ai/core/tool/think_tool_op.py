@@ -26,6 +26,6 @@ class ThinkToolOp(BaseAsyncToolOp):
 
     async def async_execute(self):
         if self.add_output_reflection:
-            self.set_output(self.input_dict["reflection"])
+            self.set_output(self.context["reflection"])
         else:
             self.set_output(self.get_prompt("reflection_output"))

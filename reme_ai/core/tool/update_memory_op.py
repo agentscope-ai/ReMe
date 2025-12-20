@@ -120,7 +120,7 @@ class UpdateMemoryOp(BaseMemoryToolOp):
         new_memory_nodes: List[MemoryNode] = []
 
         if self.enable_multiple:
-            memories: List[Dict[str, Any]] = self.input_dict.get("memories", [])
+            memories: List[Dict[str, Any]] = self.context.get("memories", [])
             for mem in memories:
                 memory_id = mem.get("memory_id", "")
                 memory_content = mem.get("memory_content", "")
@@ -130,10 +130,10 @@ class UpdateMemoryOp(BaseMemoryToolOp):
                 old_memory_ids.append(memory_id)
                 new_memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
         else:
-            memory_id = self.input_dict.get("memory_id", "")
-            memory_content = self.input_dict.get("memory_content", "")
+            memory_id = self.context.get("memory_id", "")
+            memory_content = self.context.get("memory_content", "")
             if memory_id and memory_content:
-                metadata = self.input_dict.get("metadata", {}) or {}
+                metadata = self.context.get("metadata", {}) or {}
                 old_memory_ids.append(memory_id)
                 new_memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
 

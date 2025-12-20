@@ -26,7 +26,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
             "memory_type": {
                 "type": "string",
                 "description": self.get_prompt("memory_type"),
-                "enum": [mt.value for mt in MemoryType],
+                "enum": [MemoryType.PERSONAL.value, MemoryType.PROCEDURAL.value],
                 "required": True,
             },
             "memory_target": {
@@ -53,7 +53,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
                         "memory_type": {
                             "type": "string",
                             "description": self.get_prompt("memory_type"),
-                            "enum": [mt.value for mt in MemoryType],
+                            "enum": [MemoryType.PERSONAL.value, MemoryType.PROCEDURAL.value],
                         },
                         "memory_target": {
                             "type": "string",
@@ -108,7 +108,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
         # Build new memories to add based on mode
         new_memories: List[dict] = []
         if self.enable_multiple:
-            meta_memories: List[dict] = self.input_dict.get("meta_memories", [])
+            meta_memories: List[dict] = self.context.get("meta_memories", [])
             for mem in meta_memories:
                 memory_type = mem.get("memory_type", "")
                 memory_target = mem.get("memory_target", "")
@@ -119,8 +119,8 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
                     })
                     existing_set.add((memory_type, memory_target))
         else:
-            memory_type = self.input_dict.get("memory_type", "")
-            memory_target = self.input_dict.get("memory_target", "")
+            memory_type = self.context.get("memory_type", "")
+            memory_target = self.context.get("memory_target", "")
             if memory_type and (memory_type, memory_target) not in existing_set:
                 new_memories.append({
                     "memory_type": memory_type,

@@ -8,16 +8,32 @@ running a standard ReAct loop with available tools.
 import datetime
 from typing import List
 
-from .base_memory_agent_op import BaseMemoryAgentOp
-from .. import C
-from ..enumeration import Role
-from ..schema import Message, ToolCall
-from ..tool import ReadIdentityMemoryOp, ReadMetaMemoryOp
+from ..base_memory_agent_op import BaseMemoryAgentOp
+from ... import C
+from ...enumeration import Role
+from ...schema import Message, ToolCall
 
 
 @C.register_op()
 class ReMyAgentV1Op(BaseMemoryAgentOp):
     """Conversational AI assistant agent with memory integration."""
+
+    def __init__(
+        self,
+        enable_tool_memory: bool = True,
+        enable_identity_memory: bool = False,
+        **kwargs
+    ):
+        """Initialize the ReMyAgentV1Op.
+
+        Args:
+            enable_tool_memory: Whether to enable TOOL type meta memory. Defaults to True.
+            enable_identity_memory: Whether to enable IDENTITY type meta memory. Defaults to False.
+            **kwargs: Additional keyword arguments passed to parent class.
+        """
+        super().__init__(**kwargs)
+        self.enable_tool_memory = enable_tool_memory
+        self.enable_identity_memory = enable_identity_memory
 
     def build_tool_call(self) -> ToolCall:
         """Build the tool call schema for ReMy agent.
@@ -55,6 +71,7 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
         Returns:
             str: Identity memory content or empty string if not found.
         """
+        from ...tool import ReadIdentityMemoryOp
         op = ReadIdentityMemoryOp(language=self.language)
         await op.async_call(workspace_id=self.workspace_id)
         return str(op.output)
@@ -65,7 +82,13 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
         Returns:
             str: Formatted meta memory information or empty string.
         """
-        op = ReadMetaMemoryOp(language=self.language, include_identity=False)
+        from ...tool import ReadMetaMemoryOp
+
+        op = ReadMetaMemoryOp(
+            enable_tool_memory=self.enable_tool_memory,
+            enable_identity_memory=self.enable_identity_memory,
+            language=self.language,
+        )
         await op.async_call(workspace_id=self.workspace_id)
         return str(op.output)
 
@@ -86,11 +109,11 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
         meta_memory_info = await self._load_meta_memories()
 
         conversation_messages: List[Message] = []
-        if "query" in self.input_dict and self.input_dict["query"]:
-            query = self.input_dict["query"]
+        if "query" in self.context and self.context["query"]:
+            query = self.context["query"]
             conversation_messages.append(Message(role=Role.USER, content=query))
-        elif "messages" in self.input_dict and self.input_dict["messages"]:
-            raw_messages = [Message(**msg) if isinstance(msg, dict) else msg for msg in self.input_dict["messages"]]
+        elif "messages" in self.context and self.context["messages"]:
+            raw_messages = [Message(**msg) if isinstance(msg, dict) else msg for msg in self.context["messages"]]
             conversation_messages.extend([msg for msg in raw_messages if msg.role is not Role.SYSTEM])
         else:
             raise ValueError("input_dict must contain either `query` or `messages`")

@@ -7,10 +7,10 @@ to extract and update identity memories (self-cognition, personality, current st
 import datetime
 from typing import List
 
-from .base_memory_agent_op import BaseMemoryAgentOp
-from .. import C
-from ..enumeration import Role, MemoryType
-from ..schema import Message, ToolCall
+from ..base_memory_agent_op import BaseMemoryAgentOp
+from ... import C
+from ...enumeration import Role, MemoryType
+from ...schema import Message, ToolCall
 
 
 @C.register_op()
@@ -68,10 +68,10 @@ class IdentitySummaryAgentV1Op(BaseMemoryAgentOp):
         now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         context: str = ""
-        if "query" in self.input_dict:
-            context += self.input_dict["query"]
-        if "messages" in self.input_dict:
-            context += self.format_messages(self.input_dict["messages"])
+        if "query" in self.context:
+            context += self.context["query"]
+        if "messages" in self.context:
+            context += self.format_messages(self.context["messages"])
 
         assert context, "input_dict must contain either `query` or `messages`"
 

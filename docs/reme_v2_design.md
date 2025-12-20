@@ -136,7 +136,7 @@ personal -> 多种记忆 -> 融合多种记忆+agentic+渐进式 -> 文件系统
 ### 对外接口，对齐mem0
 - http[reme-http-server]：
   - 只有summary_memory & retrieve_memory两个接口，大幅降低developer的使用成本
-  - db的memory相关接口，包括workspace & memory的更加详细的操作接口
+  - vector-db相关接口：包括workspace & memory的更加详细的操作接口（v1只提供了dump，load）
 - import: 和http相同
 - mcp[reme-mcp-server]: 
   - 提供retrieve的[load_meta_memory, RetrieveMemory, ReadHistory]
@@ -150,6 +150,8 @@ grep/grob/ls/read_file/write_file/edit_file?
 ### short-term-memory
 TODO, 单独设计
 
+### 自我修改上下文
+xxxx
 
 ### 论文
 1. mem0

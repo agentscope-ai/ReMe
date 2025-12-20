@@ -117,7 +117,7 @@ class AddMemoryOp(BaseMemoryToolOp):
         # Build memory nodes based on mode
         memory_nodes: List[MemoryNode] = []
         if self.enable_multiple:
-            memories: List[Dict[str, Any]] = self.input_dict.get("memories", [])
+            memories: List[Dict[str, Any]] = self.context.get("memories", [])
             for mem in memories:
                 memory_content = mem.get("memory_content", "")
                 if not memory_content:
@@ -125,9 +125,9 @@ class AddMemoryOp(BaseMemoryToolOp):
                 metadata = mem.get("metadata", {}) or {}
                 memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
         else:
-            memory_content = self.input_dict.get("memory_content", "")
+            memory_content = self.context.get("memory_content", "")
             if memory_content:
-                metadata = self.input_dict.get("metadata", {}) or {}
+                metadata = self.context.get("metadata", {}) or {}
                 memory_nodes.append(self._build_memory_node(memory_content, metadata, workspace_id))
 
         if not memory_nodes:
