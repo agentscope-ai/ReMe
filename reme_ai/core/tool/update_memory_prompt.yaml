@@ -1,0 +1,30 @@
+tool: |
+  Update a memory in the vector store by replacing the old memory with new content.
+  Use this tool when the user wants to modify or correct existing information,
+  or when a memory needs to be updated with new details while keeping its relevance.
+  Memory ID can be obtained from previous memory retrieval results.
+
+tool_multiple: |
+  Update multiple memories in the vector store by replacing old memories with new content.
+  Use this tool when the user wants to modify or correct multiple pieces of existing information,
+  or when memories need to be updated with new details while keeping their relevance.
+  Memory IDs can be obtained from previous memory retrieval results.
+
+memory_id: |
+  The unique identifier (memory_id) of the old memory to be replaced.
+
+memory_content: |
+  The new content of the memory to store.
+  Should be a clear, concise statement that captures the updated information to remember.
+
+metadata: |
+  Optional metadata for the new memory, including time or other important information. Can include:
+  - time: The timestamp or date associated with the memory.
+  - Any other custom key-value pairs relevant to the memory.
+
+memories: |
+  A list of memory update objects. Each object should contain:
+  - memory_id (required): The unique identifier of the old memory to be replaced.
+  - memory_content (required): The new content of the memory to store.
+  - metadata (optional): Additional metadata for the new memory.
+

@@ -209,7 +209,7 @@ class LLMMockSearchOp(BaseAsyncToolOp):
         This method classifies the query, applies the appropriate configuration,
         simulates delays, and generates search results based on success and relevance rates.
         """
-        query: str = self.input_dict["query"]
+        query: str = self.context["query"]
         logger.info(f"LLMMockSearchOp processing query: {query}")
 
         # Step 1: Classify the query

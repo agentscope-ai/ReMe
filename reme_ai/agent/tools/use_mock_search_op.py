@@ -89,7 +89,7 @@ class UseMockSearchOp(BaseAsyncToolOp):
         This method selects an appropriate tool, executes it, measures performance,
         and creates a ToolCallResult with metrics.
         """
-        query: str = self.input_dict["query"]
+        query: str = self.context["query"]
         logger.info(f"query={query}")
 
         tool_ops = [

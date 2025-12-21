@@ -1,0 +1,32 @@
+tool: |
+  Before calling any external tool or when rethinking and planning is needed, you must invoke this tool for brief reflection.
+  The output must cover:
+    1. Whether the current context is enough to answer the user directly, plus reasoning.
+    2. If not, what information or validation is missing.
+    3. A strategy to close the gap: which tool to call next, why, and key parameters or query terms.
+  Keep the reasoning tightly scoped to the current turn, avoid unrelated background,
+  and do not execute tools from here—only produce clear, actionable thoughts.
+
+reflection: |
+  1) Can I answer now? Why?
+  2) What is missing?
+  3) Which tool + params next?
+
+reflection_output: |
+  Reflection has been recorded.
+
+tool_zh: |
+  每次准备调用任何外部工具之前或者需要重新思考规划，都必须先调用本工具进行简短思考。
+  输出需覆盖以下要点：
+    1. 评估当前上下文是否足以直接回答用户问题，并解释理由。
+    2. 若不能回答，明确缺失的信息或验证步骤。
+    3. 针对缺口设计下一步策略：列出计划使用的工具、调用目的、关键参数或查询关键词。
+  思考要紧扣当前轮对话内容，避免复述无关背景，不要直接执行工具，只输出清晰推理。
+
+reflection_zh: |
+  1) 能直接回答吗？为什么？
+  2) 缺什么信息？
+  3) 下一步用哪个工具+参数？
+
+reflection_output_zh: |
+  已经记录反思

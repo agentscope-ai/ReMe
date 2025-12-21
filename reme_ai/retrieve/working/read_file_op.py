@@ -55,9 +55,9 @@ class ReadFileOp(BaseAsyncToolOp):
 
     async def async_execute(self):
         """Execute the read file operation."""
-        file_path: str = self.input_dict.get("file_path", "").strip()
-        offset: Optional[int] = int(self.input_dict.get("offset"))
-        limit: Optional[int] = int(self.input_dict.get("limit"))
+        file_path: str = self.context.get("file_path", "").strip()
+        offset: Optional[int] = int(self.context.get("offset"))
+        limit: Optional[int] = int(self.context.get("limit"))
 
         # Validate and resolve file path
         assert file_path, "The 'file_path' parameter cannot be empty."
@@ -84,7 +84,7 @@ class ReadFileOp(BaseAsyncToolOp):
 
     async def async_default_execute(self, e: Exception = None, **_kwargs):
         """Fill outputs with a default failure message when execution fails."""
-        file_path: str = self.input_dict.get("file_path", "").strip()
+        file_path: str = self.context.get("file_path", "").strip()
         error_msg = f'Failed to read file "{file_path}"'
         if e:
             error_msg += f": {str(e)}"
