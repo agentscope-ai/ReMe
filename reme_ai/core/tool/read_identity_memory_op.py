@@ -34,10 +34,8 @@ class ReadIdentityMemoryOp(BaseMemoryToolOp):
 
         Reads identity memory from file storage.
         """
-        workspace_id: str = self.workspace_id
-
-        identity_memory = self._load_identity_memory(workspace_id)
+        identity_memory = self._load_identity_memory(self.workspace_id)
         if identity_memory:
             self.set_output(f"Identity memory:\n{identity_memory}")
         else:
-            self.set_output(f"No identity memory found in workspace={workspace_id}.")
+            self.set_output(f"No identity memory found in workspace={self.workspace_id}.")

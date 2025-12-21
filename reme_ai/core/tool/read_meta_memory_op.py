@@ -17,7 +17,7 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
 
     def __init__(
         self,
-        enable_tool_memory: bool = True,
+            enable_tool_memory: bool = False,
         enable_identity_memory: bool = False,
         **kwargs
     ):
@@ -34,26 +34,15 @@ class ReadMetaMemoryOp(BaseMemoryToolOp):
         self.enable_identity_memory = enable_identity_memory
 
     def _load_meta_memories(self, workspace_id: str) -> List[Dict[str, str]]:
-        """Load meta memories from file.
-
-        Args:
-            workspace_id: The workspace ID.
-
-        Returns:
-            List[Dict[str, str]]: List of memory metadata entries.
-        """
         metadata_handler = self.get_metadata_handler(workspace_id)
         result = self.load_metadata_value(metadata_handler, "meta_memories")
         all_memories = result if result is not None else []
 
-        # Filter to only include PERSONAL and PROCEDURAL by default
         filtered_memories = []
         for m in all_memories:
             memory_type = MemoryType(m.get("memory_type"))
-            memory_target = m.get("memory_target")
-            
-            if memory_type in (MemoryType.PERSONAL, MemoryType.PROCEDURAL):
-                filtered_memories.append(m)
+            assert memory_type in (MemoryType.PERSONAL, MemoryType.PROCEDURAL)
+            filtered_memories.append(m)
         
         if self.enable_tool_memory:
             filtered_memories.append({"memory_type": MemoryType.TOOL.value, "memory_target": "tool_guidelines"})

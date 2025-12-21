@@ -4,8 +4,9 @@ This module provides the IdentitySummaryAgentV1Op class for analyzing conversati
 to extract and update identity memories (self-cognition, personality, current state).
 """
 
-import datetime
-from typing import List
+from typing import List, Dict
+
+from flowllm.core.op import BaseAsyncToolOp
 
 from ..base_memory_agent_op import BaseMemoryAgentOp
 from ... import C
@@ -36,7 +37,7 @@ class IdentitySummaryAgentV1Op(BaseMemoryAgentOp):
                 "input_schema": {
                     "workspace_id": {
                         "type": "string",
-                        "description": "workspace identifier",
+                        "description": "workspace_id",
                         "required": True,
                     },
                     "query": {
@@ -48,7 +49,7 @@ class IdentitySummaryAgentV1Op(BaseMemoryAgentOp):
                         "type": "array",
                         "description": "messages",
                         "required": False,
-                        "items": {"type": "string"},
+                        "items": {"type": "object"},
                     },
                 },
             },
@@ -65,20 +66,14 @@ class IdentitySummaryAgentV1Op(BaseMemoryAgentOp):
         Returns:
             List[Message]: Complete message list with system prompt and user message.
         """
-        now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        context: str = ""
-        if "query" in self.context:
-            context += self.context["query"]
-        if "messages" in self.context:
-            context += self.format_messages(self.context["messages"])
-
-        assert context, "input_dict must contain either `query` or `messages`"
+        now_time: str = self.get_now_time()
+        context: str = self.format_messages(self.get_messages())
 
         messages = [
             Message(
                 role=Role.SYSTEM,
-                content=self.get_prompt("system_prompt").format(
+                content=self.prompt_format(
+                    prompt_name="system_prompt",
                     now_time=now_time,
                     context=context,
                     memory_type=self.memory_type.value,
@@ -91,3 +86,15 @@ class IdentitySummaryAgentV1Op(BaseMemoryAgentOp):
         ]
         return messages
 
+    async def _acting_step(
+            self,
+            assistant_message: Message,
+            tool_op_dict: Dict[str, BaseAsyncToolOp],
+            step: int,
+            **kwargs,
+    ) -> List[Message]:
+        return await super()._acting_step(assistant_message,
+                                          tool_op_dict,
+                                          step,
+                                          workspace_id=self.workspace_id,
+                                          author=self.author)

@@ -35,23 +35,12 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
                 "type": "array",
                 "description": self.get_prompt("messages"),
                 "required": True,
-                "items": {
-                    "type": "object",
-                    "description": "Message object with role, content, and optional fields",
-                },
+                "items": {"type": "object"}
             }
         }
 
     @staticmethod
     def _format_messages(messages: List[Dict[str, Any]]) -> str:
-        """Format messages into a single text string.
-
-        Args:
-            messages: List of message dictionaries.
-
-        Returns:
-            str: Formatted text combining all messages.
-        """
         formatted_lines: List[str] = []
         for i, msg_dict in enumerate(messages):
             message = Message(**msg_dict)
@@ -80,23 +69,15 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
             self.set_output("No messages provided for history memory addition.")
             return
 
-        # Format messages into memory_value
-        memory_value: str = self._format_messages(messages)
-
-        if not memory_value:
-            self.set_output("Formatted message content is empty.")
-            return
-
         memory_node = MemoryNode(
             workspace_id=workspace_id,
             memory_type=MemoryType.HISTORY,
-            content=memory_value,
+            content=self._format_messages(messages),
             author=self.author,
         )
-
-        await self.vector_store.async_delete(node_ids=[memory_node.memory_id], workspace_id=workspace_id)
-
         vector_node = memory_node.to_vector_node()
+
+        await self.vector_store.async_delete(node_ids=[vector_node.unique_id], workspace_id=workspace_id)
         await self.vector_store.async_insert(nodes=[vector_node], workspace_id=workspace_id)
 
         self.set_output(memory_node)

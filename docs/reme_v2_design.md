@@ -25,7 +25,7 @@ ReMeV2 = tool(s) + agent(s)
 ## Runtime设计
 
 ### summary 渐进式总结
-add_history_memory()
+```add_history_memory()
 meta-summarizer << [
   load_meta_memory(),    
   add_meta_memory(list(memory_type, memory_target)),
@@ -41,7 +41,7 @@ personal_summary_agent << [add_memory, update_memory, delete_memory, vector_retr
 procedural_summary_agent << [add_memory, update_memory, delete_memory, vector_retrieve_memory]
 tool_summary_agent << [add_memory, update_memory, vector_retrieve_memory]
 identity_summary_agent << [read_identity_memory, update_identity_memory]
-
+```
 ### retrieve: 渐进式检索【这里和skills检索很像】
 ``` skills
 load_meta_skills
@@ -50,7 +50,7 @@ load_reference_skills
 execute_shell
 ```
 
-retriever << [
+```retriever << [
   load_meta_memory(),
       ``` prompt
       格式："- <memory_type>(<memory_target>): <description>"
@@ -64,7 +64,7 @@ retriever << [
       ```
   RetrieveMemory(list(memory_type, memory_target, query))), layer1+layer2
   ReadHistory(ref_memory_id), layer3
-]
+]```
 
 ## 额外的设计
 

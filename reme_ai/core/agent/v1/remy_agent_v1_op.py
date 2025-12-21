@@ -1,11 +1,3 @@
-"""ReMy conversational agent for AI assistant interactions.
-
-This module provides the ReMy agent that handles conversational interactions,
-integrating identity memory and meta memory into the system prompt, then
-running a standard ReAct loop with available tools.
-"""
-
-import datetime
 from typing import List
 
 from ..base_memory_agent_op import BaseMemoryAgentOp
@@ -16,21 +8,13 @@ from ...schema import Message, ToolCall
 
 @C.register_op()
 class ReMyAgentV1Op(BaseMemoryAgentOp):
-    """Conversational AI assistant agent with memory integration."""
 
     def __init__(
         self,
         enable_tool_memory: bool = True,
-        enable_identity_memory: bool = False,
+            enable_identity_memory: bool = True,
         **kwargs
     ):
-        """Initialize the ReMyAgentV1Op.
-
-        Args:
-            enable_tool_memory: Whether to enable TOOL type meta memory. Defaults to True.
-            enable_identity_memory: Whether to enable IDENTITY type meta memory. Defaults to False.
-            **kwargs: Additional keyword arguments passed to parent class.
-        """
         super().__init__(**kwargs)
         self.enable_tool_memory = enable_tool_memory
         self.enable_identity_memory = enable_identity_memory
@@ -47,74 +31,50 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
                 "input_schema": {
                     "workspace_id": {
                         "type": "string",
-                        "description": "workspace identifier",
+                        "description": "workspace_id",
                         "required": True,
                     },
                     "query": {
                         "type": "string",
-                        "description": "user query string",
+                        "description": "query",
                         "required": False,
                     },
                     "messages": {
                         "type": "array",
-                        "description": "conversation messages",
+                        "description": "messages",
                         "required": False,
-                        "items": {"type": "string"},
+                        "items": {"type": "object"},
                     },
                 },
             },
         )
 
-    async def _load_identity_memory(self) -> str:
-        """Load identity memory from file storage.
-
-        Returns:
-            str: Identity memory content or empty string if not found.
-        """
+    async def _read_identity_memory(self) -> str:
         from ...tool import ReadIdentityMemoryOp
-        op = ReadIdentityMemoryOp(language=self.language)
+
+        op = ReadIdentityMemoryOp()
         await op.async_call(workspace_id=self.workspace_id)
         return str(op.output)
 
-    async def _load_meta_memories(self) -> str:
-        """Load meta memory information from file storage.
-
-        Returns:
-            str: Formatted meta memory information or empty string.
-        """
+    async def _read_meta_memories(self) -> str:
         from ...tool import ReadMetaMemoryOp
 
-        op = ReadMetaMemoryOp(
-            enable_tool_memory=self.enable_tool_memory,
-            enable_identity_memory=self.enable_identity_memory,
-            language=self.language,
-        )
+        op = ReadMetaMemoryOp(enable_tool_memory=self.enable_tool_memory,
+                              enable_identity_memory=self.enable_identity_memory)
         await op.async_call(workspace_id=self.workspace_id)
         return str(op.output)
 
     async def build_messages(self) -> List[Message]:
-        """Build the initial messages for the conversational agent.
+        now_time: str = self.get_now_time()
+        identity_memory = await self._read_identity_memory()
+        meta_memory_info = await self._read_meta_memories()
 
-        Constructs messages by:
-        1. Converting query to user message OR using provided messages (without system)
-        2. Loading identity_memory and meta_memory
-        3. Building system prompt from memories
-        4. Combining system prompt with conversation messages
-
-        Returns:
-            List[Message]: Complete message list with system prompt and conversation.
-        """
-        now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        identity_memory = await self._load_identity_memory()
-        meta_memory_info = await self._load_meta_memories()
-
-        conversation_messages: List[Message] = []
-        if "query" in self.context and self.context["query"]:
-            query = self.context["query"]
-            conversation_messages.append(Message(role=Role.USER, content=query))
-        elif "messages" in self.context and self.context["messages"]:
+        messages: List[Message] = []
+        if self.context.get("query"):
+            messages.append(Message(role=Role.USER, content=self.context.query))
+        elif self.context.get("messages"):
             raw_messages = [Message(**msg) if isinstance(msg, dict) else msg for msg in self.context["messages"]]
-            conversation_messages.extend([msg for msg in raw_messages if msg.role is not Role.SYSTEM])
+            messages.extend([msg for msg in raw_messages if msg.role is not Role.SYSTEM])
         else:
             raise ValueError("input_dict must contain either `query` or `messages`")
 
@@ -126,6 +86,6 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
             meta_memory_info=meta_memory_info,
         )
 
-        messages = [Message(role=Role.SYSTEM, content=system_prompt)] + conversation_messages
+        messages = [Message(role=Role.SYSTEM, content=system_prompt)] + messages
         return messages
 

@@ -1,6 +1,7 @@
 import asyncio
+import datetime
 from abc import ABC
-from typing import List, Dict, Any
+from typing import List, Dict
 
 from loguru import logger
 
@@ -26,7 +27,29 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         self.add_think_tool: bool = add_think_tool
 
     def build_tool_call(self) -> ToolCall:
-        raise NotImplementedError("Subclasses must implement `build_tool_call`")
+        return ToolCall(
+            **{
+                "description": "base memory agent",
+                "input_schema": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "workspace id",
+                        "required": True,
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "query text",
+                        "required": False,
+                    },
+                    "messages": {
+                        "type": "array",
+                        "description": "messages",
+                        "required": False,
+                        "items": {"type": "object"},
+                    },
+                },
+            },
+        )
 
     async def build_tool_op_dict(self) -> Dict[str, BaseAsyncToolOp]:
         tool_op_dict: Dict[str, BaseAsyncToolOp] = {
@@ -41,12 +64,13 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
         
         return tool_op_dict
 
-    async def build_messages(self) -> List[Message]:
-        raise NotImplementedError("Subclasses must implement `build_messages`")
+    @staticmethod
+    def get_now_time() -> str:
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
-    def format_messages(messages: List[Dict[str, Any]]):
-        messages = [Message(**x) for x in messages if isinstance(x, dict)]
+    def format_messages(messages: List[dict | Message]) -> str:
+        messages = [Message(**x) if isinstance(x, dict) else x for x in messages]
         messages = [x for x in messages if x.role is not Role.SYSTEM]
         messages_context = "\n".join([x.format_message(
             add_time_created=True,
@@ -55,6 +79,26 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
             add_tool_calls=True,
         ) for x in messages])
         return messages_context
+
+    def get_messages(self) -> List[Message]:
+        if self.context.get("query"):
+            messages = [
+                Message(
+                    role=Role.USER,
+                    content=self.context.query,
+                )
+            ]
+
+        elif self.context.get("messages"):
+            messages = [Message(**msg) if isinstance(msg, dict) else msg for msg in self.context.messages]
+
+        else:
+            raise ValueError("input must have either `query` or `messages`")
+
+        return messages
+
+    async def build_messages(self) -> List[Message]:
+        return self.get_messages()
 
     async def _reasoning_step(
             self,
@@ -76,6 +120,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
             assistant_message: Message,
             tool_op_dict: Dict[str, BaseAsyncToolOp],
             step: int,
+            **kwargs,
     ) -> List[Message]:
         if not assistant_message.tool_calls:
             return []
@@ -98,11 +143,7 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
             op_copy.tool_call.id = tool_call.id
             op_list.append(op_copy)
             self.submit_async_task(op_copy.async_call,
-                                   memory_type=self.memory_type,
-                                   memory_target=self.memory_target,
-                                   ref_memory_id=self.ref_memory_id,
-                                   workspace_id=self.workspace_id,
-                                   author=self.author,
+                                   **kwargs,
                                    **tool_call.argument_dict)
             if self.tool_call_interval > 0:
                 await asyncio.sleep(self.tool_call_interval)

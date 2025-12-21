@@ -1,8 +1,8 @@
 import asyncio
 
 from reme_ai import ReMeApp
-from reme_ai.core.agent.personal import SimpleSummaryAgentOp, SimpleRetrieveAgentOp
-from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryMemoryOp, UpdateMemoryOp, RetrieveMemoryOp
+from reme_ai.core.agent.v1 import ReMeRetrieveAgentV1Op, ReMeSummaryAgentV1Op
+from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryMemoryOp, UpdateMemoryOp, VectorRetrieveMemoryOp
 
 
 async def test_summary_and_retrieve():
@@ -40,22 +40,21 @@ async def test_summary_and_retrieve():
         # app.service_config.vector_store["default"].backend = "local"
 
         # Step 1: Summary agent to summarize the conversation
-        summary_agent = SimpleSummaryAgentOp() << [
+        summary_agent = ReMeSummaryAgentV1Op() << [
             AddMemoryOp(),
             DeleteMemoryOp(),
             UpdateMemoryOp(),
-            RetrieveMemoryOp(top_k=20),
+            VectorRetrieveMemoryOp(top_k=20),
         ]
         await summary_agent.async_call(
             messages=messages,
             workspace_id="test_workspace",
             memory_target="Alice",
-            ref_memory_id="test_ref_001",
         )
         print(f"Summary result: {summary_agent.output}")
 
         # Step 2: Retrieve agent to retrieve relevant memories
-        retrieve_agent = SimpleRetrieveAgentOp() << [
+        retrieve_agent = ReMeRetrieveAgentV1Op() << [
             RetrieveMemoryOp(enable_summary_memory=True, top_k=10),
             ReadHistoryMemoryOp(),
         ]
