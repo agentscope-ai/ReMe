@@ -65,31 +65,12 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
             },
         }
 
-    def _load_meta_memories(self, workspace_id: str) -> List[dict]:
-        """Load existing meta memories from file.
-
-        Args:
-            workspace_id: The workspace ID.
-
-        Returns:
-            List[dict]: List of existing memory metadata entries.
-        """
-        metadata_handler = self.get_metadata_handler(workspace_id)
-        result = self.load_metadata_value(metadata_handler, "meta_memories")
+    def _load_meta_memories(self) -> List[dict]:
+        result = self.metadata_handler.load("meta_memories")
         return result if result is not None else []
 
-    def _save_meta_memories(self, workspace_id: str, memories: List[dict]) -> bool:
-        """Save meta memories to file.
-
-        Args:
-            workspace_id: The workspace ID.
-            memories: List of memory metadata entries.
-
-        Returns:
-            bool: Whether the save was successful.
-        """
-        metadata_handler = self.get_metadata_handler(workspace_id)
-        return self.save_metadata_value(metadata_handler, "meta_memories", memories)
+    def _save_meta_memories(self, memories: List[dict]) -> bool:
+        return self.metadata_handler.save("meta_memories", memories)
 
     async def async_execute(self):
         """Execute the add meta memory operation.
@@ -97,13 +78,8 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
         Adds memory metadata to file storage. Supports both single and multiple modes.
         Duplicates (same memory_type and memory_target) are skipped.
         """
-        workspace_id: str = self.workspace_id
-
-        # Load existing memories
-        existing_memories: List[dict] = self._load_meta_memories(workspace_id)
-        existing_set = {
-            (m["memory_type"], m["memory_target"]) for m in existing_memories
-        }
+        existing_memories: List[dict] = self._load_meta_memories()
+        existing_set = {(m["memory_type"], m["memory_target"]) for m in existing_memories}
 
         # Build new memories to add based on mode
         new_memories: List[dict] = []
@@ -133,7 +109,7 @@ class AddMetaMemoryOp(BaseMemoryToolOp):
 
         # Merge and save
         all_memories = existing_memories + new_memories
-        self._save_meta_memories(workspace_id, all_memories)
+        self._save_meta_memories(all_memories)
 
         # Format output
         added_str = json.dumps(new_memories, ensure_ascii=False)

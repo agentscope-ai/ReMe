@@ -1,8 +1,32 @@
 # ReMeV2-重构的设计思路和代码细节
 
 ## 背景
-Inspired by claude skills，设计基于渐进式检索&总结的方案。
-https://docs.claude.com/en/docs/agents-and-tools/agent-skills/quickstart
+
+### Claude Skills的启发
+ReMeV2的设计受到Claude Skills的渐进式披露（Progressive Disclosure）架构启发。Claude Skills通过三层架构实现高效的上下文管理：
+
+1. **元数据层（Metadata Layer）**：在启动时加载技能的名称和描述，让Agent了解可用的技能及其用途
+2. **指令层（Instructions Layer）**：当技能被触发时，加载SKILL.md文件的主体部分，包含具体的工作流程、最佳实践和指导
+3. **资源层（Resources Layer）**：按需加载附加资源，如代码示例、参考资料等
+
+这种渐进式披露确保在任何给定时间，只有相关内容占据上下文窗口，避免重复提供相同指导，从而优化性能。
+
+参考：https://docs.claude.com/en/docs/agents-and-tools/agent-skills/quickstart
+
+### ReMeV2的设计理念
+借鉴Claude Skills的思路，ReMeV2设计了基于**渐进式检索&总结**的记忆管理方案：
+
+**渐进式检索（Progressive Retrieval）**：
+- Layer 1: 加载元记忆（Meta Memory）- 记忆类型、目标和描述概览
+- Layer 2: 检索具体记忆（Retrieve Memory）- 根据查询获取相关记忆内容
+- Layer 3: 读取历史细节（Read History）- 按需加载完整的历史交互记录
+
+**渐进式总结（Progressive Summarization）**：
+- 通过专门的Summary Agents（personal/procedural/tool/identity）对不同类型的记忆进行分层总结
+- 使用Meta-Summarizer协调各个Summary Agent，实现记忆的增量更新和压缩
+- Summary Memory作为新的维度压缩Message，优化上下文使用
+
+这种设计既保证了记忆检索的效率，又确保了记忆总结的准确性和可维护性。
 
 ## Memory
 @MemoryType 三层架构
@@ -25,7 +49,7 @@ ReMeV2 = tool(s) + agent(s)
 ## Runtime设计
 
 ### summary 渐进式总结
-```add_history_memory()
+add_history_memory()
 meta-summarizer << [
   load_meta_memory(),    
   add_meta_memory(list(memory_type, memory_target)),
@@ -41,7 +65,7 @@ personal_summary_agent << [add_memory, update_memory, delete_memory, vector_retr
 procedural_summary_agent << [add_memory, update_memory, delete_memory, vector_retrieve_memory]
 tool_summary_agent << [add_memory, update_memory, vector_retrieve_memory]
 identity_summary_agent << [read_identity_memory, update_identity_memory]
-```
+
 ### retrieve: 渐进式检索【这里和skills检索很像】
 ``` skills
 load_meta_skills
@@ -50,7 +74,7 @@ load_reference_skills
 execute_shell
 ```
 
-```retriever << [
+retriever << [
   load_meta_memory(),
       ``` prompt
       格式："- <memory_type>(<memory_target>): <description>"
@@ -64,12 +88,23 @@ execute_shell
       ```
   RetrieveMemory(list(memory_type, memory_target, query))), layer1+layer2
   ReadHistory(ref_memory_id), layer3
-]```
+]
 
 ## 额外的设计
 
 ### summary memory的作用
-作为新的维度压缩Message新
+```txt
+step1: summary jinli's dialog
+           session1: List[Message] -> session2: List[Message] -> session3: List[Message] -> ...
+summary    1                          1                          1
+personal   0                          0                          1
+procedural 0                          1                          0 
+
+step2: retrieve
+vector_retrieve_memory(query, memory_type="personal", memory_target="jinli") -> memory_type in ["personal", "summary"]
+```
+1. 相较于其他维度的memory，提供了一种通用维度的memory抽取逻辑
+2. 确保如果不符合其他的meta memory的情况下，有一个兜底的原始对话的索引。
 
 ### 带thinking参数的实验
 Inspired by Agentscope
@@ -151,7 +186,8 @@ grep/grob/ls/read_file/write_file/edit_file?
 TODO, 单独设计
 
 ### 自我修改上下文
-xxxx
+summary_agent add_meta_memory直接修改上下文
+remy_agent 可以每次通过retrieve_identity_memory修改自己的状态
 
 ### 论文
 1. mem0

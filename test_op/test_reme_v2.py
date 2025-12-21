@@ -1,8 +1,9 @@
 import asyncio
 
 from reme_ai import ReMeApp
-from reme_ai.core.agent.v1 import ReMeRetrieveAgentV1Op, ReMeSummaryAgentV1Op
-from reme_ai.core.tool import AddMemoryOp, DeleteMemoryOp, ReadHistoryMemoryOp, UpdateMemoryOp, VectorRetrieveMemoryOp
+from reme_ai.core.agent.v1 import ReMeSummaryAgentV1Op
+from reme_ai.core.tool import AddMetaMemoryOp, AddSummaryMemoryOp
+from reme_ai.core.tool.hands_off_op import HandsOffOp
 
 
 async def test_summary_and_retrieve():
@@ -41,29 +42,27 @@ async def test_summary_and_retrieve():
 
         # Step 1: Summary agent to summarize the conversation
         summary_agent = ReMeSummaryAgentV1Op() << [
-            AddMemoryOp(),
-            DeleteMemoryOp(),
-            UpdateMemoryOp(),
-            VectorRetrieveMemoryOp(top_k=20),
+            AddMetaMemoryOp(),
+            AddSummaryMemoryOp(),
+            HandsOffOp(),
         ]
         await summary_agent.async_call(
             messages=messages,
             workspace_id="test_workspace",
-            memory_target="Alice",
         )
         print(f"Summary result: {summary_agent.output}")
 
-        # Step 2: Retrieve agent to retrieve relevant memories
-        retrieve_agent = ReMeRetrieveAgentV1Op() << [
-            RetrieveMemoryOp(enable_summary_memory=True, top_k=10),
-            ReadHistoryMemoryOp(),
-        ]
-        await retrieve_agent.async_call(
-            query="What does Alice like?",
-            workspace_id="test_workspace",
-            memory_target="Alice",
-        )
-        print(f"Retrieve result: {retrieve_agent.output}")
+        # # Step 2: Retrieve agent to retrieve relevant memories
+        # retrieve_agent = ReMeRetrieveAgentV1Op() << [
+        #     RetrieveMemoryOp(enable_summary_memory=True, top_k=10),
+        #     ReadHistoryMemoryOp(),
+        # ]
+        # await retrieve_agent.async_call(
+        #     query="What does Alice like?",
+        #     workspace_id="test_workspace",
+        #     memory_target="Alice",
+        # )
+        # print(f"Retrieve result: {retrieve_agent.output}")
 
 
 if __name__ == "__main__":

@@ -161,21 +161,7 @@ class VectorRetrieveMemoryOp(BaseMemoryToolOp):
 
         return filtered_memory_nodes
 
-    @staticmethod
-    def _deduplicate_memories(memories: List[MemoryNode]) -> List[MemoryNode]:
-        """Remove duplicate memories based on memory_id while preserving order.
 
-        Args:
-            memories: List of memory nodes that may contain duplicates.
-
-        Returns:
-            List[MemoryNode]: Deduplicated list of memory nodes.
-        """
-        seen_memories: Dict[str, MemoryNode] = {}
-        for memory in memories:
-            if memory.memory_id not in seen_memories:
-                seen_memories[memory.memory_id] = memory
-        return list(seen_memories.values())
 
     async def async_execute(self):
         """Execute the retrieve memory operation.

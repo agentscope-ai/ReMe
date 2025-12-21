@@ -4,12 +4,11 @@ This module provides the AddHistoryMemoryOp class for adding history memory
 from message lists to the vector store.
 """
 
-from typing import Any, Dict, List
-
 from .base_memory_tool_op import BaseMemoryToolOp
 from .. import C
+from .. import utils
 from ..enumeration import MemoryType
-from ..schema import Message, MemoryNode
+from ..schema import MemoryNode
 
 
 @C.register_op()
@@ -21,10 +20,10 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
     """
 
     def __init__(self, **kwargs):
-        kwargs["enable_multiple"] = True
+        kwargs["enable_multiple"] = False
         super().__init__(**kwargs)
 
-    def build_multiple_input_schema(self) -> dict:
+    def build_input_schema(self) -> dict:
         """Build input schema for history memory addition.
 
         Returns:
@@ -33,26 +32,11 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
         return {
             "messages": {
                 "type": "array",
-                "description": self.get_prompt("messages"),
+                "description": "messages",
                 "required": True,
                 "items": {"type": "object"}
             }
         }
-
-    @staticmethod
-    def _format_messages(messages: List[Dict[str, Any]]) -> str:
-        formatted_lines: List[str] = []
-        for i, msg_dict in enumerate(messages):
-            message = Message(**msg_dict)
-            formatted_line = message.format_message(
-                i=i,
-                add_time_created=True,
-                use_name_first=True,
-                add_reasoning_content=True,
-                add_tool_calls=True,
-            )
-            formatted_lines.append(formatted_line)
-        return "\n\n".join(formatted_lines)
 
     async def async_execute(self):
         """Execute the add history memory operation.
@@ -63,16 +47,12 @@ class AddHistoryMemoryOp(BaseMemoryToolOp):
         Returns the created memory.
         """
         workspace_id: str = self.workspace_id
-        messages: List[Dict[str, Any]] = self.context.get("messages", [])
-
-        if not messages:
-            self.set_output("No messages provided for history memory addition.")
-            return
-
+        messages: list = self.context.get("messages", [])
+        assert messages, "No messages provided"
         memory_node = MemoryNode(
             workspace_id=workspace_id,
             memory_type=MemoryType.HISTORY,
-            content=self._format_messages(messages),
+            content=utils.format_messages(messages),
             author=self.author,
         )
         vector_node = memory_node.to_vector_node()

@@ -1,8 +1,11 @@
 import re
 from typing import List, Dict
 
+from loguru import logger
+
 from ..base_memory_agent_op import BaseMemoryAgentOp
 from ... import C
+from ... import utils
 from ...enumeration import Role
 from ...schema import Message, ToolCall, MemoryNode
 from ....core import BaseAsyncToolOp
@@ -74,11 +77,14 @@ class ReMeSummaryAgentV1Op(BaseMemoryAgentOp):
         return str(op.output)
 
     async def build_messages(self) -> List[Message]:
-        now_time: str = self.get_now_time()
+        now_time: str = utils.get_now_time()
         memory_node: MemoryNode = await self._add_history_memory()
         identity_memory = await self._read_identity_memory()
         meta_memory_info = await self._read_meta_memories()
-        context: str = self.format_messages(self.get_messages())
+        context: str = utils.format_messages(self.get_messages())
+
+        logger.info(f"now_time={now_time} memory_node={memory_node} identity_memory={identity_memory} "
+                    f"meta_memory_info={meta_memory_info} context={context}")
 
         system_prompt = self.prompt_format(
             prompt_name="system_prompt",

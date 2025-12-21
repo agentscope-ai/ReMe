@@ -19,7 +19,6 @@ class AddSummaryMemoryOp(AddMemoryOp):
     """
 
     def __init__(self, **kwargs):
-        # Force enable_multiple to False
         kwargs["enable_multiple"] = False
         super().__init__(**kwargs)
 

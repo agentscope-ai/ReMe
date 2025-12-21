@@ -6,6 +6,11 @@ tool_multiple: |
   Add multiple memories to the vector store for future retrieval.
   Use this tool to store multiple pieces of important information that should be remembered, such as "I am very happy" (meta), "John prefers dark mode" (personal), "To deploy, run build then push" (procedural), or "search_tool works best with short queries" (tool).
 
+when_to_use: |
+  Optional condition description for when to retrieve this memory.
+  This will be used for vector embedding to improve retrieval accuracy.
+  For example: "when user asks about authentication", "when deploying to production", "when using search_tool".
+
 memory_content: |
   The content of the memory to store.
   Should be a clear, concise statement that captures the information to remember.
@@ -17,5 +22,6 @@ metadata: |
 
 memories: |
   A list of memory objects to store. Each object should contain:
+  - when_to_use (optional): Condition description for when to retrieve this memory.
   - memory_content (required): The content of the memory to store.
   - metadata (optional): Additional metadata for the memory.

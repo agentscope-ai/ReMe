@@ -1,6 +1,5 @@
 from abc import ABC
 from pathlib import Path
-from typing import Any
 
 from flowllm.core.schema import ToolCall
 from flowllm.core.storage import CacheHandler
@@ -35,6 +34,7 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
         self.enable_multiple: bool = enable_multiple
         self.enable_thinking_params: bool = enable_thinking_params
         self.memory_metadata_dir: Path = Path(memory_metadata_dir)
+        self._metadata_handler: CacheHandler | None = None
 
     def build_input_schema(self) -> dict:
         """
@@ -93,16 +93,11 @@ class BaseMemoryToolOp(BaseAsyncToolOp, ABC):
             }
         )
 
-    def get_metadata_handler(self, path: str) -> CacheHandler:
-        return CacheHandler(self.memory_metadata_dir / path)
-
-    @staticmethod
-    def load_metadata_value(metadata_handler: CacheHandler, key: str):
-        return metadata_handler.load(key)
-
-    @staticmethod
-    def save_metadata_value(metadata_handler: CacheHandler, key: str, value: Any):
-        metadata_handler.save(key, value)
+    @property
+    def metadata_handler(self):
+        if self._metadata_handler is None:
+            self._metadata_handler = CacheHandler(self.memory_metadata_dir / self.workspace_id)
+        return self._metadata_handler
 
     @property
     def memory_type(self) -> MemoryType:

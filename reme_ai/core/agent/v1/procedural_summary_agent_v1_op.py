@@ -4,6 +4,7 @@ from flowllm.core.op import BaseAsyncToolOp
 
 from ..base_memory_agent_op import BaseMemoryAgentOp
 from ... import C
+from ... import utils
 from ...enumeration import Role, MemoryType
 from ...schema import Message, ToolCall
 
@@ -55,8 +56,8 @@ class ProceduralSummaryAgentV1Op(BaseMemoryAgentOp):
         )
 
     async def build_messages(self) -> List[Message]:
-        now_time: str = self.get_now_time()
-        context: str = self.format_messages(self.get_messages())
+        now_time: str = utils.get_now_time()
+        context: str = utils.format_messages(self.get_messages())
 
         messages = [
             Message(

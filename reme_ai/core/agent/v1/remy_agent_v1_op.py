@@ -2,6 +2,7 @@ from typing import List
 
 from ..base_memory_agent_op import BaseMemoryAgentOp
 from ... import C
+from ... import utils
 from ...enumeration import Role
 from ...schema import Message, ToolCall
 
@@ -65,7 +66,7 @@ class ReMyAgentV1Op(BaseMemoryAgentOp):
         return str(op.output)
 
     async def build_messages(self) -> List[Message]:
-        now_time: str = self.get_now_time()
+        now_time: str = utils.get_now_time()
         identity_memory = await self._read_identity_memory()
         meta_memory_info = await self._read_meta_memories()
 

@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 from abc import ABC
 from typing import List, Dict
 
@@ -63,22 +62,6 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
             tool_op_dict["think_tool"] = think_op
         
         return tool_op_dict
-
-    @staticmethod
-    def get_now_time() -> str:
-        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    @staticmethod
-    def format_messages(messages: List[dict | Message]) -> str:
-        messages = [Message(**x) if isinstance(x, dict) else x for x in messages]
-        messages = [x for x in messages if x.role is not Role.SYSTEM]
-        messages_context = "\n".join([x.format_message(
-            add_time_created=True,
-            use_name_first=True,
-            add_reasoning_content=True,
-            add_tool_calls=True,
-        ) for x in messages])
-        return messages_context
 
     def get_messages(self) -> List[Message]:
         if self.context.get("query"):
@@ -214,4 +197,5 @@ class BaseMemoryAgentOp(BaseAsyncToolOp, ABC):
 
     @property
     def author(self) -> str:
+        _ = self.llm
         return self.llm_config.model_name
