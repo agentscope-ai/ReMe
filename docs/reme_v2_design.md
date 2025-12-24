@@ -27,7 +27,7 @@ memory = ReMe(
     vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
 )
 
-# memory = ReMeApp(
+# memory = ReMe(
 #     memory_space="remy",  # workspace
 #     llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
 #     embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
