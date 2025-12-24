@@ -27,6 +27,13 @@ memory = ReMe(
     vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
 )
 
+# memory = ReMeApp(
+#     memory_space="remy",  # workspace
+#     llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
+#     embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
+#     vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
+# ).memory # vector_store, 
+
 result = memory.summary(
     messages=[
         {"role": "user", "content": "I'm travelling to SF"},
@@ -134,7 +141,7 @@ memory = ReMe(
 )
 
 # 只暴露agentic方式进行构建，或者就不暴露接口
-memory.set_retriever(AgenticRetriverOp(tools=[AToolOp(), BToolOp(), CToolOp]))
+memory.set_retriever(AgenticRetriver(tools=[AToolOp(), BToolOp(), CToolOp]))  # 后面应该会把Op去掉
 memory.set_summarizer(AgenticSummarizer(tools=[ATool(), BTool(), CTool()]))
 
 # memory.set_retriever(Pipeline(ops=[Router1Op(), Router2Op()]))
