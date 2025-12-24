@@ -1,204 +1,204 @@
-# ReMeV2-重构的设计思路和代码细节
+from sqlalchemy.sql.operators import between_op
 
-## 背景
+# ReMeV2 design
+一些问题：
+1. 只focus在python import的方案？
+2. 旧的workflow & agentic 方案都按照这个接口？
+3. 是否需要异步？单独构建，不在本期迭代中
 
-### Claude Skills的启发
-ReMeV2的设计受到Claude Skills的渐进式披露（Progressive Disclosure）架构启发。Claude Skills通过三层架构实现高效的上下文管理：
+## Long Term Memory Basic Usage
 
-1. **元数据层（Metadata Layer）**：在启动时加载技能的名称和描述，让Agent了解可用的技能及其用途
-2. **指令层（Instructions Layer）**：当技能被触发时，加载SKILL.md文件的主体部分，包含具体的工作流程、最佳实践和指导
-3. **资源层（Resources Layer）**：按需加载附加资源，如代码示例、参考资料等
+```python
+import os
+from reme_ai import ReMe
 
-这种渐进式披露确保在任何给定时间，只有相关内容占据上下文窗口，避免重复提供相同指导，从而优化性能。
+# os.environ["OPENAI_API_KEY"] = "sk-..."
+# os.environ["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-参考：https://docs.claude.com/en/docs/agents-and-tools/agent-skills/quickstart
+os.environ["REME_LLM_API_KEY"] = "sk-..."
+os.environ["REME_LLM_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["REME_EMBEDDING_API_KEY"] = "sk-..."
+os.environ["REME_EMBEDDING_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-### ReMeV2的设计理念
-借鉴Claude Skills的思路，ReMeV2设计了基于**渐进式检索&总结**的记忆管理方案：
+memory = ReMe(
+    memory_space="remy",  # workspace
+    llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
+    embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
+    vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
+)
 
-**渐进式检索（Progressive Retrieval）**：
-- Layer 1: 加载元记忆（Meta Memory）- 记忆类型、目标和描述概览
-- Layer 2: 检索具体记忆（Retrieve Memory）- 根据查询获取相关记忆内容
-- Layer 3: 读取历史细节（Read History）- 按需加载完整的历史交互记录
+result = memory.summary(
+    messages=[
+        {"role": "user", "content": "I'm travelling to SF"},
+        {"role": "assistant", "content": "That's great to hear!"}
+    ],
+    desc="user:Alice",
+    # user_id="Alice",  # desc和user_id二选一，user_id在procedural不合适
+    # memory_type="auto" # 默认是auto
+    # **kwargs  所有参数都放到这里
+)
 
-**渐进式总结（Progressive Summarization）**：
-- 通过专门的Summary Agents（personal/procedural/tool/identity）对不同类型的记忆进行分层总结
-- 使用Meta-Summarizer协调各个Summary Agent，实现记忆的增量更新和压缩
-- Summary Memory作为新的维度压缩Message，优化上下文使用
-
-这种设计既保证了记忆检索的效率，又确保了记忆总结的准确性和可维护性。
-
-## Memory
-@MemoryType 三层架构
-
-### Memory schema 设计
-@MemoryNode的
-
-## 代码设计
-相对workflow更加简洁，激进？
-ReMeV2 = tool(s) + agent(s)
-
-### tool
-@tool
-列出所有的类初始化参数，tool_call参数，透传的参数
-
-### agent
-@agent/v1
-列出所有的类初始化参数，tool_call参数，透传的参数
-
-## Runtime设计
-
-### summary 渐进式总结
-add_history_memory()
-meta-summarizer << [
-  load_meta_memory(),    
-  add_meta_memory(list(memory_type, memory_target)),
-  add_summary_memory(summary_memory),
-  hands_off_agent(list(memory_type, memory_target)) << [
-    personal_summary_agent,
-    procedural_summary_agent,
-    tool_summary_agent,
-    identity_summary_agent
-  ],
-]
-personal_summary_agent << [add_memory, update_memory, delete_memory, vector_retrieve_memory]
-procedural_summary_agent << [add_memory, update_memory, delete_memory, vector_retrieve_memory]
-tool_summary_agent << [add_memory, update_memory, vector_retrieve_memory]
-identity_summary_agent << [read_identity_memory, update_identity_memory]
-
-### retrieve: 渐进式检索【这里和skills检索很像】
-``` skills
-load_meta_skills
-load_skills
-load_reference_skills
-execute_shell
+memories = memory.retrieve(
+    query="what is your travel plan?",  # or messages
+    limit=3,
+    # memory_type="auto"   # 默认是auto
+)
+memories_str = "\n".join(f"- {m['memory']}" for m in memories["results"])
+print(memories_str)
 ```
 
-retriever << [
-  load_meta_memory(),
-      ``` prompt
-      格式："- <memory_type>(<memory_target>): <description>"
-      personal jinli xxxxx
-      personal jiaji xxxxx
-      personal jinli&jiaji xxxxx
-      procedural appworld xxxxx
-      procedural bfcl-v3 xxxxx
-      tool tool_guidelines  xxxxx
-      identity self   xxxxx
-      ```
-  RetrieveMemory(list(memory_type, memory_target, query))), layer1+layer2
-  ReadHistory(ref_memory_id), layer3
-]
+## Long Term Memory Cli Chat
+```python
+import os
 
-## 额外的设计
+from reme_ai import ReMe
+from openai import OpenAI
 
-### summary memory的作用
-```txt
-step1: summary jinli's dialog
-           session1: List[Message] -> session2: List[Message] -> session3: List[Message] -> ...
-summary    1                          1                          1
-personal   0                          0                          1
-procedural 0                          1                          0 
+os.environ["REME_LLM_API_KEY"] = "sk-..."
+os.environ["REME_LLM_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["REME_EMBEDDING_API_KEY"] = "sk-..."
+os.environ["REME_EMBEDDING_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-step2: retrieve
-vector_retrieve_memory(query, memory_type="personal", memory_target="jinli") -> memory_type in ["personal", "summary"]
-```
-1. 相较于其他维度的memory，提供了一种通用维度的memory抽取逻辑
-2. 确保如果不符合其他的meta memory的情况下，有一个兜底的原始对话的索引。
+memory = ReMe(
+    memory_space="remy",  # workspace
+    llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
+    embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
+    vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
+)
 
-### 带thinking参数的实验
-Inspired by Agentscope
-```
-async def record_to_memory(
-    self,
-    thinking: str,
-    content: list[str],
-    **kwargs: Any,
-) -> ToolResponse:
-    """Use this function to record important information that you may
-    need later. The target content should be specific and concise, e.g.
-    who, when, where, do what, why, how, etc.
+openai_client = OpenAI()
 
-    Args:
-        thinking (`str`):
-            Your thinking and reasoning about what to record
-        content (`list[str]`):
-            The content to remember, which is a list of strings.
-    """
-```
+os.environ["OPENAI_API_KEY"] = "sk-..."
+os.environ["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-对比
-- thinking model
-- instruct model 
-- instruct model with thinking_params @Inspired by Agentscope
-- instruct model with thinking_tool @Inspired by claude
+def chat_with_memories(query: str, history_messages: list[dict], user_name: str = "", start_summary_size: int = 12, keep_size: int = 2) -> str:
+    memories = memory.retrieve(query=query, user_id=user_name, limit=3)
+    system_prompt = f"You are a helpful AI named `Remy`. Use the user memories to answer the question. If you don't know the answer, just say you don't know. Don't try to make up an answer. Answer the question based on query and memories.\n"
+    if memories:
+        memories_str = "\n".join(f"- {m['memory']}" for m in memories["results"])
+        system_prompt += f"User Memories:\n{memories_str}\n"
+    
+    system_message = {"role": "system", "content": system_prompt}
+    history_messages.append({"role": "user", "content": query})
+    response = openai_client.chat.completions.create(model="qwen-plus", messages=[system_message] + history_messages)
+    history_messages.append({"role": "assistant", "content": response.choices[0].message.content})
+    
+    if history_messages and len(history_messages) >= start_summary_size:
+        memory.summary(history_messages[:-keep_size], user_id=user_name)
+        print("current memories: " + memory.list_memories(user_id=user_name))
+        history_messages = history_messages[-keep_size:]
+        
+    return history_messages[-1]["content"]
 
-### multi模式实验
-- tool是单次调用，模型多次调用工具
-- tool是多次调用，模型只需要调用一次工具
+def main():
+    user_name = input("user_name: ").strip()
+    print("Chat with Remy (type 'exit' to quit)")
+    
+    messages = []
+    while True:
+        user_input = input(f"{user_name}: ").strip()
+        if user_input.lower() == 'exit':
+            print("Goodbye!")
+            break
 
-### 多版本-扩展性
-从BaseMemoryAgentOp继承：
-personal_summary_agent_v2/personal_retrieve_agent_v2 @weikang
-procedural_summary_agent_v2/procedural_retrieve_agent_v2 @zouyin
-
-### Hook模式/Agent
-``` python
-@memory_wrapper
-async def call_agent(messages: List[Message]) -> List[Message]:
-    await agent.achat(messages)
-    history_messages: List[Message] = agent.history_messages
-    return history_messages
-```
-or 
-```
-reme-agent << [load_meta_memory, RetrieveMemory, ReadHistory]
-+ async call summary_service
+        print(f"Remy: {chat_with_memories(user_input, messages, user_name)}")
+        
+    memory.delete_all_memories(user_id=user_name)
+    print("All memories deleted")
+    
+if __name__ == "__main__":
+    main()  
 ```
 
-### 项目组织
-新的方案：experimental or v2 or core
-老的方案：v1 or 废弃
-- 文档&README如何组织这几部分
-- CookBook
-  - reme-agent
-  - 使用mem-agent和agentscope、langchain结合
-  - mini-reme
-v1->v2->v3?
-personal -> 多种记忆 -> 融合多种记忆+agentic+渐进式 -> 文件系统？
-                    -> MemoryModel
+## Long Term Memory Advance Usage
+```python
+import os
 
-### 对外接口，对齐mem0
-- http[reme-http-server]：
-  - 只有summary_memory & retrieve_memory两个接口，大幅降低developer的使用成本
-  - vector-db相关接口：包括workspace & memory的更加详细的操作接口（v1只提供了dump，load）
-- import: 和http相同
-- mcp[reme-mcp-server]: 
-  - 提供retrieve的[load_meta_memory, RetrieveMemory, ReadHistory]
+from reme_ai import ReMe
+from reme_ai.retriever import FlowRetriever, AgenticRetriever
+from reme_ai.summarizer import FlowSummarizer, AgenticSummarizer
+from reme_ai.ops import AOp, BOP, COP
+from reme_ai.tools import ATool, BTool, CTool
 
-### 文件系统-涉及后续的代码再次重写
-难点：retrieve/add/update/delete 需要变化吗？
-使用File工具? 
-grep/grob/ls/read_file/write_file/edit_file?
-基模操作这些的能力稍差，qwen3-code的能力相对可以。
+os.environ["REME_LLM_API_KEY"] = "sk-..."
+os.environ["REME_LLM_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["REME_EMBEDDING_API_KEY"] = "sk-..."
+os.environ["REME_EMBEDDING_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-### short-term-memory
-TODO, 单独设计
+memory = ReMe(
+    memory_space="remy",  # workspace
+    llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
+    embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
+    vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
+    use_agentic_mode=True,
+)
 
-### 自我修改上下文
-summary_agent add_meta_memory直接修改上下文
-remy_agent 可以每次通过retrieve_identity_memory修改自己的状态
+# 只暴露agentic方式进行构建，或者就不暴露接口
+memory.set_retriever(AgenticRetriverOp(tools=[AToolOp(), BToolOp(), CToolOp]))
+memory.set_summarizer(AgenticSummarizer(tools=[ATool(), BTool(), CTool()]))
 
-### 论文
-1. mem0
-2. agentscope
-3. datajuicer
+# memory.set_retriever(Pipeline(ops=[Router1Op(), Router2Op()]))
+# memory.set_retriever(Router1Op() >> Router2Op())
+# memory.set_summarizer(FlowSummarizer(AOp(top_k=5) >> BOP() >> COP()))
 
-### 模型
-xxx
+result = memory.summary(
+    desc="user(Alice) & AI的对话",
+    messages=[
+        {"role": "user", "content": "I'm travelling to SF"},
+        {"role": "assistant", "content": "That's great to hear!"}
+    ],
+    memory_type="auto", # auto, personal, procedural, tool
+    **kwargs
+)
 
-### hagging face建设
-1. 金融？
-2. bfcl/appworld
+memories = memory.retrieve(
+    query="what is your travel plan?",
+    limit=3,
+    memory_type="auto", # auto, personal, procedural, tool
+    **kwargs,
+)
+memories_str = "\n".join(f"- {m['memory']}" for m in memories["results"])
+print(memories_str)
+```
 
 
+## Short Term Memory Basic Usage
+```python
+import os
+from reme_ai import ReMe
+
+os.environ["REME_LLM_API_KEY"] = "sk-..."
+os.environ["REME_LLM_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+os.environ["REME_EMBEDDING_API_KEY"] = "sk-..."
+os.environ["REME_EMBEDDING_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+memory = ReMe(
+    memory_space="remy",  # workspace
+    llm={"backend": "openai", "model": "qwen-plus", "temperature": 0.6, },
+    embedding={"backend": "openai", "model": "text-embedding-v4", "dimension": 1024},
+    vector_store={"backend": "local_file"},   # 支持的其他vector_store包括xxxx
+)
+
+result = memory.offload(
+    messages=[
+        {"role": "user", "content": "I'm travelling to SF"},
+        {"role": "assistant", "content": "That's great to hear!"}
+    ],
+    **kwargs
+)
+
+memories = memory.reload(
+    query="what is your travel plan?",
+    limit=3,
+    **kwargs
+)
+memories_str = "\n".join(f"- {m['memory']}" for m in memories["results"])
+print(memories_str)
+```
+
+
+## Short Term Memory with ReactAgent
+集成agentscope langchain
+
+## Long Term Memory with ReactAgent
+集成agentscope langchain
