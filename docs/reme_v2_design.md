@@ -686,40 +686,6 @@ FileMemoryOp(tools=[
    - Dynamically updates self-state based on retrieved identity
    - Enables adaptive behavior based on accumulated identity knowledge
 
-**示例流程：**
-
-```python
-# Summary Agent: Proactive context modification
-ReMeSummaryAgentV1Op.execute():
-    meta_memories = add_meta_memory([("personal", "jinli"), ("procedural", "appworld")])
-    self.update_context(meta_memories)  # Directly modify available memory targets
-
-# ReMy Agent: Reactive context modification
-ReMyAgentV1Op.execute():
-    identity = read_identity_memory()
-    self.update_self_state(identity)    # Update agent's understanding of itself
-    memories = vector_retrieve_memory(query)
-```
-
-### 5.7 领域应用与基准测试
-
-计划在特定领域和基准测试中验证ReMeV2的能力。
-
-**目标场景：**
-
-1. **金融领域（Finance）**：
-   - Personal financial history tracking
-   - Procedural knowledge for financial analysis
-   - Tool usage patterns for financial tools
-
-2. **函数调用基准（BFCL）**：
-   - Tool usage memory across function calls
-   - Procedural knowledge for API interaction patterns
-
-3. **应用交互基准（AppWorld）**：
-   - Complex multi-step task procedural memory
-   - Personal preference learning in app interactions
-
 ## ReMe V2 开发路线图与实施计划
 
 ### 技术改造阶段
