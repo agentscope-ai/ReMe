@@ -203,7 +203,7 @@ class AgenticRetrieveOp(BaseAsyncToolOp):
 
         # Extract context management parameters from input, excluding messages
         # These will be passed to the context management pipeline
-        context_kwargs = self.input_dict.copy()
+        context_kwargs = self.context.copy()
         context_kwargs.pop("messages", None)
 
         # Main ReAct loop: iterate up to max_steps times

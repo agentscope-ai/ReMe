@@ -1,0 +1,16 @@
+tool: |
+  Read the memory metadata for the agent.
+  Use this tool to retrieve memory type and target information from file storage.
+
+type_identity: |
+  Self-cognition memory storing agent's identity, personality, and current state.
+
+type_personal: |
+  Person-specific memory storing preferences and context about specific individuals.
+
+type_procedural: |
+  Procedural memory storing how-to knowledge and step-by-step processes.
+
+type_tool: |
+  Tool memory storing tool usage patterns, success rates, token consumption, and latency.
+

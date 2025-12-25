@@ -1,0 +1,15 @@
+tool: |
+  Read a history memory from the vector store using its unique ID.
+  Use this tool to retrieve the full content of a specific history memory
+  when you already know its ID from previous retrieval results.
+
+tool_multiple: |
+  Read multiple history memory from the vector store using their unique IDs.
+  Use this tool to retrieve the full content of specific history memory
+  when you already know their IDs from previous retrieval results.
+
+memory_id: |
+  The unique identifier (memory_id) of the history memory to read.
+
+memory_ids: |
+  A list of unique identifiers (memory_ids) of the history memory to read.

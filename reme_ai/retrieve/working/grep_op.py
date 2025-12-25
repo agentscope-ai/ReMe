@@ -56,9 +56,9 @@ class GrepOp(BaseAsyncToolOp):
 
     async def async_execute(self):
         """Execute the grep search operation."""
-        pattern: str = self.input_dict.get("pattern", "").strip()
-        file_path: str | None | Path = self.input_dict.get("file_path", "")
-        limit: int = int(self.input_dict.get("limit", 50))
+        pattern: str = self.context.get("pattern", "").strip()
+        file_path: str | None | Path = self.context.get("file_path", "")
+        limit: int = int(self.context.get("limit", 50))
 
         assert pattern, "The 'pattern' parameter cannot be empty."
         assert file_path, "The 'file_path' parameter is required."
@@ -88,7 +88,7 @@ class GrepOp(BaseAsyncToolOp):
 
     async def async_default_execute(self, e: Exception = None, **_kwargs):
         """Fill outputs with a default failure message when execution fails."""
-        pattern: str = self.input_dict.get("pattern", "").strip()
+        pattern: str = self.context.get("pattern", "").strip()
         error_msg = f'Failed to search for pattern "{pattern}"'
         if e:
             error_msg += f": {str(e)}"

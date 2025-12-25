@@ -49,8 +49,8 @@ class WriteFileOp(BaseAsyncToolOp):
 
     async def async_execute(self):
         """Execute the write file operation."""
-        file_path: str = self.input_dict.get("file_path", "").strip()
-        content: str = self.input_dict.get("content", "")
+        file_path: str = self.context.get("file_path", "").strip()
+        content: str = self.context.get("content", "")
 
         # Validate file_path
         if not file_path:
@@ -82,7 +82,7 @@ class WriteFileOp(BaseAsyncToolOp):
 
     async def async_default_execute(self, e: Exception = None, **_kwargs):
         """Fill outputs with a default failure message when execution fails."""
-        file_path: str = self.input_dict.get("file_path", "").strip()
+        file_path: str = self.context.get("file_path", "").strip()
         error_msg = f'Failed to write file "{file_path}"'
         if e:
             error_msg += f": {str(e)}"

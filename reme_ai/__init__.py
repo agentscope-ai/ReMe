@@ -28,6 +28,7 @@ __all__ = [
     "summary",
     "utils",
     "vector_store",
+    "ReMeApp",
 ]
 
 __version__ = "0.2.0.4"

@@ -1,0 +1,94 @@
+from typing import List, Dict
+
+from flowllm.core.op import BaseAsyncToolOp
+
+from ..base_memory_agent_op import BaseMemoryAgentOp
+from ... import C
+from ... import utils
+from ...enumeration import Role, MemoryType
+from ...schema import Message, ToolCall
+
+
+@C.register_op()
+class ProceduralSummaryAgentV1Op(BaseMemoryAgentOp):
+    """Agent for extracting and storing procedural memories.
+
+    This agent analyzes conversation context to extract procedural knowledge
+    such as workflows, step-by-step procedures, how-to guides, and best practices,
+    then stores them in the memory system.
+    """
+
+    memory_type: MemoryType = MemoryType.PROCEDURAL
+
+    def build_tool_call(self) -> ToolCall:
+        return ToolCall(
+            **{
+                "description": self.get_prompt("tool"),
+                "input_schema": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": "workspace_id",
+                        "required": True,
+                    },
+                    "memory_target": {
+                        "type": "string",
+                        "description": "memory_target",
+                        "required": True,
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "query",
+                        "required": False,
+                    },
+                    "messages": {
+                        "type": "array",
+                        "description": "messages",
+                        "required": False,
+                        "items": {"type": "object"},
+                    },
+                    "ref_memory_id": {
+                        "type": "string",
+                        "description": "ref_memory_id",
+                        "required": True,
+                    },
+                },
+            },
+        )
+
+    async def build_messages(self) -> List[Message]:
+        now_time: str = utils.get_now_time()
+        context: str = utils.format_messages(self.get_messages())
+
+        messages = [
+            Message(
+                role=Role.SYSTEM,
+                content=self.prompt_format(
+                    prompt_name="system_prompt",
+                    now_time=now_time,
+                    context=context,
+                    memory_type=self.memory_type.value,
+                    memory_target=self.memory_target,
+                ),
+            ),
+            Message(
+                role=Role.USER,
+                content=self.get_prompt("user_message"),
+            ),
+        ]
+        return messages
+
+    async def _acting_step(
+            self,
+            assistant_message: Message,
+            tool_op_dict: Dict[str, BaseAsyncToolOp],
+            step: int,
+            **kwargs,
+    ) -> List[Message]:
+        return await super()._acting_step(assistant_message,
+                                          tool_op_dict,
+                                          step,
+                                          workspace_id=self.workspace_id,
+                                          ref_memory_id=self.context["ref_memory_id"],
+                                          memory_target=self.memory_target,
+                                          memory_type=self.memory_type.value,
+                                          author=self.author)

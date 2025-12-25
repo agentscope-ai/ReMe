@@ -1,0 +1,14 @@
+tool: |
+  Add a summary memory to the vector store for future retrieval.
+  Use this tool to store a summarized version of the provided context.
+  The LLM should first summarize the context, then call this tool with the summarized content.
+
+summary_memory: |
+  The summarized content to store as memory.
+  Should be a clear, concise summary that captures the key information from the context.
+
+metadata: |
+  Optional metadata for the memory, including time or other important information. Can include:
+  - time: The timestamp or date associated with the memory.
+  - Any other custom key-value pairs relevant to the memory.
+
