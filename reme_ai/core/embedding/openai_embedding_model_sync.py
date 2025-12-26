@@ -62,7 +62,7 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
         # Create sync client instead of async client
         self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
-    def _get_embeddings_sync(self, input_text: str | List[str]) -> List[List[float]]:
+    def _get_embeddings_sync(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
         Get embeddings synchronously from the OpenAI-compatible API.
 
@@ -73,7 +73,8 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
             input_text: Single text string or list of text strings to embed
 
         Returns:
-            Embedding vector(s) corresponding to the input text(s)
+            Single embedding vector (List[float]) if input is str,
+            or list of embedding vectors (List[List[float]]) if input is List[str]
 
         Raises:
             RuntimeError: If unsupported input type is provided

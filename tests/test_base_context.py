@@ -1,10 +1,6 @@
 import pickle
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from reme_ai.core.context.base_context import BaseContext
+from reme_ai.core.context import BaseContext
 
 
 def test_attribute_access():

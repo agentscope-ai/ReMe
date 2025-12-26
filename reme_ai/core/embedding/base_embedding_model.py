@@ -7,7 +7,7 @@ with built-in retry logic, error handling, and batch processing support.
 
 import asyncio
 from abc import ABC
-from typing import List, Optional
+from typing import List
 
 from loguru import logger
 
@@ -58,7 +58,7 @@ class BaseEmbeddingModel(ABC):
         self.raise_exception: bool = raise_exception
         self.kwargs: dict = kwargs
 
-    async def _get_embeddings(self, input_text: str | List[str]) -> Optional[List[List[float]]]:
+    async def _get_embeddings(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
         Internal async method to get embeddings from the model.
 
@@ -69,14 +69,15 @@ class BaseEmbeddingModel(ABC):
             input_text: Single text string or list of text strings to embed
 
         Returns:
-            List of embedding vectors, or None on failure
+            Single embedding vector (List[float]) if input is str,
+            or list of embedding vectors (List[List[float]]) if input is List[str]
 
         Raises:
             Exception: Any exception raised by the underlying embedding API
         """
         raise NotImplementedError
 
-    def _get_embeddings_sync(self, input_text: str | List[str]) -> Optional[List[List[float]]]:
+    def _get_embeddings_sync(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
         Internal sync method to get embeddings from the model.
 
@@ -87,79 +88,155 @@ class BaseEmbeddingModel(ABC):
             input_text: Single text string or list of text strings to embed
 
         Returns:
-            List of embedding vectors, or None on failure
+            Single embedding vector (List[float]) if input is str,
+            or list of embedding vectors (List[List[float]]) if input is List[str]
 
         Raises:
             Exception: Any exception raised by the underlying embedding API
         """
         raise NotImplementedError
 
-    async def get_embeddings(self, input_text: str | List[str]) -> Optional[List[List[float]]]:
+    async def get_embeddings(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
         Async get embeddings with automatic retry logic and error handling.
 
         This method wraps _get_embeddings with retry logic. It will
         automatically retry on failures up to max_retries times.
+        For lists larger than max_batch_size, it automatically batches the requests.
 
         Args:
             input_text: Single text string or list of text strings to embed
 
         Returns:
-            List of embedding vectors, or None if all retries fail and
-            raise_exception is False
+            Single embedding vector (List[float]) if input is str,
+            list of embedding vectors (List[List[float]]) if input is List[str],
+            or empty list [] if all retries fail and raise_exception is False
 
         Raises:
             Exception: Any exception from the embedding API if raise_exception
                       is True and all retries are exhausted
         """
-        for i in range(self.max_retries):
-            try:
-                return await self._get_embeddings(input_text)
+        # Handle single string - no batching needed
+        if isinstance(input_text, str):
+            for i in range(self.max_retries):
+                try:
+                    return await self._get_embeddings(input_text)
 
-            except Exception as e:
-                logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
+                except Exception as e:
+                    logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
 
-                if i == self.max_retries - 1:
-                    if self.raise_exception:
-                        raise e
-                    return None
+                    if i == self.max_retries - 1:
+                        if self.raise_exception:
+                            raise e
+                        return []
 
-                # Exponential backoff between retries
-                await asyncio.sleep(i + 1)
+                    # Exponential backoff between retries
+                    await asyncio.sleep(i + 1)
 
-        return None
+            return []
+        
+        # Handle list - batch if necessary
+        elif isinstance(input_text, list):
+            # If list is within max_batch_size, process directly
+            if len(input_text) <= self.max_batch_size:
+                for i in range(self.max_retries):
+                    try:
+                        return await self._get_embeddings(input_text)
 
-    def get_embeddings_sync(self, input_text: str | List[str]) -> Optional[List[List[float]]]:
+                    except Exception as e:
+                        logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
+
+                        if i == self.max_retries - 1:
+                            if self.raise_exception:
+                                raise e
+                            return []
+
+                        # Exponential backoff between retries
+                        await asyncio.sleep(i + 1)
+
+                return []
+            
+            # If list exceeds max_batch_size, batch the requests sequentially
+            else:
+                embeddings = []
+                for i in range(0, len(input_text), self.max_batch_size):
+                    batch = input_text[i: i + self.max_batch_size]
+                    batch_embeddings = await self.get_embeddings(batch)
+                    if batch_embeddings:
+                        embeddings.extend(batch_embeddings)
+                
+                return embeddings
+        
+        else:
+            raise TypeError(f"unsupported type={type(input_text)}")
+
+    def get_embeddings_sync(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
         Get embeddings with automatic retry logic and error handling.
 
         This method wraps _get_embeddings_sync with retry logic. It will
         automatically retry on failures up to max_retries times.
+        For lists larger than max_batch_size, it automatically batches the requests.
 
         Args:
             input_text: Single text string or list of text strings to embed
 
         Returns:
-            List of embedding vectors, or None if all retries fail and
-            raise_exception is False
+            Single embedding vector (List[float]) if input is str,
+            list of embedding vectors (List[List[float]]) if input is List[str],
+            or empty list [] if all retries fail and raise_exception is False
 
         Raises:
             Exception: Any exception from the embedding API if raise_exception
                       is True and all retries are exhausted
         """
-        for i in range(self.max_retries):
-            try:
-                return self._get_embeddings_sync(input_text)
+        # Handle single string - no batching needed
+        if isinstance(input_text, str):
+            for i in range(self.max_retries):
+                try:
+                    return self._get_embeddings_sync(input_text)
 
-            except Exception as e:
-                logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
+                except Exception as e:
+                    logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
+                    
+                    if i == self.max_retries - 1:
+                        if self.raise_exception:
+                            raise e
+                        return []
+
+            return []
+        
+        # Handle list - batch if necessary
+        elif isinstance(input_text, list):
+            # If list is within max_batch_size, process directly
+            if len(input_text) <= self.max_batch_size:
+                for i in range(self.max_retries):
+                    try:
+                        return self._get_embeddings_sync(input_text)
+
+                    except Exception as e:
+                        logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
+                        
+                        if i == self.max_retries - 1:
+                            if self.raise_exception:
+                                raise e
+                            return []
+
+                return []
+            
+            # If list exceeds max_batch_size, batch the requests sequentially
+            else:
+                embeddings = []
+                for i in range(0, len(input_text), self.max_batch_size):
+                    batch = input_text[i: i + self.max_batch_size]
+                    batch_embeddings = self.get_embeddings_sync(batch)
+                    if batch_embeddings:
+                        embeddings.extend(batch_embeddings)
                 
-                if i == self.max_retries - 1:
-                    if self.raise_exception:
-                        raise e
-                    return None
-
-        return None
+                return embeddings
+        
+        else:
+            raise TypeError(f"unsupported type={type(input_text)}")
 
     async def get_node_embeddings(self, nodes: VectorNode | List[VectorNode]) -> VectorNode | List[VectorNode]:
         """
@@ -185,21 +262,14 @@ class BaseEmbeddingModel(ABC):
             return nodes
 
         elif isinstance(nodes, list):
-            # Create batch tasks for concurrent processing
-            batch_tasks = []
+            # Process nodes in batches sequentially
+            embeddings = []
             for i in range(0, len(nodes), self.max_batch_size):
                 batch_nodes = nodes[i: i + self.max_batch_size]
                 batch_content = [node.content for node in batch_nodes]
-                batch_tasks.append(self.get_embeddings(batch_content))
-
-            # Execute all batch tasks concurrently
-            batch_results = await asyncio.gather(*batch_tasks)
-
-            # Flatten the results into a single list
-            embeddings = []
-            for batch_result in batch_results:
-                if batch_result:
-                    embeddings.extend(batch_result)
+                batch_embeddings = await self.get_embeddings(batch_content)
+                if batch_embeddings:
+                    embeddings.extend(batch_embeddings)
 
             # Validate that we got the expected number of embeddings
             if len(embeddings) != len(nodes):

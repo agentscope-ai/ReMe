@@ -42,6 +42,7 @@ class LiteLLM(BaseLLM):
     Attributes:
         api_key: API key for the LLM provider
         base_url: Optional base URL for custom API endpoints
+        custom_llm_provider: LLM provider to use (default: "openai")
     
     Example:
         >>> llm = LiteLLM(
@@ -62,6 +63,7 @@ class LiteLLM(BaseLLM):
         self,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        custom_llm_provider: str = "openai",
         **kwargs
     ):
         """
@@ -71,6 +73,8 @@ class LiteLLM(BaseLLM):
             api_key: API key for the provider. If None, reads from REME_LLM_API_KEY env var
                     or provider-specific env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
             base_url: Base URL for API endpoint. If None, reads from REME_LLM_BASE_URL env var
+            custom_llm_provider: LLM provider to use (default: "openai"). Supported values include
+                                "openai", "anthropic", "azure", "bedrock", "vertex_ai", etc.
             **kwargs: Additional arguments passed to BaseLLM, including:
                 - model_name: Name of the model to use (required). Can include provider prefix
                              like "anthropic/claude-3-opus-20240229" or "azure/gpt-4"
@@ -84,6 +88,7 @@ class LiteLLM(BaseLLM):
         super().__init__(**kwargs)
         self.api_key: Optional[str] = api_key or os.getenv("REME_LLM_API_KEY")
         self.base_url: Optional[str] = base_url or os.getenv("REME_LLM_BASE_URL")
+        self.custom_llm_provider: str = custom_llm_provider
     
     def _build_stream_kwargs(
         self,
@@ -114,6 +119,7 @@ class LiteLLM(BaseLLM):
             "messages": [x.simple_dump() for x in messages],
             "tools": [x.simple_input_dump() for x in tools] if tools else None,
             "stream": True,
+            "custom_llm_provider": self.custom_llm_provider,
             **self.kwargs,
             **kwargs,
         }
@@ -211,13 +217,4 @@ class LiteLLM(BaseLLM):
         for tool_data in self._validate_and_serialize_tools(ret_tools, tools):
             yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool_data)
 
-    async def close(self):
-        """
-        Asynchronously close the LiteLLM client and release resources.
-        
-        Note: LiteLLM uses a stateless function-based API, so there's no
-        persistent client connection to close. This method is provided for
-        API consistency with other LLM implementations.
-        """
-        pass
 

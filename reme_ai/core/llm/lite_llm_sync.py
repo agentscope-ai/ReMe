@@ -113,13 +113,4 @@ class LiteLLMSync(LiteLLM):
         for tool_data in self._validate_and_serialize_tools(ret_tools, tools):
             yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool_data)
 
-    def close_sync(self):
-        """
-        Close the LiteLLM client and release resources.
-        
-        Note: LiteLLM uses a stateless function-based API, so there's no
-        persistent client connection to close. This method is provided for
-        API consistency with other LLM implementations.
-        """
-        pass
 
