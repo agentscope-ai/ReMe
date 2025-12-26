@@ -111,7 +111,7 @@ class LiteLLM(BaseLLM):
             **kwargs: Additional parameters to pass to the API (e.g., temperature, max_tokens)
         
         Returns:
-            Dictionary of parameters ready for LiteLLM API call
+            Dictionary of parameters for LiteLLM API call
         """
         # Construct the API parameters by merging multiple sources
         llm_kwargs = {

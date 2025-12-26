@@ -5,7 +5,7 @@ interface. It supports dense vector storage and retrieval using Qdrant's high-pe
 kNN search capabilities with native async operations.
 """
 
-from typing import Any, Dict, List, Union
+from typing import List
 
 from loguru import logger
 
@@ -32,7 +32,10 @@ from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 from .base_vector_store import BaseVectorStore
 
+from ..context import C
 
+
+@C.register_vector_store("qdrant")
 class QdrantVectorStore(BaseVectorStore):
     """Qdrant-based vector store implementation.
     

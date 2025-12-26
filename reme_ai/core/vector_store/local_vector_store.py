@@ -5,17 +5,18 @@ interface. It stores vectors as JSON files and manually calculates cosine simila
 """
 
 import json
-import os
 from pathlib import Path
 from typing import List
 
 from loguru import logger
 
+from .base_vector_store import BaseVectorStore
+from ..context import C
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
-from .base_vector_store import BaseVectorStore
 
 
+@C.register_vector_store("local")
 class LocalVectorStore(BaseVectorStore):
     """Local file system-based vector store implementation.
     

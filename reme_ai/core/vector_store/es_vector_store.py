@@ -19,11 +19,14 @@ except ImportError as e:
     AsyncElasticsearch = None
     async_bulk = None
 
+
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 from .base_vector_store import BaseVectorStore
+from ..context import C
 
 
+@C.register_vector_store("es")
 class ESVectorStore(BaseVectorStore):
     """Elasticsearch-based vector store implementation.
     
