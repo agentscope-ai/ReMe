@@ -1,16 +1,18 @@
-"""LiteLLM implementation for ReMe.
+"""LiteLLM async implementation for ReMe.
 
-This module provides a LiteLLM-based LLM implementation that supports
+This module provides an async LiteLLM-based LLM implementation that supports
 streaming chat completions, tool calling, and reasoning content. LiteLLM
 provides a unified interface to 100+ LLM providers including OpenAI,
 Anthropic, Azure, Bedrock, Vertex AI, and more.
+
+For synchronous operations, use LiteLLMSync from lite_llm_sync module.
 """
 
 import os
-from typing import List, Dict, Generator, AsyncGenerator, Optional
+from typing import List, AsyncGenerator, Optional
 
-from loguru import logger
 import litellm
+from loguru import logger
 
 from .base_llm import BaseLLM
 from ..context import C
@@ -23,15 +25,16 @@ from ..schema import ToolCall
 @C.register_llm("litellm")
 class LiteLLM(BaseLLM):
     """
-    LiteLLM-based LLM implementation.
+    LiteLLM-based async LLM implementation.
     
-    This class provides integration with LiteLLM, which offers a unified
+    This class provides async integration with LiteLLM, which offers a unified
     interface to 100+ LLM providers. It supports:
-    - Streaming and non-streaming chat completions
+    - Async streaming and non-streaming chat completions
     - Tool/function calling
     - Reasoning content extraction (for models that support thinking)
-    - Both synchronous and asynchronous operations
     - Multiple providers (OpenAI, Anthropic, Azure, Bedrock, etc.)
+    
+    For synchronous operations, use LiteLLMSync from lite_llm_sync module.
     
     The API key and base URL can be provided either as constructor arguments
     or through environment variables (REME_LLM_API_KEY and REME_LLM_BASE_URL).
@@ -47,7 +50,7 @@ class LiteLLM(BaseLLM):
         ...     temperature=0.7
         ... )
         >>> messages = [Message(role=Role.USER, content="Hello!")]
-        >>> response = llm.chat(messages)
+        >>> response = await llm.achat(messages)
         
         # Using different providers
         >>> llm = LiteLLM(model_name="anthropic/claude-3-opus-20240229")
@@ -79,11 +82,9 @@ class LiteLLM(BaseLLM):
                 - And other LiteLLM API parameters
         """
         super().__init__(**kwargs)
-        
-        # Initialize API credentials from arguments or environment variables
         self.api_key: Optional[str] = api_key or os.getenv("REME_LLM_API_KEY")
         self.base_url: Optional[str] = base_url or os.getenv("REME_LLM_BASE_URL")
-
+    
     def _build_stream_kwargs(
         self,
         messages: List[Message],
@@ -138,104 +139,7 @@ class LiteLLM(BaseLLM):
         
         return llm_kwargs
 
-    def _stream_chat(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None
-    ) -> Generator[StreamChunk, None, None]:
-        """
-        Internal method to stream chat completions from LiteLLM API.
-        
-        This method creates a streaming chat completion request using LiteLLM
-        and processes the response chunks. It handles three types of content:
-        1. Reasoning content (for models that support thinking)
-        2. Regular text responses
-        3. Tool/function calls
-        
-        The method accumulates tool call information across multiple chunks since
-        LiteLLM streams tool calls in fragments (id, name, arguments separately).
-        
-        Args:
-            messages: List of conversation messages to send to the model
-            tools: Optional list of tool definitions available for the model to call
-            stream_kwargs: Dictionary of additional parameters for the LiteLLM API (already built by caller)
-        
-        Yields:
-            StreamChunk objects with different chunk types:
-            - USAGE: Token usage information
-            - THINK: Reasoning/thinking content (for supported models)
-            - ANSWER: Regular text response content
-            - TOOL: Complete tool call information
-        
-        Raises:
-            ValueError: If a tool call has invalid arguments
-        """
-        # Create streaming completion request using LiteLLM
-        stream_kwargs = stream_kwargs or {}
-        completion = litellm.completion(**stream_kwargs)
-
-        # Track accumulated tool calls across chunks
-        ret_tools: List[ToolCall] = []
-        # Flag to track if we've started receiving answer content
-        is_answering: bool = False
-
-        for chunk in completion:
-            # Handle usage information (typically the last chunk)
-            if not chunk.choices:
-                if hasattr(chunk, "usage") and chunk.usage:
-                    yield StreamChunk(chunk_type=ChunkEnum.USAGE, chunk=chunk.usage.model_dump())
-
-            else:
-                delta = chunk.choices[0].delta
-
-                # Check for reasoning content (models that support thinking)
-                if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
-                    yield StreamChunk(chunk_type=ChunkEnum.THINK, chunk=delta.reasoning_content)
-
-                else:
-                    if not is_answering:
-                        is_answering = True
-
-                    # Yield regular text content
-                    if delta.content is not None:
-                        yield StreamChunk(chunk_type=ChunkEnum.ANSWER, chunk=delta.content)
-
-                    # Process tool calls - LiteLLM streams them incrementally
-                    if hasattr(delta, "tool_calls") and delta.tool_calls is not None:
-                        for tool_call in delta.tool_calls:
-                            index = tool_call.index
-
-                            # Ensure we have a ToolCall object at this index
-                            while len(ret_tools) <= index:
-                                ret_tools.append(ToolCall(index=index))
-
-                            # Accumulate tool call parts (id, name, arguments)
-                            if tool_call.id:
-                                ret_tools[index].id += tool_call.id
-
-                            if tool_call.function and tool_call.function.name:
-                                ret_tools[index].name += tool_call.function.name
-
-                            if tool_call.function and tool_call.function.arguments:
-                                ret_tools[index].arguments += tool_call.function.arguments
-
-        # After streaming completes, validate and yield complete tool calls
-        if ret_tools:
-            # Create lookup dict for tool validation
-            tool_dict: Dict[str, ToolCall] = {x.name: x for x in tools} if tools else {}
-            for tool in ret_tools:
-                # Skip tools that weren't in the provided tool list
-                if tool.name not in tool_dict:
-                    continue
-
-                # Validate tool arguments are valid JSON
-                if not tool.check_argument():
-                    raise ValueError(f"Tool call {tool.name} argument={tool.arguments} are invalid")
-
-                yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool.simple_output_dump())
-
-    async def _astream_chat(
+    async def _stream_chat(
         self,
         messages: List[Message],
         tools: Optional[List[ToolCall]] = None,
@@ -244,9 +148,8 @@ class LiteLLM(BaseLLM):
         """
         Internal async method to stream chat completions from LiteLLM API.
         
-        This is the asynchronous version of _stream_chat. It creates a streaming
-        chat completion request using LiteLLM and processes the response chunks
-        asynchronously. It handles the same three types of content as _stream_chat:
+        This method creates a streaming chat completion request using LiteLLM 
+        and processes the response chunks asynchronously. It handles three types of content:
         1. Reasoning content (for models that support thinking)
         2. Regular text responses
         3. Tool/function calls
@@ -302,34 +205,19 @@ class LiteLLM(BaseLLM):
                     # Process tool calls - LiteLLM streams them incrementally
                     if hasattr(delta, "tool_calls") and delta.tool_calls is not None:
                         for tool_call in delta.tool_calls:
-                            index = tool_call.index
-
-                            # Ensure we have a ToolCall object at this index
-                            while len(ret_tools) <= index:
-                                ret_tools.append(ToolCall(index=index))
-
-                            # Accumulate tool call parts (id, name, arguments)
-                            if tool_call.id:
-                                ret_tools[index].id += tool_call.id
-
-                            if tool_call.function and tool_call.function.name:
-                                ret_tools[index].name += tool_call.function.name
-
-                            if tool_call.function and tool_call.function.arguments:
-                                ret_tools[index].arguments += tool_call.function.arguments
+                            self._accumulate_tool_call_chunk(tool_call, ret_tools)
 
         # After streaming completes, validate and yield complete tool calls
-        if ret_tools:
-            # Create lookup dict for tool validation
-            tool_dict: Dict[str, ToolCall] = {x.name: x for x in tools} if tools else {}
-            for tool in ret_tools:
-                # Skip tools that weren't in the provided tool list
-                if tool.name not in tool_dict:
-                    continue
+        for tool_data in self._validate_and_serialize_tools(ret_tools, tools):
+            yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool_data)
 
-                # Validate tool arguments are valid JSON
-                if not tool.check_argument():
-                    raise ValueError(f"Tool call {tool.name} argument={tool.arguments} are invalid")
-
-                yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool.simple_output_dump())
+    async def close(self):
+        """
+        Asynchronously close the LiteLLM client and release resources.
+        
+        Note: LiteLLM uses a stateless function-based API, so there's no
+        persistent client connection to close. This method is provided for
+        API consistency with other LLM implementations.
+        """
+        pass
 
