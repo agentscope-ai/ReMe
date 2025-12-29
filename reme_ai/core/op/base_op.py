@@ -35,6 +35,7 @@ class BaseOp(ABC):
                  vector_store: str = "default",
                  token_counter: str = "default",
                  enable_cache: bool = False,
+                 cache_path: str = "cache/op",
                  sub_ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None] = None,
                  input_mapping: Dict[str, str] | None = None,
                  output_mapping: Dict[str, str] | None = None,
@@ -55,6 +56,7 @@ class BaseOp(ABC):
         self._vector_store: BaseVectorStore | str = vector_store
         self._token_counter: BaseTokenCounter | str = token_counter
         self.enable_cache: bool = enable_cache
+        self.cache_path: str = cache_path
         self.sub_ops: BaseContext[str, "BaseOp"] = BaseContext[str, BaseOp]()
         self.add_sub_ops(sub_ops)
         self.input_mapping: Dict[str, str] | None = input_mapping
@@ -82,24 +84,7 @@ class BaseOp(ABC):
         file_path = file_path.with_suffix(".yaml")
         return PromptHandler(language=self.language).load_prompt_by_file(file_path)
 
-    def add_sub_op(self, op: "BaseOp", name: str = ""):
-        assert self.async_mode == op.async_mode, "async mode mismatch!"
-        self.sub_ops[name or op.name] = op
-
-    def add_sub_ops(self, sub_ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None]):
-        if sub_ops:
-            if isinstance(sub_ops, BaseOp):
-                self.add_sub_op(sub_ops)
-
-            elif isinstance(sub_ops, dict):
-                for name, op in sub_ops.items():
-                    self.add_sub_op(op, name)
-
-            elif isinstance(sub_ops, list):
-                for op in sub_ops:
-                    self.add_sub_op(op, op.name)
-
-    def _build_tool_call(self) -> ToolCall | None:
+    def _build_tool_call(self) -> ToolCall:
         """Build and return the tool call schema for this operator.
 
         Example:
@@ -121,12 +106,11 @@ class BaseOp(ABC):
         """
 
     @property
-    def tool_call(self) -> ToolCall | None:
+    def tool_call(self) -> ToolCall:
         """Return the lazily constructed `ToolCall` describing this tool."""
         if self._tool_call is None:
             self._tool_call = self._build_tool_call()
-            if self._tool_call is None:
-                return None
+            assert self._tool_call is not None, "tool_call is not defined!"
 
             if not self._tool_call.name:
                 self._tool_call.name = self.name
@@ -140,6 +124,18 @@ class BaseOp(ABC):
                 }
 
         return self._tool_call
+
+    @property
+    def input_dict(self) -> dict:
+        assert self.tool_call, "tool_call is not defined!"
+        input_dict = {}
+        for name, attr in self.tool_call.input_schema.items():
+            if attr.required:
+                assert name in self.context, f"{name} is required!"
+                input_dict[name] = self.context[name]
+            elif name in self.context:
+                input_dict[name] = self.context[name]
+        return input_dict
 
     @property
     def output(self):
@@ -159,8 +155,58 @@ class BaseOp(ABC):
     def cache(self):
         assert self.enable_cache, "cache is disabled!"
         if self._cache is None:
-            self._cache = CacheHandler(f"cache/op/{self.name}")
+            self._cache = CacheHandler(f"{self.cache_path}/{self.name}")
         return self._cache
+
+    @property
+    def llm(self) -> BaseLLM:
+        if isinstance(self._llm, str):
+            self.llm_config = C.service_config.llm[self._llm]
+            llm_cls = C.get_llm_class(self.llm_config.backend)
+            self._llm = llm_cls(model_name=self.llm_config.model_name, **self.llm_config.model_extra)
+
+        return self._llm
+
+    @property
+    def embedding_model(self) -> BaseEmbeddingModel:
+        if isinstance(self._embedding_model, str):
+            self.embedding_model_config = C.service_config.embedding_model[self._embedding_model]
+            embedding_model_cls = C.get_embedding_model_class(self.embedding_model_config.backend)
+            self._embedding_model = embedding_model_cls(model_name=self.embedding_model_config.model_name,
+                                                        **self.embedding_model_config.model_extra)
+
+        return self._embedding_model
+
+    @property
+    def vector_store(self) -> BaseVectorStore:
+        if isinstance(self._vector_store, str):
+            self.vector_store_config = C.service_config.vector_store[self._vector_store]
+            vector_store_cls = C.get_vector_store_class(self.vector_store_config.backend)
+            self._vector_store = vector_store_cls(collection_name=self.vector_store_config.collection_name,
+                                                  embedding_model=self.embedding_model,
+                                                  **self.vector_store_config.model_extra)
+        return self._vector_store
+
+    @property
+    def token_counter(self) -> BaseTokenCounter:
+        if isinstance(self._token_counter, str):
+            self.token_counter_config = C.service_config.token_counter[self._token_counter]
+            token_counter_cls = C.get_token_counter_class(self.token_counter_config.backend)
+            self._token_counter = token_counter_cls(model_name=self.token_counter_config.model_name,
+                                                    **self.token_counter_config.model_extra)
+        return self._token_counter
+
+    @property
+    def service_metadata(self) -> dict:
+        return C.service_config.model_extra
+
+    @staticmethod
+    def build_context(context: RuntimeContext | None = None, **kwargs) -> RuntimeContext:
+        if not context:
+            context = RuntimeContext()
+        if kwargs:
+            context.update(kwargs)
+        return context
 
     def before_execute(self):
         if self.input_mapping:
@@ -191,14 +237,6 @@ class BaseOp(ABC):
 
     async def execute(self):
         """all data should flow through context rather than return values"""
-
-    @staticmethod
-    def build_context(context: RuntimeContext | None = None, **kwargs) -> RuntimeContext:
-        if not context:
-            context = RuntimeContext()
-        if kwargs:
-            context.update(kwargs)
-        return context
 
     def call_sync(self, context: RuntimeContext = None, **kwargs):
         self.context = self.build_context(context, **kwargs)
@@ -322,6 +360,36 @@ class BaseOp(ABC):
 
         return result
 
+    def copy(self, **kwargs):
+        copy_op = self.__class__(*self._init_args, **self._init_kwargs, **kwargs)
+        if self.sub_ops:
+            copy_op.sub_ops.clear()
+            copy_op.add_sub_ops(self.sub_ops)
+        return copy_op
+
+    def add_sub_op(self, op: "BaseOp", name: str = ""):
+        assert self.async_mode == op.async_mode, "async mode mismatch!"
+        self.sub_ops[name or op.name] = op
+
+    def add_sub_ops(self, sub_ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None]):
+        if sub_ops:
+            if isinstance(sub_ops, BaseOp):
+                self.add_sub_op(sub_ops)
+
+            elif isinstance(sub_ops, dict):
+                for name, op in sub_ops.items():
+                    self.add_sub_op(op, name)
+
+            elif isinstance(sub_ops, list):
+                for op in sub_ops:
+                    self.add_sub_op(op, op.name)
+
+    def prompt_format(self, prompt_name: str, **kwargs) -> str:
+        return self.prompt.prompt_format(prompt_name=prompt_name, **kwargs)
+
+    def get_prompt(self, prompt_name: str) -> str:
+        return self.prompt.get_prompt(prompt_name=prompt_name)
+
     def __lshift__(self, ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None]):
         self.add_sub_ops(ops)
         return self
@@ -345,58 +413,3 @@ class BaseOp(ABC):
         else:
             parallel_op.add_sub_op(op)
         return parallel_op
-
-    def copy(self, **kwargs):
-        copy_op = self.__class__(*self._init_args, **self._init_kwargs, **kwargs)
-        if self.sub_ops:
-            copy_op.sub_ops.clear()
-            copy_op.add_sub_ops(self.sub_ops)
-        return copy_op
-
-    @property
-    def llm(self) -> BaseLLM:
-        if isinstance(self._llm, str):
-            self.llm_config = C.service_config.llm[self._llm]
-            llm_cls = C.get_llm_class(self.llm_config.backend)
-            self._llm = llm_cls(model_name=self.llm_config.model_name, **self.llm_config.model_extra)
-
-        return self._llm
-
-    @property
-    def embedding_model(self) -> BaseEmbeddingModel:
-        if isinstance(self._embedding_model, str):
-            self.embedding_model_config = C.service_config.embedding_model[self._embedding_model]
-            embedding_model_cls = C.get_embedding_model_class(self.embedding_model_config.backend)
-            self._embedding_model = embedding_model_cls(model_name=self.embedding_model_config.model_name,
-                                                        **self.embedding_model_config.model_extra)
-
-        return self._embedding_model
-
-    @property
-    def vector_store(self) -> BaseVectorStore:
-        if isinstance(self._vector_store, str):
-            self.vector_store_config = C.service_config.vector_store[self._vector_store]
-            vector_store_cls = C.get_vector_store_class(self.vector_store_config.backend)
-            self._vector_store = vector_store_cls(collection_name=self.vector_store_config.collection_name,
-                                                  embedding_model=self.embedding_model,
-                                                  **self.vector_store_config.model_extra)
-        return self._vector_store
-
-    @property
-    def token_counter(self) -> BaseTokenCounter:
-        if isinstance(self._token_counter, str):
-            self.token_counter_config = C.service_config.token_counter[self._token_counter]
-            token_counter_cls = C.get_token_counter_class(self.token_counter_config.backend)
-            self._token_counter = token_counter_cls(model_name=self.token_counter_config.model_name,
-                                                    **self.token_counter_config.model_extra)
-        return self._token_counter
-
-    @property
-    def service_metadata(self) -> dict:
-        return C.service_config.model_extra
-
-    def prompt_format(self, prompt_name: str, **kwargs) -> str:
-        return self.prompt.prompt_format(prompt_name=prompt_name, **kwargs)
-
-    def get_prompt(self, prompt_name: str) -> str:
-        return self.prompt.get_prompt(prompt_name=prompt_name)

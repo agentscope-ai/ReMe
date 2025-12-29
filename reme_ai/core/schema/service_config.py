@@ -33,6 +33,7 @@ class FlowConfig(ToolCall):
 
     flow_content: str = Field(default="")
     stream: bool = Field(default=False)
+    raise_exception: bool = Field(default=True)
     enable_cache: bool = Field(default=False)
     cache_path: str = Field(default="cache/flow")
     cache_expire_hours: float = Field(default=0.1)
