@@ -1,5 +1,3 @@
-"""FlowLLM application core module for managing flows, services, and configurations."""
-
 import asyncio
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -7,27 +5,14 @@ from concurrent.futures import ThreadPoolExecutor
 from loguru import logger
 
 from .context import C
-from .enumeration import RegistryEnum
-from .flow import BaseFlow, ExpressionToolFlow
-from .schema import ServiceConfig, EmbeddingModelConfig, FlowStreamChunk
+from .enumeration import ChunkEnum, RegistryEnum
+from .flow import BaseFlow, ExpressionFlow
+from .schema import ServiceConfig, StreamChunk, EmbeddingModelConfig
 from .service import BaseService
 from .utils import FastMcpClient, PydanticConfigParser, init_logger, print_logo
 
 
 class Application:
-    """
-    Base application class for FlowLLM framework.
-
-    This is a generic, configurable base class that can be inherited to create
-    custom application implementations. It manages the lifecycle of FlowLLM
-    applications including configuration, service initialization, flow execution,
-    and resource management. Supports both synchronous and asynchronous operation modes.
-
-    This class can be used directly with custom parsers and configurations, or
-    can be subclassed (e.g., FlowLLMApp) to provide default configurations
-    and convenience methods for specific use cases.
-    """
-
     def __init__(
         self,
         *args,
@@ -42,19 +27,18 @@ class Application:
         **kwargs,
     ):
         """
-        Initialize FlowLLM application with configuration.
+        Initialize application with configuration.
 
         Args:
             *args: Additional arguments passed to parser. Examples:
                 - "llm.default.model_name=qwen3-30b-a3b-thinking-2507"
                 - "llm.default.backend=openai_compatible"
-                - "llm.default.params={'temperature': '0.6'}"
+                - "llm.default.temperature=0.6"
                 - "embedding_model.default.model_name=text-embedding-v4"
                 - "embedding_model.default.backend=openai_compatible"
-                - "embedding_model.default.params={'dimensions': 1024}"
+                - "embedding_model.default.dimensions=1024"
                 - "vector_store.default.backend=memory"
                 - "vector_store.default.embedding_model=default"
-                - "vector_store.default.params={...}"
             llm_api_key: API key for LLM service
             llm_api_base: Base URL for LLM API
             embedding_api_key: API key for embedding service
@@ -69,18 +53,17 @@ class Application:
         """
 
         if llm_api_key:
-            os.environ["FLOW_LLM_API_KEY"] = llm_api_key
+            os.environ["REME_LLM_API_KEY"] = llm_api_key
 
         if llm_api_base:
-            os.environ["FLOW_LLM_BASE_URL"] = llm_api_base
+            os.environ["REME_LLM_BASE_URL"] = llm_api_base
 
         if embedding_api_key:
-            os.environ["FLOW_EMBEDDING_API_KEY"] = embedding_api_key
+            os.environ["REME_EMBEDDING_API_KEY"] = embedding_api_key
 
         if embedding_api_base:
-            os.environ["FLOW_EMBEDDING_BASE_URL"] = embedding_api_base
+            os.environ["REME_EMBEDDING_BASE_URL"] = embedding_api_base
 
-        # Initialize parser first (needed for update_service_config method)
         if parser is None:
             parser = PydanticConfigParser
         self.parser = parser(ServiceConfig)
@@ -92,7 +75,7 @@ class Application:
             if config_path:
                 input_args.append(f"config={config_path}")
             elif load_default_config:
-                input_args.append(f"config={parser.default_config_name}")
+                input_args.append(f"config={parser.default_config}")
 
             if args:
                 input_args.extend(args)
@@ -106,55 +89,27 @@ class Application:
             init_logger()
 
     def update_service_config(self, **kwargs):
-        """
-        Update configuration object using keyword arguments
-
-        Args:
-            **kwargs: Configuration items to update, supports dot notation, e.g. a.b.c='xxx'
-
-        Returns:
-            Updated configuration object
-        """
         self.service_config = self.parser.update_config(**kwargs)
         return self.service_config
 
     async def __aenter__(self):
-        """
-        Async context manager entry point.
-
-        Returns:
-            Self instance after starting the application
-        """
-        await self.async_start()
+        await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """
-        Async context manager exit point.
+    def __enter__(self):
+        self.start_sync()
+        return self
 
-        Args:
-            exc_type: Exception type if an error occurred
-            exc_val: Exception value if an error occurred
-            exc_tb: Exception traceback if an error occurred
+    async def __aexit__(self, exc_type=None, exc_val=None, exc_tb=None):
+        await self.stop()
+        return False
 
-        Returns:
-            False to propagate any exception
-        """
-        await self.async_stop()
+    def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
+        self.stop_sync()
         return False
 
     @staticmethod
-    async def get_mcp_tools(name: str, mcp_server_config: dict) -> dict:
-        """
-        Retrieve available tools from an MCP (Model Context Protocol) server.
-
-        Args:
-            name: Name identifier for the MCP server
-            mcp_server_config: Configuration dictionary for the MCP server
-
-        Returns:
-            Dictionary containing server name and available tool calls, or empty dict on error
-        """
+    async def get_external_mcp(name: str, mcp_server_config: dict) -> dict:
         try:
             async with FastMcpClient(name=name, config=mcp_server_config) as client:
                 tool_calls = await client.list_tool_calls()
@@ -171,15 +126,6 @@ class Application:
             return {}
 
     def filter_flows(self, name: str) -> bool:
-        """
-        Determine if a flow should be enabled based on configuration.
-
-        Args:
-            name: Flow name to check
-
-        Returns:
-            True if the flow should be enabled, False otherwise
-        """
         if self.service_config.enabled_flows:
             return name in self.service_config.enabled_flows
         elif self.service_config.disabled_flows:
@@ -187,26 +133,17 @@ class Application:
         else:
             return True
 
-    async def async_start(self):
-        """
-        Asynchronously start the FlowLLM application.
-
-        Initializes external MCP servers, service configuration, thread pools,
-        vector stores, embedding models, and registers all flows.
-        """
-        # add external_mcp
+    async def start(self):
         for name, mcp_server_config in self.service_config.external_mcp.items():
-            mcp_server_info = await self.get_mcp_tools(name, mcp_server_config)
+            mcp_server_info = await self.get_external_mcp(name, mcp_server_config)
             if mcp_server_info:
                 C.external_mcp_tool_call_dict[mcp_server_info["name"]] = mcp_server_info["tool_calls"]
 
-        # add service_config & language & thread_pool & ray
         C.service_config = self.service_config
         C.language = self.service_config.language
         C.thread_pool = ThreadPoolExecutor(max_workers=self.service_config.thread_pool_max_workers)
         if self.service_config.ray_max_workers > 1:
             import ray
-
             ray.init(num_cpus=self.service_config.ray_max_workers)
 
         # add vector store
@@ -214,13 +151,12 @@ class Application:
             vector_store_cls = C.get_vector_store_class(config.backend)
             embedding_model_config: EmbeddingModelConfig = self.service_config.embedding_model[config.embedding_model]
             embedding_model_cls = C.get_embedding_model_class(embedding_model_config.backend)
-            embedding_model = embedding_model_cls(
-                model_name=embedding_model_config.model_name,
-                **embedding_model_config.params,
-            )
-            C.vector_store_dict[name] = vector_store_cls(embedding_model=embedding_model, **config.params)
+            embedding_model = embedding_model_cls(model_name=embedding_model_config.model_name,
+                                                  **embedding_model_config.model_extra)
+            C.vector_store_dict[name] = vector_store_cls(collection_name=config.collection_name,
+                                                         embedding_model=embedding_model,
+                                                         **config.model_extra)
 
-        # add cls flow
         for name, flow_cls in C.registry_dict[RegistryEnum.FLOW].items():
             if not self.filter_flows(name):
                 continue
@@ -228,156 +164,91 @@ class Application:
             flow: BaseFlow = flow_cls()
             C.flow_dict[flow.name] = flow
 
-        # add expression flow
         for name, flow_config in self.service_config.flow.items():
             if not self.filter_flows(name):
                 continue
 
             flow_config.name = name
-            flow: BaseFlow = ExpressionToolFlow(flow_config=flow_config)
+            flow: BaseFlow = ExpressionFlow(flow_config=flow_config)
             C.flow_dict[name] = flow
 
-    async def async_stop(self, wait_thread_pool=True, wait_ray: bool = True):
-        """
-        Asynchronously stop the FlowLLM application and clean up resources.
+    def start_sync(self):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self.start())
+        else:
+            import nest_asyncio
+            nest_asyncio.apply()
+            asyncio.run(self.start())
 
-        Args:
-            wait_thread_pool: Whether to wait for thread pool tasks to complete
-            wait_ray: Whether to wait for Ray tasks to complete
-        """
+    async def stop(self, wait_thread_pool: bool = True, wait_ray: bool = True):
         for _, vector_store in C.vector_store_dict.items():
-            await vector_store.async_close()
+            await vector_store.close()
         C.thread_pool.shutdown(wait=wait_thread_pool)
         if self.service_config.ray_max_workers > 1:
             import ray
-
             ray.shutdown(_exiting_interpreter=not wait_ray)
 
-    def __enter__(self):
-        """
-        Synchronous context manager entry point.
-
-        Returns:
-            Self instance after starting the application
-        """
-        self.start()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Synchronous context manager exit point.
-
-        Args:
-            exc_type: Exception type if an error occurred
-            exc_val: Exception value if an error occurred
-            exc_tb: Exception traceback if an error occurred
-
-        Returns:
-            False to propagate any exception
-        """
-        self.stop()
-        return False
-
-    def start(self):
-        """
-        Synchronously start the FlowLLM application.
-
-        Wraps async_start() in asyncio.run() for synchronous usage.
-        """
-        asyncio.run(self.async_start())
-
-    def stop(self, wait_thread_pool=True, wait_ray: bool = True):
-        """
-        Synchronously stop the FlowLLM application and clean up resources.
-
-        Args:
-            wait_thread_pool: Whether to wait for thread pool tasks to complete
-            wait_ray: Whether to wait for Ray tasks to complete
-        """
-        for _, vector_store in C.vector_store_dict.items():
-            vector_store.close()
-        C.thread_pool.shutdown(wait=wait_thread_pool)
-        if self.service_config.ray_max_workers > 1:
-            import ray
-
-            ray.shutdown(_exiting_interpreter=not wait_ray)
+    def stop_sync(self, wait_thread_pool: bool = True, wait_ray: bool = True):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self.stop(wait_thread_pool, wait_ray))
+        else:
+            import nest_asyncio
+            nest_asyncio.apply()
+            asyncio.run(self.stop(wait_thread_pool, wait_ray))
 
     @staticmethod
-    def execute_flow(name: str, **kwargs):
-        """
-        Synchronously execute a non-streaming flow by name.
-
-        Args:
-            name: Name of the flow to execute
-            **kwargs: Additional arguments to pass to the flow
-
-        Returns:
-            Flow execution result
-
-        Raises:
-            AssertionError: If the flow is configured for streaming
-        """
+    async def execute_flow(name: str, **kwargs):
         flow: BaseFlow = C.get_flow(name)
-        assert flow.stream is False, "stream is not supported in execute_flow!"
-        return flow.call(**kwargs)
+        return await flow.call(**kwargs)
 
     @staticmethod
-    async def async_execute_flow(name: str, **kwargs):
-        """
-        Asynchronously execute a non-streaming flow by name.
-
-        Args:
-            name: Name of the flow to execute
-            **kwargs: Additional arguments to pass to the flow
-
-        Returns:
-            Flow execution result
-
-        Raises:
-            AssertionError: If the flow is configured for streaming
-        """
+    def execute_flow_sync(name: str, **kwargs):
         flow: BaseFlow = C.get_flow(name)
-        assert flow.stream is False, "stream is not supported in async_execute_flow!"
-        return await flow.async_call(**kwargs)
+        return flow.call_sync(**kwargs)
 
     @staticmethod
-    async def async_execute_stream_flow(name: str, **kwargs):
-        """
-        Asynchronously execute a streaming flow by name.
-
-        Args:
-            name: Name of the flow to execute
-            **kwargs: Additional arguments to pass to the flow
-
-        Yields:
-            Stream chunks in SSE (Server-Sent Events) format
-
-        Raises:
-            AssertionError: If the flow is not configured for streaming
-        """
+    async def execute_stream_flow(name: str, **kwargs):
         flow: BaseFlow = C.get_flow(name)
-        assert flow.stream is True, "non-stream is not supported in async_execute_stream_flow!"
-
+        assert flow.stream is True, "non-stream is not supported in execute_stream_flow!"
         stream_queue = asyncio.Queue()
-        asyncio.create_task(flow.async_call(stream_queue=stream_queue, **kwargs))
+        task = asyncio.create_task(flow.call(stream_queue=stream_queue, **kwargs))
         while True:
-            stream_chunk: FlowStreamChunk = await stream_queue.get()
-            if stream_chunk.done:
-                yield "data:[DONE]\n\n"
-                break
+            try:
+                stream_chunk: StreamChunk = await asyncio.wait_for(stream_queue.get(), timeout=1.0)
+                if stream_chunk.done:
+                    yield "data:[DONE]\n\n"
+                    await task
+                    break
 
-            yield f"data:{stream_chunk.model_dump_json()}\n\n"
+                yield f"data:{stream_chunk.model_dump_json()}\n\n"
+
+            except asyncio.TimeoutError:
+                # Timeout: check if task has completed or failed
+                if task.done():
+                    try:
+                        await task
+
+                    except Exception as e:
+                        logger.exception(f"flow={name} encounter error with args={e.args}")
+
+                        error_chunk = StreamChunk(chunk_type=ChunkEnum.ERROR, chunk=str(e), done=True)
+                        yield f"data:{error_chunk.model_dump_json()}\n\n"
+                        yield "data:[DONE]\n\n"
+                        break
+
+                    else:
+                        yield "data:[DONE]\n\n"
+                        break
+
+                continue
 
     def run_service(self):
-        """
-        Start the service based on the configured backend.
-
-        Initializes and runs the appropriate service implementation
-        (e.g., FastAPI, Flask) according to service configuration.
-        """
-
         if self.service_config.enable_logo:
-            print_logo(service_config=self.service_config, app_name=os.getenv("FLOW_APP_NAME"))
+            print_logo(service_config=self.service_config, app_name=os.getenv("APP_NAME", "ReMe"))
 
         service_cls = C.get_service_class(self.service_config.backend)
         service: BaseService = service_cls(service_config=self.service_config)

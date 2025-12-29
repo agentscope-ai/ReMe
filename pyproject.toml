@@ -34,6 +34,7 @@ keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http"]
 
 dependencies = [
     "flowllm[reme]>=0.2.0.7",
+    "nest_asyncio"
 ]
 
 [project.optional-dependencies]
@@ -48,10 +49,12 @@ dev = [
 
 token = [
     "flowllm[token]>=0.2.0.5"
+
 ]
 
 full = [
     "reme_ai[dev,token]"
+
 ]
 
 [tool.setuptools.packages.find]

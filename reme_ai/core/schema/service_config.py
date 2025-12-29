@@ -58,6 +58,7 @@ class VectorStoreConfig(BaseModel):
 
     backend: str = Field(default="")
     collection_name: str = Field(default="")
+    embedding_model: str = Field(default="")
 
 
 class TokenCounterConfig(BaseModel):

@@ -1,9 +1,3 @@
-"""Command-line service for executing a single configured flow.
-
-This service runs a specified flow once, synchronously or asynchronously,
-logging the final answer if present.
-"""
-
 import asyncio
 
 from loguru import logger
@@ -15,17 +9,23 @@ from ..flow import CmdFlow
 
 @C.register_service("cmd")
 class CmdService(BaseService):
-    """Service that executes a configured command flow and exits."""
 
     def run(self):
-        """Execute the configured flow and print the result if available."""
         super().run()
         cmd_config = self.service_config.cmd
         flow = CmdFlow(flow=cmd_config.flow)
         if flow.async_mode:
-            response = asyncio.run(flow.async_call(**self.service_config.cmd.params))
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(flow.call(**self.service_config.cmd.model_extra))
+            else:
+                import nest_asyncio
+                nest_asyncio.apply()
+                asyncio.run(flow.call(**self.service_config.cmd.model_extra))
+
         else:
-            response = flow.call(**self.service_config.cmd.params)
+            response = flow.call_sync(**self.service_config.cmd.model_extra)
 
         if response.answer:
             logger.info(f"response.answer={response.answer}")

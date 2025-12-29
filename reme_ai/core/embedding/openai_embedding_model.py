@@ -67,8 +67,8 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
                 - raise_exception: Whether to raise exception on failure (default: True)
         """
         super().__init__(**kwargs)
-        self.api_key: str = api_key or os.getenv("FLOW_EMBEDDING_API_KEY", "")
-        self.base_url: str = base_url or os.getenv("FLOW_EMBEDDING_BASE_URL", "")
+        self.api_key: str = api_key or os.getenv("REME_EMBEDDING_API_KEY", "")
+        self.base_url: str = base_url or os.getenv("REME_EMBEDDING_BASE_URL", "")
         self.encoding_format: Literal["float", "base64"] = encoding_format
 
         # Create client using factory method

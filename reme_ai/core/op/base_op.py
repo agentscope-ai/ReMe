@@ -180,11 +180,7 @@ class BaseOp(ABC):
     @property
     def vector_store(self) -> BaseVectorStore:
         if isinstance(self._vector_store, str):
-            self.vector_store_config = C.service_config.vector_store[self._vector_store]
-            vector_store_cls = C.get_vector_store_class(self.vector_store_config.backend)
-            self._vector_store = vector_store_cls(collection_name=self.vector_store_config.collection_name,
-                                                  embedding_model=self.embedding_model,
-                                                  **self.vector_store_config.model_extra)
+            self._vector_store = C.get_vector_store(self._vector_store)
         return self._vector_store
 
     @property
