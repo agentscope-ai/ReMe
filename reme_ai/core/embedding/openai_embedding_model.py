@@ -46,11 +46,11 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
     """
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        encoding_format: Literal["float", "base64"] = "float",
-        **kwargs,
+            self,
+            api_key: Optional[str] = None,
+            base_url: Optional[str] = None,
+            encoding_format: Literal["float", "base64"] = "float",
+            **kwargs,
     ):
         """
         Initialize the OpenAI async embedding model.
@@ -136,5 +136,3 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
             >>> await embedding_model.close()
         """
         await self._client.close()
-
-

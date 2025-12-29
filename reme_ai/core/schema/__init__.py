@@ -42,4 +42,3 @@ __all__ = [
     # Vector
     "VectorNode",
 ]
-

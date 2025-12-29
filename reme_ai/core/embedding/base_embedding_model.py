@@ -32,13 +32,13 @@ class BaseEmbeddingModel(ABC):
     """
 
     def __init__(
-        self,
-        model_name: str = "",
-        dimensions: int = 1024,
-        max_batch_size: int = 10,
-        max_retries: int = 3,
-        raise_exception: bool = True,
-        **kwargs,
+            self,
+            model_name: str = "",
+            dimensions: int = 1024,
+            max_batch_size: int = 10,
+            max_retries: int = 3,
+            raise_exception: bool = True,
+            **kwargs,
     ):
         """
         Initialize the BaseEmbeddingModel.
@@ -134,7 +134,7 @@ class BaseEmbeddingModel(ABC):
                     await asyncio.sleep(i + 1)
 
             return []
-        
+
         # Handle list - batch if necessary
         elif isinstance(input_text, list):
             # If list is within max_batch_size, process directly
@@ -155,7 +155,7 @@ class BaseEmbeddingModel(ABC):
                         await asyncio.sleep(i + 1)
 
                 return []
-            
+
             # If list exceeds max_batch_size, batch the requests sequentially
             else:
                 embeddings = []
@@ -164,9 +164,9 @@ class BaseEmbeddingModel(ABC):
                     batch_embeddings = await self.get_embeddings(batch)
                     if batch_embeddings:
                         embeddings.extend(batch_embeddings)
-                
+
                 return embeddings
-        
+
         else:
             raise TypeError(f"unsupported type={type(input_text)}")
 
@@ -198,14 +198,14 @@ class BaseEmbeddingModel(ABC):
 
                 except Exception as e:
                     logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
-                    
+
                     if i == self.max_retries - 1:
                         if self.raise_exception:
                             raise e
                         return []
 
             return []
-        
+
         # Handle list - batch if necessary
         elif isinstance(input_text, list):
             # If list is within max_batch_size, process directly
@@ -216,14 +216,14 @@ class BaseEmbeddingModel(ABC):
 
                     except Exception as e:
                         logger.exception(f"embedding model name={self.model_name} encounter error with e={e.args}")
-                        
+
                         if i == self.max_retries - 1:
                             if self.raise_exception:
                                 raise e
                             return []
 
                 return []
-            
+
             # If list exceeds max_batch_size, batch the requests sequentially
             else:
                 embeddings = []
@@ -232,9 +232,9 @@ class BaseEmbeddingModel(ABC):
                     batch_embeddings = self.get_embeddings_sync(batch)
                     if batch_embeddings:
                         embeddings.extend(batch_embeddings)
-                
+
                 return embeddings
-        
+
         else:
             raise TypeError(f"unsupported type={type(input_text)}")
 
@@ -311,10 +311,10 @@ class BaseEmbeddingModel(ABC):
             # Process nodes in batches to respect max_batch_size limits
             embeddings = []
             for i in range(0, len(nodes), self.max_batch_size):
-                batch_nodes = nodes[i : i + self.max_batch_size]
+                batch_nodes = nodes[i: i + self.max_batch_size]
                 batch_content = [node.content for node in batch_nodes]
                 batch_embeddings = self.get_embeddings_sync(input_text=batch_content)
-                
+
                 if batch_embeddings:
                     embeddings.extend(batch_embeddings)
 
@@ -325,7 +325,7 @@ class BaseEmbeddingModel(ABC):
                 # Assign embeddings to corresponding nodes
                 for node, embedding in zip(nodes, embeddings):
                     node.vector = embedding
-            
+
             return nodes
 
         else:

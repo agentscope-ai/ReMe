@@ -7,7 +7,7 @@ other services that follow the same interface.
 For asynchronous operations, use OpenAIEmbeddingModel from openai_embedding_model module.
 """
 
-from typing import List, Optional
+from typing import List
 
 from openai import OpenAI
 
@@ -100,4 +100,3 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
             >>> embedding_model.close_sync()
         """
         self._client.close()
-

@@ -26,12 +26,12 @@ def _load_env(path: Path) -> None:
                 if len(line_split) >= 2:
                     key = line_split[0].strip()
                     value = line_split[1].strip()
-                    
+
                     # Remove quotes (both single and double)
                     if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
+                            (value.startswith("'") and value.endswith("'")):
                         value = value[1:-1]
-                    
+
                     os.environ[key] = value
     except PermissionError as e:
         logger.warning(f"Permission denied when accessing env file {path}: {e}. Running in sandbox mode?")

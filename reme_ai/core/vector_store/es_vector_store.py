@@ -19,7 +19,6 @@ except ImportError as e:
     AsyncElasticsearch = None
     async_bulk = None
 
-
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 from .base_vector_store import BaseVectorStore
@@ -68,10 +67,10 @@ class ESVectorStore(BaseVectorStore):
             raise ImportError(
                 "Elasticsearch requires extra dependencies. Install with `pip install elasticsearch`"
             ) from _ELASTICSEARCH_IMPORT_ERROR
-        
+
         # Elasticsearch requires lowercase index names
         collection_name = collection_name.lower()
-        
+
         super().__init__(collection_name=collection_name, embedding_model=embedding_model, **kwargs)
 
         # Initialize AsyncElasticsearch client
@@ -104,7 +103,7 @@ class ESVectorStore(BaseVectorStore):
         """
         # Elasticsearch requires lowercase index names
         collection_name = collection_name.lower()
-        
+
         if await self.client.indices.exists(index=collection_name):
             return
 
@@ -154,7 +153,7 @@ class ESVectorStore(BaseVectorStore):
         """
         # Elasticsearch requires lowercase index names
         collection_name = collection_name.lower()
-        
+
         if await self.client.indices.exists(index=collection_name):
             await self.client.indices.delete(index=collection_name)
             logger.info(f"Deleted index {collection_name}")
@@ -174,7 +173,7 @@ class ESVectorStore(BaseVectorStore):
         """
         # Elasticsearch requires lowercase index names
         collection_name = collection_name.lower()
-        
+
         # Get current index settings and mappings
         current_index = await self.client.indices.get(index=self.collection_name)
         current_settings = current_index[self.collection_name]
@@ -185,7 +184,7 @@ class ESVectorStore(BaseVectorStore):
             index_settings = settings_to_copy["index"].copy()
             # Remove internal/auto-generated settings
             internal_keys = [
-                "uuid", "creation_date", "provided_name", "version", 
+                "uuid", "creation_date", "provided_name", "version",
                 "store", "routing", "replication"
             ]
             for key in internal_keys:

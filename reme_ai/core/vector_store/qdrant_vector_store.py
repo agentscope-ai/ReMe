@@ -86,7 +86,7 @@ class QdrantVectorStore(BaseVectorStore):
             raise ImportError(
                 "Qdrant requires extra dependencies. Install with `pip install qdrant-client`"
             ) from _QDRANT_IMPORT_ERROR
-        
+
         super().__init__(collection_name=collection_name, embedding_model=embedding_model, **kwargs)
 
         # Initialize AsyncQdrantClient
@@ -101,10 +101,10 @@ class QdrantVectorStore(BaseVectorStore):
             prefer_grpc=prefer_grpc,
             **kwargs,
         )
-        
+
         # Determine if using local mode
         self.is_local = path is not None
-        
+
         # Convert distance string to Distance enum
         distance_map = {
             "cosine": Distance.COSINE,
@@ -165,7 +165,7 @@ class QdrantVectorStore(BaseVectorStore):
             collection_name: Name of the collection to create indexes for.
         """
         common_fields = ["user_id", "agent_id", "run_id", "actor_id", "source"]
-        
+
         for field in common_fields:
             try:
                 await self.client.create_payload_index(
@@ -202,7 +202,7 @@ class QdrantVectorStore(BaseVectorStore):
         """
         # Get current collection info
         collection_info = await self.client.get_collection(collection_name=self.collection_name)
-        
+
         # Create new collection with same configuration
         await self.client.create_collection(
             collection_name=collection_name,
@@ -212,7 +212,7 @@ class QdrantVectorStore(BaseVectorStore):
         # Scroll through all points in the current collection and copy them
         offset = None
         batch_size = 100
-        
+
         while True:
             records, next_offset = await self.client.scroll(
                 collection_name=self.collection_name,
@@ -221,10 +221,10 @@ class QdrantVectorStore(BaseVectorStore):
                 with_payload=True,
                 with_vectors=True,
             )
-            
+
             if not records:
                 break
-            
+
             # Prepare points for insertion
             points = [
                 PointStruct(
@@ -234,13 +234,13 @@ class QdrantVectorStore(BaseVectorStore):
                 )
                 for record in records
             ]
-            
+
             # Insert into new collection
             await self.client.upsert(
                 collection_name=collection_name,
                 points=points,
             )
-            
+
             offset = next_offset
             if offset is None:
                 break
@@ -274,7 +274,7 @@ class QdrantVectorStore(BaseVectorStore):
             except ValueError:
                 # If not an integer, use hash of the string
                 point_id = abs(hash(node.vector_id)) % (10 ** 18)
-            
+
             point = PointStruct(
                 id=point_id,
                 vector=node.vector,
@@ -310,7 +310,7 @@ class QdrantVectorStore(BaseVectorStore):
         """
         if not filters:
             return None
-        
+
         conditions = []
         for key, value in filters.items():
             if isinstance(value, dict) and ("gte" in value or "lte" in value):
@@ -342,7 +342,7 @@ class QdrantVectorStore(BaseVectorStore):
                 conditions.append(
                     FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
                 )
-        
+
         return Filter(must=conditions) if conditions else None
 
     async def search(
@@ -372,7 +372,7 @@ class QdrantVectorStore(BaseVectorStore):
 
         # Perform search
         score_threshold = kwargs.get("score_threshold", None)
-        
+
         results = await self.client.query_points(
             collection_name=self.collection_name,
             query=query_vector,
@@ -452,7 +452,7 @@ class QdrantVectorStore(BaseVectorStore):
                 point_id = int(node.vector_id)
             except ValueError:
                 point_id = abs(hash(node.vector_id)) % (10 ** 18)
-            
+
             point = PointStruct(
                 id=point_id,
                 vector=node.vector,
@@ -568,4 +568,3 @@ class QdrantVectorStore(BaseVectorStore):
         """Close the Qdrant client connection and release resources."""
         await self.client.close()
         logger.info("Qdrant client connection closed")
-

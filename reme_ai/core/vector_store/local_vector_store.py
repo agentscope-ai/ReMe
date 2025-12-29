@@ -28,11 +28,11 @@ class LocalVectorStore(BaseVectorStore):
     """
 
     def __init__(
-        self,
-        collection_name: str,
-        embedding_model: BaseEmbeddingModel,
-        root_path: str = "./local_vector_store",
-        **kwargs,
+            self,
+            collection_name: str,
+            embedding_model: BaseEmbeddingModel,
+            root_path: str = "./local_vector_store",
+            **kwargs,
     ):
         """Initialize the local vector store.
         
@@ -45,7 +45,7 @@ class LocalVectorStore(BaseVectorStore):
         super().__init__(collection_name=collection_name, embedding_model=embedding_model, **kwargs)
         self.root_path = Path(root_path)
         self.collection_path = self.root_path / collection_name
-        
+
         # Ensure root directory exists
         self.root_path.mkdir(parents=True, exist_ok=True)
 
@@ -82,7 +82,7 @@ class LocalVectorStore(BaseVectorStore):
         """
         file_path = self._get_node_file_path(node.vector_id, collection_name)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(node.model_dump(), f, ensure_ascii=False, indent=2)
 
@@ -97,10 +97,10 @@ class LocalVectorStore(BaseVectorStore):
             The loaded VectorNode or None if not found.
         """
         file_path = self._get_node_file_path(vector_id, collection_name)
-        
+
         if not file_path.exists():
             return None
-        
+
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
             return VectorNode(**data)
@@ -115,10 +115,10 @@ class LocalVectorStore(BaseVectorStore):
             List of all VectorNodes in the collection.
         """
         col_path = self._get_collection_path(collection_name or self.collection_name)
-        
+
         if not col_path.exists():
             return []
-        
+
         nodes = []
         for file_path in col_path.glob("*.json"):
             try:
@@ -127,7 +127,7 @@ class LocalVectorStore(BaseVectorStore):
                     nodes.append(VectorNode(**data))
             except Exception as e:
                 logger.warning(f"Failed to load node from {file_path}: {e}")
-        
+
         return nodes
 
     @staticmethod
@@ -143,18 +143,18 @@ class LocalVectorStore(BaseVectorStore):
         """
         if len(vec1) != len(vec2):
             raise ValueError(f"Vectors must have same length: {len(vec1)} != {len(vec2)}")
-        
+
         # Calculate dot product
         dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        
+
         # Calculate magnitudes
         magnitude1 = sum(a * a for a in vec1) ** 0.5
         magnitude2 = sum(b * b for b in vec2) ** 0.5
-        
+
         # Avoid division by zero
         if magnitude1 == 0 or magnitude2 == 0:
             return 0.0
-        
+
         return dot_product / (magnitude1 * magnitude2)
 
     def _match_filters(self, node: VectorNode, filters: dict | None) -> bool:
@@ -170,10 +170,10 @@ class LocalVectorStore(BaseVectorStore):
         """
         if not filters:
             return True
-        
+
         for key, value in filters.items():
             node_value = node.metadata.get(key)
-            
+
             if isinstance(value, list):
                 # IN operation: node value must be in the list
                 if node_value not in value:
@@ -182,7 +182,7 @@ class LocalVectorStore(BaseVectorStore):
                 # Exact match
                 if node_value != value:
                     return False
-        
+
         return True
 
     async def list_collections(self) -> List[str]:
@@ -193,12 +193,12 @@ class LocalVectorStore(BaseVectorStore):
         """
         if not self.root_path.exists():
             return []
-        
+
         collections = [
             d.name for d in self.root_path.iterdir()
             if d.is_dir() and not d.name.startswith('.')
         ]
-        
+
         return collections
 
     async def create_collection(self, collection_name: str, **kwargs):
@@ -220,15 +220,15 @@ class LocalVectorStore(BaseVectorStore):
             **kwargs: Additional parameters for deletion operation (ignored for local store).
         """
         col_path = self._get_collection_path(collection_name)
-        
+
         if not col_path.exists():
             logger.warning(f"Collection {collection_name} does not exist")
             return
-        
+
         # Delete all files in the collection
         for file_path in col_path.glob("*.json"):
             file_path.unlink()
-        
+
         # Delete the directory
         col_path.rmdir()
         logger.info(f"Deleted collection {collection_name}")
@@ -242,21 +242,21 @@ class LocalVectorStore(BaseVectorStore):
         """
         source_path = self._get_collection_path(self.collection_name)
         target_path = self._get_collection_path(collection_name)
-        
+
         if not source_path.exists():
             logger.warning(f"Source collection {self.collection_name} does not exist")
             return
-        
+
         # Create target directory
         target_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Copy all JSON files
         for file_path in source_path.glob("*.json"):
             target_file = target_path / file_path.name
             with open(file_path, 'r', encoding='utf-8') as src:
                 with open(target_file, 'w', encoding='utf-8') as dst:
                     dst.write(src.read())
-        
+
         logger.info(f"Copied collection {self.collection_name} to {collection_name}")
 
     async def insert(self, nodes: VectorNode | List[VectorNode], **kwargs):
@@ -269,26 +269,26 @@ class LocalVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
-        
+
         # Generate embeddings if needed
         nodes_to_insert = []
         for node in nodes:
             if node.vector is None:
                 node = await self.get_node_embeddings(node)
             nodes_to_insert.append(node)
-        
+
         # Save nodes to files
         for node in nodes_to_insert:
             self._save_node(node)
-        
+
         logger.info(f"Inserted {len(nodes_to_insert)} nodes into {self.collection_name}")
 
     async def search(
-        self,
-        query: str,
-        limit: int = 5,
-        filters: dict | None = None,
-        **kwargs
+            self,
+            query: str,
+            limit: int = 5,
+            filters: dict | None = None,
+            **kwargs
     ) -> List[VectorNode]:
         """Search for the most similar vectors to the given query.
         
@@ -304,43 +304,43 @@ class LocalVectorStore(BaseVectorStore):
         """
         # Generate query embedding
         query_vector = await self.get_embeddings(query)
-        
+
         # Load all nodes
         all_nodes = self._load_all_nodes()
-        
+
         # Filter nodes based on metadata
         filtered_nodes = [node for node in all_nodes if self._match_filters(node, filters)]
-        
+
         # Calculate similarity scores
         scored_nodes = []
         for node in filtered_nodes:
             if node.vector is None:
                 logger.warning(f"Node {node.vector_id} has no vector, skipping")
                 continue
-            
+
             try:
                 score = self._cosine_similarity(query_vector, node.vector)
                 scored_nodes.append((node, score))
             except ValueError as e:
                 logger.warning(f"Failed to calculate similarity for node {node.vector_id}: {e}")
-        
+
         # Sort by score in descending order
         scored_nodes.sort(key=lambda x: x[1], reverse=True)
-        
+
         # Apply score threshold if provided
         score_threshold = kwargs.get("score_threshold")
         if score_threshold is not None:
             scored_nodes = [(node, score) for node, score in scored_nodes if score >= score_threshold]
-        
+
         # Limit results
         scored_nodes = scored_nodes[:limit]
-        
+
         # Add scores to metadata and return nodes
         results = []
         for node, score in scored_nodes:
             node.metadata["_score"] = score
             results.append(node)
-        
+
         return results
 
     async def delete(self, vector_ids: str | List[str], **kwargs):
@@ -353,7 +353,7 @@ class LocalVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(vector_ids, str):
             vector_ids = [vector_ids]
-        
+
         deleted_count = 0
         for vector_id in vector_ids:
             file_path = self._get_node_file_path(vector_id)
@@ -362,7 +362,7 @@ class LocalVectorStore(BaseVectorStore):
                 deleted_count += 1
             else:
                 logger.warning(f"Node {vector_id} does not exist")
-        
+
         logger.info(f"Deleted {deleted_count} nodes from {self.collection_name}")
 
     async def update(self, nodes: VectorNode | List[VectorNode], **kwargs):
@@ -375,14 +375,14 @@ class LocalVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
-        
+
         # Generate embeddings for nodes that need them
         nodes_to_update = []
         for node in nodes:
             if node.vector is None and node.content:
                 node = await self.get_node_embeddings(node)
             nodes_to_update.append(node)
-        
+
         # Update nodes (overwrite existing files)
         updated_count = 0
         for node in nodes_to_update:
@@ -392,7 +392,7 @@ class LocalVectorStore(BaseVectorStore):
                 updated_count += 1
             else:
                 logger.warning(f"Node {node.vector_id} does not exist, skipping update")
-        
+
         logger.info(f"Updated {updated_count} nodes in {self.collection_name}")
 
     async def get(self, vector_ids: str | List[str]) -> VectorNode | List[VectorNode]:
@@ -408,7 +408,7 @@ class LocalVectorStore(BaseVectorStore):
         single_result = isinstance(vector_ids, str)
         if single_result:
             vector_ids = [vector_ids]
-        
+
         results = []
         for vector_id in vector_ids:
             node = self._load_node(vector_id)
@@ -416,13 +416,13 @@ class LocalVectorStore(BaseVectorStore):
                 results.append(node)
             else:
                 logger.warning(f"Node {vector_id} not found")
-        
+
         return results[0] if single_result and results else results
 
     async def list(
-        self,
-        filters: dict | None = None,
-        limit: int | None = None
+            self,
+            filters: dict | None = None,
+            limit: int | None = None
     ) -> List[VectorNode]:
         """List vectors in the collection with optional filtering.
         
@@ -436,14 +436,14 @@ class LocalVectorStore(BaseVectorStore):
         """
         # Load all nodes
         all_nodes = self._load_all_nodes()
-        
+
         # Filter nodes based on metadata
         filtered_nodes = [node for node in all_nodes if self._match_filters(node, filters)]
-        
+
         # Apply limit if specified
         if limit is not None:
             filtered_nodes = filtered_nodes[:limit]
-        
+
         return filtered_nodes
 
     async def close(self):

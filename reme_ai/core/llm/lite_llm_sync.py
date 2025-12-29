@@ -42,10 +42,10 @@ class LiteLLMSync(LiteLLM):
     """
 
     def _stream_chat_sync(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            stream_kwargs: Optional[dict] = None
     ) -> Generator[StreamChunk, None, None]:
         """
         Internal sync method to stream chat completions from LiteLLM API.
@@ -112,5 +112,3 @@ class LiteLLMSync(LiteLLM):
         # After streaming completes, validate and yield complete tool calls
         for tool_data in self._validate_and_serialize_tools(ret_tools, tools):
             yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool_data)
-
-

@@ -55,11 +55,11 @@ class LiteLLM(BaseLLM):
     """
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        custom_llm_provider: str = "openai",
-        **kwargs
+            self,
+            api_key: Optional[str] = None,
+            base_url: Optional[str] = None,
+            custom_llm_provider: str = "openai",
+            **kwargs
     ):
         """
         Initialize the LiteLLM client.
@@ -83,13 +83,13 @@ class LiteLLM(BaseLLM):
         self.api_key: Optional[str] = api_key or os.getenv("REME_LLM_API_KEY")
         self.base_url: Optional[str] = base_url or os.getenv("REME_LLM_BASE_URL")
         self.custom_llm_provider: str = custom_llm_provider
-    
+
     def _build_stream_kwargs(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        log_params: bool = True,
-        **kwargs
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            log_params: bool = True,
+            **kwargs
     ) -> dict:
         """
         Build kwargs for LiteLLM completion API calls.
@@ -117,13 +117,13 @@ class LiteLLM(BaseLLM):
             **self.kwargs,
             **kwargs,
         }
-        
+
         # Add API key and base URL if provided
         if self.api_key:
             llm_kwargs["api_key"] = self.api_key
         if self.base_url:
             llm_kwargs["base_url"] = self.base_url
-        
+
         # Log parameters for debugging, with message/tool counts instead of full content
         if log_params:
             log_kwargs: dict = {}
@@ -136,14 +136,14 @@ class LiteLLM(BaseLLM):
                 else:
                     log_kwargs[k] = v
             logger.info(f"llm_kwargs={log_kwargs}")
-        
+
         return llm_kwargs
 
     async def _stream_chat(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            stream_kwargs: Optional[dict] = None
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Internal async method to stream chat completions from LiteLLM API.
@@ -210,5 +210,3 @@ class LiteLLM(BaseLLM):
         # After streaming completes, validate and yield complete tool calls
         for tool_data in self._validate_and_serialize_tools(ret_tools, tools):
             yield StreamChunk(chunk_type=ChunkEnum.TOOL, chunk=tool_data)
-
-

@@ -14,17 +14,17 @@ from .utils import FastMcpClient, PydanticConfigParser, init_logger, print_logo
 
 class Application:
     def __init__(
-        self,
-        *args,
-        llm_api_key: str = None,
-        llm_api_base: str = None,
-        embedding_api_key: str = None,
-        embedding_api_base: str = None,
-        service_config: ServiceConfig = None,
-        parser: type[PydanticConfigParser] = None,
-        config_path: str = None,
-        load_default_config: bool = False,
-        **kwargs,
+            self,
+            *args,
+            llm_api_key: str = None,
+            llm_api_base: str = None,
+            embedding_api_key: str = None,
+            embedding_api_base: str = None,
+            service_config: ServiceConfig = None,
+            parser: type[PydanticConfigParser] = None,
+            config_path: str = None,
+            load_default_config: bool = False,
+            **kwargs,
     ):
         """
         Initialize application with configuration.

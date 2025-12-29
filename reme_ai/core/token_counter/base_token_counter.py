@@ -28,13 +28,13 @@ class BaseTokenCounter:
         """
         chinese_chars = 0
         other_chars = 0
-        
+
         for char in text:
             if BaseTokenCounter._is_chinese_char(char):
                 chinese_chars += 1
             else:
                 other_chars += 1
-        
+
         return chinese_chars, other_chars
 
     def count_token(
@@ -51,7 +51,7 @@ class BaseTokenCounter:
             content = message.content
             if isinstance(content, bytes):
                 content = content.decode("utf-8", errors="ignore")
-            
+
             if content:
                 msg_cn, msg_other = self._count_chars_by_language(content)
                 chinese_chars += msg_cn

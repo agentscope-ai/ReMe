@@ -1,4 +1,5 @@
 from abc import ABC
+
 import pandas as pd
 from loguru import logger
 from tqdm import tqdm

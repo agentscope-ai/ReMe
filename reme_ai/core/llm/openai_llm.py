@@ -55,10 +55,10 @@ class OpenAILLM(BaseLLM):
     """
 
     def __init__(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        **kwargs
+            self,
+            api_key: Optional[str] = None,
+            base_url: Optional[str] = None,
+            **kwargs
     ):
         """
         Initialize the OpenAI async LLM client.
@@ -78,10 +78,10 @@ class OpenAILLM(BaseLLM):
         super().__init__(**kwargs)
         self.api_key: str = api_key or os.getenv("REME_LLM_API_KEY", "")
         self.base_url: str = base_url or os.getenv("REME_LLM_BASE_URL", "")
-        
+
         # Create client using factory method
         self._client = self._create_client()
-    
+
     def _create_client(self):
         """
         Create and return the OpenAI client instance.
@@ -93,13 +93,13 @@ class OpenAILLM(BaseLLM):
             AsyncOpenAI client instance for async operations
         """
         return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-    
+
     def _build_stream_kwargs(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        log_params: bool = True,
-        **kwargs
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            log_params: bool = True,
+            **kwargs
     ) -> dict:
         """
         Build kwargs for OpenAI Chat Completions API calls.
@@ -126,7 +126,7 @@ class OpenAILLM(BaseLLM):
             **self.kwargs,
             **kwargs,
         }
-        
+
         # Log parameters for debugging, with message/tool counts instead of full content
         if log_params:
             log_kwargs: dict = {}
@@ -136,14 +136,14 @@ class OpenAILLM(BaseLLM):
                 else:
                     log_kwargs[k] = v
             logger.info(f"llm_kwargs={log_kwargs}")
-        
+
         return llm_kwargs
 
     async def _stream_chat(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            stream_kwargs: Optional[dict] = None
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Internal async method to stream chat completions from OpenAI API.

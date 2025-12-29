@@ -35,10 +35,10 @@ class OpenAITokenCounter(BaseTokenCounter):
         return self._encoding
 
     def count_token(
-        self,
-        messages: List[Message],
-        tools: List[ToolCall] | None = None,
-        **_kwargs,
+            self,
+            messages: List[Message],
+            tools: List[ToolCall] | None = None,
+            **_kwargs,
     ) -> int:
         """Estimate token usage for messages and tool payloads using tiktoken."""
         encoding = self.encoding

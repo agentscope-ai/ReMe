@@ -2,7 +2,6 @@
 
 import re
 
-
 # Special words that need custom handling during conversion
 _SPECIAL_WORDS = ["LLM", "API", "URL", "HTTP", "JSON", "XML", "AI", "MCP"]
 _SPECIAL_WORD_MAP = {word.lower(): word for word in _SPECIAL_WORDS}

@@ -57,10 +57,10 @@ class OpenAILLMSync(OpenAILLM):
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _stream_chat_sync(
-        self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None
+            self,
+            messages: List[Message],
+            tools: Optional[List[ToolCall]] = None,
+            stream_kwargs: Optional[dict] = None
     ) -> Generator[StreamChunk, None, None]:
         """
         Internal sync method to stream chat completions from OpenAI API.
@@ -142,4 +142,3 @@ class OpenAILLMSync(OpenAILLM):
             >>> llm.close_sync()
         """
         self._client.close()
-

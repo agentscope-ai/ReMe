@@ -36,17 +36,17 @@ class ChromaVectorStore(BaseVectorStore):
     """
 
     def __init__(
-        self,
-        collection_name: str,
-        embedding_model: BaseEmbeddingModel,
-        client: Optional[chromadb.Client] = None,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        path: Optional[str] = None,
-        api_key: Optional[str] = None,
-        tenant: Optional[str] = None,
-        database: Optional[str] = None,
-        **kwargs,
+            self,
+            collection_name: str,
+            embedding_model: BaseEmbeddingModel,
+            client: Optional[chromadb.Client] = None,
+            host: Optional[str] = None,
+            port: Optional[int] = None,
+            path: Optional[str] = None,
+            api_key: Optional[str] = None,
+            tenant: Optional[str] = None,
+            database: Optional[str] = None,
+            **kwargs,
     ):
         """Initialize the ChromaDB vector store.
         
@@ -63,14 +63,14 @@ class ChromaVectorStore(BaseVectorStore):
             **kwargs: Additional configuration parameters.
         """
         super().__init__(
-            collection_name=collection_name, 
-            embedding_model=embedding_model, 
+            collection_name=collection_name,
+            embedding_model=embedding_model,
             **kwargs
         )
-        
+
         self.client: chromadb.Client
         self.collection: chromadb.Collection
-        
+
         if client:
             # Use provided client
             self.client = client
@@ -95,7 +95,7 @@ class ChromaVectorStore(BaseVectorStore):
                 path=path,
                 settings=Settings(anonymized_telemetry=False),
             )
-        
+
         # Get or create the collection
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
@@ -103,9 +103,9 @@ class ChromaVectorStore(BaseVectorStore):
         )
 
     def _parse_results(
-        self, 
-        results: Dict,
-        include_score: bool = False
+            self,
+            results: Dict,
+            include_score: bool = False
     ) -> List[VectorNode]:
         """Parse ChromaDB query results into VectorNode list.
         
@@ -117,7 +117,7 @@ class ChromaVectorStore(BaseVectorStore):
             List of VectorNode objects.
         """
         nodes = []
-        
+
         # Handle nested list structure from query results
         ids = results.get("ids", [])
         documents = results.get("documents", [])
@@ -128,7 +128,7 @@ class ChromaVectorStore(BaseVectorStore):
         distances = results.get("distances")
         if distances is None:
             distances = []
-        
+
         # Flatten if nested (query returns nested lists)
         if ids and isinstance(ids[0], list):
             ids = ids[0] if ids else []
@@ -136,15 +136,15 @@ class ChromaVectorStore(BaseVectorStore):
             metadatas = metadatas[0] if metadatas else []
             embeddings = embeddings[0] if embeddings is not None and len(embeddings) > 0 else []
             distances = distances[0] if distances is not None and len(distances) > 0 else []
-        
+
         for i, vector_id in enumerate(ids):
             metadata = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
-            
+
             # Add score to metadata if available
             if include_score and distances and i < len(distances):
                 # ChromaDB returns distances, convert to similarity score (1 - distance for cosine)
                 metadata["_score"] = 1.0 - distances[i]
-            
+
             node = VectorNode(
                 vector_id=vector_id,
                 content=documents[i] if i < len(documents) and documents[i] else "",
@@ -152,7 +152,7 @@ class ChromaVectorStore(BaseVectorStore):
                 metadata=metadata,
             )
             nodes.append(node)
-        
+
         return nodes
 
     @staticmethod
@@ -169,7 +169,7 @@ class ChromaVectorStore(BaseVectorStore):
         """
         if not filters:
             return None
-        
+
         def convert_condition(key: str, value) -> Optional[Dict]:
             """Convert a single filter condition to ChromaDB format."""
             if value == "*":
@@ -208,9 +208,9 @@ class ChromaVectorStore(BaseVectorStore):
             else:
                 # Simple equality
                 return {key: {"$eq": value}}
-        
+
         processed_filters = []
-        
+
         for key, value in filters.items():
             if key == "$or":
                 # Handle OR conditions
@@ -223,12 +223,12 @@ class ChromaVectorStore(BaseVectorStore):
                             or_condition.update(converted)
                     if or_condition:
                         or_conditions.append(or_condition)
-                
+
                 if len(or_conditions) > 1:
                     processed_filters.append({"$or": or_conditions})
                 elif len(or_conditions) == 1:
                     processed_filters.append(or_conditions[0])
-            
+
             elif key == "$and":
                 # Handle AND conditions
                 and_conditions = []
@@ -237,20 +237,20 @@ class ChromaVectorStore(BaseVectorStore):
                         converted = convert_condition(sub_key, sub_value)
                         if converted:
                             and_conditions.append(converted)
-                
+
                 if and_conditions:
                     processed_filters.extend(and_conditions)
-            
+
             elif key == "$not":
                 # Handle NOT conditions - skip for now as ChromaDB has limited support
                 continue
-            
+
             else:
                 # Regular condition
                 converted = convert_condition(key, value)
                 if converted:
                     processed_filters.append(converted)
-        
+
         # Return appropriate format based on number of conditions
         if len(processed_filters) == 0:
             return None
@@ -265,10 +265,11 @@ class ChromaVectorStore(BaseVectorStore):
         Returns:
             A list of collection names.
         """
+
         def _list():
             collections = self.client.list_collections()
             return [col.name for col in collections]
-        
+
         return await self._run_sync_in_executor(_list)
 
     async def create_collection(self, collection_name: str, **kwargs):
@@ -279,23 +280,24 @@ class ChromaVectorStore(BaseVectorStore):
             **kwargs: Additional collection-specific configuration parameters.
                 Supported: metadata (dict), distance_metric (str, default: "cosine").
         """
+
         def _create():
             distance_metric = kwargs.get("distance_metric", "cosine")
             metadata = kwargs.get("metadata", {})
             metadata["hnsw:space"] = distance_metric
-            
+
             new_collection = self.client.get_or_create_collection(
                 name=collection_name,
                 metadata=metadata,
             )
             return new_collection
-        
+
         new_collection = await self._run_sync_in_executor(_create)
-        
+
         # Update self.collection if we're creating our own collection
         if collection_name == self.collection_name:
             self.collection = new_collection
-        
+
         logger.info(f"Created collection {collection_name}")
 
     async def delete_collection(self, collection_name: str, **kwargs):
@@ -305,6 +307,7 @@ class ChromaVectorStore(BaseVectorStore):
             collection_name: Name of the collection to delete.
             **kwargs: Additional parameters (ignored for ChromaDB).
         """
+
         def _delete():
             try:
                 self.client.delete_collection(name=collection_name)
@@ -312,13 +315,13 @@ class ChromaVectorStore(BaseVectorStore):
             except Exception as e:
                 logger.warning(f"Failed to delete collection {collection_name}: {e}")
                 return False
-        
+
         deleted = await self._run_sync_in_executor(_delete)
-        
+
         # Invalidate self.collection if we deleted our own collection
         if deleted and collection_name == self.collection_name:
             self.collection = None
-        
+
         logger.info(f"Deleted collection {collection_name}")
 
     async def copy_collection(self, collection_name: str, **kwargs):
@@ -328,20 +331,21 @@ class ChromaVectorStore(BaseVectorStore):
             collection_name: Name for the new copied collection.
             **kwargs: Additional parameters (ignored for ChromaDB).
         """
+
         def _copy():
             # Get all data from source collection
             source_data = self.collection.get(include=["documents", "metadatas", "embeddings"])
-            
+
             if not source_data["ids"]:
                 logger.warning(f"Source collection {self.collection_name} is empty")
                 return
-            
+
             # Create target collection
             target_collection = self.client.get_or_create_collection(
                 name=collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
-            
+
             # Add data to target collection
             target_collection.add(
                 ids=source_data["ids"],
@@ -349,7 +353,7 @@ class ChromaVectorStore(BaseVectorStore):
                 metadatas=source_data["metadatas"],
                 embeddings=source_data["embeddings"],
             )
-        
+
         await self._run_sync_in_executor(_copy)
         logger.info(f"Copied collection {self.collection_name} to {collection_name}")
 
@@ -364,45 +368,45 @@ class ChromaVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
-        
+
         if not nodes:
             return
-        
+
         # Generate embeddings if needed
         nodes_to_insert = []
         for node in nodes:
             if node.vector is None:
                 node = await self.get_node_embeddings(node)
             nodes_to_insert.append(node)
-        
+
         batch_size = kwargs.get("batch_size", 100)
-        
+
         def _insert_batch(batch_nodes: List[VectorNode]):
             ids = [node.vector_id for node in batch_nodes]
             documents = [node.content for node in batch_nodes]
             embeddings = [node.vector for node in batch_nodes]
             metadatas = [node.metadata for node in batch_nodes]
-            
+
             self.collection.add(
                 ids=ids,
                 documents=documents,
                 embeddings=embeddings,
                 metadatas=metadatas,
             )
-        
+
         # Insert in batches
         for i in range(0, len(nodes_to_insert), batch_size):
             batch = nodes_to_insert[i:i + batch_size]
             await self._run_sync_in_executor(_insert_batch, batch)
-        
+
         logger.info(f"Inserted {len(nodes_to_insert)} nodes into {self.collection_name}")
 
     async def search(
-        self,
-        query: str,
-        limit: int = 5,
-        filters: dict | None = None,
-        **kwargs
+            self,
+            query: str,
+            limit: int = 5,
+            filters: dict | None = None,
+            **kwargs
     ) -> List[VectorNode]:
         """Search for the most similar vectors to the given query.
         
@@ -418,15 +422,15 @@ class ChromaVectorStore(BaseVectorStore):
         """
         # Generate query embedding
         query_vector = await self.get_embeddings(query)
-        
+
         where_clause = self._generate_where_clause(filters)
         include_embeddings = kwargs.get("include_embeddings", False)
-        
+
         def _search():
             include = ["documents", "metadatas", "distances"]
             if include_embeddings:
                 include.append("embeddings")
-            
+
             results = self.collection.query(
                 query_embeddings=[query_vector],
                 n_results=limit,
@@ -434,18 +438,18 @@ class ChromaVectorStore(BaseVectorStore):
                 include=include,
             )
             return results
-        
+
         results = await self._run_sync_in_executor(_search)
         nodes = self._parse_results(results, include_score=True)
-        
+
         # Apply score threshold if provided
         score_threshold = kwargs.get("score_threshold")
         if score_threshold is not None:
             nodes = [
-                node for node in nodes 
+                node for node in nodes
                 if node.metadata.get("_score", 0) >= score_threshold
             ]
-        
+
         return nodes
 
     async def delete(self, vector_ids: str | List[str], **kwargs):
@@ -458,13 +462,13 @@ class ChromaVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(vector_ids, str):
             vector_ids = [vector_ids]
-        
+
         if not vector_ids:
             return
-        
+
         def _delete():
             self.collection.delete(ids=vector_ids)
-        
+
         await self._run_sync_in_executor(_delete)
         logger.info(f"Deleted {len(vector_ids)} nodes from {self.collection_name}")
 
@@ -478,23 +482,23 @@ class ChromaVectorStore(BaseVectorStore):
         # Normalize to list
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
-        
+
         if not nodes:
             return
-        
+
         # Generate embeddings for nodes that need them
         nodes_to_update = []
         for node in nodes:
             if node.vector is None and node.content:
                 node = await self.get_node_embeddings(node)
             nodes_to_update.append(node)
-        
+
         def _update():
             ids = [node.vector_id for node in nodes_to_update]
             documents = [node.content for node in nodes_to_update]
             embeddings = [node.vector for node in nodes_to_update if node.vector]
             metadatas = [node.metadata for node in nodes_to_update]
-            
+
             # Use upsert for update (ChromaDB's update requires the item to exist)
             self.collection.upsert(
                 ids=ids,
@@ -502,7 +506,7 @@ class ChromaVectorStore(BaseVectorStore):
                 embeddings=embeddings if embeddings else None,
                 metadatas=metadatas,
             )
-        
+
         await self._run_sync_in_executor(_update)
         logger.info(f"Updated {len(nodes_to_update)} nodes in {self.collection_name}")
 
@@ -519,26 +523,26 @@ class ChromaVectorStore(BaseVectorStore):
         single_result = isinstance(vector_ids, str)
         if single_result:
             vector_ids = [vector_ids]
-        
+
         def _get():
             results = self.collection.get(
                 ids=vector_ids,
                 include=["documents", "metadatas", "embeddings"],
             )
             return results
-        
+
         results = await self._run_sync_in_executor(_get)
         nodes = self._parse_results(results)
-        
+
         if single_result:
             return nodes[0] if nodes else None
-        
+
         return nodes
 
     async def list(
-        self,
-        filters: dict | None = None,
-        limit: int | None = None
+            self,
+            filters: dict | None = None,
+            limit: int | None = None
     ) -> List[VectorNode]:
         """List vectors in the collection with optional filtering.
         
@@ -550,7 +554,7 @@ class ChromaVectorStore(BaseVectorStore):
             A list of VectorNodes matching the filters.
         """
         where_clause = self._generate_where_clause(filters)
-        
+
         def _list():
             results = self.collection.get(
                 where=where_clause,
@@ -558,7 +562,7 @@ class ChromaVectorStore(BaseVectorStore):
                 include=["documents", "metadatas", "embeddings"],
             )
             return results
-        
+
         results = await self._run_sync_in_executor(_list)
         return self._parse_results(results)
 
@@ -568,23 +572,24 @@ class ChromaVectorStore(BaseVectorStore):
         Returns:
             Number of vectors in the collection.
         """
+
         def _count():
             return self.collection.count()
-        
+
         return await self._run_sync_in_executor(_count)
 
     async def reset(self):
         """Reset the collection by deleting and recreating it."""
         logger.warning(f"Resetting collection {self.collection_name}...")
-        
+
         await self.delete_collection(self.collection_name)
-        
+
         def _recreate():
             self.collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
-        
+
         await self._run_sync_in_executor(_recreate)
         logger.info(f"Collection {self.collection_name} has been reset")
 
@@ -594,4 +599,3 @@ class ChromaVectorStore(BaseVectorStore):
         For ChromaDB, cleanup may not be strictly necessary but we log it.
         """
         logger.info(f"ChromaDB vector store for collection {self.collection_name} closed")
-
