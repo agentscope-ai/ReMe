@@ -34,7 +34,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         api_key: OpenAI API key or compatible service key
         base_url: Base URL for the API endpoint
         encoding_format: Encoding format for embeddings ("float" or "base64")
-        _aclient: Asynchronous OpenAI client instance
+        _client: Asynchronous OpenAI client instance
 
     Example:
         >>> embedding_model = OpenAIEmbeddingModel(
@@ -71,8 +71,20 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         self.base_url: str = base_url or os.getenv("FLOW_EMBEDDING_BASE_URL", "")
         self.encoding_format: Literal["float", "base64"] = encoding_format
 
-        # Create async client
-        self._aclient = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        # Create client using factory method
+        self._client = self._create_client()
+
+    def _create_client(self):
+        """
+        Create and return the OpenAI client instance.
+
+        This method can be overridden by subclasses to provide different client implementations
+        (e.g., synchronous vs asynchronous clients).
+
+        Returns:
+            AsyncOpenAI client instance for async operations
+        """
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
     async def _get_embeddings(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """
@@ -91,7 +103,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         Raises:
             RuntimeError: If unsupported input type is provided
         """
-        completion = await self._aclient.embeddings.create(
+        completion = await self._client.embeddings.create(
             model=self.model_name,
             input=input_text,
             dimensions=self.dimensions,
@@ -123,6 +135,6 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
             >>> # ... use the embedding model asynchronously ...
             >>> await embedding_model.close()
         """
-        await self._aclient.close()
+        await self._client.close()
 
 

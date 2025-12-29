@@ -26,13 +26,13 @@ class OpenAILLMSync(OpenAILLM):
     OpenAI-compatible sync LLM implementation.
     
     This class inherits from OpenAILLM and provides synchronous versions of
-    the streaming methods. It reuses the _build_stream_kwargs method from
-    the parent class, but creates a synchronous OpenAI client instead of async.
+    the streaming methods. It overrides _create_client() to create a synchronous
+    OpenAI client instead of async.
     
     For asynchronous operations, use OpenAILLM from openai_llm module.
     
     Attributes:
-        _client: Synchronous OpenAI client instance (instead of _aclient)
+        _client: Synchronous OpenAI client instance
     
     Example:
         >>> llm = OpenAILLMSync(
@@ -44,24 +44,17 @@ class OpenAILLMSync(OpenAILLM):
         >>> response = llm.chat(messages)
     """
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        **kwargs
-    ):
+    def _create_client(self):
         """
-        Initialize the OpenAI sync LLM client.
+        Create and return the synchronous OpenAI client instance.
         
-        Args:
-            api_key: OpenAI API key. If None, reads from REME_LLM_API_KEY env var
-            base_url: Base URL for API endpoint. If None, reads from REME_LLM_BASE_URL env var
-            **kwargs: Additional arguments passed to BaseLLM
+        This method overrides the parent class method to provide a synchronous
+        client instead of an asynchronous one.
+        
+        Returns:
+            OpenAI client instance for sync operations
         """
-        super().__init__(api_key=api_key, base_url=base_url, **kwargs)
-        
-        # Create sync client instead of async client
-        self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _stream_chat_sync(
         self,

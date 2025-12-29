@@ -42,7 +42,7 @@ class OpenAILLM(BaseLLM):
     Attributes:
         api_key: OpenAI API key or compatible service key
         base_url: Base URL for the API endpoint
-        _aclient: Asynchronous OpenAI client instance
+        _client: Asynchronous OpenAI client instance
     
     Example:
         >>> llm = OpenAILLM(
@@ -79,8 +79,20 @@ class OpenAILLM(BaseLLM):
         self.api_key: str = api_key or os.getenv("REME_LLM_API_KEY", "")
         self.base_url: str = base_url or os.getenv("REME_LLM_BASE_URL", "")
         
-        # Create async client
-        self._aclient = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+        # Create client using factory method
+        self._client = self._create_client()
+    
+    def _create_client(self):
+        """
+        Create and return the OpenAI client instance.
+        
+        This method can be overridden by subclasses to provide different client implementations
+        (e.g., synchronous vs asynchronous clients).
+        
+        Returns:
+            AsyncOpenAI client instance for async operations
+        """
+        return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
     
     def _build_stream_kwargs(
         self,
@@ -162,7 +174,7 @@ class OpenAILLM(BaseLLM):
         """
         # Create streaming completion request to OpenAI API asynchronously
         stream_kwargs = stream_kwargs or {}
-        completion = await self._aclient.chat.completions.create(**stream_kwargs)
+        completion = await self._client.chat.completions.create(**stream_kwargs)
 
         # Track accumulated tool calls across chunks
         ret_tools: List[ToolCall] = []
@@ -212,4 +224,4 @@ class OpenAILLM(BaseLLM):
             >>> # ... use the llm asynchronously ...
             >>> await llm.close()
         """
-        await self._aclient.close()
+        await self._client.close()

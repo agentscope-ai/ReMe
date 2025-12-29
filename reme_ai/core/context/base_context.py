@@ -1,4 +1,10 @@
-class BaseContext(dict):
+from typing import Generic, TypeVar
+
+_KT = TypeVar("_KT")
+_VT = TypeVar("_VT")
+
+
+class BaseContext(dict, Generic[_KT, _VT]):
     """A dict subclass that supports attribute-style access and pickling."""
 
     def __getattr__(self, name):

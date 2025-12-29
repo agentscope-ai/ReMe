@@ -21,12 +21,13 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
     OpenAI-compatible sync embedding model implementation.
 
     This class inherits from OpenAIEmbeddingModel and provides synchronous versions of
-    the embedding methods. It creates a synchronous OpenAI client instead of async.
+    the embedding methods. It overrides _create_client() to create a synchronous OpenAI
+    client instead of async.
 
     For asynchronous operations, use OpenAIEmbeddingModel from openai_embedding_model module.
 
     Attributes:
-        _client: Synchronous OpenAI client instance (instead of _aclient)
+        _client: Synchronous OpenAI client instance
 
     Example:
         >>> embedding_model = OpenAIEmbeddingModelSync(
@@ -37,30 +38,17 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
         >>> embeddings = embedding_model.get_embeddings_sync(["Hello world"])
     """
 
-    def __init__(
-        self,
-        api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        **kwargs
-    ):
+    def _create_client(self):
         """
-        Initialize the OpenAI sync embedding model.
+        Create and return the synchronous OpenAI client instance.
 
-        Args:
-            api_key: API key for authentication. If None, reads from FLOW_EMBEDDING_API_KEY env var
-            base_url: Base URL for API endpoint. If None, reads from FLOW_EMBEDDING_BASE_URL env var
-            **kwargs: Additional arguments passed to BaseEmbeddingModel, including:
-                - model_name: Name of the model to use (required)
-                - dimensions: Dimensionality of the embedding vectors (default: 1024)
-                - max_batch_size: Maximum batch size for processing (default: 10)
-                - max_retries: Maximum retry attempts on failure (default: 3)
-                - raise_exception: Whether to raise exception on failure (default: True)
-                - encoding_format: Encoding format for embeddings (default: "float")
+        This method overrides the parent class method to provide a synchronous
+        client instead of an asynchronous one.
+
+        Returns:
+            OpenAI client instance for sync operations
         """
-        super().__init__(api_key=api_key, base_url=base_url, **kwargs)
-
-        # Create sync client instead of async client
-        self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _get_embeddings_sync(self, input_text: str | List[str]) -> List[List[float]] | List[float]:
         """

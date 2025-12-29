@@ -196,6 +196,7 @@ class BaseLLM(ABC):
             self,
             messages: List[Message],
             tools: Optional[List[ToolCall]] = None,
+            log_params: bool = True,
             **kwargs
     ) -> dict:
         """
@@ -208,6 +209,7 @@ class BaseLLM(ABC):
         Args:
             messages: List of conversation messages
             tools: Optional list of tools available to the model
+            log_params: Whether to log the constructed parameters (default: True)
             **kwargs: Additional parameters to merge into the result
 
         Returns:
@@ -362,7 +364,7 @@ class BaseLLM(ABC):
             StreamChunk objects containing chunks of the response, or error chunks
             if all retries are exhausted and raise_exception is False
         """
-        stream_kwargs = self._build_stream_kwargs(messages, tools, stream=True, **kwargs)
+        stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
         async for chunk in self._stream_with_retry("stream chat", messages, tools, stream_kwargs):
             yield chunk
 
@@ -388,7 +390,7 @@ class BaseLLM(ABC):
             StreamChunk objects containing chunks of the response, or error chunks
             if all retries are exhausted and raise_exception is False
         """
-        stream_kwargs = self._build_stream_kwargs(messages, tools, stream=True, **kwargs)
+        stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
         yield from self._stream_with_retry_sync("stream chat sync", messages, tools, stream_kwargs)
 
     async def _chat(
@@ -422,7 +424,7 @@ class BaseLLM(ABC):
             'tool_calls': []
         }
 
-        stream_kwargs = self._build_stream_kwargs(messages, tools, stream=True, **kwargs)
+        stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
         async for stream_chunk in self._stream_chat(messages=messages, tools=tools, stream_kwargs=stream_kwargs):
             self._process_stream_chunk(stream_chunk, state, enable_stream_print)
 
@@ -459,7 +461,7 @@ class BaseLLM(ABC):
             'tool_calls': []
         }
 
-        stream_kwargs = self._build_stream_kwargs(messages, tools, stream=True, **kwargs)
+        stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
         for stream_chunk in self._stream_chat_sync(messages=messages, tools=tools, stream_kwargs=stream_kwargs):
             self._process_stream_chunk(stream_chunk, state, enable_stream_print)
 
