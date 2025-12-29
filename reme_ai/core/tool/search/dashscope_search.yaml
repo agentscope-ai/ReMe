@@ -1,0 +1,21 @@
+tool_description: |
+  Use search keywords to retrieve relevant information from the internet.
+  If you have multiple keywords, please call this tool separately for each one.
+
+tool_description_zh: |
+  使用搜索关键词从互联网检索相关信息。
+  如果您有多个关键词，请为每个关键词分别调用此工具。
+
+role_prompt: |
+  # user's question
+  {query}
+
+  # task
+  Extract the original content related to the user's query directly from the context, maintain accuracy, and avoid excessive processing.
+
+role_prompt_zh: |
+  # 用户问题
+  {query}
+
+  # task
+  直接从上下文中提取与用户问题相关的原始内容，保持准确性，避免过度处理。
