@@ -46,7 +46,7 @@ class OpenAILLM(BaseLLM):
     
     Example:
         >>> llm = OpenAILLM(
-        ...     model_name="gpt-4",
+        ...     model_name="qwen3-max",
         ...     api_key="sk-...",
         ...     temperature=0.7
         ... )
@@ -220,7 +220,7 @@ class OpenAILLM(BaseLLM):
         is no longer needed to avoid resource leaks.
         
         Example:
-            >>> llm = OpenAILLM(model_name="gpt-4")
+            >>> llm = OpenAILLM(model_name="qwen3-max")
             >>> # ... use the llm asynchronously ...
             >>> await llm.close()
         """

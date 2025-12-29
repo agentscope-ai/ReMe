@@ -36,7 +36,7 @@ class OpenAILLMSync(OpenAILLM):
     
     Example:
         >>> llm = OpenAILLMSync(
-        ...     model_name="gpt-4",
+        ...     model_name="qwen3-max",
         ...     api_key="sk-...",
         ...     temperature=0.7
         ... )
@@ -137,7 +137,7 @@ class OpenAILLMSync(OpenAILLM):
         is no longer needed to avoid resource leaks.
         
         Example:
-            >>> llm = OpenAILLMSync(model_name="gpt-4")
+            >>> llm = OpenAILLMSync(model_name="qwen3-max")
             >>> # ... use the llm ...
             >>> llm.close_sync()
         """

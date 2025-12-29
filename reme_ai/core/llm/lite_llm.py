@@ -46,17 +46,12 @@ class LiteLLM(BaseLLM):
     
     Example:
         >>> llm = LiteLLM(
-        ...     model_name="gpt-4",
+        ...     model_name="qwen3-max",
         ...     api_key="sk-...",
         ...     temperature=0.7
         ... )
         >>> messages = [Message(role=Role.USER, content="Hello!")]
         >>> response = await llm.achat(messages)
-        
-        # Using different providers
-        >>> llm = LiteLLM(model_name="anthropic/claude-3-opus-20240229")
-        >>> llm = LiteLLM(model_name="azure/gpt-4")
-        >>> llm = LiteLLM(model_name="bedrock/anthropic.claude-v2")
     """
 
     def __init__(
@@ -76,8 +71,7 @@ class LiteLLM(BaseLLM):
             custom_llm_provider: LLM provider to use (default: "openai"). Supported values include
                                 "openai", "anthropic", "azure", "bedrock", "vertex_ai", etc.
             **kwargs: Additional arguments passed to BaseLLM, including:
-                - model_name: Name of the model to use (required). Can include provider prefix
-                             like "anthropic/claude-3-opus-20240229" or "azure/gpt-4"
+                - model_name: Name of the model to use (required).
                 - max_retries: Maximum retry attempts on failure (default: 3)
                 - raise_exception: Whether to raise exception on failure (default: False)
                 - temperature: Sampling temperature

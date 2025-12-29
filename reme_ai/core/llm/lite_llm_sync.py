@@ -33,7 +33,7 @@ class LiteLLMSync(LiteLLM):
     
     Example:
         >>> llm = LiteLLMSync(
-        ...     model_name="gpt-4",
+        ...     model_name="qwen3-max",
         ...     api_key="sk-...",
         ...     temperature=0.7
         ... )

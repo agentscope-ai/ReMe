@@ -38,7 +38,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
 
     Example:
         >>> embedding_model = OpenAIEmbeddingModel(
-        ...     model_name="text-embedding-3-large",
+        ...     model_name="text-embedding-v4",
         ...     api_key="sk-...",
         ...     dimensions=1024
         ... )
@@ -131,7 +131,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         model instance is no longer needed to avoid resource leaks.
 
         Example:
-            >>> embedding_model = OpenAIEmbeddingModel(model_name="text-embedding-3-large")
+            >>> embedding_model = OpenAIEmbeddingModel(model_name="text-embedding-v4")
             >>> # ... use the embedding model asynchronously ...
             >>> await embedding_model.close()
         """

@@ -31,7 +31,7 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
 
     Example:
         >>> embedding_model = OpenAIEmbeddingModelSync(
-        ...     model_name="text-embedding-3-large",
+        ...     model_name="text-embedding-v4",
         ...     api_key="sk-...",
         ...     dimensions=1024
         ... )
@@ -95,7 +95,7 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
         model instance is no longer needed to avoid resource leaks.
 
         Example:
-            >>> embedding_model = OpenAIEmbeddingModelSync(model_name="text-embedding-3-large")
+            >>> embedding_model = OpenAIEmbeddingModelSync(model_name="text-embedding-v4")
             >>> # ... use the embedding model ...
             >>> embedding_model.close_sync()
         """
