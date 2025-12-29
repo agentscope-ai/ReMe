@@ -1,12 +1,15 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-and QdrantVectorStore implementations. Tests can be run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, and ChromaVectorStore implementations. Tests can be 
+run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
     python test_vector_store.py --es         # Test ESVectorStore only
+    python test_vector_store.py --pgvector   # Test PGVectorStore only
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
+    python test_vector_store.py --chroma     # Test ChromaVectorStore only
     python test_vector_store.py --all        # Test all vector stores
 
 """
@@ -23,8 +26,10 @@ from reme_ai.core.embedding import OpenAIEmbeddingModel
 from reme_ai.core.schema import VectorNode
 from reme_ai.core.vector_store import (
     BaseVectorStore,
+    ChromaVectorStore,
     LocalVectorStore,
     ESVectorStore,
+    PGVectorStore,
     QdrantVectorStore,
 )
 
@@ -48,6 +53,21 @@ class TestConfig:
     QDRANT_PORT = None  # Set to port for remote mode (e.g., 6333)
     QDRANT_URL = "http://11.160.132.46:6333"  # Alternative to host/port (e.g., http://localhost:6333)
     QDRANT_API_KEY = None  # Set for Qdrant Cloud authentication
+    
+    # PGVectorStore settings
+    PG_DSN = "postgresql://localhost/postgres"  # PostgreSQL connection string
+    PG_MIN_SIZE = 1  # Minimum connections in pool
+    PG_MAX_SIZE = 5  # Maximum connections in pool
+    PG_USE_HNSW = True  # Use HNSW index for faster search
+    PG_USE_DISKANN = False  # Use DiskANN index (requires vectorscale extension)
+    
+    # ChromaVectorStore settings
+    CHROMA_PATH = "./test_vector_store_chroma"  # For local persistent mode
+    CHROMA_HOST = None  # Set to host address for remote mode (e.g., "localhost")
+    CHROMA_PORT = None  # Set to port for remote mode (e.g., 8000)
+    CHROMA_API_KEY = None  # Set for ChromaDB Cloud authentication
+    CHROMA_TENANT = None  # Set for ChromaDB Cloud tenant
+    CHROMA_DATABASE = None  # Set for ChromaDB Cloud database
     
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -158,7 +178,7 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
         
     Returns:
-        str: Type identifier ("local", "es", or "qdrant")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", or "chroma")
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -166,6 +186,10 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "qdrant"
     elif isinstance(store, ESVectorStore):
         return "es"
+    elif isinstance(store, PGVectorStore):
+        return "pgvector"
+    elif isinstance(store, ChromaVectorStore):
+        return "chroma"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
@@ -212,6 +236,27 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             api_key=config.QDRANT_API_KEY,
             distance="cosine",
             on_disk=False,
+        )
+    elif store_type == "pgvector":
+        return PGVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            dsn=config.PG_DSN,
+            min_size=config.PG_MIN_SIZE,
+            max_size=config.PG_MAX_SIZE,
+            use_hnsw=config.PG_USE_HNSW,
+            use_diskann=config.PG_USE_DISKANN,
+        )
+    elif store_type == "chroma":
+        return ChromaVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            path=config.CHROMA_PATH,
+            host=config.CHROMA_HOST,
+            port=config.CHROMA_PORT,
+            api_key=config.CHROMA_API_KEY,
+            tenant=config.CHROMA_TENANT,
+            database=config.CHROMA_DATABASE,
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -445,9 +490,9 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
     config = TestConfig()
     copy_collection_name = f"{config.TEST_COLLECTION_PREFIX}_{store_name}_copy"
     
-    # Elasticsearch requires lowercase index names
+    # Elasticsearch and PostgreSQL require lowercase table/index names
     store_type = get_store_type(store)
-    if store_type == "es":
+    if store_type in ("es", "pgvector"):
         copy_collection_name = copy_collection_name.lower()
     
     # Clean up if exists
@@ -621,6 +666,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(test_dir)
                 logger.info(f"Cleaned up local directory: {config.LOCAL_ROOT_PATH}")
         
+        # Clean up local directory if ChromaVectorStore
+        if store_type == "chroma" and config.CHROMA_PATH:
+            test_dir = Path(config.CHROMA_PATH)
+            if test_dir.exists():
+                shutil.rmtree(test_dir)
+                logger.info(f"Cleaned up chroma directory: {config.CHROMA_PATH}")
+        
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -638,7 +690,10 @@ async def main():
 Examples:
   python test_vector_store.py --local      # Test LocalVectorStore only
   python test_vector_store.py --es         # Test ESVectorStore only
-  python test_vector_store.py --all        # Test both vector stores
+  python test_vector_store.py --pgvector   # Test PGVectorStore only
+  python test_vector_store.py --qdrant     # Test QdrantVectorStore only
+  python test_vector_store.py --chroma     # Test ChromaVectorStore only
+  python test_vector_store.py --all        # Test all vector stores
         """,
     )
     parser.add_argument(
@@ -657,6 +712,16 @@ Examples:
         help="Test QdrantVectorStore",
     )
     parser.add_argument(
+        "--pgvector",
+        action="store_true",
+        help="Test PGVectorStore",
+    )
+    parser.add_argument(
+        "--chroma",
+        action="store_true",
+        help="Test ChromaVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -671,40 +736,28 @@ Examples:
         stores_to_test = [
             ("local", "LocalVectorStore"),
             ("es", "ESVectorStore"),
+            ("pgvector", "PGVectorStore"),
             ("qdrant", "QdrantVectorStore"),
+            ("chroma", "ChromaVectorStore"),
         ]
-    elif args.local and args.es and args.qdrant:
-        stores_to_test = [
-            ("local", "LocalVectorStore"),
-            ("es", "ESVectorStore"),
-            ("qdrant", "QdrantVectorStore"),
-        ]
-    elif args.local and args.es:
-        stores_to_test = [
-            ("local", "LocalVectorStore"),
-            ("es", "ESVectorStore"),
-        ]
-    elif args.local and args.qdrant:
-        stores_to_test = [
-            ("local", "LocalVectorStore"),
-            ("qdrant", "QdrantVectorStore"),
-        ]
-    elif args.es and args.qdrant:
-        stores_to_test = [
-            ("es", "ESVectorStore"),
-            ("qdrant", "QdrantVectorStore"),
-        ]
-    elif args.local:
-        stores_to_test = [("local", "LocalVectorStore")]
-    elif args.es:
-        stores_to_test = [("es", "ESVectorStore")]
-    elif args.qdrant:
-        stores_to_test = [("qdrant", "QdrantVectorStore")]
     else:
-        # Default to LocalVectorStore if no argument provided
-        stores_to_test = [("local", "LocalVectorStore")]
-        print("No vector store specified, defaulting to LocalVectorStore")
-        print("Use --all to test all vector stores, or --local/--es/--qdrant to test a specific one\n")
+        # Build list based on individual flags
+        if args.local:
+            stores_to_test.append(("local", "LocalVectorStore"))
+        if args.es:
+            stores_to_test.append(("es", "ESVectorStore"))
+        if args.pgvector:
+            stores_to_test.append(("pgvector", "PGVectorStore"))
+        if args.qdrant:
+            stores_to_test.append(("qdrant", "QdrantVectorStore"))
+        if args.chroma:
+            stores_to_test.append(("chroma", "ChromaVectorStore"))
+        
+        if not stores_to_test:
+            # Default to LocalVectorStore if no argument provided
+            stores_to_test = [("local", "LocalVectorStore")]
+            print("No vector store specified, defaulting to LocalVectorStore")
+            print("Use --all to test all vector stores, or --local/--es/--pgvector/--qdrant/--chroma to test specific ones\n")
 
     # Run tests for each vector store
     for store_type, store_name in stores_to_test:

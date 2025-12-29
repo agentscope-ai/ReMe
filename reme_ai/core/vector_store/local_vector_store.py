@@ -338,7 +338,7 @@ class LocalVectorStore(BaseVectorStore):
         # Add scores to metadata and return nodes
         results = []
         for node, score in scored_nodes:
-            node.metadata["_score"] = str(score)  # Store as string to match VectorNode schema
+            node.metadata["_score"] = score
             results.append(node)
         
         return results
