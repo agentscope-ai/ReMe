@@ -14,6 +14,26 @@ from ..schema import Message, ToolCall
 class OpenAITokenCounter(BaseTokenCounter):
     """The OpenAI token counting class."""
 
+    def __init__(self, model_name: str, **kwargs):
+        super().__init__(model_name, **kwargs)
+        self._encoding = None
+
+    @property
+    def encoding(self):
+        """Get tiktoken encoding with caching."""
+        if self._encoding is None:
+            import tiktoken
+
+            try:
+                self._encoding = tiktoken.encoding_for_model(self.model_name)
+                logger.info(f"token count: using model={self.model_name}")
+
+            except KeyError:
+                self._encoding = tiktoken.get_encoding("o200k_base")
+                logger.info("token count: using model=o200k_base")
+
+        return self._encoding
+
     def count_token(
         self,
         messages: List[Message],
@@ -21,15 +41,7 @@ class OpenAITokenCounter(BaseTokenCounter):
         **_kwargs,
     ) -> int:
         """Estimate token usage for messages and tool payloads using tiktoken."""
-        import tiktoken
-
-        try:
-            encoding = tiktoken.encoding_for_model(self.model_name)
-            logger.info(f"token count: using model={self.model_name}")
-
-        except KeyError:
-            encoding = tiktoken.get_encoding("o200k_base")
-            logger.info("token count: using model=o200k_base")
+        encoding = self.encoding
 
         num_tokens = 0
         # <|im_start|>system\n...<|im_end|>
