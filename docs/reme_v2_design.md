@@ -234,15 +234,15 @@ os.environ["OPENAI_BASE_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/
 openai_client = OpenAI()
 
 def chat_with_memories(
-    query: str, 
-    history_messages: list[dict], 
-    user_name: str = "", 
-    start_summary_size: int = 2, 
+    query: str,
+    history_messages: list[dict],
+    user_name: str = "",
+    start_summary_size: int = 2,
     keep_size: int = 0
 ) -> str:
     # Retrieve relevant memories for the query
     memories = memory.retrieve(query=query, user_id=user_name, limit=3)
-    
+
     # Build system prompt with memories
     system_prompt = (
         "You are a helpful AI named `Remy`. Use the user memories to answer the question. "
@@ -251,37 +251,37 @@ def chat_with_memories(
     if memories:
         memories_str = "\n".join(f"- {m['memory']}" for m in memories["results"])
         system_prompt += f"User Memories:\n{memories_str}\n"
-    
+
     # Generate response
     system_message = {"role": "system", "content": system_prompt}
     history_messages.append({"role": "user", "content": query})
     response = openai_client.chat.completions.create(
-        model="qwen-plus", 
+        model="qwen-plus",
         messages=[system_message] + history_messages
     )
     history_messages.append({"role": "assistant", "content": response.choices[0].message.content})
-    
+
     # Summarize history when it gets too long
     if len(history_messages) >= start_summary_size:
         memory.summary(history_messages[:-keep_size], user_id=user_name)
         print("Current memories: " + memory.list_memories(user_id=user_name))
         history_messages = history_messages[-keep_size:]
-        
+
     return history_messages[-1]["content"]
 
 def main():
     user_name = input("Enter your name: ").strip()
     print("Chat with Remy (type 'exit' to quit)")
-    
+
     messages = []
     while True:
         user_input = input(f"{user_name}: ").strip()
         if user_input.lower() == 'exit':
             print("Goodbye!")
             break
-        
+
         print(f"Remy: {chat_with_memories(user_input, messages, user_name)}")
-    
+
     # Cleanup
     memory.delete_all_memories(user_id=user_name)
     print("All memories deleted")
@@ -316,7 +316,7 @@ memory = ReMe(
 
 # Customize retriever and summarizer with custom tools and prompts
 memory.set_retriever(
-    AgenticRetriever(tools=[ATool(), BTool(), CTool()]), 
+    AgenticRetriever(tools=[ATool(), BTool(), CTool()]),
     system_prompt="Custom retrieval instructions..."
 )
 memory.set_summarizer(
@@ -497,10 +497,10 @@ ReadMetaMemoryOp()
 ReMeSummaryAgentV1Op(tools=[
   # Add meta memory entries for new memory types/targets
   AddMetaMemoryOp(list(memory_type, memory_target)),
-  
+
   # Add general summary memory as fallback
   AddSummaryMemoryOp(summary_memory),
-  
+
   # Delegate to specialized summary agents
   HandsOffOp(list(memory_type, memory_target), agents=[
     PersonalSummaryAgentV1Op,      # Summarize personal memories
@@ -536,10 +536,10 @@ ReMeRetrieveAgentV1Op(tools=[
   # - procedural(bfcl-v3): Procedural knowledge for BFCL-v3 benchmark
   # - tool(tool_guidelines): Guidelines for tool usage
   # - identity(self): Agent's self-identity information
-  
+
   # Layer 1+2: Vector-based retrieval on structured memories
   VectorRetrieveMemoryOp(list(memory_type, memory_target, query)),
-  
+
   # Layer 3: Load full conversation history for specific memory
   ReadHistoryMemoryOp(ref_memory_id),
 ])
@@ -568,7 +568,7 @@ Step 1: Progressive summarization across sessions
            session1: List[Message] -> session2: List[Message] -> session3: List[Message] -> ...
 summary    ✓ (always)                 ✓ (always)                 ✓ (always)
 personal   ✗                          ✗                          ✓ (when applicable)
-procedural ✗                          ✓ (when applicable)        ✗ 
+procedural ✗                          ✓ (when applicable)        ✗
 
 Step 2: Retrieval with fallback strategy
 vector_retrieve_memory(query, memory_type="personal", memory_target="jinli")

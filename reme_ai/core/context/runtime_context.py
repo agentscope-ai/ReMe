@@ -8,10 +8,10 @@ from ..schema import StreamChunk
 
 class RuntimeContext(BaseContext):
     def __init__(
-            self,
-            response: Response | None = None,
-            stream_queue: asyncio.Queue | None = None,
-            **kwargs,
+        self,
+        response: Response | None = None,
+        stream_queue: asyncio.Queue | None = None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
 

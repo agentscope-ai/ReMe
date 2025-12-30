@@ -30,7 +30,7 @@ class BaseLLM(ABC):
 
     The class provides built-in retry logic and error handling for robust operation
     in production environments.
-    
+
     Attributes:
         model_name: Name of the LLM model to use
         max_retries: Maximum number of retries on failure
@@ -55,9 +55,9 @@ class BaseLLM(ABC):
 
     @staticmethod
     def _process_stream_chunk(
-            stream_chunk: StreamChunk,
-            state: dict,
-            enable_stream_print: bool = False
+        stream_chunk: StreamChunk,
+        state: dict,
+        enable_stream_print: bool = False,
     ) -> None:
         """
         Process a single stream chunk and update the aggregation state.
@@ -73,25 +73,25 @@ class BaseLLM(ABC):
 
         elif stream_chunk.chunk_type is ChunkEnum.THINK:
             if enable_stream_print:
-                if not state['enter_think']:
-                    state['enter_think'] = True
+                if not state["enter_think"]:
+                    state["enter_think"] = True
                     print("<think>\n", end="", flush=True)
                 print(stream_chunk.chunk, end="", flush=True)
-            state['reasoning_content'] += stream_chunk.chunk
+            state["reasoning_content"] += stream_chunk.chunk
 
         elif stream_chunk.chunk_type is ChunkEnum.ANSWER:
             if enable_stream_print:
-                if not state['enter_answer']:
-                    state['enter_answer'] = True
-                    if state['enter_think']:
+                if not state["enter_answer"]:
+                    state["enter_answer"] = True
+                    if state["enter_think"]:
                         print("\n</think>", flush=True)
                 print(stream_chunk.chunk, end="", flush=True)
-            state['answer_content'] += stream_chunk.chunk
+            state["answer_content"] += stream_chunk.chunk
 
         elif stream_chunk.chunk_type is ChunkEnum.TOOL:
             if enable_stream_print:
                 print(f"\n<tool>{json.dumps(stream_chunk.chunk, ensure_ascii=False, indent=2)}</tool>", flush=True)
-            state['tool_calls'].append(stream_chunk.chunk)
+            state["tool_calls"].append(stream_chunk.chunk)
 
         elif stream_chunk.chunk_type is ChunkEnum.ERROR:
             if enable_stream_print:
@@ -110,23 +110,23 @@ class BaseLLM(ABC):
         """
         return Message(
             role=Role.ASSISTANT,
-            reasoning_content=state['reasoning_content'],
-            content=state['answer_content'],
-            tool_calls=state['tool_calls'],
+            reasoning_content=state["reasoning_content"],
+            content=state["answer_content"],
+            tool_calls=state["tool_calls"],
         )
 
     @staticmethod
     def _accumulate_tool_call_chunk(
-            tool_call,
-            ret_tools: List[ToolCall]
+        tool_call,
+        ret_tools: List[ToolCall],
     ) -> None:
         """
         Process and accumulate tool call chunks from streaming response.
-        
-        OpenAI/LiteLLM stream tool calls incrementally, sending id, name, and 
+
+        OpenAI/LiteLLM stream tool calls incrementally, sending id, name, and
         arguments in separate chunks. This method accumulates these fragments
         into complete ToolCall objects.
-        
+
         Args:
             tool_call: Tool call chunk from the API response (has index, id, function)
             ret_tools: List to accumulate tool calls (modified in place)
@@ -149,24 +149,24 @@ class BaseLLM(ABC):
 
     @staticmethod
     def _validate_and_serialize_tools(
-            ret_tools: List[ToolCall],
-            tools: Optional[List[ToolCall]]
+        ret_tools: List[ToolCall],
+        tools: Optional[List[ToolCall]],
     ) -> List[Dict]:
         """
         Validate accumulated tool calls and return serialized versions.
-        
+
         This method:
         1. Filters out tools not in the original tool list
         2. Validates that tool arguments are valid JSON
         3. Serializes valid tools for output
-        
+
         Args:
             ret_tools: Accumulated tool calls from stream
             tools: Original tool definitions provided to the model
-        
+
         Returns:
             List of validated and serialized tool call dictionaries
-        
+
         Raises:
             ValueError: If a tool call has invalid JSON arguments
         """
@@ -185,7 +185,7 @@ class BaseLLM(ABC):
             # Validate tool arguments are valid JSON
             if not tool.check_argument():
                 raise ValueError(
-                    f"Tool call {tool.name} has invalid JSON arguments: {tool.arguments}"
+                    f"Tool call {tool.name} has invalid JSON arguments: {tool.arguments}",
                 )
 
             validated_tools.append(tool.simple_output_dump())
@@ -193,11 +193,11 @@ class BaseLLM(ABC):
         return validated_tools
 
     def _build_stream_kwargs(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            log_params: bool = True,
-            **kwargs
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        log_params: bool = True,
+        **kwargs,
     ) -> dict:
         """
         Build kwargs for streaming chat API calls.
@@ -218,10 +218,10 @@ class BaseLLM(ABC):
         raise NotImplementedError
 
     async def _stream_chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Internal async method to stream chat completions from the LLM.
@@ -244,10 +244,11 @@ class BaseLLM(ABC):
         raise NotImplementedError
 
     def _stream_chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None) -> Generator[StreamChunk, None, None]:
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
+    ) -> Generator[StreamChunk, None, None]:
         """
         Internal sync method to stream chat completions from the LLM.
 
@@ -269,11 +270,11 @@ class BaseLLM(ABC):
         raise NotImplementedError
 
     async def _stream_with_retry(
-            self,
-            operation_name: str,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]],
-            stream_kwargs: dict,
+        self,
+        operation_name: str,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]],
+        stream_kwargs: dict,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Execute async streaming operation with retry logic and error handling.
@@ -306,11 +307,11 @@ class BaseLLM(ABC):
                 await asyncio.sleep(i + 1)
 
     def _stream_with_retry_sync(
-            self,
-            operation_name: str,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]],
-            stream_kwargs: dict,
+        self,
+        operation_name: str,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]],
+        stream_kwargs: dict,
     ) -> Generator[StreamChunk, None, None]:
         """
         Execute a sync streaming operation with retry logic and error handling.
@@ -343,10 +344,10 @@ class BaseLLM(ABC):
                 time.sleep(i + 1)
 
     async def stream_chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        **kwargs,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Stream chat completions with automatic retry logic and error handling.
@@ -369,10 +370,10 @@ class BaseLLM(ABC):
             yield chunk
 
     def stream_chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        **kwargs,
     ) -> Generator[StreamChunk, None, None]:
         """
         Sync stream chat completions with automatic retry logic and error handling.
@@ -394,11 +395,11 @@ class BaseLLM(ABC):
         yield from self._stream_with_retry_sync("stream chat sync", messages, tools, stream_kwargs)
 
     async def _chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            enable_stream_print: bool = False,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        enable_stream_print: bool = False,
+        **kwargs,
     ) -> Message:
         """
         Internal async method to perform a single chat completion by aggregating streaming chunks.
@@ -417,11 +418,11 @@ class BaseLLM(ABC):
             Complete Message with all content aggregated from streaming chunks
         """
         state = {
-            'enter_think': False,
-            'enter_answer': False,
-            'reasoning_content': '',
-            'answer_content': '',
-            'tool_calls': []
+            "enter_think": False,
+            "enter_answer": False,
+            "reasoning_content": "",
+            "answer_content": "",
+            "tool_calls": [],
         }
 
         stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
@@ -431,11 +432,11 @@ class BaseLLM(ABC):
         return self._create_message_from_state(state)
 
     def _chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            enable_stream_print: bool = False,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        enable_stream_print: bool = False,
+        **kwargs,
     ) -> Message:
         """
         Internal sync method to perform a single chat completion by aggregating streaming chunks.
@@ -454,11 +455,11 @@ class BaseLLM(ABC):
             Complete Message with all content aggregated from streaming chunks
         """
         state = {
-            'enter_think': False,
-            'enter_answer': False,
-            'reasoning_content': '',
-            'answer_content': '',
-            'tool_calls': []
+            "enter_think": False,
+            "enter_answer": False,
+            "reasoning_content": "",
+            "answer_content": "",
+            "tool_calls": [],
         }
 
         stream_kwargs = self._build_stream_kwargs(messages, tools, **kwargs)
@@ -468,11 +469,11 @@ class BaseLLM(ABC):
         return self._create_message_from_state(state)
 
     async def _execute_with_retry(
-            self,
-            operation_name: str,
-            operation_fn: Callable[[], Any],
-            callback_fn: Optional[Callable[[Message], Any]] = None,
-            default_value: Any = None,
+        self,
+        operation_name: str,
+        operation_fn: Callable[[], Any],
+        callback_fn: Optional[Callable[[Message], Any]] = None,
+        default_value: Any = None,
     ) -> Message | Any:
         """
         Execute async operation with retry logic and error handling.
@@ -503,11 +504,11 @@ class BaseLLM(ABC):
         return default_value
 
     def _execute_with_retry_sync(
-            self,
-            operation_name: str,
-            operation_fn: Callable[[], Message],
-            callback_fn: Optional[Callable[[Message], Any]] = None,
-            default_value: Any = None,
+        self,
+        operation_name: str,
+        operation_fn: Callable[[], Message],
+        callback_fn: Optional[Callable[[Message], Any]] = None,
+        default_value: Any = None,
     ) -> Message | Any:
         """
         Execute a sync operation with retry logic and error handling.
@@ -538,13 +539,13 @@ class BaseLLM(ABC):
         return default_value
 
     async def chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            enable_stream_print: bool = False,
-            callback_fn: Optional[Callable[[Message], Any]] = None,
-            default_value: Any = None,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        enable_stream_print: bool = False,
+        callback_fn: Optional[Callable[[Message], Any]] = None,
+        default_value: Any = None,
+        **kwargs,
     ) -> Message | Any:
         """
         Chat completion with automatic retry logic and error handling.
@@ -584,13 +585,13 @@ class BaseLLM(ABC):
         )
 
     def chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            enable_stream_print: bool = False,
-            callback_fn: Optional[Callable[[Message], Any]] = None,
-            default_value: Any = None,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        enable_stream_print: bool = False,
+        callback_fn: Optional[Callable[[Message], Any]] = None,
+        default_value: Any = None,
+        **kwargs,
     ) -> Message | Any:
         """
         Perform a sync chat completion with automatic retry logic and error handling.

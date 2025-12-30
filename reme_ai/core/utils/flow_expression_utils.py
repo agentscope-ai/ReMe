@@ -4,7 +4,7 @@ if TYPE_CHECKING:
     from ..op import BaseOp
 
 
-def parse_flow_expression(flow_content: str) -> "BaseOp":
+def parse_flow_expression(flow_content: str) -> BaseOp:
     from ..context import C
     from ..enumeration import RegistryEnum
     from ..op import BaseOp

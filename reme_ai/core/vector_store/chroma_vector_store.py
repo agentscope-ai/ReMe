@@ -13,7 +13,7 @@ try:
     from chromadb.config import Settings
 except ImportError:
     raise ImportError(
-        "The 'chromadb' library is required. Please install it using 'pip install chromadb'."
+        "The 'chromadb' library is required. Please install it using 'pip install chromadb'.",
     )
 
 from .base_vector_store import BaseVectorStore
@@ -25,31 +25,31 @@ from ..schema import VectorNode
 @C.register_vector_store("chroma")
 class ChromaVectorStore(BaseVectorStore):
     """ChromaDB-based vector store implementation.
-    
+
     This class provides vector storage using ChromaDB, supporting both local persistent
     storage and remote server connections. All database operations are wrapped to run
     asynchronously in a thread pool executor.
-    
+
     Attributes:
         client: ChromaDB client instance.
         collection: Current active collection.
     """
 
     def __init__(
-            self,
-            collection_name: str,
-            embedding_model: BaseEmbeddingModel,
-            client: Optional[chromadb.Client] = None,
-            host: Optional[str] = None,
-            port: Optional[int] = None,
-            path: Optional[str] = None,
-            api_key: Optional[str] = None,
-            tenant: Optional[str] = None,
-            database: Optional[str] = None,
-            **kwargs,
+        self,
+        collection_name: str,
+        embedding_model: BaseEmbeddingModel,
+        client: Optional[chromadb.Client] = None,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        path: Optional[str] = None,
+        api_key: Optional[str] = None,
+        tenant: Optional[str] = None,
+        database: Optional[str] = None,
+        **kwargs,
     ):
         """Initialize the ChromaDB vector store.
-        
+
         Args:
             collection_name: Name of the collection to use.
             embedding_model: Embedding model for generating embeddings. Cannot be None.
@@ -65,7 +65,7 @@ class ChromaVectorStore(BaseVectorStore):
         super().__init__(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            **kwargs
+            **kwargs,
         )
 
         self.client: chromadb.Client
@@ -103,16 +103,16 @@ class ChromaVectorStore(BaseVectorStore):
         )
 
     def _parse_results(
-            self,
-            results: Dict,
-            include_score: bool = False
+        self,
+        results: Dict,
+        include_score: bool = False,
     ) -> List[VectorNode]:
         """Parse ChromaDB query results into VectorNode list.
-        
+
         Args:
             results: ChromaDB query result dictionary.
             include_score: Whether to include similarity scores in metadata.
-            
+
         Returns:
             List of VectorNode objects.
         """
@@ -158,12 +158,12 @@ class ChromaVectorStore(BaseVectorStore):
     @staticmethod
     def _generate_where_clause(filters: Optional[Dict]) -> Optional[Dict]:
         """Generate a properly formatted where clause for ChromaDB.
-        
+
         Converts universal filter format to ChromaDB's filter format.
-        
+
         Args:
             filters: The filter conditions in universal format.
-            
+
         Returns:
             Properly formatted where clause for ChromaDB, or None if no filters.
         """
@@ -261,7 +261,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def list_collections(self) -> List[str]:
         """List all available collections in the ChromaDB.
-        
+
         Returns:
             A list of collection names.
         """
@@ -274,7 +274,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def create_collection(self, collection_name: str, **kwargs):
         """Create a new collection in ChromaDB.
-        
+
         Args:
             collection_name: Name of the collection to create.
             **kwargs: Additional collection-specific configuration parameters.
@@ -302,7 +302,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def delete_collection(self, collection_name: str, **kwargs):
         """Delete a collection from ChromaDB.
-        
+
         Args:
             collection_name: Name of the collection to delete.
             **kwargs: Additional parameters (ignored for ChromaDB).
@@ -326,7 +326,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def copy_collection(self, collection_name: str, **kwargs):
         """Copy the current collection to a new collection.
-        
+
         Args:
             collection_name: Name for the new copied collection.
             **kwargs: Additional parameters (ignored for ChromaDB).
@@ -359,7 +359,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def insert(self, nodes: VectorNode | List[VectorNode], **kwargs):
         """Insert one or more vector nodes into the collection.
-        
+
         Args:
             nodes: A single VectorNode or list of VectorNodes to insert.
             **kwargs: Additional parameters.
@@ -396,27 +396,27 @@ class ChromaVectorStore(BaseVectorStore):
 
         # Insert in batches
         for i in range(0, len(nodes_to_insert), batch_size):
-            batch = nodes_to_insert[i:i + batch_size]
+            batch = nodes_to_insert[i : i + batch_size]
             await self._run_sync_in_executor(_insert_batch, batch)
 
         logger.info(f"Inserted {len(nodes_to_insert)} nodes into {self.collection_name}")
 
     async def search(
-            self,
-            query: str,
-            limit: int = 5,
-            filters: dict | None = None,
-            **kwargs
+        self,
+        query: str,
+        limit: int = 5,
+        filters: dict | None = None,
+        **kwargs,
     ) -> List[VectorNode]:
         """Search for the most similar vectors to the given query.
-        
+
         Args:
             query: The text query to search for.
             limit: Maximum number of results to return (default: 5).
             filters: Optional metadata filters to apply.
             **kwargs: Additional search parameters.
                 Supported: score_threshold (float), include_embeddings (bool).
-            
+
         Returns:
             A list of VectorNodes ordered by similarity score (most similar first).
         """
@@ -445,16 +445,13 @@ class ChromaVectorStore(BaseVectorStore):
         # Apply score threshold if provided
         score_threshold = kwargs.get("score_threshold")
         if score_threshold is not None:
-            nodes = [
-                node for node in nodes
-                if node.metadata.get("_score", 0) >= score_threshold
-            ]
+            nodes = [node for node in nodes if node.metadata.get("_score", 0) >= score_threshold]
 
         return nodes
 
     async def delete(self, vector_ids: str | List[str], **kwargs):
         """Delete one or more vectors by their IDs.
-        
+
         Args:
             vector_ids: A single vector ID or list of IDs to delete.
             **kwargs: Additional parameters (ignored for ChromaDB).
@@ -474,7 +471,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def update(self, nodes: VectorNode | List[VectorNode], **kwargs):
         """Update one or more existing vectors in the collection.
-        
+
         Args:
             nodes: A single VectorNode or list of VectorNodes with updated data.
             **kwargs: Additional parameters (ignored for ChromaDB).
@@ -512,10 +509,10 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def get(self, vector_ids: str | List[str]) -> VectorNode | List[VectorNode]:
         """Retrieve one or more vectors by their IDs.
-        
+
         Args:
             vector_ids: A single vector ID or list of IDs to retrieve.
-            
+
         Returns:
             A single VectorNode (if single ID provided) or list of VectorNodes
             (if list of IDs provided).
@@ -540,16 +537,16 @@ class ChromaVectorStore(BaseVectorStore):
         return nodes
 
     async def list(
-            self,
-            filters: dict | None = None,
-            limit: int | None = None
+        self,
+        filters: dict | None = None,
+        limit: int | None = None,
     ) -> List[VectorNode]:
         """List vectors in the collection with optional filtering.
-        
+
         Args:
             filters: Optional metadata filters to apply.
             limit: Optional maximum number of vectors to return.
-                
+
         Returns:
             A list of VectorNodes matching the filters.
         """
@@ -568,7 +565,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def count(self) -> int:
         """Get the number of vectors in the collection.
-        
+
         Returns:
             Number of vectors in the collection.
         """
@@ -595,7 +592,7 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def close(self):
         """Close the vector store and release resources.
-        
+
         For ChromaDB, cleanup may not be strictly necessary but we log it.
         """
         logger.info(f"ChromaDB vector store for collection {self.collection_name} closed")

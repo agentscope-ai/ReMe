@@ -95,12 +95,12 @@ class Message(BaseModel):
         return result
 
     def format_message(
-            self,
-            i: int | None = None,
-            add_time_created: bool = False,
-            use_name_first: bool = False,
-            add_reasoning_content: bool = True,
-            add_tool_calls: bool = True
+        self,
+        i: int | None = None,
+        add_time_created: bool = False,
+        use_name_first: bool = False,
+        add_reasoning_content: bool = True,
+        add_tool_calls: bool = True,
     ) -> str:
         content = ""
         if i is not None:

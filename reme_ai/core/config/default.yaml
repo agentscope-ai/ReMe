@@ -1,0 +1,84 @@
+backend: http
+thread_pool_max_workers: 64
+
+mcp:
+  transport: sse
+  host: "0.0.0.0"
+  port: 8001
+
+http:
+  host: "0.0.0.0"
+  port: 8002
+  timeout_keep_alive: 600
+  limit_concurrency: 64
+
+llm:
+  default:
+    backend: openai_compatible
+    model_name: qwen3-30b-a3b-instruct-2507
+    temperature: 0.6
+
+  qwen3_coder_plus:
+    backend: openai_compatible
+    model_name: qwen3-coder-plus
+
+  qwen3_coder_480b_instruct:
+    backend: openai_compatible
+    model_name: qwen3-coder-480b-a35b-instruct
+
+  qwen3_coder_30b_instruct:
+    backend: openai_compatible
+    model_name: qwen3-coder-30b-a3b-instruct
+
+  qwen3_30b_instruct:
+    backend: openai_compatible
+    model_name: qwen3-30b-a3b-instruct-2507
+
+  qwen3_30b_thinking:
+    backend: openai_compatible
+    model_name: qwen3-30b-a3b-thinking-2507
+
+  qwen3_235b_instruct:
+    backend: openai_compatible
+    model_name: qwen3-235b-a22b-instruct-2507
+
+  qwen3_235b_thinking:
+    backend: openai_compatible
+    model_name: qwen3-235b-a22b-thinking-2507
+
+  qwen3_80b_instruct:
+    backend: openai_compatible
+    model_name: qwen3-next-80b-a3b-instruct
+
+  qwen3_80b_thinking:
+    backend: openai_compatible
+    model_name: qwen3-next-80b-a3b-thinking
+
+  qwen3_max_instruct:
+    backend: openai_compatible
+    model_name: qwen3-max
+
+  qwen25_max_instruct:
+    backend: openai_compatible
+    model_name: qwen-max-2025-01-25
+
+embedding_model:
+  default:
+    backend: openai_compatible
+    model_name: text-embedding-v4
+    dimensions: 1024
+
+vector_store:
+  default:
+    backend: local
+    collection_name: remy
+    embedding_model: default
+
+token_counter:
+  default:
+    backend: base
+
+  hf:
+    backend: hf
+    model_name: Qwen/Qwen3-Coder-30B-A3B-Instruct
+    use_mirror: true

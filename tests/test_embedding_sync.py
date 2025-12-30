@@ -10,6 +10,7 @@ Usage:
     python test_embedding_sync.py --openai      # Test OpenAIEmbeddingModelSync only
     python test_embedding_sync.py --all         # Test all embedding models
 """
+
 import argparse
 from typing import Type, List
 
@@ -55,11 +56,11 @@ def get_large_batch_texts() -> List[str]:
         "Education and learning systems",
         "Transportation and urban planning",
     ]
-    
+
     for i, topic in enumerate(topics):
         for j in range(3):
             texts.append(f"Text {i*3+j+1}: This is a sample text about {topic}.")
-    
+
     return texts  # 24 texts total
 
 
@@ -80,10 +81,10 @@ def test_sync_single_embedding(model_class: Type[BaseEmbeddingModel], model_name
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Single Text Embedding")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     test_text = "Hello, this is a test sentence for embedding."
-    
+
     print(f"Input text: {test_text}")
 
     embedding = model.get_embeddings_sync(test_text)
@@ -93,7 +94,7 @@ def test_sync_single_embedding(model_class: Type[BaseEmbeddingModel], model_name
     assert len(embedding) > 0, f"{model_name}: Empty embedding"
     assert len(embedding) == model.dimensions, f"{model_name}: Embedding dimension mismatch"
     assert all(isinstance(x, float) for x in embedding), f"{model_name}: Not all elements are floats"
-    
+
     print(f"\n✓ Embedding generated successfully")
     print(f"  - Dimension: {len(embedding)}")
     print(f"  - First 5 values: {embedding[:5]}")
@@ -108,10 +109,10 @@ def test_sync_batch_embeddings(model_class: Type[BaseEmbeddingModel], model_name
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Batch Text Embeddings")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     test_texts = get_test_texts()
-    
+
     print(f"Input: {len(test_texts)} texts")
     for i, text in enumerate(test_texts[:3], 1):
         print(f"  {i}. {text[:50]}...")
@@ -121,12 +122,12 @@ def test_sync_batch_embeddings(model_class: Type[BaseEmbeddingModel], model_name
     assert embeddings is not None, f"{model_name}: Embeddings is None"
     assert isinstance(embeddings, list), f"{model_name}: Embeddings is not a list"
     assert len(embeddings) == len(test_texts), f"{model_name}: Embeddings count mismatch"
-    
+
     for i, emb in enumerate(embeddings):
         assert isinstance(emb, list), f"{model_name}: Embedding {i} is not a list"
         assert len(emb) == model.dimensions, f"{model_name}: Embedding {i} dimension mismatch"
         assert all(isinstance(x, float) for x in emb), f"{model_name}: Embedding {i} has non-float values"
-    
+
     print(f"\n✓ Batch embeddings generated successfully")
     print(f"  - Count: {len(embeddings)}")
     print(f"  - Dimension: {len(embeddings[0])}")
@@ -141,10 +142,10 @@ def test_sync_large_batch_embeddings(model_class: Type[BaseEmbeddingModel], mode
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Large Batch with Auto-Batching")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     test_texts = get_large_batch_texts()
-    
+
     print(f"Input: {len(test_texts)} texts")
     print(f"Max batch size: {model.max_batch_size}")
     print(f"Expected batches: {(len(test_texts) + model.max_batch_size - 1) // model.max_batch_size}")
@@ -154,12 +155,12 @@ def test_sync_large_batch_embeddings(model_class: Type[BaseEmbeddingModel], mode
     assert embeddings is not None, f"{model_name}: Embeddings is None"
     assert isinstance(embeddings, list), f"{model_name}: Embeddings is not a list"
     assert len(embeddings) == len(test_texts), f"{model_name}: Embeddings count mismatch"
-    
+
     # Check all embeddings are valid
     for i, emb in enumerate(embeddings):
         assert isinstance(emb, list), f"{model_name}: Embedding {i} is not a list"
         assert len(emb) == model.dimensions, f"{model_name}: Embedding {i} dimension mismatch"
-    
+
     print(f"\n✓ Large batch embeddings generated successfully")
     print(f"  - Total texts: {len(test_texts)}")
     print(f"  - Total embeddings: {len(embeddings)}")
@@ -174,13 +175,13 @@ def test_sync_single_node_embedding(model_class: Type[BaseEmbeddingModel], model
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Single VectorNode Embedding")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     node = VectorNode(
         content="This is a test node for embedding.",
         metadata={"test": "true"},
     )
-    
+
     print(f"Input node content: {node.content}")
     print(f"Initial vector: {node.vector}")
 
@@ -190,7 +191,7 @@ def test_sync_single_node_embedding(model_class: Type[BaseEmbeddingModel], model
     assert result_node.vector is not None, f"{model_name}: Node vector is None"
     assert isinstance(result_node.vector, list), f"{model_name}: Vector is not a list"
     assert len(result_node.vector) == model.dimensions, f"{model_name}: Vector dimension mismatch"
-    
+
     print(f"\n✓ Node embedding generated successfully")
     print(f"  - Vector dimension: {len(result_node.vector)}")
     print(f"  - First 5 values: {result_node.vector[:5]}")
@@ -205,10 +206,10 @@ def test_sync_batch_node_embeddings(model_class: Type[BaseEmbeddingModel], model
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Batch VectorNode Embeddings")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     nodes = get_test_nodes()
-    
+
     print(f"Input: {len(nodes)} nodes")
     for i, node in enumerate(nodes[:3], 1):
         print(f"  {i}. {node.content[:50]}...")
@@ -218,13 +219,13 @@ def test_sync_batch_node_embeddings(model_class: Type[BaseEmbeddingModel], model
     assert result_nodes is not None, f"{model_name}: Result nodes is None"
     assert isinstance(result_nodes, list), f"{model_name}: Result is not a list"
     assert len(result_nodes) == len(nodes), f"{model_name}: Nodes count mismatch"
-    
+
     for i, node in enumerate(result_nodes):
         assert node.vector is not None, f"{model_name}: Node {i} vector is None"
         assert isinstance(node.vector, list), f"{model_name}: Node {i} vector is not a list"
         assert len(node.vector) == model.dimensions, f"{model_name}: Node {i} dimension mismatch"
         assert node.metadata is not None, f"{model_name}: Node {i} metadata is None"
-    
+
     print(f"\n✓ Batch node embeddings generated successfully")
     print(f"  - Count: {len(result_nodes)}")
     print(f"  - All vectors populated: {all(n.vector is not None for n in result_nodes)}")
@@ -239,11 +240,11 @@ def test_sync_large_batch_node_embeddings(model_class: Type[BaseEmbeddingModel],
     print(f"\n{'='*60}")
     print(f"Testing {model_name}: Sync Large Batch Node Embeddings")
     print(f"{'='*60}")
-    
+
     model = get_embedding_model(model_class)
     texts = get_large_batch_texts()
     nodes = [VectorNode(content=text, metadata={"index": str(i)}) for i, text in enumerate(texts)]
-    
+
     print(f"Input: {len(nodes)} nodes")
     print(f"Max batch size: {model.max_batch_size}")
     print(f"Expected batches: {(len(nodes) + model.max_batch_size - 1) // model.max_batch_size}")
@@ -252,7 +253,7 @@ def test_sync_large_batch_node_embeddings(model_class: Type[BaseEmbeddingModel],
 
     assert result_nodes is not None, f"{model_name}: Result nodes is None"
     assert len(result_nodes) == len(nodes), f"{model_name}: Nodes count mismatch"
-    
+
     # Check all nodes have embeddings
     nodes_with_vectors = sum(1 for n in result_nodes if n.vector is not None)
     print(f"\n✓ Large batch node embeddings generated successfully")
@@ -271,14 +272,14 @@ def run_all_tests_for_model(model_class: Type[BaseEmbeddingModel], model_name: s
     print(f"\n\n{'#'*60}")
     print(f"# Running all tests for: {model_name}")
     print(f"{'#'*60}")
-    
+
     test_sync_single_embedding(model_class, model_name)
     test_sync_batch_embeddings(model_class, model_name)
     test_sync_large_batch_embeddings(model_class, model_name)
     test_sync_single_node_embedding(model_class, model_name)
     test_sync_batch_node_embeddings(model_class, model_name)
     test_sync_large_batch_node_embeddings(model_class, model_name)
-    
+
     print(f"\n{'='*60}")
     print(f"✓ All tests passed for {model_name}!")
     print(f"{'='*60}")
@@ -310,7 +311,7 @@ Examples:
 
     # Determine which models to test
     models_to_test = []
-    
+
     if args.all or args.openai:
         models_to_test.append((OpenAIEmbeddingModelSync, "OpenAIEmbeddingModelSync"))
     else:
@@ -340,4 +341,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -17,14 +17,14 @@ from ..utils import camel_to_snake, CacheHandler
 class BaseFlow(ABC):
 
     def __init__(
-            self,
-            name: str = "",
-            stream: bool = False,
-            raise_exception: bool = True,
-            enable_cache: bool = False,
-            cache_path: str = "cache/flow",
-            cache_expire_hours: float = 0.1,
-            **kwargs,
+        self,
+        name: str = "",
+        stream: bool = False,
+        raise_exception: bool = True,
+        enable_cache: bool = False,
+        cache_path: str = "cache/flow",
+        cache_expire_hours: float = 0.1,
+        **kwargs,
     ):
         super().__init__()
 

@@ -28,26 +28,26 @@ from ..context import C
 @C.register_vector_store("es")
 class ESVectorStore(BaseVectorStore):
     """Elasticsearch-based vector store implementation.
-    
+
     This class provides a production-ready vector storage solution using Elasticsearch's
     dense_vector field type and kNN search capabilities. It supports both cloud and
     self-hosted Elasticsearch deployments with full async operations.
     """
 
     def __init__(
-            self,
-            collection_name: str,
-            embedding_model: BaseEmbeddingModel,
-            hosts: Union[str, List[str], None] = None,
-            basic_auth: Union[Tuple[str, str], None] = None,
-            cloud_id: str | None = None,
-            api_key: str | None = None,
-            verify_certs: bool = True,
-            headers: Dict[str, str] | None = None,
-            **kwargs,
+        self,
+        collection_name: str,
+        embedding_model: BaseEmbeddingModel,
+        hosts: Union[str, List[str], None] = None,
+        basic_auth: Union[Tuple[str, str], None] = None,
+        cloud_id: str | None = None,
+        api_key: str | None = None,
+        verify_certs: bool = True,
+        headers: Dict[str, str] | None = None,
+        **kwargs,
     ):
         """Initialize the Elasticsearch vector store.
-        
+
         Args:
             collection_name: Name of the Elasticsearch index to use. Will be converted to lowercase
                 as required by Elasticsearch.
@@ -65,7 +65,7 @@ class ESVectorStore(BaseVectorStore):
         """
         if _ELASTICSEARCH_IMPORT_ERROR is not None:
             raise ImportError(
-                "Elasticsearch requires extra dependencies. Install with `pip install elasticsearch`"
+                "Elasticsearch requires extra dependencies. Install with `pip install elasticsearch`",
             ) from _ELASTICSEARCH_IMPORT_ERROR
 
         # Elasticsearch requires lowercase index names
@@ -85,7 +85,7 @@ class ESVectorStore(BaseVectorStore):
 
     async def list_collections(self) -> List[str]:
         """List all available collections (indices) in Elasticsearch.
-        
+
         Returns:
             A list of index names.
         """
@@ -94,7 +94,7 @@ class ESVectorStore(BaseVectorStore):
 
     async def create_collection(self, collection_name: str, **kwargs):
         """Create a new Elasticsearch index with dense vector mappings.
-        
+
         Args:
             collection_name: Name of the index to create. Will be converted to lowercase
                 as required by Elasticsearch.
@@ -120,7 +120,7 @@ class ESVectorStore(BaseVectorStore):
                     "number_of_replicas": number_of_replicas,
                     "number_of_shards": number_of_shards,
                     "refresh_interval": refresh_interval,
-                }
+                },
             },
             "mappings": {
                 "properties": {
@@ -133,7 +133,7 @@ class ESVectorStore(BaseVectorStore):
                         "similarity": similarity,
                     },
                     "metadata": {"type": "object", "enabled": True},
-                }
+                },
             },
         }
 
@@ -145,7 +145,7 @@ class ESVectorStore(BaseVectorStore):
 
     async def delete_collection(self, collection_name: str, **kwargs):
         """Delete an Elasticsearch index.
-        
+
         Args:
             collection_name: Name of the index to delete. Will be converted to lowercase
                 as required by Elasticsearch.
@@ -162,10 +162,10 @@ class ESVectorStore(BaseVectorStore):
 
     async def copy_collection(self, collection_name: str, **kwargs):
         """Copy the current collection to a new collection.
-        
+
         This uses Elasticsearch's reindex API to copy documents from the current
         collection to a new one.
-        
+
         Args:
             collection_name: Name for the new copied collection. Will be converted to lowercase
                 as required by Elasticsearch.
@@ -184,8 +184,13 @@ class ESVectorStore(BaseVectorStore):
             index_settings = settings_to_copy["index"].copy()
             # Remove internal/auto-generated settings
             internal_keys = [
-                "uuid", "creation_date", "provided_name", "version",
-                "store", "routing", "replication"
+                "uuid",
+                "creation_date",
+                "provided_name",
+                "version",
+                "store",
+                "routing",
+                "replication",
             ]
             for key in internal_keys:
                 index_settings.pop(key, None)
@@ -205,14 +210,14 @@ class ESVectorStore(BaseVectorStore):
             body={
                 "source": {"index": self.collection_name},
                 "dest": {"index": collection_name},
-            }
+            },
         )
 
         logger.info(f"Copied collection {self.collection_name} to {collection_name}")
 
     async def insert(self, nodes: VectorNode | List[VectorNode], refresh: bool = True, **kwargs):
         """Insert one or more vector nodes into the collection.
-        
+
         Args:
             nodes: A single VectorNode or list of VectorNodes to insert.
             refresh: Whether to refresh the index immediately after insertion (default: True).
@@ -256,21 +261,21 @@ class ESVectorStore(BaseVectorStore):
             await self.client.indices.refresh(index=self.collection_name)
 
     async def search(
-            self,
-            query: str,
-            limit: int = 5,
-            filters: dict | None = None,
-            **kwargs
+        self,
+        query: str,
+        limit: int = 5,
+        filters: dict | None = None,
+        **kwargs,
     ) -> List[VectorNode]:
         """Search for the most similar vectors to the given query.
-        
+
         Args:
             query: The text query to search for.
             limit: Maximum number of results to return (default: 5).
-            filters: Optional metadata filters to apply. 
+            filters: Optional metadata filters to apply.
                 Supports exact match: {"key": "value"} and IN operation: {"key": ["v1", "v2"]}.
             **kwargs: Additional search parameters (e.g., num_candidates, score_threshold).
-            
+
         Returns:
             A list of VectorNodes ordered by similarity score (most similar first).
         """
@@ -321,7 +326,7 @@ class ESVectorStore(BaseVectorStore):
 
     async def delete(self, vector_ids: str | List[str], refresh: bool = True, **kwargs):
         """Delete one or more vectors by their IDs.
-        
+
         Args:
             vector_ids: A single vector ID or list of IDs to delete.
             refresh: Whether to refresh the index immediately after deletion (default: True).
@@ -334,11 +339,13 @@ class ESVectorStore(BaseVectorStore):
         # Use bulk delete for efficiency
         actions = []
         for vector_id in vector_ids:
-            actions.append({
-                "_op_type": "delete",
-                "_index": self.collection_name,
-                "_id": vector_id,
-            })
+            actions.append(
+                {
+                    "_op_type": "delete",
+                    "_index": self.collection_name,
+                    "_id": vector_id,
+                }
+            )
 
         success, failed = await async_bulk(
             self.client,
@@ -358,7 +365,7 @@ class ESVectorStore(BaseVectorStore):
 
     async def update(self, nodes: VectorNode | List[VectorNode], refresh: bool = True, **kwargs):
         """Update one or more existing vectors in the collection.
-        
+
         Args:
             nodes: A single VectorNode or list of VectorNodes with updated data.
             refresh: Whether to refresh the index immediately after update (default: True).
@@ -386,12 +393,14 @@ class ESVectorStore(BaseVectorStore):
             if node.vector is not None:
                 doc["vector"] = node.vector
 
-            actions.append({
-                "_op_type": "update",
-                "_index": self.collection_name,
-                "_id": node.vector_id,
-                "doc": doc,
-            })
+            actions.append(
+                {
+                    "_op_type": "update",
+                    "_index": self.collection_name,
+                    "_id": node.vector_id,
+                    "doc": doc,
+                }
+            )
 
         success, failed = await async_bulk(
             self.client,
@@ -411,10 +420,10 @@ class ESVectorStore(BaseVectorStore):
 
     async def get(self, vector_ids: str | List[str]) -> VectorNode | List[VectorNode]:
         """Retrieve one or more vectors by their IDs.
-        
+
         Args:
             vector_ids: A single vector ID or list of IDs to retrieve.
-            
+
         Returns:
             A single VectorNode (if single ID provided) or list of VectorNodes
             (if list of IDs provided).
@@ -426,7 +435,7 @@ class ESVectorStore(BaseVectorStore):
         # Use mget for efficient batch retrieval
         response = await self.client.mget(
             index=self.collection_name,
-            body={"ids": vector_ids}
+            body={"ids": vector_ids},
         )
 
         results = []
@@ -446,17 +455,17 @@ class ESVectorStore(BaseVectorStore):
         return results[0] if single_result and results else results
 
     async def list(
-            self,
-            filters: dict | None = None,
-            limit: int | None = None
+        self,
+        filters: dict | None = None,
+        limit: int | None = None,
     ) -> List[VectorNode]:
         """List vectors in the collection with optional filtering.
-        
+
         Args:
-            filters: Optional metadata filters. 
+            filters: Optional metadata filters.
                 Supports exact match: {"key": "value"} and IN operation: {"key": ["v1", "v2"]}.
             limit: Optional maximum number of vectors to return.
-                
+
         Returns:
             A list of VectorNodes matching the filters.
         """

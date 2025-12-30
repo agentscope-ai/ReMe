@@ -11,21 +11,21 @@ from ..schema import Response
 
 class HttpClient:
     """
-    Asynchronous HTTP client for executing flows with built-in retry logic, 
+    Asynchronous HTTP client for executing flows with built-in retry logic,
     exponential backoff, and specialized SSE support.
     """
 
     def __init__(
-            self,
-            base_url: str = "http://localhost:8001",
-            timeout: float = 60.0,
-            max_retries: int = 3,
-            backoff_factor: float = 0.5,
-            raise_exception: bool = True,
+        self,
+        base_url: str = "http://localhost:8001",
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        backoff_factor: float = 0.5,
+        raise_exception: bool = True,
     ):
         """
         Initialize the client.
-        
+
         Args:
             base_url: Base URL of the service.
             timeout: Default timeout in seconds for standard requests.
@@ -72,10 +72,10 @@ class HttpClient:
                 return Response(**response.json())
 
             except (httpx.RequestError, httpx.HTTPStatusError) as e:
-                wait_time = self.backoff_factor * (2 ** attempt)
+                wait_time = self.backoff_factor * (2**attempt)
                 logger.warning(
                     f"Attempt {attempt + 1}/{self.max_retries} failed for {flow_name}. "
-                    f"Error: {e}. Retrying in {wait_time:.2f}s..."
+                    f"Error: {e}. Retrying in {wait_time:.2f}s...",
                 )
 
                 if attempt == self.max_retries - 1:
@@ -89,7 +89,7 @@ class HttpClient:
     async def execute_stream_flow(self, flow_name: str, **kwargs) -> AsyncIterator[Dict[str, str]]:
         """
         Executes a flow and yields parsed SSE events using httpx-sse.
-        
+
         Yields:
             A dictionary with 'type' and 'content'.
         """
@@ -107,7 +107,7 @@ class HttpClient:
                         payload = event.json()  # Automatically parses JSON data
                         yield {
                             "type": payload.get("chunk_type", "answer"),
-                            "content": payload.get("chunk", "")
+                            "content": payload.get("chunk", ""),
                         }
                     except json.JSONDecodeError:
                         # Fallback for non-JSON or plain text data

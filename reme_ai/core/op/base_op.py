@@ -1,7 +1,6 @@
 import asyncio
 import copy
 import inspect
-from abc import ABC
 from pathlib import Path
 from typing import Callable, List, Any, Dict, Union
 
@@ -17,7 +16,7 @@ from ..utils import Timer, camel_to_snake, CacheHandler
 from ..vector_store import BaseVectorStore
 
 
-class BaseOp(ABC):
+class BaseOp:
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
@@ -25,25 +24,27 @@ class BaseOp(ABC):
         instance._init_kwargs = copy.copy(kwargs)
         return instance
 
-    def __init__(self,
-                 name: str = "",
-                 async_mode: bool = True,
-                 language: str = "",
-                 prompt_name: str = "",  # in the same directory
-                 llm: str = "default",
-                 embedding_model: str = "default",
-                 vector_store: str = "default",
-                 token_counter: str = "default",
-                 enable_cache: bool = False,
-                 cache_path: str = "cache/op",
-                 sub_ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None] = None,
-                 input_mapping: Dict[str, str] | None = None,
-                 output_mapping: Dict[str, str] | None = None,
-                 enable_tool_response: bool = False,
-                 enable_sync_thread_pool: bool = True,
-                 max_retries: int = 1,
-                 raise_exception: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        name: str = "",
+        async_mode: bool = True,
+        language: str = "",
+        prompt_name: str = "",  # in the same directory
+        llm: str = "default",
+        embedding_model: str = "default",
+        vector_store: str = "default",
+        token_counter: str = "default",
+        enable_cache: bool = False,
+        cache_path: str = "cache/op",
+        sub_ops: Union[List["BaseOp"], Dict[str, "BaseOp"], "BaseOp", None] = None,
+        input_mapping: Dict[str, str] | None = None,
+        output_mapping: Dict[str, str] | None = None,
+        enable_tool_response: bool = False,
+        enable_sync_thread_pool: bool = True,
+        max_retries: int = 1,
+        raise_exception: bool = False,
+        **kwargs,
+    ):
 
         super().__init__()
 
@@ -84,7 +85,7 @@ class BaseOp(ABC):
         file_path = file_path.with_suffix(".yaml")
         return PromptHandler(language=self.language).load_prompt_by_file(file_path)
 
-    def _build_tool_call(self) -> ToolCall:
+    def _build_tool_call(self) -> ToolCall | None:
         """Build and return the tool call schema for this operator.
 
         Example:
@@ -172,8 +173,10 @@ class BaseOp(ABC):
         if isinstance(self._embedding_model, str):
             self.embedding_model_config = C.service_config.embedding_model[self._embedding_model]
             embedding_model_cls = C.get_embedding_model_class(self.embedding_model_config.backend)
-            self._embedding_model = embedding_model_cls(model_name=self.embedding_model_config.model_name,
-                                                        **self.embedding_model_config.model_extra)
+            self._embedding_model = embedding_model_cls(
+                model_name=self.embedding_model_config.model_name,
+                **self.embedding_model_config.model_extra,
+            )
 
         return self._embedding_model
 
@@ -188,8 +191,10 @@ class BaseOp(ABC):
         if isinstance(self._token_counter, str):
             self.token_counter_config = C.service_config.token_counter[self._token_counter]
             token_counter_cls = C.get_token_counter_class(self.token_counter_config.backend)
-            self._token_counter = token_counter_cls(model_name=self.token_counter_config.model_name,
-                                                    **self.token_counter_config.model_extra)
+            self._token_counter = token_counter_cls(
+                model_name=self.token_counter_config.model_name,
+                **self.token_counter_config.model_extra,
+            )
         return self._token_counter
 
     @property

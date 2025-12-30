@@ -56,9 +56,9 @@ class EmbeddingModelConfig(BaseModel):
 class VectorStoreConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    backend: str = Field(default="")
-    collection_name: str = Field(default="")
-    embedding_model: str = Field(default="")
+    backend: str = Field(default="local")
+    collection_name: str = Field(default="remy")
+    embedding_model: str = Field(default="default")
 
 
 class TokenCounterConfig(BaseModel):
@@ -76,7 +76,6 @@ class ServiceConfig(BaseModel):
     language: str = Field(default="")
     thread_pool_max_workers: int = Field(default=16)
     ray_max_workers: int = Field(default=-1)
-    init_logger: bool = Field(default=True)
     disabled_flows: List[str] = Field(default_factory=list)
     enabled_flows: List[str] = Field(default_factory=list)
     external_mcp: Dict[str, dict] = Field(default_factory=dict, description="External MCP Server config")

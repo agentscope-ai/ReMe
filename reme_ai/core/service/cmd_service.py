@@ -21,6 +21,7 @@ class CmdService(BaseService):
                 asyncio.run(flow.call(**self.service_config.cmd.model_extra))
             else:
                 import nest_asyncio
+
                 nest_asyncio.apply()
                 asyncio.run(flow.call(**self.service_config.cmd.model_extra))
 

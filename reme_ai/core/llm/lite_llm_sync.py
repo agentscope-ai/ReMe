@@ -24,13 +24,13 @@ from ..schema import ToolCall
 class LiteLLMSync(LiteLLM):
     """
     LiteLLM-based sync LLM implementation.
-    
+
     This class inherits from LiteLLM and provides synchronous versions of
     the streaming methods. It reuses the __init__ and _build_stream_kwargs
     methods from the parent class.
-    
+
     For asynchronous operations, use LiteLLM from lite_llm module.
-    
+
     Example:
         >>> llm = LiteLLMSync(
         ...     model_name="qwen3-max",
@@ -42,35 +42,35 @@ class LiteLLMSync(LiteLLM):
     """
 
     def _stream_chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
     ) -> Generator[StreamChunk, None, None]:
         """
         Internal sync method to stream chat completions from LiteLLM API.
-        
+
         This method creates a streaming chat completion request using LiteLLM
         and processes the response chunks synchronously. It handles three types of content:
         1. Reasoning content (for models that support thinking)
         2. Regular text responses
         3. Tool/function calls
-        
+
         The method accumulates tool call information across multiple chunks since
         LiteLLM streams tool calls in fragments (id, name, arguments separately).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             stream_kwargs: Dictionary of additional parameters for the LiteLLM API (already built by caller)
-        
+
         Yields:
             StreamChunk objects with different chunk types:
             - USAGE: Token usage information
             - THINK: Reasoning/thinking content (for supported models)
             - ANSWER: Regular text response content
             - TOOL: Complete tool call information
-        
+
         Raises:
             ValueError: If a tool call has invalid arguments
         """

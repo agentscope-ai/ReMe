@@ -9,13 +9,13 @@ _SPECIAL_WORD_MAP = {word.lower(): word for word in _SPECIAL_WORDS}
 
 def camel_to_snake(content: str) -> str:
     """Convert camelCase to snake_case.
-    
+
     Args:
         content: String in camelCase format.
-        
+
     Returns:
         String in snake_case format.
-        
+
     Examples:
         >>> camel_to_snake("OpenAILLMClient")
         'open_ai_llm_client'
@@ -35,13 +35,13 @@ def camel_to_snake(content: str) -> str:
 
 def snake_to_camel(content: str) -> str:
     """Convert snake_case to camelCase.
-    
+
     Args:
         content: String in snake_case format.
-        
+
     Returns:
         String in camelCase format.
-        
+
     Examples:
         >>> snake_to_camel("open_ai_llm_client")
         'OpenAILLMClient'

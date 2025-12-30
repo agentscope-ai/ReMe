@@ -17,12 +17,12 @@ class BaseTokenCounter:
     @staticmethod
     def _is_chinese_char(char: str) -> bool:
         """Check if a character is a Chinese character."""
-        return '\u4e00' <= char <= '\u9fff'
+        return "\u4e00" <= char <= "\u9fff"
 
     @staticmethod
     def _count_chars_by_language(text: str) -> tuple[int, int]:
         """Count Chinese and non-Chinese characters separately.
-        
+
         Returns:
             tuple: (chinese_chars, other_chars)
         """
@@ -38,10 +38,10 @@ class BaseTokenCounter:
         return chinese_chars, other_chars
 
     def count_token(
-            self,
-            messages: List[Message],
-            tools: List[ToolCall] | None = None,
-            **_kwargs,
+        self,
+        messages: List[Message],
+        tools: List[ToolCall] | None = None,
+        **_kwargs,
     ) -> int:
         chinese_chars = 0
         other_chars = 0

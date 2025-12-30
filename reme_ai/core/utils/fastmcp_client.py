@@ -1,7 +1,14 @@
+"""Asynchronous MCP client using FastMCP.
+
+This module provides an async MCP client wrapper around FastMCP's Client class,
+supporting both stdio (command) and HTTP (URL) connection methods similar to
+the original mcp_client.py implementation.
+"""
+
 import asyncio
 import os
 import shutil
-from typing import List, Optional, Union, Callable, Coroutine, Any
+from typing import List, Optional, Union
 
 import mcp.types
 from fastmcp import Client
@@ -9,31 +16,60 @@ from fastmcp.client.client import CallToolResult
 from fastmcp.client.transports import StdioTransport, SSETransport, StreamableHttpTransport
 from loguru import logger
 
-from ..schema import ToolCall
+from ..schema.tool_call import ToolCall
 
 
 class FastMcpClient:
-    """
-    Asynchronous MCP client using FastMCP, supporting stdio and HTTP connections.
-    Includes built-in retry logic, timeout handling, and environment injection.
+    """Asynchronous MCP client using FastMCP, supporting stdio and HTTP connections.
+
+    This client wraps FastMCP's Client class and provides a similar interface to
+    the original McpClient, supporting:
+    - Stdio connections via command
+    - HTTP connections via URL (SSE or Streamable HTTP)
+    - Retry mechanisms
+    - Timeout configuration
+    - Environment variable injection
+
+    Example:
+        ```python
+        # Using stdio connection
+        config = {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+        }
+        async with FastMcpClient("mcp", config) as client:
+            tools = await client.list_tools()
+            result = await client.call_tool("read_file", {"path": "/tmp/test.txt"})
+
+        # Using HTTP connection
+        config = {
+            "type": "sse",
+            "url": "https://example.com/sse",
+            "headers": {"Authorization": "Bearer {API_KEY}"},
+        }
+        async with FastMcpClient("mcp", config) as client:
+            tools = await client.list_tools()
+        ```
     """
 
     def __init__(
-            self,
-            name: str,
-            config: dict,
-            append_env: bool = False,
-            max_retries: int = 3,
-            timeout: Optional[float] = None,
+        self,
+        name: str,
+        config: dict,
+        append_env: bool = False,
+        max_retries: int = 3,
+        timeout: Optional[float] = None,
     ):
-        """
-        Initialize the FastMCP client.
+        """Initialize the FastMCP client.
 
-        :param name: Unique identifier for the MCP server.
-        :param config: Configuration dict (command/args for stdio, or url/type for HTTP).
-        :param append_env: If True, merges current process environment with config env.
-        :param max_retries: Number of attempts for connection and tool calls.
-        :param timeout: Seconds to wait before timing out an operation.
+        Args:
+            name: Name identifier for the MCP server
+            config: Configuration dictionary with either:
+                - For stdio: `command` (and optionally `args`, `env`)
+                - For HTTP: `url` (and optionally `type`, `headers`, `timeout`, `sse_read_timeout`)
+            append_env: Whether to append environment variables to the config's env
+            max_retries: Maximum number of retries for connection and operations
+            timeout: Optional timeout in seconds for operations
         """
         self.name: str = name
         self.config: dict = config
@@ -45,156 +81,255 @@ class FastMcpClient:
         self._transport = self._create_transport()
 
     def _create_transport(self):
-        """Creates the appropriate transport layer based on the provided configuration."""
+        """Create the appropriate transport based on config."""
         command = self.config.get("command")
 
         if command:
-            # Handle Stdio Transport (Local Processes)
-            # Resolve full path for executables like 'npx'
-            resolved_command = shutil.which(command) or command
+            # Stdio transport
+            if command == "npx":
+                command = shutil.which("npx") or command
 
-            env_params = os.environ.copy() if self.append_env else {}
-            if custom_env := self.config.get("env"):
-                env_params.update(custom_env)
+            env_params: dict = {}
+            if self.append_env:
+                env_params.update(os.environ)
+            if self.config.get("env"):
+                env_params.update(self.config["env"])
 
             return StdioTransport(
-                command=resolved_command,
+                command=command,
                 args=self.config.get("args", []),
                 env=env_params if env_params else None,
                 cwd=self.config.get("cwd"),
             )
         else:
-            # Handle HTTP Transport (SSE or Streamable HTTP)
-            url = self.config.get("url")
-            if not url:
-                raise ValueError(f"Server config '{self.name}' must contain 'command' or 'url'")
-
-            transport_type = str(self.config.get("type", "")).lower()
+            # HTTP transport (SSE or Streamable HTTP)
+            url = self.config["url"]
+            transport_type = self.config.get("type", "").lower()
             kwargs: dict = {"url": url}
 
-            # Inject environment variables into headers (e.g., Bearer {API_KEY})
-            if headers := self.config.get("headers"):
-                formatted_headers = {}
-                for k, v in headers.items():
-                    if isinstance(v, str) and "{" in v:
-                        formatted_headers[k] = v.format(**os.environ)
-                    else:
-                        formatted_headers[k] = v
-                kwargs["headers"] = formatted_headers
+            # Handle headers with environment variable substitution
+            if self.config.get("headers"):
+                headers = self.config.get("headers").copy()
+                if headers.get("Authorization"):
+                    assert isinstance(headers["Authorization"], str)
+                    headers["Authorization"] = headers["Authorization"].format(**os.environ)
+                kwargs["headers"] = headers
 
+            # Handle timeout
             if "timeout" in self.config:
                 kwargs["sse_read_timeout"] = self.config["timeout"]
 
-            # Selection logic: Explicit type or fallback based on URL suffix
+            # Determine transport type based on config or URL
             if transport_type in ["streamable_http", "streamablehttp"]:
                 return StreamableHttpTransport(**kwargs)
-            elif url.endswith("/sse") or transport_type == "sse":
-                return SSETransport(**kwargs)
             else:
-                return StreamableHttpTransport(**kwargs)
-
-    async def _execute_with_retry(self, operation: Callable[[], Coroutine], op_name: str) -> Any:
-        """
-        Internal helper to wrap coroutines with timeout and retry logic (DRY principle).
-        """
-        last_exception = None
-
-        for i in range(self.max_retries):
-            try:
-                if self.timeout is not None:
-                    return await asyncio.wait_for(operation(), timeout=self.timeout)
-
-                return await operation()
-
-            except asyncio.TimeoutError as _:
-                last_exception = TimeoutError(f"{self.name} {op_name} timed out after {self.timeout}s")
-                logger.error(f"Attempt {i + 1}/{self.max_retries} failed: {last_exception}")
-
-            except Exception as e:
-                last_exception = e
-                logger.exception(f"Attempt {i + 1}/{self.max_retries} failed: {self.name} {op_name} -> {e}")
-
-            if i < self.max_retries - 1:
-                # Exponential backoff: 1s, 2s, 3s...
-                await asyncio.sleep(1 + i)
-
-        raise last_exception if last_exception else RuntimeError(f"Operation {op_name} failed unknown")
+                # Default to SSE for /sse endpoints, otherwise StreamableHttp
+                if url.endswith("/sse"):
+                    return SSETransport(**kwargs)
+                else:
+                    # For URLs without /sse, use StreamableHttpTransport
+                    return StreamableHttpTransport(**kwargs)
 
     async def __aenter__(self) -> "FastMcpClient":
-        """Context manager entry: initializes and starts the MCP client."""
+        """Async context manager entry."""
+        for i in range(self.max_retries):
+            try:
+                self.client = Client(
+                    transport=self._transport,
+                    name=self.name,
+                    timeout=self.timeout,
+                )
 
-        async def _connect():
-            self.client = Client(
-                transport=self._transport,
-                name=self.name,
-                timeout=self.timeout,
-            )
-            return await self.client.__aenter__()
+                # Use FastMCP Client as async context manager
+                if self.timeout is not None:
+                    await asyncio.wait_for(
+                        self.client.__aenter__(),
+                        timeout=self.timeout,
+                    )
+                else:
+                    await self.client.__aenter__()
 
-        await self._execute_with_retry(_connect, "initialization")
+                break
+
+            except asyncio.TimeoutError as exc:
+                logger.exception(f"{self.name} start timeout after {self.timeout}s")
+
+                # Clean up before retrying
+                await self._cleanup_client()
+
+                if i == self.max_retries - 1:
+                    raise TimeoutError(f"{self.name} start timeout after {self.timeout}s") from exc
+
+                await asyncio.sleep(1 + i)
+
+            except Exception as e:
+                logger.exception(
+                    f"{self.name} start failed with {e}. " f"Retry {i + 1}/{self.max_retries} in {1 + i}s...",
+                )
+
+                # Clean up before retrying
+                await self._cleanup_client()
+
+                await asyncio.sleep(1 + i)
+
+                if i == self.max_retries - 1:
+                    raise e
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit: ensures resources are cleaned up."""
+        """Async context manager exit."""
+        for i in range(self.max_retries):
+            try:
+                await self._cleanup_client()
+                break
+
+            except Exception as e:
+                logger.exception(
+                    f"{self.name} close failed with {e}. " f"Retry {i + 1}/{self.max_retries} in {1 + i}s...",
+                )
+                await asyncio.sleep(1 + i)
+
+                if i == self.max_retries - 1:
+                    break
+
+        self.client = None
+
+    async def _cleanup_client(self):
+        """Clean up the client connection."""
         if self.client:
             try:
-                # Give a small grace period for cleanup, no retries here to avoid hanging
-                await asyncio.wait_for(self.client.__aexit__(exc_type, exc_val, exc_tb), timeout=5.0)
-            except Exception as e:
-                logger.debug(f"Cleanup error for {self.name}: {e}")
-            finally:
-                self.client = None
+                await self.client.__aexit__(None, None, None)
+            except Exception:
+                pass
+            try:
+                await self.client.close()
+            except Exception:
+                pass
+            self.client = None
 
     async def list_tools(self) -> List[mcp.types.Tool]:
-        """Fetch all available tools from the server."""
-        if not self.client:
-            raise RuntimeError(f"Server {self.name} is not connected.")
+        """List available tools from the MCP server.
 
-        return await self._execute_with_retry(
-            lambda: self.client.list_tools(),
-            "list_tools"
-        )
+        Returns:
+            List of MCP Tool objects
+
+        Raises:
+            RuntimeError: If the client is not connected
+            TimeoutError: If the operation times out
+        """
+        if not self.client:
+            raise RuntimeError(f"Server {self.name} not initialized")
+
+        tools = []
+        for i in range(self.max_retries):
+            try:
+                if self.timeout is not None:
+                    tools = await asyncio.wait_for(
+                        self.client.list_tools(),
+                        timeout=self.timeout,
+                    )
+                else:
+                    tools = await self.client.list_tools()
+                break
+
+            except asyncio.TimeoutError as exc:
+                logger.exception(f"{self.name} list tools timeout after {self.timeout}s")
+
+                if i == self.max_retries - 1:
+                    raise TimeoutError(f"{self.name} list tools timeout after {self.timeout}s") from exc
+
+                await asyncio.sleep(1 + i)
+
+            except Exception as e:
+                logger.exception(
+                    f"{self.name} list tools failed with {e}. " f"Retry {i + 1}/{self.max_retries} in {1 + i}s...",
+                )
+                await asyncio.sleep(1 + i)
+
+                if i == self.max_retries - 1:
+                    raise e
+
+        return tools
 
     async def list_tool_calls(self) -> List[ToolCall]:
-        """Fetch tools and convert them to the simplified ToolCall format."""
+        """List available tools as ToolCall objects.
+
+        Returns:
+            List of ToolCall objects converted from MCP Tools
+
+        Raises:
+            RuntimeError: If the client is not connected
+        """
+        if not self.client:
+            raise RuntimeError(f"Server {self.name} not initialized")
+
         tools = await self.list_tools()
         return [ToolCall.from_mcp_tool(t) for t in tools]
 
     async def call_tool(
-            self,
-            tool_name: str,
-            arguments: dict,
-            parse_result: bool = False,
+        self,
+        tool_name: str,
+        arguments: dict,
+        parse_result: bool = False,
     ) -> Union[str, CallToolResult]:
-        """
-        Execute a specific tool on the server.
+        """Call a tool on the MCP server.
 
-        :param tool_name: The name of the tool to invoke.
-        :param arguments: The parameters for the tool.
-        :param parse_result: If True, returns a concatenated string of text content.
+        Args:
+            tool_name: Name of the tool to call
+            arguments: Dictionary of arguments to pass to the tool
+            parse_result: parse CallToolResult to str
+
+        Returns:
+            The result from the tool call
+
+        Raises:
+            RuntimeError: If the client is not connected
+            TimeoutError: If the operation times out
         """
         if not self.client:
-            raise RuntimeError(f"Server {self.name} is not connected.")
+            raise RuntimeError(f"Server {self.name} not initialized")
 
-        result: CallToolResult = await self._execute_with_retry(
-            lambda: self.client.call_tool(tool_name, arguments),
-            f"call_tool:{tool_name}"
-        )
+        result = None
+        for i in range(self.max_retries):
+            try:
+                if self.timeout is not None:
+                    result = await asyncio.wait_for(
+                        self.client.call_tool(tool_name, arguments),
+                        timeout=self.timeout,
+                    )
+                else:
+                    result = await self.client.call_tool(tool_name, arguments)
 
-        if parse_result:
-            return self._parse_tool_content(result)
+                if parse_result:
+                    if len(result.content) == 1:
+                        return result.content[0].text
+
+                    else:
+                        text_content = []
+                        for block in result.content:
+                            if hasattr(block, "text"):
+                                text_content.append(block.text)
+                        return "\n".join(text_content) if text_content else result
+                else:
+                    return result
+
+            except asyncio.TimeoutError as exc:
+                logger.exception(f"{self.name}.{tool_name} call_tool timeout after {self.timeout}s")
+
+                if i == self.max_retries - 1:
+                    raise TimeoutError(f"{self.name}.{tool_name} call_tool timeout after {self.timeout}s") from exc
+
+                await asyncio.sleep(1 + i)
+
+            except Exception as e:
+                logger.exception(
+                    f"{self.name}.{tool_name} call_tool failed with {e}. "
+                    f"Retry {i + 1}/{self.max_retries} in {1 + i}s...",
+                )
+                await asyncio.sleep(1 + i)
+
+                if i == self.max_retries - 1:
+                    raise e
+
         return result
-
-    @staticmethod
-    def _parse_tool_content(result: CallToolResult) -> str:
-        """Converts complex tool result content into a readable string."""
-        text_parts = []
-        for block in result.content:
-            if isinstance(block, mcp.types.TextContent):
-                text_parts.append(block.text)
-            elif isinstance(block, mcp.types.ImageContent):
-                text_parts.append(f"[Image content: {block.mimeType}]")
-            elif hasattr(block, "text"):  # Fallback for duck-typing
-                text_parts.append(getattr(block, "text"))
-
-        return "\n".join(text_parts) if text_parts else str(result)

@@ -26,24 +26,24 @@ from ..schema import ToolCall
 class LiteLLM(BaseLLM):
     """
     LiteLLM-based async LLM implementation.
-    
+
     This class provides async integration with LiteLLM, which offers a unified
     interface to 100+ LLM providers. It supports:
     - Async streaming and non-streaming chat completions
     - Tool/function calling
     - Reasoning content extraction (for models that support thinking)
     - Multiple providers (OpenAI, Anthropic, Azure, Bedrock, etc.)
-    
+
     For synchronous operations, use LiteLLMSync from lite_llm_sync module.
-    
+
     The API key and base URL can be provided either as constructor arguments
     or through environment variables (REME_LLM_API_KEY and REME_LLM_BASE_URL).
-    
+
     Attributes:
         api_key: API key for the LLM provider
         base_url: Optional base URL for custom API endpoints
         custom_llm_provider: LLM provider to use (default: "openai")
-    
+
     Example:
         >>> llm = LiteLLM(
         ...     model_name="qwen3-max",
@@ -55,15 +55,15 @@ class LiteLLM(BaseLLM):
     """
 
     def __init__(
-            self,
-            api_key: Optional[str] = None,
-            base_url: Optional[str] = None,
-            custom_llm_provider: str = "openai",
-            **kwargs
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        custom_llm_provider: str = "openai",
+        **kwargs,
     ):
         """
         Initialize the LiteLLM client.
-        
+
         Args:
             api_key: API key for the provider. If None, reads from REME_LLM_API_KEY env var
                     or provider-specific env vars (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
@@ -85,25 +85,25 @@ class LiteLLM(BaseLLM):
         self.custom_llm_provider: str = custom_llm_provider
 
     def _build_stream_kwargs(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            log_params: bool = True,
-            **kwargs
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        log_params: bool = True,
+        **kwargs,
     ) -> dict:
         """
         Build kwargs for LiteLLM completion API calls.
-        
+
         This method constructs the parameters dictionary for the LiteLLM API,
         combining messages, tools, instance-level kwargs, and call-specific kwargs.
         It also logs the parameters for debugging purposes (excluding full message content).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             log_params: Whether to log the constructed parameters (default: True)
             **kwargs: Additional parameters to pass to the API (e.g., temperature, max_tokens)
-        
+
         Returns:
             Dictionary of parameters for LiteLLM API call
         """
@@ -140,35 +140,35 @@ class LiteLLM(BaseLLM):
         return llm_kwargs
 
     async def _stream_chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Internal async method to stream chat completions from LiteLLM API.
-        
-        This method creates a streaming chat completion request using LiteLLM 
+
+        This method creates a streaming chat completion request using LiteLLM
         and processes the response chunks asynchronously. It handles three types of content:
         1. Reasoning content (for models that support thinking)
         2. Regular text responses
         3. Tool/function calls
-        
+
         The method accumulates tool call information across multiple chunks since
         LiteLLM streams tool calls in fragments (id, name, arguments separately).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             stream_kwargs: Dictionary of additional parameters for the LiteLLM API (already built by caller)
-        
+
         Yields:
             StreamChunk objects with different chunk types:
             - USAGE: Token usage information
             - THINK: Reasoning/thinking content (for supported models)
             - ANSWER: Regular text response content
             - TOOL: Complete tool call information
-        
+
         Raises:
             ValueError: If a tool call has invalid arguments
         """

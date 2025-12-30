@@ -10,17 +10,17 @@ from ..utils import FastMcpClient
 class ExternalMCP(BaseOp):
 
     def __init__(
-            self,
-            mcp_name: str = "",
-            tool_name: str = "",
-            save_answer: bool = True,
-            input_schema_required: List[str] = None,
-            input_schema_optional: List[str] = None,
-            input_schema_deleted: List[str] = None,
-            max_retries: int = 3,
-            timeout: float | None = None,
-            raise_exception: bool = False,
-            **kwargs,
+        self,
+        mcp_name: str = "",
+        tool_name: str = "",
+        save_answer: bool = True,
+        input_schema_required: List[str] = None,
+        input_schema_optional: List[str] = None,
+        input_schema_deleted: List[str] = None,
+        max_retries: int = 3,
+        timeout: float | None = None,
+        raise_exception: bool = False,
+        **kwargs,
     ):
         self.mcp_name: str = mcp_name
         self.tool_name: str = tool_name
@@ -52,9 +52,9 @@ class ExternalMCP(BaseOp):
     async def execute(self):
         mcp_server_config = C.service_config.external_mcp[self.mcp_name]
         async with FastMcpClient(
-                name=self.mcp_name,
-                config=mcp_server_config,
-                max_retries=self.max_retries,
-                timeout=self.timeout,
+            name=self.mcp_name,
+            config=mcp_server_config,
+            max_retries=self.max_retries,
+            timeout=self.timeout,
         ) as client:
             self.output = await client.call_tool(tool_name=self.tool_name, arguments=self.input_dict, parse_result=True)

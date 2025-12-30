@@ -9,7 +9,7 @@ ENV_LOADED = False
 def _load_env(path: Path) -> None:
     """
     Load environment variables from a file.
-    
+
     Args:
         path: Path to the .env file
     """
@@ -28,8 +28,9 @@ def _load_env(path: Path) -> None:
                     value = line_split[1].strip()
 
                     # Remove quotes (both single and double)
-                    if (value.startswith('"') and value.endswith('"')) or \
-                            (value.startswith("'") and value.endswith("'")):
+                    if (value.startswith('"') and value.endswith('"')) or (
+                        value.startswith("'") and value.endswith("'")
+                    ):
                         value = value[1:-1]
 
                     os.environ[key] = value
@@ -43,7 +44,7 @@ def _load_env(path: Path) -> None:
 def load_env(path: str | Path | None = None, enable_log: bool = True) -> None:
     """
     Load environment variables from .env file.
-    
+
     Args:
         path: Path to .env file. If None, searches up to 5 parent directories.
         enable_log: Whether to log the loaded path.

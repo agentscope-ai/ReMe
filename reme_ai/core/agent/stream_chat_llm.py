@@ -31,7 +31,7 @@ class StreamChatLLM(BaseOp):
                         },
                     },
                 },
-            }
+            },
         )
 
     async def execute(self):

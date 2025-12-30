@@ -24,16 +24,16 @@ from ..schema import ToolCall
 class OpenAILLMSync(OpenAILLM):
     """
     OpenAI-compatible sync LLM implementation.
-    
+
     This class inherits from OpenAILLM and provides synchronous versions of
     the streaming methods. It overrides _create_client() to create a synchronous
     OpenAI client instead of async.
-    
+
     For asynchronous operations, use OpenAILLM from openai_llm module.
-    
+
     Attributes:
         _client: Synchronous OpenAI client instance
-    
+
     Example:
         >>> llm = OpenAILLMSync(
         ...     model_name="qwen3-max",
@@ -47,45 +47,45 @@ class OpenAILLMSync(OpenAILLM):
     def _create_client(self):
         """
         Create and return the synchronous OpenAI client instance.
-        
+
         This method overrides the parent class method to provide a synchronous
         client instead of an asynchronous one.
-        
+
         Returns:
             OpenAI client instance for sync operations
         """
         return OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _stream_chat_sync(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
     ) -> Generator[StreamChunk, None, None]:
         """
         Internal sync method to stream chat completions from OpenAI API.
-        
+
         This method creates a streaming chat completion request to the OpenAI API
         and processes the response chunks synchronously. It handles three types of content:
         1. Reasoning content (for models like o1 that support thinking)
         2. Regular text responses
         3. Tool/function calls
-        
+
         The method accumulates tool call information across multiple chunks since
         OpenAI streams tool calls in fragments (id, name, arguments separately).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             stream_kwargs: Dictionary of additional parameters for the OpenAI API (already built by caller)
-        
+
         Yields:
             StreamChunk objects with different chunk types:
             - USAGE: Token usage information
             - THINK: Reasoning/thinking content (for supported models)
             - ANSWER: Regular text response content
             - TOOL: Complete tool call information
-        
+
         Raises:
             ValueError: If a tool call has invalid arguments
         """
@@ -131,11 +131,11 @@ class OpenAILLMSync(OpenAILLM):
     def close_sync(self):
         """
         Close the synchronous OpenAI client and release resources.
-        
+
         This method properly closes the HTTP connection pool used by the
         synchronous OpenAI client. It should be called when the LLM instance
         is no longer needed to avoid resource leaks.
-        
+
         Example:
             >>> llm = OpenAILLMSync(model_name="qwen3-max")
             >>> # ... use the llm ...

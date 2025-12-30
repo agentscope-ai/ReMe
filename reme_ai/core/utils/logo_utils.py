@@ -36,14 +36,17 @@ def print_logo(service_config: "ServiceConfig", app_name: str, width: int = 400)
     info_table.add_row("", "", "")
 
     import reme_ai
+
     info_table.add_row("🚀", "ReMe Version:", Text(reme_ai.__version__, style="dim white", no_wrap=True))
 
     if service_config.backend == "http":
         import fastapi
+
         info_table.add_row("📚", "FastAPI version:", Text(fastapi.__version__, style="dim white", no_wrap=True))
 
     elif service_config.backend == "mcp":
         import fastmcp
+
         info_table.add_row("📚", "FastMCP version:", Text(fastmcp.__version__, style="dim white", no_wrap=True))
 
     panel_content = Group(logo_text, "", info_table)

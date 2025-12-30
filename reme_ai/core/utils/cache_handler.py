@@ -33,7 +33,7 @@ class CacheHandler:
     def set_cache_dir(self, cache_dir: Union[str, Path]):
         """
         Set a new cache directory and reload metadata
-        
+
         Args:
             cache_dir: New cache directory path
         """
@@ -225,11 +225,11 @@ class CacheHandler:
         return datetime.now() > expire_time
 
     def save(
-            self,
-            key: str,
-            data: Union[pd.DataFrame, dict, list, str],
-            expire_hours: Optional[float] = None,
-            **kwargs,
+        self,
+        key: str,
+        data: Union[pd.DataFrame, dict, list, str],
+        expire_hours: Optional[float] = None,
+        **kwargs,
     ) -> bool:
         """
         Save data to cache
@@ -274,10 +274,10 @@ class CacheHandler:
             return False
 
     def load(
-            self,
-            key: str,
-            auto_clean_expired: bool = True,
-            **kwargs,
+        self,
+        key: str,
+        auto_clean_expired: bool = True,
+        **kwargs,
     ) -> Optional[Any]:
         """
         Load data from cache

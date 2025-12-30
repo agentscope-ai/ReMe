@@ -1,4 +1,3 @@
-# done: { for f in ./*.py; do [[ "$f" != "./__init__.py" ]] && grep -v '^[[:space:]]*#' "$f"; done; } | pbcopy
 
 
 from .base_op import BaseOp

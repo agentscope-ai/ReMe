@@ -10,6 +10,7 @@ Usage:
     python test_token_counter.py --hf          # Test HFTokenCounter only
     python test_token_counter.py --all         # Test all token counters
 """
+
 import argparse
 from typing import Type, List
 
@@ -446,14 +447,18 @@ Examples:
     if args.all:
         counters_to_test.append((BaseTokenCounter, "BaseTokenCounter", {}))
         counters_to_test.append((OpenAITokenCounter, "OpenAITokenCounter", {}))
-        counters_to_test.append((HFTokenCounter, "HFTokenCounter", {"model_name": args.hf_model, "trust_remote_code": True}))
+        counters_to_test.append(
+            (HFTokenCounter, "HFTokenCounter", {"model_name": args.hf_model, "trust_remote_code": True})
+        )
     else:
         if args.base:
             counters_to_test.append((BaseTokenCounter, "BaseTokenCounter", {}))
         if args.openai:
             counters_to_test.append((OpenAITokenCounter, "OpenAITokenCounter", {}))
         if args.hf:
-            counters_to_test.append((HFTokenCounter, "HFTokenCounter", {"model_name": args.hf_model, "trust_remote_code": True}))
+            counters_to_test.append(
+                (HFTokenCounter, "HFTokenCounter", {"model_name": args.hf_model, "trust_remote_code": True})
+            )
 
     if not counters_to_test:
         # Default to BaseTokenCounter if no argument provided
@@ -482,4 +487,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

@@ -26,24 +26,24 @@ from ..schema import ToolCall
 class OpenAILLM(BaseLLM):
     """
     OpenAI-compatible async LLM implementation.
-    
+
     This class provides async integration with OpenAI's Chat Completions API or
     any compatible API endpoint (e.g., Azure OpenAI, local models with
     OpenAI-compatible servers). It supports:
     - Async streaming and non-streaming chat completions
     - Tool/function calling
     - Reasoning content extraction (for o1-preview, o1-mini, etc.)
-    
+
     For synchronous operations, use OpenAILLMSync from openai_llm_sync module.
-    
+
     The API key and base URL can be provided either as constructor arguments
     or through environment variables (REME_LLM_API_KEY and REME_LLM_BASE_URL).
-    
+
     Attributes:
         api_key: OpenAI API key or compatible service key
         base_url: Base URL for the API endpoint
         _client: Asynchronous OpenAI client instance
-    
+
     Example:
         >>> llm = OpenAILLM(
         ...     model_name="qwen3-max",
@@ -55,14 +55,14 @@ class OpenAILLM(BaseLLM):
     """
 
     def __init__(
-            self,
-            api_key: Optional[str] = None,
-            base_url: Optional[str] = None,
-            **kwargs
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize the OpenAI async LLM client.
-        
+
         Args:
             api_key: OpenAI API key. If None, reads from REME_LLM_API_KEY env var
             base_url: Base URL for API endpoint. If None, reads from REME_LLM_BASE_URL env var
@@ -85,35 +85,35 @@ class OpenAILLM(BaseLLM):
     def _create_client(self):
         """
         Create and return the OpenAI client instance.
-        
+
         This method can be overridden by subclasses to provide different client implementations
         (e.g., synchronous vs asynchronous clients).
-        
+
         Returns:
             AsyncOpenAI client instance for async operations
         """
         return AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _build_stream_kwargs(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            log_params: bool = True,
-            **kwargs
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        log_params: bool = True,
+        **kwargs,
     ) -> dict:
         """
         Build kwargs for OpenAI Chat Completions API calls.
-        
+
         This method constructs the parameters dictionary for the OpenAI API,
         combining messages, tools, instance-level kwargs, and call-specific kwargs.
         It also logs the parameters for debugging purposes (excluding full message content).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             log_params: Whether to log the constructed parameters (default: True)
             **kwargs: Additional parameters to pass to the API (e.g., temperature, max_tokens)
-        
+
         Returns:
             Dictionary of parameters ready for OpenAI API call
         """
@@ -140,35 +140,35 @@ class OpenAILLM(BaseLLM):
         return llm_kwargs
 
     async def _stream_chat(
-            self,
-            messages: List[Message],
-            tools: Optional[List[ToolCall]] = None,
-            stream_kwargs: Optional[dict] = None
+        self,
+        messages: List[Message],
+        tools: Optional[List[ToolCall]] = None,
+        stream_kwargs: Optional[dict] = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         Internal async method to stream chat completions from OpenAI API.
-        
-        This method creates a streaming chat completion request to the OpenAI API 
+
+        This method creates a streaming chat completion request to the OpenAI API
         and processes the response chunks asynchronously. It handles three types of content:
         1. Reasoning content (for models like o1 that support thinking)
         2. Regular text responses
         3. Tool/function calls
-        
+
         The method accumulates tool call information across multiple chunks since
         OpenAI streams tool calls in fragments (id, name, arguments separately).
-        
+
         Args:
             messages: List of conversation messages to send to the model
             tools: Optional list of tool definitions available for the model to call
             stream_kwargs: Dictionary of additional parameters for the OpenAI API (already built by caller)
-        
+
         Yields:
             StreamChunk objects with different chunk types:
             - USAGE: Token usage information
             - THINK: Reasoning/thinking content (for supported models)
             - ANSWER: Regular text response content
             - TOOL: Complete tool call information
-        
+
         Raises:
             ValueError: If a tool call has invalid arguments
         """
@@ -214,11 +214,11 @@ class OpenAILLM(BaseLLM):
     async def close(self):
         """
         Asynchronously close the async OpenAI client and release resources.
-        
+
         This method properly closes the HTTP connection pool used by the
         asynchronous OpenAI client. It should be called when the LLM instance
         is no longer needed to avoid resource leaks.
-        
+
         Example:
             >>> llm = OpenAILLM(model_name="qwen3-max")
             >>> # ... use the llm asynchronously ...

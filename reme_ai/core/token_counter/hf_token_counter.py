@@ -15,13 +15,13 @@ class HFTokenCounter(BaseTokenCounter):
     """Estimate token usage with `transformers.AutoTokenizer.apply_chat_template`."""
 
     def __init__(
-            self,
-            model_name: str,
-            *,
-            use_fast: bool = False,
-            trust_remote_code: bool = False,
-            use_mirror: bool = True,
-            **kwargs,
+        self,
+        model_name: str,
+        *,
+        use_fast: bool = False,
+        trust_remote_code: bool = False,
+        use_mirror: bool = True,
+        **kwargs,
     ):
         """Initialize HuggingFace token counter.
 
@@ -78,10 +78,10 @@ class HFTokenCounter(BaseTokenCounter):
         return [tool.simple_input_dump() for tool in tools]
 
     def count_token(
-            self,
-            messages: List[Message],
-            tools: List[ToolCall] | None = None,
-            **kwargs,
+        self,
+        messages: List[Message],
+        tools: List[ToolCall] | None = None,
+        **kwargs,
     ) -> int:
         """Return the token length computed by the HuggingFace tokenizer."""
         tokenizer = self._ensure_tokenizer()

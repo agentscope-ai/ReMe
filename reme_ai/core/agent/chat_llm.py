@@ -31,7 +31,7 @@ class ChatLLM(BaseOp):
                         },
                     },
                 },
-            }
+            },
         )
 
     async def execute(self):

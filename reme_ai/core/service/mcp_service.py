@@ -30,7 +30,8 @@ class MCPService(BaseService):
             name=flow.name,
             description=flow.tool_call.description,
             fn=execute_tool,
-            parameters=parameters)
+            parameters=parameters,
+        )
 
         self.mcp.add_tool(tool)
         return True

@@ -23,11 +23,11 @@ class BaseRayOp(BaseOp, ABC):
         )
 
     def submit_and_join_ray_task(
-            self,
-            fn,
-            parallel_key: str = "",
-            task_desc: str = "",
-            **kwargs,
+        self,
+        fn,
+        parallel_key: str = "",
+        task_desc: str = "",
+        **kwargs,
     ):
         import ray
 
@@ -77,12 +77,12 @@ class BaseRayOp(BaseOp, ABC):
 
     @staticmethod
     def ray_task_loop(
-            parallel_key: str,
-            parallel_list: list,
-            actor_index: int,
-            max_workers: int,
-            internal_fn,
-            **kwargs,
+        parallel_key: str,
+        parallel_list: list,
+        actor_index: int,
+        max_workers: int,
+        internal_fn,
+        **kwargs,
     ):
         """Worker internal loop to execute slice tasks"""
         result = []
@@ -107,7 +107,7 @@ class BaseRayOp(BaseOp, ABC):
         if not ray.is_initialized():
             ray.init(
                 num_cpus=C.service_config.ray_max_workers,
-                ignore_reinit_error=True
+                ignore_reinit_error=True,
             )
 
         remote_fn = ray.remote(fn)

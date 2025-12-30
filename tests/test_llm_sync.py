@@ -10,6 +10,7 @@ Usage:
     python test_llm_sync.py --litellm     # Test LiteLLM only
     python test_llm_sync.py --all         # Test both LLMs
 """
+
 import argparse
 from typing import Type
 
@@ -85,7 +86,7 @@ def get_test_tools() -> list[ToolCall]:
                         "required": False,
                     },
                 },
-            }
+            },
         ),
         ToolCall(
             **{
@@ -109,7 +110,7 @@ def get_test_tools() -> list[ToolCall]:
                         "enum": ["celsius", "fahrenheit"],
                     },
                 },
-            }
+            },
         ),
         ToolCall(
             **{
@@ -133,7 +134,7 @@ def get_test_tools() -> list[ToolCall]:
                         "required": False,
                     },
                 },
-            }
+            },
         ),
     ]
 
@@ -165,10 +166,10 @@ def test_sync_chat(llm_class: Type[BaseLLM], llm_name: str):
     print(f"\n{'='*60}")
     print(f"Testing {llm_name}: Sync Non-Streaming Chat")
     print(f"{'='*60}")
-    
+
     llm = get_llm(llm_class)
     messages = get_multi_turn_messages()
-    
+
     print(f"Input: {len(messages)} messages in conversation")
     print(f"Last user message: {messages[-1].content[:100]}...")
 
@@ -178,7 +179,7 @@ def test_sync_chat(llm_class: Type[BaseLLM], llm_name: str):
     assert response.role == Role.ASSISTANT, f"{llm_name}: Wrong role"
     assert isinstance(response.content, str), f"{llm_name}: Content is not string"
     assert len(response.content) > 0, f"{llm_name}: Empty response"
-    
+
     print(f"\nResponse preview: {response.content[:200]}...")
     print(f"Full response length: {len(response.content)} characters")
     print(f"\nFull message:\n{response.simple_dump()}")
@@ -192,10 +193,10 @@ def test_sync_chat_with_stream_print(llm_class: Type[BaseLLM], llm_name: str):
     print(f"\n{'='*60}")
     print(f"Testing {llm_name}: Sync Chat with Stream Print")
     print(f"{'='*60}")
-    
+
     llm = get_llm(llm_class)
     messages = get_multi_turn_messages()
-    
+
     print(f"Input: {len(messages)} messages in conversation")
     print(f"Last user message: {messages[-1].content[:100]}...")
     print("\nStreaming output:")
@@ -204,12 +205,12 @@ def test_sync_chat_with_stream_print(llm_class: Type[BaseLLM], llm_name: str):
     response = llm.chat_sync(messages=messages, enable_stream_print=True)
 
     print("\n" + "-" * 60)
-    
+
     assert response is not None, f"{llm_name}: Response is None"
     assert response.role == Role.ASSISTANT, f"{llm_name}: Wrong role"
     assert isinstance(response.content, str), f"{llm_name}: Content is not string"
     assert len(response.content) > 0, f"{llm_name}: Empty response"
-    
+
     print(f"\nFull message:\n{response.simple_dump()}")
 
     llm.close_sync()
@@ -221,10 +222,10 @@ def test_sync_stream_chat(llm_class: Type[BaseLLM], llm_name: str):
     print(f"\n{'='*60}")
     print(f"Testing {llm_name}: Sync Streaming Chat")
     print(f"{'='*60}")
-    
+
     llm = get_llm(llm_class)
     messages = get_multi_turn_messages()
-    
+
     print(f"Input: {len(messages)} messages in conversation")
     print(f"Last user message: {messages[-1].content[:100]}...")
     print("\nStreaming chunks:")
@@ -246,14 +247,12 @@ def test_sync_stream_chat(llm_class: Type[BaseLLM], llm_name: str):
 
     # Check that we received at least one ANSWER or USAGE chunk
     chunk_types = [c.chunk_type for c in chunks]
-    assert (
-        ChunkEnum.ANSWER in chunk_types or ChunkEnum.USAGE in chunk_types
-    ), f"{llm_name}: No ANSWER or USAGE chunks"
-    
+    assert ChunkEnum.ANSWER in chunk_types or ChunkEnum.USAGE in chunk_types, f"{llm_name}: No ANSWER or USAGE chunks"
+
     # Print the final assembled message
     if chunks and hasattr(chunks[-1], "message") and chunks[-1].message:
         print(f"\nFull message:\n{chunks[-1].message.simple_dump()}")
-    
+
     print(f"\nTotal chunks: {len(chunks)}")
     print(f"Answer length: {len(answer_content)} characters")
 
@@ -266,11 +265,11 @@ def test_sync_chat_with_tools(llm_class: Type[BaseLLM], llm_name: str):
     print(f"\n{'='*60}")
     print(f"Testing {llm_name}: Sync Chat with Tools")
     print(f"{'='*60}")
-    
+
     llm = get_llm(llm_class)
     messages = get_tool_test_messages()
     tools = get_test_tools()
-    
+
     print(f"Input: {len(messages)} messages, {len(tools)} tools available")
     print(f"Tools: {[tool.name for tool in tools]}")
     print(f"Last user message: {messages[-1].content[:100]}...")
@@ -281,7 +280,7 @@ def test_sync_chat_with_tools(llm_class: Type[BaseLLM], llm_name: str):
     assert response.role == Role.ASSISTANT, f"{llm_name}: Wrong role"
     # Response should contain either content or tool_calls
     assert response.content or response.tool_calls, f"{llm_name}: No content or tool_calls"
-    
+
     if response.tool_calls:
         print(f"\n✓ Tool calls detected: {len(response.tool_calls)}")
         for i, tool_call in enumerate(response.tool_calls, 1):
@@ -294,7 +293,7 @@ def test_sync_chat_with_tools(llm_class: Type[BaseLLM], llm_name: str):
     else:
         print(f"\n⚠ No tool calls (response with text instead)")
         print(f"Response preview: {response.content[:200]}...")
-    
+
     print(f"\nFull message:\n{response.simple_dump()}")
 
     llm.close_sync()
@@ -306,12 +305,12 @@ def run_all_tests_for_llm(llm_class: Type[BaseLLM], llm_name: str):
     print(f"\n\n{'#'*60}")
     print(f"# Running all tests for: {llm_name}")
     print(f"{'#'*60}")
-    
+
     test_sync_chat(llm_class, llm_name)
     test_sync_chat_with_stream_print(llm_class, llm_name)
     test_sync_stream_chat(llm_class, llm_name)
     test_sync_chat_with_tools(llm_class, llm_name)
-    
+
     print(f"\n{'='*60}")
     print(f"✓ All tests passed for {llm_name}!")
     print(f"{'='*60}")
@@ -325,7 +324,7 @@ def main():
         epilog="""
 Examples:
   python test_llm_sync.py --openai      # Test OpenAILLM only
-  python test_llm_sync.py --litellm     # Test LiteLLM only  
+  python test_llm_sync.py --litellm     # Test LiteLLM only
   python test_llm_sync.py --all         # Test both LLMs
         """,
     )
@@ -349,7 +348,7 @@ Examples:
 
     # Determine which LLMs to test
     llms_to_test = []
-    
+
     if args.all:
         llms_to_test = [
             (OpenAILLMSync, "OpenAILLMSync"),
@@ -391,4 +390,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

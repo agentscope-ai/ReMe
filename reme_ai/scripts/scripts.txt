@@ -1,0 +1,4 @@
+C0114: Missing module docstring (missing-module-docstring)
+C0115: Missing class docstring (missing-class-docstring)
+C0116: Missing function or method docstring (missing-function-docstring)
+done: { for f in ./*.py; do [[ "$f" != "./__init__.py" ]] && grep -v '^[[:space:]]*#' "$f"; done; } | pbcopy

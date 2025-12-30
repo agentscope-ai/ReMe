@@ -41,8 +41,11 @@ class HttpService(BaseService):
         async def execute_endpoint(request: request_model) -> Response:
             return await flow.call(**request.model_dump(exclude_none=True))
 
-        self.app.post(path=f"/{flow.name}", response_model=Response,
-                      description=flow.tool_call.description)(execute_endpoint)
+        self.app.post(
+            path=f"/{flow.name}",
+            response_model=Response,
+            description=flow.tool_call.description,
+        )(execute_endpoint)
         return True
 
     def integrate_stream_flow(self, flow: BaseFlow) -> bool:
@@ -97,5 +100,5 @@ class HttpService(BaseService):
             port=http_config.port,
             timeout_keep_alive=http_config.timeout_keep_alive,
             limit_concurrency=http_config.limit_concurrency,
-            **http_config.model_extra
+            **http_config.model_extra,
         )

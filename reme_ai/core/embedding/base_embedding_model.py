@@ -32,13 +32,13 @@ class BaseEmbeddingModel(ABC):
     """
 
     def __init__(
-            self,
-            model_name: str = "",
-            dimensions: int = 1024,
-            max_batch_size: int = 10,
-            max_retries: int = 3,
-            raise_exception: bool = True,
-            **kwargs,
+        self,
+        model_name: str = "",
+        dimensions: int = 1024,
+        max_batch_size: int = 10,
+        max_retries: int = 3,
+        raise_exception: bool = True,
+        **kwargs,
     ):
         """
         Initialize the BaseEmbeddingModel.
@@ -160,7 +160,7 @@ class BaseEmbeddingModel(ABC):
             else:
                 embeddings = []
                 for i in range(0, len(input_text), self.max_batch_size):
-                    batch = input_text[i: i + self.max_batch_size]
+                    batch = input_text[i : i + self.max_batch_size]
                     batch_embeddings = await self.get_embeddings(batch)
                     if batch_embeddings:
                         embeddings.extend(batch_embeddings)
@@ -228,7 +228,7 @@ class BaseEmbeddingModel(ABC):
             else:
                 embeddings = []
                 for i in range(0, len(input_text), self.max_batch_size):
-                    batch = input_text[i: i + self.max_batch_size]
+                    batch = input_text[i : i + self.max_batch_size]
                     batch_embeddings = self.get_embeddings_sync(batch)
                     if batch_embeddings:
                         embeddings.extend(batch_embeddings)
@@ -265,7 +265,7 @@ class BaseEmbeddingModel(ABC):
             # Process nodes in batches sequentially
             embeddings = []
             for i in range(0, len(nodes), self.max_batch_size):
-                batch_nodes = nodes[i: i + self.max_batch_size]
+                batch_nodes = nodes[i : i + self.max_batch_size]
                 batch_content = [node.content for node in batch_nodes]
                 batch_embeddings = await self.get_embeddings(batch_content)
                 if batch_embeddings:
@@ -311,7 +311,7 @@ class BaseEmbeddingModel(ABC):
             # Process nodes in batches to respect max_batch_size limits
             embeddings = []
             for i in range(0, len(nodes), self.max_batch_size):
-                batch_nodes = nodes[i: i + self.max_batch_size]
+                batch_nodes = nodes[i : i + self.max_batch_size]
                 batch_content = [node.content for node in batch_nodes]
                 batch_embeddings = self.get_embeddings_sync(input_text=batch_content)
 

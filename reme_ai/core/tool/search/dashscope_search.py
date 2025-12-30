@@ -12,7 +12,7 @@ class DashscopeSearch(BaseOp):
 
     def __init__(
         self,
-        model: str = "qwen-flash",
+        model: str = "qwen-plus",
         search_strategy: str = "max",
         enable_role_prompt: bool = True,
         **kwargs,
@@ -34,7 +34,7 @@ class DashscopeSearch(BaseOp):
                         "required": True,
                     },
                 },
-            }
+            },
         )
 
     async def execute(self):
