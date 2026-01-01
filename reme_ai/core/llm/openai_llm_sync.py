@@ -1,6 +1,6 @@
 """Synchronous OpenAI-compatible LLM implementation supporting streaming, tool calls, and reasoning content."""
 
-from typing import List, Generator, Optional
+from typing import Generator, Optional
 
 from openai import OpenAI
 
@@ -22,8 +22,8 @@ class OpenAILLMSync(OpenAILLM):
 
     def _stream_chat_sync(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
+        messages: list[Message],
+        tools: Optional[list[ToolCall]] = None,
         stream_kwargs: Optional[dict] = None,
     ) -> Generator[StreamChunk, None, None]:
         """Synchronously generate a stream of chat completion chunks including text, reasoning, and tool calls."""
@@ -32,7 +32,7 @@ class OpenAILLMSync(OpenAILLM):
         completion = self._client.chat.completions.create(**stream_kwargs)
 
         # Track accumulated tool calls across chunks
-        ret_tools: List[ToolCall] = []
+        ret_tools: list[ToolCall] = []
         # Flag to track if we've started receiving answer content
         is_answering: bool = False
 

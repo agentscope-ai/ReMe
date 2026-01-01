@@ -1,7 +1,6 @@
 """Module for managing global service configurations and component registries via a singleton context."""
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict
 
 from .base_context import BaseContext
 from .registry import Registry
@@ -21,10 +20,10 @@ class ServiceContext(BaseContext):
         self.service_config: ServiceConfig | None = None
         self.language: str = ""
         self.thread_pool: ThreadPoolExecutor | None = None
-        self.vector_store_dict: Dict[str, dict] = {}
-        self.external_mcp_tool_call_dict: dict = {}
+        self.vector_store_dict: dict[str, dict] = {}
+        self.mcp_server_tool_call_mapping: dict = {}
         # Initialize a registry for every category defined in RegistryEnum
-        self.registry_dict: Dict[RegistryEnum, Registry] = {v: Registry() for v in RegistryEnum.__members__.values()}
+        self.registry_dict: dict[RegistryEnum, Registry] = {v: Registry() for v in RegistryEnum.__members__.values()}
         self.flow_dict: dict = {}
 
     def register(self, name: str, register_type: RegistryEnum):

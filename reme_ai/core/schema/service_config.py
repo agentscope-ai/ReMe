@@ -98,10 +98,7 @@ class ServiceConfig(BaseModel):
     ray_max_workers: int = Field(default=-1)
     disabled_flows: List[str] = Field(default_factory=list)
     enabled_flows: List[str] = Field(default_factory=list)
-    external_mcp: Dict[str, dict] = Field(
-        default_factory=dict,
-        description="External MCP Server configuration",
-    )
+    mcp_servers: Dict[str, dict] = Field(default_factory=dict, description="External MCP Server configuration")
 
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     http: HttpConfig = Field(default_factory=HttpConfig)

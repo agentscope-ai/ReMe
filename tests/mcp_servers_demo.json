@@ -1,0 +1,37 @@
+{
+  "mcpServers": {
+    "sqlite-explorer": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "mcp-server-sqlite",
+        "mcp-server-sqlite",
+        "--db-path",
+        "/path/to/your/database.db"
+      ],
+      "env": {
+        "CUSTOM_VAR": "optional_value"
+      }
+    },
+    "remote-fetcher": {
+      "type": "sse",
+      "url": "https://mcp-server.example.com/sse",
+      "headers": {
+        "Authorization": "Bearer {BAILIAN_MCP_API_KEY}",
+        "Content-Type": "application/json"
+      },
+      "timeout": 5,
+      "sse_read_timeout": 300
+    },
+    "my-modern-remote": {
+      "type": "streamable-http",
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer {BAILIAN_MCP_API_KEY}"
+      },
+      "timeout": 5
+    }
+  }
+}

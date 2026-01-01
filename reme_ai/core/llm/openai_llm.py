@@ -1,7 +1,7 @@
 """Asynchronous OpenAI-compatible LLM implementation supporting streaming, tool calls, and reasoning content."""
 
 import os
-from typing import List, AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional
 
 from loguru import logger
 from openai import AsyncOpenAI
@@ -38,8 +38,8 @@ class OpenAILLM(BaseLLM):
 
     def _build_stream_kwargs(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
+        messages: list[Message],
+        tools: Optional[list[ToolCall]] = None,
         log_params: bool = True,
         **kwargs,
     ) -> dict:
@@ -68,8 +68,8 @@ class OpenAILLM(BaseLLM):
 
     async def _stream_chat(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
+        messages: list[Message],
+        tools: Optional[list[ToolCall]] = None,
         stream_kwargs: Optional[dict] = None,
     ) -> AsyncGenerator[StreamChunk, None]:
         """Generate a stream of chat completion chunks including text, reasoning content, and tool calls."""
@@ -78,7 +78,7 @@ class OpenAILLM(BaseLLM):
         completion = await self._client.chat.completions.create(**stream_kwargs)
 
         # Track accumulated tool calls across chunks
-        ret_tools: List[ToolCall] = []
+        ret_tools: list[ToolCall] = []
         # Flag to track if we've started receiving answer content
         is_answering: bool = False
 

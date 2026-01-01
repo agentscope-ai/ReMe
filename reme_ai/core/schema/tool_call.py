@@ -16,7 +16,7 @@ class ToolAttr(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    type: str = Field(default=JsonSchemaEnum.STRING.value, description="The data type of the attribute")
+    type: str = Field(default=str(JsonSchemaEnum.STRING), description="The data type of the attribute")
     description: Optional[str] = Field(default=None, description="Description of the attribute")
     required: Optional[List[str]] = Field(default=None, description="Required property names for object types")
     properties: Optional[Dict[str, "ToolAttr"]] = Field(default=None, description="Child properties for objects")
@@ -27,7 +27,7 @@ class ToolAttr(BaseModel):
     @classmethod
     def validate_type_is_valid_enum(cls, v: str) -> str:
         """Validates that the provided type string exists within JsonSchemaEnum values."""
-        valid_types = [e.value for e in JsonSchemaEnum]
+        valid_types = [str(e) for e in JsonSchemaEnum]
 
         if v not in valid_types:
             raise ValueError(f"Invalid type: '{v}'. Must be one of {valid_types}")

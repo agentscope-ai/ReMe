@@ -3,17 +3,16 @@
 from enum import Enum
 
 
-class JsonSchemaEnum(str, Enum):
+class JsonSchemaEnum(Enum):
     """Enumeration of valid JSON Schema data types."""
 
-    STRING = "string"
-    NUMBER = "number"
-    INTEGER = "integer"
-    OBJECT = "object"
-    ARRAY = "array"
-    BOOLEAN = "boolean"
-    NULL = "null"
+    STRING = str
+    NUMBER = float
+    INTEGER = int
+    OBJECT = dict
+    ARRAY = list
+    BOOLEAN = bool
 
     def __str__(self) -> str:
         """Returns the string representation of the enum value."""
-        return self.value
+        return self.name.lower()

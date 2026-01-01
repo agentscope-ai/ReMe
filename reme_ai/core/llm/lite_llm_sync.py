@@ -1,11 +1,6 @@
-"""Synchronous LiteLLM-based LLM implementation for the ReMe framework.
+"""Synchronous LiteLLM-based LLM implementation for the ReMe framework."""
 
-This module provides a unified synchronous interface for 100+ LLM providers via LiteLLM,
-supporting streaming completions, tool calling, and reasoning content. For
-asynchronous operations, refer to the LiteLLM class in the lite_llm module.
-"""
-
-from typing import List, Generator, Optional
+from typing import Generator
 
 import litellm
 
@@ -19,54 +14,21 @@ from ..schema import ToolCall
 
 @C.register_llm("litellm_sync")
 class LiteLLMSync(LiteLLM):
-    """
-    Synchronous LiteLLM client for executing chat completions and streaming responses.
-
-    This class extends the base LiteLLM implementation to provide synchronous
-    execution of streaming methods, inheriting initialization and configuration
-    logic from the parent class.
-
-    Example:
-        >>> llm = LiteLLMSync(
-        ...     model_name="qwen3-max",
-        ...     api_key="sk-...",
-        ...     temperature=0.7
-        ... )
-        >>> messages = [Message(role=Role.USER, content="Hello!")]
-        >>> for chunk in llm.chat(messages):
-        ...     print(chunk)
-    """
+    """Synchronous LiteLLM client for executing chat completions and streaming responses."""
 
     def _stream_chat_sync(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolCall]] = None,
-        stream_kwargs: Optional[dict] = None,
+        messages: list[Message],
+        tools: list[ToolCall] | None = None,
+        stream_kwargs: dict | None = None,
     ) -> Generator[StreamChunk, None, None]:
-        """
-        Internal synchronous generator for processing streaming chat completion chunks.
-
-        This method orchestrates the LiteLLM completion lifecycle by categorizing
-        raw API chunks into usage data, reasoning content (thinking), regular
-        text responses, and aggregated tool calls.
-
-        Args:
-            messages: List of conversation messages to send to the model.
-            tools: Optional list of tool definitions available for the model to call.
-            stream_kwargs: Dictionary of pre-built parameters for the LiteLLM API.
-
-        Yields:
-            StreamChunk: Wrapped response fragments categorized by ChunkEnum.
-
-        Raises:
-            ValueError: If tool call arguments fail validation or serialization.
-        """
+        """Internal synchronous generator for processing streaming chat completion chunks."""
         # Create streaming completion request using LiteLLM
         stream_kwargs = stream_kwargs or {}
         completion = litellm.completion(**stream_kwargs)
 
         # Track accumulated tool calls across chunks
-        ret_tools: List[ToolCall] = []
+        ret_tools: list[ToolCall] = []
         # Flag to track if we've started receiving answer content
         is_answering: bool = False
 
