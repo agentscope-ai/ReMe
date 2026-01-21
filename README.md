@@ -18,7 +18,7 @@
 
 <p align="center">
   <strong>Memory Management Kit for Agents, Remember Me, Refine Me.</strong><br>
-  <em><sub>If you find it useful, please give us a ⭐ Star.</sub></em>
+  <em><sub>If you find it useful, please give us a ⭐ Star. </sub></em>
 </p>
 
 ---
