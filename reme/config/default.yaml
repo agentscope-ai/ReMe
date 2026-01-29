@@ -39,8 +39,8 @@ embedding_model:
 
 vector_store:
   default:
-    backend: es
-#    backend: chroma
+#    backend: es
+    backend: chroma
 #    backend: local
     embedding_model: default
     collection_name: reme
