@@ -8,6 +8,7 @@ from .profiles.add_draft_and_read_all_profiles import AddDraftAndReadAllProfiles
 from .profiles.profile_handler import ProfileHandler
 from .profiles.read_all_profiles import ReadAllProfiles
 from .profiles.update_profile import UpdateProfile
+from .return_relevant_content import ReturnRelevantContent
 from .vector.add_draft_and_retrieve_similar_memory import AddDraftAndRetrieveSimilarMemory
 from .vector.add_memory import AddMemory
 from .vector.delete_memory import DeleteMemory
@@ -30,6 +31,8 @@ __all__ = [
     "ProfileHandler",
     "ReadAllProfiles",
     "UpdateProfile",
+    # Return
+    "ReturnRelevantContent",
     # Vector
     "AddDraftAndRetrieveSimilarMemory",
     "AddMemory",

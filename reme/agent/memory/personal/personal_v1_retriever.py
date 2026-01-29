@@ -9,8 +9,11 @@ from ....core.utils import format_messages
 
 class PersonalV1Retriever(BaseMemoryAgent):
     """Retrieve personal memories through vector search and history reading."""
-
     memory_type: MemoryType = MemoryType.PERSONAL
+
+    def __init__(self, return_memory_nodes: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.return_memory_nodes: bool = return_memory_nodes
 
     async def build_messages(self) -> list[Message]:
         if self.context.get("query"):
@@ -67,33 +70,19 @@ class PersonalV1Retriever(BaseMemoryAgent):
 
     async def execute(self):
         result = await super().execute()
-        answer = result["answer"]
-        # if "MEMORY_NOT_FOUND" in answer:
-        #     result["answer"] = "\n".join(
-        #         [
-        #             n.format(
-        #                 include_memory_id=False,
-        #                 include_when_to_use=False,
-        #                 include_content=True,
-        #                 include_message_time=False,
-        #                 ref_memory_id_key="",
-        #             )
-        #             for n in self.retrieved_nodes
-        #         ],
-        #     )
-
-        result["answer"] = "\n".join(
-            [
-                n.format(
-                    include_memory_id=False,
-                    include_when_to_use=False,
-                    include_content=True,
-                    include_message_time=False,
-                    ref_memory_id_key="",
-                )
-                for n in self.retrieved_nodes
-            ],
-        )
+        if self.return_memory_nodes:
+            result["answer"] = "\n".join(
+                [
+                    n.format(
+                        include_memory_id=False,
+                        include_when_to_use=False,
+                        include_content=True,
+                        include_message_time=False,
+                        ref_memory_id_key="",
+                    )
+                    for n in self.retrieved_nodes
+                ],
+            )
 
         result["retrieved_nodes"] = self.retrieved_nodes
         return result

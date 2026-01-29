@@ -286,7 +286,10 @@ class ReMe(Application):
                         enable_time_filter=enable_time_filter,
                         enable_multiple=True
                     ),
-                    ReadHistory(enable_thinking_params=enable_thinking_params),
+                    ReadHistory(
+                        enable_multiple=True,
+                        enable_thinking_params=enable_thinking_params,
+                    ),
                 ],
             )
 
