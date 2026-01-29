@@ -32,6 +32,8 @@ from .tool.memory import (
     AddHistory,
     ReadAllProfiles,
     AddMemory,
+    ReturnRelevantContent,
+    UpdateProfileV1,
 )
 
 
@@ -171,7 +173,7 @@ class ReMe(Application):
                         enable_multiple=True,
                         profile_dir=self.profile_dir,
                     ),
-                    UpdateProfile(
+                    UpdateProfileV1(
                         enable_thinking_params=enable_thinking_params,
                         enable_memory_target=False,
                         enable_multiple=True,
@@ -290,6 +292,7 @@ class ReMe(Application):
 
         elif version == "v1":
             personal_retriever = PersonalV1Retriever(
+                return_memory_nodes=False,
                 tools=[
                     ReadAllProfiles(
                         enable_thinking_params=enable_thinking_params,
@@ -306,6 +309,7 @@ class ReMe(Application):
                         enable_multiple=True,
                         enable_thinking_params=enable_thinking_params,
                     ),
+                    ReturnRelevantContent(enable_multiple=True),
                 ],
             )
 

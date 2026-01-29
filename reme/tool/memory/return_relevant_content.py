@@ -17,7 +17,7 @@ class ReturnRelevantContent(BaseMemoryTool):
         """Build and return the multiple tool call schema"""
         return ToolCall(
             **{
-                "description": "Return formatted relevant content with message times.",
+                "description": "Return relevant content with message times.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -30,11 +30,11 @@ class ReturnRelevantContent(BaseMemoryTool):
                                 "properties": {
                                     "message_time": {
                                         "type": "string",
-                                        "description": "The timestamp or time identifier for the message",
+                                        "description": "timestamp",
                                     },
                                     "relevant_content": {
                                         "type": "string",
-                                        "description": "The relevant content for this message",
+                                        "description": "relevant content",
                                     },
                                 },
                                 "required": ["message_time", "relevant_content"],
