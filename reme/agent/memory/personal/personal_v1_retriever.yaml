@@ -22,9 +22,9 @@ system_prompt: |
     * Related context queries (broader themes)
   - Review all results before proceeding to next phase
 
-  ### Phase 2: Temporal Search (Optional)
+  ### Phase 2(Optional): Temporal Search 
   **Tool**: `retrieve_memory` (with time filter)
-  **When to use**: Only if the user question contains temporal references
+  **When to use**: Only if the user's question includes a time-related reference; otherwise, go straight to Phase 3.
   **Time Filter Format**:
   - Single date: `20200101`
   - Date range: `20200101,20200102` (inclusive: 20200101 ≤ time ≤ 20200102)

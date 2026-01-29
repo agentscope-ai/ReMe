@@ -12,6 +12,12 @@ http:
   timeout_keep_alive: 600
   limit_concurrency: 64
 
+flow:
+  test:
+    flow_content: TestOp()
+    description: "test"
+
+
 llm:
   default:
     backend: openai
@@ -33,10 +39,12 @@ embedding_model:
 
 vector_store:
   default:
-    backend: chroma
+    backend: es
+#    backend: chroma
 #    backend: local
     embedding_model: default
     collection_name: reme
+    hosts: http://11.160.132.46:8200
 
 token_counter:
   default:

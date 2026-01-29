@@ -69,37 +69,19 @@ class ESVectorStore(BaseVectorStore):
             **kwargs,
         )
 
-        # Store connection parameters for lazy initialization
-        self.hosts = hosts
-        self.cloud_id = cloud_id
-        self.api_key = api_key
-        self.basic_auth = basic_auth
-        self.verify_certs = verify_certs
-        self.headers = headers or {}
-        self._client: AsyncElasticsearch | None = None
-
-    async def _get_client(self) -> AsyncElasticsearch:
-        """Create or return the existing AsyncElasticsearch client.
-        
-        This lazy initialization ensures the client is created in the correct event loop.
-        """
-        if self._client is None:
-            self._client = AsyncElasticsearch(
-                hosts=self.hosts,
-                cloud_id=self.cloud_id,
-                api_key=self.api_key,
-                basic_auth=self.basic_auth,
-                verify_certs=self.verify_certs,
-                headers=self.headers,
-            )
-            logger.info("AsyncElasticsearch client initialized")
-        
-        return self._client
+        # Initialize AsyncElasticsearch client
+        self.client = AsyncElasticsearch(
+            hosts=hosts,
+            cloud_id=cloud_id,
+            api_key=api_key,
+            basic_auth=basic_auth,
+            verify_certs=verify_certs,
+            headers=headers or {},
+        )
 
     async def list_collections(self) -> list[str]:
         """List all available index names in the Elasticsearch cluster."""
-        client = await self._get_client()
-        aliases = await client.indices.get_alias()
+        aliases = await self.client.indices.get_alias()
         return list(aliases.keys())
 
     async def create_collection(self, collection_name: str, **kwargs):
@@ -110,9 +92,8 @@ class ESVectorStore(BaseVectorStore):
             **kwargs: Settings like dimensions, similarity, shards, and replicas.
         """
         collection_name = collection_name.lower()
-        client = await self._get_client()
 
-        if await client.indices.exists(index=collection_name):
+        if await self.client.indices.exists(index=collection_name):
             return
 
         dimensions = kwargs.get("dimensions", self.embedding_model.dimensions)
@@ -144,8 +125,8 @@ class ESVectorStore(BaseVectorStore):
             },
         }
 
-        if not await client.indices.exists(index=collection_name):
-            await client.indices.create(index=collection_name, body=index_settings)
+        if not await self.client.indices.exists(index=collection_name):
+            await self.client.indices.create(index=collection_name, body=index_settings)
             logger.info(f"Created index {collection_name} with dimensions={dimensions}")
         else:
             logger.info(f"Index {collection_name} already exists")
@@ -158,10 +139,9 @@ class ESVectorStore(BaseVectorStore):
             **kwargs: Additional parameters for the deletion request.
         """
         collection_name = collection_name.lower()
-        client = await self._get_client()
 
-        if await client.indices.exists(index=collection_name):
-            await client.indices.delete(index=collection_name)
+        if await self.client.indices.exists(index=collection_name):
+            await self.client.indices.delete(index=collection_name)
             logger.info(f"Deleted index {collection_name}")
         else:
             logger.warning(f"Index {collection_name} does not exist")
@@ -174,9 +154,8 @@ class ESVectorStore(BaseVectorStore):
             **kwargs: Additional parameters for the reindexing process.
         """
         collection_name = collection_name.lower()
-        client = await self._get_client()
 
-        current_index = await client.indices.get(index=self.collection_name)
+        current_index = await self.client.indices.get(index=self.collection_name)
         current_settings = current_index[self.collection_name]
 
         settings_to_copy = current_settings.get("settings", {}).copy()
@@ -195,7 +174,7 @@ class ESVectorStore(BaseVectorStore):
                 index_settings.pop(key, None)
             settings_to_copy["index"] = index_settings
 
-        await client.indices.create(
+        await self.client.indices.create(
             index=collection_name,
             body={
                 "settings": settings_to_copy,
@@ -203,7 +182,7 @@ class ESVectorStore(BaseVectorStore):
             },
         )
 
-        await client.reindex(
+        await self.client.reindex(
             body={
                 "source": {"index": self.collection_name},
                 "dest": {"index": collection_name},
@@ -245,8 +224,7 @@ class ESVectorStore(BaseVectorStore):
             }
             actions.append(action)
 
-        client = await self._get_client()
-        success, failed = await async_bulk(client, actions, raise_on_error=False)
+        success, failed = await async_bulk(self.client, actions, raise_on_error=False)
 
         if failed:
             logger.warning(f"Failed to insert {len(failed)} documents")
@@ -254,7 +232,7 @@ class ESVectorStore(BaseVectorStore):
         logger.info(f"Inserted {success} documents into {self.collection_name}")
 
         if refresh:
-            await client.indices.refresh(index=self.collection_name)
+            await self.client.indices.refresh(index=self.collection_name)
 
     async def search(
         self,
@@ -308,8 +286,7 @@ class ESVectorStore(BaseVectorStore):
                     filter_conditions.append({"term": {f"metadata.{key}": value}})
             search_query["knn"]["filter"] = {"bool": {"must": filter_conditions}}
 
-        client = await self._get_client()
-        response = await client.search(index=self.collection_name, body=search_query)
+        response = await self.client.search(index=self.collection_name, body=search_query)
 
         results = []
         for hit in response["hits"]["hits"]:
@@ -346,9 +323,8 @@ class ESVectorStore(BaseVectorStore):
                 },
             )
 
-        client = await self._get_client()
         success, failed = await async_bulk(
-            client,
+            self.client,
             actions,
             raise_on_error=False,
             raise_on_exception=False,
@@ -360,7 +336,7 @@ class ESVectorStore(BaseVectorStore):
         logger.info(f"Deleted {success} documents from {self.collection_name}")
 
         if refresh:
-            await client.indices.refresh(index=self.collection_name)
+            await self.client.indices.refresh(index=self.collection_name)
 
     async def delete_all(self, **kwargs):
         """Remove all vectors from the collection.
@@ -368,8 +344,7 @@ class ESVectorStore(BaseVectorStore):
         Args:
             **kwargs: Additional deletion parameters.
         """
-        client = await self._get_client()
-        response = await client.delete_by_query(
+        response = await self.client.delete_by_query(
             index=self.collection_name,
             body={"query": {"match_all": {}}},
         )
@@ -379,7 +354,7 @@ class ESVectorStore(BaseVectorStore):
 
         refresh = kwargs.get("refresh", True)
         if refresh:
-            await client.indices.refresh(index=self.collection_name)
+            await self.client.indices.refresh(index=self.collection_name)
 
     async def update(self, nodes: VectorNode | list[VectorNode], refresh: bool = True, **kwargs):
         """Update existing documents with new content or metadata.
@@ -419,9 +394,8 @@ class ESVectorStore(BaseVectorStore):
                 },
             )
 
-        client = await self._get_client()
         success, failed = await async_bulk(
-            client,
+            self.client,
             actions,
             raise_on_error=False,
             raise_on_exception=False,
@@ -433,7 +407,7 @@ class ESVectorStore(BaseVectorStore):
         logger.info(f"Updated {success} documents in {self.collection_name}")
 
         if refresh:
-            await client.indices.refresh(index=self.collection_name)
+            await self.client.indices.refresh(index=self.collection_name)
 
     async def get(self, vector_ids: str | list[str]) -> VectorNode | list[VectorNode]:
         """Fetch documents by their IDs from the current index.
@@ -448,8 +422,7 @@ class ESVectorStore(BaseVectorStore):
         if single_result:
             vector_ids = [vector_ids]
 
-        client = await self._get_client()
-        response = await client.mget(
+        response = await self.client.mget(
             index=self.collection_name,
             body={"ids": vector_ids},
         )
@@ -526,8 +499,7 @@ class ESVectorStore(BaseVectorStore):
         else:
             query["size"] = 10000
 
-        client = await self._get_client()
-        response = await client.search(index=self.collection_name, body=query)
+        response = await self.client.search(index=self.collection_name, body=query)
 
         results = []
         for hit in response["hits"]["hits"]:
@@ -550,7 +522,5 @@ class ESVectorStore(BaseVectorStore):
 
     async def close(self):
         """Terminate the Elasticsearch client session and release resources."""
-        if self._client is not None:
-            await self._client.close()
-            self._client = None
-            logger.info("Elasticsearch client connection closed")
+        await self.client.close()
+        logger.info("Elasticsearch client connection closed")

@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
@@ -20,7 +21,20 @@ class HttpService(BaseService):
     def __init__(self, **kwargs):
         """Initialize FastAPI app with CORS and health checks."""
         super().__init__(**kwargs)
-        self.app = FastAPI(title=self.service_config.app_name)
+        
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            # 启动时的逻辑
+            print("HTTP service is starting...")
+            await asyncio.sleep(1)
+            print("HTTP service started successfully!")
+            yield
+            # 结束时的逻辑
+            print("HTTP service is shutting down...")
+            await asyncio.sleep(1)
+            print("HTTP service shutdown complete!")
+        
+        self.app = FastAPI(title=self.service_config.app_name, lifespan=lifespan)
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],

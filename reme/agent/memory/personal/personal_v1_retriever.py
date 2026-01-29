@@ -68,19 +68,19 @@ class PersonalV1Retriever(BaseMemoryAgent):
     async def execute(self):
         result = await super().execute()
         answer = result["answer"]
-        if "MEMORY_NOT_FOUND" in answer:
-            result["answer"] = "\n".join(
-                [
-                    n.format(
-                        include_memory_id=False,
-                        include_when_to_use=False,
-                        include_content=True,
-                        include_message_time=False,
-                        ref_memory_id_key="",
-                    )
-                    for n in self.retrieved_nodes
-                ],
-            )
+        # if "MEMORY_NOT_FOUND" in answer:
+        result["answer"] = "\n".join(
+            [
+                n.format(
+                    include_memory_id=False,
+                    include_when_to_use=False,
+                    include_content=True,
+                    include_message_time=False,
+                    ref_memory_id_key="",
+                )
+                for n in self.retrieved_nodes
+            ],
+        )
 
         result["retrieved_nodes"] = self.retrieved_nodes
         return result
