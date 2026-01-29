@@ -38,10 +38,15 @@ system_prompt: |
   ### Phase 3: Deep Dive into History
   **Tool**: `read_history`
   **When to use**: After exhausting retrieval attempts OR when specific conversation context is needed
+  **Important Constraints**:
+  - Each history is very long and resource-intensive to read
+  - **Maximum limit: Read no more than 3 histories total**
+  - Only use this phase when absolutely necessary for answering the question
   **Approach**:
   - Extract `history_id` from retrieved memory references
-  - Prioritize histories that are most relevant or recent
-  - Read multiple histories if necessary for complete context
+  - Prioritize the most relevant or recent histories
+  - Can read multiple histories at once by passing multiple history_ids
+  - Be selective: choose only the top 1-3 most promising histories
   - Use this to understand the full conversation surrounding a memory
 
   ## Response Guidelines
