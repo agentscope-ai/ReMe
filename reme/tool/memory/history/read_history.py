@@ -14,43 +14,44 @@ class ReadHistory(BaseMemoryTool):
         super().__init__(**kwargs)
 
     def _build_tool_call(self) -> ToolCall:
-        """Build and return the tool call schema"""
-        if self.enable_multiple:
-            return ToolCall(
-                **{
-                    "description": "Read multiple original history dialogues by their IDs.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "history_ids": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of history IDs to read",
-                            },
+        """Build and return the tool call schema for single history"""
+        return ToolCall(
+            **{
+                "description": "Read a single original history dialogue by its ID.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "history_id": {
+                            "type": "string",
+                            "description": "The history ID to read",
                         },
-                        "required": ["history_ids"],
                     },
+                    "required": ["history_id"],
                 },
-            )
-        else:
-            return ToolCall(
-                **{
-                    "description": "Read a single original history dialogue by its ID.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "history_id": {
-                                "type": "string",
-                                "description": "The history ID to read",
-                            },
+            },
+        )
+
+    def _build_multiple_tool_call(self) -> ToolCall:
+        """Build and return the tool call schema for multiple histories"""
+        return ToolCall(
+            **{
+                "description": "Read multiple original history dialogues by their IDs.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "history_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of history IDs to read",
                         },
-                        "required": ["history_id"],
                     },
+                    "required": ["history_ids"],
                 },
-            )
+            },
+        )
 
     async def execute(self):
-        # 统一获取 history_ids（单数模式转为列表）
+        """Execute the tool call"""
         history_ids = self.context.history_ids if self.enable_multiple else [self.context.history_id]
         
         if not history_ids or (len(history_ids) == 1 and not history_ids[0]):
@@ -65,7 +66,6 @@ class ReadHistory(BaseMemoryTool):
             logger.warning(output)
             return output
 
-        # 统一处理节点
         results = []
         for node in nodes:
             memory_node: MemoryNode = MemoryNode.from_vector_node(node)
