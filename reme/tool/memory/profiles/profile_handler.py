@@ -12,7 +12,7 @@ from ....core.utils import CacheHandler, deduplicate_memories
 class ProfileHandler:
     """User profile CRUD handler"""
 
-    def __init__(self, profile_path: str | Path, memory_target: str, max_capacity: int = 100):
+    def __init__(self, profile_path: str | Path, memory_target: str, max_capacity: int = 50):
         """init"""
         self.memory_target: str = memory_target
         self.cache_key: str = self.memory_target.replace(" ", "_").lower()

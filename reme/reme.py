@@ -27,13 +27,13 @@ from .tool.memory import (
     ProfileHandler,
     MemoryHandler,
     AddDraftAndRetrieveSimilarMemory,
-    AddDraftAndReadAllProfiles,
-    UpdateProfile,
     AddHistory,
     ReadAllProfiles,
     AddMemory,
-    ReturnRelevantContent,
-    UpdateProfileV1,
+    # ReturnRelevantContent,
+    AddProfiles,
+    UpdateProfilesV1,
+    UpdateProfilesV2,
 )
 
 
@@ -136,18 +136,24 @@ class ReMe(Application):
                         enable_when_to_use=False,
                         enable_multiple=True,
                     ),
-                    AddDraftAndReadAllProfiles(
+                    ReadAllProfiles(
                         enable_thinking_params=enable_thinking_params,
                         enable_memory_target=False,
                         enable_multiple=True,
                         profile_dir=self.profile_dir,
                     ),
-                    UpdateProfile(
+                    UpdateProfilesV2(
                         enable_thinking_params=enable_thinking_params,
                         enable_memory_target=False,
                         enable_multiple=True,
                         profile_dir=self.profile_dir,
                     ),
+                    AddProfiles(
+                        enable_thinking_params=enable_thinking_params,
+                        enable_memory_target=False,
+                        enable_multiple=True,
+                        profile_dir=self.profile_dir,
+                    )
                 ],
             )
 
@@ -167,18 +173,18 @@ class ReMe(Application):
                         enable_when_to_use=False,
                         enable_multiple=True,
                     ),
-                    AddDraftAndReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_multiple=True,
-                        profile_dir=self.profile_dir,
-                    ),
-                    UpdateProfileV1(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_multiple=True,
-                        profile_dir=self.profile_dir,
-                    ),
+                    # ReadAllProfiles(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     enable_memory_target=False,
+                    #     enable_multiple=False,
+                    #     profile_dir=self.profile_dir,
+                    # ),
+                    # UpdateProfilesV1(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     enable_memory_target=False,
+                    #     enable_multiple=True,
+                    #     profile_dir=self.profile_dir,
+                    # ),
                 ],
             )
 
@@ -272,11 +278,11 @@ class ReMe(Application):
         if version == "default":
             personal_retriever = PersonalRetriever(
                 tools=[
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                    ),
+                    # ReadAllProfiles(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     enable_memory_target=False,
+                    #     profile_dir=self.profile_dir,
+                    # ),
                     RetrieveMemory(
                         top_k=retrieve_top_k,
                         enable_thinking_params=enable_thinking_params,
@@ -294,11 +300,11 @@ class ReMe(Application):
             personal_retriever = PersonalV1Retriever(
                 return_memory_nodes=False,
                 tools=[
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                    ),
+                    # ReadAllProfiles(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     enable_memory_target=False,
+                    #     profile_dir=self.profile_dir,
+                    # ),
                     RetrieveMemory(
                         top_k=retrieve_top_k,
                         enable_thinking_params=enable_thinking_params,
@@ -309,7 +315,7 @@ class ReMe(Application):
                         enable_multiple=True,
                         enable_thinking_params=enable_thinking_params,
                     ),
-                    ReturnRelevantContent(enable_multiple=True),
+                    # ReturnRelevantContent(enable_multiple=True),
                 ],
             )
 

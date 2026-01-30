@@ -29,6 +29,9 @@ user_message_s1: |
 system_prompt_s2: |
   You are a Profile Agent responsible for managing profiles about {memory_target}.
 
+  ## Current Profiles
+  {profiles}
+
   ## Latest Conversation
   Format: round<index> [<timestamp>] <role/name>: <content>
   {context}
@@ -46,18 +49,22 @@ system_prompt_s2: |
 
   ### Step 2: Update Profile Store
   Review the profile draft from Step 1 and compare it with all existing profiles, then use `update_profile` to maintain the profile store:
-  - **Delete profiles** (via `profile_ids_to_delete`) that need to be updated or are redundant:
-    * Duplicate profiles with identical keys or values
-    * Conflicting profiles that contradict the new information
-    * Profiles that should be merged into a single consolidated entry
-  - **Add profiles** (via `profiles_to_add`) with new or updated information:
+  - **Update existing profiles** (via `profile_ids_to_update`) that need to be modified:
+    * Required parameters for each profile to update:
+      - `profile_id`: ID of the profile to update (from existing profiles)
+      - `message_time`: timestamp from the conversation
+      - `profile_key`: profile key or category
+      - `profile_value`: updated profile value
+    * Profiles with conflicting information that needs to be corrected
+    * Profiles that need to be consolidated or merged
+    * For each profile key with changes: update with ONE consolidated profile that merges related information
+  - **Add new profiles** (via `profiles_to_add`) that don't exist yet:
     * Required parameters for each profile to add:
       - `message_time`: timestamp from the conversation
       - `profile_key`: profile key or category
-      - `profile_value`: consolidated profile value
-    * For each profile key with changes: add ONE consolidated profile that merges related information
+      - `profile_value`: profile value
     * New distinct profiles that don't overlap with existing ones
-    * Updated profiles that capture the latest state
+    * Profiles with information not captured in existing profiles
 
 user_message_s2: |
   Complete the task by following Step 1 and Step 2 in order

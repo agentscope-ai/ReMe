@@ -5,10 +5,12 @@ from .delegate_task import DelegateTask
 from .history.add_history import AddHistory
 from .history.read_history import ReadHistory
 from .profiles.add_draft_and_read_all_profiles import AddDraftAndReadAllProfiles
+from .profiles.add_profiles import AddProfiles
 from .profiles.profile_handler import ProfileHandler
 from .profiles.read_all_profiles import ReadAllProfiles
-from .profiles.update_profile import UpdateProfile
-from .profiles.update_profile_v1 import UpdateProfileV1
+from .profiles.update_profiles import UpdateProfiles
+from .profiles.update_profiles_v1 import UpdateProfilesV1
+from .profiles.update_profiles_v2 import UpdateProfilesV2
 from .return_relevant_content import ReturnRelevantContent
 from .vector.add_draft_and_retrieve_similar_memory import AddDraftAndRetrieveSimilarMemory
 from .vector.add_memory import AddMemory
@@ -30,10 +32,12 @@ __all__ = [
     "ReadHistory",
     # Profiles
     "AddDraftAndReadAllProfiles",
+    "AddProfiles",
     "ProfileHandler",
     "ReadAllProfiles",
-    "UpdateProfile",
-    "UpdateProfileV1",
+    "UpdateProfiles",
+    "UpdateProfilesV1",
+    "UpdateProfilesV2",
     # Return
     "ReturnRelevantContent",
     # Vector

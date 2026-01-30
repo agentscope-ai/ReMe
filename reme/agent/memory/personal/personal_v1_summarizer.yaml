@@ -33,35 +33,37 @@ system_prompt_s2: |
   Format: round<index> [<timestamp>] <role/name>: <content>
   {context}
 
+  ## Current Profiles
+  {profiles}
+
   ## Task
-  ### Step 1: Create Profile Draft
-  Use `add_draft_and_read_all_profiles` to create a profile draft based on the latest conversation.
-  - For the profile draft, fill in the required parameters:
+  Analyze the Latest Conversation and use `update_profiles` to manage profiles (both updates and additions in one call):
+  
+  **For profiles_to_update** (updating existing profiles):
+  - For each profile to update, fill in the required parameters:
+    * `profile_id`: ID of the profile to update (from Current Profiles)
     * `message_time`: timestamp from the conversation (e.g., '2020-01-01 00:00:00')
     * `profile_key`: profile key or category (e.g., 'name', 'age', 'occupation')
-    * `profile_value`: profile value or content (e.g., 'John Smith')
+    * `profile_value`: updated profile value (e.g., 'John Smith')
+  - Update profiles when:
+    * Information in the conversation conflicts with or supersedes existing profiles
+    * Profiles need to be consolidated or merged with new information
+    * Existing profile values need to be corrected or refined
+  
+  **For profiles_to_add** (adding new profiles):
+  - For each new profile, fill in the required parameters:
+    * `message_time`: timestamp from the conversation (e.g., '2020-01-01 00:00:00')
+    * `profile_key`: profile key or category (e.g., 'name', 'age', 'occupation')
+    * `profile_value`: profile value (e.g., 'John Smith')
+  - Add profiles when:
+    * The information represents a new distinct profile not present in Current Profiles
+    * The profile key doesn't exist in Current Profiles
+    * The information cannot be merged into existing profiles
+  
+  **General Guidelines:**
   - Use actual names from the conversation (e.g., "Bob") instead of generic references (e.g., "user")
   - Extract only what's explicitly stated—no inferences, assumptions, or fabrications
-  - The tool will return all existing profiles to help you maintain the profile store in Step 2
-
-  ### Step 2: Update Profile Store
-  Review the profile draft from Step 1 and compare it with all existing profiles, then use `update_profile` to maintain the profile store:
-  - **Update existing profiles** (via `profile_ids_to_update`) that need to be modified:
-    * Required parameters for each profile to update:
-      - `profile_id`: ID of the profile to update (from existing profiles)
-      - `message_time`: timestamp from the conversation
-      - `profile_key`: profile key or category
-      - `profile_value`: updated profile value
-    * Profiles with conflicting information that needs to be corrected
-    * Profiles that need to be consolidated or merged
-    * For each profile key with changes: update with ONE consolidated profile that merges related information
-  - **Add new profiles** (via `profiles_to_add`) that don't exist yet:
-    * Required parameters for each profile to add:
-      - `message_time`: timestamp from the conversation
-      - `profile_key`: profile key or category
-      - `profile_value`: profile value
-    * New distinct profiles that don't overlap with existing ones
-    * Profiles with information not captured in existing profiles
+  - You can update and add profiles in a single tool call
 
 user_message_s2: |
-  Complete the task by following Step 1 and Step 2 in order
+  Complete the task using the `update_profiles` tool

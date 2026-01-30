@@ -39,7 +39,7 @@ class PersonalV1Retriever(BaseMemoryAgent):
                     prompt_name="system_prompt",
                     memory_type=self.memory_type.value,
                     memory_target=self.memory_target,
-                    user_profile=all_profiles,
+                    # user_profile=all_profiles,
                     context=context.strip(),
                 ),
             ),

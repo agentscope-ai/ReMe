@@ -7,20 +7,16 @@ from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
 
-class UpdateProfileV1(BaseMemoryTool):
+class UpdateProfilesV1(BaseMemoryTool):
     """Tool to update user profile by adding or removing profile entries"""
 
-    def __init__(self, name="update_profile", enable_memory_target: bool = False, **kwargs):
+    def __init__(self, name="update_profiles", enable_memory_target: bool = False, **kwargs):
         kwargs["enable_multiple"] = True
         super().__init__(name=name, **kwargs)
         self.enable_memory_target: bool = enable_memory_target
 
     def _build_profile_parameters(self, include_profile_id: bool = False) -> dict:
-        """Build the profile parameters schema based on enabled features.
-        
-        Args:
-            include_profile_id: If True, include profile_id field (for updates)
-        """
+        """Build the profile parameters schema based on enabled features."""
         properties = {}
         required = []
 
@@ -64,11 +60,11 @@ class UpdateProfileV1(BaseMemoryTool):
         """Build and return the multiple tool call schema"""
         return ToolCall(
             **{
-                "description": "update user profile by updating existing profiles and adding new profile entries.",
+                "description": "Update existing profiles and add new profiles.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "profile_ids_to_update": {
+                        "profiles_to_update": {
                             "type": "array",
                             "description": "List of profiles to update",
                             "items": self._build_profile_parameters(include_profile_id=True),
@@ -79,25 +75,25 @@ class UpdateProfileV1(BaseMemoryTool):
                             "items": self._build_profile_parameters(include_profile_id=False),
                         },
                     },
-                    "required": ["profile_ids_to_update", "profiles_to_add"],
+                    "required": ["profiles_to_update", "profiles_to_add"],
                 },
             },
         )
 
     async def execute(self):
         # Get parameters
-        profile_ids_to_update = self.context.get("profile_ids_to_update", [])
+        profiles_to_update = self.context.get("profiles_to_update", [])
         profiles_to_add = self.context.get("profiles_to_add", [])
 
-        if not profile_ids_to_update and not profiles_to_add:
+        if not profiles_to_update and not profiles_to_add:
             return "No profiles to update or add, operation completed."
 
         # Step 1: Collect and delete all old profiles that need to be updated
-        if profile_ids_to_update:
+        if profiles_to_update:
             # Group deletion IDs by memory_target if enabled
             if self.enable_memory_target:
                 delete_by_target = {}
-                for profile in profile_ids_to_update:
+                for profile in profiles_to_update:
                     target = profile.get("memory_target", self.memory_target)
                     profile_id = profile.get("profile_id")
                     if profile_id:
@@ -106,7 +102,7 @@ class UpdateProfileV1(BaseMemoryTool):
                         delete_by_target[target].append(profile_id)
             else:
                 delete_by_target = {
-                    self.memory_target: [profile.get("profile_id") for profile in profile_ids_to_update if
+                    self.memory_target: [profile.get("profile_id") for profile in profiles_to_update if
                                          profile.get("profile_id")]
                 }
 
@@ -121,8 +117,8 @@ class UpdateProfileV1(BaseMemoryTool):
         all_profiles_to_add = []
 
         # Add profiles from updates
-        if profile_ids_to_update:
-            for profile in profile_ids_to_update:
+        if profiles_to_update:
+            for profile in profiles_to_update:
                 target = profile.get("memory_target",
                                      self.memory_target) if self.enable_memory_target else self.memory_target
                 all_profiles_to_add.append((target, profile))
@@ -142,7 +138,7 @@ class UpdateProfileV1(BaseMemoryTool):
 
         # Process each target and add profiles
         all_memory_nodes = []
-        updated_count = len(profile_ids_to_update)
+        updated_count = len(profiles_to_update)
         added_count = len(profiles_to_add)
 
         for target, target_profiles in profiles_by_target.items():

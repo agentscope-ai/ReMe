@@ -516,7 +516,7 @@ class HaluMemEvaluator:
 
     def __init__(self, config: EvalConfig):
         self.config = config
-        self.reme = ReMe()
+        self.reme = ReMe(llm={"model_name": "qwen3xxx"})
 
         # Load evaluation prompts into ReMe's prompt handler
         prompts_yaml_path = Path(__file__).parent / "eval_reme.yaml"

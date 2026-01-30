@@ -7,12 +7,12 @@ from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
 
-class UpdateProfile(BaseMemoryTool):
+class UpdateProfilesV2(BaseMemoryTool):
     """Tool to update user profile by adding or removing profile entries"""
 
-    def __init__(self, enable_memory_target: bool = False, **kwargs):
+    def __init__(self, name="update_profiles", enable_memory_target: bool = False, **kwargs):
         kwargs["enable_multiple"] = True
-        super().__init__(**kwargs)
+        super().__init__(name=name, **kwargs)
         self.enable_memory_target: bool = enable_memory_target
 
     def _build_multiple_tool_call(self) -> ToolCall:

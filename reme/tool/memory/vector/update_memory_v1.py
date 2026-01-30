@@ -78,7 +78,7 @@ class UpdateMemoryV1(BaseMemoryTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "memory_ids_to_update": {
+                        "memories_to_update": {
                             "type": "array",
                             "description": "List of memories to update",
                             "items": self._build_memory_parameters(include_memory_id=True),
@@ -89,25 +89,25 @@ class UpdateMemoryV1(BaseMemoryTool):
                             "items": self._build_memory_parameters(include_memory_id=False),
                         },
                     },
-                    "required": ["memory_ids_to_update", "memories_to_add"],
+                    "required": ["memories_to_update", "memories_to_add"],
                 },
             },
         )
 
     async def execute(self):
         # Get parameters
-        memory_ids_to_update = self.context.get("memory_ids_to_update", [])
+        memories_to_update = self.context.get("memories_to_update", [])
         memories_to_add = self.context.get("memories_to_add", [])
 
-        if not memory_ids_to_update and not memories_to_add:
+        if not memories_to_update and not memories_to_add:
             return "No memories to update or add, operation completed."
 
         # Step 1: Collect and delete all old memories that need to be updated
-        if memory_ids_to_update:
+        if memories_to_update:
             # Group deletion IDs by memory_target if enabled
             if self.enable_memory_target:
                 delete_by_target = {}
-                for mem in memory_ids_to_update:
+                for mem in memories_to_update:
                     target = mem.get("memory_target", self.memory_target)
                     memory_id = mem.get("memory_id")
                     if memory_id:
@@ -116,7 +116,7 @@ class UpdateMemoryV1(BaseMemoryTool):
                         delete_by_target[target].append(memory_id)
             else:
                 delete_by_target = {
-                    self.memory_target: [mem.get("memory_id") for mem in memory_ids_to_update if mem.get("memory_id")]
+                    self.memory_target: [mem.get("memory_id") for mem in memories_to_update if mem.get("memory_id")]
                 }
 
             # Delete old memories for each target
@@ -129,8 +129,8 @@ class UpdateMemoryV1(BaseMemoryTool):
         all_memories_to_add = []
         
         # Add memories from updates
-        if memory_ids_to_update:
-            for mem in memory_ids_to_update:
+        if memories_to_update:
+            for mem in memories_to_update:
                 target = mem.get("memory_target", self.memory_target) if self.enable_memory_target else self.memory_target
                 all_memories_to_add.append((target, mem))
         
@@ -149,7 +149,7 @@ class UpdateMemoryV1(BaseMemoryTool):
 
         # Process each target and add memories
         all_memory_nodes = []
-        updated_count = len(memory_ids_to_update)
+        updated_count = len(memories_to_update)
         added_count = len(memories_to_add)
         
         for target, target_memories in memories_by_target.items():
