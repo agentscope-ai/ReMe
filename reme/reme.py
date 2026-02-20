@@ -209,12 +209,12 @@ class ReMe(Application):
             personal_summarizer = PersonalV1Summarizer(
                 llm=llm_config_name,
                 tools=[
-                    AddDraftAndRetrieveSimilarMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_when_to_use=False,
-                        enable_multiple=True,
-                    ),
+                    # AddDraftAndRetrieveSimilarMemory(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     enable_memory_target=False,
+                    #     enable_when_to_use=False,
+                    #     enable_multiple=True,
+                    # ),
                     AddMemory(
                         enable_thinking_params=enable_thinking_params,
                         enable_memory_target=False,
@@ -267,11 +267,14 @@ class ReMe(Application):
             personal_summarizer = PersonalHalumemSummarizer(
                 llm=llm_config_name,
                 tools=[
-                    AddAndRetrieveSimilarMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        top_k=retrieve_top_k,
-                    ),
-                    UpdateMemoryV2(
+                    # AddAndRetrieveSimilarMemory(
+                    #     enable_thinking_params=enable_thinking_params,
+                    #     top_k=retrieve_top_k,
+                    # ),
+                    # UpdateMemoryV2(
+                    #     enable_thinking_params=enable_thinking_params,
+                    # ),
+                    AddMemory(
                         enable_thinking_params=enable_thinking_params,
                     ),
                     # 处理userprofile
