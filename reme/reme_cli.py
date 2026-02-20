@@ -1,11 +1,13 @@
 """ReMe File System"""
 
 import asyncio
+import os
 import sys
 from typing import AsyncGenerator
 
 from prompt_toolkit import PromptSession
 
+from reme.core.op import BaseTool
 from .agent.chat import FsCli
 from .core.enumeration import ChunkEnum
 from .core.schema import StreamChunk
@@ -20,42 +22,58 @@ from .tool.fs import (
     WriteTool,
 )
 from .tool.gallery import ExecuteCode
-from .tool.search import DashscopeSearch
+from .tool.search import DashscopeSearch, TavilySearch
+from .horse import _play_horse_easter_egg
 
 
 class ReMeCli(ReMeFs):
     """ReMe Cli"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, config_path: str = "cli", **kwargs):
         """Initialize ReMe with config."""
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, config_path=config_path, **kwargs)
         self.commands = {
             "/new": "Create a new conversation.",
             "/compact": "Compact messages into a summary.",
             "/exit": "Exit the application.",
             "/clear": "Clear the history.",
             "/help": "Show help.",
+            "/horse": "A surprise.",
         }
+        self.working_dir = self.service_config.working_dir
 
-    async def chat_with_remy(self, tool_result_max_size: int = 100, language: str = "zh", **kwargs):
+    async def chat_with_remy(self, tool_result_max_size: int = 100, **kwargs):
         """Interactive CLI chat with Remy using simple streaming output."""
+        language = self.service_config.language
+        print(f"ReMe language={language or 'default'}")
+        tools: list[BaseTool] = [
+            FsMemorySearch(
+                vector_weight=self.service_config.metadata["vector_weight"],
+                candidate_multiplier=self.service_config.metadata["candidate_multiplier"],
+            ),
+            BashTool(cwd=self.working_dir),
+            LsTool(cwd=self.working_dir),
+            ReadTool(cwd=self.working_dir),
+            EditTool(cwd=self.working_dir),
+            WriteTool(cwd=self.working_dir),
+            ExecuteCode(),
+        ]
+        tavily_api_key: str = os.getenv("TAVILY_API_KEY", "")
+        dashscope_api_key: str = os.getenv("DASHSCOPE_API_KEY", "")
+        if tavily_api_key:
+            tools.append(TavilySearch(name="web_search", language=language))
+            print("find tavily_api_key, append Tavily search tool")
+        elif dashscope_api_key:
+            tools.append(DashscopeSearch(name="web_search", language=language))
+            print("find dashscope_api_key, append Dashscope search tool")
+        else:
+            print("No Tavily or Dashscope API key found, skip Tavily and Dashscope search tool")
+
         fs_cli = FsCli(
-            tools=[
-                FsMemorySearch(
-                    hybrid_vector_weight=self.hybrid_vector_weight,
-                    hybrid_candidate_multiplier=self.hybrid_candidate_multiplier,
-                ),
-                BashTool(cwd=self.working_dir),
-                LsTool(cwd=self.working_dir),
-                ReadTool(cwd=self.working_dir),
-                EditTool(cwd=self.working_dir),
-                WriteTool(cwd=self.working_dir),
-                ExecuteCode(),
-                DashscopeSearch(),
-            ],
-            context_window_tokens=self.context_window_tokens,
-            reserve_tokens=self.reserve_tokens,
-            keep_recent_tokens=self.keep_recent_tokens,
+            tools=tools,
+            context_window_tokens=self.service_config.metadata["context_window_tokens"],
+            reserve_tokens=self.service_config.metadata["reserve_tokens"],
+            keep_recent_tokens=self.service_config.metadata["keep_recent_tokens"],
             working_dir=self.working_dir,
             language=language,
             **kwargs,
@@ -98,13 +116,18 @@ class ReMeCli(ReMeFs):
                     break
 
                 if user_input == "/new":
-                    result = await fs_cli.reset()
+                    result = await fs_cli.new()
                     print(f"{result}\nConversation reset\n")
                     continue
 
                 if user_input == "/compact":
                     result = await fs_cli.compact(force_compact=True)
                     print(f"{result}\nHistory compacted.\n")
+                    continue
+
+                if user_input == "/history":
+                    result = fs_cli.format_history()
+                    print(f"Formated History:\n{result}\n")
                     continue
 
                 if user_input == "/clear":
@@ -116,6 +139,10 @@ class ReMeCli(ReMeFs):
                     print("\nCommands:")
                     for command, description in self.commands.items():
                         print(f"  {command}: {description}")
+                    continue
+
+                if user_input == "/horse":
+                    _play_horse_easter_egg()
                     continue
 
                 # Stream processing state

@@ -611,7 +611,7 @@ async def test_memory_search_hybrid_mode():
             "fts_enabled": True,
         },
         search_params={
-            "hybrid_vector_weight": 0.7,
+            "vector_weight": 0.7,
         },
     )
     await reme_fs_hybrid.start()
@@ -672,7 +672,7 @@ async def test_memory_search_hybrid_mode():
                 "fts_enabled": True,
             },
             search_params={
-                "hybrid_vector_weight": vec_weight,
+                "vector_weight": vec_weight,
             },
         )
         await reme_fs_weights.start()

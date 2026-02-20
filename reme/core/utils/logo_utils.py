@@ -81,4 +81,5 @@ def print_logo(service_config: "ServiceConfig"):
         expand=False,
     )
 
-    Console().print(Group("\n", panel, "\n"), justify="center")
+    # use justify="center" to adjust position
+    Console().print(Group("\n", panel, "\n"))

@@ -5,9 +5,12 @@ Defines the abstract base class and standard API for all embedding model impleme
 
 import asyncio
 import hashlib
+import json
+import os
 import time
 from abc import ABC
 from collections import OrderedDict
+from pathlib import Path
 
 from loguru import logger
 
@@ -24,18 +27,23 @@ class BaseEmbeddingModel(ABC):
 
     def __init__(
         self,
+        api_key: str | None = None,
+        base_url: str | None = None,
         model_name: str = "",
         dimensions: int | None = 1024,
         max_batch_size: int = 10,
         max_retries: int = 3,
         raise_exception: bool = True,
         max_input_length: int = 8192,
-        max_cache_size: int = 10000,
+        cache_dir: str | Path = ".reme",
+        max_cache_size: int = 2000,
         **kwargs,
     ):
         """Initialize model configuration and parameters.
 
         Args:
+            api_key: API key for the embedding service
+            base_url: Base URL for the embedding service
             model_name: Name of the embedding model
             dimensions: Vector dimensions of the embeddings
             max_batch_size: Maximum batch size for embedding requests
@@ -45,12 +53,15 @@ class BaseEmbeddingModel(ABC):
             max_cache_size: Maximum number of embeddings to cache in memory (LRU)
             **kwargs: Additional model-specific parameters
         """
+        self._api_key: str = api_key
+        self._base_url: str = base_url
         self.model_name = model_name
         self.dimensions = dimensions
         self.max_batch_size = max_batch_size
         self.max_retries = max_retries
         self.raise_exception = raise_exception
         self.max_input_length = max_input_length
+        self.cache_dir = cache_dir
         self.max_cache_size = max_cache_size
         self.kwargs = kwargs
 
@@ -58,6 +69,22 @@ class BaseEmbeddingModel(ABC):
         self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._cache_hits = 0
         self._cache_misses = 0
+
+        self.cache_path: Path = Path(self.cache_dir)
+        self.cache_path.mkdir(parents=True, exist_ok=True)
+
+        # Load cache from disk if available
+        self._load_cache()
+
+    @property
+    def api_key(self) -> str | None:
+        """Get API key from environment variable."""
+        return os.getenv("REME_EMBEDDING_API_KEY") or self._api_key
+
+    @property
+    def base_url(self) -> str | None:
+        """Get base URL from environment variable."""
+        return os.getenv("REME_EMBEDDING_BASE_URL") or self._base_url
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_input_length if it exceeds the limit."""
@@ -73,15 +100,103 @@ class BaseEmbeddingModel(ABC):
         return [self._truncate_text(text) for text in texts]
 
     def _get_cache_key(self, text: str) -> str:
-        """Generate a cache key by hashing the input text.
+        """Generate a cache key by hashing text + model_name + dimensions.
+
+        This ensures that the same text produces different cache keys when
+        using different models or dimensions.
 
         Args:
             text: Input text to hash
 
         Returns:
-            SHA256 hash of the text as hexadecimal string
+            SHA256 hash combining text, model name, and dimensions
         """
-        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+        # Combine text, model_name, and dimensions to create unique cache key
+        cache_string = f"{text}|{self.model_name}|{self.dimensions}"
+        return hashlib.sha256(cache_string.encode("utf-8")).hexdigest()
+
+    def _get_cache_file_path(self) -> Path:
+        """Get the path to the cache file.
+
+        Returns:
+            Path to the embedding cache JSONL file
+        """
+        return self.cache_path / "embedding_cache.jsonl"
+
+    def _load_cache(self) -> None:
+        """Load embedding cache from disk (JSONL format).
+
+        Each line in the JSONL file contains a JSON object with:
+        - key: the cache key (SHA256 hash)
+        - embedding: the embedding vector (list of floats)
+
+        Loads in reverse order (newest first) to prioritize recent embeddings
+        when max_cache_size is smaller than the file content.
+        """
+        cache_file = self._get_cache_file_path()
+        if not cache_file.exists():
+            logger.info(f"No cache file found at {cache_file}, starting with empty cache")
+            return
+
+        try:
+            # Read all lines first (to load in reverse order)
+            with open(cache_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            loaded_count = 0
+            # Load in reverse order (newest entries first)
+            for _, line in enumerate(reversed(lines), 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    cache_key = data.get("key")
+                    embedding = data.get("embedding")
+
+                    if cache_key and embedding:
+                        # Skip if already loaded (keep the newest)
+                        if cache_key in self._embedding_cache:
+                            continue
+
+                        # Respect max_cache_size during loading
+                        if len(self._embedding_cache) >= self.max_cache_size:
+                            logger.info(
+                                f"Cache size limit reached ({self.max_cache_size}), "
+                                f"loaded {loaded_count} newest entries",
+                            )
+                            break
+                        self._embedding_cache[cache_key] = embedding
+                        loaded_count += 1
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse line in cache file: {e}")
+                    continue
+
+            logger.info(f"Loaded {loaded_count} embeddings from cache file: {cache_file}")
+        except Exception as e:
+            logger.error(f"Failed to load cache from {cache_file}: {e}")
+
+    def _save_cache(self) -> None:
+        """Save embedding cache to disk (JSONL format).
+
+        Each line contains a JSON object with the cache key and embedding vector.
+        Only saves if cache is non-empty.
+        """
+        logger.info(f"Attempting to save cache, current size: {len(self._embedding_cache)}")
+        if not self._embedding_cache:
+            logger.info("Cache is empty, skipping save")
+            return
+
+        cache_file = self._get_cache_file_path()
+        try:
+            with open(cache_file, "w", encoding="utf-8") as f:
+                for cache_key, embedding in self._embedding_cache.items():
+                    cache_entry = {"key": cache_key, "embedding": embedding}
+                    f.write(json.dumps(cache_entry, ensure_ascii=False) + "\n")
+
+            logger.info(f"Saved {len(self._embedding_cache)} embeddings to cache file: {cache_file}")
+        except Exception as e:
+            logger.error(f"Failed to save cache to {cache_file}: {e}")
 
     def _get_from_cache(self, text: str) -> list[float] | None:
         """Retrieve embedding from cache if it exists.
@@ -97,6 +212,10 @@ class BaseEmbeddingModel(ABC):
             # Move to end (most recently used)
             self._embedding_cache.move_to_end(cache_key)
             self._cache_hits += 1
+            text_preview = text[:50] + "..." if len(text) > 50 else text
+            logger.info(
+                f"Cache hit for text: '{text_preview}' (hits: {self._cache_hits}, misses: {self._cache_misses})",
+            )
             return self._embedding_cache[cache_key]
         self._cache_misses += 1
         return None
@@ -394,6 +513,8 @@ class BaseEmbeddingModel(ABC):
 
     def close_sync(self):
         """Synchronously release resources and close connections."""
+        self._save_cache()
 
     async def close(self):
         """Asynchronously release resources and close connections."""
+        self._save_cache()

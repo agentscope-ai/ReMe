@@ -8,7 +8,7 @@ from .file_watcher import BaseFileWatcher
 from .flow import BaseFlow
 from .llm import BaseLLM
 from .memory_store import BaseMemoryStore
-from .schema import Response
+from .schema import Response, ServiceConfig
 from .token_counter import BaseTokenCounter
 from .utils import execute_stream_task, PydanticConfigParser
 from .vector_store import BaseVectorStore
@@ -60,14 +60,29 @@ class Application:
         self.prompt_handler = PromptHandler(language=self.service_context.language)
         self._started: bool = False
 
+    def update_api_envs(
+        self,
+        llm_api_key: str | None = None,
+        llm_base_url: str | None = None,
+        embedding_api_key: str | None = None,
+        embedding_base_url: str | None = None,
+    ):
+        """Update the API environment variables."""
+        self.service_context.update_api_envs(
+            llm_api_key=llm_api_key,
+            llm_base_url=llm_base_url,
+            embedding_api_key=embedding_api_key,
+            embedding_base_url=embedding_base_url,
+        )
+
     @classmethod
     async def create(
         cls,
         *args,
         llm_api_key: str | None = None,
-        llm_api_base: str | None = None,
+        llm_base_url: str | None = None,
         embedding_api_key: str | None = None,
-        embedding_api_base: str | None = None,
+        embedding_base_url: str | None = None,
         enable_logo: bool = True,
         parser: type[PydanticConfigParser] | None = None,
         llm: dict | None = None,
@@ -82,9 +97,9 @@ class Application:
         instance = cls(
             *args,
             llm_api_key=llm_api_key,
-            llm_base_url=llm_api_base,
+            llm_base_url=llm_base_url,
             embedding_api_key=embedding_api_key,
-            embedding_base_url=embedding_api_base,
+            embedding_base_url=embedding_base_url,
             enable_logo=enable_logo,
             parser=parser,
             default_llm_config=llm,
@@ -154,6 +169,10 @@ class Application:
         """Get an LLM instance by name."""
         return self.service_context.llms.get(name)
 
+    def update_default_llm_name(self, name: str):
+        """Update the default LLM name."""
+        self.default_llm.model_name = name
+
     @property
     def default_embedding_model(self) -> BaseEmbeddingModel:
         """Get the default embedding model instance."""
@@ -162,6 +181,10 @@ class Application:
     def get_embedding_model(self, name: str):
         """Get an embedding model instance by name."""
         return self.service_context.embedding_models.get(name)
+
+    def update_default_embedding_name(self, name: str):
+        """Update the default embedding model name."""
+        self.default_embedding_model.model_name = name
 
     @property
     def default_vector_store(self) -> BaseVectorStore:
@@ -194,6 +217,11 @@ class Application:
     def default_token_counter(self) -> BaseTokenCounter:
         """Get the default token counter instance."""
         return self.service_context.token_counters.get("default")
+
+    @property
+    def service_config(self) -> ServiceConfig:
+        """Get the service configuration."""
+        return self.service_context.service_config
 
     def get_token_counter(self, name: str):
         """Get a token counter instance by name."""

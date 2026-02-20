@@ -50,10 +50,7 @@ class ServiceContext(BaseContext):
         super().__init__()
 
         load_env()
-        self._update_env("REME_LLM_API_KEY", llm_api_key)
-        self._update_env("REME_LLM_BASE_URL", llm_base_url)
-        self._update_env("REME_EMBEDDING_API_KEY", embedding_api_key)
-        self._update_env("REME_EMBEDDING_BASE_URL", embedding_base_url)
+        self.update_api_envs(llm_api_key, llm_base_url, embedding_api_key, embedding_base_url)
 
         if service_config is None:
             parser_class = parser if parser is not None else PydanticConfigParser
@@ -92,7 +89,8 @@ class ServiceContext(BaseContext):
         logger.info(f"ReMe Config: {service_config.model_dump_json()}")
 
         if self.service_config.working_dir:
-            Path(self.service_config.working_dir).mkdir(parents=True, exist_ok=True)
+            self.working_path = Path(self.service_config.working_dir)
+            self.working_path.mkdir(parents=True, exist_ok=True)
 
         if self.service_config.enable_logo:
             print_logo(service_config=self.service_config)
@@ -120,10 +118,23 @@ class ServiceContext(BaseContext):
         self._build_flows()
 
     @staticmethod
-    def _update_env(key: str, value: str | None):
+    def update_env(key: str, value: str | None):
         """Update environment variable if value is provided."""
         if value:
             os.environ[key] = value
+
+    def update_api_envs(
+        self,
+        llm_api_key: str | None = None,
+        llm_base_url: str | None = None,
+        embedding_api_key: str | None = None,
+        embedding_base_url: str | None = None,
+    ):
+        """Update common environment variables for LLM and embedding services."""
+        self.update_env("REME_LLM_API_KEY", llm_api_key)
+        self.update_env("REME_LLM_BASE_URL", llm_base_url)
+        self.update_env("REME_EMBEDDING_API_KEY", embedding_api_key)
+        self.update_env("REME_EMBEDDING_BASE_URL", embedding_base_url)
 
     @staticmethod
     def _update_section_config(config: dict, section_name: str, **kwargs):
@@ -158,6 +169,19 @@ class ServiceContext(BaseContext):
 
     async def start(self):
         """Start the service context by initializing all configured components."""
+        # Recreate thread pool if it was shut down
+        if self.thread_pool is None or self.thread_pool._shutdown:  # pylint: disable=protected-access
+            self.thread_pool = ThreadPoolExecutor(
+                max_workers=self.service_config.thread_pool_max_workers,
+            )
+
+        # Re-initialize Ray if it was shut down
+        if self.service_config.ray_max_workers > 1:
+            import ray
+
+            if not ray.is_initialized():
+                ray.init(num_cpus=self.service_config.ray_max_workers)
+
         for name, config in self.service_config.llms.items():
             if config.backend not in R.llms:
                 logger.warning(f"LLM backend {config.backend} is not supported.")
@@ -169,6 +193,7 @@ class ServiceContext(BaseContext):
                 logger.warning(f"Embedding model backend {config.backend} is not supported.")
             else:
                 self.embedding_models[name] = R.embedding_models[config.backend](
+                    cache_dir=self.working_path / "embedding_cache",
                     model_name=config.model_name,
                     **config.model_extra,
                 )
@@ -188,8 +213,12 @@ class ServiceContext(BaseContext):
             else:
                 # Extract config dict and replace special fields with actual instances
                 config_dict = config.model_dump(exclude={"backend", "embedding_model"})
-                config_dict["embedding_model"] = self.embedding_models[config.embedding_model]
-                config_dict["thread_pool"] = self.thread_pool
+                config_dict.update(
+                    {
+                        "embedding_model": self.embedding_models[config.embedding_model],
+                        "thread_pool": self.thread_pool,
+                    },
+                )
                 self.vector_stores[name] = R.vector_stores[config.backend](**config_dict)
                 await self.vector_stores[name].create_collection(config.collection_name)
 
@@ -199,7 +228,13 @@ class ServiceContext(BaseContext):
             else:
                 # Extract config dict and replace embedding_model string with actual instance
                 config_dict = config.model_dump(exclude={"backend", "embedding_model"})
-                config_dict["embedding_model"] = self.embedding_models[config.embedding_model]
+                config_dict.update(
+                    {
+                        "embedding_model": self.embedding_models[config.embedding_model],
+                        "thread_pool": self.thread_pool,
+                        "db_path": self.working_path / config.db_name,
+                    },
+                )
                 self.memory_stores[name] = R.memory_stores[config.backend](**config_dict)
                 await self.memory_stores[name].start()
 
@@ -242,19 +277,24 @@ class ServiceContext(BaseContext):
 
     async def close(self):
         """Close all service components asynchronously."""
-        for _, vector_store in self.vector_stores.items():
+        for name, vector_store in self.vector_stores.items():
+            logger.info(f"Closing vector store: {name}")
             await vector_store.close()
 
-        for _, memory_store in self.memory_stores.items():
+        for name, memory_store in self.memory_stores.items():
+            logger.info(f"Closing memory store: {name}")
             await memory_store.close()
 
-        for _, file_watcher in self.file_watchers.items():
+        for name, file_watcher in self.file_watchers.items():
+            logger.info(f"Closing file watcher: {name}")
             await file_watcher.close()
 
-        for _, llm in self.llms.items():
+        for name, llm in self.llms.items():
+            logger.info(f"Closing LLM: {name}")
             await llm.close()
 
-        for _, embedding_model in self.embedding_models.items():
+        for name, embedding_model in self.embedding_models.items():
+            logger.info(f"Closing embedding model: {name}")
             await embedding_model.close()
 
         self.shutdown_thread_pool()

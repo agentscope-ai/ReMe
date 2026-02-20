@@ -27,9 +27,8 @@ class SqliteMemoryStore(BaseMemoryStore):
     - Efficient chunk and file metadata management
     """
 
-    def __init__(self, db_path: str = ".reme/memory.db", vec_ext_path: str = "", **kwargs):
+    def __init__(self, vec_ext_path: str = "", **kwargs):
         super().__init__(**kwargs)
-        self.db_path = db_path
         self.vec_ext_path = vec_ext_path
 
         self.conn: sqlite3.Connection | None = None
@@ -70,6 +69,11 @@ class SqliteMemoryStore(BaseMemoryStore):
 
         # Only load sqlite-vec extension if vector search is enabled
         if self.vector_enabled:
+            logger.warning(
+                "On macOS systems with version 14 or earlier, "
+                "loading the sqlite-vec vector extension carries a risk of crashes or hangs.",
+            )
+
             self.conn.enable_load_extension(True)
 
             # Load sqlite-vec extension
@@ -826,6 +830,106 @@ class SqliteMemoryStore(BaseMemoryStore):
         finally:
             cursor.close()
 
+    async def hybrid_search(
+        self,
+        query: str,
+        limit: int,
+        sources: list[MemorySource] | None = None,
+        vector_weight: float = 0.7,
+        candidate_multiplier: float = 3.0,
+    ) -> list[MemorySearchResult]:
+        """Perform hybrid search combining vector and keyword search.
+
+        Args:
+            query: Search query text
+            limit: Maximum number of results
+            sources: Optional list of sources to filter
+            vector_weight: Weight for vector search results (0.0-1.0).
+                          Keyword weight = 1.0 - vector_weight.
+            candidate_multiplier: Multiplier for candidate pool size.
+
+        Returns:
+            List of search results sorted by combined relevance score
+        """
+        assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be between 0 and 1, got {vector_weight}"
+
+        candidates = min(200, max(1, int(limit * candidate_multiplier)))
+        text_weight = 1.0 - vector_weight
+
+        # Perform search based on enabled backends
+        if self.vector_enabled and self.fts_enabled:
+            keyword_results = await self.keyword_search(query, candidates, sources)
+            vector_results = await self.vector_search(query, candidates, sources)
+
+            # Log original vector results
+            logger.info("\n=== Vector Search Results ===")
+            for i, r in enumerate(vector_results[:10], 1):
+                snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
+                logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
+
+            # Log original keyword results
+            logger.info("\n=== Keyword Search Results ===")
+            for i, r in enumerate(keyword_results[:10], 1):
+                snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
+                logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
+
+            if not keyword_results:
+                return vector_results[:limit]
+            elif not vector_results:
+                return keyword_results[:limit]
+            else:
+                merged = self._merge_hybrid_results(
+                    vector=vector_results,
+                    keyword=keyword_results,
+                    vector_weight=vector_weight,
+                    text_weight=text_weight,
+                )
+
+                # Log merged results
+                logger.info("\n=== Merged Hybrid Results ===")
+                for i, r in enumerate(merged[:10], 1):
+                    snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
+                    logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
+
+                return merged[:limit]
+        elif self.vector_enabled:
+            vector_results = await self.vector_search(query, limit, sources)
+            return vector_results
+        elif self.fts_enabled:
+            keyword_results = await self.keyword_search(query, limit, sources)
+            return keyword_results
+        else:
+            return []
+
+    @staticmethod
+    def _merge_hybrid_results(
+        vector: list[MemorySearchResult],
+        keyword: list[MemorySearchResult],
+        vector_weight: float,
+        text_weight: float,
+    ) -> list[MemorySearchResult]:
+        """Merge vector and keyword search results with weighted scoring."""
+        merged: dict[str, MemorySearchResult] = {}
+
+        # Process vector results
+        for result in vector:
+            result.score = result.score * vector_weight
+            merged[result.merge_key] = result
+
+        # Process keyword results
+        for result in keyword:
+            key = result.merge_key
+            if key in merged:
+                merged[key].score += result.score * text_weight
+            else:
+                result.score = result.score * text_weight
+                merged[key] = result
+
+        # Sort by score and return
+        results = list(merged.values())
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
     async def clear_all(self):
         """Clear all indexed data."""
         cursor = self.conn.cursor()
@@ -854,3 +958,4 @@ class SqliteMemoryStore(BaseMemoryStore):
         if self.conn:
             self.conn.close()
             self.conn = None
+        await super().close()

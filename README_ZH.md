@@ -41,6 +41,23 @@ Agent Memory = Long-Term Memory + Short-Term Memory
 
 ## 📰 最新进展
 
+- **[2026-02]** 💻 ReMeCli：终端 AI 聊天助手，内置记忆管理能力。当对话过长时自动将旧内容压缩为摘要以释放上下文空间，同时将重要信息以 Markdown 文件持久化存储，供未来会话自动检索使用。记忆设计灵感来源于 [OpenClaw](https://github.com/openclaw/openclaw)。
+  - [快速开始](docs/cli/quick_start_en.md)
+  - 输入 `/horse` 触发马年彩蛋——烟花、奔马动画和随机马年祝福。
+<table border="0" cellspacing="0" cellpadding="0" style="border: none;">
+  <tr style="border: none;">
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>上<br>有<br>钱</strong>
+    </td>
+    <td width="80%" style="border: none;">
+      <video src="https://github.com/user-attachments/assets/befa7e40-63ba-4db2-8251-516024616e00" autoplay muted loop controls></video>
+    </td>
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>到<br>成<br>功</strong>
+    </td>
+  </tr>
+</table>
+
 - **[2025-12]** 📄 我们的程序性（任务）记忆论文已在 [arXiv](https://arxiv.org/abs/2512.10696) 发布
 - **[2025-11]** 🧠 基于工作记忆的 react-agent demo（[介绍](docs/work_memory/message_offload.md)、[Quick Start](docs/cookbook/working/quick_start.md)、[代码](cookbook/working_memory/work_memory_demo.py)）
 - **[2025-10]** 🚀 直接 Python 导入：支持 `from reme_ai import ReMeApp`，无需 HTTP/MCP 服务

@@ -1,5 +1,6 @@
 """FsCli system prompt"""
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from loguru import logger
 from ...core.enumeration import Role, ChunkEnum
 from ...core.op import BaseReactStream
 from ...core.schema import Message, StreamChunk
+from ...core.utils import format_messages
 from ...tool.fs import BashTool, LsTool, ReadTool, WriteTool, EditTool
 
 
@@ -31,18 +33,23 @@ class FsCli(BaseReactStream):
 
         self.messages: list[Message] = []
         self.previous_summary: str = ""
+        self.summary_tasks: list[asyncio.Task] = []
 
-    async def reset(self) -> str:
-        """Reset conversation history using summary.
+    def add_summary_task(self, messages: list[Message]):
+        """Add summary task to queue."""
+        remaining_tasks = []
+        for task in self.summary_tasks:
+            if task.done():
+                exc = task.exception()
+                if exc is not None:
+                    logger.exception(f"Summary task failed: {exc}")
+                else:
+                    result = task.result()
+                    logger.info(f"Summary task completed: {result}")
+            else:
+                remaining_tasks.append(task)
+        self.summary_tasks = remaining_tasks
 
-        Summarizes current messages to memory files and clears history.
-        """
-        if not self.messages:
-            self.messages.clear()
-            self.previous_summary = ""
-            return "No history to reset."
-
-        # Import required modules
         from ..fs import FsSummarizer
 
         # Summarize current conversation and save to memory files
@@ -59,14 +66,30 @@ class FsCli(BaseReactStream):
             language=self.language,
         )
 
-        result = await summarizer.call(
-            messages=self.messages,
-            date=current_date,
-            service_context=self.service_context,
+        summary_task = asyncio.create_task(
+            summarizer.call(
+                messages=messages,
+                date=current_date,
+                service_context=self.service_context,
+            ),
         )
+        self.summary_tasks.append(summary_task)
+
+    async def new(self) -> str:
+        """Reset conversation history using summary.
+
+        Summarizes current messages to memory files and clears history.
+        """
+        if not self.messages:
+            self.messages.clear()
+            self.previous_summary = ""
+            return "No history to reset."
+
+        self.add_summary_task(self.messages)
+
         self.messages.clear()
         self.previous_summary = ""
-        return f"History saved to memory files and reset. Result: {result.get('answer', 'Done')}"
+        return "History saved to memory files and reset."
 
     async def context_check(self) -> dict:
         """Check if messages exceed token limits."""
@@ -104,20 +127,16 @@ class FsCli(BaseReactStream):
         tokens_before = cut_result.get("token_count", 0)
 
         if force_compact:
-            # Force compact: summarize all messages, leave only summary
             messages_to_summarize = self.messages
             turn_prefix_messages = []
             left_messages = []
         elif not cut_result.get("needs_compaction", False):
-            # No compaction needed
             return "History is within token limits, no compaction needed."
         else:
-            # Normal compaction: use cut point result
             messages_to_summarize = cut_result.get("messages_to_summarize", [])
             turn_prefix_messages = cut_result.get("turn_prefix_messages", [])
             left_messages = cut_result.get("left_messages", [])
 
-        # Step 2: Generate summary via Compactor
         compactor = FsCompactor(language=self.language)
         summary_content = await compactor.call(
             messages_to_summarize=messages_to_summarize,
@@ -126,26 +145,37 @@ class FsCli(BaseReactStream):
             service_context=self.service_context,
         )
 
-        # Step 3: Call reset_history to save and clear
-        reset_result = await self.reset()
+        self.add_summary_task(messages=messages_to_summarize)
 
         # Step 4: Assemble final messages
         self.messages = left_messages
         self.previous_summary = summary_content
 
-        return f"History compacted from {tokens_before} tokens. {reset_result}"
+        return f"History compacted from {tokens_before} tokens."
+
+    def format_history(self) -> str:
+        """Format history messages."""
+        return format_messages(
+            messages=self.messages,
+            add_index=False,
+            add_reasoning=False,
+            strip_markdown_headers=False,
+        )
 
     async def build_messages(self) -> list[Message]:
         """Build system prompt message."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
+        has_web_search = any(t.name == "web_search" for t in self.tools)
 
         system_prompt = self.prompt_format(
             "system_prompt",
             workspace_dir=self.working_dir,
             current_time=current_time,
+            has_web_search=has_web_search,
             has_previous_summary=bool(self.previous_summary),
             previous_summary=self.previous_summary or "",
         )
+        logger.info(f"[{self.__class__.__name__}] system_prompt: {system_prompt}")
 
         return [
             Message(role=Role.SYSTEM, content=system_prompt),

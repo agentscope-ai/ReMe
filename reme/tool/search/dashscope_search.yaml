@@ -10,11 +10,11 @@ role_prompt: |
   {query}
 
   # task
-  Extract the original content related to the user's query directly from the context, maintain accuracy, and avoid excessive processing.
+  Return all the original search results directly without processing.
 
 role_prompt_zh: |
   # 用户问题
   {query}
 
   # task
-  直接从上下文中提取与用户问题相关的原始内容，保持准确性，避免过度处理。
+  直接返回所有的原始搜索结果，不要处理

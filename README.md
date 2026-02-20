@@ -40,6 +40,23 @@ Agent Memory = Long-Term Memory + Short-Term Memory
 
 ## 📰 Latest Updates
 
+- **[2026-02]** 💻 ReMeCli: A terminal-based AI chat assistant with built-in memory management. Automatically compacts long conversations into summaries to free up context space, and persists important information as Markdown files for retrieval in future sessions. Memory design inspired by [OpenClaw](https://github.com/openclaw/openclaw).
+  - [Quick Start](docs/cli/quick_start_en.md)
+  - Type `/horse` to trigger the Year of the Horse Easter egg -- fireworks, a galloping horse animation, and a random blessing.
+<table border="0" cellspacing="0" cellpadding="0" style="border: none;">
+  <tr style="border: none;">
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>上<br>有<br>钱</strong>
+    </td>
+    <td width="80%" style="border: none;">
+      <video src="https://github.com/user-attachments/assets/d731ae5c-80eb-498b-a22c-8ab2b9169f87" autoplay muted loop controls></video>
+    </td>
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>到<br>成<br>功</strong>
+    </td>
+  </tr>
+</table>
+
 - **[2025-12]** 📄 Our procedural (task) memory paper has been released on [arXiv](https://arxiv.org/abs/2512.10696)
 - **[2025-11]** 🧠 React-agent with working-memory demo ([Intro](docs/work_memory/message_offload.md)) with ([Quick Start](docs/cookbook/working/quick_start.md)) and ([Code](cookbook/working_memory/work_memory_demo.py))
 - **[2025-10]** 🚀 Direct Python import support: use `from reme_ai import ReMeApp` without HTTP/MCP service

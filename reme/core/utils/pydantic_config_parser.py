@@ -178,7 +178,7 @@ class PydanticConfigParser:
 
         # Merge all configs and validate
         self.config_dict = self.merge_configs(*configs_to_merge)
-        return self.config_class.model_validate(self.config_dict)
+        return self.config_class.model_validate(self.config_dict, extra="allow")
 
     def update_config(self, **kwargs) -> T:
         """Update current config with new values using kwargs.
@@ -195,4 +195,4 @@ class PydanticConfigParser:
 
         # Merge with existing config
         final_config = self.merge_configs(self.config_dict, override_config)
-        return self.config_class.model_validate(final_config)
+        return self.config_class.model_validate(final_config, extra="allow")

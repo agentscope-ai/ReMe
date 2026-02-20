@@ -83,6 +83,7 @@ class MemoryStoreConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     backend: str = Field(default="sqlite")
+    db_name: str = Field(default="reme.db")
     store_name: str = Field(default="reme")
     embedding_model: str = Field(default="default")
 
@@ -133,3 +134,5 @@ class ServiceConfig(BaseModel):
     memory_stores: dict[str, MemoryStoreConfig] = Field(default_factory=dict)
     token_counters: dict[str, TokenCounterConfig] = Field(default_factory=dict)
     file_watchers: dict[str, FileWatcherConfig] = Field(default_factory=dict)
+
+    metadata: dict = Field(default_factory=dict)

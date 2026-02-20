@@ -2,10 +2,8 @@
 
 import json
 
-from loguru import logger
-
 from reme.core.enumeration import MemorySource
-from reme.core.schema import MemorySearchResult, ToolCall
+from reme.core.schema import ToolCall
 from .base_fs_tool import BaseFsTool
 
 
@@ -17,21 +15,19 @@ class FsMemorySearch(BaseFsTool):
         sources: list[MemorySource] | None = None,
         min_score: float = 0.1,
         max_results: int = 5,
-        hybrid_vector_weight: float = 0.7,
-        hybrid_candidate_multiplier: float = 3.0,
+        vector_weight: float = 0.7,
+        candidate_multiplier: float = 3.0,
         **kwargs,
     ):
         """Initialize memory search tool."""
-        assert (
-            0.0 <= hybrid_vector_weight <= 1.0
-        ), f"hybrid_vector_weight must be between 0 and 1, got {hybrid_vector_weight}"
+        assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be between 0 and 1, got {vector_weight}"
         kwargs.setdefault("name", "memory_search")
         super().__init__(**kwargs)
         self.sources = sources or [MemorySource.MEMORY]
         self.min_score = min_score
         self.max_results = max_results
-        self.hybrid_vector_weight = hybrid_vector_weight
-        self.hybrid_candidate_multiplier = hybrid_candidate_multiplier
+        self.vector_weight = vector_weight
+        self.candidate_multiplier = candidate_multiplier
 
     def _build_tool_call(self) -> ToolCall:
         return ToolCall(
@@ -66,95 +62,27 @@ class FsMemorySearch(BaseFsTool):
     async def execute(self) -> str:
         """Execute the memory search operation."""
         query: str = self.context.query.strip()
-        min_score = self.context.get("min_score", self.min_score)
-        max_results = self.context.get("max_results", self.max_results)
-        candidates = min(200, max(1, int(max_results * self.hybrid_candidate_multiplier)))
+        min_score: float = self.context.get("min_score", self.min_score)
+        max_results: int = self.context.get("max_results", self.max_results)
 
-        vector_enabled = self.memory_store.vector_enabled
-        fts_enabled = self.memory_store.fts_enabled
+        assert query, "Query cannot be empty"
+        assert (
+            isinstance(min_score, float) and 0.0 <= min_score <= 1.0
+        ), f"min_score must be between 0 and 1, got {min_score}"
+        assert (
+            isinstance(max_results, int) and max_results > 0
+        ), f"max_results must be a positive integer, got {max_results}"
 
-        # Perform search based on enabled backends
-        if vector_enabled and fts_enabled:
-            keyword_results = await self._search_keyword(query, candidates)
-            vector_results = await self._search_vector(query, candidates)
+        # Use hybrid_search from memory_store
+        results = await self.memory_store.hybrid_search(
+            query=query,
+            limit=max_results,
+            sources=self.sources,
+            vector_weight=self.vector_weight,
+            candidate_multiplier=self.candidate_multiplier,
+        )
 
-            # Log original vector results
-            logger.info("\n=== Vector Search Results ===")
-            for i, r in enumerate(vector_results[:10], 1):
-                snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
-                logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
-
-            # Log original keyword results
-            logger.info("\n=== Keyword Search Results ===")
-            for i, r in enumerate(keyword_results[:10], 1):
-                snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
-                logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
-
-            if not keyword_results:
-                results = [r for r in vector_results if r.score >= min_score][:max_results]
-            elif not vector_results:
-                results = [r for r in keyword_results if r.score >= min_score][:max_results]
-            else:
-                merged = self._merge_hybrid_results(
-                    vector=vector_results,
-                    keyword=keyword_results,
-                    vector_weight=self.hybrid_vector_weight,
-                    text_weight=1.0 - self.hybrid_vector_weight,
-                )
-
-                # Log merged results
-                logger.info("\n=== Merged Hybrid Results ===")
-                for i, r in enumerate(merged[:10], 1):
-                    snippet_preview = (r.snippet[:100] + "...") if len(r.snippet) > 100 else r.snippet
-                    logger.info(f"{i}. Score: {r.score:.4f} | Snippet: {snippet_preview}")
-
-                results = [r for r in merged if r.score >= min_score][:max_results]
-        elif vector_enabled:
-            vector_results = await self._search_vector(query, candidates)
-            results = [r for r in vector_results if r.score >= min_score][:max_results]
-        elif fts_enabled:
-            keyword_results = await self._search_keyword(query, candidates)
-            results = [r for r in keyword_results if r.score >= min_score][:max_results]
-        else:
-            results = []
+        # Filter by min_score
+        results = [r for r in results if r.score >= min_score]
 
         return json.dumps([result.model_dump(exclude_none=True) for result in results], indent=2, ensure_ascii=False)
-
-    async def _search_vector(self, query: str, limit: int) -> list[MemorySearchResult]:
-        """Perform vector similarity search."""
-        return await self.memory_store.vector_search(query, limit, sources=self.sources)
-
-    async def _search_keyword(self, query: str, limit: int) -> list[MemorySearchResult]:
-        """Perform keyword/FTS search."""
-        if not self.memory_store.fts_enabled:
-            return []
-        return await self.memory_store.keyword_search(query, limit, sources=self.sources)
-
-    @staticmethod
-    def _merge_hybrid_results(
-        vector: list[MemorySearchResult],
-        keyword: list[MemorySearchResult],
-        vector_weight: float,
-        text_weight: float,
-    ) -> list[MemorySearchResult]:
-        """Merge vector and keyword search results with weighted scoring."""
-        merged: dict[str, MemorySearchResult] = {}
-
-        # Process vector results
-        for result in vector:
-            result.score = result.score * vector_weight
-            merged[result.merge_key] = result
-
-        # Process keyword results
-        for result in keyword:
-            key = result.merge_key
-            if key in merged:
-                merged[key].score += result.score * text_weight
-            else:
-                result.score = result.score * text_weight
-                merged[key] = result
-
-        # Sort by score and return
-        results = list(merged.values())
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results

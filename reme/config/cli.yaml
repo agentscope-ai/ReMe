@@ -1,13 +1,18 @@
 backend: cmd
+working_dir: .reme
+
+metadata:
+  context_window_tokens: 100000
+  reserve_tokens: 30000
+  keep_recent_tokens: 10000
+  vector_weight: 0.7
+  candidate_multiplier: 2
 
 llms:
   default:
     backend: openai
-#    model_name: qwen3-30b-a3b-instruct-2507
-#    model_name: qwen3-30b-a3b-thinking-2507
     model_name: qwen3-235b-a22b-thinking-2507
     request_interval: 1
-#    temperature: 0.0001
 
 embedding_models:
   default:
@@ -17,14 +22,13 @@ embedding_models:
 
 memory_stores:
   default:
-#    backend: sqlite
     backend: chroma
 #    backend: local
     db_name: reme.db
     store_name: reme
     embedding_model: default
     fts_enabled: true
-    vector_enabled: false
+    vector_enabled: true
 
 file_watchers:
   default:

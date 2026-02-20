@@ -22,7 +22,8 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
     os.makedirs(log_dir, exist_ok=True)
 
     # Generate filename based on the current timestamp
-    current_ts = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
+    # Use dashes instead of colons for Windows compatibility
+    current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = f"{current_ts}.log"
     log_filepath = os.path.join(log_dir, log_filename)
 

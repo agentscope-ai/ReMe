@@ -13,7 +13,7 @@ from ...core.utils import format_messages
 class FsSummarizer(BaseReact):
     """Retrieve personal memories through vector search and history reading."""
 
-    def __init__(self, working_dir: str, memory_dir: str = "memory", version: str = "default", **kwargs):
+    def __init__(self, working_dir: str, memory_dir: str = "memory", version: str = "v1", **kwargs):
         super().__init__(**kwargs)
         self.working_dir: str = working_dir
         self.memory_dir: str = memory_dir

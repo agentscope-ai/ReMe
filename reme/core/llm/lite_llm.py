@@ -1,6 +1,5 @@
 """LiteLLM asynchronous implementation for ReMe."""
 
-import os
 from typing import AsyncGenerator
 
 from loguru import logger
@@ -15,17 +14,9 @@ from ..schema import ToolCall
 class LiteLLM(BaseLLM):
     """Async LLM implementation using LiteLLM to support multiple providers."""
 
-    def __init__(
-        self,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        custom_llm_provider: str = "openai",
-        **kwargs,
-    ):
+    def __init__(self, custom_llm_provider: str = "openai", **kwargs):
         """Initialize the LiteLLM client with API configuration and provider settings."""
         super().__init__(**kwargs)
-        self.api_key: str | None = api_key or os.getenv("REME_LLM_API_KEY")
-        self.base_url: str | None = base_url or os.getenv("REME_LLM_BASE_URL")
         self.custom_llm_provider: str = custom_llm_provider
 
     def _build_stream_kwargs(

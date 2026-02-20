@@ -1,11 +1,14 @@
 # pylint: disable=too-many-lines
 """Unified test suite for memory store implementations.
 
-This module provides comprehensive test coverage for SqliteMemoryStore and future
-memory store implementations. Tests can be run for specific stores or all implementations.
+This module provides comprehensive test coverage for SqliteMemoryStore, ChromaMemoryStore,
+LocalMemoryStore and future memory store implementations. Tests can be run for specific stores
+or all implementations.
 
 Usage:
     python test_memory_store.py --sqlite     # Test SqliteMemoryStore only
+    python test_memory_store.py --chroma     # Test ChromaMemoryStore only
+    python test_memory_store.py --local      # Test LocalMemoryStore only
     python test_memory_store.py --all        # Test all memory stores
 """
 
@@ -14,6 +17,7 @@ import asyncio
 import hashlib
 import shutil
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List
 
@@ -22,6 +26,8 @@ from loguru import logger
 from reme.core.embedding import OpenAIEmbeddingModel
 from reme.core.enumeration.memory_source import MemorySource
 from reme.core.memory_store.base_memory_store import BaseMemoryStore
+from reme.core.memory_store.chroma_memory_store import ChromaMemoryStore
+from reme.core.memory_store.local_memory_store import LocalMemoryStore
 from reme.core.memory_store.sqlite_memory_store import SqliteMemoryStore
 from reme.core.schema.file_metadata import FileMetadata
 from reme.core.schema.memory_chunk import MemoryChunk
@@ -43,6 +49,14 @@ class TestConfig:
     SQLITE_DB_PATH = "./test_memory_store_sqlite/memory.db"
     SQLITE_VEC_EXT_PATH = ""  # Empty string to use default vec0/sqlite_vec/vector0
     SQLITE_FTS_ENABLED = True
+
+    # ChromaMemoryStore settings
+    CHROMA_DB_PATH = "./test_memory_store_chroma"
+    CHROMA_FTS_ENABLED = True
+
+    # LocalMemoryStore settings
+    LOCAL_DB_PATH = "./test_memory_store_local"
+    LOCAL_FTS_ENABLED = True
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -178,10 +192,14 @@ def get_store_type(store: BaseMemoryStore) -> str:
         store: Memory store instance
 
     Returns:
-        str: Type identifier ("sqlite", etc.)
+        str: Type identifier ("sqlite", "chroma", etc.)
     """
     if isinstance(store, SqliteMemoryStore):
         return "sqlite"
+    elif isinstance(store, ChromaMemoryStore):
+        return "chroma"
+    elif isinstance(store, LocalMemoryStore):
+        return "local"
     else:
         raise ValueError(f"Unknown memory store type: {type(store)}")
 
@@ -190,7 +208,7 @@ def create_memory_store(store_type: str) -> BaseMemoryStore:
     """Create a memory store instance based on type.
 
     Args:
-        store_type: Type of memory store ("sqlite", etc.)
+        store_type: Type of memory store ("sqlite", "chroma", etc.)
 
     Returns:
         BaseMemoryStore: Initialized memory store instance
@@ -203,6 +221,8 @@ def create_memory_store(store_type: str) -> BaseMemoryStore:
         dimensions=config.EMBEDDING_DIMENSIONS,
     )
 
+    thread_pool = ThreadPoolExecutor()
+
     if store_type == "sqlite":
         return SqliteMemoryStore(
             store_name=config.NAME,
@@ -210,6 +230,23 @@ def create_memory_store(store_type: str) -> BaseMemoryStore:
             embedding_model=embedding_model,
             vec_ext_path=config.SQLITE_VEC_EXT_PATH,
             fts_enabled=config.SQLITE_FTS_ENABLED,
+            thread_pool=thread_pool,
+        )
+    elif store_type == "chroma":
+        return ChromaMemoryStore(
+            store_name=config.NAME,
+            db_path=config.CHROMA_DB_PATH,
+            embedding_model=embedding_model,
+            fts_enabled=config.CHROMA_FTS_ENABLED,
+            thread_pool=thread_pool,
+        )
+    elif store_type == "local":
+        return LocalMemoryStore(
+            store_name=config.NAME,
+            db_path=config.LOCAL_DB_PATH,
+            embedding_model=embedding_model,
+            fts_enabled=config.LOCAL_FTS_ENABLED,
+            thread_pool=thread_pool,
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -238,6 +275,20 @@ async def test_start_store(store: BaseMemoryStore, _store_name: str):
         assert store.files_table_name in tables, f"{store.files_table_name} table should exist"
         assert store.chunks_table_name in tables, f"{store.chunks_table_name} table should exist"
         logger.info("✓ Required tables created")
+
+    # Verify ChromaDB collection created
+    if isinstance(store, ChromaMemoryStore):
+        assert store.client is not None, "ChromaDB client should be initialized"
+        assert store.chunks_collection is not None, "ChromaDB collection should exist"
+        logger.info(f"✓ ChromaDB collection created: {store.collection_name}")
+
+    # Verify LocalMemoryStore initialized (access internals for test assertions)
+    if isinstance(store, LocalMemoryStore):
+        # pylint: disable=protected-access
+        assert store._started, "LocalMemoryStore should be marked as started"
+        assert isinstance(store._chunks, dict), "Chunks index should be a dict"
+        assert isinstance(store._files, dict), "Files index should be a dict"
+        logger.info(f"✓ LocalMemoryStore ready (chunks file: {store._chunks_file})")
 
 
 async def test_upsert_file(store: BaseMemoryStore, _store_name: str) -> tuple[FileMetadata, List[MemoryChunk]]:
@@ -414,11 +465,9 @@ async def test_vector_search(store: BaseMemoryStore, _store_name: str):
     """Test vector similarity search."""
     logger.info("=" * 20 + " VECTOR SEARCH TEST " + "=" * 20)
 
-    # Check if vector search is available (SQLite-specific)
-    if isinstance(store, SqliteMemoryStore) and not store.vector_available:
-        logger.warning("⚠ Vector extension not available, skipping vector search tests")
-        logger.info("  Install sqlite-vec extension to enable vector search")
-        logger.info("  See: https://github.com/asg017/sqlite-vec")
+    # Check if vector search is enabled
+    if not store.vector_enabled:
+        logger.warning("⚠ Vector search not enabled, skipping vector search tests")
         return
 
     # Search for AI-related content
@@ -447,9 +496,9 @@ async def test_vector_search_with_source_filter(store: BaseMemoryStore, _store_n
     """Test vector search with source filtering."""
     logger.info("=" * 20 + " VECTOR SEARCH WITH SOURCE FILTER TEST " + "=" * 20)
 
-    # Check if vector search is available (SQLite-specific)
-    if isinstance(store, SqliteMemoryStore) and not store.vector_available:
-        logger.warning("⚠ Vector extension not available, skipping vector search with source filter test")
+    # Check if vector search is enabled
+    if not store.vector_enabled:
+        logger.warning("⚠ Vector search not enabled, skipping vector search with source filter test")
         return
 
     query = "sales data analysis"
@@ -503,9 +552,9 @@ async def test_keyword_search(store: BaseMemoryStore, _store_name: str):
     """Test full-text keyword search."""
     logger.info("=" * 20 + " KEYWORD SEARCH TEST " + "=" * 20)
 
-    # Check if FTS is available
-    if isinstance(store, SqliteMemoryStore) and not store.fts_available:
-        logger.info("⊘ Skipped: FTS not available")
+    # Check if FTS is enabled
+    if not store.fts_enabled:
+        logger.info("⊘ Skipped: FTS not enabled")
         return
 
     query = "neural networks"
@@ -535,9 +584,9 @@ async def test_keyword_search_with_source_filter(store: BaseMemoryStore, _store_
     """Test keyword search with source filtering."""
     logger.info("=" * 20 + " KEYWORD SEARCH WITH SOURCE FILTER TEST " + "=" * 20)
 
-    # Check if FTS is available
-    if isinstance(store, SqliteMemoryStore) and not store.fts_available:
-        logger.info("⊘ Skipped: FTS not available")
+    # Check if FTS is enabled
+    if not store.fts_enabled:
+        logger.info("⊘ Skipped: FTS not enabled")
         return
 
     query = "data"
@@ -581,9 +630,9 @@ async def test_keyword_search_special_chars(store: BaseMemoryStore, _store_name:
     """Test keyword search with special characters like ?, *, etc."""
     logger.info("=" * 20 + " KEYWORD SEARCH SPECIAL CHARS TEST " + "=" * 20)
 
-    # Check if FTS is available
-    if isinstance(store, SqliteMemoryStore) and not store.fts_available:
-        logger.info("⊘ Skipped: FTS not available")
+    # Check if FTS is enabled
+    if not store.fts_enabled:
+        logger.info("⊘ Skipped: FTS not enabled")
         return
 
     # Test various queries with special characters
@@ -681,16 +730,17 @@ async def test_concurrent_searches(store: BaseMemoryStore, _store_name: str):
         "data analysis techniques",
     ]
 
-    # Concurrent vector searches
-    search_tasks = [store.vector_search(q, limit=3) for q in queries]
-    results = await asyncio.gather(*search_tasks)
+    # Concurrent vector searches (if available)
+    if store.vector_enabled:
+        search_tasks = [store.vector_search(q, limit=3) for q in queries]
+        results = await asyncio.gather(*search_tasks)
 
-    logger.info(f"✓ Completed {len(results)} concurrent vector searches")
-    for i, (query, result) in enumerate(zip(queries, results), 1):
-        logger.info(f"  Query {i}: '{query}' -> {len(result)} results")
+        logger.info(f"✓ Completed {len(results)} concurrent vector searches")
+        for i, (query, result) in enumerate(zip(queries, results), 1):
+            logger.info(f"  Query {i}: '{query}' -> {len(result)} results")
 
     # Concurrent keyword searches (if available)
-    if isinstance(store, SqliteMemoryStore) and store.fts_available:
+    if store.fts_enabled:
         keyword_tasks = [store.keyword_search(q, limit=3) for q in queries]
         keyword_results = await asyncio.gather(*keyword_tasks)
         logger.info(f"✓ Completed {len(keyword_results)} concurrent keyword searches")
@@ -796,15 +846,17 @@ async def test_edge_cases(store: BaseMemoryStore, _store_name: str):
     logger.info("✓ Handled unicode and emoji")
 
     # Test 5: Search with empty query
-    try:
-        results = await store.vector_search("", limit=5)
-        logger.info(f"✓ Empty query returned {len(results)} results")
-    except Exception as e:
-        logger.info(f"⊘ Empty query not supported: {e}")
+    if store.vector_enabled:
+        try:
+            results = await store.vector_search("", limit=5)
+            logger.info(f"✓ Empty query returned {len(results)} results")
+        except Exception as e:
+            logger.info(f"⊘ Empty query not supported: {e}")
 
     # Test 6: Very high limit
-    results = await store.vector_search("test", limit=1000)
-    logger.info(f"✓ High limit search returned {len(results)} results")
+    if store.vector_enabled:
+        results = await store.vector_search("test", limit=1000)
+        logger.info(f"✓ High limit search returned {len(results)} results")
 
     # Test 7: Non-existent file
     non_existent_meta = await store.get_file_metadata("non_existent_file.txt", MemorySource.MEMORY)
@@ -924,7 +976,7 @@ async def cleanup_store(store: BaseMemoryStore, store_type: str):
 
     Args:
         store: Memory store instance
-        store_type: Type of memory store ("sqlite", etc.)
+        store_type: Type of memory store ("sqlite", "chroma", etc.)
     """
     logger.info("=" * 20 + " CLEANUP " + "=" * 20)
 
@@ -940,6 +992,32 @@ async def cleanup_store(store: BaseMemoryStore, store_type: str):
             if db_dir.exists():
                 shutil.rmtree(db_dir)
                 logger.info(f"✓ Cleaned up directory: {db_dir}")
+
+        # Clean up local directory if ChromaMemoryStore
+        if store_type == "chroma":
+            config = TestConfig()
+            db_dir = Path(config.CHROMA_DB_PATH)
+            if db_dir.exists():
+                shutil.rmtree(db_dir)
+                logger.info(f"✓ Cleaned up directory: {db_dir}")
+            # Also clean up the metadata file
+            metadata_file = db_dir.parent / f"{config.NAME}_file_metadata.json"
+            if metadata_file.exists():
+                metadata_file.unlink()
+                logger.info(f"✓ Cleaned up metadata file: {metadata_file}")
+
+        # Clean up LocalMemoryStore JSON persistence files
+        if store_type == "local":
+            config = TestConfig()
+            db_dir = Path(config.LOCAL_DB_PATH)
+            if db_dir.exists():
+                shutil.rmtree(db_dir)
+                logger.info(f"✓ Cleaned up directory: {db_dir}")
+            for suffix in ("_chunks.jsonl", "_file_metadata.json"):
+                json_file = db_dir.parent / f"{config.NAME}{suffix}"
+                if json_file.exists():
+                    json_file.unlink()
+                    logger.info(f"✓ Cleaned up file: {json_file}")
 
         logger.info("✓ Cleanup completed")
     except Exception as e:
@@ -957,6 +1035,8 @@ async def main():
         epilog="""
 Examples:
   python test_memory_store.py --sqlite     # Test SqliteMemoryStore only
+  python test_memory_store.py --chroma     # Test ChromaMemoryStore only
+  python test_memory_store.py --local      # Test LocalMemoryStore only
   python test_memory_store.py --all        # Test all memory stores
         """,
     )
@@ -964,6 +1044,16 @@ Examples:
         "--sqlite",
         action="store_true",
         help="Test SqliteMemoryStore",
+    )
+    parser.add_argument(
+        "--chroma",
+        action="store_true",
+        help="Test ChromaMemoryStore",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Test LocalMemoryStore",
     )
     parser.add_argument(
         "--all",
@@ -979,19 +1069,27 @@ Examples:
     if args.all:
         stores_to_test = [
             ("sqlite", "SqliteMemoryStore"),
+            ("chroma", "ChromaMemoryStore"),
+            ("local", "LocalMemoryStore"),
         ]
     else:
         # Build list based on individual flags
         if args.sqlite:
             stores_to_test.append(("sqlite", "SqliteMemoryStore"))
+        if args.chroma:
+            stores_to_test.append(("chroma", "ChromaMemoryStore"))
+        if args.local:
+            stores_to_test.append(("local", "LocalMemoryStore"))
 
         if not stores_to_test:
             # Default to all memory stores if no argument provided
             stores_to_test = [
                 ("sqlite", "SqliteMemoryStore"),
+                ("chroma", "ChromaMemoryStore"),
+                ("local", "LocalMemoryStore"),
             ]
             print("No memory store specified, defaulting to test all memory stores")
-            print("Use --sqlite to test specific ones\n")
+            print("Use --sqlite, --chroma, or --local to test specific ones\n")
 
     # Run tests for each memory store
     for store_type, store_name in stores_to_test:

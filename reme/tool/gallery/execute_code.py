@@ -7,7 +7,7 @@ and return the output or error messages.
 from ...core.op import BaseTool
 from ...core.schema import ToolCall
 
-from ...core.utils import exec_code
+from ...core.utils import exec_code, async_exec_code
 
 
 class ExecuteCode(BaseTool):
@@ -35,7 +35,7 @@ class ExecuteCode(BaseTool):
         )
 
     async def execute(self):
-        self.execute_sync()
+        return await async_exec_code(self.context.code)
 
     def execute_sync(self):
         return exec_code(self.context.code)
