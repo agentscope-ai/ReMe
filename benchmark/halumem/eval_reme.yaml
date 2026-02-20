@@ -192,7 +192,7 @@ PROMPT_MEMOBASE: |
 
 EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY: |
   You are a strict **"Memory Integrity" evaluator**.
-  Your core task is to assess whether an AI memory system has **missed any key memory points** after processing a conversation. This evaluation measures the system’s **memory integrity**, i.e., its ability to resist **amnesia** or **omission**.
+  Your core task is to assess whether an AI memory system has **missed any key memory points** after processing a conversation. This evaluation measures the system's **memory integrity**, i.e., its ability to resist **amnesia** or **omission**.
 
   # Evaluation Context & Data:
 
@@ -212,13 +212,13 @@ EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY: |
   # Scoring Rubric:
 
   * **2:** Fully covered or implied.
-    One or more items in “Extracted Memories” fully cover or logically imply all information in the “Expected Memory Point.”
+    One or more items in "Extracted Memories" fully cover or logically imply all information in the "Expected Memory Point."
 
   * **1:** Partially covered or mentioned.
-    Some information in “Extracted Memories” mentions part of the “Expected Memory Point,” but key information is missing, inaccurate, or slightly incorrect.
+    Some information in "Extracted Memories" mentions part of the "Expected Memory Point," but key information is missing, inaccurate, or slightly incorrect.
 
   * **0:** Not mentioned or incorrect.
-    “Extracted Memories” contains no mention of the “Expected Memory Point,” or the corresponding information is entirely wrong.
+    "Extracted Memories" contains no mention of the "Expected Memory Point," or the corresponding information is entirely wrong.
 
   # Scoring Notes:
 
@@ -230,11 +230,11 @@ EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY: |
 
   * Semantic matching is acceptable; exact wording is **not** required.
 
-  * If “Extracted Memories” contains **conflicting information**, assign the **best possible coverage score** and mention the conflict in your reasoning.
+  * If "Extracted Memories" contains **conflicting information**, assign the **best possible coverage score** and mention the conflict in your reasoning.
 
   * Extra or stylistically different memories do **not** reduce the score; only the coverage of the **Expected Memory Point** matters.
 
-  * For uncertain wording (“might,” “probably,” “tends to,” etc.):
+  * For uncertain wording ("might," "probably," "tends to," etc.):
 
     * If the Expected Memory Point is a definite statement, usually assign **1 point**.
 
@@ -283,10 +283,9 @@ EVALUATION_PROMPT_FOR_MEMORY_ACCURACY: |
 
   * **2 points:** Every information point in the candidate memory is supported by the dialogue or golden memories, with **no contradictions or hallucinations**.
   * **1 point:** The candidate memory is *partially correct* (at least one supported information point) but also includes *unsupported* or *contradictory* content.
-  * **0 points:** The candidate memory is **entirely unsupported or contradictory** to the sources (i.e., a “hallucinated memory”).
+  * **0 points:** The candidate memory is **entirely unsupported or contradictory** to the sources (i.e., a "hallucinated memory").
 
   > Note:
-  >
   > * If a candidate memory contains multiple information points, **any unsupported or contradictory element** prevents a full score (2).
   > * If both supported and unsupported/conflicting content appear, assign a score of **1**.
 
@@ -302,14 +301,14 @@ EVALUATION_PROMPT_FOR_MEMORY_ACCURACY: |
   * **true:**
     Every atomic information point in the candidate memory has a corresponding **field** in the golden memories (allowing for synonyms, paraphrases, or equivalent expressions; ignore value, polarity, or quantity differences).
 
-    * Note: A single field in the gold list may match multiple candidate points (e.g., multiple “drink preference” facts can be covered by one “drink preference” field in gold).
+    * Note: A single field in the gold list may match multiple candidate points (e.g., multiple "drink preference" facts can be covered by one "drink preference" field in gold).
   * **false:**
-    If **any** atomic information point’s field in the candidate memory cannot be found in the golden memories, mark as *false*.
+    If **any** atomic information point's field in the candidate memory cannot be found in the golden memories, mark as *false*.
 
   **Important Notes:**
 
   * Field matching is restricted to fields that are **explicitly present or semantically recognizable** in the golden memories — no external knowledge may be used to expand the field set.
-  * Differences in **values** (e.g., “Zhang San” vs. “Li Si”), **polarity** (like/dislike), or **exact number/time** do **not** affect this Boolean judgment.
+  * Differences in **values** (e.g., "Zhang San" vs. "Li Si"), **polarity** (like/dislike), or **exact number/time** do **not** affect this Boolean judgment.
 
   # Evaluation Procedure
 
@@ -320,7 +319,7 @@ EVALUATION_PROMPT_FOR_MEMORY_ACCURACY: |
   3. Assign the **accuracy_score** (0 / 1 / 2) according to the rules above.
   4. Determine **is_included_in_golden_memories (true/false)**:
 
-     * Identify each information point’s field;
+     * Identify each information point's field;
      * If *all* fields exist in the golden memories, mark as *true*; otherwise, *false*.
   5. Provide a **concise Chinese explanation** in `"reason"`, citing key evidence (short excerpts allowed), and clearly state any unsupported or contradictory parts if applicable.
 
@@ -339,9 +338,9 @@ EVALUATION_PROMPT_FOR_MEMORY_ACCURACY: |
 
   ```json
   {{
+    "reason": "Brief explanation in Chinese"
     "accuracy_score": "2 | 1 | 0",
     "is_included_in_golden_memories": "true | false",
-    "reason": "Brief explanation in Chinese"
   }}
   ```
 

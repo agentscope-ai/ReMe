@@ -127,7 +127,7 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
         messages = messages_s1 + messages_s2
         tools = tools_s1 + tools_s2
         memory_nodes = []
-        for tool in tools:
+        for tool in tools_s1:
             if tool.memory_nodes:
                 memory_nodes.extend(tool.memory_nodes)
 
