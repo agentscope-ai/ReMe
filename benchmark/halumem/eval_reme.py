@@ -236,7 +236,6 @@ async def evaluation_for_memory_accuracy(
     dialogue: str,
     golden_memories: list[dict],
     candidate_memory: dict,
-    model_name: str = "gpt-4o-mini",  # pylint: disable=unused-argument
 ):
     """
     Memory Accuracy Evaluation - Check if an extracted memory is accurate.
@@ -278,7 +277,6 @@ async def evaluation_for_memory_integrity(
     reme: ReMe,
     extracted_memories: list[dict],
     expected_memory_point: dict,
-    model_name: str = "gpt-4o-mini",  # pylint: disable=unused-argument
 ):
     """
     Memory Integrity Evaluation - Check if extracted memories cover the expected memory point.
@@ -321,7 +319,6 @@ async def evaluation_for_question(
     key_memory_points: str,
     response: str,
     dialogue: str = None,
-    model_name: str = "qwen3-max",  # pylint: disable=unused-argument
 ):
     """
     Question-Answering Evaluation with optional Dialogue Context.
@@ -508,7 +505,6 @@ class QuestionAnsweringEvaluator:
                 key_memory_points=evidence_text,
                 response=system_answer,
                 dialogue=formatted_dialogue,
-                model_name=self.eval_model_name,
             )
 
             eval_result_original_answer = await evaluation_for_question(
@@ -518,7 +514,6 @@ class QuestionAnsweringEvaluator:
                 key_memory_points=evidence_text,
                 response=retrieved_memories,
                 dialogue=formatted_dialogue,
-                model_name=self.eval_model_name,
             )
 
             # Build result record
@@ -571,7 +566,6 @@ class MemoryIntegrityEvaluator:
                 reme=self.reme,
                 extracted_memories=extracted_memories,
                 expected_memory_point=memory_point,
-                model_name=self.eval_model_name,
             )
 
             # Build result record
@@ -617,7 +611,6 @@ class MemoryAccuracyEvaluator:
                 dialogue=formatted_dialogue,
                 golden_memories=memory_points,
                 candidate_memory=memory,
-                model_name=self.eval_model_name,
             )
 
             # Build result record
