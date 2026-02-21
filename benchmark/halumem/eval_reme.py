@@ -223,9 +223,90 @@ async def answer_question_with_memories(
         question=question,
     )
 
-    result = await reme.get_llm("qwen3_max_instruct").simple_request_for_json(
+    result = await reme.get_llm(model_name).simple_request_for_json(
         prompt=prompt,
-        model_name=model_name,
+        model_name=None,
+    )
+
+    return result
+
+
+async def evaluation_for_memory_accuracy(
+    reme: ReMe,
+    dialogue: str,
+    golden_memories: list[dict],
+    candidate_memory: dict,
+):
+    """
+    Memory Accuracy Evaluation - Check if an extracted memory is accurate.
+
+    Args:
+        reme: ReMe instance with default_llm and prompt_handler
+        dialogue: The formatted dialogue string
+        golden_memories: List of golden memory points from the session
+        candidate_memory: The extracted memory to evaluate
+        model_name: Model name to use for LLM request
+
+    Returns:
+        dict with 'accuracy_score' (0/1/2), 'is_included_in_golden_memories' (true/false), and 'reason'
+    """
+    # Format golden memories as string
+    golden_memories_text = "\n".join(
+        [f"- {m.get('memory_content', str(m))}" for m in golden_memories],
+    )
+
+    # Extract candidate memory content
+    candidate_content = candidate_memory.get("content", candidate_memory.get("memory_content", str(candidate_memory)))
+
+    prompt = reme.prompt_handler.prompt_format(
+        "EVALUATION_PROMPT_FOR_MEMORY_ACCURACY",
+        dialogue=dialogue,
+        golden_memories=golden_memories_text,
+        candidate_memory=candidate_content,
+    )
+
+    result = await reme.get_llm("qwen-flash").simple_request_for_json(
+        prompt=prompt,
+        model_name=None,
+    )
+
+    return result
+
+
+async def evaluation_for_memory_integrity(
+    reme: ReMe,
+    extracted_memories: list[dict],
+    expected_memory_point: dict,
+):
+    """
+    Memory Integrity Evaluation - Check if extracted memories cover the expected memory point.
+
+    Args:
+        reme: ReMe instance with default_llm and prompt_handler
+        extracted_memories: List of extracted memory dicts
+        expected_memory_point: The expected memory point dict with 'memory_content' field
+        model_name: Model name to use for LLM request
+
+    Returns:
+        dict with 'reasoning' and 'score' fields (score: 0, 1, or 2)
+    """
+    # Format extracted memories as string
+    memories_text = "\n".join(
+        [f"- {m.get('content', m.get('memory_content', str(m)))}" for m in extracted_memories],
+    )
+
+    # Extract expected memory point content
+    expected_content = expected_memory_point.get("memory_content", str(expected_memory_point))
+
+    prompt = reme.prompt_handler.prompt_format(
+        "EVALUATION_PROMPT_FOR_MEMORY_INTEGRITY",
+        memories=memories_text,
+        expected_memory_point=expected_content,
+    )
+
+    result = await reme.get_llm("qwen-flash").simple_request_for_json(
+        prompt=prompt,
+        model_name=None,
     )
 
     return result
@@ -238,7 +319,6 @@ async def evaluation_for_question(
     key_memory_points: str,
     response: str,
     dialogue: str = None,
-    model_name: str = "qwen3-max",
 ):
     """
     Question-Answering Evaluation with optional Dialogue Context.
@@ -264,9 +344,9 @@ async def evaluation_for_question(
         dialogue=dialogue if dialogue else "",
     )
 
-    result = await reme.get_llm("qwen3_max_instruct").simple_request_for_json(
+    result = await reme.get_llm("gpt-4o-mini").simple_request_for_json(
         prompt=prompt,
-        model_name=model_name,
+        model_name=None,
     )
 
     return result
@@ -320,7 +400,7 @@ class MemoryProcessor:
                 return_dict=True,
                 enable_time_filter=True,
                 enable_thinking_params=self.enable_thinking_params,
-                llm_config_name="qwen-plus-t",
+                llm_config_name="default",
             )
 
             duration_ms = (time.time() - start) * 1000
@@ -369,7 +449,7 @@ class MemoryProcessor:
             question=query,
             memories=memories,
             user_id=user_id,
-            model_name=self.eval_model_name,
+            model_name="gpt-4o-mini",
         )
 
         # Add original memories to the result
@@ -425,7 +505,6 @@ class QuestionAnsweringEvaluator:
                 key_memory_points=evidence_text,
                 response=system_answer,
                 dialogue=formatted_dialogue,
-                model_name=self.eval_model_name,
             )
 
             eval_result_original_answer = await evaluation_for_question(
@@ -435,7 +514,6 @@ class QuestionAnsweringEvaluator:
                 key_memory_points=evidence_text,
                 response=retrieved_memories,
                 dialogue=formatted_dialogue,
-                model_name=self.eval_model_name,
             )
 
             # Build result record
@@ -455,6 +533,95 @@ class QuestionAnsweringEvaluator:
                 "original_question_answering_reasoning": eval_result_original_answer.get("reasoning", ""),
             }
             results.append(qa_result)
+
+        return results
+
+
+class MemoryIntegrityEvaluator:
+    """Evaluates memory integrity - whether extracted memories cover expected memory points."""
+
+    def __init__(self, reme: ReMe, eval_model_name: str = "gpt-4o-mini"):
+        self.reme = reme
+        self.eval_model_name = eval_model_name
+
+    async def evaluate_memory_points(
+        self,
+        extracted_memories: list[dict],
+        memory_points: list[dict],
+    ) -> list[dict]:
+        """
+        Evaluate whether extracted memories cover each expected memory point.
+
+        Args:
+            extracted_memories: List of memories extracted by the system
+            memory_points: List of expected memory points from the session
+
+        Returns:
+            List of evaluation results, one per memory point
+        """
+        results = []
+
+        for memory_point in memory_points:
+            eval_result = await evaluation_for_memory_integrity(
+                reme=self.reme,
+                extracted_memories=extracted_memories,
+                expected_memory_point=memory_point,
+            )
+
+            # Build result record
+            integrity_result = {
+                **memory_point,
+                "integrity_score": eval_result.get("score"),
+                "integrity_reasoning": eval_result.get("reasoning", ""),
+            }
+            results.append(integrity_result)
+
+        return results
+
+
+class MemoryAccuracyEvaluator:
+    """Evaluates memory accuracy - whether each extracted memory is accurate."""
+
+    def __init__(self, reme: ReMe, eval_model_name: str = "gpt-4o-mini"):
+        self.reme = reme
+        self.eval_model_name = eval_model_name
+
+    async def evaluate_extracted_memories(
+        self,
+        extracted_memories: list[dict],
+        memory_points: list[dict],
+        formatted_dialogue: str,
+    ) -> list[dict]:
+        """
+        Evaluate the accuracy of each extracted memory.
+
+        Args:
+            extracted_memories: List of memories extracted by the system
+            memory_points: List of golden memory points from the session
+            formatted_dialogue: The formatted dialogue string
+
+        Returns:
+            List of evaluation results, one per extracted memory
+        """
+        results = []
+
+        for memory in extracted_memories:
+            eval_result = await evaluation_for_memory_accuracy(
+                reme=self.reme,
+                dialogue=formatted_dialogue,
+                golden_memories=memory_points,
+                candidate_memory=memory,
+            )
+
+            # Build result record
+            accuracy_result = {
+                "memory_content": memory.get("content", memory.get("memory_content", str(memory))),
+                "memory_id": memory.get("memory_id", ""),
+                "accuracy_score": eval_result.get("accuracy_score"),
+                "is_included_in_golden_memories": eval_result.get("is_included_in_golden_memories"),
+                "accuracy_reason": eval_result.get("reason", ""),
+            }
+            results.append(accuracy_result)
 
         return results
 
@@ -531,6 +698,148 @@ class MetricsAggregator:
         }
 
     @staticmethod
+    def compute_memory_integrity_metrics(integrity_records: list[dict]) -> dict[str, Any]:
+        """
+        Compute memory integrity metrics.
+
+        Args:
+            integrity_records: List of integrity evaluation results
+
+        Returns:
+            dict with integrity metrics (score distribution and average)
+        """
+        total = len(integrity_records)
+        if total == 0:
+            return {
+                "total_memory_points": 0,
+                "score_2_count": 0,
+                "score_1_count": 0,
+                "score_0_count": 0,
+                "score_2_ratio": 0,
+                "score_1_ratio": 0,
+                "score_0_ratio": 0,
+                "average_score": 0,
+                "valid_count": 0,
+            }
+
+        score_2_count = 0
+        score_1_count = 0
+        score_0_count = 0
+        valid_count = 0
+        total_score = 0
+
+        for record in integrity_records:
+            score = record.get("integrity_score")
+            # Handle both string and int scores
+            if score is not None:
+                try:
+                    score_int = int(score)
+                    valid_count += 1
+                    total_score += score_int
+                    if score_int == 2:
+                        score_2_count += 1
+                    elif score_int == 1:
+                        score_1_count += 1
+                    elif score_int == 0:
+                        score_0_count += 1
+                except (ValueError, TypeError):
+                    pass
+
+        metrics = {
+            "total_memory_points": total,
+            "score_2_count": score_2_count,
+            "score_1_count": score_1_count,
+            "score_0_count": score_0_count,
+            "score_2_ratio": score_2_count / total if total > 0 else 0,
+            "score_1_ratio": score_1_count / total if total > 0 else 0,
+            "score_0_ratio": score_0_count / total if total > 0 else 0,
+            "average_score": total_score / valid_count if valid_count > 0 else 0,
+            "accuracy": score_2_count / valid_count if valid_count > 0 else 0,
+            "valid_count": valid_count,
+        }
+
+        return metrics
+
+    @staticmethod
+    def compute_memory_accuracy_metrics(accuracy_records: list[dict]) -> dict[str, Any]:
+        """
+        Compute memory accuracy metrics for extracted memories.
+
+        Args:
+            accuracy_records: List of accuracy evaluation results
+
+        Returns:
+            dict with accuracy metrics (score distribution, average, and inclusion ratio)
+        """
+        total = len(accuracy_records)
+        if total == 0:
+            return {
+                "total_extracted_memories": 0,
+                "score_2_count": 0,
+                "score_1_count": 0,
+                "score_0_count": 0,
+                "score_2_ratio": 0,
+                "score_1_ratio": 0,
+                "score_0_ratio": 0,
+                "average_score": 0,
+                "accuracy": 0,
+                "included_in_golden_count": 0,
+                "included_in_golden_ratio": 0,
+                "valid_count": 0,
+            }
+
+        score_2_count = 0
+        score_1_count = 0
+        score_0_count = 0
+        included_count = 0
+        valid_count = 0
+        total_score = 0
+
+        for record in accuracy_records:
+            score = record.get("accuracy_score")
+            included = record.get("is_included_in_golden_memories")
+
+            # Handle both string and int scores
+            if score is not None:
+                try:
+                    score_int = int(score)
+                    valid_count += 1
+                    total_score += score_int
+                    if score_int == 2:
+                        score_2_count += 1
+                    elif score_int == 1:
+                        score_1_count += 1
+                    elif score_int == 0:
+                        score_0_count += 1
+                except (ValueError, TypeError):
+                    pass
+
+            # Handle is_included_in_golden_memories
+            if included is not None:
+                if isinstance(included, bool):
+                    if included:
+                        included_count += 1
+                elif isinstance(included, str) and included.lower() == "true":
+                    included_count += 1
+
+        metrics = {
+            "total_extracted_memories": total,
+            "score_2_count": score_2_count,
+            "score_1_count": score_1_count,
+            "score_0_count": score_0_count,
+            "score_2_ratio": score_2_count / total if total > 0 else 0,
+            "score_1_ratio": score_1_count / total if total > 0 else 0,
+            "score_0_ratio": score_0_count / total if total > 0 else 0,
+            "average_score": total_score / valid_count if valid_count > 0 else 0,
+            "accuracy": score_2_count / valid_count if valid_count > 0 else 0,
+            "included_in_golden_count": included_count,
+            "included_in_golden_ratio": included_count / total if total > 0 else 0,
+            "valid_count": valid_count,
+        }
+
+        return metrics
+
+    @staticmethod
     def compute_time_metrics(eval_results_file: str) -> dict[str, float]:
         """Compute timing metrics from evaluation results."""
         add_duration = 0
@@ -577,6 +886,21 @@ class HaluMemEvaluator:
                         "enable_thinking": True,
                     },
                 },
+                "qwen-max-t": {
+                    "backend": "openai",
+                    "model_name": "qwen3-max",
+                    "extra_body": {
+                        "enable_thinking": True,
+                    },
+                },
+                "gpt-4o-mini": {
+                    "backend": "openai",
+                    "model_name": "gpt-4o-mini-2024-07-18",
+                },
+                "qwen-flash": {
+                    "backend": "openai",
+                    "model_name": "qwen-flash",
+                },
             },
         )
 
@@ -597,6 +921,14 @@ class HaluMemEvaluator:
             self.reme,
             config.top_k,
             config.eval_model_name,
+        )
+        self.integrity_evaluator = MemoryIntegrityEvaluator(
+            self.reme,
+            eval_model_name="qwen-flash",
+        )
+        self.accuracy_evaluator = MemoryAccuracyEvaluator(
+            self.reme,
+            eval_model_name="qwen-flash",
         )
         self.data_loader = DataLoader()
 
@@ -652,9 +984,28 @@ class HaluMemEvaluator:
             },
         )
 
+        # Evaluate memory integrity - check if extracted memories cover memory points
+        memory_points = session.get("memory_points", [])
+        formatted_dialogue = self.data_loader.format_dialogue_for_eval(dialogue, user_name)
+
+        if memory_points and extracted_memories:
+            integrity_results = await self.integrity_evaluator.evaluate_memory_points(
+                extracted_memories=extracted_memories,
+                memory_points=memory_points,
+            )
+            session_data["memory_integrity_results"] = integrity_results
+
+        # Evaluate memory accuracy - check if each extracted memory is accurate
+        if extracted_memories and memory_points:
+            accuracy_results = await self.accuracy_evaluator.evaluate_extracted_memories(
+                extracted_memories=extracted_memories,
+                memory_points=memory_points,
+                formatted_dialogue=formatted_dialogue,
+            )
+            session_data["memory_accuracy_results"] = accuracy_results
+
         # Evaluate questions if present
         if "questions" in session:
-            formatted_dialogue = self.data_loader.format_dialogue_for_eval(dialogue, user_name)
             qa_results = await self.qa_evaluator.evaluate_questions(
                 questions=session["questions"],
                 user_name=user_name,
@@ -773,8 +1124,10 @@ class HaluMemEvaluator:
         if not os.path.exists(results_file):
             return
 
-        # Collect all QA records
+        # Collect all QA records, memory integrity records, and accuracy records
         qa_records = []
+        integrity_records = []
+        accuracy_records = []
         try:
             with open(results_file, "r", encoding="utf-8") as f:
                 for line in f:
@@ -790,22 +1143,35 @@ class HaluMemEvaluator:
                         qa_records.extend(
                             eval_results.get("question_answering_records", []),
                         )
+
+                        # Collect memory integrity records
+                        integrity_records.extend(
+                            session.get("memory_integrity_results", []),
+                        )
+
+                        # Collect memory accuracy records
+                        accuracy_records.extend(
+                            session.get("memory_accuracy_results", []),
+                        )
         except (json.JSONDecodeError, KeyError):
             return
 
-        if not qa_records:
-            return
-
         # Compute metrics
-        qa_metrics = MetricsAggregator.compute_qa_metrics(qa_records)
+        qa_metrics = MetricsAggregator.compute_qa_metrics(qa_records) if qa_records else {}
         time_metrics = MetricsAggregator.compute_time_metrics(results_file)
+        integrity_metrics = MetricsAggregator.compute_memory_integrity_metrics(integrity_records)
+        accuracy_metrics = MetricsAggregator.compute_memory_accuracy_metrics(accuracy_records)
 
         final_results = {
             "overall_score": {
                 "question_answering": qa_metrics,
+                "memory_integrity": integrity_metrics,
+                "memory_accuracy": accuracy_metrics,
                 "time_consuming": time_metrics,
             },
             "question_answering_records": qa_records,
+            "memory_integrity_records": integrity_records,
+            "memory_accuracy_records": accuracy_records,
         }
 
         # Save statistics
@@ -819,8 +1185,10 @@ class HaluMemEvaluator:
         print("AGGREGATING METRICS")
         print("=" * 80 + "\n")
 
-        # Collect all QA records
+        # Collect all QA records, memory integrity records, and accuracy records
         qa_records = []
+        integrity_records = []
+        accuracy_records = []
         with open(results_file, "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
@@ -836,16 +1204,32 @@ class HaluMemEvaluator:
                         eval_results.get("question_answering_records", []),
                     )
 
+                    # Collect memory integrity records
+                    integrity_records.extend(
+                        session.get("memory_integrity_results", []),
+                    )
+
+                    # Collect memory accuracy records
+                    accuracy_records.extend(
+                        session.get("memory_accuracy_results", []),
+                    )
+
         # Compute metrics
-        qa_metrics = MetricsAggregator.compute_qa_metrics(qa_records)
+        qa_metrics = MetricsAggregator.compute_qa_metrics(qa_records) if qa_records else {}
         time_metrics = MetricsAggregator.compute_time_metrics(results_file)
+        integrity_metrics = MetricsAggregator.compute_memory_integrity_metrics(integrity_records)
+        accuracy_metrics = MetricsAggregator.compute_memory_accuracy_metrics(accuracy_records)
 
         final_results = {
             "overall_score": {
                 "question_answering": qa_metrics,
+                "memory_integrity": integrity_metrics,
+                "memory_accuracy": accuracy_metrics,
                 "time_consuming": time_metrics,
             },
             "question_answering_records": qa_records,
+            "memory_integrity_records": integrity_records,
+            "memory_accuracy_records": accuracy_records,
         }
 
         # Save final report
@@ -856,35 +1240,95 @@ class HaluMemEvaluator:
         print(f"📊 Statistics saved to: {report_file}\n")
 
         # Print summary
-        self._print_summary(qa_metrics, time_metrics)
+        self._print_summary(qa_metrics, time_metrics, integrity_metrics, accuracy_metrics)
 
-    def _print_summary(self, qa_metrics: dict, time_metrics: dict):
+    def _print_summary(
+        self,
+        qa_metrics: dict,
+        time_metrics: dict,
+        integrity_metrics: dict = None,
+        accuracy_metrics: dict = None,
+    ):
         """Print evaluation summary."""
         print("=" * 80)
         print("EVALUATION SUMMARY - REME")
         print("=" * 80 + "\n")
 
-        # Print metrics for LLM-generated answer (result_type)
-        llm_metrics = qa_metrics["with_llm_answer"]
-        print("📊 Question Answering (with LLM answer):")
-        print(f"  Correct (all):       {llm_metrics['correct_qa_ratio(all)']:.4f}")
-        print(f"  Hallucination (all): {llm_metrics['hallucination_qa_ratio(all)']:.4f}")
-        print(f"  Omission (all):      {llm_metrics['omission_qa_ratio(all)']:.4f}")
-        print(f"  Correct (valid):     {llm_metrics['correct_qa_ratio(valid)']:.4f}")
-        print(f"  Hallucination (valid): {llm_metrics['hallucination_qa_ratio(valid)']:.4f}")
-        print(f"  Omission (valid):    {llm_metrics['omission_qa_ratio(valid)']:.4f}")
-        print(f"  Valid/Total:         {llm_metrics['qa_valid_num']}/{llm_metrics['qa_num']}")
+        # Print memory integrity metrics
+        if integrity_metrics and integrity_metrics.get("total_memory_points", 0) > 0:
+            print("🧠 Memory Integrity (coverage of expected memory points):")
+            total = integrity_metrics["total_memory_points"]
+            print(
+                f"  Score 2 (Fully covered):    "
+                f"{integrity_metrics['score_2_count']}/{total} "
+                f"({integrity_metrics['score_2_ratio']:.4f})",
+            )
+            print(
+                f"  Score 1 (Partially covered): "
+                f"{integrity_metrics['score_1_count']}/{total} "
+                f"({integrity_metrics['score_1_ratio']:.4f})",
+            )
+            print(
+                f"  Score 0 (Not covered):      "
+                f"{integrity_metrics['score_0_count']}/{total} "
+                f"({integrity_metrics['score_0_ratio']:.4f})",
+            )
+            print(f"  Average Score:              {integrity_metrics['average_score']:.4f}")
+            print(f"  Accuracy (score=2 ratio):   {integrity_metrics['accuracy']:.4f}")
+            print(f"  Valid/Total:                " f"{integrity_metrics['valid_count']}/{total}")
+            print()
 
-        # Print metrics for original retrieved memories (original_result_type)
-        orig_metrics = qa_metrics["with_original_memories"]
-        print("\n📊 Question Answering (with original memories):")
-        print(f"  Correct (all):       {orig_metrics['correct_qa_ratio(all)']:.4f}")
-        print(f"  Hallucination (all): {orig_metrics['hallucination_qa_ratio(all)']:.4f}")
-        print(f"  Omission (all):      {orig_metrics['omission_qa_ratio(all)']:.4f}")
-        print(f"  Correct (valid):     {orig_metrics['correct_qa_ratio(valid)']:.4f}")
-        print(f"  Hallucination (valid): {orig_metrics['hallucination_qa_ratio(valid)']:.4f}")
-        print(f"  Omission (valid):    {orig_metrics['omission_qa_ratio(valid)']:.4f}")
-        print(f"  Valid/Total:         {orig_metrics['qa_valid_num']}/{orig_metrics['qa_num']}")
+        # Print memory accuracy metrics
+        if accuracy_metrics and accuracy_metrics.get("total_extracted_memories", 0) > 0:
+            print("🎯 Memory Accuracy (accuracy of extracted memories):")
+            total_acc = accuracy_metrics["total_extracted_memories"]
+            print(
+                f"  Score 2 (Fully accurate):   "
+                f"{accuracy_metrics['score_2_count']}/{total_acc} "
+                f"({accuracy_metrics['score_2_ratio']:.4f})",
+            )
+            print(
+                f"  Score 1 (Partially accurate): "
+                f"{accuracy_metrics['score_1_count']}/{total_acc} "
+                f"({accuracy_metrics['score_1_ratio']:.4f})",
+            )
+            print(
+                f"  Score 0 (Hallucinated):     "
+                f"{accuracy_metrics['score_0_count']}/{total_acc} "
+                f"({accuracy_metrics['score_0_ratio']:.4f})",
+            )
+            print(f"  Average Score:              {accuracy_metrics['average_score']:.4f}")
+            print(f"  Accuracy (score=2 ratio):   {accuracy_metrics['accuracy']:.4f}")
+            print(
+                f"  Included in Golden:         "
+                f"{accuracy_metrics['included_in_golden_count']}/{total_acc} "
+                f"({accuracy_metrics['included_in_golden_ratio']:.4f})",
+            )
+            print(f"  Valid/Total:                " f"{accuracy_metrics['valid_count']}/{total_acc}")
+            print()
+
+        # Print metrics for LLM-generated answer (result_type)
+        if qa_metrics and "with_llm_answer" in qa_metrics:
+            llm_metrics = qa_metrics["with_llm_answer"]
+            print("📊 Question Answering (with LLM answer):")
+            print(f"  Correct (all):       {llm_metrics['correct_qa_ratio(all)']:.4f}")
+            print(f"  Hallucination (all): {llm_metrics['hallucination_qa_ratio(all)']:.4f}")
+            print(f"  Omission (all):      {llm_metrics['omission_qa_ratio(all)']:.4f}")
+            print(f"  Correct (valid):     {llm_metrics['correct_qa_ratio(valid)']:.4f}")
+            print(f"  Hallucination (valid): {llm_metrics['hallucination_qa_ratio(valid)']:.4f}")
+            print(f"  Omission (valid):    {llm_metrics['omission_qa_ratio(valid)']:.4f}")
+            print(f"  Valid/Total:         {llm_metrics['qa_valid_num']}/{llm_metrics['qa_num']}")
+
+            # Print metrics for original retrieved memories (original_result_type)
+            orig_metrics = qa_metrics["with_original_memories"]
+            print("\n📊 Question Answering (with original memories):")
+            print(f"  Correct (all):       {orig_metrics['correct_qa_ratio(all)']:.4f}")
+            print(f"  Hallucination (all): {orig_metrics['hallucination_qa_ratio(all)']:.4f}")
+            print(f"  Omission (all):      {orig_metrics['omission_qa_ratio(all)']:.4f}")
+            print(f"  Correct (valid):     {orig_metrics['correct_qa_ratio(valid)']:.4f}")
+            print(f"  Hallucination (valid): {orig_metrics['hallucination_qa_ratio(valid)']:.4f}")
+            print(f"  Omission (valid):    {orig_metrics['omission_qa_ratio(valid)']:.4f}")
+            print(f"  Valid/Total:         {orig_metrics['qa_valid_num']}/{orig_metrics['qa_num']}")
 
         print("\n⏱️  Time Metrics:")
         print(f"  Memory Addition:  {time_metrics['add_dialogue_duration_time']:.2f} min")
@@ -968,7 +1412,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--top_k",
         type=int,
-        default=20,
+        default=10,
         help="Number of memories to retrieve (default: 20)",
     )
     parser.add_argument(
@@ -986,7 +1430,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=40,
+        default=16,
         help="Batch size for memory summary processing of each conversation (default: 40)",
     )
     parser.add_argument(
@@ -998,13 +1442,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--eval_model_name",
         type=str,
-        default="qwen3-max",
+        default="gpt-4o-mini-2024-07-18",
         help="Model name for evaluation (default: qwen3-max)",
     )
     parser.add_argument(
         "--algo_version",
         type=str,
-        default="v1",
+        default="halumem",
         help="Algorithm version for summary and retrieval (default: v1)",
     )
     parser.add_argument(

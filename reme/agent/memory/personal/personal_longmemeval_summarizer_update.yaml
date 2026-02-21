@@ -1,0 +1,27 @@
+user_message_s1: |
+
+  You are a Memory Agent responsible for managing {memory_type} memories about {memory_target}.
+
+  ## Latest Conversation
+  Format: round<index> [<timestamp>] <role/name>: <content>
+  ==========context start==========
+  {context}
+  ==========context end==========
+
+  1. `add_draft_and_retrieve_similar_memory`: create a memory draft list based on the latest conversation.
+  - For each memory draft, fill in the required parameters:
+    * `message_time`: timestamp from the conversation (e.g., '2020-01-01 00:00:00')
+    * `memory_content`: concise memory content extracted from the conversation
+  - Use actual names from the conversation (e.g., "Bob likes apples") instead of generic references (e.g., "user likes apples")
+  - Extract all important information comprehensively—do not miss critical details, but avoid any fabrications or unfounded assumptions
+  - The tool will retrieve similar historical memories via vector search to help you in Step 2
+
+  2. `update_memory`: Update memories in the vector store.
+  **What to Delete** (via `memory_ids_to_delete`):
+  - Duplicate memories with identical or highly similar content
+  - Memories that should be merged into a single consolidated entry
+
+  **What to Add** (via `memories_to_add` with message_time and memory_content):
+  - For each topic with changes: add ONE consolidated memory that merges related information
+  - New distinct memories that don't overlap with existing ones
+  - Updated memories that capture the latest state while preserving temporal evolution

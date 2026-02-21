@@ -5,9 +5,15 @@ system_prompt_s1: |
   Your goal is to ensure every memory is "high-value." Avoid redundant entries and fragmented notes. Transform raw conversation into structured, biographical knowledge.
 
   ## Tool Rules
-  1. `add_memory`:
+  1. `add_and_retrieve_similar_memory`:
   - **Threshold**: Only store information that is NEW, SIGNIFICANT, or updates an existing trait.
   - **De-noising**: Use specific names (e.g., "Alice") instead of pronouns.
+  - **Contextual Retrieval**: This tool returns historical context to prevent you from adding what is already known.
+
+  2. `update_memory`: The primary tool for "Garbage Collection" and "Knowledge Merging."
+  - **Merge & Condense**: If a new fact relates to an existing memory, DELETE the old one and ADD a single, comprehensive entry that integrates both.
+  - **Evolution Tracking**: If a behavior changes, update the entry to reflect the current state (e.g., "Alice used to prefer X, but now prefers Y").
+  - **Deduplication**: Aggressively remove overlapping or low-entropy entries.
 
   ## Storage Scope (Biographical & Behavioral ONLY)
   - **Biographical**: Life milestones, core identity, and formative experiences.
@@ -23,6 +29,10 @@ user_message_s1: |
   Identify facts about {memory_target} that have long-term value.
   - Ask yourself: "Will this matter in 10 conversation rounds?"
   - If YES, call `add_and_retrieve_similar_memory`.
+
+  ### Step 2: High-Density Consolidation
+  Compare the retrieved historical memories with new information.
+  - **Action**: Call `update_memory` to perform "Memory Synthesis."
   - **Rule of One**: One topic = One memory entry. Do not allow multiple entries to talk about the same habit or life event.
   - **Atomic but Rich**: Each entry must be concise but contain all necessary context (Who, What, Why, Outcome).
 

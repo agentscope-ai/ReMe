@@ -1,6 +1,8 @@
 """memory agent"""
 
 from .base_memory_agent import BaseMemoryAgent
+from .personal.personal_longmemeval_retriever import PersonalLongmemevalRetriever
+from .personal.personal_longmemeval_summarizer import PersonalLongmemevalSummarizer
 from .personal.personal_retriever import PersonalRetriever
 from .personal.personal_summarizer import PersonalSummarizer
 from .personal.personal_v1_retriever import PersonalV1Retriever
@@ -23,6 +25,8 @@ __all__ = [
     "PersonalV1Summarizer",
     "PersonalHalumemRetriever",
     "PersonalHalumemSummarizer",
+    "PersonalLongmemevalRetriever",
+    "PersonalLongmemevalSummarizer",
     "ProceduralRetriever",
     "ProceduralSummarizer",
     "ReMeRetriever",

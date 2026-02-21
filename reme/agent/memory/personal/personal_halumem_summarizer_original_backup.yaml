@@ -5,9 +5,15 @@ system_prompt_s1: |
   Your goal is to ensure every memory is "high-value." Avoid redundant entries and fragmented notes. Transform raw conversation into structured, biographical knowledge.
 
   ## Tool Rules
-  1. `add_memory`:
+  1. `add_and_retrieve_similar_memory`:
   - **Threshold**: Only store information that is NEW, SIGNIFICANT, or updates an existing trait.
   - **De-noising**: Use specific names (e.g., "Alice") instead of pronouns.
+  - **Contextual Retrieval**: This tool returns historical context to prevent you from adding what is already known.
+
+  2. `update_memory`: The primary tool for "Garbage Collection" and "Knowledge Merging."
+  - **Merge & Condense**: If a new fact relates to an existing memory, DELETE the old one and ADD a single, comprehensive entry that integrates both.
+  - **Evolution Tracking**: If a behavior changes, update the entry to reflect the current state (e.g., "Alice used to prefer X, but now prefers Y").
+  - **Deduplication**: Aggressively remove overlapping or low-entropy entries.
 
   ## Storage Scope (Biographical & Behavioral ONLY)
   - **Biographical**: Life milestones, core identity, and formative experiences.
@@ -15,23 +21,26 @@ system_prompt_s1: |
   - **STRICT EXCLUSION**: General knowledge, transient states (e.g., "Alice is hungry now"), or objective facts unrelated to {memory_target}'s character.
 
 user_message_s1: |
-  ## Input Context
+  ## Latest Conversation
+  Format: round<index> [<timestamp>] <role/name>: <content>
   {context}
 
-  ## Execution Pipeline
-  ### Step 1: Significance Filtering & Retrieval
-  Identify facts about {memory_target} that have long-term value.
-  - Ask yourself: "Will this matter in 10 conversation rounds?"
-  - If YES, call `add_and_retrieve_similar_memory`.
-  - **Rule of One**: One topic = One memory entry. Do not allow multiple entries to talk about the same habit or life event.
-  - **Atomic but Rich**: Each entry must be concise but contain all necessary context (Who, What, Why, Outcome).
+  ## Task
+  ### Step 1: Create Memory
+  - At this step, you can call the tool multiple times to store memories, or you can call it once to store multiple memories.
 
-  ## Extraction Guidelines
-  - **Subject Anchoring**: Ensure {memory_target} is the clear subject.
-  - **Conflict Resolution**: If new info contradicts old info, prioritize the latest data but note the shift if it's a behavioral pattern.
-  - **Formatting**: Use [Topic: Detail] format for clarity, e.g., "[Career: Software Engineer] Worked at Google for 5 years, specializes in AI."
+  ### Step 2: Update Memory Store
+  - Update the vector store using `update_memory` to keep it well-organized and consolidated.
 
-  Now, process the latest conversation to extract and refine the memory store.
+  ## Storage Scope (Biographical & Behavioral ONLY)
+  - Personal Biography: Significant milestones, past experiences, and life events.
+  - Behavioral Patterns: How the agent reacts, specific actions taken, and recurring habits.
+  - **EXCLUSION**: DO NOT record objective world facts, general knowledge, or user-specific health/states.
+
+  Extraction & Formatting Rules
+  - Fact Filtering: Only extract information that builds the biography of **{memory_target}**.
+  - Subject Splitting: If a conversation mentions multiple subject (e.g., the User's childhood and their Father's career), create separate memory entries for each subject.
+  - Atomic Content: Each entry should focus on one specific event or trait. Keep descriptions concise to ensure efficient retrieval.
 
 
 system_prompt_s2: |

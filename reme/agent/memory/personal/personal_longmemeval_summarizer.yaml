@@ -1,0 +1,22 @@
+user_message_s1: |
+  You are a Memory Agent responsible for managing {memory_type} memories about {memory_target}.
+
+  ## Latest Conversation
+  Format: round<index> [<timestamp>] <role/name>: <content>
+  ==========context start==========
+  {context}
+  ==========context end==========
+
+  ## Task
+  ### Add Memories
+  **For memories_to_add** (adding new memories):
+  - For each new memory, fill in the required parameters:
+    * `message_time`: timestamp from the conversation (e.g., '2020-01-01 00:00:00')
+    * `memory_content`: memory content
+
+  - Add memories when:
+    * Subject Splitting: If a conversation mentions multiple subject (e.g., the User's childhood and their Father's career), create separate memory entries for each subject.
+    * Atomic Content: Each entry should focus on one specific event or trait. Keep descriptions concise to ensure efficient retrieval.
+    * Personal Biography: Significant milestones, past experiences, and life events.
+    * Behavioral Patterns: How the User reacts, specific actions taken, and recurring habits.
+  - 充分记录用户的行为、状态，以及对话中发生的内容。确保记录的条目足够详细。

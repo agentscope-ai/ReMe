@@ -8,7 +8,7 @@ from ....core.op import BaseTool
 from ....core.schema import Message
 
 
-class PersonalHalumemSummarizer(BaseMemoryAgent):
+class PersonalLongmemevalSummarizer(BaseMemoryAgent):
     """Two-phase personal memory processor: retrieve/add memories then update profile."""
 
     memory_type: MemoryType = MemoryType.PERSONAL
@@ -16,17 +16,7 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
     async def _build_s1_messages(self) -> list[Message]:
         return [
             Message(
-                role=Role.SYSTEM,
-                content=self.prompt_format(
-                    prompt_name="system_prompt_s1",
-                    context=self.context.history_node.content,
-                    memory_type=self.memory_type.value,
-                    memory_target=self.memory_target,
-                ),
-            ),
-            Message(
                 role=Role.USER,
-                # content=self.get_prompt("user_message_s1"),
                 content=self.prompt_format(
                     prompt_name="user_message_s1",
                     context=self.context.history_node.content,
@@ -36,26 +26,16 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
             ),
         ]
 
-    async def _build_s2_messages(self, user_profile: str) -> list[Message]:
+    async def _build_s2_messages(self, profiles: str) -> list[Message]:
         return [
-            Message(
-                role=Role.SYSTEM,
-                content=self.prompt_format(
-                    prompt_name="system_prompt_s2",
-                    context=self.context.history_node.content,
-                    memory_type=self.memory_type.value,
-                    memory_target=self.memory_target,
-                    user_profile=user_profile,
-                ),
-            ),
             Message(
                 role=Role.USER,
                 content=self.prompt_format(
                     prompt_name="user_message_s2",
+                    profiles=profiles,
                     context=self.context.history_node.content,
                     memory_type=self.memory_type.value,
                     memory_target=self.memory_target,
-                    user_profile=user_profile,
                 ),
             ),
         ]
@@ -85,9 +65,12 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
     async def execute(self):
         memory_tools = []
         profile_tools = []
+        read_all_profiles_tool: BaseTool | None = None
         for i, tool in enumerate(self.tools):
             tool_name = tool.tool_call.name
-            if "_memory" in tool_name:
+            if tool_name == "read_all_profiles":
+                read_all_profiles_tool = tool
+            elif "_memory" in tool_name:
                 memory_tools.append(tool)
             elif "_profile" in tool_name:
                 profile_tools.append(tool)
@@ -102,19 +85,17 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
             logger.info(f"[{self.__class__.__name__} {stage}] role={role} {message.simple_dump(as_dict=False)}")
         tools_s1, messages_s1, success_s1 = await self.react(messages_s1, memory_tools, stage=stage)
 
+        if read_all_profiles_tool is not None:
+            profiles = await read_all_profiles_tool.call(
+                memory_target=self.memory_target,
+                service_context=self.service_context,
+            )
+        else:
+            profiles = ""
+
         if profile_tools:
-
-            read_all_profiles_tool: BaseTool | None = self.pop_tool("read_all_profiles")
-            if read_all_profiles_tool is not None:
-                all_profiles = await read_all_profiles_tool.call(
-                    memory_target=self.memory_target,
-                    service_context=self.service_context,
-                )
-            else:
-                all_profiles = ""
-
             stage = "s2-profile"
-            messages_s2 = await self._build_s2_messages(user_profile=all_profiles)
+            messages_s2 = await self._build_s2_messages(profiles)
             for i, message in enumerate(messages_s2):
                 role = message.name or message.role
                 logger.info(f"[{self.__class__.__name__} {stage}] role={role} {message.simple_dump(as_dict=False)}")
@@ -122,7 +103,9 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
         else:
             tools_s2, messages_s2, success_s2 = [], [], True
 
-        answer = (messages_s1[-1].content if success_s1 else "") + (messages_s2[-1].content if success_s2 else "")
+        answer = (messages_s1[-1].content if success_s1 and messages_s1 else "") + (
+            messages_s2[-1].content if success_s2 and messages_s2 else ""
+        )
         success = success_s1 and success_s2
         messages = messages_s1 + messages_s2
         tools = tools_s1 + tools_s2
@@ -130,7 +113,14 @@ class PersonalHalumemSummarizer(BaseMemoryAgent):
         for tool in tools_s1:
             if tool.memory_nodes:
                 memory_nodes.extend(tool.memory_nodes)
-
+        #
+        # return {
+        #     "answer": (messages_s1[-1].content if success_s1 and messages_s1 else "") ,
+        #     "success": success_s1,
+        #     "messages": messages_s1,
+        #     "tools": tools_s1,
+        #     "memory_nodes": memory_nodes,
+        # }
         return {
             "answer": answer,
             "success": success,
