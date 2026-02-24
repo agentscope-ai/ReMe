@@ -122,10 +122,10 @@ pip install reme-ai
 通过环境变量（如 `.env`）配置 LLM 与嵌入模型：
 
 ```bash
-FLOW_LLM_API_KEY=sk-xxxx
-FLOW_LLM_BASE_URL=https://xxxx/v1
-FLOW_EMBEDDING_API_KEY=sk-xxxx
-FLOW_EMBEDDING_BASE_URL=https://xxxx/v1
+REME_EMBEDDING_API_KEY=sk-xxxx
+REME_EMBEDDING_BASE_URL=https://xxxx/v1
+REME_LLM_API_KEY=sk-xxxx
+REME_LLM_BASE_URL=https://xxxx/v1
 ```
 
 ### 基础用法
@@ -168,24 +168,6 @@ async def main():
 asyncio.run(main())
 ```
 
-### 编程式记忆操作
-
-```python
-# 显式添加记忆
-await reme.add_memory(
-    memory_content="用户偏好 Python 而非 JavaScript 做脚本开发。",
-    user_name="alice",
-    when_to_use="在推荐编程语言或工具时",
-)
-
-# 列出记忆
-memories = await reme.list_memory(user_name="alice", limit=10)
-
-# 更新或删除
-await reme.update_memory(memory_id="...", memory_content="更新后的内容。", user_name="alice")
-await reme.delete_memory(memory_id="...")
-```
-
 ---
 
 ## 📂 项目结构（Memory Agent）
@@ -218,7 +200,7 @@ reme/
 本实验部分在 LoCoMo、LongMemEval、HaluMem 三个数据集上进行评测，实验设置如下：
 
 1. **ReMe 使用模型**：如各表 backbone 列所示。
-2. **评估使用模型**：采用 LLM-as-a-Judge 协议（参照 MemOS）——每条回答由 GPT-4o-mini 及两个辅助裁判模型分别打分，取三者盲评均值。
+2. **评估使用模型**：采用 LLM-as-a-Judge 协议（参照 MemOS）——每条回答由 GPT-4o-mini 裁判模型打分。
 
 实验设置尽量与各基线论文保持一致，以复用其公开结果。
 

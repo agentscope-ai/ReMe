@@ -122,10 +122,10 @@ pip install reme-ai
 Configure LLM and embedding via environment variables (e.g. `.env`):
 
 ```bash
-FLOW_LLM_API_KEY=sk-xxxx
-FLOW_LLM_BASE_URL=https://xxxx/v1
-FLOW_EMBEDDING_API_KEY=sk-xxxx
-FLOW_EMBEDDING_BASE_URL=https://xxxx/v1
+REME_EMBEDDING_API_KEY=sk-xxxx
+REME_EMBEDDING_BASE_URL=https://xxxx/v1
+REME_LLM_API_KEY=sk-xxxx
+REME_LLM_BASE_URL=https://xxxx/v1
 ```
 
 ### Basic usage
@@ -167,25 +167,6 @@ async def main():
 
 asyncio.run(main())
 ```
-
-### Programmatic memory operations
-
-```python
-# Add a memory explicitly
-await reme.add_memory(
-    memory_content="User prefers Python over JavaScript for scripting.",
-    user_name="alice",
-    when_to_use="When suggesting programming languages or tools",
-)
-
-# List memories
-memories = await reme.list_memory(user_name="alice", limit=10)
-
-# Update or delete
-await reme.update_memory(memory_id="...", memory_content="Updated content.", user_name="alice")
-await reme.delete_memory(memory_id="...")
-```
-
 ---
 
 ## 📂 Project layout (memory agent)
@@ -217,7 +198,7 @@ reme/
 Evaluations are conducted on three benchmarks: **LoCoMo**, **LongMemEval**, and **HaluMem**. Experimental settings:
 
 1. **ReMe backbone**: as specified in each table.
-2. **Evaluation protocol**: LLM-as-a-Judge following MemOS — each answer is scored by GPT-4o-mini and two auxiliary judge models; scores are averaged across the three judgments in a blind setting.
+2. **Evaluation protocol**: LLM-as-a-Judge following MemOS — each answer is scored by GPT-4o-mini.
 
 Baseline results are reproduced from their respective papers under aligned settings where possible.
 
