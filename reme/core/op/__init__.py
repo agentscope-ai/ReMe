@@ -8,7 +8,7 @@ from .base_tool import BaseTool
 from .mcp_tool import MCPTool
 from .parallel_op import ParallelOp
 from .sequential_op import SequentialOp
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseOp",

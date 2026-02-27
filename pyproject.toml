@@ -113,5 +113,11 @@ remecli = "reme.reme_cli:main"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+# Script-style tests that need to be run with `python test_*.py`
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+# Exclude script-style tests that require manual execution
+addopts = "--ignore=tests/test_embedding.py --ignore=tests/test_embedding_cache.py --ignore=tests/test_embedding_sync.py --ignore=tests/test_file_store.py"
 
 # python -m build && twine upload dist/*

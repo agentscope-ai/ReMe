@@ -8,7 +8,7 @@ from pathlib import Path
 
 async def test_bash_tool():
     """Test BashTool."""
-    from reme.tool.fs import BashTool
+    from reme.core.tools import BashTool
 
     print("=== Testing BashTool ===")
     bash_tool = BashTool()
@@ -20,7 +20,7 @@ async def test_bash_tool():
 
 async def test_edit_tool():
     """Test EditTool."""
-    from reme.tool.fs import EditTool
+    from reme.core.tools import EditTool
 
     print("=== Testing EditTool ===")
 
@@ -77,7 +77,7 @@ async def test_edit_tool():
 
 async def test_find_tool():
     """Test FindTool."""
-    from reme.tool.fs import FindTool
+    from reme.core.tools import FindTool
 
     print("=== Testing FindTool ===")
 
@@ -131,7 +131,7 @@ async def test_find_tool():
 
 async def test_grep_tool():
     """Test GrepTool."""
-    from reme.tool.fs import GrepTool
+    from reme.core.tools import GrepTool
 
     print("=== Testing GrepTool ===")
 
@@ -206,7 +206,7 @@ async def test_grep_tool():
 
 async def test_ls_tool():
     """Test LsTool."""
-    from reme.tool.fs import LsTool
+    from reme.core.tools import LsTool
 
     print("=== Testing LsTool ===")
 
@@ -277,7 +277,7 @@ async def test_ls_tool():
 
 async def test_read_tool():
     """Test ReadTool."""
-    from reme.tool.fs import ReadTool
+    from reme.core.tools import ReadTool
 
     print("=== Testing ReadTool ===")
 
@@ -357,7 +357,7 @@ async def test_read_tool():
 
 async def test_write_tool():
     """Test WriteTool."""
-    from reme.tool.fs import WriteTool
+    from reme.core.tools import WriteTool
 
     print("=== Testing WriteTool ===")
 

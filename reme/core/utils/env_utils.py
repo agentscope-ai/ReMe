@@ -54,8 +54,6 @@ def load_env(path: str | Path | None = None, enable_log: bool = True) -> None:
             _ENV_LOADED = True
             return
 
-    logger.warning(".env file not found in search path")
-
 
 def reset_env_flag() -> None:
     """Reset the internal load state flag."""

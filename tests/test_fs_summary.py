@@ -1,6 +1,6 @@
-"""ReMeFs summary接口测试。
+"""ReMeFb summary接口测试。
 
-本模块测试ReMeFs类的summary()方法，该方法提供了
+本模块测试ReMeFb类的summary()方法，该方法提供了
 将用户个人信息存储到记忆文件的高级接口。
 
 summary函数应该能够让LLM：
@@ -13,7 +13,7 @@ import asyncio
 import shutil
 from pathlib import Path
 
-from reme import ReMeFs
+from reme import ReMeFb
 from reme.core.enumeration import Role
 from reme.core.schema import Message
 
@@ -114,7 +114,7 @@ async def test_summary_first_write():
     if Path(working_dir).exists():
         shutil.rmtree(working_dir)
 
-    reme_fs = ReMeFs(enable_logo=False, working_dir=working_dir, vector_store=None)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=working_dir, vector_store=None)
     await reme_fs.start()
 
     # 确保记忆文件已删除
@@ -177,7 +177,7 @@ async def test_summary_complementary_info():
     if Path(working_dir).exists():
         shutil.rmtree(working_dir)
 
-    reme_fs = ReMeFs(enable_logo=False, working_dir=working_dir, vector_store=None)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=working_dir, vector_store=None)
     await reme_fs.start()
 
     # 确保记忆文件已删除
@@ -271,7 +271,7 @@ async def test_summary_conflicting_info():
     if Path(working_dir).exists():
         shutil.rmtree(working_dir)
 
-    reme_fs = ReMeFs(enable_logo=False, working_dir=working_dir, vector_store=None)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=working_dir, vector_store=None)
     await reme_fs.start()
 
     # 确保记忆文件已删除
@@ -353,7 +353,7 @@ async def test_summary_conflicting_info():
 async def main():
     """运行时间对齐的summary接口测试。"""
     print("\n" + "=" * 80)
-    print("ReMeFs Summary接口 - 时间对齐的记忆存储测试")
+    print("ReMeFb Summary接口 - 时间对齐的记忆存储测试")
     print("=" * 80)
     print("\n本测试套件验证summary()函数：")
     print("  1. 正确处理消息中的time_created字段（%Y-%m-%d %H:%M:%S）")

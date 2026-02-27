@@ -3,43 +3,32 @@
 import sys
 from pathlib import Path
 
-from .agent.memory import (
-    BaseMemoryAgent,
-    ReMeSummarizer,
-    ReMeRetriever,
-    PersonalV1Summarizer,
-    PersonalV1Retriever,
-    PersonalHalumemSummarizer,
-    PersonalHalumemRetriever,
-    PersonalSummarizer,
-    PersonalRetriever,
-    ProceduralSummarizer,
-    ProceduralRetriever,
-    ToolSummarizer,
-    ToolRetriever,
-    PersonalLongmemevalRetriever,
-    PersonalLongmemevalSummarizer,
-)
 from .config import ReMeConfigParser
 from .core import Application
 from .core.enumeration import MemoryType, Role
 from .core.schema import Message, MemoryNode
-from .tool.memory import (
-    RetrieveMemory,
-    DelegateTask,
-    ReadHistory,
-    ReadHistoryV2,
-    ProfileHandler,
-    MemoryHandler,
-    AddAndRetrieveSimilarMemory,
+from .memory.tools import (
     AddDraftAndRetrieveSimilarMemory,
-    UpdateMemoryV2,
-    AddDraftAndReadAllProfiles,
-    UpdateProfile,
     AddHistory,
-    ReadAllProfiles,
-    UpdateProfilesV1,
     AddMemory,
+    DelegateTask,
+    ReadAllProfiles,
+    ReadHistory,
+    RetrieveMemory,
+    UpdateProfilesV1,
+)
+from .memory.tools.profiles.profile_handler import ProfileHandler
+from .memory.tools.record.memory_handler import MemoryHandler
+from .memory.vector_based import (
+    BaseMemoryAgent,
+    PersonalRetriever,
+    PersonalSummarizer,
+    ProceduralRetriever,
+    ProceduralSummarizer,
+    ReMeRetriever,
+    ReMeSummarizer,
+    ToolRetriever,
+    ToolSummarizer,
 )
 
 
@@ -54,7 +43,7 @@ class ReMe(Application):
         embedding_api_key: str | None = None,
         embedding_base_url: str | None = None,
         working_dir: str = ".reme",
-        config_path: str = "default",
+        config_path: str = "vector",
         enable_logo: bool = True,
         log_to_console: bool = True,
         default_llm_config: dict | None = None,
@@ -184,58 +173,8 @@ class ReMe(Application):
             message = Message(**message)
             format_messages.append(message)
 
-        personal_summarizer: BaseMemoryAgent
         if version == "default":
-            personal_summarizer = PersonalSummarizer(
-                llm=llm_config_name,
-                tools=[
-                    AddAndRetrieveSimilarMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        top_k=retrieve_top_k,
-                    ),
-                    UpdateMemoryV2(enable_thinking_params=enable_thinking_params),
-                    AddDraftAndReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                    UpdateProfile(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                ],
-            )
-
-        elif version == "v1":
-            personal_summarizer = PersonalV1Summarizer(
-                llm=llm_config_name,
-                tools=[
-                    # AddDraftAndRetrieveSimilarMemory(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     enable_memory_target=False,
-                    #     enable_when_to_use=False,
-                    #     enable_multiple=True,
-                    # ),
-                    AddMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_when_to_use=False,
-                        enable_multiple=True,
-                    ),
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                    ),
-                    UpdateProfilesV1(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_multiple=True,
-                        profile_dir=self.profile_dir,
-                    ),
-                ],
-            )
-        elif version == "v2":
-            personal_summarizer = PersonalV1Summarizer(
+            personal_summarizer: BaseMemoryAgent = PersonalSummarizer(
                 llm=llm_config_name,
                 tools=[
                     AddDraftAndRetrieveSimilarMemory(
@@ -243,6 +182,7 @@ class ReMe(Application):
                         enable_memory_target=False,
                         enable_when_to_use=False,
                         enable_multiple=True,
+                        top_k=retrieve_top_k,
                     ),
                     AddMemory(
                         enable_thinking_params=enable_thinking_params,
@@ -263,72 +203,12 @@ class ReMe(Application):
                     ),
                 ],
             )
-        elif version == "halumem":
-            personal_summarizer = PersonalHalumemSummarizer(
-                llm=llm_config_name,
-                tools=[
-                    # AddAndRetrieveSimilarMemory(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     top_k=retrieve_top_k,
-                    # ),
-                    # UpdateMemoryV2(
-                    #     enable_thinking_params=enable_thinking_params,
-                    # ),
-                    AddMemory(
-                        enable_thinking_params=enable_thinking_params,
-                    ),
-                    # 处理userprofile
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                    UpdateProfile(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                ],
-            )
-        elif version == "longmemeval":
-            personal_summarizer = PersonalLongmemevalSummarizer(
-                llm=llm_config_name,
-                tools=[
-                    # AddDraftAndRetrieveSimilarMemory(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     enable_memory_target=False,
-                    #     enable_when_to_use=False,
-                    #     enable_multiple=True,
-                    # ),
-                    AddMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_when_to_use=False,
-                        enable_multiple=True,
-                    ),
-                    # 处理userprofile
-                    # ReadAllProfiles(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     profile_dir=self.profile_dir,
-                    # ),
-                    # UpdateProfile(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     profile_dir=self.profile_dir,
-                    # ),
-                ],
-            )
-        else:
-            raise NotImplementedError
 
-        procedural_summarizer: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            procedural_summarizer = ProceduralSummarizer(tools=[])
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"version={version} is not supported")
 
-        tool_summarizer: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            tool_summarizer = ToolSummarizer(tools=[])
-        else:
-            raise NotImplementedError
+        procedural_summarizer: BaseMemoryAgent = ProceduralSummarizer(tools=[])
+        tool_summarizer: BaseMemoryAgent = ToolSummarizer(tools=[])
 
         memory_agents = []
         memory_targets = []
@@ -374,11 +254,9 @@ class ReMe(Application):
         if not memory_agents:
             memory_agents = [personal_summarizer, procedural_summarizer, tool_summarizer]
 
-        reme_summarizer: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            reme_summarizer = ReMeSummarizer(tools=[AddHistory(), DelegateTask(memory_agents=memory_agents)])
-        else:
-            raise NotImplementedError
+        reme_summarizer: BaseMemoryAgent = ReMeSummarizer(
+            tools=[AddHistory(), DelegateTask(memory_agents=memory_agents)],
+        )
 
         result = await reme_summarizer.call(
             messages=format_messages,
@@ -411,28 +289,9 @@ class ReMe(Application):
     ) -> str | dict:
         """Retrieve relevant personal, procedural and tool memories for a query."""
 
-        personal_retriever: BaseMemoryAgent
         if version == "default":
-            personal_retriever = PersonalRetriever(
+            personal_retriever: BaseMemoryAgent = PersonalRetriever(
                 llm=llm_config_name,
-                tools=[
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                    RetrieveMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        top_k=retrieve_top_k,
-                        enable_time_filter=enable_time_filter,
-                    ),
-                    ReadHistory(enable_thinking_params=enable_thinking_params),
-                ],
-            )
-
-        elif version == "v1":
-            personal_retriever = PersonalV1Retriever(
-                llm=llm_config_name,
-                return_memory_nodes=False,
                 tools=[
                     ReadAllProfiles(
                         enable_thinking_params=enable_thinking_params,
@@ -451,82 +310,11 @@ class ReMe(Application):
                     ),
                 ],
             )
-        elif version == "v2":
-            personal_retriever = PersonalV1Retriever(
-                llm=llm_config_name,
-                return_memory_nodes=False,
-                tools=[
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                    ),
-                    RetrieveMemory(
-                        top_k=retrieve_top_k,
-                        enable_thinking_params=enable_thinking_params,
-                        enable_time_filter=enable_time_filter,
-                        enable_multiple=True,
-                    ),
-                    ReadHistoryV2(
-                        message_block_size=4,
-                        vector_top_k=3,
-                        enable_multiple=True,
-                        enable_thinking_params=enable_thinking_params,
-                    ),
-                ],
-            )
-        elif version == "halumem":
-            personal_retriever = PersonalHalumemRetriever(
-                llm=llm_config_name,
-                tools=[
-                    ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
-                        profile_dir=self.profile_dir,
-                    ),
-                    RetrieveMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        top_k=retrieve_top_k,
-                        enable_time_filter=enable_time_filter,
-                    ),
-                    ReadHistoryV2(
-                        message_block_size=4,
-                        vector_top_k=3,
-                    ),
-                ],
-            )
-        elif version == "longmemeval":
-            personal_retriever = PersonalLongmemevalRetriever(
-                llm=llm_config_name,
-                tools=[
-                    # ReadAllProfiles(
-                    #     enable_thinking_params=enable_thinking_params,
-                    #     profile_dir=self.profile_dir,
-                    # ),
-                    RetrieveMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        top_k=retrieve_top_k,
-                        enable_time_filter=enable_time_filter,
-                    ),
-                    ReadHistoryV2(
-                        message_block_size=6,
-                        vector_top_k=1,
-                    ),
-                ],
-            )
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"version={version} is not supported")
 
-        procedural_retriever: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            procedural_retriever = ProceduralRetriever(tools=[])
-        else:
-            raise NotImplementedError
-
-        tool_retriever: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            tool_retriever = ToolRetriever(tools=[])
-        else:
-            raise NotImplementedError
+        procedural_retriever: BaseMemoryAgent = ProceduralRetriever(tools=[])
+        tool_retriever: BaseMemoryAgent = ToolRetriever(tools=[])
 
         memory_agents = []
         memory_targets = []
@@ -569,11 +357,9 @@ class ReMe(Application):
         if not memory_agents:
             memory_agents = [personal_retriever, procedural_retriever, tool_retriever]
 
-        reme_retriever: BaseMemoryAgent
-        if version in ["default", "v1", "v2", "longmemeval", "halumem"]:
-            reme_retriever = ReMeRetriever(tools=[DelegateTask(memory_agents=memory_agents)])
-        else:
-            raise NotImplementedError
+        reme_retriever: BaseMemoryAgent = ReMeRetriever(
+            tools=[DelegateTask(memory_agents=memory_agents)],
+        )
 
         result = await reme_retriever.call(
             query=query,
@@ -761,16 +547,13 @@ class ReMe(Application):
         """Get the profile handler for the specified user."""
         return ProfileHandler(memory_target=user_name, profile_path=self.profile_path)
 
-    async def context_offload(self):
-        """working memory summary"""
-
-    async def context_reload(self):
-        """working memory retrieve"""
-
 
 def main():
     """Main entry point for running ReMe from command line."""
-    ReMe(*sys.argv[1:]).run_service()
+    from . import extension  # noqa: F401  # pylint: disable=unused-import
+    from . import memory  # noqa: F401  # pylint: disable=unused-import
+
+    ReMe(*sys.argv[1:], config_path="service").run_service()
 
 
 if __name__ == "__main__":

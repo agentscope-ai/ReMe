@@ -7,9 +7,7 @@ from openai import AsyncOpenAI
 
 from .base_llm import BaseLLM
 from ..enumeration import ChunkEnum
-from ..schema import Message
-from ..schema import StreamChunk
-from ..schema import ToolCall
+from ..schema import Message, StreamChunk, ToolCall
 
 
 class OpenAILLM(BaseLLM):

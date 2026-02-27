@@ -1,0 +1,31 @@
+step_segmentation_prompt: |
+  You are an expert AI analyst tasked with segmenting a trajectory into meaningful step sequences.
+
+  Your task is to identify natural breakpoints in the execution where one logical unit of work ends and another begins.
+  Consider factors like: task completion, context switches, tool changes, reasoning phases, and logical groupings.
+
+  SEGMENTATION CRITERIA:
+  ● LOGICAL COMPLETION: Steps that complete a specific sub-task or reasoning phase
+  ● CONTEXT SWITCHES: Points where the agent shifts focus or approach
+  ● TOOL BOUNDARIES: Natural breaks around tool usage patterns
+  ● REASONING PHASES: Distinct phases of analysis, planning, or execution
+
+  # Original Query
+  {query}
+
+  # Full Trajectory (Total steps: {total_steps})
+  {trajectory_content}
+
+  OUTPUT FORMAT:
+  Provide segmentation points as a JSON array of step indices where splits should occur:
+  ```json
+  {{
+    "segment_points": [3, 7, 12, 18],
+    "reasoning": "Brief explanation of segmentation logic"
+  }}
+  ```
+
+  Note: Segment points indicate the END of each segment. For example, [3, 7] means:
+  - Segment 1: steps 0-3
+  - Segment 2: steps 4-7
+  - Segment 3: steps 8-end

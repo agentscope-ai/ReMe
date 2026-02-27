@@ -1,12 +1,12 @@
-"""Tests for FsContextChecker - context window limit checking and cut point finding.
+"""Tests for FbContextChecker - context window limit checking and cut point finding.
 
-This module tests the cut point finding logic of FsContextChecker class,
+This module tests the cut point finding logic of FbContextChecker class,
 which determines where to split conversation history when token limits are exceeded.
 """
 
 import asyncio
 
-from reme import ReMeFs
+from reme import ReMeFb
 from reme.core.enumeration import Role
 from reme.core.schema import Message
 
@@ -67,7 +67,7 @@ async def test_no_compaction_needed():
     print("TEST 1: Below Threshold - No Cut Point Needed")
     print("=" * 80)
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=5000,
@@ -112,7 +112,7 @@ async def test_compaction_needed_above_threshold():
     print("TEST 2: Compaction Needed Above Threshold")
     print("=" * 80)
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=1500,
@@ -181,7 +181,7 @@ async def test_split_turn_scenario():
     print("TEST 3: Split Turn - Cut in Middle of Assistant Response")
     print("=" * 80)
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=2000,
@@ -265,7 +265,7 @@ async def test_split_turn_scenario():
 async def main():
     """Run context checker tests."""
     print("\n" + "=" * 80)
-    print("FsContextChecker - Cut Point Finding Test Suite")
+    print("FbContextChecker - Cut Point Finding Test Suite")
     print("=" * 80)
     print("\nThis test suite validates the cut point finding logic:")
     print("  1. Below threshold - no compaction needed")

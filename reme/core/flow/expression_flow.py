@@ -1,9 +1,9 @@
 """Expression-based flow implementation driven by configuration objects."""
 
 from .base_flow import BaseFlow
-from ..context import ServiceContext
 from ..op import BaseOp
 from ..schema import FlowConfig, ToolCall
+from ..service_context import ServiceContext
 
 
 class ExpressionFlow(BaseFlow):

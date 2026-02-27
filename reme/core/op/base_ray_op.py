@@ -8,7 +8,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from .base_op import BaseOp
-from ..context import BaseContext
+from ..base_dict import BaseDict
 
 _RAY_IMPORT_ERROR = None
 
@@ -53,7 +53,7 @@ class BaseRayOp(BaseOp, metaclass=ABCMeta):
 
         # Put large shared objects into the Ray Object Store once
         optimized_kwargs = {
-            k: (ray.put(v) if isinstance(v, (pd.DataFrame, pd.Series, dict, list, BaseContext)) else v)
+            k: (ray.put(v) if isinstance(v, (pd.DataFrame, pd.Series, dict, list, BaseDict)) else v)
             for k, v in kwargs.items()
         }
 

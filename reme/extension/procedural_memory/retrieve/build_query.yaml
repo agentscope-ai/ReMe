@@ -1,0 +1,6 @@
+query_build: |
+  # Execution Process
+  {execution_process}
+
+  Read through the entire execution process to understand which part is currently being executed.
+  Generate a `query` that reflects the current state, which will later be used to search for similar problems in the database and help resolve the issue at hand.

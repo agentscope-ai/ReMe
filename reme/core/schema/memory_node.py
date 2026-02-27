@@ -123,6 +123,15 @@ class MemoryNode(BaseModel):
         Returns:
             VectorNode: Vector node representation of this memory.
         """
+        safe_metadata: dict[str, str | bool | int | float] = {}
+        for key, value in self.metadata.items():
+            if isinstance(value, (str, bool, int, float)):
+                safe_metadata[key] = value
+            elif isinstance(value, (list, tuple, set)):
+                safe_metadata[key] = ",".join(str(v) for v in value)
+            else:
+                safe_metadata[key] = str(value)
+
         # Build base metadata (shared fields)
         metadata: dict[str, Any] = {
             "memory_type": self.memory_type.value,
@@ -133,7 +142,7 @@ class MemoryNode(BaseModel):
             "time_modified": self.time_modified,
             "author": self.author,
             "score": self.score,
-            **self.metadata,
+            **safe_metadata,
         }
 
         if self.when_to_use:

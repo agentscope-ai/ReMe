@@ -1,10 +1,7 @@
 """Base vector store interface for managing vector embeddings and similarity search."""
 
-import asyncio
 from abc import ABC, abstractmethod
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
+from pathlib import Path
 
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
@@ -16,20 +13,15 @@ class BaseVectorStore(ABC):
     def __init__(
         self,
         collection_name: str,
+        db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        thread_pool: ThreadPoolExecutor,
         **kwargs,
     ):
         """Initialize the vector store with a collection name and an embedding model."""
         self.collection_name: str = collection_name
+        self.db_path: Path = Path(db_path)
         self.embedding_model: BaseEmbeddingModel = embedding_model
-        self.thread_pool: ThreadPoolExecutor = thread_pool
         self.kwargs: dict = kwargs
-
-    async def _run_sync_in_executor(self, sync_func: Callable, *args, **kwargs):
-        """Run a synchronous function in the context-defined thread pool executor."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.thread_pool, partial(sync_func, *args, **kwargs))  # noqa
 
     async def get_node_embedding(self, node: VectorNode) -> VectorNode:
         """Generate and assign embedding for a single vector node."""
@@ -118,6 +110,14 @@ class BaseVectorStore(ABC):
             sort_key: Key to sort the results by (e.g., field name in metadata). None for no sorting
             reverse: If True, sort in descending order; if False, sort in ascending order
         """
+
+    async def start(self) -> None:
+        """Initialize the vector store and ensure the collection exists.
+
+        This method should be called after instantiation to perform async initialization.
+        Subclasses should call super().start() to ensure collection creation.
+        """
+        await self.create_collection(self.collection_name)
 
     async def close(self) -> None:
         """Release resources and close active connections to the vector store."""

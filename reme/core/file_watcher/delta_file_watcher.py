@@ -158,17 +158,17 @@ class DeltaFileWatcher(BaseFileWatcher):
                 )
 
                 if chunks:
-                    chunks = await self.memory_store.get_chunk_embeddings(chunks)
+                    chunks = await self.file_store.get_chunk_embeddings(chunks)
                     file_meta.chunk_count = len(chunks)
-                    await self.memory_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
+                    await self.file_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
                     logger.info(f"File added: {path} ({len(chunks)} chunks)")
                 else:
                     logger.warning(f"No chunks generated for new file {path}")
 
             elif change_type == Change.modified:
                 # Get existing data
-                old_chunks = await self.memory_store.get_file_chunks(path, MemorySource.MEMORY)
-                old_file_meta = await self.memory_store.get_file_metadata(path, MemorySource.MEMORY)
+                old_chunks = await self.file_store.get_file_chunks(path, MemorySource.MEMORY)
+                old_file_meta = await self.file_store.get_file_metadata(path, MemorySource.MEMORY)
 
                 # Read new file
                 file_meta = await self._build_file_metadata(path)
@@ -187,10 +187,10 @@ class DeltaFileWatcher(BaseFileWatcher):
                         or []
                     )
                     if chunks:
-                        chunks = await self.memory_store.get_chunk_embeddings(chunks)
+                        chunks = await self.file_store.get_chunk_embeddings(chunks)
                         file_meta.chunk_count = len(chunks)
-                        await self.memory_store.delete_file(path, MemorySource.MEMORY)
-                        await self.memory_store.upsert_file(
+                        await self.file_store.delete_file(path, MemorySource.MEMORY)
+                        await self.file_store.upsert_file(
                             file_meta,
                             MemorySource.MEMORY,
                             chunks,
@@ -216,10 +216,10 @@ class DeltaFileWatcher(BaseFileWatcher):
                         or []
                     )
                     if chunks:
-                        chunks = await self.memory_store.get_chunk_embeddings(chunks)
+                        chunks = await self.file_store.get_chunk_embeddings(chunks)
                         file_meta.chunk_count = len(chunks)
-                        await self.memory_store.delete_file(path, MemorySource.MEMORY)
-                        await self.memory_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
+                        await self.file_store.delete_file(path, MemorySource.MEMORY)
+                        await self.file_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
                         logger.info(f"File modified (full): {path} ({len(chunks)} chunks)")
                 else:
                     # Append-only: incremental update
@@ -247,16 +247,22 @@ class DeltaFileWatcher(BaseFileWatcher):
                             f"{chunk.source}:{chunk.path}:{chunk.start_line}:" f"{chunk.end_line}:{chunk.hash}:{idx}",
                         )
 
-                    new_chunks = await self.memory_store.get_chunk_embeddings(new_chunks)
+                    new_chunks = await self.file_store.get_chunk_embeddings(new_chunks)
 
                     chunks_to_delete = [c.id for c in old_chunks_sorted if c.start_line >= cutoff_line]
 
                     # Apply incremental updates
                     if chunks_to_delete:
-                        await self.memory_store.delete_file_chunks(path, chunks_to_delete)
+                        await self.file_store.delete_file_chunks(path, chunks_to_delete)
 
                     if new_chunks:
-                        await self.memory_store.upsert_chunks(new_chunks, MemorySource.MEMORY)
+                        await self.file_store.upsert_chunks(new_chunks, MemorySource.MEMORY)
+
+                    # Update file metadata to reflect the changes
+                    # Calculate new chunk count: old chunks - deleted + new chunks
+                    new_chunk_count = len(old_chunks) - len(chunks_to_delete) + len(new_chunks)
+                    file_meta.chunk_count = new_chunk_count
+                    await self.file_store.update_file_metadata(file_meta, MemorySource.MEMORY)
 
                     logger.info(
                         f"File modified (incremental): {path} "
@@ -265,7 +271,7 @@ class DeltaFileWatcher(BaseFileWatcher):
                     )
 
             elif change_type == Change.deleted:
-                await self.memory_store.delete_file(path, MemorySource.MEMORY)
+                await self.file_store.delete_file(path, MemorySource.MEMORY)
                 logger.info(f"File deleted: {path}")
 
             else:

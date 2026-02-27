@@ -7,7 +7,7 @@ and updating memory stores accordingly.
 from .base_file_watcher import BaseFileWatcher
 from .delta_file_watcher import DeltaFileWatcher
 from .full_file_watcher import FullFileWatcher
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseFileWatcher",

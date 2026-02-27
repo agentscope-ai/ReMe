@@ -5,7 +5,7 @@ from .lite_llm import LiteLLM
 from .lite_llm_sync import LiteLLMSync
 from .openai_llm import OpenAILLM
 from .openai_llm_sync import OpenAILLMSync
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseLLM",

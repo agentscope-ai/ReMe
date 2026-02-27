@@ -32,7 +32,14 @@ class MCPTool(BaseTool):
         self.timeout: float | None = timeout
 
         # Example MCP marketplace: https://bailian.console.aliyun.com/?tab=mcp#/mcp-market
-        self._client = MCPClient(self.service_context.service_config.mcp_servers)
+        self._client: MCPClient | None = None
+
+    @property
+    def client(self) -> MCPClient:
+        """Lazily initialize and return the MCP client."""
+        if self._client is None:
+            self._client = MCPClient(self.service_context.service_config.mcp_servers)
+        return self._client
 
     def _build_tool_call(self) -> ToolCall:
         tool_call_dict = self.service_context.mcp_server_mapping[self.mcp_server]
@@ -61,7 +68,7 @@ class MCPTool(BaseTool):
         return tool_call
 
     async def execute(self):
-        tool_result: CallToolResult = await self._client.call_tool(
+        tool_result: CallToolResult = await self.client.call_tool(
             server_name=self.mcp_server,
             tool_name=self.tool_name,
             arguments=self.input_dict,

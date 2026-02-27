@@ -1,22 +1,26 @@
 """Base service definitions for flow management."""
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from loguru import logger
 from pydantic import BaseModel
 
-from ..context import ServiceContext
 from ..flow import BaseFlow
 from ..schema import ToolCall
 from ..utils import create_pydantic_model
+
+if TYPE_CHECKING:
+    from ..application import Application
 
 
 class BaseService(ABC):
     """Abstract base class for services that integrate and execute flows."""
 
-    def __init__(self, service_context: ServiceContext, **kwargs):
+    def __init__(self, app: "Application", **kwargs):
         """Initialize the base service."""
-        self.service_context: ServiceContext = service_context
+        self.app: "Application" = app
+        self.service_context = self.app.service_context
         self.service_config = self.service_context.service_config
         self.kwargs = kwargs
 

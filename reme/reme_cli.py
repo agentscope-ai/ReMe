@@ -7,26 +7,26 @@ from typing import AsyncGenerator
 
 from prompt_toolkit import PromptSession
 
-from reme.core.op import BaseTool
-from .agent.chat import FsCli
 from .core.enumeration import ChunkEnum
+from .core.op import BaseTool
 from .core.schema import StreamChunk
-from .core.utils import execute_stream_task
-from .reme_fs import ReMeFs
-from .tool.fs import (
+from .core.tools import (
     BashTool,
     EditTool,
-    FsMemorySearch,
     LsTool,
     ReadTool,
     WriteTool,
+    ExecuteCode,
+    DashscopeSearch,
+    TavilySearch,
 )
-from .tool.gallery import ExecuteCode
-from .tool.search import DashscopeSearch, TavilySearch
-from .horse import _play_horse_easter_egg
+from .core.utils import execute_stream_task, play_horse_easter_egg
+from .memory.file_based import FbCli
+from .memory.tools import MemorySearch
+from .reme_fb import ReMeFb
 
 
-class ReMeCli(ReMeFs):
+class ReMeCli(ReMeFb):
     """ReMe Cli"""
 
     def __init__(self, *args, config_path: str = "cli", **kwargs):
@@ -47,7 +47,7 @@ class ReMeCli(ReMeFs):
         language = self.service_config.language
         print(f"ReMe language={language or 'default'}")
         tools: list[BaseTool] = [
-            FsMemorySearch(
+            MemorySearch(
                 vector_weight=self.service_config.metadata["vector_weight"],
                 candidate_multiplier=self.service_config.metadata["candidate_multiplier"],
             ),
@@ -69,7 +69,7 @@ class ReMeCli(ReMeFs):
         else:
             print("No Tavily or Dashscope API key found, skip Tavily and Dashscope search tool")
 
-        fs_cli = FsCli(
+        fb_cli = FbCli(
             tools=tools,
             context_window_tokens=self.service_config.metadata["context_window_tokens"],
             reserve_tokens=self.service_config.metadata["reserve_tokens"],
@@ -89,7 +89,7 @@ class ReMeCli(ReMeFs):
             """Execute chat query and yield streaming chunks."""
             stream_queue = asyncio.Queue()
             task = asyncio.create_task(
-                fs_cli.call(
+                fb_cli.call(
                     query=q,
                     stream_queue=stream_queue,
                     service_context=self.service_context,
@@ -116,22 +116,22 @@ class ReMeCli(ReMeFs):
                     break
 
                 if user_input == "/new":
-                    result = await fs_cli.new()
+                    result = await fb_cli.new()
                     print(f"{result}\nConversation reset\n")
                     continue
 
                 if user_input == "/compact":
-                    result = await fs_cli.compact(force_compact=True)
+                    result = await fb_cli.compact(force_compact=True)
                     print(f"{result}\nHistory compacted.\n")
                     continue
 
                 if user_input == "/history":
-                    result = fs_cli.format_history()
+                    result = fb_cli.format_history()
                     print(f"Formated History:\n{result}\n")
                     continue
 
                 if user_input == "/clear":
-                    fs_cli.messages.clear()
+                    fb_cli.messages.clear()
                     print("History cleared.\n")
                     continue
 
@@ -142,7 +142,7 @@ class ReMeCli(ReMeFs):
                     continue
 
                 if user_input == "/horse":
-                    _play_horse_easter_egg()
+                    play_horse_easter_egg()
                     continue
 
                 # Stream processing state

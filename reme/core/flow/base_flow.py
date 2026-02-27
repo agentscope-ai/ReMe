@@ -7,10 +7,12 @@ from abc import ABC, abstractmethod
 
 from loguru import logger
 
-from ..context import RuntimeContext, ServiceContext, R
 from ..enumeration import ChunkEnum
 from ..op import BaseOp, SequentialOp, ParallelOp
+from ..registry_factory import R
+from ..runtime_context import RuntimeContext
 from ..schema import Response, ToolCall
+from ..service_context import ServiceContext
 from ..utils import camel_to_snake, CacheHandler
 
 

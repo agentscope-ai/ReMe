@@ -4,7 +4,7 @@ This module provides an Elasticsearch-based vector store that implements the Bas
 interface for high-performance dense vector storage and retrieval.
 """
 
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -30,8 +30,8 @@ class ESVectorStore(BaseVectorStore):
     def __init__(
         self,
         collection_name: str,
+        db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        thread_pool: ThreadPoolExecutor,
         hosts: str | list[str] | None = None,
         basic_auth: tuple[str, str] | None = None,
         cloud_id: str | None = None,
@@ -44,8 +44,8 @@ class ESVectorStore(BaseVectorStore):
 
         Args:
             collection_name: Name of the Elasticsearch index (converted to lowercase).
+            db_path: Database path (not used for remote Elasticsearch, kept for API consistency).
             embedding_model: Model instance used to generate vector embeddings.
-            thread_pool: ThreadPoolExecutor for running synchronous operations.
             hosts: Connection host(s) for the Elasticsearch cluster.
             basic_auth: Credentials for basic authentication.
             cloud_id: Deployment ID for Elastic Cloud.
@@ -64,8 +64,8 @@ class ESVectorStore(BaseVectorStore):
 
         super().__init__(
             collection_name=collection_name,
+            db_path=db_path,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
             **kwargs,
         )
 
@@ -520,6 +520,14 @@ class ESVectorStore(BaseVectorStore):
         self.collection_name = collection_name
         await self.create_collection(collection_name)
         logger.info(f"Collection reset to {collection_name}")
+
+    async def start(self) -> None:
+        """Initialize the Elasticsearch index.
+
+        Creates the index with dense vector mappings if it doesn't exist.
+        """
+        await super().start()
+        logger.info(f"Elasticsearch index {self.collection_name} initialized")
 
     async def close(self):
         """Terminate the Elasticsearch client session and release resources."""

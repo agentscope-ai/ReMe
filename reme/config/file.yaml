@@ -1,0 +1,42 @@
+backend: cmd
+working_dir: .reme
+
+llms:
+  default:
+    backend: openai
+    model_name: qwen3.5-plus
+    request_interval: 1
+
+embedding_models:
+  default:
+    backend: openai
+    model_name: text-embedding-v4
+    dimensions: 1024
+    enable_cache: true
+
+file_stores:
+  default:
+    backend: chroma
+    #    backend: local
+    store_name: reme
+    embedding_model: default
+    fts_enabled: true
+    vector_enabled: false
+
+file_watchers:
+  default:
+    backend: full
+    file_store: default
+    watch_paths: [ ".reme", ".reme/memory" ]
+    suffix_filters: [ ".md" ]
+    recursive: false
+    scan_on_start: true
+
+token_counters:
+  default:
+    backend: base
+
+  hf:
+    backend: hf
+    model_name: Qwen/Qwen3-Coder-30B-A3B-Instruct
+    use_mirror: true

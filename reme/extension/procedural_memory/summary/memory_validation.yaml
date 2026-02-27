@@ -1,0 +1,29 @@
+task_memory_validation_prompt: |
+  You are an expert AI analyst tasked with validating the quality and usefulness of extracted step-level task memories.
+
+  Your task is to access whether the extracted task memory is actionable, accurate, and valuable for future agent executions.
+
+  VALIDATION CRITERIA:
+  ● ACTIONABILITY: Is the task memory specific enough to guide future actions?
+  ● ACCURACY: Does the task memory correctly reflect the patterns observed?
+  ● RELEVANCE: Is the task memory applicable to similar future scenarios?
+  ● CLARITY: Is the task memory clearly articulated and understandable?
+  ● UNIQUENESS: Does the task memory provide novel insights or common knowledge?
+
+  # Task Memory to Validate
+  Condition: {condition}
+  Task Memory Content: {task_memory_content}
+
+  OUTPUT FORMAT:
+  Provide validation assessment:
+  ```json
+  {{
+    "is_valid": true/false,
+    "score": 0.8,
+    "feedback": "Detailed explanation of validation decision",
+    "recommendations": "Suggestions for improvement if applicable"
+  }}
+  ```
+
+  Score should be between 0.0 (poor quality) and 1.0 (excellent quality).
+  Mark as invalid if score is below 0.3 or if there are fundamental issues with the task memory.

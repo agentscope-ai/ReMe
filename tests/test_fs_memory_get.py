@@ -1,6 +1,6 @@
-"""Tests for ReMeFs memory_get interface.
+"""Tests for ReMeFb memory_get interface.
 
-This module tests the memory_get() method of ReMeFs class which provides
+This module tests the memory_get() method of ReMeFb class which provides
 a high-level interface for reading specific snippets from memory files.
 
 The memory_get function should enable the LLM to:
@@ -13,7 +13,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from reme import ReMeFs
+from reme import ReMeFb
 
 
 def print_result(content: str, title: str = "RESULT", max_len: int = 300):
@@ -105,7 +105,7 @@ async def test_memory_get_full_file():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     # Create test file
@@ -144,7 +144,7 @@ async def test_memory_get_with_offset():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     test_file_path = "memory/test_profile.md"
@@ -180,7 +180,7 @@ async def test_memory_get_with_offset_and_limit():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     test_file_path = "memory/test_profile.md"
@@ -219,7 +219,7 @@ async def test_memory_get_beginning_lines():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     test_file_path = "memory/test_profile.md"
@@ -257,7 +257,7 @@ async def test_memory_get_single_line():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     test_file_path = "memory/test_profile.md"
@@ -294,7 +294,7 @@ async def test_memory_get_with_absolute_path():
     print("=" * 80)
 
     workspace_dir = ".reme_test_get"
-    reme_fs = ReMeFs(enable_logo=False, working_dir=workspace_dir)
+    reme_fs = ReMeFb(enable_logo=False, working_dir=workspace_dir)
     await reme_fs.start()
 
     # Get absolute path
@@ -324,7 +324,7 @@ async def test_memory_get_with_absolute_path():
 async def main():
     """Run core memory_get interface tests."""
     print("\n" + "=" * 80)
-    print("ReMeFs Memory Get Interface - Tests")
+    print("ReMeFb Memory Get Interface - Tests")
     print("=" * 80)
     print("\nThis test suite validates that the memory_get() function:")
     print("  1. Reads entire memory files without parameters")

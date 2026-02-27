@@ -15,8 +15,8 @@ class RegistryEnum(str, Enum):
     # Databases or storage systems for vector search
     VECTOR_STORE = "vector_store"
 
-    # Databases or storage systems for long-term memory storage
-    MEMORY_STORE = "memory_store"
+    # Databases or storage systems for long-term file storage
+    FILE_STORE = "file_store"
 
     # Atomic operations or functional units
     OP = "op"

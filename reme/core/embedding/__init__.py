@@ -3,7 +3,7 @@
 from .base_embedding_model import BaseEmbeddingModel
 from .openai_embedding_model import OpenAIEmbeddingModel
 from .openai_embedding_model_sync import OpenAIEmbeddingModelSync
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseEmbeddingModel",

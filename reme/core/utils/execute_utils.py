@@ -5,8 +5,8 @@ with support for async execution and output capture.
 """
 
 import asyncio
-import contextlib
 import concurrent.futures
+import contextlib
 from io import StringIO
 
 

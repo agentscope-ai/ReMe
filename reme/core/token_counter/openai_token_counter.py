@@ -42,7 +42,7 @@ class OpenAITokenCounter(BaseTokenCounter):
             # Every message has <|start|>{role/name}\n{content}<|end|>\n
             total_tokens += 3  # Base overhead per message
             if msg.content:
-                total_tokens += len(enc.encode(msg.content))
+                total_tokens += len(enc.encode(msg.get_text_content()))
 
             if msg.tool_calls:
                 for tc in msg.tool_calls:

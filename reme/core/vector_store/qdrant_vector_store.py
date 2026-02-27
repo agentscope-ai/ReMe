@@ -1,6 +1,6 @@
 """Qdrant vector store implementation for the ReMe project."""
 
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -42,11 +42,10 @@ class QdrantVectorStore(BaseVectorStore):
     def __init__(
         self,
         collection_name: str,
+        db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        thread_pool: ThreadPoolExecutor,
         host: str | None = None,
         port: int = 6333,
-        path: str | None = None,
         url: str | None = None,
         api_key: str | None = None,
         https: bool | None = None,
@@ -60,11 +59,10 @@ class QdrantVectorStore(BaseVectorStore):
 
         Args:
             collection_name: Name of the collection.
+            db_path: Local storage path for on-disk/in-memory mode.
             embedding_model: Model used for generating vector embeddings.
-            thread_pool: ThreadPoolExecutor for running synchronous operations.
             host: Server host address.
             port: HTTP port for the server.
-            path: Local storage path for on-disk/in-memory mode.
             url: Full connection URL.
             api_key: Authentication key for Qdrant Cloud.
             https: Use secure connection if True.
@@ -81,26 +79,23 @@ class QdrantVectorStore(BaseVectorStore):
 
         super().__init__(
             collection_name=collection_name,
+            db_path=db_path,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
             **kwargs,
         )
 
-        client_kwargs = {k: v for k, v in kwargs.items() if k != "thread_pool"}
+        self.is_local = host is None and url is None and api_key is None
+        self.client: AsyncQdrantClient
 
-        self.client = AsyncQdrantClient(
-            host=host,
-            port=port,
-            path=path,
-            url=url,
-            api_key=api_key,
-            https=https,
-            grpc_port=grpc_port,
-            prefer_grpc=prefer_grpc,
-            **client_kwargs,
-        )
+        # Store connection parameters for deferred initialization in start()
+        self._host = host
+        self._port = port
+        self._url = url
+        self._api_key = api_key
+        self._https = https
+        self._grpc_port = grpc_port
+        self._prefer_grpc = prefer_grpc
 
-        self.is_local = path is not None
         distance_map = {
             "cosine": Distance.COSINE,
             "euclid": Distance.EUCLID,
@@ -525,6 +520,29 @@ class QdrantVectorStore(BaseVectorStore):
             results = results[:limit]
 
         return results
+
+    async def start(self) -> None:
+        """Initialize the Qdrant collection.
+
+        Creates the collection if it doesn't exist with configured vector parameters.
+        For local mode, creates the db_path directory if it doesn't exist.
+        """
+        if self.is_local:
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            self.client = AsyncQdrantClient(path=str(self.db_path))
+        else:
+            self.client = AsyncQdrantClient(
+                host=self._host,
+                port=self._port,
+                url=self._url,
+                api_key=self._api_key,
+                https=self._https,
+                grpc_port=self._grpc_port,
+                prefer_grpc=self._prefer_grpc,
+                **self.kwargs,
+            )
+        await super().start()
+        logger.info(f"Qdrant collection {self.collection_name} initialized")
 
     async def close(self):
         """Close the AsyncQdrantClient connection and release resources."""

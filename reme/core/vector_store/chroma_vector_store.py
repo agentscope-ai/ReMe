@@ -1,6 +1,6 @@
 """ChromaDB vector store implementation for the ReMe framework."""
 
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -26,12 +26,11 @@ class ChromaVectorStore(BaseVectorStore):
     def __init__(
         self,
         collection_name: str,
+        db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        thread_pool: ThreadPoolExecutor,
         client: chromadb.ClientAPI | None = None,
         host: str | None = None,
         port: int | None = None,
-        path: str | None = None,
         api_key: str | None = None,
         tenant: str | None = None,
         database: str | None = None,
@@ -45,13 +44,14 @@ class ChromaVectorStore(BaseVectorStore):
 
         super().__init__(
             collection_name=collection_name,
+            db_path=db_path,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
             **kwargs,
         )
 
         self.client: chromadb.ClientAPI
         self.collection: chromadb.Collection
+        self.is_local = client is None and not (api_key and tenant) and not (host and port)
 
         if client:
             self.client = client
@@ -66,18 +66,9 @@ class ChromaVectorStore(BaseVectorStore):
             logger.info(f"Initializing ChromaDB HTTP client at {host}:{port}")
             self.client = chromadb.HttpClient(host=host, port=port)
         else:
-            if path is None:
-                path = "./chroma_vector_store"
-            logger.info(f"Initializing local ChromaDB at {path}")
-            self.client = chromadb.PersistentClient(
-                path=path,
-                settings=Settings(anonymized_telemetry=False),
-            )
+            self.client = None  # Will be initialized in start()
 
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
+        self.collection: chromadb.Collection | None = None
 
     @staticmethod
     def _parse_results(
@@ -213,63 +204,47 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def list_collections(self) -> list[str]:
         """Retrieve a list of all existing collection names."""
-
-        def _list():
-            return [col.name for col in self.client.list_collections()]
-
-        return await self._run_sync_in_executor(_list)
+        return [col.name for col in self.client.list_collections()]
 
     async def create_collection(self, collection_name: str, **kwargs):
         """Create a new collection with specified distance metrics and metadata."""
-
-        def _create():
-            distance_metric = kwargs.get("distance_metric", "cosine")
-            metadata = kwargs.get("metadata", {})
-            metadata["hnsw:space"] = distance_metric
-            return self.client.get_or_create_collection(name=collection_name, metadata=metadata)
-
-        new_collection = await self._run_sync_in_executor(_create)
+        distance_metric = kwargs.get("distance_metric", "cosine")
+        metadata = kwargs.get("metadata", {})
+        metadata["hnsw:space"] = distance_metric
+        new_collection = self.client.get_or_create_collection(name=collection_name, metadata=metadata)
         if collection_name == self.collection_name:
             self.collection = new_collection
         logger.info(f"Created collection `{collection_name}`")
 
     async def delete_collection(self, collection_name: str, **kwargs):
         """Delete a specified collection from the database."""
-
-        def _delete():
-            try:
-                self.client.delete_collection(name=collection_name)
-                return True
-            except Exception as _e:
-                logger.warning(f"Failed to delete collection {collection_name}: {_e}")
-                return False
-
-        deleted = await self._run_sync_in_executor(_delete)
+        try:
+            self.client.delete_collection(name=collection_name)
+            deleted = True
+        except Exception as _e:
+            logger.warning(f"Failed to delete collection {collection_name}: {_e}")
+            deleted = False
         if deleted and collection_name == self.collection_name:
             self.collection = None
         logger.info(f"Deleted collection {collection_name}")
 
     async def copy_collection(self, collection_name: str, **kwargs):
         """Copy all data from the current collection to a new collection."""
+        source_data = self.collection.get(include=["documents", "metadatas", "embeddings"])
+        if not source_data["ids"]:
+            logger.warning(f"Source collection {self.collection_name} is empty")
+            return
 
-        def _copy():
-            source_data = self.collection.get(include=["documents", "metadatas", "embeddings"])
-            if not source_data["ids"]:
-                logger.warning(f"Source collection {self.collection_name} is empty")
-                return
-
-            target_collection = self.client.get_or_create_collection(
-                name=collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-            target_collection.add(
-                ids=source_data["ids"],
-                documents=source_data["documents"],
-                metadatas=source_data["metadatas"],
-                embeddings=source_data["embeddings"],
-            )
-
-        await self._run_sync_in_executor(_copy)
+        target_collection = self.client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        target_collection.add(
+            ids=source_data["ids"],
+            documents=source_data["documents"],
+            metadatas=source_data["metadatas"],
+            embeddings=source_data["embeddings"],
+        )
         logger.info(f"Copied collection {self.collection_name} to {collection_name}")
 
     async def insert(self, nodes: VectorNode | list[VectorNode], **kwargs):
@@ -291,16 +266,14 @@ class ChromaVectorStore(BaseVectorStore):
 
         batch_size = kwargs.get("batch_size", 100)
 
-        def _insert_batch(batch_nodes: list[VectorNode]):
+        for i in range(0, len(nodes_to_insert), batch_size):
+            batch_nodes = nodes_to_insert[i : i + batch_size]
             self.collection.add(
                 ids=[n.vector_id for n in batch_nodes],
                 documents=[n.content for n in batch_nodes],
                 embeddings=[n.vector for n in batch_nodes],
                 metadatas=[n.metadata for n in batch_nodes],
             )
-
-        for i in range(0, len(nodes_to_insert), batch_size):
-            await self._run_sync_in_executor(_insert_batch, nodes_to_insert[i : i + batch_size])
         logger.info(f"Inserted {len(nodes_to_insert)} nodes into {self.collection_name}")
 
     async def search(
@@ -315,18 +288,15 @@ class ChromaVectorStore(BaseVectorStore):
         where_clause = self._generate_where_clause(filters)
         include_embeddings = kwargs.get("include_embeddings", False)
 
-        def _search():
-            include: list = ["documents", "metadatas", "distances"]
-            if include_embeddings:
-                include.append("embeddings")
-            return self.collection.query(
-                query_embeddings=[query_vector],
-                n_results=limit,
-                where=where_clause,
-                include=include,
-            )
-
-        results = await self._run_sync_in_executor(_search)
+        include: list = ["documents", "metadatas", "distances"]
+        if include_embeddings:
+            include.append("embeddings")
+        results = self.collection.query(
+            query_embeddings=[query_vector],
+            n_results=limit,
+            where=where_clause,
+            include=include,
+        )
         nodes = self._parse_results(results, include_score=True)
 
         score_threshold = kwargs.get("score_threshold")
@@ -341,26 +311,19 @@ class ChromaVectorStore(BaseVectorStore):
         if not vector_ids:
             return
 
-        def _delete():
-            self.collection.delete(ids=vector_ids)
-
-        await self._run_sync_in_executor(_delete)
+        self.collection.delete(ids=vector_ids)
         logger.info(f"Deleted {len(vector_ids)} nodes from {self.collection_name}")
 
     async def delete_all(self, **kwargs):
         """Remove all vectors from the collection."""
-
-        def _delete_all():
-            # Get all IDs in the collection
-            result = self.collection.get()
-            if result and result.get("ids"):
-                ids = result["ids"]
-                if ids:
-                    self.collection.delete(ids=ids)
-                    return len(ids)
-            return 0
-
-        count = await self._run_sync_in_executor(_delete_all)
+        # Get all IDs in the collection
+        result = self.collection.get()
+        count = 0
+        if result and result.get("ids"):
+            ids = result["ids"]
+            if ids:
+                self.collection.delete(ids=ids)
+                count = len(ids)
         logger.info(f"Deleted all {count} nodes from {self.collection_name}")
 
     async def update(self, nodes: VectorNode | list[VectorNode], **kwargs):
@@ -380,15 +343,12 @@ class ChromaVectorStore(BaseVectorStore):
         else:
             nodes_to_update = nodes
 
-        def _update():
-            self.collection.upsert(
-                ids=[n.vector_id for n in nodes_to_update],
-                documents=[n.content for n in nodes_to_update],
-                embeddings=[n.vector for n in nodes_to_update if n.vector] or None,
-                metadatas=[n.metadata for n in nodes_to_update],
-            )
-
-        await self._run_sync_in_executor(_update)
+        self.collection.upsert(
+            ids=[n.vector_id for n in nodes_to_update],
+            documents=[n.content for n in nodes_to_update],
+            embeddings=[n.vector for n in nodes_to_update],
+            metadatas=[n.metadata for n in nodes_to_update],
+        )
         logger.info(f"Updated {len(nodes_to_update)} nodes in {self.collection_name}")
 
     async def get(self, vector_ids: str | list[str]) -> VectorNode | list[VectorNode] | None:
@@ -396,10 +356,7 @@ class ChromaVectorStore(BaseVectorStore):
         is_single = isinstance(vector_ids, str)
         ids = [vector_ids] if is_single else vector_ids
 
-        def _get():
-            return self.collection.get(ids=ids, include=["documents", "metadatas", "embeddings"])
-
-        results = await self._run_sync_in_executor(_get)
+        results = self.collection.get(ids=ids, include=["documents", "metadatas", "embeddings"])
         nodes = self._parse_results(results)
         return nodes[0] if is_single and nodes else (nodes if not is_single else None)
 
@@ -423,14 +380,11 @@ class ChromaVectorStore(BaseVectorStore):
         # If sorting is needed, fetch all records first, then apply limit after sorting
         fetch_limit = None if sort_key else limit
 
-        def _list():
-            return self.collection.get(
-                where=where_clause,
-                limit=fetch_limit,
-                include=["documents", "metadatas", "embeddings"],
-            )
-
-        results = await self._run_sync_in_executor(_list)
+        results = self.collection.get(
+            where=where_clause,
+            limit=fetch_limit,
+            include=["documents", "metadatas", "embeddings"],
+        )
         nodes = self._parse_results(results)
 
         # Apply sorting if sort_key is provided
@@ -453,21 +407,37 @@ class ChromaVectorStore(BaseVectorStore):
 
     async def count(self) -> int:
         """Return the total number of vectors in the current collection."""
-        return await self._run_sync_in_executor(self.collection.count)
+        return self.collection.count()
 
     async def reset(self):
         """Reset the current collection by clearing all its data."""
         logger.warning(f"Resetting collection {self.collection_name}...")
         await self.delete_collection(self.collection_name)
 
-        def _recreate():
-            self.collection = self.client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-
-        await self._run_sync_in_executor(_recreate)
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
         logger.info(f"Collection {self.collection_name} has been reset")
+
+    async def start(self) -> None:
+        """Initialize the ChromaDB collection.
+
+        Creates or retrieves the collection with cosine similarity metric.
+        For local mode, creates the db_path directory if it doesn't exist.
+        """
+        if self.is_local:
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Initializing local ChromaDB at {self.db_path}")
+            self.client = chromadb.PersistentClient(
+                path=str(self.db_path),
+                settings=Settings(anonymized_telemetry=False),
+            )
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        logger.info(f"ChromaDB collection {self.collection_name} initialized")
 
     async def close(self):
         """Close the vector store and log the shutdown process."""

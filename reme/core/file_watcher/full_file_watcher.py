@@ -58,17 +58,17 @@ class FullFileWatcher(BaseFileWatcher):
                     or []
                 )
                 if chunks:
-                    chunks = await self.memory_store.get_chunk_embeddings(chunks)
+                    chunks = await self.file_store.get_chunk_embeddings(chunks)
                 file_meta.chunk_count = len(chunks)
 
-                await self.memory_store.delete_file(file_meta.path, MemorySource.MEMORY)
+                await self.file_store.delete_file(file_meta.path, MemorySource.MEMORY)
                 logger.info(f"delete_file {file_meta.path}")
 
-                await self.memory_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
+                await self.file_store.upsert_file(file_meta, MemorySource.MEMORY, chunks)
                 logger.info(f"Upserted {file_meta.chunk_count} chunks for {file_meta.path}")
 
             elif change_type == Change.deleted:
-                await self.memory_store.delete_file(path, MemorySource.MEMORY)
+                await self.file_store.delete_file(path, MemorySource.MEMORY)
                 logger.info(f"Deleted {path}")
 
             else:

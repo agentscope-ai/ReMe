@@ -78,6 +78,14 @@ class Message(BaseModel):
             return self.content
         return [block.simple_dump() for block in self.content]
 
+    def get_text_content(self) -> str:
+        """Extract plain text content from message, handling both str and list[ContentBlock]."""
+        if isinstance(self.content, str):
+            return self.content
+        return " ".join(
+            block.content if isinstance(block.content, str) else str(block.content) for block in self.content
+        )
+
     def simple_dump(
         self,
         add_name: bool = False,

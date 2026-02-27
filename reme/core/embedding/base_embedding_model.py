@@ -14,8 +14,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from ..schema import VectorNode
-from ..schema.memory_chunk import MemoryChunk
+from ..schema import VectorNode, MemoryChunk
 
 
 class BaseEmbeddingModel(ABC):
@@ -37,6 +36,7 @@ class BaseEmbeddingModel(ABC):
         max_input_length: int = 8192,
         cache_dir: str | Path = ".reme",
         max_cache_size: int = 2000,
+        enable_cache: bool = True,
         **kwargs,
     ):
         """Initialize model configuration and parameters.
@@ -51,6 +51,7 @@ class BaseEmbeddingModel(ABC):
             raise_exception: Whether to raise exceptions on failure
             max_input_length: Maximum input text length
             max_cache_size: Maximum number of embeddings to cache in memory (LRU)
+            enable_cache: Whether to enable embedding cache
             **kwargs: Additional model-specific parameters
         """
         self._api_key: str = api_key
@@ -63,6 +64,7 @@ class BaseEmbeddingModel(ABC):
         self.max_input_length = max_input_length
         self.cache_dir = cache_dir
         self.max_cache_size = max_cache_size
+        self.enable_cache = enable_cache
         self.kwargs = kwargs
 
         # Initialize LRU cache for embeddings
@@ -72,9 +74,6 @@ class BaseEmbeddingModel(ABC):
 
         self.cache_path: Path = Path(self.cache_dir)
         self.cache_path.mkdir(parents=True, exist_ok=True)
-
-        # Load cache from disk if available
-        self._load_cache()
 
     @property
     def api_key(self) -> str | None:
@@ -89,9 +88,7 @@ class BaseEmbeddingModel(ABC):
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_input_length if it exceeds the limit."""
         if len(text) > self.max_input_length:
-            logger.warning(
-                f"Text length {len(text)} exceeds max_input_length {self.max_input_length}, truncating",
-            )
+            logger.warning(f"Text length {len(text)} exceeds {self.max_input_length}, truncating")
             return text[: self.max_input_length]
         return text
 
@@ -133,6 +130,9 @@ class BaseEmbeddingModel(ABC):
         Loads in reverse order (newest first) to prioritize recent embeddings
         when max_cache_size is smaller than the file content.
         """
+        if not self.enable_cache:
+            return
+
         cache_file = self._get_cache_file_path()
         if not cache_file.exists():
             logger.info(f"No cache file found at {cache_file}, starting with empty cache")
@@ -151,10 +151,12 @@ class BaseEmbeddingModel(ABC):
                     continue
                 try:
                     data = json.loads(line)
-                    cache_key = data.get("key")
-                    embedding = data.get("embedding")
+                    if not data:
+                        continue
+                    # Each line is {cache_key: embedding}
+                    cache_key, embedding = next(iter(data.items()))
 
-                    if cache_key and embedding:
+                    if cache_key and embedding and isinstance(embedding, list):
                         # Skip if already loaded (keep the newest)
                         if cache_key in self._embedding_cache:
                             continue
@@ -174,7 +176,12 @@ class BaseEmbeddingModel(ABC):
 
             logger.info(f"Loaded {loaded_count} embeddings from cache file: {cache_file}")
         except Exception as e:
-            logger.error(f"Failed to load cache from {cache_file}: {e}")
+            logger.error(f"Failed to load cache from {cache_file}: {e}, deleting cache file")
+            try:
+                cache_file.unlink()
+                logger.info(f"Deleted corrupted cache file: {cache_file}")
+            except Exception as del_e:
+                logger.error(f"Failed to delete cache file {cache_file}: {del_e}")
 
     def _save_cache(self) -> None:
         """Save embedding cache to disk (JSONL format).
@@ -182,6 +189,9 @@ class BaseEmbeddingModel(ABC):
         Each line contains a JSON object with the cache key and embedding vector.
         Only saves if cache is non-empty.
         """
+        if not self.enable_cache:
+            return
+
         logger.info(f"Attempting to save cache, current size: {len(self._embedding_cache)}")
         if not self._embedding_cache:
             logger.info("Cache is empty, skipping save")
@@ -191,7 +201,7 @@ class BaseEmbeddingModel(ABC):
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 for cache_key, embedding in self._embedding_cache.items():
-                    cache_entry = {"key": cache_key, "embedding": embedding}
+                    cache_entry = {cache_key: embedding}
                     f.write(json.dumps(cache_entry, ensure_ascii=False) + "\n")
 
             logger.info(f"Saved {len(self._embedding_cache)} embeddings to cache file: {cache_file}")
@@ -207,6 +217,9 @@ class BaseEmbeddingModel(ABC):
         Returns:
             Cached embedding vector or None if not found
         """
+        if not self.enable_cache:
+            return None
+
         cache_key = self._get_cache_key(text)
         if cache_key in self._embedding_cache:
             # Move to end (most recently used)
@@ -227,6 +240,9 @@ class BaseEmbeddingModel(ABC):
             text: Input text used as cache key
             embedding: Embedding vector to cache
         """
+        if not self.enable_cache:
+            return
+
         if self.max_cache_size <= 0:
             return
 
@@ -510,6 +526,14 @@ class BaseEmbeddingModel(ABC):
         else:
             logger.warning(f"Mismatch: got {len(embeddings)} vectors for {len(chunks)} chunks")
         return chunks
+
+    def start_sync(self):
+        """Synchronously initialize resources and load cache."""
+        self._load_cache()
+
+    async def start(self):
+        """Asynchronously initialize resources and load cache."""
+        self._load_cache()
 
     def close_sync(self):
         """Synchronously release resources and close connections."""

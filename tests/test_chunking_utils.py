@@ -42,11 +42,8 @@ def test_chunk_markdown_empty():
         overlap=10,
     )
 
-    # Empty string splits to [""] which creates one chunk with empty text
-    assert len(chunks) == 1
-    assert chunks[0].text == ""
-    assert chunks[0].start_line == 1
-    assert chunks[0].end_line == 1
+    # Empty text is filtered out (no meaningful content to store)
+    assert len(chunks) == 0
 
 
 def test_chunk_markdown_single_line():

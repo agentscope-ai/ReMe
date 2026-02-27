@@ -11,7 +11,8 @@ metadata:
 llms:
   default:
     backend: openai
-    model_name: qwen3-235b-a22b-thinking-2507
+    #    model_name: qwen3-235b-a22b-thinking-2507
+    model_name: qwen3.5-plus
     request_interval: 1
 
 embedding_models:
@@ -19,12 +20,12 @@ embedding_models:
     backend: openai
     model_name: text-embedding-v4
     dimensions: 1024
+    enable_cache: true
 
-memory_stores:
+file_stores:
   default:
     backend: chroma
-#    backend: local
-    db_name: reme.db
+    #    backend: local
     store_name: reme
     embedding_model: default
     fts_enabled: true
@@ -33,9 +34,9 @@ memory_stores:
 file_watchers:
   default:
     backend: full
-    memory_store: default
-    watch_paths: [".reme", ".reme/memory"]
-    suffix_filters: [".md"]
+    file_store: default
+    watch_paths: [ ".reme", ".reme/memory" ]
+    suffix_filters: [ ".md" ]
     recursive: false
     scan_on_start: true
 

@@ -24,7 +24,7 @@ from reme.core.embedding import OpenAIEmbeddingModel
 from reme.core.enumeration import MemorySource
 from reme.core.file_watcher.delta_file_watcher import DeltaFileWatcher
 from reme.core.file_watcher.full_file_watcher import FullFileWatcher
-from reme.core.memory_store import SqliteMemoryStore
+from reme.core.file_store import SqliteFileStore
 from reme.core.utils import load_env
 
 load_env()
@@ -60,7 +60,7 @@ def append_to_file(file_path: str, content: str):
     print(f"✓ 追加内容到: {file_path}")
 
 
-async def verify_database(store: SqliteMemoryStore, title: str):
+async def verify_database(store: SqliteFileStore, title: str):
     """验证数据库内容"""
     print_separator(title)
 
@@ -110,7 +110,7 @@ async def test_full_file_watcher():
         dimensions=EMBEDDING_DIMENSIONS,
     )
 
-    store = SqliteMemoryStore(
+    store = SqliteFileStore(
         db_path=DB_PATH_FULL,
         vec_ext_path="",
         embedding_model=embedding_model,
@@ -122,7 +122,7 @@ async def test_full_file_watcher():
     # 创建 FullFileWatcher
     watcher = FullFileWatcher(
         watch_paths=temp_workspace,
-        memory_store=store,
+        file_store=store,
         chunk_tokens=200,
         chunk_overlap=20,
         recursive=True,
@@ -211,7 +211,7 @@ async def test_delta_file_watcher():
         dimensions=EMBEDDING_DIMENSIONS,
     )
 
-    store = SqliteMemoryStore(
+    store = SqliteFileStore(
         db_path=DB_PATH_DELTA,
         vec_ext_path="",
         embedding_model=embedding_model,
@@ -223,7 +223,7 @@ async def test_delta_file_watcher():
     # 创建 DeltaFileWatcher
     watcher = DeltaFileWatcher(
         watch_paths=temp_workspace,
-        memory_store=store,
+        file_store=store,
         chunk_tokens=200,
         chunk_overlap=20,
         overlap_lines=2,

@@ -18,7 +18,7 @@ Usage:
 import argparse
 import asyncio
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+import tempfile
 from pathlib import Path
 from typing import List
 
@@ -216,21 +216,17 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         dimensions=config.EMBEDDING_DIMENSIONS,
     )
 
-    # Create thread pool executor for vector stores
-    thread_pool = ThreadPoolExecutor(max_workers=4)
-
     if store_type == "local":
         return LocalVectorStore(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
-            root_path=config.LOCAL_ROOT_PATH,
+            db_path=config.LOCAL_ROOT_PATH,
         )
     elif store_type == "es":
         return ESVectorStore(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
+            db_path=tempfile.mkdtemp(prefix="test_es_"),
             hosts=config.ES_HOSTS,
             basic_auth=config.ES_BASIC_AUTH,
         )
@@ -238,8 +234,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         return QdrantVectorStore(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
-            path=config.QDRANT_PATH,
+            db_path=config.QDRANT_PATH or tempfile.mkdtemp(prefix="test_qdrant_"),
             host=config.QDRANT_HOST,
             port=config.QDRANT_PORT,
             url=config.QDRANT_URL,
@@ -251,7 +246,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         return PGVectorStore(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
+            db_path=tempfile.mkdtemp(prefix="test_pgvector_"),
             dsn=config.PG_DSN,
             min_size=config.PG_MIN_SIZE,
             max_size=config.PG_MAX_SIZE,
@@ -262,8 +257,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         return ChromaVectorStore(
             collection_name=collection_name,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
-            path=config.CHROMA_PATH,
+            db_path=config.CHROMA_PATH,
             host=config.CHROMA_HOST,
             port=config.CHROMA_PORT,
             api_key=config.CHROMA_API_KEY,
@@ -607,6 +601,7 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
 
     # Verify content in copied collection
     copied_store = create_vector_store(store_type, copy_collection_name)
+    await copied_store.start()
     copied_nodes = await copied_store.list()
     logger.info(f"✓ Copied collection has {len(copied_nodes)} nodes")
     await copied_store.close()
@@ -1464,14 +1459,13 @@ async def test_sql_injection_protection(store: BaseVectorStore, store_name: str)
     # Test 1: Invalid collection name (SQL injection attempt)
     try:
         embedding_model = OpenAIEmbeddingModel()
-        thread_pool = ThreadPoolExecutor(max_workers=4)
 
         # This should raise ValueError due to invalid table name
         try:
             _ = PGVectorStore(
                 collection_name="test'; DROP TABLE users; --",
+                db_path=".",
                 embedding_model=embedding_model,
-                thread_pool=thread_pool,
             )
             logger.error("❌ FAILED: Invalid collection name was accepted (SQL injection risk!)")
             assert False, "Should have raised ValueError for invalid collection name"
@@ -1657,6 +1651,9 @@ async def run_all_tests_for_store(store_type: str, store_name: str):
     store = create_vector_store(store_type, collection_name)
 
     try:
+        # Initialize the store (connect to database, create client, etc.)
+        await store.start()
+
         # Run cosine similarity test first (only for LocalVectorStore)
         await test_cosine_similarity(store_name)
 

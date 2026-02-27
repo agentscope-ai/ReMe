@@ -1,12 +1,12 @@
-"""Tests for FsCompactor - conversation history summarization.
+"""Tests for FbCompactor - conversation history summarization.
 
-This module tests the summary generation logic of FsCompactor class,
+This module tests the summary generation logic of FbCompactor class,
 which creates compact summaries of conversation history using LLM.
 """
 
 import asyncio
 
-from reme import ReMeFs
+from reme import ReMeFb
 from reme.core.enumeration import Role
 from reme.core.schema import Message
 
@@ -560,7 +560,7 @@ async def test_full_compact_with_summary():
     print("TEST: Full Compaction with LLM Summary Generation")
     print("=" * 80)
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         enable_logo=False,
         vector_store=None,
         compact_params={
@@ -607,7 +607,7 @@ async def test_realistic_personal_conversation_compact():
     print("TEST: Realistic Personal Conversation Compaction")
     print("=" * 80)
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         enable_logo=False,
         vector_store=None,
         compact_params={
@@ -638,7 +638,7 @@ async def test_realistic_personal_conversation_compact():
 async def main():
     """Run compactor tests."""
     print("\n" + "=" * 80)
-    print("FsCompactor - Summary Generation Test Suite")
+    print("FbCompactor - Summary Generation Test Suite")
     print("=" * 80)
     print("\nThis test suite validates the LLM-based summarization:")
     print("  - Full compaction flow (context check + summary generation)")

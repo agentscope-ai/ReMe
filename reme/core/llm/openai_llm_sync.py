@@ -6,9 +6,7 @@ from openai import OpenAI
 
 from .openai_llm import OpenAILLM
 from ..enumeration import ChunkEnum
-from ..schema import Message
-from ..schema import StreamChunk
-from ..schema import ToolCall
+from ..schema import Message, StreamChunk, ToolCall
 
 
 class OpenAILLMSync(OpenAILLM):

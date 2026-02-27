@@ -6,7 +6,7 @@ from .es_vector_store import ESVectorStore
 from .local_vector_store import LocalVectorStore
 from .pgvector_store import PGVectorStore
 from .qdrant_vector_store import QdrantVectorStore
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseVectorStore",

@@ -2,7 +2,7 @@
 
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -47,8 +47,8 @@ class PGVectorStore(BaseVectorStore):
     def __init__(
         self,
         collection_name: str,
+        db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        thread_pool: ThreadPoolExecutor,
         host: str = "localhost",
         port: int = 5432,
         database: str = "postgres",
@@ -72,8 +72,8 @@ class PGVectorStore(BaseVectorStore):
 
         super().__init__(
             collection_name=collection_name,
+            db_path=db_path,
             embedding_model=embedding_model,
-            thread_pool=thread_pool,
             **kwargs,
         )
 
@@ -116,12 +116,6 @@ class PGVectorStore(BaseVectorStore):
             logger.info(f"PGVector connection pool created for database {self.database}")
 
         return self._pool
-
-    async def _ensure_collection_exists(self):
-        """Check if the collection table exists and create it if missing."""
-        collections = await self.list_collections()
-        if self.collection_name not in collections:
-            await self.create_collection(self.collection_name)
 
     async def list_collections(self) -> list[str]:
         """List all available table names in the current database."""
@@ -219,8 +213,6 @@ class PGVectorStore(BaseVectorStore):
 
     async def insert(self, nodes: VectorNode | list[VectorNode], **kwargs):
         """Insert or upsert vector nodes into the PostgreSQL collection."""
-        await self._ensure_collection_exists()
-
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
 
@@ -337,8 +329,6 @@ class PGVectorStore(BaseVectorStore):
         **kwargs,
     ) -> list[VectorNode]:
         """Perform vector similarity search with optional metadata filtering."""
-        await self._ensure_collection_exists()
-
         query_vector = await self.get_embedding(query)
         vector_str = f"[{','.join(map(str, query_vector))}]"
         pool = await self._get_pool()
@@ -394,8 +384,6 @@ class PGVectorStore(BaseVectorStore):
 
     async def delete(self, vector_ids: str | list[str], **kwargs):
         """Remove specific vector records from the collection by their IDs."""
-        await self._ensure_collection_exists()
-
         if isinstance(vector_ids, str):
             vector_ids = [vector_ids]
 
@@ -414,8 +402,6 @@ class PGVectorStore(BaseVectorStore):
 
     async def delete_all(self, **kwargs):
         """Remove all vectors from the collection."""
-        await self._ensure_collection_exists()
-
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(f"DELETE FROM {self.collection_name}")
@@ -424,8 +410,6 @@ class PGVectorStore(BaseVectorStore):
 
     async def update(self, nodes: VectorNode | list[VectorNode], **kwargs):
         """Update existing vector nodes with new content, embeddings, or metadata."""
-        await self._ensure_collection_exists()
-
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
 
@@ -474,8 +458,6 @@ class PGVectorStore(BaseVectorStore):
 
     async def get(self, vector_ids: str | list[str]) -> VectorNode | list[VectorNode] | None:
         """Retrieve vector nodes by their unique identifiers."""
-        await self._ensure_collection_exists()
-
         single_result = isinstance(vector_ids, str)
         if single_result:
             vector_ids = [vector_ids]
@@ -531,8 +513,6 @@ class PGVectorStore(BaseVectorStore):
             sort_key: Key to sort the results by (e.g., field name in metadata). None for no sorting
             reverse: If True, sort in descending order; if False, sort in ascending order
         """
-        await self._ensure_collection_exists()
-
         pool = await self._get_pool()
         filter_clause, filter_params = self._build_filter_clause(filters)
 
@@ -612,6 +592,15 @@ class PGVectorStore(BaseVectorStore):
         self.collection_name = collection_name
         await self.create_collection(collection_name)
         logger.info(f"Collection reset to {collection_name}")
+
+    async def start(self) -> None:
+        """Initialize the PGVector store.
+
+        Creates the connection pool and ensures the collection table exists.
+        """
+        await self._get_pool()
+        await super().start()
+        logger.info(f"PGVector collection {self.collection_name} initialized")
 
     async def close(self):
         """Terminate the database connection pool and release associated resources."""

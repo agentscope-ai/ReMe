@@ -10,9 +10,7 @@ from typing import Callable, Generator, AsyncGenerator, Any
 from loguru import logger
 
 from ..enumeration import ChunkEnum, Role
-from ..schema import Message
-from ..schema import StreamChunk
-from ..schema import ToolCall
+from ..schema import Message, StreamChunk, ToolCall
 from ..utils import extract_content
 
 
@@ -510,8 +508,14 @@ class BaseLLM(ABC):
             **kwargs,
         )
 
-    async def close(self):
-        """Release async resources."""
+    def start_sync(self):
+        """Synchronously initialize resources."""
+
+    async def start(self):
+        """Asynchronously initialize resources."""
 
     def close_sync(self):
-        """Release sync resources."""
+        """Synchronously release resources and close connections."""
+
+    async def close(self):
+        """Asynchronously release resources and close connections."""

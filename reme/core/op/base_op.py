@@ -10,11 +10,14 @@ from typing import Callable, Optional, Any
 from loguru import logger
 from tqdm import tqdm
 
-from ..context import RuntimeContext, PromptHandler, ServiceContext
 from ..embedding import BaseEmbeddingModel
+from ..file_store import BaseFileStore
 from ..llm import BaseLLM
-from ..memory_store import BaseMemoryStore
-from ..schema import Response
+from ..prompt_handler import PromptHandler
+from ..runtime_context import RuntimeContext
+from ..schema import Response, ServiceConfig
+from ..schema.service_config import OpConfig
+from ..service_context import ServiceContext
 from ..token_counter import BaseTokenCounter
 from ..utils import camel_to_snake, CacheHandler, timer
 from ..vector_store import BaseVectorStore
@@ -42,7 +45,7 @@ class BaseOp(metaclass=ABCMeta):
         llm: str | BaseLLM = "default",
         embedding_model: str | BaseEmbeddingModel = "default",
         vector_store: str | BaseVectorStore = "default",
-        memory_store: str | BaseMemoryStore = "default",
+        file_store: str | BaseFileStore = "default",
         token_counter: str | BaseTokenCounter = "default",
         enable_cache: bool = False,
         cache_path: str = "cache/op",
@@ -64,7 +67,7 @@ class BaseOp(metaclass=ABCMeta):
         self._llm = llm
         self._embedding_model = embedding_model
         self._vector_store = vector_store
-        self._memory_store = memory_store
+        self._file_store = file_store
         self._token_counter = token_counter
 
         self.enable_cache = enable_cache
@@ -122,6 +125,11 @@ class BaseOp(metaclass=ABCMeta):
         return self.context.service_context
 
     @property
+    def service_config(self) -> ServiceConfig:
+        """Access the service configuration."""
+        return self.service_context.service_config
+
+    @property
     def llm(self) -> BaseLLM:
         """Get the LLM instance from ServiceContext."""
         if isinstance(self._llm, str):
@@ -143,11 +151,11 @@ class BaseOp(metaclass=ABCMeta):
         return self._vector_store
 
     @property
-    def memory_store(self) -> BaseMemoryStore:
-        """Lazily initialize and return the memory store instance."""
-        if isinstance(self._memory_store, str):
-            self._memory_store = self.service_context.memory_stores[self._memory_store]
-        return self._memory_store
+    def file_store(self) -> BaseFileStore:
+        """Lazily initialize and return the file store instance."""
+        if isinstance(self._file_store, str):
+            self._file_store = self.service_context.file_stores[self._file_store]
+        return self._file_store
 
     @property
     def token_counter(self) -> BaseTokenCounter:
@@ -159,7 +167,7 @@ class BaseOp(metaclass=ABCMeta):
     @property
     def service_metadata(self) -> dict:
         """Get service configuration metadata."""
-        return self.service_context.service_config.model_extra
+        return self.service_context.service_config.metadata
 
     @property
     def response(self) -> Response:
@@ -167,12 +175,42 @@ class BaseOp(metaclass=ABCMeta):
         return self.context.response
 
     def before_execute_sync(self):
-        """Prepare context and validate before sync execution."""
+        """Prepare context and validate before sync execution.
+
+        This method performs the following steps:
+        1. Apply input mapping to transform context variables
+        2. Load operator-specific configuration from service config if available
+        3. Override operator parameters and prompts based on config
+        """
         self.context.apply_mapping(self.input_mapping)
+
+        if self.context.service_context is None:
+            return
+
+        service_config = self.service_context.service_config
+        if self.name not in service_config.ops:
+            return
+
+        op_config: OpConfig = service_config.ops[self.name]
+
+        # Override operator parameters from config
+        if op_config.params:
+            for k, v in op_config.params.items():
+                if hasattr(self, k):
+                    setattr(self, k, v)
+                    logger.info(f"[{self.__class__.__name__}] Set attribute '{k}' = {v}")
+                else:
+                    self.op_params[k] = v
+                    logger.info(f"[{self.__class__.__name__}] Set op_param '{k}' = {v}")
+
+        # Load custom prompt templates from config
+        if op_config.prompt_dict:
+            self.prompt.load_prompt_dict(op_config.prompt_dict)
+            logger.info(f"[{self.__class__.__name__}] Loaded prompt keys={list(op_config.prompt_dict.keys())}")
 
     async def before_execute(self):
         """Prepare context and validate before async execution."""
-        self.context.apply_mapping(self.input_mapping)
+        self.before_execute_sync()
 
     def execute_sync(self):
         """Define core sync logic in subclasses."""

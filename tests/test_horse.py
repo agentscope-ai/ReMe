@@ -3,7 +3,7 @@
 import os
 import time
 
-from reme.horse import _mirror_frame
+from reme.core.utils.horse import _mirror_frame
 
 
 def clear_screen():

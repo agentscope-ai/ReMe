@@ -39,10 +39,7 @@ class BaseTokenCounter:
         # Extract text from messages
         segments = []
         for msg in messages:
-            content = msg.content
-            if isinstance(content, bytes):
-                content = content.decode("utf-8", errors="ignore")
-            segments.extend([content, msg.reasoning_content])
+            segments.extend([msg.get_text_content(), msg.reasoning_content])
 
         # Extract text from tools
         if tools:

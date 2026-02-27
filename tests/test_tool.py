@@ -17,7 +17,7 @@ async def test_search(_app):
     Tests DashscopeSearch, MockSearch, and TavilySearch operations
     with a sample query to verify they work correctly.
     """
-    from reme.tool.search import DashscopeSearch, MockSearch, TavilySearch
+    from reme.core.tools import DashscopeSearch, MockSearch, TavilySearch
 
     query = "美股DFDV是做什么的？"
 
@@ -41,7 +41,7 @@ async def test_execute(_app):
     including successful execution, syntax errors, runtime errors, and
     invalid commands to verify error handling.
     """
-    from reme.tool.gallery import ExecuteCode, ExecuteShell
+    from reme.core.tools import ExecuteCode, ExecuteShell
 
     # Test ExecuteCode
     print("\n" + "=" * 60)
@@ -153,7 +153,7 @@ async def test_simple_chat(app):
     Tests the SimpleChat agent with a basic query to verify
     it can process and respond to user input.
     """
-    from reme.agent.chat import SimpleChat
+    from reme.extension import SimpleChat
 
     op = SimpleChat()
     output = await op.call(query="你好", service_context=app.service_context)
@@ -166,9 +166,9 @@ async def test_stream_chat(app):
     Tests the StreamChat agent with a query to verify it can
     process and stream responses in real-time using async operations.
     """
-    from reme.agent.chat import StreamChat
+    from reme.extension import StreamChat
     from reme.core.utils import execute_stream_task
-    from reme.core.context import RuntimeContext
+    from reme.core import RuntimeContext
     from asyncio import Queue
 
     op = StreamChat()

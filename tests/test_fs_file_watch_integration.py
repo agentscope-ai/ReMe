@@ -1,8 +1,8 @@
-"""Integration test for ReMeFs file watching with memory_search and memory_get.
+"""Integration test for ReMeFb file watching with memory_search and memory_get.
 
 This test demonstrates the complete workflow:
 1. Create markdown files with personal information in test_reme folder
-2. Initialize ReMeFs with file watching enabled
+2. Initialize ReMeFb with file watching enabled
 3. Start file watching to automatically index files into the database
 4. Use memory_search and memory_get to retrieve the indexed content
 5. Modify the markdown files
@@ -19,7 +19,7 @@ import json
 import shutil
 from pathlib import Path
 
-from reme import ReMeFs
+from reme import ReMeFb
 
 
 # ==================== Test Configuration ====================
@@ -278,13 +278,13 @@ async def test_file_watch_integration():
     test_files = create_test_markdown_files(TestConfig.WORKING_DIR)
     print(f"\n✓ Created {len(test_files)} markdown files in {TestConfig.WORKING_DIR}")
 
-    # ==================== STEP 2: Initialize ReMeFs ====================
-    print_separator("STEP 2: Initializing ReMeFs with File Watching")
+    # ==================== STEP 2: Initialize ReMeFb ====================
+    print_separator("STEP 2: Initializing ReMeFb with File Watching")
 
-    reme_fs = ReMeFs(
+    reme_fs = ReMeFb(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
-        default_memory_store_config={
+        default_file_store_config={
             "backend": "sqlite",
             "store_name": "test_integration",
             "embedding_model": "default",
@@ -299,7 +299,7 @@ async def test_file_watch_integration():
         },
     )
 
-    print("✓ ReMeFs instance created")
+    print("✓ ReMeFb instance created")
     print(f"  Working directory: {TestConfig.WORKING_DIR}")
     print(f"  Watch paths: {TestConfig.WORKING_DIR}, {TestConfig.WORKING_DIR}/memory")
     print("  File filters: .md files")
@@ -469,7 +469,7 @@ async def test_file_watch_integration():
     print_separator("STEP 10: Cleanup")
 
     await reme_fs.close()
-    print("✓ ReMeFs closed")
+    print("✓ ReMeFb closed")
 
     # Clean up test directory
     if test_dir.exists():
@@ -489,11 +489,11 @@ async def test_file_watch_integration():
 async def main():
     """Run the file watch integration test."""
     print("\n" + "=" * 80)
-    print("  ReMeFs File Watch Integration Test")
+    print("  ReMeFb File Watch Integration Test")
     print("=" * 80)
     print("\nThis test validates the complete file watching workflow:")
     print("  1. Create markdown files with personal information")
-    print("  2. Initialize ReMeFs and start file watching")
+    print("  2. Initialize ReMeFb and start file watching")
     print("  3. Verify automatic indexing into database")
     print("  4. Search and retrieve initial content")
     print("  5. Modify files and verify re-indexing")

@@ -4,7 +4,7 @@ from .base_service import BaseService
 from .cmd_service import CmdService
 from .http_service import HttpService
 from .mcp_service import MCPService
-from ..context import R
+from ..registry_factory import R
 
 __all__ = [
     "BaseService",

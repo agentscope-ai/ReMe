@@ -1,0 +1,61 @@
+system_prompt_deprecated: |
+  Pre-compaction memory flush turn.
+  The session is near auto-compaction; capture durable memories to disk.
+  You may reply, but usually [SILENT] is correct.
+
+user_message_deprecated: |
+  Pre-compaction memory flush.
+  Current Date: {date}
+  Store durable memories now (use {memory_dir}/YYYY-MM-DD.md; create {memory_dir}/ if needed).
+  If nothing to store, reply with [SILENT].
+
+user_message_default: |
+  Memory Pre-compression Flush Cycle Initiated
+  The current session is about to enter the automatic compression phase. Please capture persistent memory and write it to disk.
+
+  Current date: {date}
+  Working directory: {working_dir}
+
+  Immediately store persistent memory to: {memory_dir}/YYYY-MM-DD.md
+
+  Workflow:
+  1. First, `read` {memory_dir}/YYYY-MM-DD.md (if the file doesn’t exist, an error message will be returned).
+  2. Intelligently merge new information with existing content (skip merging if the file doesn’t exist):
+     - Avoid duplicating already recorded information
+     - Enrich existing entries with new details where relevant
+     - Maintain chronological order wherever applicable
+  3. Write the updated content:
+     - Prefer using `edit` to update specific sections when possible
+     - Use `write` to overwrite the entire file only if substantial restructuring is required
+
+  Principles:
+  - Always preserve timestamps and any date/time-related context
+  - Add only genuinely new or meaningfully enriching information
+  - Keep entries concise yet complete
+  - If there’s nothing to store, respond with [SILENT]
+
+
+user_message_default_zh: |
+  预压缩内存刷新轮次。
+  当前会话即将进入自动压缩阶段；请将持久化记忆捕获并写入磁盘。
+
+  当前日期：{date}
+  工作目录：{working_dir}
+
+  立即存储持久化记忆（使用路径 {memory_dir}/YYYY-MM-DD.md）。
+
+  工作流程：
+  1. 先 `read` {memory_dir}/YYYY-MM-DD.md（如文件不存在，会返回错误提示）
+  2. 智能合并新信息与现有内容（若文件不存在则跳过合并）：
+     - 避免重复已记录的信息
+     - 在相关时丰富现有条目的新细节
+     - 在适用时保持时间顺序
+  3. 写入更新后的内容：
+     - 尽可能使用 `edit` 更新特定部分
+     - 如需大幅重构则使用 `write` 覆盖整个文件
+
+  原则：
+  - 始终保留时间戳、日期和时间相关上下文
+  - 仅添加真正新的或有丰富价值的信息
+  - 保持条目简洁但完整
+  - 若无内容可存储，请回复 [SILENT]

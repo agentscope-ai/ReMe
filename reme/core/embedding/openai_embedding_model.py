@@ -45,6 +45,10 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
             result_emb[emb.index] = emb.embedding
         return result_emb
 
+    async def start(self):
+        """Initialize the asynchronous OpenAI embedding model and load cache."""
+        await super().start()
+
     async def close(self):
         """Close the asynchronous OpenAI client and release network resources."""
         if self._client is not None:

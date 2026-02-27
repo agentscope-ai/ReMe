@@ -4,9 +4,7 @@ from typing import Generator
 
 from .lite_llm import LiteLLM
 from ..enumeration import ChunkEnum
-from ..schema import Message
-from ..schema import StreamChunk
-from ..schema import ToolCall
+from ..schema import Message, StreamChunk, ToolCall
 
 
 class LiteLLMSync(LiteLLM):

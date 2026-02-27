@@ -1,0 +1,34 @@
+memory_rewrite_prompt: |
+  You are an expert AI assistant tasked with rewriting and reorganizing context content to make it more relevant and actionable for the current task.
+
+  Your task is to take the original context (containing multiple experiences) and rewrite it as a cohesive, task-specific guidance that directly addresses the current situation.
+
+  REWRITING GUIDELINES:
+  ● RELEVANCE FOCUS: Emphasize the most relevant aspects of each experience. Prioritize the most relevant experiences. Use clear, direct language.
+  ● ACTIONABLE INSIGHTS: Extract specific, actionable guidance. Make the context immediately actionable
+  ● COHERENT NARRATIVE: Create a flowing narrative rather than disconnected tips
+  ● SITUATIONAL AWARENESS: Adapt the guidance to the current situation
+
+  # Current Task/Query
+  {current_query}
+
+  # Current Trajectory
+  {current_context}
+
+  # Original Context Content (Multiple Experiences)
+  {original_context}
+
+  OUTPUT FORMAT:
+  Provide the rewritten context:
+  ```json
+  {{
+    "rewritten_context": "A cohesive, task-specific context message that reorganizes and adapts the original experiences for the current task. This should be written as a unified guidance rather than separate experience items.",
+  }}
+  ```
+
+  Guidelines:
+  - Rewrite as a unified, flowing guidance
+  - Adapt terminology and examples to match the current task domain
+  - Consolidate overlapping insights into coherent recommendations
+  - Prioritize experiences most relevant to the current situation
+  - Make the guidance feel custom-written for this specific task

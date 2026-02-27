@@ -13,7 +13,7 @@ from loguru import logger
 from watchfiles import awatch, Change
 
 from ..enumeration import MemorySource
-from ..memory_store import BaseMemoryStore
+from ..file_store import BaseFileStore
 
 
 class BaseFileWatcher:
@@ -32,7 +32,7 @@ class BaseFileWatcher:
         debounce: int = 500,  # Millisecond debounce
         chunk_tokens: int = 400,
         chunk_overlap: int = 80,
-        memory_store: BaseMemoryStore | None = None,
+        file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
         scan_on_start: bool = False,
         **kwargs,
@@ -47,7 +47,7 @@ class BaseFileWatcher:
             debounce: Debounce time in milliseconds
             chunk_tokens: Token size for chunking
             chunk_overlap: Overlap size for chunks
-            memory_store: Memory store instance
+            file_store: File store instance
             callback: Callback function for changes
             scan_on_start: If True, scan existing files on start and trigger on_changes with Change.added
             **kwargs: Additional keyword arguments
@@ -58,7 +58,7 @@ class BaseFileWatcher:
         self.debounce: int = debounce
         self.chunk_tokens: int = chunk_tokens
         self.chunk_overlap: int = chunk_overlap
-        self.memory_store: BaseMemoryStore = memory_store
+        self.file_store: BaseFileStore = file_store
         self.callback = callback
         self.scan_on_start: bool = scan_on_start
         self.kwargs: dict = kwargs
@@ -134,14 +134,15 @@ class BaseFileWatcher:
                             existing_files.add((Change.added, str(file_path)))
 
         if existing_files:
-            logger.info(f"Found {len(existing_files)} existing files to process")
+            logger.info(f"[SCAN_ON_START] Found {len(existing_files)} existing files matching watch criteria")
             await self.on_changes(existing_files)
+            logger.info(f"[SCAN_ON_START] Added {len(existing_files)} files to memory store")
         else:
-            logger.info("No existing files found matching watch criteria")
+            logger.info("[SCAN_ON_START] No existing files found matching watch criteria")
 
-        files: list[str] = await self.memory_store.list_files(MemorySource.MEMORY)
+        files: list[str] = await self.file_store.list_files(MemorySource.MEMORY)
         for file_path in files:
-            chunks = await self.memory_store.get_file_chunks(file_path, MemorySource.MEMORY)
+            chunks = await self.file_store.get_file_chunks(file_path, MemorySource.MEMORY)
             logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
 
     async def _watch_loop(self):

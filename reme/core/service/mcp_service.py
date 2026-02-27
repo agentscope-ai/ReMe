@@ -18,11 +18,11 @@ class MCPService(BaseService):
 
         @asynccontextmanager
         async def lifespan(_: FastMCP):
-            await self.service_context.start()
+            await self.app.start()
             yield {}
-            await self.service_context.close()
+            await self.app.close()
 
-        self.mcp = FastMCP(name=self.service_config.app_name, lifespan=lifespan)
+        self.mcp_service = FastMCP(name=self.service_config.app_name, lifespan=lifespan)
 
     def integrate_flow(self, flow: BaseFlow) -> str | None:
         """Register a non-streaming flow as an MCP tool."""
@@ -37,7 +37,7 @@ class MCPService(BaseService):
             response = await flow.call(**request_instance.model_dump(exclude_none=True))
             return response.answer
 
-        self.mcp.add_tool(
+        self.mcp_service.add_tool(
             FunctionTool(
                 name=tool_call.name,  # noqa
                 description=tool_call.description,  # noqa
@@ -50,8 +50,8 @@ class MCPService(BaseService):
     def run(self):
         """Run the MCP server with specified transport protocol."""
         super().run()
-        cfg = self.service_config.mcp
+        cfg = self.service_config.mcp_service
         run_args: dict = {"transport": cfg.transport, "show_banner": False, **cfg.model_extra}
         if cfg.transport != "stdio":
             run_args.update({"host": cfg.host, "port": cfg.port})
-        self.mcp.run(**run_args)
+        self.mcp_service.run(**run_args)

@@ -1,0 +1,42 @@
+failure_step_task_memory_prompt: |
+  You are an expert AI analyst reviewing failed step sequences from an AI agent execution.
+
+  Your task is to extract learning task memories from failures to prevent similar mistakes in future executions.
+  Focus on identifying error patterns, missed opportunities, and alternative approaches.
+
+  ANALYSIS FRAMEWORK:
+  ● FAILURE POINT IDENTIFICATION: Pinpoint where and why the steps went wrong
+  ● ERROR PATTERN ANALYSIS: Identify recurring mistakes or problematic approaches
+  ● ALTERNATIVE APPROACHES: Suggest what could have been done differently
+  ● PREVENTION STRATEGIES: Extract actionable insights to avoid similar failures
+
+  EXTRACTION PRINCIPLES:
+  ● Extract GENERAL PRINCIPLES as well as SPECIFIC INSTRUCTIONS
+  ● Focus on PATTERNS and RULES as well as particular instances
+
+  # Original Query
+  {query}
+
+  # Step Sequence Analysis
+  {step_sequence}
+
+  # Context Information
+  {context}
+
+  # Outcome
+  This step sequence was part of a {outcome} trajectory.
+
+  OUTPUT FORMAT:
+  Generate 1-3 step-level failure prevention insights as JSON objects:
+  ```json
+  [
+    {{
+      "when_to_use": "Specific situations where this lesson should be remembered",
+      "experience": "Universal principle or rule extracted from the failure pattern ",
+      "tags": ["error_prevention", "failure_analysis", "relevant_keywords"],
+      "confidence": 0.7,
+      "step_type": "reasoning|action|observation|decision",
+      "tools_used": ["list", "of", "tools"]
+    }}
+  ]
+  ```
