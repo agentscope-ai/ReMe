@@ -18,12 +18,11 @@
 
 <p align="center">
   <strong>面向智能体的记忆管理工具包, Remember Me, Refine Me.</strong><br>
-  <em><sub>如果 ReMe 对你有帮助，欢迎点一个 ⭐ Star，你的支持是我们持续改进的动力。</sub></em>
 </p>
 
 ---
 
-ReMe 是一个专为 **AI 智能体**打造的记忆管理框架。
+ReMe 是一个专为 **AI 智能体**打造的记忆管理框架，同时提供基于文件系统和基于向量库的记忆系统。
 
 它解决智能体最核心的两个痛点：**对话太长就丢信息**，**新对话一张白纸**。
 
@@ -65,6 +64,27 @@ ReMe 将**记忆视为文件**——可读、可编辑、可版本控制。
 ```
 
 > 记忆设计受 [OpenClaw](https://github.com/openclaw/openclaw) 启发。
+
+---
+
+## ⭐️ 给项目点个星
+
+<table border="0" cellspacing="0" cellpadding="0" style="border: none;">
+  <tr style="border: none;">
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>上<br>有<br>钱</strong>
+    </td>
+    <td width="80%" style="border: none;">
+      <video src="https://github.com/user-attachments/assets/befa7e40-63ba-4db2-8251-516024616e00" autoplay muted loop controls></video>
+    </td>
+    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
+      <strong>马<br>到<br>成<br>功</strong>
+    </td>
+  </tr>
+</table>
+如果你觉得 ReMe 有用，请给项目点个星 ⭐️，这将是对我们最大的鼓励！
+
+---
 
 ## 核心架构
 
@@ -333,19 +353,7 @@ Coming soon...
     - [快速开始](docs/cli/quick_start_en.md)
     - 输入 `/horse` 触发马年彩蛋——烟花、奔马动画和随机马年祝福。
 
-<table border="0" cellspacing="0" cellpadding="0" style="border: none;">
-  <tr style="border: none;">
-    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
-      <strong>马<br>上<br>有<br>钱</strong>
-    </td>
-    <td width="80%" style="border: none;">
-      <video src="https://github.com/user-attachments/assets/befa7e40-63ba-4db2-8251-516024616e00" autoplay muted loop controls></video>
-    </td>
-    <td width="10%" style="border: none; vertical-align: middle; text-align: center;">
-      <strong>马<br>到<br>成<br>功</strong>
-    </td>
-  </tr>
-</table>
+
 
 - **[2025-12]** 📄 我们的程序性（任务）记忆论文已在 [arXiv](https://arxiv.org/abs/2512.10696) 发布
 
