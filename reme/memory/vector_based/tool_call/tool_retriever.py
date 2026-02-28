@@ -1,4 +1,4 @@
-"""Procedural memory retriever agent for retrieving procedural memories through vector search."""
+"""Tool memory retriever agent for retrieving tool usage experiences through vector search."""
 
 from ..base_memory_agent import BaseMemoryAgent
 from ....core.enumeration import Role, MemoryType
@@ -7,23 +7,24 @@ from ....core.schema import Message
 from ....core.utils import format_messages
 
 
-class ProceduralRetriever(BaseMemoryAgent):
-    """Retrieve procedural memories through vector search and history reading.
+class ToolRetriever(BaseMemoryAgent):
+    """Retrieve tool memories through vector search and history reading.
 
-    Procedural memories represent "how-to" knowledge including:
-    - Workflows and step-by-step instructions
-    - Task execution patterns and best practices
-    - Success and failure patterns from past experiences
+    Tool memories represent knowledge about tool usage including:
+    - Successful tool invocations and their parameters
+    - Failed tool calls and lessons learned
+    - Tool selection strategies for different scenarios
+    - Parameter optimization patterns
     """
 
-    memory_type: MemoryType = MemoryType.PROCEDURAL
+    memory_type: MemoryType = MemoryType.TOOL
 
     def __init__(self, return_memory_nodes: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.return_memory_nodes: bool = return_memory_nodes
 
     async def build_messages(self) -> list[Message]:
-        """Build messages with procedural memory retrieval context."""
+        """Build messages with tool memory retrieval context."""
         if self.context.get("query"):
             context = self.context.query
         elif self.context.get("messages"):

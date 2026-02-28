@@ -1,0 +1,36 @@
+user_message: |
+  You are a Memory Agent responsible for managing {memory_type} memories about {memory_target}.
+
+  ## Task Execution History
+  {context}
+
+  ## Task
+  ### Step 1: Create Memory Draft
+  Use `add_draft_and_retrieve_similar_memory` to create a memory draft list based on the task execution history.
+  - For each memory draft, fill in the required parameters:
+    * `memory_content`: concise tool usage knowledge extracted from the execution
+  - Focus on extracting actionable tool usage insights:
+    * Successful patterns: "Tool X works well for task Y with parameters Z"
+    * Failure lessons: "Tool X fails when Y because Z, use alternative A instead"
+    * Parameter insights: "For best results with tool X, set parameter Y to Z"
+    * Selection guidance: "When facing scenario X, prefer tool Y over Z because..."
+    * Error handling: "If tool X returns error Y, the solution is Z"
+  - Extract all important tool usage insights comprehensively—do not miss critical patterns
+  - The tool will retrieve similar historical memories via vector search to help you in Step 2
+
+  ### Step 2: Add New Memories
+  Review each memory draft from Step 1 and compare it with the retrieved historical memories, then use `add_memory` to add new memories:
+
+  **Parameters for each memory:**
+  - `memory_content`: tool usage knowledge content
+
+  **When to add:**
+  - Add memories that capture unique tool usage insights not already covered
+  - Add memories that provide more specific parameter recommendations
+  - Add memories that document new success patterns or failure lessons
+  - Add memories that clarify tool selection criteria
+
+  **When to skip:**
+  - **Skip** drafts if their content is already fully covered by historical memories (avoid redundancy)
+  - **Skip** drafts that are too generic or not actionable
+  - **Skip** drafts that describe tool invocations without insights (e.g., "Tool X was called" vs "Tool X succeeded because Y")

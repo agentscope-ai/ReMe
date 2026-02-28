@@ -191,7 +191,7 @@ class ReMe(Application):
                         enable_multiple=True,
                     ),
                     ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
+                        enable_thinking_params=False,
                         enable_memory_target=False,
                         profile_dir=self.profile_dir,
                     ),
@@ -207,8 +207,42 @@ class ReMe(Application):
         else:
             raise NotImplementedError(f"version={version} is not supported")
 
-        procedural_summarizer: BaseMemoryAgent = ProceduralSummarizer(tools=[])
-        tool_summarizer: BaseMemoryAgent = ToolSummarizer(tools=[])
+        procedural_summarizer: BaseMemoryAgent = ProceduralSummarizer(
+            llm=llm_config_name,
+            tools=[
+                AddDraftAndRetrieveSimilarMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                    top_k=retrieve_top_k,
+                ),
+                AddMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                ),
+            ],
+        )
+        tool_summarizer: BaseMemoryAgent = ToolSummarizer(
+            llm=llm_config_name,
+            tools=[
+                AddDraftAndRetrieveSimilarMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                    top_k=retrieve_top_k,
+                ),
+                AddMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                ),
+            ],
+        )
 
         memory_agents = []
         memory_targets = []
@@ -313,8 +347,36 @@ class ReMe(Application):
         else:
             raise NotImplementedError(f"version={version} is not supported")
 
-        procedural_retriever: BaseMemoryAgent = ProceduralRetriever(tools=[])
-        tool_retriever: BaseMemoryAgent = ToolRetriever(tools=[])
+        procedural_retriever: BaseMemoryAgent = ProceduralRetriever(
+            llm=llm_config_name,
+            tools=[
+                RetrieveMemory(
+                    top_k=retrieve_top_k,
+                    enable_thinking_params=enable_thinking_params,
+                    enable_time_filter=False,
+                    enable_multiple=True,
+                ),
+                ReadHistory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_multiple=True,
+                ),
+            ],
+        )
+        tool_retriever: BaseMemoryAgent = ToolRetriever(
+            llm=llm_config_name,
+            tools=[
+                RetrieveMemory(
+                    top_k=retrieve_top_k,
+                    enable_thinking_params=enable_thinking_params,
+                    enable_time_filter=False,
+                    enable_multiple=True,
+                ),
+                ReadHistory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_multiple=True,
+                ),
+            ],
+        )
 
         memory_agents = []
         memory_targets = []

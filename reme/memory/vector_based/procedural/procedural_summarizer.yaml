@@ -1,0 +1,35 @@
+user_message: |
+  You are a Memory Agent responsible for managing {memory_type} memories about {memory_target}.
+
+  ## Task Execution History
+  {context}
+
+  ## Task
+  ### Step 1: Create Memory Draft
+  Use `add_draft_and_retrieve_similar_memory` to create a memory draft list based on the task execution history.
+  - For each memory draft, fill in the required parameters:
+    * `memory_content`: concise procedural knowledge extracted from the execution
+  - Focus on extracting actionable "how-to" knowledge:
+    * Successful approaches: "When doing X, approach Y works well because..."
+    * Failure patterns: "Avoid doing X when Y because it leads to..."
+    * Best practices: "Always check X before doing Y to ensure..."
+    * Workflow patterns: "The optimal sequence for X is: step1 → step2 → step3"
+    * Problem-solution pairs: "When encountering X issue, the solution is Y"
+  - Extract all important procedural insights comprehensively—do not miss critical patterns
+  - The tool will retrieve similar historical memories via vector search to help you in Step 2
+
+  ### Step 2: Add New Memories
+  Review each memory draft from Step 1 and compare it with the retrieved historical memories, then use `add_memory` to add new memories:
+
+  **Parameters for each memory:**
+  - `memory_content`: procedural knowledge content
+
+  **When to add:**
+  - Add memories that capture unique procedural insights not already covered
+  - Add memories that provide more specific/detailed guidance than existing ones
+  - Add memories that document new success patterns or failure lessons
+
+  **When to skip:**
+  - **Skip** drafts if their content is already fully covered by historical memories (avoid redundancy)
+  - **Skip** drafts that are too generic or not actionable
+  - **Skip** drafts that describe facts rather than procedures (e.g., "X happened" vs "When X happens, do Y")

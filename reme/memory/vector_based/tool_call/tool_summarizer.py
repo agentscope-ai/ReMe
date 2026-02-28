@@ -1,4 +1,4 @@
-"""Procedural memory summarizer agent for extracting and storing procedural knowledge."""
+"""Tool memory summarizer agent for extracting and storing tool usage experiences."""
 
 from loguru import logger
 
@@ -8,20 +8,20 @@ from ....core.op import BaseTool
 from ....core.schema import Message
 
 
-class ProceduralSummarizer(BaseMemoryAgent):
-    """Extract and store procedural memories from task execution trajectories.
+class ToolSummarizer(BaseMemoryAgent):
+    """Extract and store tool memories from task execution trajectories.
 
-    Procedural memories capture "how-to" knowledge including:
-    - Successful workflows and step-by-step approaches
-    - Lessons learned from failures and mistakes
-    - Best practices and optimization patterns
-    - Task execution strategies and techniques
+    Tool memories capture knowledge about tool usage including:
+    - Successful tool invocations with effective parameters
+    - Failed tool calls and why they failed
+    - Tool selection strategies for different scenarios
+    - Parameter optimization insights
     """
 
-    memory_type: MemoryType = MemoryType.PROCEDURAL
+    memory_type: MemoryType = MemoryType.TOOL
 
     async def build_messages(self) -> list[Message]:
-        """Build messages for procedural memory extraction."""
+        """Build messages for tool memory extraction."""
         return [
             Message(
                 role=Role.USER,
@@ -57,7 +57,7 @@ class ProceduralSummarizer(BaseMemoryAgent):
         )
 
     async def execute(self):
-        """Execute procedural memory extraction."""
+        """Execute tool memory extraction."""
         # Log available tools
         for i, tool in enumerate(self.tools):
             logger.info(f"[{self.__class__.__name__}] tool_call[{i}]={tool.tool_call.simple_input_dump(as_dict=False)}")
