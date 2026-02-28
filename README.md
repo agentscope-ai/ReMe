@@ -219,42 +219,49 @@ M --> R[Top-N 结果]
 pip install -U reme-ai
 ```
 
-### 环境变量配置
-
-API 密钥通过环境变量设置，可以写在项目根目录的 `.env` 里：
-
-| 环境变量                      | 说明                   | 示例                                                  |
-|---------------------------|----------------------|-----------------------------------------------------|
-| `REME_LLM_API_KEY`        | LLM 的 API Key        | `sk-xxx`                                            |
-| `REME_LLM_BASE_URL`       | LLM 的 Base URL       | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `REME_EMBEDDING_API_KEY`  | Embedding 的 API Key  | `sk-xxx`                                            |
-| `REME_EMBEDDING_BASE_URL` | Embedding 的 Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-
-> 没有 embedding 服务的话搜索效果会打折扣，记得同时设 `vector_enabled=false`。
-
-**如果要在ReMeCli中使用联网搜索（可选）**
-
-| 环境变量                | 说明                 |
-|---------------------|--------------------|
-| `TAVILY_API_KEY`    | Tavily 搜索 API Key  |
-| `DASHSCOPE_API_KEY` | 百炼 LLM（带搜索）API Key |
-
-> 二选一就行，有 Tavily 优先用 Tavily。
-
-### package使用
+### 使用 ReMe package
 
 ```python
 import asyncio
+
 from reme import ReMeFb
 
 
 async def main():
     # 初始化并启动
     reme = ReMeFb(
-        working_dir=".reme",
+        working_dir=".reme",  # 工作目录
+        llm_api_key="sk-xxx", 
+        llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", 
+        embedding_api_key="sk-xxx",  
+        embedding_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", 
         default_llm_config={
-            "model_name": "",
-        }
+            "backend": "openai",  # 后端类型，支持 openai 兼容接口
+            "model_name": "qwen3.5-plus",  # 模型名称
+        },
+        default_embedding_model_config={
+            "backend": "openai",  # 后端类型
+            "model_name": "text-embedding-v4",  # Embedding 模型名称
+            "dimensions": 1024,  # 向量维度
+            "enable_cache": True,  # 是否启用缓存，减少重复计算
+        },
+        default_file_store_config={
+            "backend": "chroma",  # 存储后端，支持 sqlitechroma/local
+            "fts_enabled": True,  # 是否启用全文搜索
+            "vector_enabled": False,  # 是否启用向量搜索
+        },
+        default_token_counter_config={
+            "backend": "base",  # 计数器后端，支持 base/hf
+        },
+        default_file_watcher_config={
+            "backend": "full",  # 监听器后端类型
+            "watch_paths": [".reme", ".reme/memory"],  # 监听的目录路径，目录要在working_dir保持一致。
+        },
+        context_window_tokens=128000,  # 模型上下文窗口大小（tokens）
+        reserve_tokens=36000,  # 预留给输出的 token 数量
+        keep_recent_tokens=20000,  # 保留最近消息的 token 数量
+        vector_weight=0.7,  # 向量搜索权重（0-1），用于混合搜索
+        candidate_multiplier=3.0,  # 候选结果倍数，用于召回更多候选项
     )
     await reme.start()
 
@@ -290,15 +297,42 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 启动ReMeCli
+### 使用 ReMeCli
+
+#### 环境变量配置
+
+API 密钥通过环境变量设置，可以写在项目根目录的 `.env` 里：
+
+| 环境变量                      | 说明                   | 示例                                                  |
+|---------------------------|----------------------|-----------------------------------------------------|
+| `REME_LLM_API_KEY`        | LLM 的 API Key        | `sk-xxx`                                            |
+| `REME_LLM_BASE_URL`       | LLM 的 Base URL       | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `REME_EMBEDDING_API_KEY`  | Embedding 的 API Key  | `sk-xxx`                                            |
+| `REME_EMBEDDING_BASE_URL` | Embedding 的 Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+
+> 没有 embedding 服务的话搜索效果会打折扣，记得同时设 `vector_enabled=false`。
+
+**如果要在ReMeCli中使用联网搜索（可选）**
+
+| 环境变量                | 说明                 |
+|---------------------|--------------------|
+| `TAVILY_API_KEY`    | Tavily 搜索 API Key  |
+| `DASHSCOPE_API_KEY` | 百炼 LLM（带搜索）API Key |
+
+> 二选一就行，有 Tavily 优先用 Tavily。
+
+#### ReMeCli配置
+启动后自动加载 [cli.yaml](reme/config/cli.yaml)
+里面的配置和`ReMeFb`的配置是一致的。
+
+#### 启动ReMeCli
 
 ```bash
 remecli config=cli
 ```
 
-启动后自动加载 [cli.yaml](reme/config/cli.yaml)，然后就可以直接聊了。ReMe 在后台自动处理压缩和记忆。
-
-### 系统命令
+#### ReMeCli系统命令
+>马年彩蛋：`/horse` 触发——烟花、奔马动画和随机马年祝福。
 
 对话里输入 `/` 开头的命令控制状态：
 
