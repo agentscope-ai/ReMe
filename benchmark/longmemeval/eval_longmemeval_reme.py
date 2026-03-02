@@ -16,7 +16,6 @@ Usage:
 
 import asyncio
 import json
-import shutil
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -286,9 +285,9 @@ async def answer_question_with_memories(
         question=question,
     )
 
-    result = await reme.get_llm(model_name).simple_request_for_json(
+    result = await reme.get_llm("qwen-flash").simple_request_for_json(
         prompt=prompt,
-        model_name=None,
+        model_name=model_name,
     )
 
     return result
@@ -369,7 +368,7 @@ class MemoryProcessor:
 
         # Retrieve memories from ReMe using new API
         result = await self.reme.retrieve_memory(
-            llm_config_name="qwen3-max-think",
+            llm_config_name="qwen-max-t",
             query=query,
             retrieve_top_k=top_k,
             user_name=user_id,
@@ -541,62 +540,79 @@ class LongMemEvalEvaluator:
 
     def __init__(self, config: EvalConfig):
         self.config = config
-        self.reme = ReMe(
+        self.file_manager = FileManager(config.output_dir)
+        self.data_loader = DataLoader()
+
+        # Store LLM configs for creating ReMe instances per question
+        self._llm_configs = {
+            "qwen-plus-t": {
+                "backend": "openai",
+                "model_name": "qwen-plus",
+                "extra_body": {
+                    "enable_thinking": True,
+                },
+            },
+            "qwen-max-t": {
+                "backend": "openai",
+                "model_name": "qwen3-max",
+                "extra_body": {
+                    "enable_thinking": True,
+                },
+            },
+            "gpt-4o-mini": {
+                "backend": "openai",
+                "model_name": "gpt-4o-mini-2024-07-18",
+            },
+            "gpt-4o-mini-2024-07-18": {
+                "backend": "openai",
+                "model_name": "gpt-4o-mini-2024-07-18",
+            },
+            "qwen-flash": {
+                "backend": "openai",
+                "model_name": "qwen-flash",
+            },
+        }
+
+        # Load evaluation prompts path
+        self._prompts_yaml_path = Path(__file__).parent / "eval_reme.yaml"
+
+    def _create_reme_for_question(self, question_id: str) -> ReMe:
+        """Create a ReMe instance for a specific question with isolated collection.
+
+        Args:
+            question_id: The question ID to use as collection name
+
+        Returns:
+            ReMe instance with isolated vector store collection
+        """
+        collection_name = f"longmemeval_{question_id}"
+        reme = ReMe(
             default_llm_config={
                 "model_name": self.config.reme_model_name,
             },
-            llms={
-                "qwen-plus-think": {
-                    "backend": "openai",
-                    "model_name": "qwen-plus",
-                    "extra_body": {
-                        "enable_thinking": True,
-                    },
-                },
-                "qwen3-max-think": {
-                    "backend": "openai",
-                    "model_name": "qwen3-max",
-                    "extra_body": {
-                        "enable_thinking": True,
-                    },
-                },
-                "qwen3-max": {
-                    "backend": "openai",
-                    "model_name": "qwen3-max",
-                    "extra_body": {
-                        "enable_thinking": False,
-                    },
-                },
+            default_vector_store_config={
+                "collection_name": collection_name,
             },
+            llms=self._llm_configs,
         )
 
-        # Load evaluation prompts into ReMe's prompt handler
-        prompts_yaml_path = Path(__file__).parent / "eval_reme.yaml"
-        self.reme.prompt_handler.load_prompt_by_file(prompts_yaml_path)
+        # Load evaluation prompts
+        reme.prompt_handler.load_prompt_by_file(self._prompts_yaml_path)
 
-        self.file_manager = FileManager(config.output_dir)
-        self.memory_processor = MemoryProcessor(
-            self.reme,
-            config.reme_model_name,
-            config.eval_model_name,
-            config.algo_version,
-            config.enable_thinking_params,
-        )
-        self.judge = LongMemEvalJudge(self.reme, config.eval_model_name)
-        self.data_loader = DataLoader()
+        return reme
 
     async def __aenter__(self):
         """Async context manager entry."""
-        await self.reme.start()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit with cleanup."""
-        await self.reme.close()
         return False
 
     async def process_question_entry(self, entry: dict, idx: int) -> dict:
         """Process a single question entry.
+
+        Each question gets its own ReMe instance with isolated vector store collection.
 
         Args:
             entry: A question entry from LongMemEval dataset
@@ -614,8 +630,8 @@ class LongMemEvalEvaluator:
         haystack_session_ids = entry["haystack_session_ids"]
         haystack_sessions = entry["haystack_sessions"]
 
-        # Use question_id as user_id for isolation
-        user_id = f"longmemeval_{question_id}"
+        # Use "User" as user_name, question_id is stored in collection_name
+        user_name = "User"
 
         logger.info(f"\n{'=' * 60}")
         logger.info(f"Question ID: {question_id}")
@@ -626,102 +642,114 @@ class LongMemEvalEvaluator:
         logger.info(f"Number of sessions: {len(haystack_sessions)}")
         logger.info(f"{'=' * 60}")
 
-        # Step 2: Process all haystack sessions to build memory
-        all_extracted_memories = []
-        all_agent_messages = []
-        total_summary_duration_ms = 0
+        # Create isolated ReMe instance for this question
+        reme = self._create_reme_for_question(question_id)
+        await reme.start()
 
-        for session_idx, (session, session_date, session_id) in enumerate(
-            zip(haystack_sessions, haystack_dates, haystack_session_ids),
-        ):
-            logger.info(f"  Processing session {session_idx + 1}/{len(haystack_sessions)}: {session_id}")
+        try:
+            # Create memory processor and judge for this ReMe instance
+            memory_processor = MemoryProcessor(
+                reme,
+                self.config.reme_model_name,
+                self.config.eval_model_name,
+                self.config.algo_version,
+                self.config.enable_thinking_params,
+            )
+            judge = LongMemEvalJudge(reme, self.config.eval_model_name)
 
-            # Convert session to messages
-            messages = self.data_loader.convert_session_to_messages(session, session_date)
+            # Clear existing vector store data for this collection
+            await reme.default_vector_store.delete_all()
 
-            if not messages:
-                continue
+            # Step 2: Process all haystack sessions to build memory
+            all_extracted_memories = []
+            all_agent_messages = []
+            total_summary_duration_ms = 0
 
-            # Add memories
-            extracted_memories, agent_messages, duration_ms = await self.memory_processor.add_memories(
-                user_id=user_id,
-                messages=messages,
-                batch_size=self.config.batch_size,
+            for session_idx, (session, session_date, session_id) in enumerate(
+                zip(haystack_sessions, haystack_dates, haystack_session_ids),
+            ):
+                logger.info(f"  Processing session {session_idx + 1}/{len(haystack_sessions)}: {session_id}")
+
+                # Convert session to messages
+                messages = self.data_loader.convert_session_to_messages(session, session_date)
+
+                if not messages:
+                    continue
+
+                # Add memories using "User" as user_name
+                extracted_memories, agent_messages, duration_ms = await memory_processor.add_memories(
+                    user_id=user_name,
+                    messages=messages,
+                    batch_size=self.config.batch_size,
+                )
+
+                all_extracted_memories.extend(extracted_memories)
+                all_agent_messages.extend(agent_messages)
+                total_summary_duration_ms += duration_ms
+
+            # Step 3: Search memory and answer question
+            logger.info("  Answering question using ReMe...")
+            answer_dict, retrieve_messages, retrieve_duration_ms = await memory_processor.search_memory(
+                query=f"[Question_date: {question_date} | Question_type: {question_type}] " + question,
+                user_id=user_name,
+                top_k=self.config.top_k,
             )
 
-            all_extracted_memories.extend(extracted_memories)
-            all_agent_messages.extend(agent_messages)
-            total_summary_duration_ms += duration_ms
+            # Extract answer and reasoning from the structured response
+            model_response = answer_dict.get("answer", "")
+            model_reasoning = answer_dict.get("reasoning", "")
+            retrieved_memories = answer_dict.get("memories", "")
+            retrieved_nodes = answer_dict.get("retrieved_nodes", [])
 
-        # Step 3: Search memory and answer question
-        logger.info("  Answering question using ReMe...")
-        answer_dict, retrieve_messages, retrieve_duration_ms = await self.memory_processor.search_memory(
-            query=f"[Question_date: {question_date} | Question_type: {question_type}] " + question,
-            user_id=user_id,
-            top_k=self.config.top_k,
-        )
+            # Step 4: Judge answer correctness
+            logger.info("  Judging answer correctness...")
+            judgment = await judge.judge_answer(
+                question_type=question_type,
+                question=question,
+                answer=answer,
+                response=model_response,
+            )
 
-        # Extract answer and reasoning from the structured response
-        model_response = answer_dict.get("answer", "")
-        model_reasoning = answer_dict.get("reasoning", "")
-        retrieved_memories = answer_dict.get("memories", "")
-        retrieved_nodes = answer_dict.get("retrieved_nodes", [])
+            is_correct = judgment.get("is_correct")
+            logger.info(
+                f"  → Answer judgment: {'Correct' if is_correct else 'Incorrect' if is_correct is False else 'Error'}",
+            )
 
-        # Step 4: Judge answer correctness
-        logger.info("  Judging answer correctness...")
-        judgment = await self.judge.judge_answer(
-            question_type=question_type,
-            question=question,
-            answer=answer,
-            response=model_response,
-        )
+            result = {
+                "question_id": question_id,
+                "question_type": question_type,
+                "question": question,
+                "answer": answer,
+                "question_date": question_date,
+                "haystack_dates": haystack_dates,
+                "haystack_session_ids": haystack_session_ids,
+                "num_sessions": len(haystack_sessions),
+                "model_response": model_response,
+                "model_reasoning": model_reasoning,
+                "retrieved_memories": retrieved_memories,
+                "retrieved_nodes": retrieved_nodes,
+                "judgment": judgment,
+                "extracted_memories": all_extracted_memories,
+                "summary_duration_ms": total_summary_duration_ms,
+                "retrieve_duration_ms": retrieve_duration_ms,
+                "summary_messages": all_agent_messages,
+                "retrieve_messages": retrieve_messages,
+            }
 
-        is_correct = judgment.get("is_correct")
-        logger.info(
-            f"  → Answer judgment: {'Correct' if is_correct else 'Incorrect' if is_correct is False else 'Error'}",
-        )
+            # Save individual result
+            self.file_manager.save_question_result(idx, question_id, result)
 
-        result = {
-            "question_id": question_id,
-            "question_type": question_type,
-            "question": question,
-            "answer": answer,
-            "question_date": question_date,
-            "haystack_dates": haystack_dates,
-            "haystack_session_ids": haystack_session_ids,
-            "num_sessions": len(haystack_sessions),
-            "model_response": model_response,
-            "model_reasoning": model_reasoning,
-            "retrieved_memories": retrieved_memories,
-            "retrieved_nodes": retrieved_nodes,
-            "judgment": judgment,
-            "extracted_memories": all_extracted_memories,
-            "summary_duration_ms": total_summary_duration_ms,
-            "retrieve_duration_ms": retrieve_duration_ms,
-            "summary_messages": all_agent_messages,
-            "retrieve_messages": retrieve_messages,
-        }
+            logger.info(f"  Question {question_id} - Completed")
 
-        # Save individual result
-        self.file_manager.save_question_result(idx, question_id, result)
+            return result
 
-        logger.info(f"  Question {question_id} - Completed")
-
-        return result
+        finally:
+            # Always close the ReMe instance
+            await reme.close()
 
     async def run_evaluation(self):
         """Run the complete evaluation pipeline with parallel processing."""
         start_time = time.time()
-
-        # Clear existing vector store data
-        await self.reme.default_vector_store.delete_all()
-
-        # Clear meta_memory directory
-        meta_memory_path = Path(f"meta_memory/{self.reme.default_vector_store.collection_name}")
-        if meta_memory_path.exists():
-            shutil.rmtree(meta_memory_path)
-            logger.info(f"Cleared meta_memory directory: {meta_memory_path}")
-        meta_memory_path.mkdir(parents=True, exist_ok=True)
 
         # Load dataset
         logger.info(f"Loading dataset from: {self.config.data_path}")
@@ -973,13 +1001,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_concurrency",
         type=int,
-        default=4,
+        default=1,
         help="Maximum concurrent question processing (default: 1)",
     )
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=10,
+        default=30,
         help="Batch size for memory summary processing (default: 30)",
     )
     parser.add_argument(
@@ -1011,7 +1039,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--samples_per_type",
         type=int,
-        default=2,
+        default=4,
         help="Number of samples per question type, -1 for all (default: -1)",
     )
     parser.add_argument(
