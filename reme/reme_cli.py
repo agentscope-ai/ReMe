@@ -1,10 +1,10 @@
-"""ReMe File System"""
+"""ReMe File System - Typer CLI"""
 
 import asyncio
 import os
-import sys
 from typing import AsyncGenerator
 
+import typer
 from prompt_toolkit import PromptSession
 
 from .core.enumeration import ChunkEnum
@@ -45,7 +45,8 @@ class ReMeCli(ReMeFb):
     async def chat_with_remy(self, tool_result_max_size: int = 100, **kwargs):
         """Interactive CLI chat with Remy using simple streaming output."""
         language = self.service_config.language
-        print(f"ReMe language={language or 'default'}")
+        typer.echo("")
+        typer.secho(f"  🔤 ReMe language: {language or 'default'}", dim=True)
         tools: list[BaseTool] = [
             MemorySearch(
                 vector_weight=self.service_config.metadata["vector_weight"],
@@ -62,12 +63,12 @@ class ReMeCli(ReMeFb):
         dashscope_api_key: str = os.getenv("DASHSCOPE_API_KEY", "")
         if tavily_api_key:
             tools.append(TavilySearch(name="web_search", language=language))
-            print("find tavily_api_key, append Tavily search tool")
+            typer.secho("  🔍 Found tavily_api_key, append Tavily search tool", dim=True)
         elif dashscope_api_key:
             tools.append(DashscopeSearch(name="web_search", language=language))
-            print("find dashscope_api_key, append Dashscope search tool")
+            typer.secho("  🔍 Found dashscope_api_key, append Dashscope search tool", dim=True)
         else:
-            print("No Tavily or Dashscope API key found, skip Tavily and Dashscope search tool")
+            typer.secho("  ⚠️ No Tavily or Dashscope API key found, skip search tool", fg=typer.colors.YELLOW)
 
         fb_cli = FbCli(
             tools=tools,
@@ -81,9 +82,12 @@ class ReMeCli(ReMeFb):
         session = PromptSession()
 
         # Print welcome banner
-        print("\n========================================")
-        print("  Welcome to Remy Chat!")
-        print("========================================\n")
+        typer.echo("")
+        typer.secho("┌────────────────────────────────────────┐", fg=typer.colors.BRIGHT_BLUE)
+        typer.secho("│   🤖 Welcome to Remy Chat!             │", fg=typer.colors.BRIGHT_GREEN, bold=True)
+        typer.secho("└────────────────────────────────────────┘", fg=typer.colors.BRIGHT_BLUE)
+        typer.secho("💡 Tip: Type /help for commands, /exit to quit")
+        typer.echo("")
 
         async def chat(q: str) -> AsyncGenerator[StreamChunk, None]:
             """Execute chat query and yield streaming chunks."""
@@ -117,28 +121,36 @@ class ReMeCli(ReMeFb):
 
                 if user_input == "/new":
                     result = await fb_cli.new()
-                    print(f"{result}\nConversation reset\n")
+                    typer.secho(f"  ✅ {result} — Conversation reset.", fg=typer.colors.GREEN)
+                    typer.echo("")
                     continue
 
                 if user_input == "/compact":
                     result = await fb_cli.compact(force_compact=True)
-                    print(f"{result}\nHistory compacted.\n")
+                    typer.secho(f"  ✅ {result} — History compacted.", fg=typer.colors.GREEN)
+                    typer.echo("")
                     continue
 
                 if user_input == "/history":
+                    typer.secho("📋 Formated History:", fg=typer.colors.BRIGHT_CYAN)
+                    typer.secho("────────────────────────────────────────")
                     result = fb_cli.format_history()
-                    print(f"Formated History:\n{result}\n")
+                    print(result)
+                    typer.secho("────────────────────────────────────────")
                     continue
 
                 if user_input == "/clear":
                     fb_cli.messages.clear()
-                    print("History cleared.\n")
+                    typer.secho("  ⚠️  History cleared.", fg=typer.colors.YELLOW)
+                    typer.echo("")
                     continue
 
                 if user_input == "/help":
-                    print("\nCommands:")
+                    typer.secho("  📖 Commands:", fg=typer.colors.BRIGHT_CYAN, bold=True)
                     for command, description in self.commands.items():
-                        print(f"  {command}: {description}")
+                        cmd_styled = typer.style(f"  {command:<12}", fg=typer.colors.MAGENTA, bold=True)
+                        desc_styled = typer.style(description, dim=True)
+                        typer.echo(f"{cmd_styled} {desc_styled}")
                     continue
 
                 if user_input == "/horse":
@@ -162,7 +174,7 @@ class ReMeCli(ReMeFb):
                                 print("\033[0m")  # reset color after thinking
                                 in_thinking = False
                             if not in_answer:
-                                print("\nRemy: ", end="", flush=True)
+                                print("\n  🤖 Remy: ", end="", flush=True)
                                 in_answer = True
                             print(chunk.chunk, end="", flush=True)
 
@@ -180,47 +192,66 @@ class ReMeCli(ReMeFb):
                             print(f"\033[36m  -> Tool result for {tool_name}: {result.strip()}\033[0m")
 
                         elif chunk.chunk_type == ChunkEnum.ERROR:
-                            print(f"\n\033[91m[ERROR] {chunk.chunk}\033[0m")
+                            typer.secho(f"\n  ❌ {chunk.chunk}", fg=typer.colors.RED, bold=True, err=True)
                             # Also log the full error metadata if available
-                            if chunk.metadata:
-                                import traceback
-
-                                traceback.print_exc()
+                            detail = chunk.metadata.get("traceback", "")
+                            if detail:
+                                typer.secho(f"  {detail}", dim=True, err=True)
 
                         elif chunk.chunk_type == ChunkEnum.DONE:
                             break
 
                 except Exception as e:
-                    print(f"\nStream error: {e}")
+                    typer.secho(f"\n  ❌ Stream error: {e}", fg=typer.colors.RED, err=True)
 
                 # End current streaming line
                 print("\n")
-                print("----------------------------------------\n")
+                typer.secho("----------------------------------------\n", dim=True)
 
             except EOFError:
                 break
             except KeyboardInterrupt:
-                print("\nInterrupted.")
+                print("")
+                typer.secho("  ⚠️  Interrupted.", fg=typer.colors.YELLOW)
                 break
             except Exception as e:
-                print(f"Error: {e}")
+                typer.secho(f"  ❌ Error: {e}", fg=typer.colors.RED, err=True)
+                print("   Full traceback:")
                 import traceback
 
                 traceback.print_exc()
 
-        print("\nGoodbye!\n")
+        typer.echo("")
+        typer.secho("  👋 Goodbye! See you next time.", fg=typer.colors.BRIGHT_GREEN, bold=True)
+        typer.echo("")
 
 
-async def async_main():
-    """Main function for testing the ReMeFs CLI."""
-    async with ReMeCli(*sys.argv[1:], log_to_console=False) as reme:
-        await reme.chat_with_remy()
+app = typer.Typer(
+    help="🤖 ReMe File System — 基于 MD 文档的 FS Memory 对话 CLI",
+    add_completion=False,
+    no_args_is_help=True,
+)
+
+
+@app.command()
+def cli():
+    """Start interactive chat session with Remy.
+
+    Supports commands: /exit, /new, /compact, /clear, /help, /horse
+    """
+
+    async def _run():
+        async with ReMeCli(log_to_console=False) as reme:
+            await reme.chat_with_remy()
+
+    asyncio.run(_run())
 
 
 def main():
     """Main function for testing the ReMeFs CLI."""
-    asyncio.run(async_main())
+    app()
 
 
 if __name__ == "__main__":
     main()
+    
