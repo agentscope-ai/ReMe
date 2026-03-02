@@ -328,7 +328,7 @@ class ReMe(Application):
                 llm=llm_config_name,
                 tools=[
                     ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
+                        enable_thinking_params=False,
                         enable_memory_target=False,
                         profile_dir=self.profile_dir,
                     ),
