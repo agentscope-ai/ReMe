@@ -384,22 +384,16 @@ class ReMeCopaw(Application):
     async def compact_tool_result(
         self,
         messages: list[Msg],
-        tool_result_threshold: int | None = None,
-        retention_days: int | None = None,
     ) -> list[Msg]:
         """
         Compact tool results by truncating large outputs and saving full content to files.
 
         This method processes a list of messages and identifies tool results that exceed
-        the specified size threshold. Large tool outputs are truncated in the message
+        the configured size threshold. Large tool outputs are truncated in the message
         list while their full content is saved to files for later retrieval.
 
         Args:
             messages (list[Msg]): List of messages to process for tool result compaction
-            tool_result_threshold (int | None): Override the default size threshold.
-                If None, uses the instance's configured threshold.
-            retention_days (int | None): Override the default retention period.
-                If None, uses the instance's configured retention period.
 
         Returns:
             list[Msg]: The processed message list with large tool results compacted
@@ -411,13 +405,11 @@ class ReMeCopaw(Application):
             - If compaction fails, the original messages are returned unchanged
         """
         try:
-            # Create compactor with either provided parameters or instance defaults
+            # Create compactor with instance configuration
             compactor = ToolResultCompactor(
                 tool_result_dir=self.tool_result_path,
-                tool_result_threshold=(
-                    tool_result_threshold if tool_result_threshold is not None else self.tool_result_threshold
-                ),
-                retention_days=retention_days if retention_days is not None else self.retention_days,
+                tool_result_threshold=self.tool_result_threshold,
+                retention_days=self.retention_days,
             )
             # Set the messages context for the compactor to process
             compactor.context["messages"] = messages
