@@ -191,7 +191,7 @@ async def answer_question_with_memories(
     question: str,
     memories: str,
     user_id: str = None,
-    model_name: str = "qwen3-30b-a3b-instruct-2507",
+    eval_model_name: str = "qwen3-30b-a3b-instruct-2507",
 ):
     """
     Answer a question using retrieved memories with PROMPT_MEMZERO_JSON template.
@@ -201,7 +201,7 @@ async def answer_question_with_memories(
         question: The question to answer
         memories: The retrieved memories (formatted as context)
         user_id: Optional user ID for context formatting
-        model_name: Model name to use for LLM request
+        eval_model_name: Model name to use for LLM request
 
     Returns:
         dict with 'reasoning' and 'answer' fields
@@ -223,7 +223,7 @@ async def answer_question_with_memories(
         question=question,
     )
 
-    result = await reme.get_llm(model_name).simple_request_for_json(
+    result = await reme.get_llm(eval_model_name).simple_request_for_json(
         prompt=prompt,
         model_name=None,
     )
@@ -236,6 +236,7 @@ async def evaluation_for_memory_accuracy(
     dialogue: str,
     golden_memories: list[dict],
     candidate_memory: dict,
+    eval_model_name: str = "qwen-flash",
 ):
     """
     Memory Accuracy Evaluation - Check if an extracted memory is accurate.
@@ -245,7 +246,7 @@ async def evaluation_for_memory_accuracy(
         dialogue: The formatted dialogue string
         golden_memories: List of golden memory points from the session
         candidate_memory: The extracted memory to evaluate
-        model_name: Model name to use for LLM request
+        eval_model_name: Model name to use for LLM request
 
     Returns:
         dict with 'accuracy_score' (0/1/2), 'is_included_in_golden_memories' (true/false), and 'reason'
@@ -265,7 +266,7 @@ async def evaluation_for_memory_accuracy(
         candidate_memory=candidate_content,
     )
 
-    result = await reme.get_llm("qwen-flash").simple_request_for_json(
+    result = await reme.get_llm(eval_model_name).simple_request_for_json(
         prompt=prompt,
         model_name=None,
     )
@@ -454,7 +455,7 @@ class MemoryProcessor:
             question=query,
             memories=memories,
             user_id=user_id,
-            model_name=self.eval_model_name,
+            eval_model_name=self.eval_model_name,
         )
 
         # Add original memories to the result

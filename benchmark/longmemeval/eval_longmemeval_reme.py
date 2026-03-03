@@ -41,8 +41,9 @@ class EvalConfig:
     max_concurrency: int = 1
     batch_size: int = 30
     output_dir: str = "cache/bench_results/longmemeval_reme"
-    reme_model_name: str = "qwen-flash"
-    eval_model_name: str = "qwen3-max"
+    reme_model_name: str = "qwen-flash"  # summary模型
+    retrieve_model_name: str = "qwen-max"  # retrieve模型
+    eval_model_name: str = "qwen-max"  # 评估/判断模型
     algo_version: str = "v1"
     samples_per_type: int = -1  # Number of samples per question type, -1 for all
     enable_thinking_params: bool = False
@@ -253,7 +254,7 @@ async def answer_question_with_memories(
     question: str,
     memories: str,
     user_id: str = None,
-    model_name: str = "qwen3-max",
+    model_name: str = "qwen-max",
 ):
     """
     Answer a question using retrieved memories with PROMPT_MEMZERO_JSON template.
@@ -285,7 +286,7 @@ async def answer_question_with_memories(
         question=question,
     )
 
-    result = await reme.get_llm("qwen-flash").simple_request_for_json(
+    result = await reme.default_llm.simple_request_for_json(
         prompt=prompt,
         model_name=model_name,
     )
@@ -303,12 +304,14 @@ class MemoryProcessor:
         self,
         reme: ReMe,
         reme_model_name: str = "qwen-flash",
-        eval_model_name: str = "qwen3-max",
+        retrieve_model_name: str = "qwen-max",
+        eval_model_name: str = "qwen-max",
         algo_version: str = "v1",
         enable_thinking_params: bool = False,
     ):
         self.reme = reme
         self.reme_model_name = reme_model_name
+        self.retrieve_model_name = retrieve_model_name
         self.eval_model_name = eval_model_name
         self.algo_version = algo_version
         self.enable_thinking_params = enable_thinking_params
@@ -368,7 +371,7 @@ class MemoryProcessor:
 
         # Retrieve memories from ReMe using new API
         result = await self.reme.retrieve_memory(
-            llm_config_name="qwen-max-t",
+            llm_config_name=self.retrieve_model_name,
             query=query,
             retrieve_top_k=top_k,
             user_name=user_id,
@@ -571,6 +574,10 @@ class LongMemEvalEvaluator:
                 "backend": "openai",
                 "model_name": "qwen-flash",
             },
+            "qwen-max": {
+                "backend": "openai",
+                "model_name": "qwen3-max",
+            },
         }
 
         # Load evaluation prompts path
@@ -651,6 +658,7 @@ class LongMemEvalEvaluator:
             memory_processor = MemoryProcessor(
                 reme,
                 self.config.reme_model_name,
+                self.config.retrieve_model_name,
                 self.config.eval_model_name,
                 self.config.algo_version,
                 self.config.enable_thinking_params,
@@ -777,7 +785,7 @@ class LongMemEvalEvaluator:
         print(f"Samples per type: {self.config.samples_per_type} (-1 = all)")
         print(f"Questions to process: {total_questions} | Top-K: {self.config.top_k}")
         print(f"Max Concurrency: {self.config.max_concurrency}")
-        print(f"ReMe Model: {self.config.reme_model_name} | Eval Model: {self.config.eval_model_name}")
+        print(f"Summary Model: {self.config.reme_model_name} | Retrieve Model: {self.config.retrieve_model_name} | Eval Model: {self.config.eval_model_name}")
         print(f"Algo Version: {self.config.algo_version}")
         print("=" * 80 + "\n")
 
@@ -908,7 +916,8 @@ async def main_async(
     batch_size: int = 30,
     output_dir: str = "bench_results/longmemeval_reme",
     reme_model_name: str = "qwen-flash",
-    eval_model_name: str = "qwen3-max",
+    retrieve_model_name: str = "qwen-max",
+    eval_model_name: str = "qwen-max",
     algo_version: str = "v1",
     samples_per_type: int = -1,
     enable_thinking_params: bool = False,
@@ -923,6 +932,7 @@ async def main_async(
         batch_size=batch_size,
         output_dir=output_dir,
         reme_model_name=reme_model_name,
+        retrieve_model_name=retrieve_model_name,
         eval_model_name=eval_model_name,
         algo_version=algo_version,
         samples_per_type=samples_per_type,
@@ -943,7 +953,8 @@ def main(
     batch_size: int = 30,
     output_dir: str = "bench_results/longmemeval_reme",
     reme_model_name: str = "qwen-flash",
-    eval_model_name: str = "qwen3-max",
+    retrieve_model_name: str = "qwen-max",
+    eval_model_name: str = "qwen-max",
     algo_version: str = "v1",
     samples_per_type: int = -1,
     enable_thinking_params: bool = False,
@@ -959,6 +970,7 @@ def main(
             batch_size=batch_size,
             output_dir=output_dir,
             reme_model_name=reme_model_name,
+            retrieve_model_name=retrieve_model_name,
             eval_model_name=eval_model_name,
             algo_version=algo_version,
             samples_per_type=samples_per_type,
@@ -1001,7 +1013,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_concurrency",
         type=int,
-        default=1,
+        default=4,
         help="Maximum concurrent question processing (default: 1)",
     )
     parser.add_argument(
@@ -1019,16 +1031,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--reme_model_name",
         type=str,
-        # default="gpt-4o-mini-2024-07-18",
         default="qwen-flash",
-        help="Model name for ReMe operations (default: qwen-flash)",
+        help="Model name for ReMe summary operations (default: qwen-flash)",
+    )
+    parser.add_argument(
+        "--retrieve_model_name",
+        type=str,
+        default="qwen-max",
+        help="Model name for memory retrieval (default: qwen-max)",
     )
     parser.add_argument(
         "--eval_model_name",
         type=str,
-        # default="gpt-4o-mini-2024-07-18",
-        default="qwen-max",
-        help="Model name for evaluation/judgment (default: qwen3-max)",
+        default="qwen-flash",
+        help="Model name for evaluation/judgment (default: qwen-max)",
     )
     parser.add_argument(
         "--algo_version",
@@ -1039,7 +1055,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--samples_per_type",
         type=int,
-        default=4,
+        default=1,
         help="Number of samples per question type, -1 for all (default: -1)",
     )
     parser.add_argument(
@@ -1061,6 +1077,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         output_dir=args.output_dir,
         reme_model_name=args.reme_model_name,
+        retrieve_model_name=args.retrieve_model_name,
         eval_model_name=args.eval_model_name,
         algo_version=args.algo_version,
         samples_per_type=args.samples_per_type,
