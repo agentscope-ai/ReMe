@@ -6,7 +6,7 @@ which creates compact summaries of conversation history using LLM.
 
 import asyncio
 
-from reme import ReMeFb
+from reme import ReMeCli
 from reme.core.enumeration import Role
 from reme.core.schema import Message
 
@@ -560,7 +560,7 @@ async def test_full_compact_with_summary():
     print("TEST: Full Compaction with LLM Summary Generation")
     print("=" * 80)
 
-    reme_fs = ReMeFb(
+    reme_fs = ReMeCli(
         enable_logo=False,
         vector_store=None,
         compact_params={
@@ -607,7 +607,7 @@ async def test_realistic_personal_conversation_compact():
     print("TEST: Realistic Personal Conversation Compaction")
     print("=" * 80)
 
-    reme_fs = ReMeFb(
+    reme_fs = ReMeCli(
         enable_logo=False,
         vector_store=None,
         compact_params={

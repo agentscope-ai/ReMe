@@ -6,7 +6,6 @@ from . import extension
 from . import memory
 from .reme import ReMe
 from .reme_cli import ReMeCli
-from .reme_fb import ReMeFb
 
 __version__ = "0.3.0.2"
 
@@ -17,7 +16,6 @@ __all__ = [
     "memory",
     "ReMe",
     "ReMeCli",
-    "ReMeFb",
 ]
 
 """

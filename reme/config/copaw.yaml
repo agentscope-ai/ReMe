@@ -1,0 +1,16 @@
+embedding_models:
+  default:
+    backend: openai
+
+file_stores:
+  default:
+    backend: chroma
+    embedding_model: default
+
+file_watchers:
+  default:
+    backend: full
+    file_store: default
+    suffix_filters: [ ".md" ]
+    recursive: false
+    scan_on_start: true

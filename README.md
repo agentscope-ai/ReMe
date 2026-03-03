@@ -65,9 +65,9 @@ secretary**, managing all memory-related operations:
 |-----------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `start`         | 🚀 Start memory system             | [BaseFileStore](reme/core/file_store/base_file_store.py) (local file storage)<br/>[BaseFileWatcher](reme/core/file_watcher/base_file_watcher.py) (file watcher)<br/>[BaseEmbeddingModel](reme/core/embedding/base_embedding_model.py) (embedding cache) |
 | `close`         | 📕 Close and save                  | Close file store, stop file watcher, save embedding cache                                                                                                                                                                                               |
-| `context_check` | 📏 Check context limit             | [ContextChecker](reme/memory/file_based/fb_context_checker.py)                                                                                                                                                                                          |
-| `compact`       | 📦 Compact history to summary      | [Compactor](reme/memory/file_based/fb_compactor.py)                                                                                                                                                                                                     |
-| `summary`       | 📝 Write important memory to files | [Summarizer](reme/memory/file_based/fb_summarizer.py)                                                                                                                                                                                                   |
+| `context_check` | 📏 Check context limit             | [ContextChecker](reme/memory/cli/fb_context_checker.py)                                                                                                                                                                                          |
+| `compact`       | 📦 Compact history to summary      | [Compactor](reme/memory/cli/fb_compactor.py)                                                                                                                                                                                                     |
+| `summary`       | 📝 Write important memory to files | [Summarizer](reme/memory/cli/fb_summarizer.py)                                                                                                                                                                                                   |
 | `memory_search` | 🔍 Semantic memory search          | [MemorySearch](reme/memory/tools/chunk/memory_search.py)                                                                                                                                                                                                |
 | `memory_get`    | 📖 Read specified memory file      | [MemoryGet](reme/memory/tools/chunk/memory_get.py)                                                                                                                                                                                                      |
 
@@ -380,7 +380,7 @@ graph TB
 
 #### Memory Summary: ReAct + File Tools
 
-[Summarizer](reme/memory/file_based/fb_summarizer.py) is the core component for memory summarization. It uses the
+[Summarizer](reme/memory/cli/fb_summarizer.py) is the core component for memory summarization. It uses the
 **ReAct + file tools** pattern.
 
 ```mermaid
@@ -406,7 +406,7 @@ Summarizer is equipped with file operation tools so the AI can work directly on 
 
 #### Context Compaction
 
-When a conversation gets too long, [Compactor](reme/memory/file_based/fb_compactor.py) compresses history into a concise
+When a conversation gets too long, [Compactor](reme/memory/cli/fb_compactor.py) compresses history into a concise
 summary — like **meeting minutes**, turning long discussion into key points.
 
 ```mermaid
