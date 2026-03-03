@@ -8,7 +8,7 @@ from .reme import ReMe
 from .reme_cli import ReMeCli
 from .reme_fb import ReMeFb
 
-__version__ = "0.3.0.1"
+__version__ = "0.3.0.2"
 
 __all__ = [
     "config",
