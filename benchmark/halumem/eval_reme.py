@@ -577,6 +577,8 @@ class MemoryIntegrityEvaluator:
             )
 
             # Build result record
+            if eval_result is None:
+                eval_result = {}
             integrity_result = {
                 **memory_point,
                 "integrity_score": eval_result.get("score"),
@@ -619,9 +621,12 @@ class MemoryAccuracyEvaluator:
                 dialogue=formatted_dialogue,
                 golden_memories=memory_points,
                 candidate_memory=memory,
+                eval_model_name=self.eval_model_name,
             )
 
             # Build result record
+            if eval_result is None:
+                eval_result = {}
             accuracy_result = {
                 "memory_content": memory.get("content", memory.get("memory_content", str(memory))),
                 "memory_id": memory.get("memory_id", ""),
