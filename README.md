@@ -12,7 +12,7 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
-  <a href="./README.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
+  <a href="./README_ZH.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
 </p>
 
@@ -36,11 +36,14 @@ and the next conversation can recall it automatically.
 
 ---
 
-## 📁 File-Based ReMe
+## 📁 File-Based CoPaw Memory System
 
 > Memory as files, files as memory
 
-Treat **memory as files** — readable, editable, and portable.
+Treat **memory as files** — readable, editable, and portable. [CoPaw](https://github.com/agentscope-ai/CoPaw)
+integrates this memory system
+through [MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py),
+which inherits `ReMeCopaw` and exposes memory management capabilities.
 
 | Traditional Memory Systems | File-Based ReMe    |
 |----------------------------|--------------------|
@@ -50,26 +53,31 @@ Treat **memory as files** — readable, editable, and portable.
 | 🚫 Hard to migrate         | 📦 Copy to migrate |
 
 ```
-.reme/
-├── MEMORY.md          # Long-term memory: user preferences, project config, etc.
-└── memory/
-    └── YYYY-MM-DD.md  # Daily logs: work records for the day, written upon compact
+working_dir/
+├── MEMORY.md              # Long-term memory: user preferences, project config, etc.
+├── memory/
+│   └── YYYY-MM-DD.md      # Daily summary logs: written automatically after conversation ends
+└── tool_result/           # Cache for oversized tool outputs (auto-managed, auto-cleaned when expired)
+    └── <uuid>.txt
 ```
 
 ### Core Capabilities
 
-[ReMe File Based](reme/reme_fb.py) is the core class of the file-based memory system. It acts like an **intelligent
-secretary**, managing all memory-related operations:
+[ReMeCopaw](reme/reme_copaw.py) is the core class of this memory system, providing complete memory management
+capabilities for AI Agents:
 
-| Method          | Function                           | Key Components                                                                                                                                                                                                                                          |
-|-----------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `start`         | 🚀 Start memory system             | [BaseFileStore](reme/core/file_store/base_file_store.py) (local file storage)<br/>[BaseFileWatcher](reme/core/file_watcher/base_file_watcher.py) (file watcher)<br/>[BaseEmbeddingModel](reme/core/embedding/base_embedding_model.py) (embedding cache) |
-| `close`         | 📕 Close and save                  | Close file store, stop file watcher, save embedding cache                                                                                                                                                                                               |
-| `context_check` | 📏 Check context limit             | [ContextChecker](reme/memory/file_based/fb_context_checker.py)                                                                                                                                                                                          |
-| `compact`       | 📦 Compact history to summary      | [Compactor](reme/memory/file_based/fb_compactor.py)                                                                                                                                                                                                     |
-| `summary`       | 📝 Write important memory to files | [Summarizer](reme/memory/file_based/fb_summarizer.py)                                                                                                                                                                                                   |
-| `memory_search` | 🔍 Semantic memory search          | [MemorySearch](reme/memory/tools/chunk/memory_search.py)                                                                                                                                                                                                |
-| `memory_get`    | 📖 Read specified memory file      | [MemoryGet](reme/memory/tools/chunk/memory_get.py)                                                                                                                                                                                                      |
+| Method                   | Function                           | Key Components                                                                                                                                                      |
+|--------------------------|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `start`                  | 🚀 Start memory system             | Initialize file store, file watcher, Embedding cache; clean up expired tool result files                                                                            |
+| `close`                  | 📕 Close and clean up              | Clean tool result files, stop file watcher, save Embedding cache                                                                                                    |
+| `compact_memory`         | 📦 Compact history to summary      | [Compactor](reme/memory/file_based_copaw/compactor.py) — ReActAgent generates structured context checkpoint                                                         |
+| `summary_memory`         | 📝 Write important memory to files | [Summarizer](reme/memory/file_based_copaw/summarizer.py) — ReActAgent + file tools (read / write / edit)                                                            |
+| `compact_tool_result`    | ✂️ Compact oversized tool output   | [ToolResultCompactor](reme/memory/file_based_copaw/tool_result_compactor.py) — Truncate and save to `tool_result/`, keep file reference in message                  |
+| `add_async_summary_task` | ⚡ Submit background summary task   | `asyncio.create_task`, summary doesn't block main conversation flow                                                                                                 |
+| `await_summary_tasks`    | ⏳ Wait for background tasks        | Collect results from all background summary tasks, call before closing to ensure writes complete                                                                    |
+| `memory_search`          | 🔍 Semantic memory search          | [MemorySearch](reme/memory/tools/chunk/memory_search.py) — Vector + BM25 hybrid retrieval                                                                           |
+| `get_in_memory_memory`   | 🗂️ Create in-memory instance      | [CoPawInMemoryMemory](reme/memory/file_based_copaw/copaw_in_memory_memory.py) — Token-aware memory management, supports compression summary and state serialization |
+| `update_params`          | ⚙️ Update runtime parameters       | Adjust `max_input_length`, `memory_compact_ratio`, `language` at runtime                                                                                            |
 
 ---
 
@@ -205,59 +213,81 @@ Commands starting with `/` control session state:
 
 ### Using the ReMe Package
 
-#### File-Based ReMe
+#### File-Based ReMe (CoPaw Memory System)
+
+`ReMeCopaw` receives AgentScope components like `ChatModelBase`, `Formatter`, `Toolkit`, and configures Embedding and
+storage backend via environment variables:
+
+| Environment Variable       | Description                                   | Default                                             |
+|----------------------------|-----------------------------------------------|-----------------------------------------------------|
+| `EMBEDDING_API_KEY`        | Embedding service API Key                     | `""` (vector search disabled if not configured)     |
+| `EMBEDDING_BASE_URL`       | Embedding service Base URL                    | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `EMBEDDING_MODEL_NAME`     | Embedding model name                          | `""`                                                |
+| `EMBEDDING_DIMENSIONS`     | Vector dimensions                             | `1024`                                              |
+| `EMBEDDING_CACHE_ENABLED`  | Whether to enable Embedding cache             | `true`                                              |
+| `EMBEDDING_MAX_CACHE_SIZE` | Maximum cache entries                         | `2000`                                              |
+| `FTS_ENABLED`              | Whether to enable full-text search (BM25)     | `true`                                              |
+| `MEMORY_STORE_BACKEND`     | Storage backend (`auto` / `chroma` / `local`) | `auto` (local on Windows, chroma on others)         |
 
 ```python
 import asyncio
 
-from reme import ReMeFb
+from agentscope.formatter import ClaudeFormatter
+from agentscope.model import get_model
+from agentscope.token import HuggingFaceTokenCounter
+from agentscope.tool import Toolkit
+
+from reme.reme_copaw import ReMeCopaw
 
 
 async def main():
-    # Initialize and start
-    reme = ReMeFb(
-        default_llm_config={
-            "backend": "openai",  # Backend type, OpenAI-compatible API
-            "model_name": "qwen3.5-plus",  # Model name
-        },
-        default_file_store_config={
-            "backend": "chroma",  # Store backend: sqlite/chroma/local
-            "fts_enabled": True,  # Enable full-text search
-            "vector_enabled": False,  # Enable vector search (set False if no embedding service)
-        },
-        context_window_tokens=128000,  # Model context window size (tokens)
-        reserve_tokens=36000,  # Tokens reserved for output
-        keep_recent_tokens=20000,  # Tokens to keep for recent messages
-        vector_weight=0.7,  # Vector search weight (0–1) for hybrid search
-        candidate_multiplier=3.0,  # Candidate multiplier for recall
+    # Prepare AgentScope core components
+    chat_model = get_model(config={"backend": "openai", "model_name": "qwen3.5-plus"})
+    formatter = ClaudeFormatter()
+    token_counter = HuggingFaceTokenCounter()
+    toolkit = Toolkit()  # Can register additional tools
+
+    # Initialize ReMeCopaw
+    reme = ReMeCopaw(
+        working_dir=".reme",  # Memory file storage directory
+        chat_model=chat_model,
+        formatter=formatter,
+        token_counter=token_counter,
+        toolkit=toolkit,
+        max_input_length=128000,  # Model context window (tokens)
+        memory_compact_ratio=0.7,  # Trigger compaction when reaching max_input_length * 0.7
+        language="zh",  # Summary language (zh / "")
+        tool_result_threshold=1000,  # Auto-save tool outputs exceeding this character count
+        retention_days=7,  # tool_result/ file retention days
     )
     await reme.start()
 
-    messages = [
-        {"role": "user", "content": "I prefer Python 3.12"},
-        {"role": "assistant", "content": "Noted, you prefer Python 3.12"},
-    ]
+    messages = [...]  # list[Msg], conversation history
 
-    # Check if context exceeds limit
-    result = await reme.context_check(messages)
-    print(f"Compact result: {result}")
+    # 1. Compact oversized tool outputs (prevent tool results from overflowing context)
+    messages = await reme.compact_tool_result(messages)
 
-    # Compact conversation to summary
-    summary = await reme.compact(messages_to_summarize=messages)
-    print(f"Summary: {summary}")
+    # 2. Compact history to structured summary (trigger: context approaching limit)
+    summary = await reme.compact_memory(
+        messages=messages,
+        previous_summary="",  # Can pass previous summary for incremental update
+    )
+    print(f"Compact summary:\n{summary}")
 
-    # Write important memory to files (ReAct Agent does this automatically)
-    await reme.summary(messages=messages, date="2026-02-28")
+    # 3. Submit async summary task in background (non-blocking, writes to memory/YYYY-MM-DD.md)
+    reme.add_async_summary_task(messages=messages)
 
-    # Semantic search over memory
-    results = await reme.memory_search(query="Python version preference", max_results=5)
-    print(f"Search results: {results}")
+    # 4. Semantic memory search (Vector + BM25 hybrid retrieval)
+    result = await reme.memory_search(query="Python version preference", max_results=5)
+    print(f"Search results: {result}")
 
-    # Read specified memory file
-    content = await reme.memory_get(path="MEMORY.md")
-    print(f"Memory content: {content}")
+    # 5. Get in-memory instance (CoPawInMemoryMemory, manages single conversation context)
+    memory = reme.get_in_memory_memory()
+    token_stats = await memory.estimate_tokens()
+    print(f"Current context usage: {token_stats['context_usage_ratio']:.1f}%")
 
-    # Close (save embedding cache, stop file watcher)
+    # 6. Wait for background tasks before closing
+    await reme.await_summary_tasks()
     await reme.close()
 
 
@@ -278,7 +308,7 @@ async def main():
         working_dir=".reme",
         default_llm_config={
             "backend": "openai",
-            "model_name": "qwen3-30b-a3b-thinking-2507",
+            "model_name": "qwen3.5-plus",
         },
         default_embedding_model_config={
             "backend": "openai",
@@ -307,7 +337,8 @@ async def main():
     # 2. Retrieve relevant memory
     memories = await reme.retrieve_memory(
         query="Python programming",
-        # user_name="alice",
+        user_name="alice",
+        # task_name="code_writing",
     )
     print(f"Retrieve result: {memories}")
 
@@ -358,30 +389,87 @@ if __name__ == "__main__":
 
 ## 🏛️ Technical Architecture
 
-### File-Based ReMe Core Architecture
+### File-Based CoPaw Memory System Architecture
+
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py)
+inherits
+`ReMeCopaw` and integrates memory capabilities into the Agent reasoning flow:
 
 ```mermaid
 graph TB
-    User[User / Agent] --> ReMeFb[File based ReMe]
-    ReMeFb --> ContextCheck[Context Check]
-    ReMeFb --> Compact[Context Compact]
-    ReMeFb --> Summary[Memory Summary]
-    ReMeFb --> Search[Memory Retrieval]
-    ContextCheck --> FbContextChecker[Check Token Limit]
-    Compact --> FbCompactor[Compact History to Summary]
-    Summary --> FbSummarizer[ReAct Agent + File Tools]
-    Search --> MemorySearch[Vector + BM25 Hybrid Search]
-    FbSummarizer --> FileTools[read / write / edit]
-    FileTools --> MemoryFiles[memory/*.md]
+    CoPaw["CoPaw MemoryManager\n(inherits ReMeCopaw)"] -->|pre_reasoning hook| Hook[MemoryCompactionHook]
+    CoPaw --> ReMeCopaw[ReMeCopaw]
+    Hook -->|exceeds threshold| ReMeCopaw
+    ReMeCopaw --> CompactMemory[compact_memory\nHistory compaction]
+    ReMeCopaw --> SummaryMemory[summary_memory\nWrite memory to files]
+    ReMeCopaw --> CompactToolResult[compact_tool_result\nOversized tool output compaction]
+    ReMeCopaw --> MemSearch[memory_search\nSemantic search]
+    ReMeCopaw --> InMemory[get_in_memory_memory\nCoPawInMemoryMemory]
+    CompactMemory --> Compactor[Compactor\nReActAgent]
+    SummaryMemory --> Summarizer[Summarizer\nReActAgent + file tools]
+    CompactToolResult --> ToolResultCompactor[ToolResultCompactor\nTruncate + save to file]
+    Summarizer --> FileIO[FileIO\nread / write / edit]
+    FileIO --> MemoryFiles[memory/YYYY-MM-DD.md]
+    ToolResultCompactor --> ToolResultFiles[tool_result/*.txt]
     MemoryFiles -.->|File change| FileWatcher[Async File Watcher]
     FileWatcher -->|Update index| FileStore[Local DB]
-    MemorySearch --> FileStore
+    MemSearch --> FileStore
 ```
+
+#### Auto-Compaction Trigger Flow
+
+`MemoryCompactionHook` checks context token usage before each reasoning step, automatically triggering compaction when
+threshold is exceeded:
+
+```mermaid
+graph LR
+    A[pre_reasoning] --> B{Token exceeds threshold?}
+    B -->|No| Z[Continue reasoning]
+    B -->|Yes| C[compact_tool_result\nCompact oversized tool outputs in recent messages]
+    C --> D[compact_memory\nGenerate structured context checkpoint]
+    D --> E[Mark old messages as COMPRESSED]
+    E --> F[add_async_summary_task\nBackground write to memory file]
+    F --> Z
+```
+
+#### Context Compaction Summary Format
+
+[Compactor](reme/memory/file_based_copaw/compactor.py) uses ReActAgent to compact history into structured **context
+checkpoints**:
+
+| Field                 | Description                                      |
+|-----------------------|--------------------------------------------------|
+| `## Goal`             | 🎯 User's objectives (can be multiple)           |
+| `## Constraints`      | ⚙️ Constraints and preferences mentioned by user |
+| `## Progress`         | 📈 Completed / in progress / blocked tasks       |
+| `## Key Decisions`    | 🔑 Decisions made with brief reasons             |
+| `## Next Steps`       | 🗺️ Next action plan (ordered list)              |
+| `## Critical Context` | 📌 File paths, function names, error messages    |
+
+Supports **incremental updates**: when `previous_summary` is passed, automatically merges new conversation with old
+summary, preserving historical progress.
+
+#### Tool Result Compaction
+
+[ToolResultCompactor](reme/memory/file_based_copaw/tool_result_compactor.py) solves context overflow caused by oversized
+tool outputs:
+
+```mermaid
+graph LR
+    A[tool_result message] --> B{Content length > threshold?}
+    B -->|No| C[Keep as-is]
+    B -->|Yes| D[Truncate to threshold characters]
+    D --> E[Write full content to tool_result/uuid.txt]
+    E --> F[Append file reference path to message]
+```
+
+Expired files (exceeding `retention_days`) are automatically cleaned up during `start` / `close` /
+`compact_tool_result`.
 
 #### Memory Summary: ReAct + File Tools
 
-[Summarizer](reme/memory/file_based/fb_summarizer.py) is the core component for memory summarization. It uses the
-**ReAct + file tools** pattern.
+[Summarizer](reme/memory/file_based_copaw/summarizer.py) uses the **ReAct + file tools** pattern, letting AI
+autonomously decide what to write and where:
 
 ```mermaid
 graph LR
@@ -394,43 +482,28 @@ graph LR
     F -->|No| G[Done]
 ```
 
-#### File Tool Set
+[FileIO](reme/memory/file_based_copaw/file_io.py) provides file operation tools:
 
-Summarizer is equipped with file operation tools so the AI can work directly on memory files:
+| Tool    | Function                       | Use case                                |
+|---------|--------------------------------|-----------------------------------------|
+| `read`  | Read file content (line range) | View existing memory, avoid duplicates  |
+| `write` | Overwrite file                 | Create new memory file or major rewrite |
+| `edit`  | Replace after exact match      | Append or modify specific sections      |
 
-| Tool    | Function          | Use case                                |
-|---------|-------------------|-----------------------------------------|
-| `read`  | Read file content | View existing memory, avoid duplicates  |
-| `write` | Overwrite file    | Create new memory file or major rewrite |
-| `edit`  | Edit part of file | Append or modify specific sections      |
+#### In-Memory Session Management
 
-#### Context Compaction
+[CoPawInMemoryMemory](reme/memory/file_based_copaw/copaw_in_memory_memory.py) extends AgentScope's `InMemoryMemory`:
 
-When a conversation gets too long, [Compactor](reme/memory/file_based/fb_compactor.py) compresses history into a concise
-summary — like **meeting minutes**, turning long discussion into key points.
-
-```mermaid
-graph LR
-    A[Messages 1..N] --> B[📦 Compact summary]
-C[Recent messages] --> D[Keep as-is]
-B --> E[New context]
-D --> E
-```
-
-The compact summary includes what’s needed to continue:
-
-| Content        | Description                                 |
-|----------------|---------------------------------------------|
-| 🎯 Goals       | What the user wants to accomplish           |
-| ⚙️ Constraints | Requirements and preferences mentioned      |
-| 📈 Progress    | Completed / in progress / blocked tasks     |
-| 🔑 Decisions   | Decisions made and reasons                  |
-| 📌 Context     | Key data such as file paths, function names |
+| Feature                          | Description                                                         |
+|----------------------------------|---------------------------------------------------------------------|
+| `get_memory`                     | Filter messages by mark, auto-prepend compression summary           |
+| `estimate_tokens`                | Precisely estimate current context token usage and ratio            |
+| `get_history_str`                | Generate human-readable conversation summary (with token stats)     |
+| `state_dict` / `load_state_dict` | Support state serialization / deserialization (session persistence) |
 
 #### Memory Retrieval
 
-[MemorySearch](reme/memory/tools/chunk/memory_search.py) provides **vector + BM25 hybrid retrieval**. The two methods
-complement each other:
+[MemorySearch](reme/memory/tools/chunk/memory_search.py) provides **vector + BM25 hybrid retrieval**:
 
 | Retrieval           | Strength                                        | Weakness                               |
 |---------------------|-------------------------------------------------|----------------------------------------|
