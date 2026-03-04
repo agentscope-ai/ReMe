@@ -285,6 +285,24 @@ M --> R[Top-N 结果]
 | `delete_memory`    | 🗑️ 删除记忆 | 删除指定记忆         |
 | `list_memory`      | 📋 列出记忆  | 列出某类记忆，支持过滤和排序 |
 
+### 安装
+
+```bash
+pip install -U reme-ai
+```
+
+### 环境变量
+
+API 密钥通过环境变量设置，可写在项目根目录的 `.env` 文件中：
+
+| 环境变量            | 说明                   | 示例                                                  |
+|-----------------|----------------------|-----------------------------------------------------|
+| `LLM_API_KEY`   | LLM 的 API Key        | `sk-xxx`                                            |
+| `LLM_BASE_URL`  | LLM 的 Base URL       | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| `EMBEDDING_API_KEY` | Embedding 的 API Key  | `sk-xxx`                                            |
+| `EMBEDDING_BASE_URL` | Embedding 的 Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+
+### Python使用
 ```python
 import asyncio
 
@@ -374,23 +392,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 安装
-
-```bash
-pip install -U reme-ai
-```
-
-### 环境变量
-
-API 密钥通过环境变量设置，可写在项目根目录的 `.env` 文件中：
-
-| 环境变量            | 说明                   | 示例                                                  |
-|-----------------|----------------------|-----------------------------------------------------|
-| `LLM_API_KEY`   | LLM 的 API Key        | `sk-xxx`                                            |
-| `LLM_BASE_URL`  | LLM 的 Base URL       | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_API_KEY` | Embedding 的 API Key  | `sk-xxx`                                            |
-| `EMBEDDING_BASE_URL` | Embedding 的 Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-
+### 技术架构
 ```mermaid
 graph TB
     User[用户 / Agent] --> ReMe[Vector Based ReMe]
