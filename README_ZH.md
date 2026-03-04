@@ -173,7 +173,7 @@ graph TB
     MemSearch --> FileStore
 ```
 
-#### 上下文压缩机制
+### 上下文压缩机制
 
 #### 上下文压缩
 
