@@ -173,22 +173,9 @@ graph TB
     MemSearch --> FileStore
 ```
 
-#### 自动压缩触发流程
+#### 上下文压缩机制
 
-`MemoryCompactionHook` 在每次推理前检查上下文 Token 用量，超过阈值时自动触发压缩：
-
-```mermaid
-graph LR
-    A[pre_reasoning] --> B{Token 超过阈值?}
-    B -->|否| Z[继续推理]
-    B -->|是| C[compact_tool_result\n压缩最近消息中的超长工具输出]
-    C --> D[compact_memory\n生成结构化上下文检查点]
-    D --> E[标记旧消息为 COMPRESSED]
-    E --> F[add_async_summary_task\n后台写入 memory 文件]
-    F --> Z
-```
-
-#### 上下文压缩摘要格式
+#### 上下文压缩
 
 [Compactor](reme/memory/file_based/compactor.py) 使用 ReActAgent 将历史对话压缩为结构化的**上下文检查点**：
 
@@ -205,7 +192,7 @@ graph LR
 
 #### 工具结果压缩
 
-[ToolResultCompactor](reme/memory/file_based/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题：
+[ToolResultCompactor](reme/memory/file_based/tool_result_compactor.py) 解决工具输出过长（比如 browser use）导致上下文膨胀的问题：
 
 ```mermaid
 graph LR
@@ -218,7 +205,7 @@ graph LR
 
 过期文件（超过 `retention_days`）在 `start` / `close` / `compact_tool_result` 时自动清理。
 
-#### 记忆总结：ReAct + 文件工具
+### 记忆总结：ReAct + 文件工具
 
 [Summarizer](reme/memory/file_based/summarizer.py) 采用 **ReAct + 文件工具** 模式，让 AI 自主决定写什么、写到哪：
 
@@ -241,7 +228,7 @@ graph LR
 | `write` | 覆盖写入文件        | 创建新记忆文件或大幅重构  |
 | `edit`  | 精确匹配后替换       | 追加新内容或修改特定段落  |
 
-#### 会话内存管理
+### 会话内存管理
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展了 AgentScope 的 `InMemoryMemory`：
 
@@ -254,7 +241,7 @@ graph LR
 | `mark_messages_compressed`       | 标记消息为已压缩状态                |
 | `get_compressed_summary`         | 获取已压缩的摘要内容                |
 
-#### 记忆检索
+### 记忆检索
 
 [MemorySearch](reme/memory/tools/chunk/memory_search.py) 提供**向量 + BM25 混合检索**能力：
 
