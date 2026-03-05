@@ -9,7 +9,7 @@ This guide helps you quickly set up and run AppWorld experiments with ReMe integ
 
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
-cd ReMe/cookbook/appworld
+cd ReMe/benchmark/appworld
 ```
 
 ### 2. Appworld Environment Setup
@@ -56,25 +56,15 @@ pip install .
 Launch the ReMe service to enable memory library functionality:
 
 ```bash
-reme \
+reme2 \
   backend=http \
   http.port=8002 \
-  llm.default.model_name=qwen-max-latest \
-  embedding_model.default.model_name=text-embedding-v4 \
-  vector_store.default.backend=elasticsearch
+  llms.default.model_name=qwen3-8b \
+  embedding_models.default.model_name=text-embedding-v4 \
+  vector_stores.default.backend=es \
+  vector_stores.default.collection_name=appworld \
+  vector_stores.default.hosts=http://xx.yy.zz.mm:nn
 ```
-
-add memories for appworld:
-```bash
-curl -X POST "http://0.0.0.0:8002/vector_store" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": "appworld",
-    "action": "load",
-    "path": "./docs/library"
-  }'
-```
-Now you have loaded the ReMe memory library to enable memory-based agent!
 
 ### 4. Common Issues
 
@@ -95,21 +85,21 @@ python run_appworld.py
 ```
 
 **What this does:**
-- Runs AppWorld tasks on the development dataset
+- Runs AppWorld tasks on the test-normal set
 - Compares agent performance with ReMe memory (`use_memory=True`) vs without memory
 - Uses multiple workers for parallel processing
 - Runs each task multiple times for statistical significance
 - Results are automatically saved to `./exp_result/` directory
 
 **Configuration options in `run_appworld.py`:**
-- `max_workers`: Number of parallel workers (default: 8)
-- `num_runs`: Number of times each task is repeated (default: 1)
+- `max_workers`: Number of parallel workers (default: 16)
+- `num_runs`: Number of times each task is repeated (default: 4)
 - `batch_size`: Number of concurrent tasks per batch (default: 8)
 - `num_trials`: Maximum number of self-reflections, failure-aware reflection mechanism is triggered when num_trials>1 (default: 1)
-- `model_name`: Task execution model
-- `use_memory`: Whether to use ReMe memory library
-- `use_memory_addition`: Whether to enable selective addition
-- `use_memory_deletion`: Whether to enable utility-based deletion
+- `model_name`: Task execution model (default: "qwen3-8b")
+- `use_memory`: Whether to use ReMe memory library (default: True)
+- `use_memory_addition`: Whether to enable selective addition (default: False)
+- `use_memory_deletion`: Whether to enable utility-based deletion (default: False)
 
 ### 2. View Experiment Results
 

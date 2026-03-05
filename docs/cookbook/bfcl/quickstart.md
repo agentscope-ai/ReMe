@@ -7,97 +7,96 @@ This guide helps you quickly set up and run BFCL experiments with ReMe integrati
 
 ### 1. BFCL installation
 
-#### clone the repository
+#### Clone the repository
 ```bash
+cd ReMe/benchmark/bfcl
 git clone https://github.com/ShishirPatil/gorilla.git
+cd gorilla
+git checkout ea13468
 ```
 
 #### Change directory to the `berkeley-function-call-leaderboard`
 ```bash
-cd gorilla/berkeley-function-call-leaderboard
+cd berkeley-function-call-leaderboard
 ```
 
 #### Install the package in editable mode
 ```bash
-conda create -n bfcl-env python==3.12
-conda activate bfcl-env
 pip install -e .
+cd ../..
 pip install -r requirements.txt
 ```
 
 #### Move the dataset to the data folder under bfcl
 ```bash
-cp -r bfcl_eval/data {/path/to/bfcl/data}
+cp -r gorilla/berkeley-function-call-leaderboard/bfcl_eval/data ./
 ```
 
-**Note**: The original BFCL data is designed as a benchmark dataset and does not have a train/validation split, you can use ``split_into_trainval.py`` to split JSONL file into train and validation sets.
+#### Preprocess the data to get the suitable data format
+```bash
+python preprocess.py
+```
 
-### 2. Collect agent trajectories on training data set
-
-Run the main experiment script to collect agent trajectories on training data set without task memory(`use_memory=False`):
+**Note**: The original BFCL data is designed as a benchmark dataset and does not have a train/validation split, you can use ``split_into_trainval.py`` to split data into train and validation sets.
 
 ```bash
-python run_bfcl.py
+python split_into_trainval.py --input ./data/multiturn_data_base.jsonl  --train ./data/multiturn_data_base_train.jsonl --val ./data/multiturn_data_base_val.jsonl
 ```
 
-**Note**:
-- `max_workers`: Number of parallel workers (default: `4`)
-- `num_runs`: Number of times each task is repeated (default: `1`)
-- `model_name`: LLM model name (default: `qwen3-8b`)
-- `enable_thinking`: Control the model's thinking mode (default: `False`)
-- `data_path`: Path to the training dataset (default: `./data/multiturn_data_base_train.jsonl`)
-- `answer_path`: Path to the possible answer, which are used to evaluate the model's output function (default: `./data/possible_answer`)
-- Results are automatically saved to `./exp_result/{model_name}/{no_think/with_think}` directory
-
-### 3. Start ReMe Service and Init the task memory pool
+### 2. Start ReMe Service
 
 After collecting trajectories, Launch the ReMe service (make sure you have installed ReMe environment, if not please follow the steps in the [ReMe Installation Guide](https://github.com/agentscope-ai/ReMe/blob/main/doc/README.md) to install):
 
 ```bash
-reme \
+reme2 \
   backend=http \
   http.port=8002 \
-  llm.default.model_name=qwen-max-2025-01-25 \
-  embedding_model.default.model_name=text-embedding-v4 \
-  vector_store.default.backend=local
+  llms.default.model_name=qwen3-8b \
+  embedding_models.default.model_name=text-embedding-v4 \
+  vector_stores.default.backend=local \
+  vector_stores.default.collection_name=bfcl
 ```
 
-and then init the task memory pool:
+<details>
+<summary>Option: init the task memory pool from scratch</summary>
 
-```bash
-python init_task_memory_pool.py
-```
+- First, collect agent trajectories on training data set without task memory:
 
-**Configuration options in `init_task_memory_pool.py`:**
-- `jsonl_file`: Path to the collloaded trajectories
-- `service_url`: ReMe service URL (default: `http://localhost:8002`)
-- `workspace_id`: Workspace ID for the task memory pool (default: `bfcl_test`)
-- `n_threads`: Number of threads for processing (default: `4`)
-- `output_file`: Output file to save results (optional)
+  ```bash
+  # important: num_runs = 8, use_memory = False, experiment_suffix="wo-memory", data_path="data/multiturn_data_base_train.jsonl"
+  python run_bfcl.py
+  ```
 
-Now you have inited the task memory pool using `local` backend (start on `http://localhost:8002`). Then, use `local_file_to_library.py` script to convert the local file to the memory library or run the following `curl` command:
-```bash
-curl -X POST "http://0.0.0.0:8002/vector_store" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": "bfcl_test",
-    "action": "dump",
-    "path": "./library"
-  }'
-```
-to dump the memory library (default in `./library/bfcl_test.jsonl`).
+- Second, using ReMe to construct the initial task memory pool:
+  ```bash
+  python init_task_memory_pool.py --jsonl_file ./exp_result/qwen3-8b/with_think/bfcl-multi-turn-base_wo-memory.jsonl
+  ```
 
-Next time, you can import this previously exported task memory data to populate the new started workspace with existing knowledge:
-```bash
-curl -X POST "http://0.0.0.0:8002/vector_store" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workspace_id": "bfcl_test",
-    "action": "load",
-    "path": "./library"
-  }'
-```
+  > Parameters:
+  > `jsonl_file`: Path to the collloaded trajectories
+  > `service_url`: ReMe service URL (default: `http://localhost:8002`)
+  > `n_threads`: Number of threads for processing
+  > `output_file`: Output file to save results (optional)
 
+  Now you have inited the task memory pool using `local` backend. Then, run the following `curl` command to dump the memory library:
+  ```bash
+  curl -X POST "http://0.0.0.0:8002/dump_memory" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "dump_file_path": "./library/bfcl.jsonl",
+    }'
+  ```
+
+- Next time, you can import this previously exported task memory data to populate the new started workspace with existing knowledge:
+  ```bash
+  curl -X POST "http://0.0.0.0:8002/load_memory" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "load_file_path": "./library/bfcl.jsonl",
+      "clear_existing": true
+    }'
+  ```
+</details>
 
 ### 4. Run Experiments on Validation Set
 
@@ -108,6 +107,15 @@ Run you can compare agent performance on the validation set with task memory (`u
 python run_bfcl.py
 ```
 
+**Note**:
+- `max_workers`: Number of parallel workers
+- `num_runs`: Number of times each task is repeated
+- `model_name`: LLM model name
+- `enable_thinking`: Control the model's thinking mode
+- `data_path`: Path to the training dataset (default: `./data/multiturn_data_base_val.jsonl`)
+- `answer_path`: Path to the possible answer, which are used to evaluate the model's output function (default: `./data/possible_answer`)
+- Results are automatically saved to `./exp_result/{model_name}/{no_think/with_think}` directory
+
 After running experiments, analyze the statistical results:
 
 ```bash
@@ -116,6 +124,6 @@ python run_exp_statistic.py
 
 **What this script does:**
 - Processes all result files in `./exp_result/`
-- Calculates best@k metrics for different k values
+- Calculates best@k&pass@k metrics for different k values
 - Generates a summary table showing performance comparisons
 - Saves results to `experiment_summary.csv`
