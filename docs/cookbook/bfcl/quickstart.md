@@ -98,7 +98,7 @@ reme2 \
   ```
 </details>
 
-### 4. Run Experiments on Validation Set
+### 3. Run Experiments on Validation Set
 
 Run you can compare agent performance on the validation set with task memory (`use_memory=True`) and without task memory:
 
