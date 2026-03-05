@@ -49,8 +49,8 @@ class ComparativeExtraction(BaseOp):
                 comparative_task_memories.extend(soft_task_memories)
 
         # Hard comparison: success vs failure (if similarity search is enabled)
-        if self.context.get("enable_similarity_comparison", True) and success_trajectories and failure_trajectories:
-            similar_pairs = self._find_similar_step_sequences(success_trajectories, failure_trajectories)
+        if self.context.get("enable_similarity_comparison", False) and success_trajectories and failure_trajectories:
+            similar_pairs = await self._find_similar_step_sequences(success_trajectories, failure_trajectories)
             logger.info(f"Found {len(similar_pairs)} similar pairs for hard comparison")
 
             for success_steps, failure_steps, similarity_score in similar_pairs:
@@ -182,7 +182,7 @@ class ComparativeExtraction(BaseOp):
         else:
             return trajectory.messages
 
-    def _find_similar_step_sequences(
+    async def _find_similar_step_sequences(
         self,
         success_trajectories: List[Trajectory],
         failure_trajectories: List[Trajectory],
@@ -227,8 +227,8 @@ class ComparativeExtraction(BaseOp):
                     "embedding_model",
                 )
             ):
-                success_embeddings = self.vector_store.embedding_model.get_embeddings(success_texts)
-                failure_embeddings = self.vector_store.embedding_model.get_embeddings(failure_texts)
+                success_embeddings = await self.vector_store.get_embeddings(success_texts)
+                failure_embeddings = await self.vector_store.get_embeddings(failure_texts)
 
                 # Calculate similarity and find most similar pairs
                 similarity_threshold = self.context.get("similarity_threshold", 0.5)
