@@ -14,14 +14,17 @@ class OpenAIEmbeddingModelSync(OpenAIEmbeddingModel):
 
     def _get_embeddings_sync(self, input_text: list[str], **kwargs) -> list[list[float]]:
         """Fetch embeddings synchronously from the API for a batch of strings."""
-        completion = self.client.embeddings.create(
-            model=self.model_name,
-            input=input_text,
-            dimensions=self.dimensions,
-            encoding_format=self.encoding_format,
+        create_kwargs: dict = {
+            "model": self.model_name,
+            "input": input_text,
+            "encoding_format": self.encoding_format,
             **self.kwargs,
             **kwargs,
-        )
+        }
+        if self.use_dimensions:
+            create_kwargs["dimensions"] = self.dimensions
+
+        completion = self.client.embeddings.create(**create_kwargs)
 
         result_emb = [[] for _ in range(len(input_text))]
         for emb in completion.data:

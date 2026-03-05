@@ -53,6 +53,7 @@ class ReMe(Application):
         target_user_names: list[str] | None = None,
         target_task_names: list[str] | None = None,
         target_tool_names: list[str] | None = None,
+        enable_profile: bool = True,
         **kwargs,
     ):
         """Initialize ReMe with config.
@@ -65,6 +66,10 @@ class ReMe(Application):
             await reme.retrieve_memory(...)
             await reme.close()
             ```
+
+        Args:
+            enable_profile: Whether to enable profile functionality. Set to False when using
+                cloud-based vector stores to avoid local file operations. Default is True.
         """
         super().__init__(
             *args,
@@ -83,6 +88,9 @@ class ReMe(Application):
             default_token_counter_config=default_token_counter_config,
             **kwargs,
         )
+
+        self.enable_profile = enable_profile
+
         memory_target_type_mapping: dict[str, MemoryType] = {}
         if target_user_names:
             for name in target_user_names:
@@ -101,9 +109,12 @@ class ReMe(Application):
 
         self.service_context.memory_target_type_mapping = memory_target_type_mapping
 
-        profile_path = Path(self.service_context.service_config.working_dir) / "profile"
-        profile_path.mkdir(parents=True, exist_ok=True)
-        self.profile_dir: str = str(profile_path)
+        if self.enable_profile:
+            profile_path = Path(self.service_context.service_config.working_dir) / "profile"
+            profile_path.mkdir(parents=True, exist_ok=True)
+            self.profile_dir: str = str(profile_path)
+        else:
+            self.profile_dir: str = ""
 
     def _add_meta_memory(self, memory_type: str | MemoryType, memory_target: str):
         """Register or validate a memory target with the given memory type."""
@@ -174,34 +185,40 @@ class ReMe(Application):
             format_messages.append(message)
 
         if version == "default":
+            personal_summarizer_tools = [
+                AddDraftAndRetrieveSimilarMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                    top_k=retrieve_top_k,
+                ),
+                AddMemory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_memory_target=False,
+                    enable_when_to_use=False,
+                    enable_multiple=True,
+                ),
+            ]
+            if self.enable_profile:
+                personal_summarizer_tools.extend(
+                    [
+                        ReadAllProfiles(
+                            enable_thinking_params=False,
+                            enable_memory_target=False,
+                            profile_dir=self.profile_dir,
+                        ),
+                        UpdateProfilesV1(
+                            enable_thinking_params=enable_thinking_params,
+                            enable_memory_target=False,
+                            enable_multiple=True,
+                            profile_dir=self.profile_dir,
+                        ),
+                    ],
+                )
             personal_summarizer: BaseMemoryAgent = PersonalSummarizer(
                 llm=llm_config_name,
-                tools=[
-                    AddDraftAndRetrieveSimilarMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_when_to_use=False,
-                        enable_multiple=True,
-                        top_k=retrieve_top_k,
-                    ),
-                    AddMemory(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_when_to_use=False,
-                        enable_multiple=True,
-                    ),
-                    ReadAllProfiles(
-                        enable_thinking_params=False,
-                        enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                    ),
-                    UpdateProfilesV1(
-                        enable_thinking_params=enable_thinking_params,
-                        enable_memory_target=False,
-                        enable_multiple=True,
-                        profile_dir=self.profile_dir,
-                    ),
-                ],
+                tools=personal_summarizer_tools,
             )
 
         else:
@@ -324,14 +341,17 @@ class ReMe(Application):
         """Retrieve relevant personal, procedural and tool memories for a query."""
 
         if version == "default":
-            personal_retriever: BaseMemoryAgent = PersonalRetriever(
-                llm=llm_config_name,
-                tools=[
+            personal_retriever_tools = []
+            if self.enable_profile:
+                personal_retriever_tools.append(
                     ReadAllProfiles(
-                        enable_thinking_params=enable_thinking_params,
+                        enable_thinking_params=False,
                         enable_memory_target=False,
                         profile_dir=self.profile_dir,
                     ),
+                )
+            personal_retriever_tools.extend(
+                [
                     RetrieveMemory(
                         top_k=retrieve_top_k,
                         enable_thinking_params=enable_thinking_params,
@@ -343,6 +363,10 @@ class ReMe(Application):
                         enable_multiple=True,
                     ),
                 ],
+            )
+            personal_retriever: BaseMemoryAgent = PersonalRetriever(
+                llm=llm_config_name,
+                tools=personal_retriever_tools,
             )
         else:
             raise NotImplementedError(f"version={version} is not supported")
@@ -601,12 +625,16 @@ class ReMe(Application):
         return MemoryHandler(memory_target=memory_target, service_context=self.service_context)
 
     @property
-    def profile_path(self) -> Path:
-        """Get the path to the profile directory."""
+    def profile_path(self) -> Path | None:
+        """Get the path to the profile directory. Returns None if profile is disabled."""
+        if not self.enable_profile:
+            return None
         return Path(self.profile_dir) / self.default_vector_store.collection_name
 
-    def get_profile_handler(self, user_name: str) -> ProfileHandler:
-        """Get the profile handler for the specified user."""
+    def get_profile_handler(self, user_name: str) -> ProfileHandler | None:
+        """Get the profile handler for the specified user. Returns None if profile is disabled."""
+        if not self.enable_profile:
+            return None
         return ProfileHandler(memory_target=user_name, profile_path=self.profile_path)
 
 

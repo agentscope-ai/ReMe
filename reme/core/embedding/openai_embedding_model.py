@@ -31,14 +31,17 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
 
     async def _get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float]]:
         """Fetch embeddings from the API for a batch of strings."""
-        completion = await self.client.embeddings.create(
-            model=self.model_name,
-            input=input_text,
-            dimensions=self.dimensions,
-            encoding_format=self.encoding_format,
+        create_kwargs: dict = {
+            "model": self.model_name,
+            "input": input_text,
+            "encoding_format": self.encoding_format,
             **self.kwargs,
             **kwargs,
-        )
+        }
+        if self.use_dimensions:
+            create_kwargs["dimensions"] = self.dimensions
+
+        completion = await self.client.embeddings.create(**create_kwargs)
 
         result_emb = [[] for _ in range(len(input_text))]
         for emb in completion.data:

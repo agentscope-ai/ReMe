@@ -50,12 +50,12 @@ class BaseLLM(ABC):
     @property
     def api_key(self) -> str | None:
         """Get API key from environment variable."""
-        return os.getenv("REME_LLM_API_KEY") or self._api_key
+        return os.getenv("LLM_API_KEY") or self._api_key
 
     @property
     def base_url(self) -> str | None:
         """Get base URL from environment variable."""
-        return os.getenv("REME_LLM_BASE_URL") or self._base_url
+        return os.getenv("LLM_BASE_URL") or self._base_url
 
     @staticmethod
     def _accumulate_tool_call_chunk(tool_call, ret_tools: list[ToolCall]):

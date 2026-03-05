@@ -21,6 +21,7 @@ embedding_models:
     model_name: text-embedding-v4
     dimensions: 1024
     enable_cache: true
+    use_dimensions: false
 
 file_stores:
   default:

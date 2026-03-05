@@ -1,6 +1,6 @@
-"""Tests for ReMeFb memory_search interface.
+"""Tests for ReMeCli memory_search interface.
 
-This module tests the memory_search() method of ReMeFb class which provides
+This module tests the memory_search() method of ReMeCli class which provides
 a high-level interface for searching personal information stored in memory files.
 
 The memory_search function should enable:
@@ -16,7 +16,7 @@ import hashlib
 import shutil
 from pathlib import Path
 
-from reme import ReMeFb
+from reme import ReMeCli
 from reme.core.enumeration import MemorySource
 from reme.core.schema import FileMetadata, MemoryChunk
 
@@ -207,8 +207,8 @@ async def test_memory_search_basic():
     print("TEST 1: Basic Memory Search")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -268,8 +268,8 @@ async def test_memory_search_technical_content():
     print("TEST 2: Technical Content Search")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -334,8 +334,8 @@ async def test_memory_search_with_source_filter():
     print("TEST 3: Memory Search with Source Filter")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
     )
@@ -374,7 +374,7 @@ async def test_memory_search_with_source_filter():
     # Search only MEMORY source
     print(f"\n--- Searching MEMORY source for: '{query}' ---")
     # Create a new instance with MEMORY source filter
-    reme_fs_memory = ReMeFb(
+    reme_fs_memory = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         search_params={"sources": [MemorySource.MEMORY]},
@@ -396,7 +396,7 @@ async def test_memory_search_with_source_filter():
     # Search only SESSIONS source
     print(f"\n--- Searching SESSIONS source for: '{query}' ---")
     # Create a new instance with SESSIONS source filter
-    reme_fs_sessions = ReMeFb(
+    reme_fs_sessions = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         search_params={"sources": [MemorySource.SESSIONS]},
@@ -437,8 +437,8 @@ async def test_memory_search_score_filtering():
     print("TEST 4: Memory Search with Score Filtering")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -503,8 +503,8 @@ async def test_memory_search_max_results():
     print("TEST 5: Memory Search with Result Limiting")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -569,8 +569,8 @@ async def test_memory_search_hybrid_mode():
     print("TEST 6: Memory Search with Hybrid Mode")
     print("=" * 80)
 
-    # Initialize ReMeFb with unique store name
-    reme_fs = ReMeFb(
+    # Initialize ReMeCli with unique store name
+    reme_fs = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -601,7 +601,7 @@ async def test_memory_search_hybrid_mode():
     # Test with hybrid enabled
     print(f"\n--- Hybrid search (enabled) for: '{query}' ---")
     # Create instance with hybrid enabled
-    reme_fs_hybrid = ReMeFb(
+    reme_fs_hybrid = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -630,7 +630,7 @@ async def test_memory_search_hybrid_mode():
     # Test with hybrid disabled (vector only)
     print(f"\n--- Vector-only search for: '{query}' ---")
     # Create instance with hybrid disabled
-    reme_fs_vector = ReMeFb(
+    reme_fs_vector = ReMeCli(
         enable_logo=False,
         working_dir=TestConfig.WORKING_DIR,
         default_file_store_config={
@@ -662,7 +662,7 @@ async def test_memory_search_hybrid_mode():
 
     for vec_weight, text_weight in weight_configs:
         # Create instance with specific weights
-        reme_fs_weights = ReMeFb(
+        reme_fs_weights = ReMeCli(
             enable_logo=False,
             working_dir=TestConfig.WORKING_DIR,
             default_file_store_config={
@@ -708,7 +708,7 @@ async def cleanup_test_data():
 async def main():
     """Run all memory search tests."""
     print("\n" + "=" * 80)
-    print("ReMeFb Memory Search Interface Tests")
+    print("ReMeCli Memory Search Interface Tests")
     print("=" * 80)
     print("\nThis test suite validates the memory_search() function:")
     print("  1. Basic semantic search functionality")

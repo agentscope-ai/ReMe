@@ -1,18 +1,33 @@
-"""File-based memory operations."""
+"""File-based Memory Module.
 
-from .fb_cli import FbCli
-from .fb_compactor import FbCompactor
-from .fb_context_checker import FbContextChecker
-from .fb_summarizer import FbSummarizer
-from ...core.registry_factory import R
+This module provides memory management components for CoPaw (Cooperative Paw) agents,
+including memory formatting, compaction, summarization, and file I/O operations.
+
+Components:
+    - MemoryFormatter: Converts message lists to formatted strings with token limiting
+    - ReMeInMemoryMemory: Extended InMemoryMemory with bugfixes and summary support
+    - Summarizer: Generates memory summaries using LLM
+    - Compactor: Compacts memory content to reduce token usage
+    - ToolResultCompactor: Truncates large tool results and saves full content to files
+    - FileIO: File I/O operations with configurable working directory
+"""
+
+from . import utils
+from .compactor import Compactor
+from .file_io import FileIO
+from .memory_formatter import MemoryFormatter
+from .reme_chat_formatter import ReMeChatFormatter
+from .reme_in_memory_memory import ReMeInMemoryMemory
+from .summarizer import Summarizer
+from .tool_result_compactor import ToolResultCompactor
 
 __all__ = [
-    "FbCli",
-    "FbCompactor",
-    "FbContextChecker",
-    "FbSummarizer",
+    "MemoryFormatter",
+    "ReMeInMemoryMemory",
+    "Summarizer",
+    "Compactor",
+    "ToolResultCompactor",
+    "FileIO",
+    "utils",
+    "ReMeChatFormatter",
 ]
-
-for name in __all__:
-    op_class = globals()[name]
-    R.ops.register(op_class)

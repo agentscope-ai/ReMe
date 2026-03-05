@@ -30,6 +30,7 @@ class BaseEmbeddingModel(ABC):
         base_url: str | None = None,
         model_name: str = "",
         dimensions: int | None = 1024,
+        use_dimensions: bool = False,
         max_batch_size: int = 10,
         max_retries: int = 3,
         raise_exception: bool = True,
@@ -46,6 +47,7 @@ class BaseEmbeddingModel(ABC):
             base_url: Base URL for the embedding service
             model_name: Name of the embedding model
             dimensions: Vector dimensions of the embeddings
+            use_dimensions: Whether to pass dimensions parameter to API (some APIs don't support it)
             max_batch_size: Maximum batch size for embedding requests
             max_retries: Maximum number of retry attempts on failure
             raise_exception: Whether to raise exceptions on failure
@@ -58,6 +60,7 @@ class BaseEmbeddingModel(ABC):
         self._base_url: str = base_url
         self.model_name = model_name
         self.dimensions = dimensions
+        self.use_dimensions = use_dimensions
         self.max_batch_size = max_batch_size
         self.max_retries = max_retries
         self.raise_exception = raise_exception

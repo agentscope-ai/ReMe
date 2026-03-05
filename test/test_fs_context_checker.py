@@ -6,7 +6,7 @@ which determines where to split conversation history when token limits are excee
 
 import asyncio
 
-from reme import ReMeFb
+from reme import ReMeCli
 from reme.core.enumeration import Role
 from reme.core.schema import Message
 
@@ -67,7 +67,7 @@ async def test_no_compaction_needed():
     print("TEST 1: Below Threshold - No Cut Point Needed")
     print("=" * 80)
 
-    reme_fs = ReMeFb(
+    reme_fs = ReMeCli(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=5000,
@@ -112,7 +112,7 @@ async def test_compaction_needed_above_threshold():
     print("TEST 2: Compaction Needed Above Threshold")
     print("=" * 80)
 
-    reme_fs = ReMeFb(
+    reme_fs = ReMeCli(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=1500,
@@ -181,7 +181,7 @@ async def test_split_turn_scenario():
     print("TEST 3: Split Turn - Cut in Middle of Assistant Response")
     print("=" * 80)
 
-    reme_fs = ReMeFb(
+    reme_fs = ReMeCli(
         "vector_stores={}",  # Override config to disable vector stores
         enable_logo=False,
         context_window_tokens=2000,

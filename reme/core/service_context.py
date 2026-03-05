@@ -50,10 +50,10 @@ class ServiceContext(BaseDict):
         load_env()
 
         # Update common environment variables for LLM and embedding services.
-        self.update_env("REME_LLM_API_KEY", llm_api_key)
-        self.update_env("REME_LLM_BASE_URL", llm_base_url)
-        self.update_env("REME_EMBEDDING_API_KEY", embedding_api_key)
-        self.update_env("REME_EMBEDDING_BASE_URL", embedding_base_url)
+        self.update_env("LLM_API_KEY", llm_api_key)
+        self.update_env("LLM_BASE_URL", llm_base_url)
+        self.update_env("EMBEDDING_API_KEY", embedding_api_key)
+        self.update_env("EMBEDDING_BASE_URL", embedding_base_url)
 
         if service_config is None:
             parser_class = parser if parser is not None else PydanticConfigParser
