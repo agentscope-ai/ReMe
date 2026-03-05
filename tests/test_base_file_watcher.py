@@ -12,6 +12,8 @@ Usage:
     pytest tests/test_base_file_watcher.py -v -k "test_existing"
 """
 
+# pylint: disable=redefined-outer-name,protected-access,unused-argument
+
 import asyncio
 import tempfile
 from pathlib import Path
@@ -218,7 +220,7 @@ class TestNonExistentPaths:
     async def test_all_paths_nonexistent(self):
         """Test when all paths are non-existent."""
         watcher = BaseFileWatcher(
-            watch_paths=["/nonexistent1", "/nonexistent2"]
+            watch_paths=["/nonexistent1", "/nonexistent2"],
         )
 
         await watcher.start()
@@ -271,7 +273,7 @@ class TestFileFiltering:
         """Test watch_filter with multiple suffix filters."""
         watcher = BaseFileWatcher(
             watch_paths="/tmp",
-            suffix_filters=[".txt", ".py", ".md"]
+            suffix_filters=[".txt", ".py", ".md"],
         )
 
         assert watcher.watch_filter(Change.added, "test.txt") is True
@@ -284,7 +286,7 @@ class TestFileFiltering:
         """Test watch_filter handles suffixes without leading dot."""
         watcher = BaseFileWatcher(
             watch_paths="/tmp",
-            suffix_filters=["txt", "py"]  # Without dots
+            suffix_filters=["txt", "py"],  # Without dots
         )
 
         assert watcher.watch_filter(Change.added, "test.txt") is True
@@ -295,7 +297,7 @@ class TestFileFiltering:
         """Test watch_filter works with all Change types."""
         watcher = BaseFileWatcher(
             watch_paths="/tmp",
-            suffix_filters=[".txt"]
+            suffix_filters=[".txt"],
         )
 
         # All change types should work with filter
@@ -320,7 +322,7 @@ class TestCallbackFunctionality:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            callback=sync_callback
+            callback=sync_callback,
         )
 
         # Simulate changes
@@ -340,7 +342,7 @@ class TestCallbackFunctionality:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            callback=async_callback
+            callback=async_callback,
         )
 
         # Simulate changes
@@ -387,7 +389,7 @@ class TestScanOnStart:
             watch_paths=str(temp_dir),
             scan_on_start=False,
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -414,7 +416,7 @@ class TestScanOnStart:
             watch_paths=str(temp_dir),
             scan_on_start=True,
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -448,7 +450,7 @@ class TestScanOnStart:
             scan_on_start=True,
             suffix_filters=[".txt"],
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -482,7 +484,7 @@ class TestScanOnStart:
             recursive=True,
             suffix_filters=[".txt"],
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -518,7 +520,7 @@ class TestScanOnStart:
             recursive=False,
             suffix_filters=[".txt"],
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -551,7 +553,7 @@ class TestScanOnStart:
             watch_paths="/nonexistent/path",
             scan_on_start=True,
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -645,7 +647,7 @@ class TestConfigurationOptions:
         """Test debounce configuration."""
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            debounce=1000
+            debounce=1000,
         )
 
         assert watcher.debounce == 1000
@@ -656,7 +658,7 @@ class TestConfigurationOptions:
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
             chunk_tokens=500,
-            chunk_overlap=100
+            chunk_overlap=100,
         )
 
         assert watcher.chunk_tokens == 500
@@ -667,7 +669,7 @@ class TestConfigurationOptions:
         """Test recursive configuration."""
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            recursive=True
+            recursive=True,
         )
 
         assert watcher.recursive is True
@@ -678,7 +680,7 @@ class TestConfigurationOptions:
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
             custom_arg1="value1",
-            custom_arg2=123
+            custom_arg2=123,
         )
 
         assert watcher.kwargs.get("custom_arg1") == "value1"
@@ -709,7 +711,7 @@ class TestEdgeCases:
             watch_paths=str(file_path),
             scan_on_start=True,
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -742,7 +744,7 @@ class TestEdgeCases:
             watch_paths=str(empty_dir),
             scan_on_start=True,
             callback=callback,
-            file_store=mock_file_store
+            file_store=mock_file_store,
         )
 
         await watcher.start()
@@ -776,7 +778,7 @@ class TestEdgeCases:
 
         watcher = BaseFileWatcher(
             watch_paths=str(unicode_dir),
-            suffix_filters=[".txt"]
+            suffix_filters=[".txt"],
         )
 
         assert watcher.watch_filter(Change.added, str(file_path)) is True

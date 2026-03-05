@@ -185,13 +185,13 @@ class BaseFileWatcher:
                         break
 
                     await self.on_changes(changes)
-            
+
             except FileNotFoundError as e:
                 # Watch path was deleted during monitoring
                 logger.error(f"Watch path no longer exists: {e}, restarting in 10 seconds...")
                 if not self._stop_event.is_set():
                     await self._interruptible_sleep(10)
-            
+
             except Exception as e:
                 # Log other exceptions and restart
                 logger.error(f"Error in watch loop: {e}, restarting in 10 seconds...", exc_info=True)
