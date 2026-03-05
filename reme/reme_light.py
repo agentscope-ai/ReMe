@@ -459,7 +459,7 @@ class ReMeLight(Application):
         """
         try:
             # Initialize summarizer with working directories and configuration
-            compactor = Summarizer(
+            summarizer = Summarizer(
                 working_dir=str(self.working_path),
                 memory_dir=str(self.memory_path),
                 memory_compact_threshold=self.memory_compact_threshold,
@@ -471,7 +471,7 @@ class ReMeLight(Application):
             )
 
             # Execute summarization on the provided messages
-            return await compactor.call(messages=messages, service_context=self.service_context)
+            return await summarizer.call(messages=messages, service_context=self.service_context)
 
         except Exception as e:
             # Log error and return empty string to indicate failure
@@ -508,7 +508,7 @@ class ReMeLight(Application):
                     # Check if the task raised an exception
                     exc = task.exception()
                     if exc is not None:
-                        logger.exception(f"Summary task failed: {exc}")
+                        logger.error(f"Summary task failed: {exc}")
                         result += f"Summary task failed: {exc}\n"
                     else:
                         # Task completed successfully, collect result
@@ -562,7 +562,7 @@ class ReMeLight(Application):
                     continue
                 exc = task.exception()
                 if exc is not None:
-                    logger.exception(f"Summary task failed: {exc}")
+                    logger.error(f"Summary task failed: {exc}")
                 else:
                     # Log successful completion with result summary
                     result = task.result()
