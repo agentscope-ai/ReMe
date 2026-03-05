@@ -160,7 +160,7 @@ def process_trajectories_with_threads(
                 if "memory_list" in result["metadata"]:
                     print(f'✅ Group {group_index} processed: {result["metadata"].get("memory_list", 0)}')
                     memory_list = result["metadata"].get("memory_list", [])
-                    response = requests.post(url=f"{service_url}/add_task_memory",json={"memory_list": memory_list})
+                    response = requests.post(url=f"{service_url}/add_task_memory", json={"memory_list": memory_list})
                     response.raise_for_status()
                 else:
                     print(f"❌ Group {group_index} processed: error")

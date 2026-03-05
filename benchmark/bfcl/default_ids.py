@@ -1,3 +1,4 @@
+# pylint: disable=C0114
 DEFAULT_TRAIN_IDS: set[str] = {
     "multi_turn_base_102",
     "multi_turn_base_107",
@@ -203,4 +204,3 @@ DEFAULT_VAL_IDS: set[str] = {
     "multi_turn_base_98",
     "multi_turn_base_99",
 }
-

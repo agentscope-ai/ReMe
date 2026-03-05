@@ -6,6 +6,7 @@ import random
 
 from default_ids import DEFAULT_TRAIN_IDS, DEFAULT_VAL_IDS
 
+
 def split_jsonl(
     input_file: str,
     train_file: str,
@@ -41,7 +42,7 @@ def split_jsonl(
             missing = len(data) - (len(train_data) + len(val_data))
             examples = ", ".join(unknown_ids) if unknown_ids else "(none)"
             raise ValueError(
-                f"{missing} samples in {input_file} not found in train_ref/val_ref id sets. Examples: {examples}"
+                f"{missing} samples in {input_file} not found in train_ref/val_ref id sets. Examples: {examples}",
             )
 
     with open(train_file, "w", encoding="utf-8") as f:
@@ -58,9 +59,12 @@ if __name__ == "__main__":
     parser.add_argument("--train", required=True, help="Path to output train file")
     parser.add_argument("--val", required=True, help="Path to output validation file")
     parser.add_argument("--ratio", type=float, default=0.5, help="Train ratio (default: 0.8)")
-    parser.add_argument("--random", type=bool, default=False, 
+    parser.add_argument(
+        "--random",
+        type=bool,
+        default=False,
         help="Whether to randomly split input into train/val (default: false). "
-        "If false, split strictly by default train/val id sets (see default_ids.py)."
+        "If false, split strictly by default train/val id sets (see default_ids.py).",
     )
     args = parser.parse_args()
     split_jsonl(args.input, args.train, args.val, args.ratio, args.random)
