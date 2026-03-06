@@ -91,7 +91,7 @@ def main():
     num_runs = 1
 
     num_trials = 2
-    model_name="qwen3-8b"
+    model_name = "qwen3-8b"
     use_memory = False
     use_memory_addition = False
     use_memory_deletion = False

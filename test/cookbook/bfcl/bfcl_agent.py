@@ -195,7 +195,7 @@ class BFCLAgent:
 
         # Extract memory list from response
         memory_list = result.get("metadata", {}).get("memory_list", [])
-        logger.info(f'add new memories: {memory_list}')
+        logger.info(f"add new memories: {memory_list}")
         return memory_list
 
     def delete_memory_by_ids(self, memory_ids):
@@ -204,8 +204,8 @@ class BFCLAgent:
             json={
                 "workspace_id": self.memory_workspace_id,
                 "action": "delete_ids",
-                "memory_ids": memory_ids
-            }
+                "memory_ids": memory_ids,
+            },
         )
         response.raise_for_status()
 
@@ -647,7 +647,9 @@ class BFCLAgent:
                     reward = self.get_reward(run_id, task_index)
                     if self.use_memory:
                         if self.use_memory_addition:  # selectively add memories when succeed
-                            new_traj_list = [self.get_traj_from_task_history(task_id, self.history[run_id][task_index], reward)]
+                            new_traj_list = [
+                                self.get_traj_from_task_history(task_id, self.history[run_id][task_index], reward),
+                            ]
                             previous_memories = self.add_memory(new_traj_list)
                             if reward != 1:
                                 self.delete_memory_by_ids([mem["memory_id"] for mem in previous_memories])

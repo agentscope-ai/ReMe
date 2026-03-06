@@ -90,7 +90,7 @@ def run_agent(
     utility_threshold: float = 0.5,
     workspace_id: str = "appworld_v1",
     api_url: str = "http://0.0.0.0:8002/",
-    batch_size: int = 4
+    batch_size: int = 4,
 ):
     experiment_name = dataset_name + "_" + experiment_suffix
     path: Path = Path(f"./exp_result/{model_name}")
@@ -125,7 +125,7 @@ def run_agent(
             future_list: list = []
             for i, task_id in enumerate(batch_task_ids):
                 actor = AppworldReactAgent.remote(
-                    index=start_idx+i,
+                    index=start_idx + i,
                     model_name=model_name,
                     task_ids=[task_id],
                     experiment_name=experiment_name,
@@ -193,9 +193,10 @@ def run_agent(
                 result.append(task_results)
         dump_file()
 
+
 def main():
     max_workers = 8
-    num_runs = 1 # Number of runs
+    num_runs = 1  # Number of runs
     batch_size = 8  # Number of concurrent tasks per batch
 
     num_trials = 2
@@ -206,7 +207,6 @@ def main():
     workspace_id = "appworld"
     api_url = "http://0.0.0.0:8002/"
 
-
     # Clean up workspace before starting
     logger.info("Deleting workspace...")
     delete_workspace(workspace_id=workspace_id, api_url=api_url)
@@ -215,7 +215,6 @@ def main():
     # First run to build task memories
     logger.info("Start load experiments to build task memories")
     load_memory(workspace_id=workspace_id, api_url=api_url)
-
 
     for i in range(num_runs):
         run_agent(
@@ -232,8 +231,9 @@ def main():
             utility_threshold=0.5,
             workspace_id=workspace_id,
             api_url=api_url,
-            batch_size=batch_size
+            batch_size=batch_size,
         )
+
 
 if __name__ == "__main__":
     main()

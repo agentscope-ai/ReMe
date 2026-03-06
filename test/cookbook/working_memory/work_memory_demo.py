@@ -108,7 +108,7 @@ async def main():
     logger.info(
         f"origin_token_count: {origin_token_count} "
         f"after_token_count: {after_token_count} "
-        f"compress_ratio={after_token_count / origin_token_count:.2f}"
+        f"compress_ratio={after_token_count / origin_token_count:.2f}",
     )
 
 

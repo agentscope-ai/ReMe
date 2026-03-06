@@ -20,7 +20,7 @@
   <strong>面向智能体的记忆管理工具包，Remember Me, Refine Me.</strong><br>
 </p>
 
-> 老版本请参阅 [0.2.x 版本文档](docs/README_0_2_x_ZH.md)
+> 老版本请参阅 [0.2.x 版本文档](test/README_0_2_x_ZH.md)
 
 ---
 
@@ -167,7 +167,8 @@ if __name__ == "__main__":
 
 ### 基于文件的 ReMeLight 记忆系统架构
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py) 继承 `ReMeLight`，将记忆能力集成到 Agent 推理流程中：
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py) 继承
+`ReMeLight`，将记忆能力集成到 Agent 推理流程中：
 
 ```mermaid
 graph LR
@@ -219,14 +220,14 @@ graph LR
 
 **摘要结构**（上下文检查点）：
 
-| 字段                    | 说明                    |
-|-----------------------|-----------------------|
-| `## Goal`             | 用户目标                  |
-| `## Constraints`      | 约束和偏好                 |
-| `## Progress`         | 任务进展                  |
-| `## Key Decisions`    | 关键决策                  |
-| `## Next Steps`       | 下一步计划                 |
-| `## Critical Context` | 文件路径、函数名、错误信息等关键数据    |
+| 字段                    | 说明                 |
+|-----------------------|--------------------|
+| `## Goal`             | 用户目标               |
+| `## Constraints`      | 约束和偏好              |
+| `## Progress`         | 任务进展               |
+| `## Key Decisions`    | 关键决策               |
+| `## Next Steps`       | 下一步计划              |
+| `## Critical Context` | 文件路径、函数名、错误信息等关键数据 |
 
 - **增量更新**：传入 `previous_summary` 时，自动将新对话与旧摘要合并
 
@@ -249,11 +250,11 @@ graph LR
 
 **文件工具**（[FileIO](reme/memory/file_based/tools/file_io.py)）：
 
-| 工具      | 功能       |
-|---------|----------|
-| `read`  | 读取文件内容   |
-| `write` | 覆盖写入文件   |
-| `edit`  | 精确匹配后替换  |
+| 工具      | 功能      |
+|---------|---------|
+| `read`  | 读取文件内容  |
+| `write` | 覆盖写入文件  |
+| `edit`  | 精确匹配后替换 |
 
 ---
 
@@ -284,8 +285,8 @@ graph LR
     Q[query] --> E[Embedding<br>向量化]
     E --> V[vector_search<br>语义相似]
     Q --> B[BM25<br>关键词匹配]
-    V -->|weight 0.7| M[去重 + 加权融合]
-    B -->|weight 0.3| M
+    V -->|weight 0 . 7| M[去重 + 加权融合]
+    B -->|weight 0 . 3| M
     M --> F[min_score 过滤]
     F --> R[Top-N 结果]
 ```
@@ -296,7 +297,8 @@ graph LR
 
 #### 6. get_in_memory_memory — 会话内存
 
-[ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展 AgentScope 的 `InMemoryMemory`，提供 Token 感知的内存管理。
+[ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展 AgentScope 的 `InMemoryMemory`，提供 Token
+感知的内存管理。
 
 ```mermaid
 graph LR
@@ -311,7 +313,7 @@ graph LR
 | 功能                               | 说明                |
 |----------------------------------|-------------------|
 | `get_memory`                     | 按标记过滤，自动追加压缩摘要    |
-| `estimate_tokens`                | 估算上下文 Token 用量   |
+| `estimate_tokens`                | 估算上下文 Token 用量    |
 | `state_dict` / `load_state_dict` | 状态序列化/反序列化（会话持久化） |
 
 ---
@@ -334,6 +336,7 @@ graph LR
 ```
 
 **执行流程**：
+
 1. `compact_tool_result` — 压缩超长工具输出
 2. `check_context` — 检查上下文是否超限
 3. `compact_memory` — 生成压缩摘要（同步）
@@ -345,11 +348,11 @@ graph LR
 
 [ReMe Vector Based](reme/reme.py) 是基于向量库的记忆系统核心类，支持三种记忆类型的统一管理：
 
-| 记忆类型         | 用途               | 使用场景        |
-|--------------|------------------|-------------|
-| **个人记忆**     | 记录用户偏好、习惯        | `user_name` |
-| **任务/程序性记忆** | 记录任务执行经验、成功/失败模式 | `task_name` |
-| **工具记忆**     | 记录工具使用经验、参数优化    | `tool_name` |
+| 记忆类型         | 用途               |
+|--------------|------------------|
+| **个人记忆**     | 记录用户偏好、习惯        |
+| **任务/程序性记忆** | 记录任务执行经验、成功/失败模式 |
+| **工具记忆**     | 记录工具使用经验、参数优化    |
 
 ### 核心能力
 
@@ -363,22 +366,9 @@ graph LR
 | `delete_memory`    | 🗑️ 删除记忆 | 删除指定记忆         |
 | `list_memory`      | 📋 列出记忆  | 列出某类记忆，支持过滤和排序 |
 
-### 安装
+### 安装与环境变量
 
-```bash
-pip install -U reme-ai
-```
-
-### 环境变量
-
-API 密钥通过环境变量设置，可写在项目根目录的 `.env` 文件中：
-
-| 环境变量                 | 说明                       | 示例                                                  |
-|----------------------|--------------------------|-----------------------------------------------------|
-| `LLM_API_KEY`        | LLM 的 API Key            | `sk-xxx`                                            |
-| `LLM_BASE_URL`       | LLM 的 Base URL           | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `EMBEDDING_API_KEY`  | Embedding 的 API Key（可选）  | `sk-xxx`                                            |
-| `EMBEDDING_BASE_URL` | Embedding 的 Base URL（可选） | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+安装和环境变量配置与 [ReMeLight 一致](#安装)，通过环境变量设置 API 密钥，可写在项目根目录的 `.env` 文件中。
 
 ### Python使用
 
@@ -474,7 +464,7 @@ if __name__ == "__main__":
 ### 技术架构
 
 ```mermaid
-graph TB
+graph LR
     User[用户 / Agent] --> ReMe[Vector Based ReMe]
     ReMe --> Summarize[记忆总结]
     ReMe --> Retrieve[记忆检索]

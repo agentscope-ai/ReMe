@@ -28,9 +28,11 @@ class ReactAgent:
     rather than on complex agent logic.
     """
 
-    def __init__(self,
-                 model_name="",
-                 max_steps: int = 50):
+    def __init__(
+        self,
+        model_name="",
+        max_steps: int = 50,
+    ):
 
         # You can replace this with your own LLM wrapper if needed.
         self.llm = OpenAICompatibleLLM(model_name=model_name)
@@ -65,10 +67,16 @@ class ReactAgent:
 
         # Prepare all available tools from the MCP server.
         tool_dict: Dict[str, ToolCall] = {}
-        async with FastMcpClient("reme_mcp_server", {
-            "type": "sse",
-            "url": "http://0.0.0.0:8002/sse",
-        }) as mcp_client, HttpClient(base_url="http://localhost:8003") as http_client:
+        async with (
+            FastMcpClient(
+                "reme_mcp_server",
+                {
+                    "type": "sse",
+                    "url": "http://0.0.0.0:8002/sse",
+                },
+            ) as mcp_client,
+            HttpClient(base_url="http://localhost:8003") as http_client,
+        ):
             tool_calls = await mcp_client.list_tool_calls()
 
             for tool_call in tool_calls:
@@ -87,25 +95,30 @@ class ReactAgent:
                 # - compress long histories,
                 # - offload detailed context into working memory storage,
                 # - keep the recent message(s) for short-term reasoning.
-                result = await http_client.execute_flow("summary_working_memory",
-                                                        messages=[x.simple_dump() for x in messages],
-                                                        working_summary_mode="auto",
-                                                        compact_ratio_threshold=0.75,
-                                                        max_total_tokens=20000,
-                                                        max_tool_message_tokens=2000,
-                                                        group_token_threshold=None,
-                                                        keep_recent_count=1,
-                                                        store_dir="./test_working_memory")
+                result = await http_client.execute_flow(
+                    "summary_working_memory",
+                    messages=[x.simple_dump() for x in messages],
+                    working_summary_mode="auto",
+                    compact_ratio_threshold=0.75,
+                    max_total_tokens=20000,
+                    max_tool_message_tokens=2000,
+                    group_token_threshold=None,
+                    keep_recent_count=1,
+                    store_dir="./test_working_memory",
+                )
 
                 # Convert the API result back into `Message` objects for the LLM.
                 messages = [Message(**x) for x in result.answer]
 
                 # Ask the LLM what to do next.
                 # You can plug in your own tool-calling strategy here.
-                assistant_message: Message = await self.llm.achat(messages=messages, tools=[
-                    tool_dict["grep_working_memory"],
-                    tool_dict["read_working_memory"],
-                ])
+                assistant_message: Message = await self.llm.achat(
+                    messages=messages,
+                    tools=[
+                        tool_dict["grep_working_memory"],
+                        tool_dict["read_working_memory"],
+                    ],
+                )
 
                 messages.append(assistant_message)
 
@@ -118,20 +131,25 @@ class ReactAgent:
                         logger.exception(f"unknown tool_call.name={tool_call.name}")
                         continue
 
-                    logger.info(f"round{i + 1}.{j} submit tool_calls={tool_call.name} "
-                                f"argument={tool_call.argument_dict}")
+                    logger.info(
+                        f"round{i + 1}.{j} submit tool_calls={tool_call.name} " f"argument={tool_call.argument_dict}",
+                    )
 
                     # Execute the tool via MCP and parse the result.
-                    result = await mcp_client.call_tool(tool_call.name,
-                                                        arguments=tool_call.argument_dict,
-                                                        parse_result=True)
+                    result = await mcp_client.call_tool(
+                        tool_call.name,
+                        arguments=tool_call.argument_dict,
+                        parse_result=True,
+                    )
 
                     # Attach the tool result as a TOOL-role message so the LLM
                     # can see and reason about it in the next step.
-                    messages.append(Message(
-                        role=Role.TOOL,
-                        tool_call_id=tool_call.id,
-                        content=result,
-                    ))
+                    messages.append(
+                        Message(
+                            role=Role.TOOL,
+                            tool_call_id=tool_call.id,
+                            content=result,
+                        ),
+                    )
 
             return messages
