@@ -20,7 +20,7 @@
   <strong>面向智能体的记忆管理工具包，Remember Me, Refine Me.</strong><br>
 </p>
 
-> 老版本请参阅 [0.2.x 版本文档](test/README_0_2_x_ZH.md)
+> 老版本请参阅 [0.2.x 版本文档](docs/README_0_2_x_ZH.md)
 
 ---
 
