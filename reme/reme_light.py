@@ -34,8 +34,8 @@ from .memory.file_based import (
     ReMeInMemoryMemory,
     AsMsgHandler,
 )
-from .memory.tools import MemorySearch
-from .memory.tools.file import FileIO
+from .memory.file_based import MemorySearch
+from .memory.file_based.tools import FileIO
 
 logger = get_std_logger()
 
@@ -681,26 +681,19 @@ class ReMeLight(Application):
 
     async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> ToolResponse:
         """
-        Perform semantic memory search using vector and full-text search.
-
-        This method searches the memory store for content relevant to the given query
-        using a hybrid approach combining vector similarity search and full-text search.
-        Results are ranked by relevance and filtered by the minimum score threshold.
+        Mandatory recall step: semantically search MEMORY.md + memory/*.md
+        (and optional session transcripts) before answering questions about
+        prior work, decisions, dates, people, preferences, or todos; returns
+        top snippets with path + lines.
 
         Args:
-            query (str): The search query string. Must not be empty.
-            max_results (int): Maximum number of results to return (1-100, default: 5)
-            min_score (float): Minimum relevance score threshold (0.001-0.999, default: 0.1)
+            query (str): The semantic search query to find relevant memory snippets.
+            max_results (int): Maximum number of search results to return (optional), default 5.
+            min_score (float): Minimum similarity score threshold for results (optional), default 0.1.
 
         Returns:
             ToolResponse: A ToolResponse containing the search results as text,
-                or an error message if the query is empty
-
-        Note:
-            - Vector search weight is controlled by self.vector_weight
-            - Candidate retrieval uses self.candidate_multiplier for broader search
-            - Parameters are validated and clamped to valid ranges
-            - Requires vector search to be enabled via embedding configuration
+                or an error message if the query is empty.
         """
         # Validate query parameter
         if not query:

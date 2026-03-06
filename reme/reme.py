@@ -7,7 +7,7 @@ from .config import ReMeConfigParser
 from .core import Application
 from .core.enumeration import MemoryType, Role
 from .core.schema import Message, MemoryNode
-from .memory.tools import (
+from .memory.vector_tools import (
     AddDraftAndRetrieveSimilarMemory,
     AddHistory,
     AddMemory,
@@ -17,8 +17,8 @@ from .memory.tools import (
     RetrieveMemory,
     UpdateProfilesV1,
 )
-from .memory.tools.profiles.profile_handler import ProfileHandler
-from .memory.tools.record.memory_handler import MemoryHandler
+from .memory.vector_tools.profiles.profile_handler import ProfileHandler
+from .memory.vector_tools.record.memory_handler import MemoryHandler
 from .memory.vector_based import (
     BaseMemoryAgent,
     PersonalRetriever,
@@ -185,7 +185,7 @@ class ReMe(Application):
             format_messages.append(message)
 
         if version == "default":
-            personal_summarizer_tools = [
+            personal_summarizer_tools: list = [
                 AddDraftAndRetrieveSimilarMemory(
                     enable_thinking_params=enable_thinking_params,
                     enable_memory_target=False,

@@ -75,7 +75,7 @@ capabilities for AI Agents:
 | `summary_memory`       | 📝 Write important memory to files | [Summarizer](reme/memory/file_based/summarizer.py) — ReActAgent + file tools (read / write / edit)                                                                          |
 | `compact_tool_result`  | ✂️ Compact oversized tool output   | [ToolResultCompactor](reme/memory/file_based/tool_result_compactor.py) — Truncate and save to `tool_result/`, keep file reference in message                                |
 | `pre_reasoning_hook`   | 🔄 Pre-reasoning hook              | Auto compact tool results + generate summary + async trigger memory summarization task                                                                                      |
-| `memory_search`        | 🔍 Semantic memory search          | [MemorySearch](reme/memory/tools/chunk/memory_search.py) — Vector + BM25 hybrid retrieval                                                                                   |
+| `memory_search`        | 🔍 Semantic memory search          | [MemorySearch](reme/memory/vector_tools/chunk/memory_search.py) — Vector + BM25 hybrid retrieval                                                                                   |
 | `get_in_memory_memory` | 🗂️ Create in-memory instance      | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token-aware memory management, supports compression summary and state serialization (static method) |
 
 ---
@@ -274,7 +274,7 @@ graph LR
 
 ### Memory Retrieval
 
-[MemorySearch](reme/memory/tools/chunk/memory_search.py) provides **vector + BM25 hybrid retrieval**:
+[MemorySearch](reme/memory/vector_tools/chunk/memory_search.py) provides **vector + BM25 hybrid retrieval**:
 
 | Retrieval           | Strength                                        | Weakness                               |
 |---------------------|-------------------------------------------------|----------------------------------------|

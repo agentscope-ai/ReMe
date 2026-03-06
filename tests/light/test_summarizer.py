@@ -15,7 +15,7 @@ from test_utils import (
 )
 from reme.core.utils import get_std_logger
 from reme.memory.file_based import Summarizer
-from reme.memory.tools.file import FileIO
+from reme.memory.file_based.tools import FileIO
 
 logger = get_std_logger()
 
