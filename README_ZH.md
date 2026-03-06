@@ -67,7 +67,7 @@ working_dir/
 | `summary_memory`       | 📝 将重要记忆写入文件 | [Summarizer](reme/memory/file_based/component/summarizer.py) — ReActAgent + 文件工具（read / write / edit）                       |
 | `compact_tool_result`  | ✂️ 压缩超长工具输出  | [ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) — 截断超长的工具调用结果并转存到 `tool_result/`，消息中保留文件引用 |
 | `memory_search`        | 🔍 语义搜索记忆    | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — 向量 + BM25 混合检索                                              |
-| `get_in_memory_memory` | 🗂️ 创建会话内存实例 | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token 感知的内存管理，支持压缩摘要和状态序列化（静态方法）                    |
+| `ReMeInMemoryMemory`   | 🗂️ 会话内存类    | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token 感知的内存管理，支持压缩摘要和状态序列化                    |
 | `pre_reasoning_hook`   | 🔄 推理前预处理钩子  | compact_tool_result + check_context + compact_memory + summary_memory(async)                                                |
 | `start`                | 🚀 启动记忆系统    | 初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件                                                                                        |
 | `close`                | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                                             |·
@@ -141,8 +141,9 @@ async def main():
     # 5. 语义搜索记忆（向量 + BM25 混合检索）
     result = await reme.memory_search(query="Python 版本偏好", max_results=5)
 
-    # 6. 获取会话内存实例（静态方法，管理单次对话的上下文）
-    memory = ReMeLight.get_in_memory_memory()
+    # 6. 创建会话内存实例（管理单次对话的上下文）
+    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
+    memory = ReMeInMemoryMemory()
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
@@ -178,7 +179,7 @@ graph LR
     CC -->|超限| SM[summary_memory<br>异步持久化]
     SM -->|ReAct + FileIO| Files[memory/*.md]
     Agent -->|主动调用| Search[memory_search<br>向量+BM25]
-    Agent -->|静态方法| InMem[get_in_memory_memory<br>Token感知内存]
+    Agent -->|会话内存| InMem[ReMeInMemoryMemory<br>Token感知内存]
     Files -.->|FileWatcher| Store[(FileStore<br>向量+FTS索引)]
     Search --> Store
 ```
@@ -294,7 +295,7 @@ graph LR
 
 ---
 
-#### 6. get_in_memory_memory — 会话内存
+#### 6. ReMeInMemoryMemory — 会话内存
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展 AgentScope 的 `InMemoryMemory`，提供 Token
 感知的内存管理。

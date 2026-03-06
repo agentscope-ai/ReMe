@@ -71,7 +71,7 @@ capabilities for AI agents:
 | `summary_memory`       | 📝 Persist important memory to files | [Summarizer](reme/memory/file_based/component/summarizer.py) — ReActAgent + file tools (`read` / `write` / `edit`)                                                                         |
 | `compact_tool_result`  | ✂️ Compact long tool outputs         | [ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) — truncates long tool outputs and stores them in `tool_result/` while keeping file references in messages |
 | `memory_search`        | 🔍 Semantic memory search            | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — hybrid retrieval with vectors + BM25                                                                                       |
-| `get_in_memory_memory` | 🗂️ Create in-session memory         | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — token-aware memory management with summary compression and state serialization (static method)                     |
+| `ReMeInMemoryMemory`   | 🗂️ In-session memory class          | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — token-aware memory management with summary compression and state serialization                                     |
 | `pre_reasoning_hook`   | 🔄 Pre-reasoning hook                | `compact_tool_result` + `check_context` + `compact_memory` + `summary_memory` (async)                                                                                                      |
 | `start`                | 🚀 Start memory system               | Initialize file storage, file watcher, and embedding cache; clean up expired tool result files                                                                                             |
 | `close`                | 📕 Shutdown and cleanup              | Clean up tool result files, stop file watcher, and persist embedding cache                                                                                                                 |
@@ -146,8 +146,9 @@ async def main():
     # 5. Semantic memory search (vector + BM25 hybrid retrieval)
     result = await reme.memory_search(query="Python version preference", max_results=5)
 
-    # 6. Get in-session memory instance (static method, manages context for one conversation)
-    memory = ReMeLight.get_in_memory_memory()
+    # 6. Create in-session memory instance (manages context for one conversation)
+    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
+    memory = ReMeInMemoryMemory()
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
@@ -185,7 +186,7 @@ graph LR
     CC -->|Exceeds limit| SM[summary_memory<br>Async persistence]
     SM -->|ReAct + FileIO| Files[memory/*.md]
     Agent -->|Explicit call| Search[memory_search<br>Vector+BM25]
-    Agent -->|Static method| InMem[get_in_memory_memory<br>Token-aware memory]
+    Agent -->|In-session| InMem[ReMeInMemoryMemory<br>Token-aware memory]
     Files -.->|FileWatcher| Store[(FileStore<br>Vector+FTS index)]
     Search --> Store
 ```
@@ -307,7 +308,7 @@ graph LR
 
 ---
 
-#### 6. `get_in_memory_memory` — in-session memory
+#### 6. `ReMeInMemoryMemory` — in-session memory
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) extends AgentScope's `InMemoryMemory` to provide
 token-aware memory management.
