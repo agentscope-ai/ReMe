@@ -48,7 +48,7 @@ Taking Appworld as an example, you can refer to issues [#55](https://github.com/
 - About A-mem and LangMem code, please see [#67](https://github.com/agentscope-ai/ReMe/issues/67).
 
 ## Environment Setup
-### 1. BFCL-V3 code versione
+### 1. BFCL-V3 code version
 We use the BFCL GitHub repository with commit_id=[ea13468](https://github.com/ShishirPatil/gorilla/commit/ea13468e4423454d0c213704fb87cf7cb3990433) in our experiments.
 
 ### 2. preprocess BFCL-V3 multi_turn_base data
