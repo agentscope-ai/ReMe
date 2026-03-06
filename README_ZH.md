@@ -171,16 +171,16 @@ if __name__ == "__main__":
 
 ```mermaid
 graph LR
-    Agent[Agent] -->|调用| Hook[pre_reasoning_hook]
-    Hook --> CheckCtx[check_context]
-    Hook --> Compact[compact_memory]
-    Hook --> Summary[summary_memory]
-    Hook --> ToolCompact[compact_tool_result]
-    Agent -->|主动调用| Search[memory_search]
-    Agent -->|静态方法| InMem[get_in_memory_memory]
-    Summary -->|写入| Files[memory.md]
-    Files -.->|监控| Store[FileStore]
-    Search -->|检索| Store
+    Agent[Agent] -->|每轮推理前| Hook[pre_reasoning_hook]
+    Hook --> TC[compact_tool_result<br>压缩工具输出]
+    TC --> CC[check_context<br>Token 计数]
+    CC -->|超限| CM[compact_memory<br>生成摘要]
+    CC -->|超限| SM[summary_memory<br>异步持久化]
+    SM -->|ReAct + FileIO| Files[memory.md]
+    Agent -->|主动调用| Search[memory_search<br>向量+BM25]
+    Agent -->|静态方法| InMem[get_in_memory_memory<br>Token感知内存]
+    Files -.->|FileWatcher| Store[(FileStore<br>向量+FTS索引)]
+    Search --> Store
 ```
 
 ---
@@ -191,12 +191,13 @@ graph LR
 
 ```mermaid
 graph LR
-    M[消息列表] --> T[Token 计数]
-    T --> C{超过阈值?}
-    C -->|否| K[全部保留]
-    C -->|是| S[拆分消息]
-    S --> CP[待压缩]
-    S --> KP[保留]
+    M[messages] --> H[AsMsgHandler<br>Token 计数]
+    H --> C{total > threshold?}
+    C -->|否| K[返回全部消息]
+    C -->|是| S[从尾部向前保留<br>reserve tokens]
+    S --> CP[messages_to_compact<br>早期消息]
+    S --> KP[messages_to_keep<br>近期消息]
+    S --> V{is_valid<br>工具调用对齐?}
 ```
 
 - **核心逻辑**：从尾部向前保留 `reserve` tokens，超出部分标记为待压缩
@@ -210,10 +211,10 @@ graph LR
 
 ```mermaid
 graph LR
-    H[历史对话] --> F[格式化]
-    F --> A[ReActAgent]
-    P[previous_summary] --> A
-    A --> S[结构化摘要]
+    M[messages] --> H[AsMsgHandler<br>format_msgs_to_str]
+    H --> A[ReActAgent<br>reme_compactor]
+    P[previous_summary] -->|增量更新| A
+    A --> S[结构化摘要<br>Goal/Progress/Decisions...]
 ```
 
 **摘要结构**（上下文检查点）：
@@ -237,9 +238,13 @@ graph LR
 
 ```mermaid
 graph LR
-    C[对话] --> A[ReActAgent]
-    A -->|read| R[读取现有记忆]
-    A -->|write/edit| W[写入 memory/YYYY-MM-DD.md]
+    M[messages] --> A[ReActAgent<br>reme_summarizer]
+    A -->|read| R[读取 memory/YYYY-MM-DD.md]
+    R --> T{思考: 如何合并?}
+    T -->|write| W[覆盖写入]
+    T -->|edit| E[精确替换]
+    W --> F[memory/YYYY-MM-DD.md]
+    E --> F
 ```
 
 **文件工具**（[FileIO](reme/memory/file_based/tools/file_io.py)）：
@@ -258,11 +263,12 @@ graph LR
 
 ```mermaid
 graph LR
-    T[tool_result] --> C{长度 > 阈值?}
-    C -->|否| K[保留原样]
-    C -->|是| X[截断内容]
-    X --> S[完整内容存入 tool_result/uuid.txt]
-    S --> R[消息中追加文件引用]
+    M[messages] --> L{遍历 tool_result<br>len > threshold?}
+    L -->|否| K[保留原样]
+    L -->|是| T[truncate_text<br>截断到 threshold]
+    T --> S[完整内容写入<br>tool_result/uuid.txt]
+    S --> R[消息追加文件路径引用]
+    R --> C[cleanup_expired_files<br>清理过期文件]
 ```
 
 - **自动清理**：过期文件（超过 `retention_days`）在 `start`/`close`/`compact_tool_result` 时自动删除
@@ -275,11 +281,13 @@ graph LR
 
 ```mermaid
 graph LR
-    Q[查询] --> V[向量搜索]
-    Q --> B[BM25 搜索]
-    V --> M[加权融合]
-    B --> M
-    M --> R[Top-N 结果]
+    Q[query] --> E[Embedding<br>向量化]
+    E --> V[vector_search<br>语义相似]
+    Q --> B[BM25<br>关键词匹配]
+    V -->|weight 0.7| M[去重 + 加权融合]
+    B -->|weight 0.3| M
+    M --> F[min_score 过滤]
+    F --> R[Top-N 结果]
 ```
 
 - **融合机制**：向量权重 0.7 + BM25 权重 0.3，兼顾语义相似和精确匹配
@@ -292,10 +300,12 @@ graph LR
 
 ```mermaid
 graph LR
-    M[消息列表] --> G[get_memory]
-    G --> F[按标记过滤]
-    F --> P[追加压缩摘要]
-    P --> O[输出]
+    C[content] --> G[get_memory<br>exclude_mark=COMPRESSED]
+    G --> F[排除已压缩消息]
+    F --> P{prepend_summary?}
+    P -->|是| S[头部插入 previous-summary]
+    S --> O[输出 messages]
+    P -->|否| O
 ```
 
 | 功能                               | 说明                |
@@ -312,13 +322,15 @@ graph LR
 
 ```mermaid
 graph LR
-    M[消息] --> T[compact_tool_result]
-    T --> C[check_context]
-    C --> D{需要压缩?}
-    D -->|否| K[返回原消息]
-    D -->|是| CP[compact_memory]
-    D -->|是| SM[summary_memory 异步]
-    CP --> R[返回保留消息 + 摘要]
+    M[messages] --> TC[compact_tool_result<br>压缩超长工具输出]
+    TC --> CC[check_context<br>计算剩余空间]
+    CC --> D{messages_to_compact<br>非空?}
+    D -->|否| K[返回原消息 + 原摘要]
+    D -->|是| V{is_valid?}
+    V -->|否| K
+    V -->|是| CM[compact_memory<br>同步生成摘要]
+    V -->|是| SM[add_async_summary_task<br>异步持久化]
+    CM --> R[返回 messages_to_keep + 新摘要]
 ```
 
 **执行流程**：
