@@ -70,8 +70,7 @@ working_dir/
 | `get_in_memory_memory` | 🗂️ 创建会话内存实例 | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token 感知的内存管理，支持压缩摘要和状态序列化（静态方法）                    |
 | `pre_reasoning_hook`   | 🔄 推理前预处理钩子  | compact_tool_result + check_context + compact_memory + summary_memory(async)                                                |
 | `start`                | 🚀 启动记忆系统    | 初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件                                                                                        |
-| `close`                | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                                             |
-
+| `close`                | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                                             |·
 ---
 
 ### 🚀 快速开始
@@ -163,8 +162,7 @@ if __name__ == "__main__":
 ```
 
 > 📂 完整示例代码：[test_reme_light.py](tests/light/test_reme_light.py)
-> 📋 运行结果示例：[test_reme_light_log.txt](tests/light/test_reme_light_log.txt)（223,838 tokens → 1,105 tokens，压缩率
-> 99.5%）
+> 📋 运行结果示例：[test_reme_light_log.txt](tests/light/test_reme_light_log.txt)（223,838 tokens → 1,105 tokens，压缩率99.5%）
 
 ### 基于文件的 ReMeLight 记忆系统架构
 
@@ -483,6 +481,39 @@ graph LR
     ProceduralRet --> VectorStore
     ToolRet --> VectorStore
 ```
+
+### 实验效果
+
+Coming soon...
+
+---
+
+## 🧪 程序化记忆论文
+
+> 我们的程序性（任务）记忆论文已在 [arXiv](https://arxiv.org/abs/2512.10696) 发布
+
+### 🌍 [Appworld 实验](benchmark/appworld/quickstart.md)
+
+我们在 Appworld 环境上使用 Qwen3-8B（非思考模式）进行评测：
+
+| 方法      | Avg@4               | Pass@4              |
+|---------|---------------------|---------------------|
+| 无 ReMe  | 0.1497              | 0.3285              |
+| 使用 ReMe | 0.1706 **(+2.09%)** | 0.3631 **(+3.46%)** |
+
+Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1）的概率。
+当前实验使用的是内部 AppWorld 环境，可能与对外版本存在轻微差异。
+
+关于如何复现实验的更多细节，见 [quickstart.md](benchmark/appworld/quickstart.md)
+
+### 🔧 [BFCL-V3 实验](benchmark/bfcl/quickstart.md)
+
+我们在 BFCL-V3 multi-turn-base 任务（随机划分 50 train / 150 val）上，使用 Qwen3-8B（思考模式）进行评测：
+
+| 方法      | Avg@4               | Pass@4              |
+|---------|---------------------|---------------------|
+| 无 ReMe  | 0.4033              | 0.5955              |
+| 使用 ReMe | 0.4450 **(+4.17%)** | 0.6577 **(+6.22%)** |
 
 ## ⭐ 社区与支持
 
