@@ -516,6 +516,9 @@ Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1
 | 无 ReMe  | 0.4033              | 0.5955              |
 | 使用 ReMe | 0.4450 **(+4.17%)** | 0.6577 **(+6.22%)** |
 
+关于如何复现实验的更多细节，见 [quickstart.md](benchmark/bfcl/quickstart.md)
+
+
 ## ⭐ 社区与支持
 
 - **Star 与 Watch**：Star 可让更多智能体开发者发现 ReMe；Watch 可助你第一时间获知新版本与特性。

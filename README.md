@@ -167,7 +167,7 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-> 📂 Full example: [test_reme_light.py](tests/light/test_reme_light.py)  
+> 📂 Full example: [test_reme_light.py](tests/light/test_reme_light.py)
 > 📋 Sample run log: [test_reme_light_log.txt](tests/light/test_reme_light_log.txt) (223,838 tokens → 1,105 tokens, 99.5%
 > compression)
 
@@ -383,7 +383,7 @@ memories:
 
 ### Installation and environment variables
 
-Installation and environment configuration are the same as [ReMeLight](#installation).  
+Installation and environment configuration are the same as [ReMeLight](#installation).
 API keys are configured via environment variables and can be stored in a `.env` file at the project root.
 
 ### Python usage
@@ -518,7 +518,7 @@ We evaluate ReMe on the Appworld environment using Qwen3-8B (non-thinking mode):
 | w/o ReMe | 0.1497              | 0.3285              |
 | w/ ReMe  | 0.1706 **(+2.09%)** | 0.3631 **(+3.46%)** |
 
-Pass@K measures the probability that at least one of K generated candidates successfully completes the task (score=1).  
+Pass@K measures the probability that at least one of K generated candidates successfully completes the task (score=1).
 The current experiments use an internal AppWorld environment, which may differ slightly from the public version.
 
 For more details on how to reproduce the experiments, see [quickstart.md](benchmark/appworld/quickstart.md).
@@ -531,6 +531,9 @@ We evaluate ReMe on the BFCL-V3 multi-turn-base task (random split 50 train / 15
 |----------|---------------------|---------------------|
 | w/o ReMe | 0.4033              | 0.5955              |
 | w/ ReMe  | 0.4450 **(+4.17%)** | 0.6577 **(+6.22%)** |
+
+For more details on how to reproduce the experiments, see [quickstart.md](benchmark/bfcl/quickstart.md).
+
 
 ## ⭐ Community & support
 
