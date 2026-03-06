@@ -64,6 +64,7 @@ working_dir/
 |------------------------|--------------|----------------------------------------------------------------------------------------------------------|
 | `start`                | 🚀 启动记忆系统    | 初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件                                                                     |
 | `close`                | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                          |
+| `check_context`        | 📊 检查上下文大小   | [ContextChecker](reme/memory/file_based/component/context_checker.py) — 检查上下文是否超出阈值并拆分消息                   |
 | `compact_memory`       | 📦 压缩历史对话为摘要 | [Compactor](reme/memory/file_based/compactor.py) — ReActAgent 生成结构化上下文检查点                                |
 | `summary_memory`       | 📝 将重要记忆写入文件 | [Summarizer](reme/memory/file_based/summarizer.py) — ReActAgent + 文件工具（read / write / edit）              |
 | `compact_tool_result`  | ✂️ 压缩超长工具输出  | [ToolResultCompactor](reme/memory/file_based/tool_result_compactor.py) — 截断并转存到 `tool_result/`，消息中保留文件引用 |
