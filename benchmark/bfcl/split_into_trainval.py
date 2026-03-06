@@ -61,9 +61,8 @@ if __name__ == "__main__":
     parser.add_argument("--ratio", type=float, default=0.5, help="Train ratio (default: 0.8)")
     parser.add_argument(
         "--random",
-        type=bool,
-        default=False,
-        help="Whether to randomly split input into train/val (default: false). "
+        action="store_true",
+        help="Whether to randomly split input into train/val. "
         "If false, split strictly by default train/val id sets (see default_ids.py).",
     )
     args = parser.parse_args()
