@@ -6,8 +6,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from agentscope.message import Msg
-from reme.memory.file_based import ToolResultCompactor
+
 from reme.core.utils import is_truncated
+from reme.memory.file_based.components import ToolResultCompactor
 
 
 def create_tool_result_msg(output: str | list, tool_name: str = "test_tool") -> Msg:

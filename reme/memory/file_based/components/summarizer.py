@@ -7,7 +7,7 @@ from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit
 
-from ..as_msg_handler import AsMsgHandler
+from ..utils import AsMsgHandler
 from ....core.op import BaseOp
 from ....core.utils import get_std_logger
 
@@ -40,10 +40,13 @@ class Summarizer(BaseOp):
         if not messages:
             return ""
 
+        before_token_count = self.msg_handler.count_msgs_token(messages)
         history_formatted_str: str = self.msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
         )
+        after_token_count = self.msg_handler.count_str_token(history_formatted_str)
+        logger.info(f"Summarizer before_token_count={before_token_count} after_token_count={after_token_count}")
 
         if not history_formatted_str:
             logger.warning(f"No history to summarize. messages={messages}")

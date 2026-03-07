@@ -60,17 +60,18 @@ working_dir/
 
 [ReMeLight](reme/reme_light.py) 是该记忆系统的核心类，为 AI Agent 提供完整的记忆管理能力：
 
-| 方法                     | 功能           | 关键组件                                                                                                                        |
-|------------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `check_context`        | 📊 检查上下文大小   | [ContextChecker](reme/memory/file_based/component/context_checker.py) — 检查上下文是否超出阈值并拆分Message                               |
-| `compact_memory`       | 📦 压缩历史对话为摘要 | [Compactor](reme/memory/file_based/component/compactor.py) — ReActAgent 生成结构化上下文摘要                                          |
-| `summary_memory`       | 📝 将重要记忆写入文件 | [Summarizer](reme/memory/file_based/component/summarizer.py) — ReActAgent + 文件工具（read / write / edit）                       |
-| `compact_tool_result`  | ✂️ 压缩超长工具输出  | [ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) — 截断超长的工具调用结果并转存到 `tool_result/`，消息中保留文件引用 |
-| `memory_search`        | 🔍 语义搜索记忆    | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — 向量 + BM25 混合检索                                              |
-| `ReMeInMemoryMemory`   | 🗂️ 会话内存类    | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token 感知的内存管理，支持压缩摘要和状态序列化                    |
-| `pre_reasoning_hook`   | 🔄 推理前预处理钩子  | compact_tool_result + check_context + compact_memory + summary_memory(async)                                                |
-| `start`                | 🚀 启动记忆系统    | 初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件                                                                                        |
-| `close`                | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                                             |·
+| 方法                    | 功能           | 关键组件                                                                                                                         |
+|-----------------------|--------------|------------------------------------------------------------------------------------------------------------------------------|
+| `check_context`       | 📊 检查上下文大小   | [ContextChecker](reme/memory/file_based/components/context_checker.py) — 检查上下文是否超出阈值并拆分Message                               |
+| `compact_memory`      | 📦 压缩历史对话为摘要 | [Compactor](reme/memory/file_based/components/compactor.py) — ReActAgent 生成结构化上下文摘要                                          |
+| `summary_memory`      | 📝 将重要记忆写入文件 | [Summarizer](reme/memory/file_based/components/summarizer.py) — ReActAgent + 文件工具（read / write / edit）                       |
+| `compact_tool_result` | ✂️ 压缩超长工具输出  | [ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) — 截断超长的工具调用结果并转存到 `tool_result/`，消息中保留文件引用 |
+| `memory_search`       | 🔍 语义搜索记忆    | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — 向量 + BM25 混合检索                                               |
+| `ReMeInMemoryMemory`  | 🗂️ 会话内存类    | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — Token 感知的内存管理，支持压缩摘要和状态序列化                           |
+| `pre_reasoning_hook`  | 🔄 推理前预处理钩子  | compact_tool_result + check_context + compact_memory + summary_memory(async)                                                 |
+| `start`               | 🚀 启动记忆系统    | 初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件                                                                                         |
+| `close`               | 📕 关闭并清理     | 清理工具结果文件、停止文件监控、保存 Embedding 缓存                                                                                              |·
+
 ---
 
 ### 🚀 快速开始
@@ -188,7 +189,7 @@ graph LR
 
 #### 1. check_context — 上下文检查
 
-[ContextChecker](reme/memory/file_based/component/context_checker.py) 基于 Token 计数判断上下文是否超限，自动拆分为「待压缩」和「保留」两组消息。
+[ContextChecker](reme/memory/file_based/components/context_checker.py) 基于 Token 计数判断上下文是否超限，自动拆分为「待压缩」和「保留」两组消息。
 
 ```mermaid
 graph LR
@@ -208,7 +209,7 @@ graph LR
 
 #### 2. compact_memory — 对话压缩
 
-[Compactor](reme/memory/file_based/component/compactor.py) 使用 ReActAgent 将历史对话压缩为**结构化上下文摘要**。
+[Compactor](reme/memory/file_based/components/compactor.py) 使用 ReActAgent 将历史对话压缩为**结构化上下文摘要**。
 
 ```mermaid
 graph LR
@@ -235,7 +236,7 @@ graph LR
 
 #### 3. summary_memory — 记忆持久化
 
-[Summarizer](reme/memory/file_based/component/summarizer.py) 采用 **ReAct + 文件工具** 模式，让 AI 自主决定写什么、写到哪。
+[Summarizer](reme/memory/file_based/components/summarizer.py) 采用 **ReAct + 文件工具** 模式，让 AI 自主决定写什么、写到哪。
 
 ```mermaid
 graph LR
@@ -260,7 +261,7 @@ graph LR
 
 #### 4. compact_tool_result — 工具结果压缩
 
-[ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。
+[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。
 
 ```mermaid
 graph LR
@@ -517,7 +518,6 @@ Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1
 | 使用 ReMe | 0.4450 **(+4.17%)** | 0.6577 **(+6.22%)** |
 
 关于如何复现实验的更多细节，见 [quickstart.md](benchmark/bfcl/quickstart.md)
-
 
 ## ⭐ 社区与支持
 

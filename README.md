@@ -20,7 +20,7 @@
   <strong>A memory management toolkit for AI agents — Remember Me, Refine Me.</strong><br>
 </p>
 
-> For the older version, please refer to the [0.2.x documentation](docs/README_0_2_x_ZH.md).
+> For the older version, please refer to the [0.2.x documentation](docs/README_0_2_x.md).
 
 ---
 
@@ -64,17 +64,17 @@ working_dir/
 [ReMeLight](reme/reme_light.py) is the core class of the file-based memory system. It provides full memory management
 capabilities for AI agents:
 
-| Method                 | Function                             | Key components                                                                                                                                                                             |
-|------------------------|--------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `check_context`        | 📊 Check context size                | [ContextChecker](reme/memory/file_based/component/context_checker.py) — checks whether context exceeds thresholds and splits messages                                                      |
-| `compact_memory`       | 📦 Compact history into summary      | [Compactor](reme/memory/file_based/component/compactor.py) — ReActAgent that generates structured context summaries                                                                        |
-| `summary_memory`       | 📝 Persist important memory to files | [Summarizer](reme/memory/file_based/component/summarizer.py) — ReActAgent + file tools (`read` / `write` / `edit`)                                                                         |
-| `compact_tool_result`  | ✂️ Compact long tool outputs         | [ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) — truncates long tool outputs and stores them in `tool_result/` while keeping file references in messages |
-| `memory_search`        | 🔍 Semantic memory search            | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — hybrid retrieval with vectors + BM25                                                                                       |
-| `ReMeInMemoryMemory`   | 🗂️ In-session memory class          | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — token-aware memory management with summary compression and state serialization                                     |
-| `pre_reasoning_hook`   | 🔄 Pre-reasoning hook                | `compact_tool_result` + `check_context` + `compact_memory` + `summary_memory` (async)                                                                                                      |
-| `start`                | 🚀 Start memory system               | Initialize file storage, file watcher, and embedding cache; clean up expired tool result files                                                                                             |
-| `close`                | 📕 Shutdown and cleanup              | Clean up tool result files, stop file watcher, and persist embedding cache                                                                                                                 |
+| Method                | Function                             | Key components                                                                                                                                                                              |
+|-----------------------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `check_context`       | 📊 Check context size                | [ContextChecker](reme/memory/file_based/components/context_checker.py) — checks whether context exceeds thresholds and splits messages                                                      |
+| `compact_memory`      | 📦 Compact history into summary      | [Compactor](reme/memory/file_based/components/compactor.py) — ReActAgent that generates structured context summaries                                                                        |
+| `summary_memory`      | 📝 Persist important memory to files | [Summarizer](reme/memory/file_based/components/summarizer.py) — ReActAgent + file tools (`read` / `write` / `edit`)                                                                         |
+| `compact_tool_result` | ✂️ Compact long tool outputs         | [ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) — truncates long tool outputs and stores them in `tool_result/` while keeping file references in messages |
+| `memory_search`       | 🔍 Semantic memory search            | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — hybrid retrieval with vectors + BM25                                                                                        |
+| `ReMeInMemoryMemory`  | 🗂️ In-session memory class          | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — token-aware memory management with summary compression and state serialization                                      |
+| `pre_reasoning_hook`  | 🔄 Pre-reasoning hook                | `compact_tool_result` + `check_context` + `compact_memory` + `summary_memory` (async)                                                                                                       |
+| `start`               | 🚀 Start memory system               | Initialize file storage, file watcher, and embedding cache; clean up expired tool result files                                                                                              |
+| `close`               | 📕 Shutdown and cleanup              | Clean up tool result files, stop file watcher, and persist embedding cache                                                                                                                  |
 
 ---
 
@@ -186,7 +186,7 @@ graph LR
     CC -->|Exceeds limit| SM[summary_memory<br>Async persistence]
     SM -->|ReAct + FileIO| Files[memory/*.md]
     Agent -->|Explicit call| Search[memory_search<br>Vector+BM25]
-    Agent -->|In-session| InMem[ReMeInMemoryMemory<br>Token-aware memory]
+    Agent -->|In - session| InMem[ReMeInMemoryMemory<br>Token-aware memory]
     Files -.->|FileWatcher| Store[(FileStore<br>Vector+FTS index)]
     Search --> Store
 ```
@@ -195,7 +195,7 @@ graph LR
 
 #### 1. `check_context` — context checking
 
-[ContextChecker](reme/memory/file_based/component/context_checker.py) uses token counting to determine whether the
+[ContextChecker](reme/memory/file_based/components/context_checker.py) uses token counting to determine whether the
 context exceeds thresholds and automatically splits messages into a "to compact" group and a "to keep" group.
 
 ```mermaid
@@ -217,7 +217,7 @@ graph LR
 
 #### 2. `compact_memory` — conversation compaction
 
-[Compactor](reme/memory/file_based/component/compactor.py) uses a ReActAgent to compact conversation history into a *
+[Compactor](reme/memory/file_based/components/compactor.py) uses a ReActAgent to compact conversation history into a *
 *structured context summary**.
 
 ```mermaid
@@ -245,7 +245,7 @@ graph LR
 
 #### 3. `summary_memory` — persistent memory
 
-[Summarizer](reme/memory/file_based/component/summarizer.py) uses a **ReAct + file tools** pattern so that the AI can
+[Summarizer](reme/memory/file_based/components/summarizer.py) uses a **ReAct + file tools** pattern so that the AI can
 decide what to write and where to write it.
 
 ```mermaid
@@ -271,7 +271,7 @@ graph LR
 
 #### 4. `compact_tool_result` — tool result compaction
 
-[ToolResultCompactor](reme/memory/file_based/component/tool_result_compactor.py) addresses the problem of long tool
+[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) addresses the problem of long tool
 outputs bloating the context.
 
 ```mermaid
@@ -533,7 +533,6 @@ We evaluate ReMe on the BFCL-V3 multi-turn-base task (random split 50 train / 15
 | w/ ReMe  | 0.4450 **(+4.17%)** | 0.6577 **(+6.22%)** |
 
 For more details on how to reproduce the experiments, see [quickstart.md](benchmark/bfcl/quickstart.md).
-
 
 ## ⭐ Community & support
 

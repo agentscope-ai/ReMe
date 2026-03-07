@@ -4,7 +4,7 @@ import os
 
 from agentscope.message import Msg, ThinkingBlock, TextBlock, ToolUseBlock, ToolResultBlock
 
-from reme.memory.file_based import AsMsgHandler
+from reme.memory.file_based.utils import AsMsgHandler
 
 
 def get_token_counter():

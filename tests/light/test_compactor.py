@@ -3,7 +3,6 @@
 import asyncio
 
 from agentscope.message import Msg
-
 from test_utils import (
     get_dash_chat_model,
     get_formatter,
@@ -11,8 +10,7 @@ from test_utils import (
 )
 
 from reme.core.utils import get_std_logger
-from reme.memory.file_based import Compactor
-
+from reme.memory.file_based.components import Compactor
 
 logger = get_std_logger()
 

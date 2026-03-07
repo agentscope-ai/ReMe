@@ -5,7 +5,7 @@ from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
-from .as_msg_handler import AsMsgHandler
+from .utils import AsMsgHandler
 from ...core.utils import get_std_logger
 
 logger = get_std_logger()

@@ -7,15 +7,15 @@ from pathlib import Path
 
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
-
 from test_utils import (
     get_dash_chat_model,
     get_formatter,
     get_token_counter,
 )
 from reme.core.utils import get_std_logger
-from reme.memory.file_based import Summarizer
+from reme.memory.file_based.components import Summarizer
 from reme.memory.file_based.tools import FileIO
+
 
 logger = get_std_logger()
 

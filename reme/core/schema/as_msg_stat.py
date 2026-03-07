@@ -26,6 +26,12 @@ class AsBlockStat(BaseModel):
         """Return a short preview of the block content."""
         return self.format(_DEFAULT_MAX_BLOCK_TEXT_PREVIEW_LENGTH)
 
+    def _truncate(self, text: str, max_length: int) -> str:
+        """Simple truncation with ellipsis."""
+        if len(text) <= max_length:
+            return text
+        return text[:max_length] + "..."
+
     # pylint: disable=too-many-return-statements
     def format(self, max_length: int = _DEFAULT_MAX_FORMATTER_TEXT_LENGTH, include_thinking: bool = True) -> str:
         """Format block content to string representation.
@@ -37,22 +43,25 @@ class AsBlockStat(BaseModel):
         Returns:
             Formatted string representation of the block.
         """
-        from ..utils import truncate_text
-
         if self.block_type == "text":
-            return truncate_text(self.text, max_length) if self.text else ""
+            if not self.text:
+                return ""
+            return f"<text>{self._truncate(self.text, max_length)}</text>"
         if self.block_type == "thinking":
-            if include_thinking and self.text:
-                return f"<thinking>\n{truncate_text(self.text, max_length)}\n</thinking>"
-            return ""
+            if not include_thinking or not self.text:
+                return ""
+            return f"<thinking>{self._truncate(self.text, max_length)}</thinking>"
         if self.block_type in ("image", "audio", "video"):
-            return f"[{self.block_type}] {self.media_url}" if self.media_url else f"[{self.block_type}]"
-        if self.block_type in ("tool_use", "tool_result"):
-            if self.block_type == "tool_use":
-                return f" - tool_call={self.tool_name} params={truncate_text(self.tool_input, max_length)}"
-            else:
-                output = truncate_text(self.tool_output, max_length)
-                return f" - tool_result={self.tool_name} output={output}" if output else ""
+            content = self.media_url if self.media_url else ""
+            return f"<{self.block_type}>{content}</{self.block_type}>"
+        if self.block_type == "tool_use":
+            content = f"{self.tool_name} params={self._truncate(self.tool_input, max_length)}"
+            return f"<tool_use>{content}</tool_use>"
+        if self.block_type == "tool_result":
+            if not self.tool_output:
+                return ""
+            content = f"{self.tool_name} output={self._truncate(self.tool_output, max_length)}"
+            return f"<tool_result>{content}</tool_result>"
         return ""
 
 

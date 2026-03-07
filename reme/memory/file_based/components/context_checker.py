@@ -3,7 +3,7 @@
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
-from ..as_msg_handler import AsMsgHandler
+from ..utils import AsMsgHandler
 from ....core.op import BaseOp
 from ....core.utils import get_std_logger
 
@@ -87,11 +87,12 @@ class ContextChecker(BaseOp):
             memory_compact_reserve=self.memory_compact_reserve,
         )
 
-        logger.info(
-            f"ContextChecker Result: "
-            f"to_compact={len(messages_to_compact)}, "
-            f"to_keep={len(messages_to_keep)}, "
-            f"is_valid={is_valid}",
-        )
+        if messages_to_compact:
+            logger.info(
+                f"ContextChecker Result: "
+                f"to_compact={len(messages_to_compact)}, "
+                f"to_keep={len(messages_to_keep)}, "
+                f"is_valid={is_valid}",
+            )
 
         return messages_to_compact, messages_to_keep, is_valid

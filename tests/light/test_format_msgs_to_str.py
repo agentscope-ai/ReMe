@@ -5,10 +5,10 @@
 import sys
 
 from agentscope.message import Msg
-
 from test_utils import get_token_counter
+
 from reme.core.utils import get_std_logger
-from reme.memory.file_based.as_msg_handler import AsMsgHandler
+from reme.memory.file_based.utils import AsMsgHandler
 
 logger = get_std_logger()
 

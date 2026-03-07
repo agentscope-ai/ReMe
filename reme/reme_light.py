@@ -26,16 +26,15 @@ from agentscope.tool import Toolkit, ToolResponse
 from .config import ReMeConfigParser
 from .core import Application
 from .core.utils import get_hf_token_counter, get_std_logger
-from .memory.file_based import (
+from .memory.file_based import ReMeInMemoryMemory
+from .memory.file_based.components import (
     Compactor,
     ContextChecker,
     Summarizer,
     ToolResultCompactor,
-    ReMeInMemoryMemory,
-    AsMsgHandler,
 )
-from .memory.file_based import MemorySearch
-from .memory.file_based.tools import FileIO
+from .memory.file_based.tools import FileIO, MemorySearch
+from .memory.file_based.utils import AsMsgHandler
 
 logger = get_std_logger()
 
@@ -487,7 +486,7 @@ class ReMeLight(Application):
                 - compact_ratio: Compaction threshold ratio
 
         Note:
-            - Completed/failed/cancelled tasks are cleaned up before adding new ones
+            - Completed/failed/canceled tasks are cleaned up before adding new ones
             - Task results and errors are logged automatically
             - Use await_summary_tasks() to wait for all pending tasks to complete
         """
@@ -561,7 +560,7 @@ class ReMeLight(Application):
 
         Returns:
             tuple[list[Msg], str]: A tuple containing:
-                - list[Msg]: Messages to keep in context (may be reduced)
+                - list[Msg]: Messages to keep in context (maybe reduced)
                 - str: Updated compressed summary incorporating compacted messages
 
         Note:
@@ -584,10 +583,11 @@ class ReMeLight(Application):
             compact_msgs = messages[:-tool_result_compact_keep_n]
             await self.compact_tool_result(compact_msgs)
 
-        messages_to_compact, messages_to_keep, is_valid = msg_handler.context_check(
+        messages_to_compact, messages_to_keep, is_valid = await self.check_context(
             messages=messages,
             memory_compact_threshold=left_compact_threshold,
             memory_compact_reserve=memory_compact_reserve,
+            token_counter=token_counter,
         )
 
         if not messages_to_compact:
@@ -626,7 +626,7 @@ class ReMeLight(Application):
         Wait for all background summary tasks to complete and collect results.
 
         Blocks until all pending summary tasks in the task list have completed,
-        cancelled, or failed. Collects status information from each task and
+        canceled, or failed. Collects status information from each task and
         clears the task list after processing.
 
         Returns:

@@ -5,8 +5,8 @@ import json
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
-from ...core.schema import AsMsgStat, AsBlockStat
-from ...core.utils import get_std_logger
+from ....core.schema import AsMsgStat, AsBlockStat
+from ....core.utils import get_std_logger
 
 logger = get_std_logger()
 
@@ -111,6 +111,19 @@ class AsMsgHandler:
                 metadata=message.metadata or {},
             )
 
+        if not isinstance(message.content, list):
+            logger.warning(
+                "Unexpected message.content type %s, expected str or list, returning empty stat.",
+                type(message.content),
+            )
+            return AsMsgStat(
+                name=message.name or message.role,
+                role=message.role,
+                content=blocks,
+                timestamp=message.timestamp or "",
+                metadata=message.metadata or {},
+            )
+
         for block in message.content:
             block_type = block.get("type", "unknown")
 
@@ -155,7 +168,7 @@ class AsMsgHandler:
 
             elif block_type == "tool_use":
                 tool_name = block.get("name", "")
-                tool_input = block.get("raw_input", "")
+                tool_input = block.get("input", "")
                 try:
                     input_str = json.dumps(tool_input, ensure_ascii=False)
                 except (TypeError, ValueError):
@@ -227,7 +240,8 @@ class AsMsgHandler:
             formatted_content = stat.format(include_thinking=include_thinking)
             content_token_count = self.count_str_token(formatted_content)
 
-            if total_token_count + content_token_count > memory_compact_threshold:
+            is_latest = i == len(messages) - 1
+            if not is_latest and total_token_count + content_token_count > memory_compact_threshold:
                 logger.info(
                     "Skipping older messages: adding %d tokens would exceed threshold %d (current: %d)",
                     content_token_count,
@@ -235,6 +249,13 @@ class AsMsgHandler:
                     total_token_count,
                 )
                 break
+
+            if is_latest and content_token_count > memory_compact_threshold:
+                logger.warning(
+                    "Latest message alone (%d tokens) exceeds threshold %d, including it anyway.",
+                    content_token_count,
+                    memory_compact_threshold,
+                )
 
             formatted_parts.append(formatted_content)
             total_token_count += content_token_count
@@ -324,6 +345,10 @@ class AsMsgHandler:
         accumulated_tokens = 0
 
         for i in range(len(msg_stats) - 1, -1, -1):
+            # Skip messages already added as tool_use dependencies to avoid double-counting tokens
+            if i in keep_indices:
+                continue
+
             msg, stat = msg_stats[i]
 
             # Check if adding this message would exceed reserve limit
