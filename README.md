@@ -14,6 +14,7 @@
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
   <a href="./README_ZH.md"><img src="https://img.shields.io/badge/Simplified%20Chinese-Click-orange" alt="Simplified Chinese"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
+  <a href="https://deepwiki.com/agentscope-ai/ReMe"><img src="https://img.shields.io/badge/DeepWiki-Ask_Devin-navy.svg" alt="DeepWiki"></a>
 </p>
 
 <p align="center">
@@ -32,6 +33,24 @@ conversations) and **stateless sessions** (new sessions cannot inherit history a
 
 ReMe gives agents **real memory** — old conversations are automatically compacted, important information is persistently
 stored, and relevant context is automatically recalled in future interactions.
+
+<details>
+<summary><b>What you can do with ReMe</b></summary>
+
+<br>
+
+- **Personal assistant**: Provide long-term memory for agents like [CoPaw](https://github.com/agentscope-ai/CoPaw),
+  remembering user preferences and conversation history.
+- **Coding assistant**: Record code style preferences and project context, maintaining a consistent development
+  experience across sessions.
+- **Customer service bot**: Track user issue history and preference settings for personalized service.
+- **Task automation**: Learn success/failure patterns from historical tasks to continuously optimize execution
+  strategies.
+- **Knowledge Q&A**: Build a searchable knowledge base with semantic search and exact matching support.
+- **Multi-turn dialogue**: Automatically compress long conversations while retaining key information within limited
+  context windows.
+
+</details>
 
 ---
 
@@ -82,7 +101,18 @@ capabilities for AI agents:
 
 #### Installation
 
+**Install from source:**
+
 ```bash
+git clone https://github.com/agentscope-ai/ReMe.git
+cd ReMe
+pip install -e ".[light]"
+```
+
+**Update to the latest version:**
+
+```bash
+git pull
 pip install -e ".[light]"
 ```
 
@@ -546,6 +576,14 @@ For more details on how to reproduce the experiments, see [quickstart.md](benchm
 - **Acknowledgements**: We thank excellent open-source projects such as OpenClaw, Mem0, MemU, and CoPaw for their
   inspiration and support.
 
+### Contributors
+
+Thanks to all who have contributed to ReMe:
+
+<a href="https://github.com/agentscope-ai/ReMe/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/ReMe" alt="Contributors" />
+</a>
+
 ---
 
 ## 📄 Citation
@@ -564,6 +602,14 @@ For more details on how to reproduce the experiments, see [quickstart.md](benchm
 ## ⚖️ License
 
 This project is open-sourced under the Apache License 2.0. See [LICENSE](./LICENSE) for details.
+
+---
+
+## 🤔 Why ReMe?
+
+ReMe stands for **Remember Me** and **Refine Me**, symbolizing our goal to help AI agents "remember" users and "refine"
+themselves through interactions. We hope ReMe is not just a cold memory module, but a partner that truly helps agents
+understand users, accumulate experience, and continuously evolve.
 
 ---
 

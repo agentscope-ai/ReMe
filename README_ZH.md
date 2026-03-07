@@ -14,6 +14,7 @@
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
   <a href="./README_ZH.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
+  <a href="https://deepwiki.com/agentscope-ai/ReMe"><img src="https://img.shields.io/badge/DeepWiki-Ask_Devin-navy.svg" alt="DeepWiki"></a>
 </p>
 
 <p align="center">
@@ -30,6 +31,19 @@
 
 ReMe 让智能体拥有**真正的记忆力**——旧对话自动浓缩，重要信息持久保存，下次对话自动想起来。
 
+<details>
+<summary><b>你可以用 ReMe 做什么</b></summary>
+
+<br>
+
+- **个人助理**：为 [CoPaw](https://github.com/agentscope-ai/CoPaw) 等智能体提供长期记忆，记住用户偏好和历史对话。
+- **编程助手**：记录代码风格偏好、项目上下文，跨会话保持一致的开发体验。
+- **客服机器人**：记录用户问题历史、偏好设置，提供个性化服务。
+- **任务自动化**：从历史任务中学习成功/失败模式，持续优化执行策略。
+- **知识问答**：构建可检索的知识库，支持语义搜索和精确匹配。
+- **多轮对话**：自动压缩长对话，在有限上下文窗口内保留关键信息。
+
+</details>
 
 ---
 
@@ -78,7 +92,18 @@ working_dir/
 
 #### 安装
 
+**从源码安装：**
+
 ```bash
+git clone https://github.com/agentscope-ai/ReMe.git
+cd ReMe
+pip install -e ".[light]"
+```
+
+**更新到最新版本：**
+
+```bash
+git pull
 pip install -e ".[light]"
 ```
 
@@ -527,6 +552,14 @@ Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1
 - **代码贡献**：欢迎任何形式的代码贡献，请参阅 [贡献指南](docs/contribution.md)。
 - **致谢**：感谢 OpenClaw、Mem0、MemU、CoPaw 等优秀的开源项目，为项目带来诸多启发与帮助。
 
+### 贡献者
+
+感谢所有为 ReMe 做出贡献的朋友们：
+
+<a href="https://github.com/agentscope-ai/ReMe/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=agentscope-ai/ReMe" alt="贡献者" />
+</a>
+
 ---
 
 ## 📄 引用
@@ -545,6 +578,13 @@ Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1
 ## ⚖️ 许可证
 
 本项目基于 Apache License 2.0 开源，详情参见 [LICENSE](./LICENSE) 文件。
+
+---
+
+## 🤔 为什么叫 ReMe？
+
+ReMe 是 **Remember Me** 和 **Refine Me** 的缩写，寓意让 AI 智能体「记住我」并在交互中「精进自我」。我们希望 ReMe
+不只是一个冷冰冰的记忆模块，而是能让智能体真正理解用户、积累经验、持续进化的伙伴。
 
 ---
 
