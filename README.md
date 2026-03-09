@@ -83,17 +83,17 @@ working_dir/
 [ReMeLight](reme/reme_light.py) is the core class of the file-based memory system. It provides full memory management
 capabilities for AI agents:
 
-| Method                | Function                             | Key components                                                                                                                                                                              |
-|-----------------------|--------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `check_context`       | 📊 Check context size                | [ContextChecker](reme/memory/file_based/components/context_checker.py) — checks whether context exceeds thresholds and splits messages                                                      |
-| `compact_memory`      | 📦 Compact history into summary      | [Compactor](reme/memory/file_based/components/compactor.py) — ReActAgent that generates structured context summaries                                                                        |
-| `summary_memory`      | 📝 Persist important memory to files | [Summarizer](reme/memory/file_based/components/summarizer.py) — ReActAgent + file tools (`read` / `write` / `edit`)                                                                         |
-| `compact_tool_result` | ✂️ Compact long tool outputs         | [ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) — truncates long tool outputs and stores them in `tool_result/` while keeping file references in messages |
-| `memory_search`       | 🔍 Semantic memory search            | [MemorySearch](reme/memory/file_based/tools/memory_search.py) — hybrid retrieval with vectors + BM25                                                                                        |
-| `ReMeInMemoryMemory`  | 🗂️ In-session memory class          | [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) — token-aware memory management with summary compression and state serialization                                      |
-| `pre_reasoning_hook`  | 🔄 Pre-reasoning hook                | `compact_tool_result` + `check_context` + `compact_memory` + `summary_memory` (async)                                                                                                       |
-| `start`               | 🚀 Start memory system               | Initialize file storage, file watcher, and embedding cache; clean up expired tool result files                                                                                              |
-| `close`               | 📕 Shutdown and cleanup              | Clean up tool result files, stop file watcher, and persist embedding cache                                                                                                                  |
+<table>
+<tr><th>Category</th><th>Method</th><th>Function</th><th>Key components</th></tr>
+<tr><td rowspan="4">Context Management</td><td><code>check_context</code></td><td>📊 Check context size</td><td><a href="reme/memory/file_based/components/context_checker.py">ContextChecker</a> — checks whether context exceeds thresholds and splits messages</td></tr>
+<tr><td><code>compact_memory</code></td><td>📦 Compact history into summary</td><td><a href="reme/memory/file_based/components/compactor.py">Compactor</a> — ReActAgent that generates structured context summaries</td></tr>
+<tr><td><code>compact_tool_result</code></td><td>✂️ Compact long tool outputs</td><td><a href="reme/memory/file_based/components/tool_result_compactor.py">ToolResultCompactor</a> — truncates long tool outputs and stores them in <code>tool_result/</code> while keeping file references in messages</td></tr>
+<tr><td><code>pre_reasoning_hook</code></td><td>🔄 Pre-reasoning hook</td><td><code>compact_tool_result</code> + <code>check_context</code> + <code>compact_memory</code> + <code>summary_memory</code> (async)</td></tr>
+<tr><td rowspan="2">Long-term Memory</td><td><code>summary_memory</code></td><td>📝 Persist important memory to files</td><td><a href="reme/memory/file_based/components/summarizer.py">Summarizer</a> — ReActAgent + file tools (<code>read</code> / <code>write</code> / <code>edit</code>)</td></tr>
+<tr><td><code>memory_search</code></td><td>🔍 Semantic memory search</td><td><a href="reme/memory/file_based/tools/memory_search.py">MemorySearch</a> — hybrid retrieval with vectors + BM25</td></tr>
+<tr><td>-</td><td><code>start</code></td><td>🚀 Start memory system</td><td>Initialize file storage, file watcher, and embedding cache; clean up expired tool result files</td></tr>
+<tr><td>-</td><td><code>close</code></td><td>📕 Shutdown and cleanup</td><td>Clean up tool result files, stop file watcher, and persist embedding cache</td></tr>
+</table>
 
 ---
 
