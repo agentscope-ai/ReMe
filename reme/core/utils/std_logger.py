@@ -112,6 +112,9 @@ def get_loggerv2(
     _loggers[name] = logger
     return logger
 
+
 def get_logger():
+    """Get a configured logger instance using loguru."""
     from loguru import logger
+
     return logger
