@@ -141,6 +141,7 @@ class DeltaFileWatcher(BaseFileWatcher):
     async def _on_changes(self, changes: set[tuple[Change, str]]):
         """Handle file changes with incremental synchronization."""
         self.dirty = True
+        await self.file_store.clear_all()
 
         for change_type, path in changes:
             if change_type == Change.added:
