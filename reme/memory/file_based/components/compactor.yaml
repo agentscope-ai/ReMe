@@ -119,7 +119,7 @@ update_user_message_suffix: |
   Keep each section concise. Preserve exact file paths, function names, and error messages.
 
 update_user_message_prefix_zh: |
-  上述消息是要整合到现有摘要中的新对话消息，这些消息在<previous-summary>标签中提供。
+  以上消息是需要整合到现有摘要中的新对话内容，现有摘要位于<previous-summary>标签中。
 
 update_user_message_suffix_zh: |
   用新信息更新现有的结构化摘要。规则：

@@ -38,7 +38,7 @@ class CustomFormatter(logging.Formatter):
         return super().format(record)
 
 
-def get_logger(
+def get_loggerv2(
     name: str = "reme",
     log_dir: str = "logs",
     level: str = "INFO",
@@ -110,4 +110,8 @@ def get_logger(
 
     # Cache logger
     _loggers[name] = logger
+    return logger
+
+def get_logger():
+    from loguru import logger
     return logger
