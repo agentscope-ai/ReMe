@@ -259,6 +259,8 @@ class LocalFileStore(BaseFileStore):
         if not query_embedding:
             return []
 
+        expected_dim = self.embedding_dim
+
         # Collect candidate chunks with embeddings
         candidates = [
             chunk for chunk in self._chunks.values() if (not sources or chunk.source in sources) and chunk.embedding
@@ -267,9 +269,29 @@ class LocalFileStore(BaseFileStore):
         if not candidates:
             return []
 
+        # Validate and fix chunk embedding dimensions
+        valid_embeddings = []
+        for chunk in candidates:
+            emb = chunk.embedding
+            emb_len = len(emb)
+            if emb_len != expected_dim:
+                if emb_len < expected_dim:
+                    emb = emb + [0.0] * (expected_dim - emb_len)
+                    logger.warning(
+                        f"Chunk embedding dimension {emb_len} < expected {expected_dim}, "
+                        f"padded with zeros (chunk_id={chunk.id})",
+                    )
+                else:
+                    emb = emb[:expected_dim]
+                    logger.warning(
+                        f"Chunk embedding dimension {emb_len} > expected {expected_dim}, "
+                        f"truncated to {expected_dim} (chunk_id={chunk.id})",
+                    )
+            valid_embeddings.append(emb)
+
         # Build embedding matrix and compute similarities in batch
         query_array = np.array([query_embedding])  # Shape: (1, emb_size)
-        chunk_embeddings = np.array([chunk.embedding for chunk in candidates])  # Shape: (n, emb_size)
+        chunk_embeddings = np.array(valid_embeddings)  # Shape: (n, emb_size)
         similarities = batch_cosine_similarity(query_array, chunk_embeddings)[0]  # Shape: (n,)
 
         # Build results

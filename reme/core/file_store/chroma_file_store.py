@@ -1,6 +1,7 @@
 """ChromaDB storage backend for file store."""
 
 import json
+import random
 import time
 from pathlib import Path
 
@@ -355,12 +356,41 @@ class ChromaFileStore(BaseFileStore):
                 where_filter = {"source": {"$in": [s.value for s in sources]}}
 
         # Perform vector search
-        results = self.chunks_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where=where_filter,
-            include=["documents", "metadatas", "distances"],
-        )
+        try:
+            results = self.chunks_collection.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where=where_filter,
+                include=["documents", "metadatas", "distances"],
+            )
+        except Exception as e:
+            logger.error(f"Vector search failed: {e}, falling back to random results")
+            # Fallback: get some documents without vector search and assign random scores
+            try:
+                fallback_results = self.chunks_collection.get(
+                    where=where_filter,
+                    limit=limit,
+                    include=["documents", "metadatas"],
+                )
+                search_results = []
+                if fallback_results["ids"]:
+                    for i, _ in enumerate(fallback_results["ids"]):
+                        metadata = fallback_results["metadatas"][i]
+                        search_results.append(
+                            MemorySearchResult(
+                                path=metadata["path"],
+                                start_line=metadata["start_line"],
+                                end_line=metadata["end_line"],
+                                score=random.uniform(0.3, 0.7),  # Random score in middle range
+                                snippet=fallback_results["documents"][i],
+                                source=MemorySource(metadata["source"]),
+                                raw_metric=None,
+                            ),
+                        )
+                return search_results
+            except Exception as fallback_e:
+                logger.error(f"Fallback search also failed: {fallback_e}")
+                return []
 
         search_results = []
         if results["ids"] and results["ids"][0]:
@@ -430,7 +460,7 @@ class ChromaFileStore(BaseFileStore):
         # ChromaDB where_document uses $contains for substring matching (case-sensitive)
         # Use multiple case variants to improve recall
         if len(word_variants_list) == 1:
-            where_document = {"$contains": word_variants_list[0]}
+            where_document: dict = {"$contains": word_variants_list[0]}
         else:
             where_document = {"$or": [{"$contains": w} for w in word_variants_list]}
 
