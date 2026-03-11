@@ -13,6 +13,7 @@ from .utils import load_env, PydanticConfigParser
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
     from agentscope.formatter import FormatterBase
+    from agentscope.token import TokenCounterBase
     from .llm import BaseLLM
     from .embedding import BaseEmbeddingModel
     from .vector_store import BaseVectorStore
@@ -40,6 +41,7 @@ class ServiceContext(BaseDict):
         log_to_console: bool = True,
         default_as_llm_config: dict | None = None,
         default_as_llm_formatter_config: dict | None = None,
+        default_as_token_counter_config: dict | None = None,
         default_llm_config: dict | None = None,
         default_embedding_model_config: dict | None = None,
         default_vector_store_config: dict | None = None,
@@ -72,6 +74,8 @@ class ServiceContext(BaseDict):
                 self._update_section_config(kwargs, "as_llms", **default_as_llm_config)
             if default_as_llm_formatter_config:
                 self._update_section_config(kwargs, "as_llm_formatters", **default_as_llm_formatter_config)
+            if default_as_token_counter_config:
+                self._update_section_config(kwargs, "as_token_counters", **default_as_token_counter_config)
             if default_llm_config:
                 self._update_section_config(kwargs, "llms", **default_llm_config)
             if default_embedding_model_config:
@@ -100,6 +104,7 @@ class ServiceContext(BaseDict):
         self.thread_pool: ThreadPoolExecutor | None = None
         self.as_llms: dict[str, "ChatModelBase"] = {}
         self.as_llm_formatters: dict[str, "FormatterBase"] = {}
+        self.as_token_counters: dict[str, "TokenCounterBase"] = {}
         self.llms: dict[str, "BaseLLM"] = {}
         self.embedding_models: dict[str, "BaseEmbeddingModel"] = {}
         self.token_counters: dict[str, "BaseTokenCounter"] = {}

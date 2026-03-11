@@ -8,12 +8,20 @@ metadata:
   vector_weight: 0.7
   candidate_multiplier: 2
 
-llms:
+as_llms:
   default:
     backend: openai
-    #    model_name: qwen3-235b-a22b-thinking-2507
     model_name: qwen3.5-plus
-    request_interval: 1
+
+as_llm_formatters:
+  default:
+    backend: openai
+
+as_token_counters:
+  default:
+    backend: hf
+    pretrained_model_name_or_path: Qwen/Qwen3-Coder-30B-A3B-Instruct
+    use_mirror: true
 
 embedding_models:
   default:
@@ -41,11 +49,3 @@ file_watchers:
     recursive: false
     scan_on_start: true
 
-token_counters:
-  default:
-    backend: base
-
-  hf:
-    backend: hf
-    model_name: Qwen/Qwen3-Coder-30B-A3B-Instruct
-    use_mirror: true

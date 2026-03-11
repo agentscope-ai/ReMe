@@ -9,6 +9,7 @@ from typing import Callable, Optional, Any
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
+from agentscope.token import TokenCounterBase
 from loguru import logger
 from tqdm import tqdm
 
@@ -46,6 +47,7 @@ class BaseOp(metaclass=ABCMeta):
         prompt_path: str = "",
         as_llm: str | ChatModelBase = "default",
         as_llm_formatter: str | FormatterBase = "default",
+        as_token_counter: str | TokenCounterBase = "default",
         llm: str | BaseLLM = "default",
         embedding_model: str | BaseEmbeddingModel = "default",
         vector_store: str | BaseVectorStore = "default",
@@ -70,6 +72,7 @@ class BaseOp(metaclass=ABCMeta):
 
         self._as_llm = as_llm
         self._as_llm_formatter = as_llm_formatter
+        self._as_token_counter = as_token_counter
         self._llm = llm
         self._embedding_model = embedding_model
         self._vector_store = vector_store
@@ -148,6 +151,13 @@ class BaseOp(metaclass=ABCMeta):
         if isinstance(self._as_llm_formatter, str):
             self._as_llm_formatter = self.service_context.as_llm_formatters[self._as_llm_formatter]
         return self._as_llm_formatter
+
+    @property
+    def as_token_counter(self) -> TokenCounterBase:
+        """Get the token counter instance from ServiceContext."""
+        if isinstance(self._as_token_counter, str):
+            self._as_token_counter = self.service_context.as_token_counters[self._as_token_counter]
+        return self._as_token_counter
 
     @property
     def llm(self) -> BaseLLM:

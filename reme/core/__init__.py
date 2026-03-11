@@ -2,6 +2,7 @@
 
 from . import as_llm
 from . import as_llm_formatter
+from . import as_token_counter
 from . import embedding
 from . import enumeration
 from . import file_store
@@ -25,6 +26,7 @@ __all__ = [
     # Submodules
     "as_llm",
     "as_llm_formatter",
+    "as_token_counter",
     "embedding",
     "enumeration",
     "file_watcher",

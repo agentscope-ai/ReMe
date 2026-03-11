@@ -172,6 +172,13 @@ class Application:
                 config_dict = config.model_dump(exclude={"backend"})
                 self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config.backend](**config_dict)
 
+        for name, config in self.service_config.as_token_counters.items():
+            if config.backend not in R.as_token_counters:
+                logger.warning(f"Token counter backend {config.backend} is not supported.")
+            else:
+                config_dict = config.model_dump(exclude={"backend"})
+                self.service_context.as_token_counters[name] = R.as_token_counters[config.backend](**config_dict)
+
         for name, config in self.service_config.llms.items():
             if config.backend not in R.llms:
                 logger.warning(f"LLM backend {config.backend} is not supported.")

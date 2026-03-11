@@ -130,6 +130,7 @@ class ServiceConfig(BasicConfig):
     flows: dict[str, FlowConfig] = Field(default_factory=dict)
     as_llms: dict[str, BasicConfig] = Field(default_factory=dict)
     as_llm_formatters: dict[str, BasicConfig] = Field(default_factory=dict)
+    as_token_counters: dict[str, BasicConfig] = Field(default_factory=dict)
     llms: dict[str, LLMConfig] = Field(default_factory=dict)
     embedding_models: dict[str, EmbeddingModelConfig] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreConfig] = Field(default_factory=dict)
