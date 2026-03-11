@@ -8,7 +8,7 @@ from ..utils import AsMsgHandler
 from ....core.op import BaseOp
 from ....core.utils import get_std_logger
 
-logger = get_std_logger(log_to_console=False, force_update=True)
+logger = get_std_logger(name=__name__, log_to_console=False, force_update=True)
 
 
 class Compactor(BaseOp):

@@ -16,7 +16,7 @@ from .context_checker import ContextChecker
 from .summarizer import Summarizer
 from ..tools import FileIO, MemorySearch
 
-logger = get_std_logger(log_to_console=False, force_update=True)
+logger = get_std_logger(name=__name__, log_to_console=False, force_update=True)
 
 
 class CliAgent(BaseOp):
