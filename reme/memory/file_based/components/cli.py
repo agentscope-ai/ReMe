@@ -291,11 +291,11 @@ class CliAgent(BaseOp):
                         print("\033[0m")  # reset color after thinking
                         in_thinking = False
                     if last:
-                        print(f"\033[36m  -> Executing Tool: name={block["name"]}, input={block["input"]}\033[0m")
+                        print(f"\033[36m  -> Executing Tool: name={block['name']}, input={block['input']}\033[0m")
                 elif block["type"] == "tool_result":
                     if last:
                         last_think_content = ""  # reset for further thinking
-                        print(f"\033[36m  -> Tool Result for `{block["name"]}`: {block["output"][0]["text"]}\033[0m")
+                        print(f"\033[36m  -> Tool Result for `{block['name']}`: {block['output'][0]['text']}\033[0m")
                 else:
                     print(f"Unknown block type: {block['type']}")
             if last:
