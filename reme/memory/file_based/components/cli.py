@@ -78,7 +78,7 @@ class CliAgent(BaseOp):
             as_llm_formatter=self.as_llm_formatter,
             language=self.language if self.language == "zh" else "",
         )
- 
+
         # Create summary task
         summary_task = asyncio.create_task(
             summarizer.call(
@@ -90,13 +90,13 @@ class CliAgent(BaseOp):
 
     def _create_file_toolkit(self):
         """Create a toolkit with file operations."""
-        
+
         toolkit = Toolkit()
         file_io = FileIO(working_dir=self.working_dir)
         toolkit.register_tool_function(file_io.read)
         toolkit.register_tool_function(file_io.write)
         toolkit.register_tool_function(file_io.edit)
-        
+
         return toolkit
 
     async def new(self) -> str:
@@ -120,7 +120,7 @@ class CliAgent(BaseOp):
             memory_compact_reserve=self.reserve_tokens,
             token_counter=self.as_token_counter,
         )
-        
+
         return await checker.call(
             messages=self.messages,
             service_context=self.service_context,
@@ -138,7 +138,7 @@ class CliAgent(BaseOp):
         if force_compact:
             messages_to_summarize = self.messages
             left_messages = []
-        elif not len(messages_to_compact):
+        elif not messages_to_compact:
             return "History is within token limits, no compaction needed."
         else:
             messages_to_summarize = messages_to_compact
@@ -179,7 +179,7 @@ class CliAgent(BaseOp):
     async def _build_messages(self, query: str) -> list[Msg]:
         """Build system prompt message."""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
-        
+
         # Create system prompt
         system_prompt = self.prompt_format(
             "system_prompt",
@@ -188,7 +188,7 @@ class CliAgent(BaseOp):
             has_previous_summary=bool(self.previous_summary),
             previous_summary=self.previous_summary or "",
         )
-        
+
         logger.info(f"[{self.__class__.__name__}] system_prompt: {system_prompt}")
 
         # Build message list
@@ -251,31 +251,31 @@ class CliAgent(BaseOp):
             formatter=self.as_llm_formatter,
             toolkit=toolkit,
         )
-        
+
         # We disable the terminal printing to avoid messy outputs
         agent.set_console_output_enabled(False)
 
-        self.messages = messages[1:] # remove the first SYSTEM message
-        
+        self.messages = messages[1:]  # remove the first SYSTEM message
+
         # Stream processing state
         in_thinking = False
         in_answer = False
-        
+
         # obtain the printing messages from the agent in a streaming way
         last_text_content = ""
         last_think_content = ""
         async for msg, last in stream_printing_messages(
             agents=[agent],
-            coroutine_task=agent(self.messages)
+            coroutine_task=agent(self.messages),
         ):
             # print(msg, last)
             content_blocks = msg.get_content_blocks()
             for block in content_blocks:
                 if block["type"] == "thinking":
-                    if not in_thinking and len(block["thinking"])>len(last_think_content):
+                    if not in_thinking and len(block["thinking"]) > len(last_think_content):
                         print("\033[90m\nThinking: ", end="", flush=True)
                         in_thinking = True
-                    print(block["thinking"][len(last_think_content):], end="", flush=True)
+                    print(block["thinking"][len(last_think_content) :], end="", flush=True)
                     last_think_content = block["thinking"]
                 elif block["type"] == "text":
                     if in_thinking:
@@ -284,7 +284,7 @@ class CliAgent(BaseOp):
                     if not in_answer:
                         print("\nRemy: ", end="", flush=True)
                         in_answer = True
-                    print(block["text"][len(last_text_content):], end="", flush=True)
+                    print(block["text"][len(last_text_content) :], end="", flush=True)
                     last_text_content = block["text"]
                 elif block["type"] == "tool_use":
                     if in_thinking:
@@ -294,10 +294,9 @@ class CliAgent(BaseOp):
                         print(f"\033[36m  -> Executing Tool: name={block["name"]}, input={block["input"]}\033[0m")
                 elif block["type"] == "tool_result":
                     if last:
-                        last_think_content = "" # reset for further thinking
+                        last_think_content = ""  # reset for further thinking
                         print(f"\033[36m  -> Tool Result for `{block["name"]}`: {block["output"][0]["text"]}\033[0m")
                 else:
                     print(f"Unknown block type: {block['type']}")
             if last:
                 self.messages.append(msg)
-        

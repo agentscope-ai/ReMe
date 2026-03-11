@@ -87,7 +87,7 @@ class ReMeCli(Application):
             "/horse": "A surprise.",
         }
 
-    async def chat_with_remy(self, tool_result_max_size: int = 100, **kwargs):
+    async def chat_with_remy(self, **kwargs):
         """Interactive CLI chat with Remy using simple streaming output."""
         language = self.service_config.language
         print(f"ReMe language={language or 'default'}")
@@ -153,8 +153,8 @@ class ReMeCli(Application):
 
                 try:
                     await cli_agent.call(
-                        query=user_input, 
-                        service_context=self.service_context
+                        query=user_input,
+                        service_context=self.service_context,
                     )
                 except Exception as e:
                     print(f"\nStream error: {e}")
