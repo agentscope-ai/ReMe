@@ -8,15 +8,14 @@ from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 from agentscope.pipeline import stream_printing_messages
+from loguru import logger
 
 from ....core.op import BaseOp
-from ....core.utils import get_std_logger, format_messages
+from ....core.utils import format_messages
 from .compactor import Compactor
 from .context_checker import ContextChecker
 from .summarizer import Summarizer
 from ..tools import FileIO, MemorySearch
-
-logger = get_std_logger(log_to_console=False, force_update=True)  # pylint: disable=unexpected-keyword-arg
 
 
 class CliAgent(BaseOp):
@@ -77,6 +76,7 @@ class CliAgent(BaseOp):
             as_llm=self.as_llm,
             as_llm_formatter=self.as_llm_formatter,
             language=self.language if self.language == "zh" else "",
+            console_enabled=False,  # We disable the terminal printing to avoid messy outputs
         )
 
         # Create summary task
@@ -151,6 +151,7 @@ class CliAgent(BaseOp):
             as_llm=self.as_llm,
             as_llm_formatter=self.as_llm_formatter,
             language=self.language if self.language == "zh" else "",
+            console_enabled=False,  # We disable the terminal printing to avoid messy outputs
         )
 
         summary_content = await compactor.call(

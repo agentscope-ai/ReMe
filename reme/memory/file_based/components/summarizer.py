@@ -6,12 +6,10 @@ from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit
+from loguru import logger
 
 from ..utils import AsMsgHandler
 from ....core.op import BaseOp
-from ....core.utils import get_std_logger
-
-logger = get_std_logger()
 
 
 class Summarizer(BaseOp):
@@ -24,6 +22,7 @@ class Summarizer(BaseOp):
         memory_compact_threshold: int,
         token_counter: HuggingFaceTokenCounter,
         toolkit: Toolkit,
+        console_enabled: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -33,6 +32,7 @@ class Summarizer(BaseOp):
 
         self.msg_handler = AsMsgHandler(token_counter=token_counter)
         self.toolkit: Toolkit = toolkit
+        self.console_enabled: bool = console_enabled
 
     async def execute(self):
         messages: list[Msg] = self.context.get("messages", [])
@@ -59,8 +59,7 @@ class Summarizer(BaseOp):
             formatter=self.as_llm_formatter,
             toolkit=self.toolkit,
         )
-        # We disable the terminal printing to avoid messy outputs
-        agent.set_console_output_enabled(False)
+        agent.set_console_output_enabled(self.console_enabled)
 
         user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n" + self.prompt_format(
             "user_message",

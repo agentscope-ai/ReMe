@@ -3,12 +3,10 @@
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
+from loguru import logger
 
 from ..utils import AsMsgHandler
 from ....core.op import BaseOp
-from ....core.utils import get_std_logger
-
-logger = get_std_logger(log_to_console=False, force_update=True)  # pylint: disable=unexpected-keyword-arg
 
 
 class Compactor(BaseOp):
@@ -18,12 +16,14 @@ class Compactor(BaseOp):
         self,
         memory_compact_threshold: int,
         token_counter: HuggingFaceTokenCounter,
+        console_enabled: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.memory_compact_threshold: int = memory_compact_threshold
 
         self.msg_handler = AsMsgHandler(token_counter=token_counter)
+        self.console_enabled: bool = console_enabled
 
     async def execute(self):
         messages: list[Msg] = self.context.get("messages", [])
@@ -50,9 +50,7 @@ class Compactor(BaseOp):
             sys_prompt=self.get_prompt("system_prompt"),
             formatter=self.as_llm_formatter,
         )
-
-        # We disable the terminal printing to avoid messy outputs
-        agent.set_console_output_enabled(False)
+        agent.set_console_output_enabled(self.console_enabled)
 
         if previous_summary:
             prefix: str = self.get_prompt("update_user_message_prefix")
