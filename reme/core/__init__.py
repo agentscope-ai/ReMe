@@ -1,5 +1,7 @@
 """Core"""
 
+from . import as_llm
+from . import as_llm_formatter
 from . import embedding
 from . import enumeration
 from . import file_store
@@ -21,6 +23,8 @@ from .service_context import ServiceContext
 
 __all__ = [
     # Submodules
+    "as_llm",
+    "as_llm_formatter",
     "embedding",
     "enumeration",
     "file_watcher",

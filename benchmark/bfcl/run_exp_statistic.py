@@ -141,7 +141,7 @@ def run_exp_statistic():
 
         # Sort columns by the number in column name (best@8, best@4, best@2, best@1)
         # best_columns = [col for col in df.columns if col.startswith('best@')]
-        best_columns = df.columns
+        best_columns = list(df.columns)
         best_columns.sort(key=lambda x: x, reverse=False)
         df = df[best_columns]
 

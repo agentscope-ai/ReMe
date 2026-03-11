@@ -7,6 +7,8 @@ from abc import ABCMeta
 from pathlib import Path
 from typing import Callable, Optional, Any
 
+from agentscope.formatter import FormatterBase
+from agentscope.model import ChatModelBase
 from loguru import logger
 from tqdm import tqdm
 
@@ -42,6 +44,8 @@ class BaseOp(metaclass=ABCMeta):
         language: str = "",
         prompt_name: str = "",
         prompt_path: str = "",
+        as_llm: str | ChatModelBase = "default",
+        as_llm_formatter: str | FormatterBase = "default",
         llm: str | BaseLLM = "default",
         embedding_model: str | BaseEmbeddingModel = "default",
         vector_store: str | BaseVectorStore = "default",
@@ -64,6 +68,8 @@ class BaseOp(metaclass=ABCMeta):
         self.language = language
         self.prompt = self._get_prompt_handler(prompt_name, prompt_path)
 
+        self._as_llm = as_llm
+        self._as_llm_formatter = as_llm_formatter
         self._llm = llm
         self._embedding_model = embedding_model
         self._vector_store = vector_store
@@ -128,6 +134,20 @@ class BaseOp(metaclass=ABCMeta):
     def service_config(self) -> ServiceConfig:
         """Access the service configuration."""
         return self.service_context.service_config
+
+    @property
+    def as_llm(self) -> ChatModelBase:
+        """Get the AgentScope LLM instance from ServiceContext."""
+        if isinstance(self._as_llm, str):
+            self._as_llm = self.service_context.as_llms[self._as_llm]
+        return self._as_llm
+
+    @property
+    def as_llm_formatter(self) -> FormatterBase:
+        """Get the AgentScope LLM formatter instance from ServiceContext."""
+        if isinstance(self._as_llm_formatter, str):
+            self._as_llm_formatter = self.service_context.as_llm_formatters[self._as_llm_formatter]
+        return self._as_llm_formatter
 
     @property
     def llm(self) -> BaseLLM:

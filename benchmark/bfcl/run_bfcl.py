@@ -131,7 +131,7 @@ def main():
         run_agent(
             max_workers=max_workers,
             model_name=model_name,
-            dataset_name="bfcl-multi-turn-base",
+            dataset_name="bfcl-multi-turn-base-val",
             experiment_suffix="w-fixed-memory",
             data_path="data/multiturn_data_base_val.jsonl",
             answer_path=Path("data/possible_answer"),

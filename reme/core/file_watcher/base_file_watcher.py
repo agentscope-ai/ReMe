@@ -140,35 +140,63 @@ class BaseFileWatcher:
         else:
             logger.info("[SCAN_ON_START] No existing files found matching watch criteria")
 
-        files: list[str] = await self.file_store.list_files(MemorySource.MEMORY)
-        for file_path in files:
-            chunks = await self.file_store.get_file_chunks(file_path, MemorySource.MEMORY)
-            logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
+        if self.file_store is not None:
+            files: list[str] = await self.file_store.list_files(MemorySource.MEMORY)
+            for file_path in files:
+                chunks = await self.file_store.get_file_chunks(file_path, MemorySource.MEMORY)
+                logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
+
+    async def _interruptible_sleep(self, seconds: float):
+        """Sleep that can be interrupted by stop_event."""
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass  # Normal timeout, continue
 
     async def _watch_loop(self):
-        """Core monitoring loop"""
+        """Core monitoring loop with auto-restart on failure"""
         if not self.watch_paths:
             logger.warning("No watch paths specified")
             return
 
-        try:
-            async for changes in awatch(
-                *self.watch_paths,
-                watch_filter=self.watch_filter,
-                recursive=self.recursive,
-                debounce=self.debounce,
-                stop_event=self._stop_event,
-            ):
-                if self._stop_event.is_set():
-                    break
+        while not self._stop_event.is_set():
+            # Filter out non-existent paths before each watch attempt
+            valid_paths = [p for p in self.watch_paths if Path(p).exists()]
 
-                await self.on_changes(changes)
-        except FileNotFoundError as e:
-            # Watch path was deleted, this is expected during cleanup
-            logger.debug(f"Watch path no longer exists: {e}")
-        except Exception as e:
-            # Log other exceptions but don't crash
-            logger.error(f"Error in watch loop: {e}", exc_info=True)
+            if not valid_paths:
+                logger.warning("No valid watch paths exist, waiting 10 seconds before retry...")
+                await self._interruptible_sleep(10)
+                continue
+
+            invalid_paths = set(self.watch_paths) - set(valid_paths)
+            if invalid_paths:
+                logger.warning(f"Skipping non-existent paths: {invalid_paths}")
+
+            try:
+                logger.info(f"Starting watch on valid paths: {valid_paths}")
+                async for changes in awatch(
+                    *valid_paths,
+                    watch_filter=self.watch_filter,
+                    recursive=self.recursive,
+                    debounce=self.debounce,
+                    stop_event=self._stop_event,
+                ):
+                    if self._stop_event.is_set():
+                        break
+
+                    await self.on_changes(changes)
+
+            except FileNotFoundError as e:
+                # Watch path was deleted during monitoring
+                logger.error(f"Watch path no longer exists: {e}, restarting in 10 seconds...")
+                if not self._stop_event.is_set():
+                    await self._interruptible_sleep(10)
+
+            except Exception as e:
+                # Log other exceptions and restart
+                logger.error(f"Error in watch loop: {e}, restarting in 10 seconds...", exc_info=True)
+                if not self._stop_event.is_set():
+                    await self._interruptible_sleep(10)
 
     async def _on_changes(self, changes: set[tuple[Change, str]]):
         """Callback method to handle file changes"""

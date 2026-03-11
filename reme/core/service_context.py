@@ -11,6 +11,8 @@ from .schema import ServiceConfig
 from .utils import load_env, PydanticConfigParser
 
 if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
+    from agentscope.formatter import FormatterBase
     from .llm import BaseLLM
     from .embedding import BaseEmbeddingModel
     from .vector_store import BaseVectorStore
@@ -36,6 +38,8 @@ class ServiceContext(BaseDict):
         config_path: str | None = None,
         enable_logo: bool = True,
         log_to_console: bool = True,
+        default_as_llm_config: dict | None = None,
+        default_as_llm_formatter_config: dict | None = None,
         default_llm_config: dict | None = None,
         default_embedding_model_config: dict | None = None,
         default_vector_store_config: dict | None = None,
@@ -50,10 +54,10 @@ class ServiceContext(BaseDict):
         load_env()
 
         # Update common environment variables for LLM and embedding services.
-        self.update_env("REME_LLM_API_KEY", llm_api_key)
-        self.update_env("REME_LLM_BASE_URL", llm_base_url)
-        self.update_env("REME_EMBEDDING_API_KEY", embedding_api_key)
-        self.update_env("REME_EMBEDDING_BASE_URL", embedding_base_url)
+        self.update_env("LLM_API_KEY", llm_api_key)
+        self.update_env("LLM_BASE_URL", llm_base_url)
+        self.update_env("EMBEDDING_API_KEY", embedding_api_key)
+        self.update_env("EMBEDDING_BASE_URL", embedding_base_url)
 
         if service_config is None:
             parser_class = parser if parser is not None else PydanticConfigParser
@@ -64,6 +68,10 @@ class ServiceContext(BaseDict):
             if args:
                 input_args.extend(args)
 
+            if default_as_llm_config:
+                self._update_section_config(kwargs, "as_llms", **default_as_llm_config)
+            if default_as_llm_formatter_config:
+                self._update_section_config(kwargs, "as_llm_formatters", **default_as_llm_formatter_config)
             if default_llm_config:
                 self._update_section_config(kwargs, "llms", **default_llm_config)
             if default_embedding_model_config:
@@ -90,6 +98,8 @@ class ServiceContext(BaseDict):
         self.service_config: ServiceConfig = service_config
 
         self.thread_pool: ThreadPoolExecutor | None = None
+        self.as_llms: dict[str, "ChatModelBase"] = {}
+        self.as_llm_formatters: dict[str, "FormatterBase"] = {}
         self.llms: dict[str, "BaseLLM"] = {}
         self.embedding_models: dict[str, "BaseEmbeddingModel"] = {}
         self.token_counters: dict[str, "BaseTokenCounter"] = {}

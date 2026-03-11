@@ -114,6 +114,9 @@ def post_to_summarizer(trajectories: List[Any], service_url: str) -> Dict[str, A
 
     request_data = {
         "trajectories": trajectory_dicts,
+        "success_threshold": 1.0,
+        "enable_soft_comparison": True,
+        "validation_threshold": 0.5,
     }
 
     try:
@@ -156,6 +159,9 @@ def process_trajectories_with_threads(
                 results.append(result)
                 if "memory_list" in result["metadata"]:
                     print(f'✅ Group {group_index} processed: {result["metadata"].get("memory_list", 0)}')
+                    memory_list = result["metadata"].get("memory_list", [])
+                    response = requests.post(url=f"{service_url}/add_task_memory", json={"memory_list": memory_list})
+                    response.raise_for_status()
                 else:
                     print(f"❌ Group {group_index} processed: error")
             except Exception as e:
@@ -174,7 +180,7 @@ def main():
     """Main function to convert JSONL to memories using ReMe service."""
     parser = argparse.ArgumentParser(description="Convert JSONL to memories using ReMe service")
     parser.add_argument("--jsonl_file", type=str, required=True, help="Path to the JSONL file")
-    parser.add_argument("--service_url", type=str, default="http://localhost:8001", help="ReMe service URL")
+    parser.add_argument("--service_url", type=str, default="http://localhost:8002", help="ReMe service URL")
     parser.add_argument("--output_file", type=str, help="Output file to save results (optional)")
     parser.add_argument("--n_threads", type=int, default=4, help="Number of threads for processing")
 
@@ -226,21 +232,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        main()
-    else:
-        print("Running in compatibility mode...")
-        with open("exp_result/qwen3-8b/with_think/bfcl-multi-turn-base-train_wo-exp.jsonl", "r") as f:
-            data = [json.loads(line) for line in f]
-
-        grouped_trajectories = group_trajectories_by_task_id(data)
-        print(f"Total groups: {len(grouped_trajectories)}")
-
-        results = process_trajectories_with_threads(
-            grouped_trajectories,
-            "http://localhost:8001",
-            n_threads=4,
-        )
-        print(f"Processed {len(results)} groups")
+    main()

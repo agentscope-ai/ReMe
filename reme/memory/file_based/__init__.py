@@ -1,18 +1,13 @@
-"""File-based memory operations."""
+"""File-based Memory Module."""
 
-from .fb_cli import FbCli
-from .fb_compactor import FbCompactor
-from .fb_context_checker import FbContextChecker
-from .fb_summarizer import FbSummarizer
-from ...core.registry_factory import R
+from . import components
+from . import tools
+from . import utils
+from .reme_in_memory_memory import ReMeInMemoryMemory
 
 __all__ = [
-    "FbCli",
-    "FbCompactor",
-    "FbContextChecker",
-    "FbSummarizer",
+    "tools",
+    "utils",
+    "components",
+    "ReMeInMemoryMemory",
 ]
-
-for name in __all__:
-    op_class = globals()[name]
-    R.ops.register(op_class)

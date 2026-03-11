@@ -50,6 +50,7 @@ repos:
           --disable=W0511,
           --disable=W0718,
           --disable=W0122,
+          --disable=W1203,
           --disable=C0103,
           --disable=R0913,
           --disable=R0917,

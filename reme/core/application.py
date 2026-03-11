@@ -1,6 +1,7 @@
 """High-level entry point for configuring and running ReMe services and flows."""
 
 import asyncio
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -35,6 +36,8 @@ class Application:
         enable_logo: bool = True,
         log_to_console: bool = True,
         parser: type[PydanticConfigParser] | None = None,
+        default_as_llm_config: dict | None = None,
+        default_as_llm_formatter_config: dict | None = None,
         default_llm_config: dict | None = None,
         default_embedding_model_config: dict | None = None,
         default_vector_store_config: dict | None = None,
@@ -55,6 +58,8 @@ class Application:
             config_path=config_path,
             enable_logo=enable_logo,
             log_to_console=log_to_console,
+            default_as_llm_config=default_as_llm_config,
+            default_as_llm_formatter_config=default_as_llm_formatter_config,
             default_llm_config=default_llm_config,
             default_embedding_model_config=default_embedding_model_config,
             default_vector_store_config=default_vector_store_config,
@@ -146,6 +151,26 @@ class Application:
 
         if self.service_context.service_config.enable_logo:
             print_logo(service_config=self.service_config)
+
+        for name, config in self.service_config.as_llms.items():
+            if config.backend not in R.as_llms:
+                logger.warning(f"AS LLM backend {config.backend} is not supported.")
+            else:
+                config_dict = config.model_dump(exclude={"backend"})
+                if not config_dict.get("api_key", ""):
+                    config_dict["api_key"] = os.getenv("LLM_API_KEY", "")
+                if "client_kwargs" not in config_dict:
+                    config_dict["client_kwargs"] = {}
+                if not config_dict["client_kwargs"].get("base_url", ""):
+                    config_dict["client_kwargs"]["base_url"] = os.getenv("LLM_BASE_URL", "")
+                self.service_context.as_llms[name] = R.as_llms[config.backend](**config_dict)
+
+        for name, config in self.service_config.as_llm_formatters.items():
+            if config.backend not in R.as_llm_formatters:
+                logger.warning(f"AS LLM formatter backend {config.backend} is not supported.")
+            else:
+                config_dict = config.model_dump(exclude={"backend"})
+                self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config.backend](**config_dict)
 
         for name, config in self.service_config.llms.items():
             if config.backend not in R.llms:

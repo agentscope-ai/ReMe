@@ -18,26 +18,6 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
     # Remove default handler to avoid duplicate logs
     logger.remove()
 
-    # Ensure the logging directory exists
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Generate filename based on the current timestamp
-    # Use dashes instead of colons for Windows compatibility
-    current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_filename = f"{current_ts}.log"
-    log_filepath = os.path.join(log_dir, log_filename)
-
-    # Configure file-based logging with rotation and compression
-    logger.add(
-        log_filepath,
-        level=level,
-        rotation="00:00",
-        retention="7 days",
-        compression="zip",
-        encoding="utf-8",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}",
-    )
-
     # Configure colorized standard output logging if enabled
     if log_to_console:
         logger.add(
@@ -46,3 +26,27 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
             format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}",
             colorize=True,
         )
+
+    # Try to configure file-based logging (skip if permission denied)
+    try:
+        # Ensure the logging directory exists
+        os.makedirs(log_dir, exist_ok=True)
+
+        # Generate filename based on the current timestamp
+        # Use dashes instead of colons for Windows compatibility
+        current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_filename = f"{current_ts}.log"
+        log_filepath = os.path.join(log_dir, log_filename)
+
+        # Configure file-based logging with rotation and compression
+        logger.add(
+            log_filepath,
+            level=level,
+            rotation="00:00",
+            retention="7 days",
+            compression="zip",
+            encoding="utf-8",
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}",
+        )
+    except Exception as e:
+        logger.error(f"Error configuring file logging: {e}")

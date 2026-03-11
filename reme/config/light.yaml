@@ -1,0 +1,32 @@
+as_llms:
+  default:
+    backend: openai
+    model_name: qwen3.5-plus
+
+as_llm_formatters:
+  default:
+    backend: openai
+
+embedding_models:
+  default:
+    backend: openai
+    dimensions: 1024
+    use_dimensions: false
+    enable_cache: true
+    max_batch_size: 10
+    max_cache_size: 2000
+    max_input_length: 8192
+
+file_stores:
+  default:
+    backend: chroma
+    embedding_model: default
+    store_name: "reme"
+
+file_watchers:
+  default:
+    backend: full
+    file_store: default
+    suffix_filters: [ ".md" ]
+    recursive: false
+    scan_on_start: true
