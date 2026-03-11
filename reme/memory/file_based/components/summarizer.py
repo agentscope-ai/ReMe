@@ -59,6 +59,8 @@ class Summarizer(BaseOp):
             formatter=self.as_llm_formatter,
             toolkit=self.toolkit,
         )
+        # We disable the terminal printing to avoid messy outputs
+        agent.set_console_output_enabled(False)
 
         user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n" + self.prompt_format(
             "user_message",

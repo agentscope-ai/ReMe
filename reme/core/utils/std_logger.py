@@ -47,6 +47,7 @@ def get_logger(
     log_file_prefix: str = "reme",
     rotation: str = "midnight",
     retention_days: int = 7,
+    force_update: bool = False,
 ) -> logging.Logger:
     """Get a configured logger instance.
 
@@ -59,12 +60,13 @@ def get_logger(
         log_file_prefix: Prefix for log file names (e.g., 'reme' -> 'reme_2024-01-01.log').
         rotation: Log rotation time, defaults to midnight.
         retention_days: Number of days to retain log files.
+        force_update: Whether to force update the logger configuration even if it already exists.
 
     Returns:
         Configured Logger instance.
     """
-    # Return existing logger if already created
-    if name in _loggers:
+    # Return existing logger if already created and not force updating
+    if name in _loggers and not force_update:
         return _loggers[name]
 
     # Create new logger without using root logger
