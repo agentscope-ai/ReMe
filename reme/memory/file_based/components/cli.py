@@ -6,31 +6,45 @@ from pathlib import Path
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
-from agentscope.tool import Toolkit, ToolResponse
 from agentscope.pipeline import stream_printing_messages
+from agentscope.tool import Toolkit, ToolResponse
 from loguru import logger
 
-from ....core.op import BaseOp
-from ....core.utils import format_messages
 from .compactor import Compactor
 from .context_checker import ContextChecker
 from .summarizer import Summarizer
 from ..tools import FileIO, MemorySearch
+from ....core.op import BaseOp
+from ....core.utils import format_messages
 
+# name + desc + "{working_dir}/skills/{skill_name}/SKILL.md"
+
+_DEFAULT_AGENT_SKILL_INSTRUCTION = (
+        "# Agent Skills\n"
+        "The agent skills are a collection of folds of instructions, scripts, "
+        "and resources that you can load dynamically to improve performance "
+        "on specialized tasks. Each agent skill has a `SKILL.md` file in its "
+        "folder that describes how to use the skill. If you want to use a "
+        "skill, you MUST read its `SKILL.md` file carefully."
+    )
+
+_DEFAULT_AGENT_SKILL_TEMPLATE = """## {name}
+{description}
+Check "{dir}/SKILL.md" for how to use this skill"""
 
 class CliAgent(BaseOp):
     """CLI agent for interactive chat with memory management."""
 
     def __init__(
-        self,
-        working_dir: str,
-        vector_weight: float = 0.7,
-        candidate_multiplier: float = 3.0,
-        context_window_tokens: int = 128000,
-        reserve_tokens: int = 36000,
-        keep_recent_tokens: int = 20000,
-        language: str = "zh",
-        **kwargs,
+            self,
+            working_dir: str,
+            vector_weight: float = 0.7,
+            candidate_multiplier: float = 3.0,
+            context_window_tokens: int = 128000,
+            reserve_tokens: int = 36000,
+            keep_recent_tokens: int = 20000,
+            language: str = "zh",
+            **kwargs,
     ):
         super().__init__(**kwargs)
         self.working_dir: str = working_dir
@@ -117,7 +131,7 @@ class CliAgent(BaseOp):
         # Create context checker
         checker = ContextChecker(
             memory_compact_threshold=self.context_window_tokens - self.reserve_tokens,
-            memory_compact_reserve=self.reserve_tokens,
+            memory_compact_reserve=self.keep_recent_tokens,
             token_counter=self.as_token_counter,
         )
 
@@ -199,7 +213,7 @@ class CliAgent(BaseOp):
 
         return messages
 
-    async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> str:
+    async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> ToolResponse:
         """
         Mandatory recall step: semantically search MEMORY.md + memory/*.md (and optional session transcripts)
         before answering questions about prior work, decisions, dates, people, preferences, or todos;
@@ -257,6 +271,7 @@ class CliAgent(BaseOp):
         agent.set_console_output_enabled(False)
 
         self.messages = messages[1:]  # remove the first SYSTEM message
+        agent.memory.content.clear()
 
         # Stream processing state
         in_thinking = False
@@ -266,8 +281,8 @@ class CliAgent(BaseOp):
         last_text_content = ""
         last_think_content = ""
         async for msg, last in stream_printing_messages(
-            agents=[agent],
-            coroutine_task=agent(self.messages),
+                agents=[agent],
+                coroutine_task=agent(self.messages),
         ):
             # print(msg, last)
             content_blocks = msg.get_content_blocks()
@@ -276,7 +291,7 @@ class CliAgent(BaseOp):
                     if not in_thinking and len(block["thinking"]) > len(last_think_content):
                         print("\033[90m\nThinking: ", end="", flush=True)
                         in_thinking = True
-                    print(block["thinking"][len(last_think_content) :], end="", flush=True)
+                    print(block["thinking"][len(last_think_content):], end="", flush=True)
                     last_think_content = block["thinking"]
                 elif block["type"] == "text":
                     if in_thinking:
@@ -285,7 +300,7 @@ class CliAgent(BaseOp):
                     if not in_answer:
                         print("\nRemy: ", end="", flush=True)
                         in_answer = True
-                    print(block["text"][len(last_text_content) :], end="", flush=True)
+                    print(block["text"][len(last_text_content):], end="", flush=True)
                     last_text_content = block["text"]
                 elif block["type"] == "tool_use":
                     if in_thinking:
