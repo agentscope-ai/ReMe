@@ -25,8 +25,7 @@
 
 ---
 
-🧠 ReMe is a memory management framework designed for **AI agents**, providing both file-based and vector-based memory
-systems.
+🧠 ReMe is a memory management framework designed for **AI agents**, providing both [file-based](#-file-based-memory-system-remelight) and [vector-based](#-vector-based-memory-system) memory systems.
 
 It tackles two core problems of agent memory: **limited context window** (early information is truncated or lost in long
 conversations) and **stateless sessions** (new sessions cannot inherit history and always start from scratch).
