@@ -24,7 +24,7 @@ class Summarizer(BaseOp):
         memory_compact_threshold: int,
         token_counter: HuggingFaceTokenCounter,
         toolkit: Toolkit,
-        console_enabled: bool = True,
+        console_enabled: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -77,6 +77,8 @@ class Summarizer(BaseOp):
                 content=user_message,
             ),
         )
+        for i, (msg, _) in enumerate(agent.memory.content):
+            logger.info(f"Summarizer memory[{i}]: {msg.content}")
 
         history_summary: str = summary_msg.get_text_content()
         logger.info(f"Summarizer Result:\n{history_summary}")

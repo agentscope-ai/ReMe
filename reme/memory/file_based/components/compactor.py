@@ -18,7 +18,7 @@ class Compactor(BaseOp):
         self,
         memory_compact_threshold: int,
         token_counter: HuggingFaceTokenCounter,
-        console_enabled: bool = True,
+        console_enabled: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
