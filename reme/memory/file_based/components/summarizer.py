@@ -4,7 +4,6 @@ import datetime
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
-from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit
 
 from ..utils import AsMsgHandler
@@ -22,8 +21,7 @@ class Summarizer(BaseOp):
         working_dir: str,
         memory_dir: str,
         memory_compact_threshold: int,
-        token_counter: HuggingFaceTokenCounter,
-        toolkit: Toolkit,
+        toolkit: Toolkit | None = None,
         console_enabled: bool = False,
         **kwargs,
     ):
@@ -31,9 +29,7 @@ class Summarizer(BaseOp):
         self.working_dir: str = working_dir
         self.memory_dir: str = memory_dir
         self.memory_compact_threshold: int = memory_compact_threshold
-
-        self.msg_handler = AsMsgHandler(token_counter=token_counter)
-        self.toolkit: Toolkit = toolkit
+        self.toolkit: Toolkit | None = toolkit
         self.console_enabled: bool = console_enabled
 
     async def execute(self):
@@ -42,12 +38,13 @@ class Summarizer(BaseOp):
         if not messages:
             return ""
 
-        before_token_count = self.msg_handler.count_msgs_token(messages)
-        history_formatted_str: str = self.msg_handler.format_msgs_to_str(
+        msg_handler = AsMsgHandler(self.as_token_counter)
+        before_token_count = await msg_handler.count_msgs_token(messages)
+        history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
         )
-        after_token_count = self.msg_handler.count_str_token(history_formatted_str)
+        after_token_count = await msg_handler.count_str_token(history_formatted_str)
         logger.info(f"Summarizer before_token_count={before_token_count} after_token_count={after_token_count}")
 
         if not history_formatted_str:

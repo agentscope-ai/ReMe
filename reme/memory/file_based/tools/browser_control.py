@@ -594,7 +594,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             ),
         )
     except Exception as e:
-        logger.error("Browser tool error: %s", e, exc_info=True)
+        logger.exception("Browser tool error: %s", e, exc_info=True)
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": str(e)},

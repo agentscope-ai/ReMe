@@ -17,7 +17,7 @@ class AsMsgHandler:
     def __init__(self, token_counter: HuggingFaceTokenCounter):
         self._token_counter = token_counter
 
-    def count_str_token(self, text: str) -> int:
+    async def count_str_token(self, text: str) -> int:
         """Count tokens in a string.
 
         Args:
@@ -30,19 +30,19 @@ class AsMsgHandler:
             return 0
 
         try:
-            token_ids = self._token_counter.tokenizer.encode(text)
-            token_count = len(token_ids)
+            token_count = await self._token_counter.count(messages=[], text=text)
+            assert token_count > 0, "Invalid token count"
             return token_count
 
         except Exception as e:
-            estimated_tokens = len(text.encode("utf-8")) // 4
+            estimated_tokens = int(len(text.encode("utf-8")) / 3.75)
             logger.warning(f"Failed to count string tokens: {text}, e={e}")
             return estimated_tokens
 
-    def _format_tool_result_output(self, output: str | list[dict]) -> tuple[str, int]:
+    async def _format_tool_result_output(self, output: str | list[dict]) -> tuple[str, int]:
         """Convert tool result output to string."""
         if isinstance(output, str):
-            return output, self.count_str_token(output)
+            return output, await self.count_str_token(output)
 
         textual_parts = []
         total_token_count = 0
@@ -59,7 +59,7 @@ class AsMsgHandler:
 
                 if block_type == "text":
                     textual_parts.append(block.get("text", ""))
-                    total_token_count += self.count_str_token(textual_parts[-1])
+                    total_token_count += await self.count_str_token(textual_parts[-1])
 
                 elif block_type in ["image", "audio", "video"]:
                     source = block.get("source", {})
@@ -68,14 +68,14 @@ class AsMsgHandler:
                         total_token_count += len(data) // 4 if data else 10
                     else:
                         url = source.get("url", "")
-                        total_token_count += self.count_str_token(url) if url else 10
+                        total_token_count += await self.count_str_token(url) if url else 10
                         textual_parts.append(f"[{block_type}] {url}")
 
                 elif block_type == "file":
                     file_path = block.get("path", "") or block.get("url", "")
                     file_name = block.get("name", file_path)
                     textual_parts.append(f"[file] {file_name}: {file_path}")
-                    total_token_count += self.count_str_token(file_path)
+                    total_token_count += await self.count_str_token(file_path)
 
                 else:
                     logger.warning(
@@ -92,7 +92,7 @@ class AsMsgHandler:
 
         return "\n".join(textual_parts), total_token_count
 
-    def stat_message(self, message: Msg) -> AsMsgStat:
+    async def stat_message(self, message: Msg) -> AsMsgStat:
         """Analyze a message and generate block statistics."""
         blocks = []
         if isinstance(message.content, str):
@@ -100,7 +100,7 @@ class AsMsgHandler:
                 AsBlockStat(
                     block_type="text",
                     text=message.content,
-                    token_count=self.count_str_token(message.content),
+                    token_count=await self.count_str_token(message.content),
                 ),
             )
             return AsMsgStat(
@@ -116,7 +116,7 @@ class AsMsgHandler:
 
             if block_type == "text":
                 text = block.get("text", "")
-                token_count = self.count_str_token(text)
+                token_count = await self.count_str_token(text)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -127,7 +127,7 @@ class AsMsgHandler:
 
             elif block_type == "thinking":
                 thinking = block.get("thinking", "")
-                token_count = self.count_str_token(thinking)
+                token_count = await self.count_str_token(thinking)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -143,7 +143,7 @@ class AsMsgHandler:
                     data = source.get("data", "")
                     token_count = len(data) // 4 if data else 10
                 else:
-                    token_count = self.count_str_token(url) if url else 10
+                    token_count = await self.count_str_token(url) if url else 10
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -160,7 +160,7 @@ class AsMsgHandler:
                     input_str = json.dumps(tool_input, ensure_ascii=False)
                 except (TypeError, ValueError):
                     input_str = str(tool_input)
-                token_count = self.count_str_token(tool_name + input_str)
+                token_count = await self.count_str_token(tool_name + input_str)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -174,7 +174,7 @@ class AsMsgHandler:
             elif block_type == "tool_result":
                 tool_name = block.get("name", "")
                 output = block.get("output", "")
-                formatted_output, token_count = self._format_tool_result_output(output)
+                formatted_output, token_count = await self._format_tool_result_output(output)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -196,11 +196,15 @@ class AsMsgHandler:
             metadata=message.metadata or {},
         )
 
-    def count_msgs_token(self, messages: list[Msg]) -> int:
+    async def count_msgs_token(self, messages: list[Msg]) -> int:
         """Count total token count of a list of messages."""
-        return sum(self.stat_message(msg).total_tokens for msg in messages)
+        total = 0
+        for msg in messages:
+            stat = await self.stat_message(msg)
+            total += stat.total_tokens
+        return total
 
-    def format_msgs_to_str(
+    async def format_msgs_to_str(
         self,
         messages: list[Msg],
         memory_compact_threshold: int,
@@ -223,9 +227,9 @@ class AsMsgHandler:
         total_token_count = 0
 
         for i in range(len(messages) - 1, -1, -1):
-            stat = self.stat_message(messages[i])
+            stat = await self.stat_message(messages[i])
             formatted_content = stat.format(include_thinking=include_thinking)
-            content_token_count = self.count_str_token(formatted_content)
+            content_token_count = await self.count_str_token(formatted_content)
 
             is_latest = i == len(messages) - 1
             if not is_latest and total_token_count + content_token_count > memory_compact_threshold:
@@ -273,7 +277,7 @@ class AsMsgHandler:
 
         return tool_use_ids == tool_result_ids
 
-    def context_check(
+    async def context_check(
         self,
         messages: list[Msg],
         memory_compact_threshold: int,
@@ -302,7 +306,7 @@ class AsMsgHandler:
         msg_stats: list[tuple[Msg, AsMsgStat]] = []
         total_tokens = 0
         for msg in messages:
-            stat = self.stat_message(msg)
+            stat = await self.stat_message(msg)
             msg_stats.append((msg, stat))
             total_tokens += stat.total_tokens
 
