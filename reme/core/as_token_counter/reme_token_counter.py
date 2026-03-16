@@ -1,3 +1,5 @@
+"""Token counter for ReMe."""
+
 import os
 from typing import Any
 

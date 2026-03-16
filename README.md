@@ -145,8 +145,12 @@ async def main():
 
     messages = [...]  # List of conversation messages
 
-    # 1. Compact long tool outputs (prevent tool results from blowing up context)
-    messages = await reme.compact_tool_result(messages)
+    # 1. Check context size (token counting, determine if compaction is needed)
+    messages_to_compact, messages_to_keep, is_valid = await reme.check_context(
+        messages=messages,
+        memory_compact_threshold=90000,  # Threshold to trigger compaction (tokens)
+        memory_compact_reserve=10000,  # Token count to reserve for recent messages
+    )
 
     # 2. Compact conversation history into a structured summary
     summary = await reme.compact_memory(
@@ -157,10 +161,10 @@ async def main():
         language="zh",  # Summary language (e.g., "zh" / "")
     )
 
-    # 3. Submit summary task asynchronously (non-blocking, writes to memory/YYYY-MM-DD.md)
-    reme.add_async_summary_task(messages=messages)
+    # 3. Compact long tool outputs (prevent tool results from blowing up context)
+    messages = await reme.compact_tool_result(messages)
 
-    # 4. Pre-reasoning hook (auto compact tool results + generate summaries)
+    # 4. Pre-reasoning hook (auto compact tool results + check context + generate summaries)
     processed_messages, compressed_summary = await reme.pre_reasoning_hook(
         messages=messages,
         system_prompt="You are a helpful AI assistant.",
@@ -172,10 +176,16 @@ async def main():
         tool_result_compact_keep_n=3,
     )
 
-    # 5. Semantic memory search (vector + BM25 hybrid retrieval)
+    # 5. Persist important memory to files (writes to memory/YYYY-MM-DD.md)
+    summary_result = await reme.summary_memory(
+        messages=messages,
+        language="zh",
+    )
+
+    # 6. Semantic memory search (vector + BM25 hybrid retrieval)
     result = await reme.memory_search(query="Python version preference", max_results=5)
 
-    # 6. Create in-session memory instance (manages context for one conversation)
+    # 7. Create in-session memory instance (manages context for one conversation)
     from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
     memory = ReMeInMemoryMemory()
     for msg in messages:
@@ -184,9 +194,6 @@ async def main():
     print(f"Current context usage: {token_stats['context_usage_ratio']:.1f}%")
     print(f"Message token count: {token_stats['messages_tokens']}")
     print(f"Estimated total tokens: {token_stats['estimated_tokens']}")
-
-    # 7. Wait for background summary tasks to complete before shutdown
-    summary_result = await reme.await_summary_tasks()
 
     # Shutdown ReMeLight
     await reme.close()

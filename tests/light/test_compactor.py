@@ -9,10 +9,10 @@ from test_utils import (
     get_token_counter,
 )
 
-from reme.core.utils import get_std_logger
+from reme.core.utils import get_logger
 from reme.memory.file_based.components import Compactor
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 # ANSI 颜色码
@@ -96,7 +96,7 @@ def create_compactor():
     """Create a Compactor instance for testing."""
     return Compactor(
         memory_compact_threshold=4000,
-        token_counter=get_token_counter(),
+        as_token_counter=get_token_counter(),
         as_llm=get_dash_chat_model(),
         as_llm_formatter=get_formatter(),
         language="zh",
@@ -282,7 +282,7 @@ def test_low_threshold():
     """Test compaction with low memory threshold."""
     compactor = Compactor(
         memory_compact_threshold=500,
-        token_counter=get_token_counter(),
+        as_token_counter=get_token_counter(),
         as_llm=get_dash_chat_model(),
         as_llm_formatter=get_formatter(),
     )
@@ -305,7 +305,7 @@ def test_high_threshold():
     """Test compaction with high memory threshold."""
     compactor = Compactor(
         memory_compact_threshold=10000,
-        token_counter=get_token_counter(),
+        as_token_counter=get_token_counter(),
         as_llm=get_dash_chat_model(),
         as_llm_formatter=get_formatter(),
     )

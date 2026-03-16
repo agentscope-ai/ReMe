@@ -24,7 +24,7 @@ from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit, ToolResponse
 
 from .config import ReMeConfigParser
-from .core import Application
+from .core import Application, RuntimeContext
 from .core.utils import get_logger
 from .memory.file_based import ReMeInMemoryMemory
 from .memory.file_based.components import (
@@ -302,7 +302,7 @@ class ReMeLight(Application):
                 compaction. Messages exceeding this threshold will be split.
             memory_compact_reserve (int): Token count to reserve for recent messages
                 to keep in context. Defaults to 10000 tokens.
-            as_token_counter (str | HuggingFaceTokenCounter): The token counter to use
+            as_token_counter (str | HuggingFaceTokenCounter): The token counter to use.
 
         Returns:
             tuple[list[Msg], list[Msg], bool]: A tuple containing:
@@ -473,7 +473,7 @@ class ReMeLight(Application):
                 Supported arguments include:
                 - as_llm: Language model identifier or instance
                 - as_llm_formatter: Formatter for the language model
-                - token_counter: Token counter instance
+                - as_token_counter: Token counter instance
                 - toolkit: Toolkit for file operations
                 - language: Output language ("zh" or other)
                 - max_input_length: Maximum input token length
@@ -502,6 +502,16 @@ class ReMeLight(Application):
 
         task = asyncio.create_task(self.summary_memory(messages=messages, **kwargs))
         self.summary_tasks.append(task)
+
+    @property
+    def default_as_token_counter(self) -> HuggingFaceTokenCounter:
+        """
+        Get the default token counter for the memory.
+
+        Returns:
+            HuggingFaceTokenCounter: The default token counter instance.
+        """
+        return self.service_context.as_token_counters["default"]
 
     async def pre_reasoning_hook(
         self,
@@ -569,13 +579,15 @@ class ReMeLight(Application):
             memory_compact_reserve=memory_compact_reserve,
             as_token_counter=as_token_counter,
         )
+        checker.context = RuntimeContext(service_context=self.service_context)
 
         # Use the resolved token counter from checker
         msg_handler = AsMsgHandler(checker.as_token_counter)
 
-        system_token_count = await msg_handler.count_str_token(system_prompt)
-        compressed_token_count = await msg_handler.count_str_token(compressed_summary)
-        left_compact_threshold = memory_compact_threshold - (system_token_count + compressed_token_count)
+        # Calculate tokens for system_prompt and compressed_summary together
+        context_overhead = "\n".join([system_prompt, compressed_summary]) if system_prompt or compressed_summary else ""
+        context_overhead_tokens = await msg_handler.count_str_token(context_overhead)
+        left_compact_threshold = memory_compact_threshold - context_overhead_tokens
         logger.info(f"Left compact threshold: {left_compact_threshold}")
 
         if enable_tool_result_compact and tool_result_compact_keep_n > 0:
@@ -754,30 +766,31 @@ class ReMeLight(Application):
             ],
         )
 
-    @staticmethod
-    def get_in_memory_memory(
-        token_counter: HuggingFaceTokenCounter,
-        dialog_path: str | None = None,
-    ):
+    def get_in_memory_memory(self, as_token_counter: HuggingFaceTokenCounter | None = None):
         """
         Create and return an in-memory memory instance.
 
         Factory method to create a ReMeInMemoryMemory instance configured with
-        the specified token counter. This memory instance stores data in RAM
-        without persistence, suitable for temporary or session-based storage.
+        the specified token counter. This memory instance stores messages in RAM
+        during the session, and automatically persists them to dialog_path when
+        messages are compressed or cleared.
 
         Args:
-            token_counter (HuggingFaceTokenCounter): Token counter for
+            as_token_counter (HuggingFaceTokenCounter): Token counter for
                 measuring content length in the memory.
-            dialog_path (str | None): Path to the dialog storage directory.
-                If provided, messages will be persisted to jsonl files when
-                cleared or compressed. Defaults to None.
 
         Returns:
             ReMeInMemoryMemory: A new in-memory memory instance ready for use.
+                The instance is configured with self.dialog_path for persistence.
 
-        Example:
-            >>> memory = ReMeLight.get_in_memory_memory(token_counter, dialog_path)
-            >>> # Use memory for temporary storage during a session
+        Note:
+            - Messages are stored in RAM during active session
+            - When messages are compressed via mark_messages_compressed(), they
+              are persisted to {dialog_path}/{date}.jsonl files
+            - When clear_content() is called, all messages are persisted before
+              clearing from memory
         """
-        return ReMeInMemoryMemory(token_counter=token_counter, dialog_path=dialog_path)
+        return ReMeInMemoryMemory(
+            token_counter=as_token_counter or self.default_as_token_counter,
+            dialog_path=str(self.dialog_path),
+        )

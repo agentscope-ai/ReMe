@@ -138,8 +138,12 @@ async def main():
 
     messages = [...]  # 对话消息列表
 
-    # 1. 压缩超长工具输出（防止工具结果撑爆上下文）
-    messages = await reme.compact_tool_result(messages)
+    # 1. 检查上下文大小（Token 计数，判断是否需要压缩）
+    messages_to_compact, messages_to_keep, is_valid = await reme.check_context(
+        messages=messages,
+        memory_compact_threshold=90000,  # 触发压缩的阈值（tokens）
+        memory_compact_reserve=10000,  # 保留的近期消息 token 数
+    )
 
     # 2. 将历史对话压缩为结构化摘要（可传入上轮摘要，实现增量更新）
     summary = await reme.compact_memory(
@@ -150,10 +154,10 @@ async def main():
         language="zh",  # 摘要语言（zh / ""）
     )
 
-    # 3. 后台异步提交摘要任务（不阻塞对话，摘要写入 memory/YYYY-MM-DD.md）
-    reme.add_async_summary_task(messages=messages)
+    # 3. 压缩超长工具输出（防止工具结果撑爆上下文）
+    messages = await reme.compact_tool_result(messages)
 
-    # 4. 推理前预处理钩子（自动压缩工具结果 + 生成摘要）
+    # 4. 推理前预处理钩子（自动压缩工具结果 + 检查上下文 + 生成摘要）
     processed_messages, compressed_summary = await reme.pre_reasoning_hook(
         messages=messages,
         system_prompt="你是一个有帮助的 AI 助手。",
@@ -165,10 +169,16 @@ async def main():
         tool_result_compact_keep_n=3,
     )
 
-    # 5. 语义搜索记忆（向量 + BM25 混合检索）
+    # 5. 将重要记忆写入文件（摘要写入 memory/YYYY-MM-DD.md）
+    summary_result = await reme.summary_memory(
+        messages=messages,
+        language="zh",
+    )
+
+    # 6. 语义搜索记忆（向量 + BM25 混合检索）
     result = await reme.memory_search(query="Python 版本偏好", max_results=5)
 
-    # 6. 创建会话内存实例（管理单次对话的上下文）
+    # 7. 创建会话内存实例（管理单次对话的上下文）
     from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
     memory = ReMeInMemoryMemory()
     for msg in messages:
@@ -177,9 +187,6 @@ async def main():
     print(f"当前上下文使用率: {token_stats['context_usage_ratio']:.1f}%")
     print(f"消息 Token 数: {token_stats['messages_tokens']}")
     print(f"预估总 Token 数: {token_stats['estimated_tokens']}")
-
-    # 7. 关闭前等待后台任务完成
-    summary_result = await reme.await_summary_tasks()
 
     # 关闭 ReMeLight
     await reme.close()

@@ -11,7 +11,7 @@ import pytest
 
 from reme.memory.file_based.tools.file_io import FileIO
 from reme.memory.file_based.tools.shell import Shell
-from reme.memory.file_based.tools.utils import DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES
+from reme.memory.file_based.utils import DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES
 
 
 # ============ Shell Tests ============

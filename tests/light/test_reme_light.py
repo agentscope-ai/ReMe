@@ -43,7 +43,7 @@ async def main():
 
     # 构建模拟对话历史（包含超长 tool_result，确保超过 128K token）
     original_messages = build_sample_messages(include_large_tool_result=True)
-    initial_tokens = msg_handler.count_msgs_token(original_messages)
+    initial_tokens = await msg_handler.count_msgs_token(original_messages)
 
     print(f"\n[原始消息]: {len(original_messages)} 条, {initial_tokens:,} tokens")
     print(f"  目标阈值: 128K = {128 * 1024:,} tokens")
@@ -56,9 +56,9 @@ async def main():
 
     # 重新获取原始消息
     messages = build_sample_messages(include_large_tool_result=True)
-    tokens_before = msg_handler.count_msgs_token(messages)
+    tokens_before = await msg_handler.count_msgs_token(messages)
     messages_after_step1 = await reme.compact_tool_result(messages)
-    tokens_after = msg_handler.count_msgs_token(messages_after_step1)
+    tokens_after = await msg_handler.count_msgs_token(messages_after_step1)
 
     print(f"  消息数量: {len(messages)} → {len(messages_after_step1)}")
     print_token_change("compact_tool_result", tokens_before, tokens_after)
@@ -70,12 +70,12 @@ async def main():
 
     # 重新获取原始消息
     messages = build_sample_messages(include_large_tool_result=True)
-    tokens_before = msg_handler.count_msgs_token(messages)
+    tokens_before = await msg_handler.count_msgs_token(messages)
     compact_summary = await reme.compact_memory(
         messages=messages,
         previous_summary="",
     )
-    summary_tokens = msg_handler.count_str_token(compact_summary)
+    summary_tokens = await msg_handler.count_str_token(compact_summary)
 
     print(f"  输入消息 tokens: {tokens_before:,}")
     print(f"  压缩摘要长度: {len(compact_summary)} 字符, {summary_tokens:,} tokens")
@@ -89,7 +89,7 @@ async def main():
 
     # 重新获取原始消息
     messages = build_sample_messages(include_large_tool_result=True)
-    tokens_before = msg_handler.count_msgs_token(messages)
+    tokens_before = await msg_handler.count_msgs_token(messages)
     summary_result = await reme.summary_memory(messages=messages)
 
     print(f"  输入消息 tokens: {tokens_before:,}")
@@ -103,7 +103,7 @@ async def main():
 
     # 重新获取原始消息
     messages = build_sample_messages(include_large_tool_result=True)
-    tokens_before = msg_handler.count_msgs_token(messages)
+    tokens_before = await msg_handler.count_msgs_token(messages)
     processed_messages, compressed_summary = await reme.pre_reasoning_hook(
         messages=messages,
         system_prompt="你是一个有帮助的 AI 助手。",
@@ -114,8 +114,8 @@ async def main():
         enable_tool_result_compact=True,
         tool_result_compact_keep_n=3,
     )
-    tokens_after = msg_handler.count_msgs_token(processed_messages)
-    compressed_summary_tokens = msg_handler.count_str_token(compressed_summary)
+    tokens_after = await msg_handler.count_msgs_token(processed_messages)
+    compressed_summary_tokens = await msg_handler.count_str_token(compressed_summary)
 
     print(f"  消息数量: {len(messages)} → {len(processed_messages)}")
     print_token_change("pre_reasoning_hook", tokens_before, tokens_after)
@@ -140,7 +140,7 @@ async def main():
 
     # 重新获取原始消息
     messages = build_sample_messages(include_large_tool_result=True)
-    memory = ReMeLight.get_in_memory_memory()
+    memory = reme.get_in_memory_memory()
     for msg in messages:
         await memory.add(msg)
     print(f"  已添加 {len(messages)} 条原始消息到内存")
@@ -172,7 +172,7 @@ async def main():
     print("📊 Token 变化总结")
     print("=" * 70)
     print(f"  原始消息: {initial_tokens:,} tokens")
-    print(f"  Step 1 compact_tool_result 后: {msg_handler.count_msgs_token(messages_after_step1):,} tokens")
+    print(f"  Step 1 compact_tool_result 后: {(await msg_handler.count_msgs_token(messages_after_step1)):,} tokens")
     print(f"  Step 2 compact_memory 摘要: {summary_tokens:,} tokens")
     print(
         f"  Step 4 pre_reasoning_hook 后: {tokens_after:,} tokens + 摘要 {compressed_summary_tokens:,} "
