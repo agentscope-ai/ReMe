@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
+# pylint: disable=too-many-lines
 """Browser automation tool using Playwright.
 
 Single tool with action-based API matching browser MCP: start, stop, open,
@@ -36,9 +37,7 @@ logger = logging.getLogger(__name__)
 # Hybrid mode detection: Windows + Uvicorn reload mode requires sync Playwright
 # to avoid NotImplementedError with asyncio.create_subprocess_exec.
 # On other platforms or without reload, use async Playwright for better performance.
-_USE_SYNC_PLAYWRIGHT = (
-    sys.platform == "win32" and os.environ.get("COPAW_RELOAD_MODE") == "1"
-)
+_USE_SYNC_PLAYWRIGHT = sys.platform == "win32" and os.environ.get("COPAW_RELOAD_MODE") == "1"
 
 if _USE_SYNC_PLAYWRIGHT:
     _executor: Optional[ThreadPoolExecutor] = None
@@ -239,9 +238,7 @@ def _sync_browser_launch(headless: bool):
         "COPAW_BROWSER_USE_DEFAULT",
         "1",
     ).strip().lower() in ("1", "true", "yes")
-    default_kind, default_path = (
-        get_system_default_browser() if use_default else (None, None)
-    )
+    default_kind, default_path = get_system_default_browser() if use_default else (None, None)
     exe: Optional[str] = None
     if default_kind == "chromium" and default_path:
         exe = default_path
@@ -719,10 +716,7 @@ async def _ensure_browser() -> bool:  # pylint: disable=too-many-branches
     """Start browser if not running. Return True if ready, False on failure."""
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
-        if (
-            _state["_sync_browser"] is not None
-            and _state["_sync_context"] is not None
-        ):
+        if _state["_sync_browser"] is not None and _state["_sync_context"] is not None:
             _touch_activity()
             return True
     else:
@@ -750,9 +744,7 @@ async def _ensure_browser() -> bool:  # pylint: disable=too-many-branches
                 "COPAW_BROWSER_USE_DEFAULT",
                 "1",
             ).strip().lower() in ("1", "true", "yes")
-            default_kind, default_path = (
-                get_system_default_browser() if use_default else (None, None)
-            )
+            default_kind, default_path = get_system_default_browser() if use_default else (None, None)
             exe: Optional[str] = None
             if default_kind == "chromium" and default_path:
                 exe = default_path
@@ -860,9 +852,7 @@ async def _action_start(
                 "COPAW_BROWSER_USE_DEFAULT",
                 "1",
             ).strip().lower() in ("1", "true", "yes")
-            default_kind, default_path = (
-                get_system_default_browser() if use_default else (None, None)
-            )
+            default_kind, default_path = get_system_default_browser() if use_default else (None, None)
             exe: Optional[str] = None
             if default_kind == "chromium" and default_path:
                 exe = default_path
@@ -892,11 +882,7 @@ async def _action_start(
             _state["context"] = context
         _touch_activity()
         _start_idle_watchdog()
-        msg = (
-            "Browser started (visible window)"
-            if not _state["headless"]
-            else "Browser started"
-        )
+        msg = "Browser started (visible window)" if not _state["headless"] else "Browser started"
         return _tool_response(
             json.dumps(
                 {"ok": True, "message": msg},
@@ -1135,16 +1121,12 @@ async def _action_screenshot(
                 await _run_sync(
                     locator.screenshot,
                     path=path,
-                    type=screenshot_type
-                    if screenshot_type == "jpeg"
-                    else "png",
+                    type=screenshot_type if screenshot_type == "jpeg" else "png",
                 )
             else:
                 await locator.screenshot(
                     path=path,
-                    type=screenshot_type
-                    if screenshot_type == "jpeg"
-                    else "png",
+                    type=screenshot_type if screenshot_type == "jpeg" else "png",
                 )
         else:
             if frame_selector and frame_selector.strip():
@@ -1154,16 +1136,12 @@ async def _action_screenshot(
                     await _run_sync(
                         locator.screenshot,
                         path=path,
-                        type=screenshot_type
-                        if screenshot_type == "jpeg"
-                        else "png",
+                        type=screenshot_type if screenshot_type == "jpeg" else "png",
                     )
                 else:
                     await locator.screenshot(
                         path=path,
-                        type=screenshot_type
-                        if screenshot_type == "jpeg"
-                        else "png",
+                        type=screenshot_type if screenshot_type == "jpeg" else "png",
                     )
             else:
                 if _USE_SYNC_PLAYWRIGHT:
@@ -1171,17 +1149,13 @@ async def _action_screenshot(
                         page.screenshot,
                         path=path,
                         full_page=full_page,
-                        type=screenshot_type
-                        if screenshot_type == "jpeg"
-                        else "png",
+                        type=screenshot_type if screenshot_type == "jpeg" else "png",
                     )
                 else:
                     await page.screenshot(
                         path=path,
                         full_page=full_page,
-                        type=screenshot_type
-                        if screenshot_type == "jpeg"
-                        else "png",
+                        type=screenshot_type if screenshot_type == "jpeg" else "png",
                     )
         return _tool_response(
             json.dumps(
@@ -1241,16 +1215,10 @@ async def _action_click(  # pylint: disable=too-many-branches
         if not isinstance(mods, list):
             mods = []
         kwargs = {
-            "button": button
-            if button in ("left", "right", "middle")
-            else "left",
+            "button": button if button in ("left", "right", "middle") else "left",
         }
         if mods:
-            kwargs["modifiers"] = [
-                m
-                for m in mods
-                if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")
-            ]
+            kwargs["modifiers"] = [m for m in mods if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")]
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1616,9 +1584,7 @@ async def _action_snapshot(
             compact=False,
         )
         _state["refs"][page_id] = refs
-        _state["refs_frame"][page_id] = (
-            frame_selector.strip() if frame_selector else ""
-        )
+        _state["refs_frame"][page_id] = frame_selector.strip() if frame_selector else ""
         out = {
             "ok": True,
             "snapshot": snapshot,
@@ -1825,11 +1791,7 @@ async def _action_console_messages(
             ),
         )
     logs = _state["console_logs"].get(page_id, [])
-    filtered = (
-        [m for m in logs if order.index(m["level"]) <= idx]
-        if level in order
-        else logs
-    )
+    filtered = [m for m in logs if order.index(m["level"]) <= idx] if level in order else logs
     lines = [f"[{m['level']}] {m['text']}" for m in filtered]
     text = "\n".join(lines)
     if filename and filename.strip():
@@ -2193,10 +2155,7 @@ async def _action_network_requests(
     if not include_static:
         static = ("image", "stylesheet", "font", "media")
         requests = [r for r in requests if r.get("resourceType") not in static]
-    lines = [
-        f"{r.get('method', '')} {r.get('url', '')} {r.get('status', '')}"
-        for r in requests
-    ]
+    lines = [f"{r.get('method', '')} {r.get('url', '')} {r.get('status', '')}" for r in requests]
     text = "\n".join(lines)
     if filename and filename.strip():
         with open(filename.strip(), "w", encoding="utf-8") as f:
@@ -2299,9 +2258,7 @@ async def _action_drag(
             json.dumps(
                 {
                     "ok": False,
-                    "error": (
-                        "drag needs (start_ref,end_ref) or (start_sel,end_sel)"
-                    ),
+                    "error": ("drag needs (start_ref,end_ref) or (start_sel,end_sel)"),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -2526,10 +2483,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not _state["_sync_context"]:
                 ok = await _ensure_browser()
                 if not ok:
-                    err = (
-                        _state.get("_last_browser_error")
-                        or "Browser not started"
-                    )
+                    err = _state.get("_last_browser_error") or "Browser not started"
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},
@@ -2541,10 +2495,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not _state["context"]:
                 ok = await _ensure_browser()
                 if not ok:
-                    err = (
-                        _state.get("_last_browser_error")
-                        or "Browser not started"
-                    )
+                    err = _state.get("_last_browser_error") or "Browser not started"
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},

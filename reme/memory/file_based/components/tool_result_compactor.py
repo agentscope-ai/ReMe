@@ -7,10 +7,10 @@ from pathlib import Path
 from agentscope.message import Msg
 
 from ....core.op import BaseOp
-from ....core.utils import get_std_logger
+from ....core.utils import get_logger
 from ....core.utils import truncate_text, is_truncated
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 class ToolResultCompactor(BaseOp):

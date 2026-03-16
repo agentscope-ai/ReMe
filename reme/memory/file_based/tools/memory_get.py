@@ -3,11 +3,14 @@
 import os
 from pathlib import Path
 
-from loguru import logger
 
 from ....core import RuntimeContext
 from ....core.op import BaseTool
 from ....core.schema import ToolCall
+
+from ....core.utils import get_logger
+
+logger = get_logger()
 
 
 class MemoryGet(BaseTool):

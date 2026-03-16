@@ -6,9 +6,9 @@ from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
 from .utils import AsMsgHandler
-from ...core.utils import get_std_logger
+from ...core.utils import get_logger
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 class ReMeInMemoryMemory(InMemoryMemory):

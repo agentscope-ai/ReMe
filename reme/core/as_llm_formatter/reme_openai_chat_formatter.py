@@ -1,3 +1,5 @@
+"""ReMeOpenAIChatFormatter"""
+
 import json
 from typing import Any
 
@@ -38,9 +40,11 @@ def _format_openai_video_block(video_block: dict) -> dict[str, Any]:
 
 
 class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
+    """ReMeOpenAIChatFormatter"""
+
     async def _format(
-            self,
-            msgs: list[Msg],
+        self,
+        msgs: list[Msg],
     ) -> list[dict[str, Any]]:
         """Format message objects into OpenAI API required format.
 
@@ -99,9 +103,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                         {
                             "role": "tool",
                             "tool_call_id": block.get("id"),
-                            "content": (  # type: ignore[arg-type]
-                                textual_output
-                            ),
+                            "content": (textual_output),  # type: ignore[arg-type]
                             "name": block.get("name"),
                         },
                     )
@@ -109,10 +111,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                     # Then, handle the multimodal data if any
                     promoted_blocks: list = []
                     for url, multimodal_block in multimodal_data:
-                        if (
-                                multimodal_block["type"] == "image"
-                                and self.promote_tool_result_images
-                        ):
+                        if multimodal_block["type"] == "image" and self.promote_tool_result_images:
                             promoted_blocks.extend(
                                 [
                                     TextBlock(
@@ -135,8 +134,8 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                             TextBlock(
                                 type="text",
                                 text="<system-info>The following are "
-                                     "the image contents from the tool "
-                                     f"result of '{block['name']}':",
+                                "the image contents from the tool "
+                                f"result of '{block['name']}':",
                             ),
                             *promoted_blocks,
                             TextBlock(
@@ -202,10 +201,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
 
             # Add reasoning_content for thinking blocks (compatible with DeepSeek, etc.)
             if reasoning_content_blocks:
-                reasoning_msg = "\n".join(
-                    reasoning.get("thinking", "")
-                    for reasoning in reasoning_content_blocks
-                )
+                reasoning_msg = "\n".join(reasoning.get("thinking", "") for reasoning in reasoning_content_blocks)
                 if reasoning_msg:
                     msg_openai["reasoning_content"] = reasoning_msg
 

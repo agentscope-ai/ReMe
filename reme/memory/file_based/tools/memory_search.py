@@ -2,12 +2,14 @@
 
 import json
 
-from loguru import logger
 
 from ....core.enumeration import MemorySource
 from ....core.op import BaseTool
 from ....core.runtime_context import RuntimeContext
 from ....core.schema import ToolCall
+from ....core.utils import get_logger
+
+logger = get_logger()
 
 
 class MemorySearch(BaseTool):

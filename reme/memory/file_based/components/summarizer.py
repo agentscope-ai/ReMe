@@ -6,10 +6,12 @@ from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit
-from loguru import logger
 
 from ..utils import AsMsgHandler
 from ....core.op import BaseOp
+from ....core.utils import get_logger
+
+logger = get_logger()
 
 
 class Summarizer(BaseOp):
