@@ -111,19 +111,6 @@ class AsMsgHandler:
                 metadata=message.metadata or {},
             )
 
-        if not isinstance(message.content, list):
-            logger.warning(
-                "Unexpected message.content type %s, expected str or list, returning empty stat.",
-                type(message.content),
-            )
-            return AsMsgStat(
-                name=message.name or message.role,
-                role=message.role,
-                content=blocks,
-                timestamp=message.timestamp or "",
-                metadata=message.metadata or {},
-            )
-
         for block in message.content:
             block_type = block.get("type", "unknown")
 
