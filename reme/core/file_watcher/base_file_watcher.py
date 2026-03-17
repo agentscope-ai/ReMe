@@ -34,7 +34,8 @@ class BaseFileWatcher:
         chunk_overlap: int = 80,
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
-        scan_on_start: bool = False,
+        scan_on_start: bool = True,
+        clear_on_start: bool = True,
         **kwargs,
     ):
         """
@@ -50,6 +51,8 @@ class BaseFileWatcher:
             file_store: File store instance
             callback: Callback function for changes
             scan_on_start: If True, scan existing files on start and trigger on_changes with Change.added
+            clear_on_start: If True, clear all indexed data on start before scanning.
+                           Useful for full rebuild of the index.
             **kwargs: Additional keyword arguments
         """
         self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
@@ -61,6 +64,7 @@ class BaseFileWatcher:
         self.file_store: BaseFileStore = file_store
         self.callback = callback
         self.scan_on_start: bool = scan_on_start
+        self.clear_on_start: bool = clear_on_start
         self.kwargs: dict = kwargs
 
         self._stop_event = asyncio.Event()
@@ -73,6 +77,11 @@ class BaseFileWatcher:
             return
 
         self._running = True
+
+        # Clear all indexed data if requested
+        if self.clear_on_start and self.file_store is not None:
+            await self.file_store.clear_all()
+            logger.info("Cleared all indexed data on start")
 
         # Scan existing files if requested
         if self.scan_on_start:

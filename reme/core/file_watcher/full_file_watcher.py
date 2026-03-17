@@ -44,7 +44,6 @@ class FullFileWatcher(BaseFileWatcher):
     async def _on_changes(self, changes: set[tuple[Change, str]]):
         """Handle file changes with full synchronization"""
         self.dirty = True
-        await self.file_store.clear_all()
 
         for change_type, path in changes:
             if change_type in [Change.added, Change.modified]:
