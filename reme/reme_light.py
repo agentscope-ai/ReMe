@@ -24,7 +24,7 @@ from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit, ToolResponse
 
 from .config import ReMeConfigParser
-from .core import Application, RuntimeContext
+from .core import Application
 from .core.utils import get_logger
 from .memory.file_based import ReMeInMemoryMemory
 from .memory.file_based.components import (
@@ -572,33 +572,23 @@ class ReMeLight(Application):
             - Tool results in recent messages (keep_n) are not compacted
             - Returns original messages unchanged if no compaction is needed
         """
-        # Initialize ContextChecker first to resolve as_token_counter
+        msg_handler = AsMsgHandler(self.default_as_token_counter)
+
+        system_token_count = await msg_handler.count_str_token(system_prompt)
+        compressed_token_count = await msg_handler.count_str_token(compressed_summary)
         memory_compact_threshold = self.calculate_memory_compact_threshold(max_input_length, compact_ratio)
-        checker = ContextChecker(
-            memory_compact_threshold=memory_compact_threshold,
-            memory_compact_reserve=memory_compact_reserve,
-            as_token_counter=as_token_counter,
-        )
-        checker.context = RuntimeContext(service_context=self.service_context)
-
-        # Use the resolved token counter from checker
-        msg_handler = AsMsgHandler(checker.as_token_counter)
-
-        # Calculate tokens for system_prompt and compressed_summary together
-        context_overhead = "\n".join([system_prompt, compressed_summary]) if system_prompt or compressed_summary else ""
-        context_overhead_tokens = await msg_handler.count_str_token(context_overhead)
-        left_compact_threshold = memory_compact_threshold - context_overhead_tokens
+        left_compact_threshold = memory_compact_threshold - (system_token_count + compressed_token_count)
         logger.info(f"Left compact threshold: {left_compact_threshold}")
 
         if enable_tool_result_compact and tool_result_compact_keep_n > 0:
             compact_msgs = messages[:-tool_result_compact_keep_n]
             await self.compact_tool_result(compact_msgs)
 
-        # Update checker threshold with the calculated left threshold
-        checker.memory_compact_threshold = left_compact_threshold
-        messages_to_compact, messages_to_keep, is_valid = await checker.call(
+        messages_to_compact, messages_to_keep, is_valid = await self.check_context(
             messages=messages,
-            service_context=self.service_context,
+            memory_compact_threshold=left_compact_threshold,
+            memory_compact_reserve=memory_compact_reserve,
+            as_token_counter=as_token_counter,
         )
 
         if not messages_to_compact:
