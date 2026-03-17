@@ -25,8 +25,8 @@
 
 ---
 
-🧠 ReMe 是一个专为 **AI 智能体** 打造的记忆管理框架，同时提供基于[文件系统](#-基于文件的记忆系统-remelight)和基于[向量库](#-基于向量库的记忆系统)的记忆系统。
-
+🧠 ReMe 是一个专为 **AI 智能体** 打造的记忆管理框架，同时提供基于[文件系统](#-基于文件的记忆系统-remelight)
+和基于[向量库](#-基于向量库的记忆系统)的记忆系统。
 
 它解决智能体记忆的两类核心问题：**上下文窗口有限**（长对话时早期信息被截断或丢失）、**会话无状态**（新对话无法继承历史，每次从零开始）。
 
@@ -67,6 +67,8 @@ working_dir/
 ├── MEMORY.md              # 长期记忆：用户偏好等持久信息
 ├── memory/
 │   └── YYYY-MM-DD.md      # 每日日记：对话结束后自动写入
+├── dialog/                # 原始对话记录：压缩前的完整对话
+│   └── YYYY-MM-DD.jsonl   # 按日期存储的对话消息（JSONL 格式）
 └── tool_result/           # 超长工具输出缓存（自动管理，超期自动清理）
     └── <uuid>.txt
 ```
@@ -83,6 +85,8 @@ working_dir/
 <tr><td><code>pre_reasoning_hook</code></td><td>🔄 推理前预处理钩子</td><td>compact_tool_result + check_context + compact_memory + summary_memory(async)</td></tr>
 <tr><td rowspan="2">长期记忆</td><td><code>summary_memory</code></td><td>📝 将重要记忆写入文件</td><td><a href="reme/memory/file_based/components/summarizer.py">Summarizer</a> — ReActAgent + 文件工具（read / write / edit）</td></tr>
 <tr><td><code>memory_search</code></td><td>🔍 语义搜索记忆</td><td><a href="reme/memory/file_based/tools/memory_search.py">MemorySearch</a> — 向量 + BM25 混合检索</td></tr>
+<tr><td rowspan="2">会话内存</td><td><code>get_in_memory_memory</code></td><td>💾 创建会话内存实例</td><td>返回 ReMeInMemoryMemory，自动配置 dialog_path 实现对话持久化</td></tr>
+<tr><td><code>await_summary_tasks</code></td><td>⏳ 等待异步摘要任务</td><td>阻塞等待所有后台摘要任务完成</td></tr>
 <tr><td>-</td><td><code>start</code></td><td>🚀 启动记忆系统</td><td>初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件</td></tr>
 <tr><td>-</td><td><code>close</code></td><td>📕 关闭并清理</td><td>清理工具结果文件、停止文件监控、保存 Embedding 缓存</td></tr>
 </table>
@@ -180,13 +184,16 @@ async def main():
 
     # 7. 创建会话内存实例（管理单次对话的上下文）
     from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-    memory = ReMeInMemoryMemory()
+    memory = reme.get_in_memory_memory()  # 自动配置 dialog_path
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
     print(f"当前上下文使用率: {token_stats['context_usage_ratio']:.1f}%")
     print(f"消息 Token 数: {token_stats['messages_tokens']}")
     print(f"预估总 Token 数: {token_stats['estimated_tokens']}")
+
+    # 8. 标记消息为压缩状态（自动持久化到 dialog/YYYY-MM-DD.jsonl）
+    # await memory.mark_messages_compressed(messages_to_compact)
 
     # 关闭 ReMeLight
     await reme.close()
@@ -212,8 +219,11 @@ graph LR
     CC -->|超限| CM[compact_memory<br>生成摘要]
     CC -->|超限| SM[summary_memory<br>异步持久化]
     SM -->|ReAct + FileIO| Files[memory/*.md]
+    CC -->|超限| MMC[mark_messages_compressed<br>持久化原始对话]
+    MMC --> Dialog[dialog/*.jsonl]
     Agent -->|主动调用| Search[memory_search<br>向量+BM25]
     Agent -->|会话内存| InMem[ReMeInMemoryMemory<br>Token感知内存]
+    InMem -->|压缩/清空| Dialog
     Files -.->|FileWatcher| Store[(FileStore<br>向量+FTS索引)]
     Search --> Store
 ```
@@ -332,7 +342,7 @@ graph LR
 #### 6. ReMeInMemoryMemory — 会话内存
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展 AgentScope 的 `InMemoryMemory`，提供 Token
-感知的内存管理。
+感知的内存管理和原始对话持久化能力。
 
 ```mermaid
 graph LR
@@ -342,13 +352,19 @@ graph LR
     P -->|是| S[头部插入 previous-summary]
     S --> O[输出 messages]
     P -->|否| O
+    M[mark_messages_compressed] --> D[持久化到 dialog/YYYY-MM-DD.jsonl]
+    D --> R[从内存移除]
 ```
 
-| 功能                               | 说明                |
-|----------------------------------|-------------------|
-| `get_memory`                     | 按标记过滤，自动追加压缩摘要    |
-| `estimate_tokens`                | 估算上下文 Token 用量    |
-| `state_dict` / `load_state_dict` | 状态序列化/反序列化（会话持久化） |
+| 功能                               | 说明                    |
+|----------------------------------|-----------------------|
+| `get_memory`                     | 按标记过滤，自动追加压缩摘要        |
+| `estimate_tokens`                | 估算上下文 Token 用量        |
+| `state_dict` / `load_state_dict` | 状态序列化/反序列化（会话持久化）     |
+| `mark_messages_compressed`       | 标记消息压缩并持久化到 dialog 目录 |
+| `clear_content`                  | 持久化所有消息后清空内存          |
+
+**原始对话持久化**：当消息被压缩或清空时，自动保存到 `{dialog_path}/{date}.jsonl`，每行一条 JSON 格式的消息记录。
 
 ---
 
@@ -413,34 +429,30 @@ graph LR
 
 实验设置尽量与各基线论文保持一致，以复用其公开结果。
 
-
 ### LoCoMo
 
-| Method | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
-|--------|------------|-----------|-----------|-------------|-----------|
+| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
+|----------|------------|-----------|-----------|-------------|-----------|
 | MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
-| Mem0 | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
-| MemU | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
-| MemOS | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
-| HiMem | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
-| Zep | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
-| TiMem | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
-| TSM | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
-| MemR3 | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
+| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
+| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
+| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
+| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
+| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
+| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
+| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
+| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
 | **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
-
 
 ### HaluMem
 
 | Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
-|-------------|------------------|---------------|-------------|
-| MemoBase    | 14.55            | 92.24         | 35.53       |
-| Supermemory | 41.53            | 90.32         | 54.07       |
-| Mem0        | 42.91            | 86.26         | 53.02       |
-| ProMem      | **73.80**        | 89.47         | 62.26       |
-| **ReMe**        | 67.72            | **94.06**     | **88.78**   |
-
-
+|-------------|------------------|-----------------|-------------|
+| MemoBase    | 14.55            | 92.24           | 35.53       |
+| Supermemory | 41.53            | 90.32           | 54.07       |
+| Mem0        | 42.91            | 86.26           | 53.02       |
+| ProMem      | **73.80**        | 89.47           | 62.26       |
+| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
 
 ### Python 使用
 

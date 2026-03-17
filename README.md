@@ -25,7 +25,8 @@
 
 ---
 
-🧠 ReMe is a memory management framework designed for **AI agents**, providing both [file-based](#-file-based-memory-system-remelight) and [vector-based](#-vector-based-memory-system) memory systems.
+🧠 ReMe is a memory management framework designed for **AI agents**, providing
+both [file-based](#-file-based-memory-system-remelight) and [vector-based](#-vector-based-memory-system) memory systems.
 
 It tackles two core problems of agent memory: **limited context window** (early information is truncated or lost in long
 conversations) and **stateless sessions** (new sessions cannot inherit history and always start from scratch).
@@ -73,6 +74,8 @@ working_dir/
 ├── MEMORY.md              # Long-term memory: persistent info such as user preferences
 ├── memory/
 │   └── YYYY-MM-DD.md      # Daily journal: automatically written after each conversation
+├── dialog/                # Raw conversation records: full dialog before compression
+│   └── YYYY-MM-DD.jsonl   # Daily conversation messages in JSONL format
 └── tool_result/           # Cache for long tool outputs (auto-managed, expired entries auto-cleaned)
     └── <uuid>.txt
 ```
@@ -90,6 +93,8 @@ capabilities for AI agents:
 <tr><td><code>pre_reasoning_hook</code></td><td>🔄 Pre-reasoning hook</td><td><code>compact_tool_result</code> + <code>check_context</code> + <code>compact_memory</code> + <code>summary_memory</code> (async)</td></tr>
 <tr><td rowspan="2">Long-term Memory</td><td><code>summary_memory</code></td><td>📝 Persist important memory to files</td><td><a href="reme/memory/file_based/components/summarizer.py">Summarizer</a> — ReActAgent + file tools (<code>read</code> / <code>write</code> / <code>edit</code>)</td></tr>
 <tr><td><code>memory_search</code></td><td>🔍 Semantic memory search</td><td><a href="reme/memory/file_based/tools/memory_search.py">MemorySearch</a> — hybrid retrieval with vectors + BM25</td></tr>
+<tr><td rowspan="2">Session Memory</td><td><code>get_in_memory_memory</code></td><td>💾 Create in-session memory instance</td><td>Returns ReMeInMemoryMemory with dialog_path configured for persistence</td></tr>
+<tr><td><code>await_summary_tasks</code></td><td>⏳ Wait for async summary tasks</td><td>Block until all background summary tasks complete</td></tr>
 <tr><td>-</td><td><code>start</code></td><td>🚀 Start memory system</td><td>Initialize file storage, file watcher, and embedding cache; clean up expired tool result files</td></tr>
 <tr><td>-</td><td><code>close</code></td><td>📕 Shutdown and cleanup</td><td>Clean up tool result files, stop file watcher, and persist embedding cache</td></tr>
 </table>
@@ -186,14 +191,16 @@ async def main():
     result = await reme.memory_search(query="Python version preference", max_results=5)
 
     # 7. Create in-session memory instance (manages context for one conversation)
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-    memory = ReMeInMemoryMemory()
+    memory = reme.get_in_memory_memory()  # Auto-configures dialog_path
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
     print(f"Current context usage: {token_stats['context_usage_ratio']:.1f}%")
     print(f"Message token count: {token_stats['messages_tokens']}")
     print(f"Estimated total tokens: {token_stats['estimated_tokens']}")
+
+    # 8. Mark messages as compressed (auto-persists to dialog/YYYY-MM-DD.jsonl)
+    # await memory.mark_messages_compressed(messages_to_compact)
 
     # Shutdown ReMeLight
     await reme.close()
@@ -221,8 +228,11 @@ graph LR
     CC -->|Exceeds limit| CM[compact_memory<br>Generate summary]
     CC -->|Exceeds limit| SM[summary_memory<br>Async persistence]
     SM -->|ReAct + FileIO| Files[memory/*.md]
+    CC -->|Exceeds limit| MMC[mark_messages_compressed<br>Persist raw dialog]
+    MMC --> Dialog[dialog/*.jsonl]
     Agent -->|Explicit call| Search[memory_search<br>Vector+BM25]
     Agent -->|In - session| InMem[ReMeInMemoryMemory<br>Token-aware memory]
+    InMem -->|Compress/Clear| Dialog
     Files -.->|FileWatcher| Store[(FileStore<br>Vector+FTS index)]
     Search --> Store
 ```
@@ -347,7 +357,7 @@ graph LR
 #### 6. `ReMeInMemoryMemory` — in-session memory
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) extends AgentScope's `InMemoryMemory` to provide
-token-aware memory management.
+token-aware memory management and raw conversation persistence.
 
 ```mermaid
 graph LR
@@ -357,13 +367,20 @@ graph LR
     P -->|Yes| S[Prepend previous summary]
     S --> O[Output messages]
     P -->|No| O
+    M[mark_messages_compressed] --> D[Persist to dialog/YYYY-MM-DD.jsonl]
+    D --> R[Remove from memory]
 ```
 
-| Function                         | Description                                       |
-|----------------------------------|---------------------------------------------------|
-| `get_memory`                     | Filter messages by mark and auto-append summary   |
-| `estimate_tokens`                | Estimate token usage of the context               |
-| `state_dict` / `load_state_dict` | Serialize/deserialize state (session persistence) |
+| Function                         | Description                                              |
+|----------------------------------|----------------------------------------------------------|
+| `get_memory`                     | Filter messages by mark and auto-append summary          |
+| `estimate_tokens`                | Estimate token usage of the context                      |
+| `state_dict` / `load_state_dict` | Serialize/deserialize state (session persistence)        |
+| `mark_messages_compressed`       | Mark messages compressed and persist to dialog directory |
+| `clear_content`                  | Persist all messages before clearing memory              |
+
+**Raw conversation persistence**: When messages are compressed or cleared, they are automatically saved to
+`{dialog_path}/{date}.jsonl` with one JSON-formatted message per line.
 
 ---
 
@@ -431,34 +448,30 @@ Evaluations are conducted on three benchmarks: **LoCoMo** and **HaluMem**. Exper
 
 Baseline results are reproduced from their respective papers under aligned settings where possible.
 
-
-
 ### LoCoMo
 
-| Method | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
-|--------|------------|-----------|-----------|-------------|-----------|
+| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
+|----------|------------|-----------|-----------|-------------|-----------|
 | MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
-| Mem0 | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
-| MemU | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
-| MemOS | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
-| HiMem | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
-| Zep | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
-| TiMem | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
-| TSM | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
-| MemR3 | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
+| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
+| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
+| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
+| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
+| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
+| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
+| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
+| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
 | **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
-
 
 ### HaluMem
 
 | Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
-|-------------|------------------|---------------|-------------|
-| MemoBase    | 14.55            | 92.24         | 35.53       |
-| Supermemory | 41.53            | 90.32         | 54.07       |
-| Mem0        | 42.91            | 86.26         | 53.02       |
-| ProMem      | **73.80**        | 89.47         | 62.26       |
-| **ReMe**        | 67.72            | **94.06**     | **88.78**   |
-
+|-------------|------------------|-----------------|-------------|
+| MemoBase    | 14.55            | 92.24           | 35.53       |
+| Supermemory | 41.53            | 90.32           | 54.07       |
+| Mem0        | 42.91            | 86.26           | 53.02       |
+| ProMem      | **73.80**        | 89.47           | 62.26       |
+| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
 
 ### Python usage
 
