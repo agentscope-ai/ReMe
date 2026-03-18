@@ -12,12 +12,12 @@ from test_utils import (
     get_formatter,
     get_token_counter,
 )
-from reme.core.utils import get_std_logger
+from reme.core.utils import get_logger
 from reme.memory.file_based.components import Summarizer
 from reme.memory.file_based.tools import FileIO
 
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 # ANSI 颜色码
@@ -121,7 +121,7 @@ def create_summarizer(working_dir: str = None, memory_dir: str = "memory"):
             working_dir=working_dir,
             memory_dir=memory_dir,
             memory_compact_threshold=4000,
-            token_counter=get_token_counter(),
+            as_token_counter=get_token_counter(),
             toolkit=create_toolkit(working_dir),
             as_llm=get_dash_chat_model(),
             as_llm_formatter=get_formatter(),
@@ -203,7 +203,7 @@ def test_consecutive_summaries():
         working_dir=working_dir,
         memory_dir=memory_dir,
         memory_compact_threshold=4000,
-        token_counter=get_token_counter(),
+        as_token_counter=get_token_counter(),
         toolkit=create_toolkit(working_dir),
         as_llm=get_dash_chat_model(),
         as_llm_formatter=get_formatter(),

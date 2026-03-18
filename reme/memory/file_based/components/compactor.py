@@ -2,11 +2,12 @@
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
-from agentscope.token import HuggingFaceTokenCounter
-from loguru import logger
 
 from ..utils import AsMsgHandler
 from ....core.op import BaseOp
+from ....core.utils import get_logger
+
+logger = get_logger()
 
 
 class Compactor(BaseOp):
@@ -15,14 +16,11 @@ class Compactor(BaseOp):
     def __init__(
         self,
         memory_compact_threshold: int,
-        token_counter: HuggingFaceTokenCounter,
-        console_enabled: bool = True,
+        console_enabled: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.memory_compact_threshold: int = memory_compact_threshold
-
-        self.msg_handler = AsMsgHandler(token_counter=token_counter)
         self.console_enabled: bool = console_enabled
 
     async def execute(self):
@@ -32,12 +30,13 @@ class Compactor(BaseOp):
         if not messages:
             return ""
 
-        before_token_count = self.msg_handler.count_msgs_token(messages)
-        history_formatted_str: str = self.msg_handler.format_msgs_to_str(
+        msg_handler = AsMsgHandler(self.as_token_counter)
+        before_token_count = await msg_handler.count_msgs_token(messages)
+        history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
         )
-        after_token_count = self.msg_handler.count_str_token(history_formatted_str)
+        after_token_count = await msg_handler.count_str_token(history_formatted_str)
         logger.info(f"Compactor before_token_count={before_token_count} after_token_count={after_token_count}")
 
         if not history_formatted_str:

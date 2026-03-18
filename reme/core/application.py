@@ -5,8 +5,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from loguru import logger
-
 from .embedding import BaseEmbeddingModel
 from .file_store import BaseFileStore
 from .file_watcher import BaseFileWatcher
@@ -17,8 +15,10 @@ from .registry_factory import R
 from .schema import Response, ServiceConfig
 from .service_context import ServiceContext
 from .token_counter import BaseTokenCounter
-from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo
+from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo, get_logger
 from .vector_store import BaseVectorStore
+
+logger = get_logger()
 
 
 class Application:
@@ -244,6 +244,7 @@ class Application:
             await self.prepare_mcp_servers()
 
         self._started = True
+        logger.info("ReMe Application started")
         return self
 
     async def prepare_mcp_servers(self):
@@ -290,6 +291,7 @@ class Application:
         self.shutdown_ray()
 
         self._started = False
+        logger.info("ReMe Application closed")
         return False
 
     def shutdown_thread_pool(self, wait: bool = True):

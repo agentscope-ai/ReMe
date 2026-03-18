@@ -9,7 +9,7 @@ from typing import Callable, Optional, Any
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
-from agentscope.token import TokenCounterBase
+from agentscope.token import HuggingFaceTokenCounter
 from loguru import logger
 from tqdm import tqdm
 
@@ -47,7 +47,7 @@ class BaseOp(metaclass=ABCMeta):
         prompt_path: str = "",
         as_llm: str | ChatModelBase = "default",
         as_llm_formatter: str | FormatterBase = "default",
-        as_token_counter: str | TokenCounterBase = "default",
+        as_token_counter: str | HuggingFaceTokenCounter = "default",
         llm: str | BaseLLM = "default",
         embedding_model: str | BaseEmbeddingModel = "default",
         vector_store: str | BaseVectorStore = "default",
@@ -153,7 +153,7 @@ class BaseOp(metaclass=ABCMeta):
         return self._as_llm_formatter
 
     @property
-    def as_token_counter(self) -> TokenCounterBase:
+    def as_token_counter(self) -> HuggingFaceTokenCounter:
         """Get the token counter instance from ServiceContext."""
         if isinstance(self._as_token_counter, str):
             self._as_token_counter = self.service_context.as_token_counters[self._as_token_counter]

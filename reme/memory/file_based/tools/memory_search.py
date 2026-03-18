@@ -2,12 +2,14 @@
 
 import json
 
-from loguru import logger
 
 from ....core.enumeration import MemorySource
 from ....core.op import BaseTool
 from ....core.runtime_context import RuntimeContext
 from ....core.schema import ToolCall
+from ....core.utils import get_logger
+
+logger = get_logger()
 
 
 class MemorySearch(BaseTool):
@@ -108,5 +110,5 @@ class MemorySearch(BaseTool):
         except Exception as e:
             # Return error message to LLM instead of raising
             error_msg = f"{self.__class__.__name__} failed: {str(e)}"
-            logger.error(error_msg)
+            logger.exception(error_msg)
             return await self.after_execute(error_msg)

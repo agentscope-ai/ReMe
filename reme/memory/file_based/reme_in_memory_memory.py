@@ -1,23 +1,112 @@
 """Custom memory implementation with bugfixes and extensions."""
 
+import json
+from datetime import datetime
+from pathlib import Path
+
 from agentscope.agent._react_agent import _MemoryMark  # noqa
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
 from .utils import AsMsgHandler
-from ...core.utils import get_std_logger
+from ...core.utils import get_logger
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 class ReMeInMemoryMemory(InMemoryMemory):
     """Extended InMemoryMemory with bugfixes and summary support."""
 
-    def __init__(self, token_counter: HuggingFaceTokenCounter):
+    def __init__(
+        self,
+        token_counter: HuggingFaceTokenCounter,
+        dialog_path: str | Path | None = None,
+    ):
+        """Initialize the ReMeInMemoryMemory.
+
+        Args:
+            token_counter: Token counter for measuring content length.
+            dialog_path: Path to the dialog storage directory. If provided,
+                messages will be persisted to jsonl files when cleared or compressed.
+        """
         super().__init__()
         self._token_counter: HuggingFaceTokenCounter = token_counter
         self._msg_handler: AsMsgHandler = AsMsgHandler(token_counter)
+        self._dialog_path: Path | None = Path(dialog_path) if dialog_path else None
+
+    def _append_messages_to_dialog(self, messages: list[Msg]) -> int:
+        """Append messages to dialog storage file.
+
+        Saves messages to jsonl files named by message date (YYYY-mm-dd.jsonl).
+        Each line is a JSON representation of a message.
+        Messages are grouped by their timestamp date.
+
+        Args:
+            messages: List of messages to append to the dialog file.
+
+        Returns:
+            Number of messages successfully appended.
+        """
+        if not messages:
+            return 0
+
+        if self._dialog_path is None:
+            logger.warning("dialog_path is not set, skipping dialog persistence")
+            return 0
+
+        # Ensure dialog directory exists
+        try:
+            self._dialog_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.exception(f"Failed to create dialog directory {self._dialog_path}: {e}")
+            return 0
+
+        # Group messages by date (extracted from timestamp)
+        # timestamp format: "YYYY-mm-dd HH:MM:SS.fff"
+        messages_by_date: dict[str, list[Msg]] = {}
+        for msg in messages:
+            try:
+                if msg.timestamp:
+                    # Extract date part from timestamp
+                    date_str = msg.timestamp.split()[0]  # "YYYY-mm-dd"
+                else:
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+
+                if date_str not in messages_by_date:
+                    messages_by_date[date_str] = []
+                messages_by_date[date_str].append(msg)
+            except Exception as e:
+                logger.warning(f"Failed to process message timestamp: {e}, using today's date")
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                if date_str not in messages_by_date:
+                    messages_by_date[date_str] = []
+                messages_by_date[date_str].append(msg)
+
+        # Append messages to corresponding date files (sorted by timestamp within each date)
+        total_count = 0
+        for date_str, msgs in messages_by_date.items():
+            # Sort messages by timestamp within the same date
+            try:
+                msgs_sorted = sorted(msgs, key=lambda m: m.timestamp or "")
+            except Exception as e:
+                logger.warning(f"Failed to sort messages by timestamp: {e}")
+                msgs_sorted = msgs
+
+            filename = f"{date_str}.jsonl"
+            filepath = self._dialog_path / filename
+
+            try:
+                with open(filepath, "a", encoding="utf-8") as f:
+                    for msg in msgs_sorted:
+                        msg_dict = msg.to_dict()
+                        f.write(json.dumps(msg_dict, ensure_ascii=False) + "\n")
+                        total_count += 1
+                logger.info(f"Appended {len(msgs_sorted)} messages to {filepath}")
+            except Exception as e:
+                logger.exception(f"Failed to append messages to dialog file {filepath}: {e}")
+
+        return total_count
 
     async def get_memory(
         self,
@@ -56,7 +145,8 @@ class ReMeInMemoryMemory(InMemoryMemory):
 {self._compressed_summary}
 </previous-summary>
 The above is a summary of our previous conversation.
-Use it as context to maintain continuity.
+If there is a new instruction from the user, do not continue executing the previous content;
+only execute the user's new instruction.
                     """.strip()
 
             return [
@@ -105,19 +195,52 @@ Use it as context to maintain continuity.
         self._compressed_summary = state_dict.get("_compressed_summary", "")
 
     async def mark_messages_compressed(self, messages: list[Msg]) -> int:
-        """Mark messages as compressed and return count."""
-        return await self.update_messages_mark(
-            new_mark=_MemoryMark.COMPRESSED,
-            msg_ids=[msg.id for msg in messages],
-        )
+        """Mark messages as compressed, persist them to dialog, and remove from memory.
+
+        This method:
+        1. Persists the given messages to the dialog storage
+        2. Removes them from memory
+
+        Args:
+            messages: List of messages to mark as compressed.
+
+        Returns:
+            Number of messages marked as compressed.
+        """
+        if not messages:
+            return 0
+
+        # Persist messages to dialog storage
+        self._append_messages_to_dialog(messages)
+
+        # Remove messages from memory
+        msg_ids = {msg.id for msg in messages}
+        initial_size = len(self.content)
+        self.content = [(msg, marks) for msg, marks in self.content if msg.id not in msg_ids]
+        removed_count = initial_size - len(self.content)
+
+        logger.info(f"Marked {removed_count} messages as compressed and removed from memory")
+        return removed_count
 
     def clear_compressed_summary(self):
         """Clear the compressed summary."""
         self._compressed_summary = ""  # pylint: disable=attribute-defined-outside-init
 
     def clear_content(self):
-        """Clear the content."""
+        """Persist all messages to dialog storage and clear the content.
+
+        This method:
+        1. Persists all messages in memory to the dialog storage
+        2. Clears the in-memory content
+        """
+        # Persist all messages to dialog storage
+        if self.content:
+            messages = [msg for msg, _ in self.content]
+            self._append_messages_to_dialog(messages)
+
+        # Clear in-memory content
         self.content.clear()
+        logger.info("Cleared all messages from memory")
 
     async def estimate_tokens(self, max_input_length: int) -> dict:
         """Estimate token usage for current memory.
@@ -141,10 +264,10 @@ Use it as context to maintain continuity.
         )
 
         compressed_summary = self.get_compressed_summary()
-        compressed_summary_tokens = self._msg_handler.count_str_token(compressed_summary)
+        compressed_summary_tokens = await self._msg_handler.count_str_token(compressed_summary)
 
         # Build per-message token details using AsMsgHandler
-        messages_detail = [self._msg_handler.stat_message(msg) for msg in messages]
+        messages_detail = [await self._msg_handler.stat_message(msg) for msg in messages]
 
         # Calculate total message tokens from stats
         messages_tokens = sum(stat.total_tokens for stat in messages_detail)

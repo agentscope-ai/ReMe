@@ -1,13 +1,12 @@
 """ContextChecker module for checking context size and splitting messages."""
 
 from agentscope.message import Msg
-from agentscope.token import HuggingFaceTokenCounter
 
 from ..utils import AsMsgHandler
 from ....core.op import BaseOp
-from ....core.utils import get_std_logger
+from ....core.utils import get_logger
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 class ContextChecker(BaseOp):
@@ -21,14 +20,12 @@ class ContextChecker(BaseOp):
     Attributes:
         memory_compact_threshold (int): Token count threshold for triggering compaction.
         memory_compact_reserve (int): Token count to reserve for recent messages.
-        msg_handler (AsMsgHandler): Handler for message processing and token counting.
     """
 
     def __init__(
         self,
         memory_compact_threshold: int,
         memory_compact_reserve: int = 10000,
-        token_counter: HuggingFaceTokenCounter | None = None,
         **kwargs,
     ):
         """
@@ -39,16 +36,12 @@ class ContextChecker(BaseOp):
                 compaction. Messages exceeding this threshold will be split.
             memory_compact_reserve (int): Token count to reserve for recent messages
                 to keep in context. Defaults to 10000 tokens.
-            token_counter (HuggingFaceTokenCounter | None): Token counter for
-                measuring content length. If None, a default counter will be used.
             **kwargs: Additional keyword arguments passed to BaseOp.
         """
         super().__init__(**kwargs)
         self.memory_compact_threshold: int = memory_compact_threshold
         self.memory_compact_reserve: int = memory_compact_reserve
         assert self.memory_compact_threshold > self.memory_compact_reserve
-
-        self.msg_handler = AsMsgHandler(token_counter=token_counter)
 
     async def execute(self) -> tuple[list[Msg], list[Msg], bool]:
         """
@@ -81,7 +74,8 @@ class ContextChecker(BaseOp):
             logger.info("ContextChecker: No messages to check.")
             return [], [], True
 
-        messages_to_compact, messages_to_keep, is_valid = self.msg_handler.context_check(
+        msg_handler = AsMsgHandler(self.as_token_counter)
+        messages_to_compact, messages_to_keep, is_valid = await msg_handler.context_check(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
             memory_compact_reserve=self.memory_compact_reserve,

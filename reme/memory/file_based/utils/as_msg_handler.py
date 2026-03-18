@@ -6,9 +6,9 @@ from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
 from ....core.schema import AsMsgStat, AsBlockStat
-from ....core.utils import get_std_logger
+from ....core.utils import get_logger
 
-logger = get_std_logger()
+logger = get_logger()
 
 
 class AsMsgHandler:
@@ -17,7 +17,7 @@ class AsMsgHandler:
     def __init__(self, token_counter: HuggingFaceTokenCounter):
         self._token_counter = token_counter
 
-    def count_str_token(self, text: str) -> int:
+    async def count_str_token(self, text: str) -> int:
         """Count tokens in a string.
 
         Args:
@@ -30,19 +30,19 @@ class AsMsgHandler:
             return 0
 
         try:
-            token_ids = self._token_counter.tokenizer.encode(text)
-            token_count = len(token_ids)
+            token_count = await self._token_counter.count(messages=[], text=text)
+            assert token_count > 0, "Invalid token count"
             return token_count
 
         except Exception as e:
-            estimated_tokens = len(text.encode("utf-8")) // 4
+            estimated_tokens = int(len(text.encode("utf-8")) / 3.75)
             logger.warning(f"Failed to count string tokens: {text}, e={e}")
             return estimated_tokens
 
-    def _format_tool_result_output(self, output: str | list[dict]) -> tuple[str, int]:
+    async def _format_tool_result_output(self, output: str | list[dict]) -> tuple[str, int]:
         """Convert tool result output to string."""
         if isinstance(output, str):
-            return output, self.count_str_token(output)
+            return output, await self.count_str_token(output)
 
         textual_parts = []
         total_token_count = 0
@@ -50,8 +50,7 @@ class AsMsgHandler:
             try:
                 if not isinstance(block, dict) or "type" not in block:
                     logger.warning(
-                        "Invalid block: %s, expected a dict with 'type' key, skipped.",
-                        block,
+                        f"Invalid block: {block}, expected a dict with 'type' key, skipped.",
                     )
                     continue
 
@@ -59,7 +58,7 @@ class AsMsgHandler:
 
                 if block_type == "text":
                     textual_parts.append(block.get("text", ""))
-                    total_token_count += self.count_str_token(textual_parts[-1])
+                    total_token_count += await self.count_str_token(textual_parts[-1])
 
                 elif block_type in ["image", "audio", "video"]:
                     source = block.get("source", {})
@@ -68,31 +67,28 @@ class AsMsgHandler:
                         total_token_count += len(data) // 4 if data else 10
                     else:
                         url = source.get("url", "")
-                        total_token_count += self.count_str_token(url) if url else 10
+                        total_token_count += await self.count_str_token(url) if url else 10
                         textual_parts.append(f"[{block_type}] {url}")
 
                 elif block_type == "file":
                     file_path = block.get("path", "") or block.get("url", "")
                     file_name = block.get("name", file_path)
                     textual_parts.append(f"[file] {file_name}: {file_path}")
-                    total_token_count += self.count_str_token(file_path)
+                    total_token_count += await self.count_str_token(file_path)
 
                 else:
                     logger.warning(
-                        "Unsupported block type '%s' in tool result, skipped.",
-                        block_type,
+                        f"Unsupported block type '{block_type}' in tool result, skipped.",
                     )
 
             except Exception as e:
                 logger.warning(
-                    "Failed to process block %s: %s, skipped.",
-                    block,
-                    e,
+                    f"Failed to process block {block}: {e}, skipped.",
                 )
 
         return "\n".join(textual_parts), total_token_count
 
-    def stat_message(self, message: Msg) -> AsMsgStat:
+    async def stat_message(self, message: Msg) -> AsMsgStat:
         """Analyze a message and generate block statistics."""
         blocks = []
         if isinstance(message.content, str):
@@ -100,21 +96,8 @@ class AsMsgHandler:
                 AsBlockStat(
                     block_type="text",
                     text=message.content,
-                    token_count=self.count_str_token(message.content),
+                    token_count=await self.count_str_token(message.content),
                 ),
-            )
-            return AsMsgStat(
-                name=message.name or message.role,
-                role=message.role,
-                content=blocks,
-                timestamp=message.timestamp or "",
-                metadata=message.metadata or {},
-            )
-
-        if not isinstance(message.content, list):
-            logger.warning(
-                "Unexpected message.content type %s, expected str or list, returning empty stat.",
-                type(message.content),
             )
             return AsMsgStat(
                 name=message.name or message.role,
@@ -129,7 +112,7 @@ class AsMsgHandler:
 
             if block_type == "text":
                 text = block.get("text", "")
-                token_count = self.count_str_token(text)
+                token_count = await self.count_str_token(text)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -140,7 +123,7 @@ class AsMsgHandler:
 
             elif block_type == "thinking":
                 thinking = block.get("thinking", "")
-                token_count = self.count_str_token(thinking)
+                token_count = await self.count_str_token(thinking)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -156,7 +139,7 @@ class AsMsgHandler:
                     data = source.get("data", "")
                     token_count = len(data) // 4 if data else 10
                 else:
-                    token_count = self.count_str_token(url) if url else 10
+                    token_count = await self.count_str_token(url) if url else 10
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -173,7 +156,7 @@ class AsMsgHandler:
                     input_str = json.dumps(tool_input, ensure_ascii=False)
                 except (TypeError, ValueError):
                     input_str = str(tool_input)
-                token_count = self.count_str_token(tool_name + input_str)
+                token_count = await self.count_str_token(tool_name + input_str)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -187,7 +170,7 @@ class AsMsgHandler:
             elif block_type == "tool_result":
                 tool_name = block.get("name", "")
                 output = block.get("output", "")
-                formatted_output, token_count = self._format_tool_result_output(output)
+                formatted_output, token_count = await self._format_tool_result_output(output)
                 blocks.append(
                     AsBlockStat(
                         block_type=block_type,
@@ -199,7 +182,7 @@ class AsMsgHandler:
                 )
 
             else:
-                logger.warning("Unsupported block type %s, skipped.", block_type)
+                logger.warning(f"Unsupported block type {block_type}, skipped.")
 
         return AsMsgStat(
             name=message.name or message.role,
@@ -209,11 +192,15 @@ class AsMsgHandler:
             metadata=message.metadata or {},
         )
 
-    def count_msgs_token(self, messages: list[Msg]) -> int:
+    async def count_msgs_token(self, messages: list[Msg]) -> int:
         """Count total token count of a list of messages."""
-        return sum(self.stat_message(msg).total_tokens for msg in messages)
+        total = 0
+        for msg in messages:
+            stat = await self.stat_message(msg)
+            total += stat.total_tokens
+        return total
 
-    def format_msgs_to_str(
+    async def format_msgs_to_str(
         self,
         messages: list[Msg],
         memory_compact_threshold: int,
@@ -236,25 +223,22 @@ class AsMsgHandler:
         total_token_count = 0
 
         for i in range(len(messages) - 1, -1, -1):
-            stat = self.stat_message(messages[i])
+            stat = await self.stat_message(messages[i])
             formatted_content = stat.format(include_thinking=include_thinking)
-            content_token_count = self.count_str_token(formatted_content)
+            content_token_count = await self.count_str_token(formatted_content)
 
             is_latest = i == len(messages) - 1
             if not is_latest and total_token_count + content_token_count > memory_compact_threshold:
                 logger.info(
-                    "Skipping older messages: adding %d tokens would exceed threshold %d (current: %d)",
-                    content_token_count,
-                    memory_compact_threshold,
-                    total_token_count,
+                    f"Skipping older messages: adding {content_token_count} tokens would exceed threshold "
+                    f"{memory_compact_threshold} (current: {total_token_count})",
                 )
                 break
 
             if is_latest and content_token_count > memory_compact_threshold:
                 logger.warning(
-                    "Latest message alone (%d tokens) exceeds threshold %d, including it anyway.",
-                    content_token_count,
-                    memory_compact_threshold,
+                    f"Latest message alone ({content_token_count} tokens) exceeds threshold "
+                    f"{memory_compact_threshold}, including it anyway.",
                 )
 
             formatted_parts.append(formatted_content)
@@ -286,7 +270,7 @@ class AsMsgHandler:
 
         return tool_use_ids == tool_result_ids
 
-    def context_check(
+    async def context_check(
         self,
         messages: list[Msg],
         memory_compact_threshold: int,
@@ -315,7 +299,7 @@ class AsMsgHandler:
         msg_stats: list[tuple[Msg, AsMsgStat]] = []
         total_tokens = 0
         for msg in messages:
-            stat = self.stat_message(msg)
+            stat = await self.stat_message(msg)
             msg_stats.append((msg, stat))
             total_tokens += stat.total_tokens
 
@@ -354,11 +338,8 @@ class AsMsgHandler:
             # Check if adding this message would exceed reserve limit
             if accumulated_tokens + stat.total_tokens > memory_compact_reserve:
                 logger.info(
-                    "Context check: adding message %d with %d tokens would exceed reserve %d (current: %d)",
-                    i,
-                    stat.total_tokens,
-                    memory_compact_reserve,
-                    accumulated_tokens,
+                    f"Context check: adding message {i} with {stat.total_tokens} tokens would exceed reserve "
+                    f"{memory_compact_reserve} (current: {accumulated_tokens})",
                 )
                 break
 
@@ -383,11 +364,8 @@ class AsMsgHandler:
             # Check if we can fit this message plus its dependencies within reserve
             if accumulated_tokens + stat.total_tokens + extra_tokens > memory_compact_reserve:
                 logger.info(
-                    "Context check: message %d requires %d extra tokens for tool_use dependencies, "
-                    "total would exceed reserve %d",
-                    i,
-                    extra_tokens,
-                    memory_compact_reserve,
+                    f"Context check: message {i} requires {extra_tokens} extra tokens for tool_use dependencies, "
+                    f"total would exceed reserve {memory_compact_reserve}",
                 )
                 break
 
@@ -410,16 +388,11 @@ class AsMsgHandler:
         tools_aligned = self.validate_tool_ids_alignment(messages_to_keep)
 
         logger.info(
-            "Context check result: %d messages to compact, %d messages to keep, "
-            "total tokens: %d, threshold: %d, reserve: %d, kept tokens: %d, "
-            "tools_aligned: %s",
-            len(messages_to_compact),
-            len(messages_to_keep),
-            total_tokens,
-            memory_compact_threshold,
-            memory_compact_reserve,
-            accumulated_tokens,
-            tools_aligned,
+            f"Context check result: {len(messages_to_compact)} messages to compact, "
+            f"{len(messages_to_keep)} messages to keep, "
+            f"total tokens: {total_tokens}, threshold: {memory_compact_threshold}, "
+            f"reserve: {memory_compact_reserve}, kept tokens: {accumulated_tokens}, "
+            f"tools_aligned: {tools_aligned}",
         )
 
         return messages_to_compact, messages_to_keep, tools_aligned

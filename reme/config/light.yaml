@@ -7,6 +7,11 @@ as_llm_formatters:
   default:
     backend: openai
 
+as_token_counters:
+  default:
+    backend: rule
+    token_count_estimate_divisor: 3.75
+
 embedding_models:
   default:
     backend: openai
