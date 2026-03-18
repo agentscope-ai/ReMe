@@ -6,7 +6,6 @@ Defines the abstract base class and standard API for all embedding model impleme
 import asyncio
 import hashlib
 import json
-import os
 import time
 from abc import ABC
 from collections import OrderedDict
@@ -56,8 +55,8 @@ class BaseEmbeddingModel(ABC):
             enable_cache: Whether to enable embedding cache
             **kwargs: Additional model-specific parameters
         """
-        self._api_key: str = api_key
-        self._base_url: str = base_url
+        self.api_key: str = api_key
+        self.base_url: str = base_url
         self.model_name = model_name
         self.dimensions = dimensions
         self.use_dimensions = use_dimensions
@@ -77,16 +76,6 @@ class BaseEmbeddingModel(ABC):
 
         self.cache_path: Path = Path(self.cache_dir)
         self.cache_path.mkdir(parents=True, exist_ok=True)
-
-    @property
-    def api_key(self) -> str | None:
-        """Get API key from environment variable."""
-        return os.getenv("EMBEDDING_API_KEY") or self._api_key
-
-    @property
-    def base_url(self) -> str | None:
-        """Get base URL from environment variable."""
-        return os.getenv("EMBEDDING_BASE_URL") or self._base_url
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_input_length if it exceeds the limit."""

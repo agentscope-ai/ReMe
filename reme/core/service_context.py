@@ -1,6 +1,5 @@
 """Service context."""
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -8,7 +7,7 @@ from loguru import logger
 
 from .base_dict import BaseDict
 from .schema import ServiceConfig
-from .utils import load_env, PydanticConfigParser
+from .utils import PydanticConfigParser
 
 if TYPE_CHECKING:
     from agentscope.model import ChatModelBase
@@ -29,10 +28,6 @@ class ServiceContext(BaseDict):
     def __init__(
         self,
         *args,
-        llm_api_key: str | None = None,
-        llm_base_url: str | None = None,
-        embedding_api_key: str | None = None,
-        embedding_base_url: str | None = None,
         service_config: ServiceConfig | None = None,
         parser: type[PydanticConfigParser] | None = None,
         working_dir: str | None = None,
@@ -51,15 +46,6 @@ class ServiceContext(BaseDict):
         **kwargs,
     ):
         super().__init__()
-
-        # Load environment variables
-        load_env()
-
-        # Update common environment variables for LLM and embedding services.
-        self.update_env("LLM_API_KEY", llm_api_key)
-        self.update_env("LLM_BASE_URL", llm_base_url)
-        self.update_env("EMBEDDING_API_KEY", embedding_api_key)
-        self.update_env("EMBEDDING_BASE_URL", embedding_base_url)
 
         if service_config is None:
             parser_class = parser if parser is not None else PydanticConfigParser
@@ -113,12 +99,6 @@ class ServiceContext(BaseDict):
         self.file_watchers: dict[str, "BaseFileWatcher"] = {}
         self.flows: dict[str, "BaseFlow"] = {}
         self.mcp_server_mapping: dict[str, dict] = {}
-
-    @staticmethod
-    def update_env(key: str, value: str | None):
-        """Update environment variable if value is provided."""
-        if value:
-            os.environ[key] = value
 
     @staticmethod
     def _update_section_config(config: dict, section_name: str, **kwargs):

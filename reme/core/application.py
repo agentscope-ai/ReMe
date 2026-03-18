@@ -15,7 +15,7 @@ from .registry_factory import R
 from .schema import Response, ServiceConfig
 from .service_context import ServiceContext
 from .token_counter import BaseTokenCounter
-from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo, get_logger
+from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo, get_logger, load_env
 from .vector_store import BaseVectorStore
 
 logger = get_logger()
@@ -46,12 +46,16 @@ class Application:
         default_file_watcher_config: dict | None = None,
         **kwargs,
     ):
+
+        load_env()
+
+        self.llm_api_key = llm_api_key or os.getenv("LLM_API_KEY", "")
+        self.llm_base_url = llm_base_url or os.getenv("LLM_BASE_URL", "")
+        self.embedding_api_key = embedding_api_key or os.getenv("EMBEDDING_API_KEY", "")
+        self.embedding_base_url = embedding_base_url or os.getenv("EMBEDDING_BASE_URL", "")
+
         self.service_context = ServiceContext(
             *args,
-            llm_api_key=llm_api_key,
-            llm_base_url=llm_base_url,
-            embedding_api_key=embedding_api_key,
-            embedding_base_url=embedding_base_url,
             service_config=None,
             parser=parser,
             working_dir=working_dir,
@@ -158,11 +162,11 @@ class Application:
             else:
                 config_dict = config.model_dump(exclude={"backend"})
                 if not config_dict.get("api_key", ""):
-                    config_dict["api_key"] = os.getenv("LLM_API_KEY", "")
+                    config_dict["api_key"] = self.llm_api_key
                 if "client_kwargs" not in config_dict:
                     config_dict["client_kwargs"] = {}
                 if not config_dict["client_kwargs"].get("base_url", ""):
-                    config_dict["client_kwargs"]["base_url"] = os.getenv("LLM_BASE_URL", "")
+                    config_dict["client_kwargs"]["base_url"] = self.llm_base_url
                 self.service_context.as_llms[name] = R.as_llms[config.backend](**config_dict)
 
         for name, config in self.service_config.as_llm_formatters.items():
@@ -184,6 +188,8 @@ class Application:
                 logger.warning(f"LLM backend {config.backend} is not supported.")
             else:
                 config_dict = config.model_dump(exclude={"backend"})
+                config_dict.setdefault("api_key", self.llm_api_key)
+                config_dict.setdefault("base_url", self.llm_base_url)
                 self.service_context.llms[name] = R.llms[config.backend](**config_dict)
                 await self.service_context.llms[name].start()
 
@@ -192,7 +198,9 @@ class Application:
                 logger.warning(f"Embedding model backend {config.backend} is not supported.")
             else:
                 config_dict = config.model_dump(exclude={"backend"})
-                config_dict["cache_dir"] = working_path / "embedding_cache"
+                config_dict.setdefault("api_key", self.embedding_api_key)
+                config_dict.setdefault("base_url", self.embedding_base_url)
+                config_dict.setdefault("cache_dir", working_path / "embedding_cache")
                 self.service_context.embedding_models[name] = R.embedding_models[config.backend](**config_dict)
                 await self.service_context.embedding_models[name].start()
 
