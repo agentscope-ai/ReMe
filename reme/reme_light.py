@@ -80,6 +80,7 @@ class ReMeLight(Application):
         candidate_multiplier: float = 3.0,
         tool_result_threshold: int = 1000,
         retention_days: int = 7,
+        enable_load_env: bool = False,
     ):
         """
         Initialize the ReMeLight application.
@@ -115,6 +116,8 @@ class ReMeLight(Application):
                 saved to files. Default 1000 characters.
             retention_days (int): Number of days to retain tool result files
                 before automatic cleanup. Default 7 days.
+            enable_load_env (bool): Whether to load environment variables from
+                .env file. Defaults to False.
 
         Note:
             The following directory structure will be created:
@@ -148,6 +151,7 @@ class ReMeLight(Application):
             config_path="light",
             enable_logo=False,
             log_to_console=False,
+            enable_load_env=enable_load_env,
             parser=ReMeConfigParser,
             default_as_llm_config=default_as_llm_config,
             default_embedding_model_config=default_embedding_model_config,

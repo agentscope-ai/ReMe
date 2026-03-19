@@ -12,7 +12,16 @@ from .flow import BaseFlow
 from .llm import BaseLLM
 from .prompt_handler import PromptHandler
 from .registry_factory import R
-from .schema import Response, ServiceConfig
+from .schema import (
+    EmbeddingModelConfig,
+    Response,
+    ServiceConfig,
+    LLMConfig,
+    VectorStoreConfig,
+    FileStoreConfig,
+    FileWatcherConfig,
+    TokenCounterConfig,
+)
 from .service_context import ServiceContext
 from .token_counter import BaseTokenCounter
 from .utils import execute_stream_task, PydanticConfigParser, init_logger, MCPClient, print_logo, get_logger, load_env
@@ -35,6 +44,7 @@ class Application:
         config_path: str | None = None,
         enable_logo: bool = True,
         log_to_console: bool = True,
+        enable_load_env: bool = True,
         parser: type[PydanticConfigParser] | None = None,
         default_as_llm_config: dict | None = None,
         default_as_llm_formatter_config: dict | None = None,
@@ -47,7 +57,8 @@ class Application:
         **kwargs,
     ):
 
-        load_env()
+        if enable_load_env:
+            load_env()
 
         self.llm_api_key = llm_api_key or os.getenv("LLM_API_KEY", "")
         self.llm_base_url = llm_base_url or os.getenv("LLM_BASE_URL", "")
@@ -254,6 +265,209 @@ class Application:
         self._started = True
         logger.info("ReMe Application started")
         return self
+
+    # pylint: disable=too-many-statements
+    async def restart(self, restart_config: dict):
+        """Restart the application with new config."""
+
+        working_path = Path(self.service_config.working_dir)
+        working_path.mkdir(parents=True, exist_ok=True)
+
+        # as_llms
+        if "as_llms" in restart_config:
+            as_llms_config = restart_config["as_llms"]
+            assert isinstance(as_llms_config, dict)
+            for name, config in as_llms_config.items():
+                if name in self.service_context.as_llms:
+                    del self.service_context.as_llms[name]
+
+                if config.get("backend") not in R.as_llms:
+                    logger.warning(f"AS LLM backend {config.get('backend')} is not supported.")
+                    continue
+
+                config_dict = {k: v for k, v in config.items() if k != "backend"}
+                if not config_dict.get("api_key", ""):
+                    config_dict["api_key"] = self.llm_api_key
+                if "client_kwargs" not in config_dict:
+                    config_dict["client_kwargs"] = {}
+                if not config_dict["client_kwargs"].get("base_url", ""):
+                    config_dict["client_kwargs"]["base_url"] = self.llm_base_url
+                self.service_context.as_llms[name] = R.as_llms[config["backend"]](**config_dict)
+                logger.info(f"Restarted AS LLM: {name}")
+
+        # as_llm_formatters
+        if "as_llm_formatters" in restart_config:
+            as_llm_formatters_config = restart_config["as_llm_formatters"]
+            assert isinstance(as_llm_formatters_config, dict)
+            for name, config in as_llm_formatters_config.items():
+                if name in self.service_context.as_llm_formatters:
+                    del self.service_context.as_llm_formatters[name]
+
+                if config.get("backend") not in R.as_llm_formatters:
+                    logger.warning(f"AS LLM formatter backend {config.get('backend')} is not supported.")
+                    continue
+                config_dict = {k: v for k, v in config.items() if k != "backend"}
+                self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config["backend"]](**config_dict)
+                logger.info(f"Restarted AS LLM formatter: {name}")
+
+        # as_token_counters
+        if "as_token_counters" in restart_config:
+            as_token_counters_config = restart_config["as_token_counters"]
+            assert isinstance(as_token_counters_config, dict)
+            for name, config in as_token_counters_config.items():
+                if name in self.service_context.as_token_counters:
+                    del self.service_context.as_token_counters[name]
+
+                if config.get("backend") not in R.as_token_counters:
+                    logger.warning(f"Token counter backend {config.get('backend')} is not supported.")
+                    continue
+                config_dict = {k: v for k, v in config.items() if k != "backend"}
+                self.service_context.as_token_counters[name] = R.as_token_counters[config["backend"]](**config_dict)
+                logger.info(f"Restarted AS token counter: {name}")
+
+        # llms
+        if "llms" in restart_config:
+            llms_config = restart_config["llms"]
+            assert isinstance(llms_config, dict)
+            for name, config in llms_config.items():
+                if name in self.service_context.llms:
+                    llm = self.service_context.llms.pop(name)
+                    await llm.close()
+
+                if isinstance(config, dict):
+                    config = LLMConfig(**config)
+                if config.backend not in R.llms:
+                    logger.warning(f"LLM backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend"})
+                config_dict.setdefault("api_key", self.llm_api_key)
+                config_dict.setdefault("base_url", self.llm_base_url)
+                self.service_context.llms[name] = R.llms[config.backend](**config_dict)
+                await self.service_context.llms[name].start()
+                logger.info(f"Restarted LLM: {name}")
+
+        # embedding_models
+        if "embedding_models" in restart_config:
+            embedding_models_config = restart_config["embedding_models"]
+            assert isinstance(embedding_models_config, dict)
+            updated_names = set()
+            for name, config in embedding_models_config.items():
+                if name in self.service_context.embedding_models:
+                    embedding_model = self.service_context.embedding_models.pop(name)
+                    await embedding_model.close()
+
+                if isinstance(config, dict):
+                    config = EmbeddingModelConfig(**config)
+                if config.backend not in R.embedding_models:
+                    logger.warning(f"Embedding model backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend"})
+                config_dict.setdefault("api_key", self.embedding_api_key)
+                config_dict.setdefault("base_url", self.embedding_base_url)
+                config_dict.setdefault("cache_dir", working_path / "embedding_cache")
+                self.service_context.embedding_models[name] = R.embedding_models[config.backend](**config_dict)
+                await self.service_context.embedding_models[name].start()
+                logger.info(f"Restarted embedding model: {name}")
+                updated_names.add(name)
+
+            # update embedding_model attribute for existing vector_stores and file_stores
+            for name in updated_names:
+                for vs_name, vs_config in self.service_config.vector_stores.items():
+                    if vs_config.embedding_model == name and vs_name in self.service_context.vector_stores:
+                        self.service_context.vector_stores[vs_name].embedding_model = (
+                            self.service_context.embedding_models[name]
+                        )
+                        logger.info(f"Updated embedding model for vector store: {vs_name}")
+                for fs_name, fs_config in self.service_config.file_stores.items():
+                    if fs_config.embedding_model == name and fs_name in self.service_context.file_stores:
+                        self.service_context.file_stores[fs_name].embedding_model = (
+                            self.service_context.embedding_models[name]
+                        )
+                        logger.info(f"Updated embedding model for file store: {fs_name}")
+
+        # token_counters
+        if "token_counters" in restart_config:
+            token_counters_config = restart_config["token_counters"]
+            assert isinstance(token_counters_config, dict)
+            for name, config in token_counters_config.items():
+                if name in self.service_context.token_counters:
+                    del self.service_context.token_counters[name]
+
+                if isinstance(config, dict):
+                    config = TokenCounterConfig(**config)
+                if config.backend not in R.token_counters:
+                    logger.warning(f"Token counter backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend"})
+                self.service_context.token_counters[name] = R.token_counters[config.backend](**config_dict)
+                logger.info(f"Restarted token counter: {name}")
+
+        # vector_stores
+        if "vector_stores" in restart_config:
+            vector_stores_config = restart_config["vector_stores"]
+            assert isinstance(vector_stores_config, dict)
+            for name, config in vector_stores_config.items():
+                if name in self.service_context.vector_stores:
+                    vector_store = self.service_context.vector_stores.pop(name)
+                    await vector_store.close()
+                if isinstance(config, dict):
+                    config = VectorStoreConfig(**config)
+                if config.backend not in R.vector_stores:
+                    logger.warning(f"Vector store backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend", "embedding_model"})
+                config_dict.update(
+                    {
+                        "embedding_model": self.service_context.embedding_models[config.embedding_model],
+                        "db_path": working_path / "vector_store",
+                    },
+                )
+                self.service_context.vector_stores[name] = R.vector_stores[config.backend](**config_dict)
+                await self.service_context.vector_stores[name].start()
+                logger.info(f"Restarted vector store: {name}")
+
+        # file_stores
+        if "file_stores" in restart_config:
+            file_stores_config = restart_config["file_stores"]
+            assert isinstance(file_stores_config, dict)
+            for name, config in file_stores_config.items():
+                if name in self.service_context.file_stores:
+                    file_store = self.service_context.file_stores.pop(name)
+                    await file_store.close()
+                if isinstance(config, dict):
+                    config = FileStoreConfig(**config)
+                if config.backend not in R.file_stores:
+                    logger.warning(f"File store backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend", "embedding_model"})
+                config_dict.update(
+                    {
+                        "embedding_model": self.service_context.embedding_models[config.embedding_model],
+                        "db_path": working_path / "file_store",
+                    },
+                )
+                self.service_context.file_stores[name] = R.file_stores[config.backend](**config_dict)
+                await self.service_context.file_stores[name].start()
+                logger.info(f"Restarted file store: {name}")
+
+        # file_watchers
+        if "file_watchers" in restart_config:
+            file_watchers_config = restart_config["file_watchers"]
+            assert isinstance(file_watchers_config, dict)
+            for name, config in file_watchers_config.items():
+                if name in self.service_context.file_watchers:
+                    file_watcher = self.service_context.file_watchers.pop(name)
+                    await file_watcher.close()
+                if isinstance(config, dict):
+                    config = FileWatcherConfig(**config)
+                if config.backend not in R.file_watchers:
+                    logger.warning(f"File watcher backend {config.backend} is not supported.")
+                    continue
+                config_dict = config.model_dump(exclude={"backend", "file_store"})
+                config_dict["file_store"] = self.service_context.file_stores[config.file_store]
+                self.service_context.file_watchers[name] = R.file_watchers[config.backend](**config_dict)
+                await self.service_context.file_watchers[name].start()
+                logger.info(f"Restarted file watcher: {name}")
 
     async def prepare_mcp_servers(self):
         """Prepare and initialize MCP server connections."""
