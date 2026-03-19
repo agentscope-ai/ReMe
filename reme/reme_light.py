@@ -402,6 +402,7 @@ class ReMeLight(Application):
         language: str = "zh",
         max_input_length: float = 128 * 1024,
         compact_ratio: float = 0.7,
+        timezone: str | None = None,
     ) -> str:
         """
         Generate a comprehensive summary of the given messages.
@@ -426,6 +427,8 @@ class ReMeLight(Application):
                 Defaults to 128K tokens.
             compact_ratio (float): Ratio used to calculate compaction threshold.
                 Defaults to 0.7.
+            timezone (str | None): Timezone string for date formatting
+                (e.g., "America/Chicago"). Defaults to system local time if None.
 
         Returns:
             str: The generated summary text, or an empty string if an error occurred.
@@ -451,6 +454,7 @@ class ReMeLight(Application):
                 as_llm_formatter=as_llm_formatter,
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
+                timezone=timezone,
             )
 
             return await summarizer.call(messages=messages, service_context=self.service_context)

@@ -1,6 +1,7 @@
 """Summarizer module for memory summarization operations."""
 
 import datetime
+import zoneinfo
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
@@ -23,6 +24,7 @@ class Summarizer(BaseOp):
         memory_compact_threshold: int,
         toolkit: Toolkit | None = None,
         console_enabled: bool = False,
+        timezone: str | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -31,6 +33,7 @@ class Summarizer(BaseOp):
         self.memory_compact_threshold: int = memory_compact_threshold
         self.toolkit: Toolkit | None = toolkit
         self.console_enabled: bool = console_enabled
+        self.timezone: str | None = timezone
 
     async def execute(self):
         messages: list[Msg] = self.context.get("messages", [])
@@ -62,7 +65,13 @@ class Summarizer(BaseOp):
 
         user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n" + self.prompt_format(
             "user_message",
-            date=datetime.datetime.now().strftime("%Y-%m-%d"),
+            date=(
+                datetime.datetime.now(
+                    zoneinfo.ZoneInfo(self.timezone),
+                )
+                if self.timezone
+                else datetime.datetime.now()
+            ).strftime("%Y-%m-%d"),
             working_dir=self.working_dir,
             memory_dir=self.memory_dir,
         )

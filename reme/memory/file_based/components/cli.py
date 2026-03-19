@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import zoneinfo
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
@@ -46,6 +47,7 @@ class CliAgent(BaseOp):
         reserve_tokens: int = 36000,
         keep_recent_tokens: int = 20000,
         language: str = "zh",
+        timezone: str | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -57,6 +59,7 @@ class CliAgent(BaseOp):
         self.reserve_tokens: int = reserve_tokens
         self.keep_recent_tokens: int = keep_recent_tokens
         self.language: str = language
+        self.timezone: str | None = timezone
 
         # Initialize message history
         self.messages: list[Msg] = []
@@ -93,6 +96,7 @@ class CliAgent(BaseOp):
             as_llm_formatter=self.as_llm_formatter,
             language=self.language if self.language == "zh" else "",
             console_enabled=False,  # We disable the terminal printing to avoid messy outputs
+            timezone=self.timezone,
         )
 
         # Create summary task
@@ -168,6 +172,7 @@ class CliAgent(BaseOp):
             as_llm_formatter=self.as_llm_formatter,
             language=self.language if self.language == "zh" else "",
             console_enabled=False,  # We disable the terminal printing to avoid messy outputs
+            timezone=self.timezone,
         )
 
         summary_content = await compactor.call(
@@ -195,7 +200,8 @@ class CliAgent(BaseOp):
 
     async def _build_messages(self, query: str) -> list[Msg]:
         """Build system prompt message."""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S %A")
+        tz = zoneinfo.ZoneInfo(self.timezone) if self.timezone else None
+        current_time = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S %A")
 
         # Create system prompt
         system_prompt = self.prompt_format(
