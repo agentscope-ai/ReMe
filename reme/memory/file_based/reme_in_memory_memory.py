@@ -110,34 +110,19 @@ class ReMeInMemoryMemory(InMemoryMemory):
 
     async def get_memory(
         self,
-        mark: str | None = None,
-        exclude_mark: str | None = _MemoryMark.COMPRESSED,
         prepend_summary: bool = True,
         **_kwargs,
     ) -> list[Msg]:
         """Get the messages from the memory by mark (if provided).
 
         Args:
-            mark: Optional mark to filter messages
-            exclude_mark: Optional mark to exclude messages
             prepend_summary: Whether to prepend compressed summary
             **_kwargs: Additional keyword arguments (ignored)
 
         Returns:
             List of filtered messages
         """
-        if not (mark is None or isinstance(mark, str)):
-            raise TypeError(f"The mark should be a string or None, but got {type(mark)}.")
-
-        if not (exclude_mark is None or isinstance(exclude_mark, str)):
-            raise TypeError(f"The exclude_mark should be a string or None, but got {type(exclude_mark)}.")
-
-        # Filter messages based on mark
-        filtered_content = [(msg, marks) for msg, marks in self.content if mark is None or mark in marks]
-
-        # Further filter messages based on exclude_mark
-        if exclude_mark is not None:
-            filtered_content = [(msg, marks) for msg, marks in filtered_content if exclude_mark not in marks]
+        filtered_content = [(msg, marks) for msg, marks in self.content if _MemoryMark.COMPRESSED not in marks]
 
         if prepend_summary and self._compressed_summary:
             previous_summary = f"""
@@ -258,10 +243,7 @@ only execute the user's new instruction.
             - context_usage_ratio: Usage percentage
             - messages_detail: List of per-message AsMsgStat objects
         """
-        messages = await self.get_memory(
-            exclude_mark=_MemoryMark.COMPRESSED,
-            prepend_summary=False,
-        )
+        messages = await self.get_memory(prepend_summary=False)
 
         compressed_summary = self.get_compressed_summary()
         compressed_summary_tokens = await self._msg_handler.count_str_token(compressed_summary)
