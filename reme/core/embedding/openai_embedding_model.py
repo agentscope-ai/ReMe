@@ -45,7 +45,9 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
 
         result_emb = [[] for _ in range(len(input_text))]
         for emb in completion.data:
-            result_emb[emb.index] = emb.embedding
+            # BGE-M3 returns dense_embedding instead of embedding; use as fallback
+            vec = getattr(emb, "embedding", None) or getattr(emb, "dense_embedding", None)
+            result_emb[emb.index] = list(vec) if vec is not None else []
         return result_emb
 
     async def start(self):
