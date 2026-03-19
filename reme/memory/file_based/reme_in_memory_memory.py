@@ -195,7 +195,7 @@ only execute the user's new instruction.
         if not messages:
             return 0
 
-        # Persist messages to dialog storage
+        # Persist messages to dialog storage instead of compressed
         self._append_messages_to_dialog(messages)
 
         # Remove messages from memory
