@@ -61,8 +61,6 @@ class ReMeLight(Application):
         dialog_path (Path): Path to the dialog storage directory for raw conversation records.
         vector_weight (float): Weight for vector search in hybrid search (0-1).
         candidate_multiplier (float): Multiplier for candidate retrieval count.
-        tool_result_threshold (int): Character threshold for tool result compaction.
-        retention_days (int): Number of days to retain tool result files.
         summary_tasks (list[asyncio.Task]): List of active background summary tasks.
     """
 
@@ -78,8 +76,6 @@ class ReMeLight(Application):
         default_file_store_config: dict | None = None,
         vector_weight: float = 0.7,
         candidate_multiplier: float = 3.0,
-        tool_result_threshold: int = 1000,
-        retention_days: int = 7,
         enable_load_env: bool = False,
     ):
         """
@@ -111,11 +107,6 @@ class ReMeLight(Application):
             candidate_multiplier (float): Multiplier applied to max_results when
                 retrieving candidates for re-ranking. Default 3.0 means 3x more
                 candidates are retrieved than the final result count.
-            tool_result_threshold (int): Character count threshold for tool result
-                compaction. Results exceeding this length will be truncated and
-                saved to files. Default 1000 characters.
-            retention_days (int): Number of days to retain tool result files
-                before automatic cleanup. Default 7 days.
             enable_load_env (bool): Whether to load environment variables from
                 .env file. Defaults to False.
 
@@ -138,8 +129,6 @@ class ReMeLight(Application):
 
         self.vector_weight: float = vector_weight
         self.candidate_multiplier: float = candidate_multiplier
-        self.tool_result_threshold: int = tool_result_threshold
-        self.retention_days: int = retention_days
 
         # Initialize the parent Application class with comprehensive configuration
         super().__init__(
@@ -186,19 +175,15 @@ class ReMeLight(Application):
         Clean up expired tool result files from the tool result directory.
 
         This method removes tool result files that have exceeded the retention
-        period specified during initialization. It helps manage disk space by
-        automatically removing old, unused tool outputs.
+        period. It helps manage disk space by automatically removing old, unused
+        tool outputs.
 
         Returns:
             int: The number of files that were successfully deleted
         """
         try:
-            # Create a compactor instance with current configuration
-            compactor = ToolResultCompactor(
-                tool_result_dir=self.tool_result_path,
-                tool_result_threshold=self.tool_result_threshold,
-                retention_days=self.retention_days,
-            )
+            # Create a compactor instance with default configuration
+            compactor = ToolResultCompactor(tool_result_dir=self.tool_result_path)
             # Execute cleanup and return count of deleted files
             return compactor.cleanup_expired_files()
         except Exception as e:
@@ -243,7 +228,14 @@ class ReMeLight(Application):
         self._cleanup_tool_results()
         return await super().close()
 
-    async def compact_tool_result(self, messages: list[Msg]) -> list[Msg]:
+    async def compact_tool_result(
+        self,
+        messages: list[Msg],
+        recent_n: int = 1,
+        old_threshold: int = 500,
+        recent_threshold: int = 30000,
+        retention_days: int = 7,
+    ) -> list[Msg]:
         """
         Compact tool results by truncating large outputs and saving full content to files.
 
@@ -255,13 +247,19 @@ class ReMeLight(Application):
         Args:
             messages (list[Msg]): List of messages potentially containing tool results
                 that may need compaction.
+            recent_n (int): Number of recent messages to use recent_threshold for.
+                Default 1.
+            old_threshold (int): Character threshold for old messages. Default 500.
+            recent_threshold (int): Character threshold for recent messages. Default 30000.
+            retention_days (int): Number of days to retain tool result files.
+                Default 7.
 
         Returns:
             list[Msg]: The processed list of messages with large tool results compacted.
                 If an error occurs, returns the original unmodified messages.
 
         Note:
-            - Tool results shorter than tool_result_threshold are left unchanged
+            - Tool results are truncated based on old_threshold/recent_threshold
             - Full content of truncated results is saved to tool_result_path
             - Expired files are automatically cleaned up during this operation
         """
@@ -269,8 +267,10 @@ class ReMeLight(Application):
             # Create compactor with instance configuration
             compactor = ToolResultCompactor(
                 tool_result_dir=self.tool_result_path,
-                tool_result_threshold=self.tool_result_threshold,
-                retention_days=self.retention_days,
+                retention_days=retention_days,
+                recent_n=recent_n,
+                old_threshold=old_threshold,
+                recent_threshold=recent_threshold,
             )
 
             # Execute compaction and get processed messages
