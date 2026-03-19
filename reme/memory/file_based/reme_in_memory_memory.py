@@ -130,8 +130,7 @@ class ReMeInMemoryMemory(InMemoryMemory):
 {self._compressed_summary}
 </previous-summary>
 The above is a summary of our previous conversation.
-If there is a new instruction from the user, do not continue executing the previous content;
-only execute the user's new instruction.
+Use it as context to maintain continuity.
                     """.strip()
 
             return [
