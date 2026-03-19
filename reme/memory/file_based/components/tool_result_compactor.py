@@ -12,6 +12,22 @@ from ....core.utils import truncate_text_head, TRUNCATION_MARKER_START
 
 logger = get_logger()
 
+MAX_LINE_LENGTH = 10000
+
+
+def _split_long_lines(text: str, max_len: int = MAX_LINE_LENGTH) -> str:
+    """Split lines that exceed max_len by inserting newlines."""
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        if len(line) <= max_len:
+            result.append(line)
+        else:
+            # Split line into chunks of max_len
+            for i in range(0, len(line), max_len):
+                result.append(line[i : i + max_len])
+    return "\n".join(result)
+
 
 class ToolResultCompactor(BaseOp):
     """Truncate large tool_result outputs and save full content to files."""
@@ -48,13 +64,14 @@ class ToolResultCompactor(BaseOp):
         if len(content) <= threshold:
             return content
 
-        # Save full content
+        # Save full content with long lines split
         self.tool_result_dir.mkdir(parents=True, exist_ok=True)
         file_path = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
         created_at = datetime.now().isoformat()
 
+        processed_content = _split_long_lines(content)
         file_path.write_text(
-            f"# tool_name: {tool_name}\n# created_at: {created_at}\n# ---\n{content}",
+            f"# tool_name: {tool_name}\n# created_at: {created_at}\n# ---\n{processed_content}",
             encoding="utf-8",
         )
         logger.debug("Saved tool result to %s (len=%d)", file_path, len(content))
