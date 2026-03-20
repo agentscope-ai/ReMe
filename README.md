@@ -440,40 +440,6 @@ memories:
 Installation and environment configuration are the same as [ReMeLight](#installation).
 API keys are configured via environment variables and can be stored in a `.env` file at the project root.
 
-## 🧪 Experiments
-
-Evaluations are conducted on three benchmarks: **LoCoMo** and **HaluMem**. Experimental settings:
-
-1. **ReMe backbone**: as specified in each table.
-2. **Evaluation protocol**: LLM-as-a-Judge following MemOS — each answer is scored by GPT-4o-mini.
-
-Baseline results are reproduced from their respective papers under aligned settings where possible.
-
-### LoCoMo
-
-| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
-|----------|------------|-----------|-----------|-------------|-----------|
-| MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
-| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
-| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
-| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
-| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
-| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
-| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
-| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
-| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
-| **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
-
-### HaluMem
-
-| Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
-|-------------|------------------|-----------------|-------------|
-| MemoBase    | 14.55            | 92.24           | 35.53       |
-| Supermemory | 41.53            | 90.32           | 54.07       |
-| Mem0        | 42.91            | 86.26           | 53.02       |
-| ProMem      | **73.80**        | 89.47           | 62.26       |
-| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
-
 ### Python usage
 
 ```python
@@ -589,7 +555,37 @@ graph LR
 
 ### Experimental results
 
-Coming soon...
+Evaluations are conducted on two benchmarks: **LoCoMo** and **HaluMem**. Experimental settings:
+
+1. **ReMe backbone**: as specified in each table.
+2. **Evaluation protocol**: LLM-as-a-Judge following MemOS — each answer is scored by GPT-4o-mini.
+
+Baseline results are reproduced from their respective papers under aligned settings where possible.
+
+### LoCoMo
+
+| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
+|----------|------------|-----------|-----------|-------------|-----------|
+| MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
+| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
+| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
+| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
+| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
+| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
+| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
+| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
+| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
+| **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
+
+### HaluMem
+
+| Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
+|-------------|------------------|-----------------|-------------|
+| MemoBase    | 14.55            | 92.24           | 35.53       |
+| Supermemory | 41.53            | 90.32           | 54.07       |
+| Mem0        | 42.91            | 86.26           | 53.02       |
+| ProMem      | **73.80**        | 89.47           | 62.26       |
+| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
 
 ---
 
