@@ -240,10 +240,16 @@ class Application:
             if config.backend not in R.file_stores:
                 logger.warning(f"File store backend {config.backend} is not supported.")
             else:
+                embedding_model = self.service_context.embedding_models.get(config.embedding_model)
+                if embedding_model is None and config.embedding_model:
+                    logger.warning(
+                        f"Embedding model '{config.embedding_model}' not found for file store '{name}', "
+                        f"vector search will be disabled.",
+                    )
                 config_dict = config.model_dump(exclude={"backend", "embedding_model"})
                 config_dict.update(
                     {
-                        "embedding_model": self.service_context.embedding_models[config.embedding_model],
+                        "embedding_model": embedding_model,
                         "db_path": working_path / "file_store",
                     },
                 )
@@ -254,8 +260,14 @@ class Application:
             if config.backend not in R.file_watchers:
                 logger.warning(f"File watcher backend {config.backend} is not supported.")
             else:
+                file_store = self.service_context.file_stores.get(config.file_store)
+                if file_store is None and config.file_store:
+                    logger.warning(
+                        f"File store '{config.file_store}' not found for file watcher '{name}', "
+                        f"file indexing will be disabled.",
+                    )
                 config_dict = config.model_dump(exclude={"backend", "file_store"})
-                config_dict["file_store"] = self.service_context.file_stores[config.file_store]
+                config_dict["file_store"] = file_store
                 self.service_context.file_watchers[name] = R.file_watchers[config.backend](**config_dict)
                 await self.service_context.file_watchers[name].start()
 
