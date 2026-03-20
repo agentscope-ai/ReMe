@@ -7,6 +7,9 @@ from pathlib import Path
 from ..embedding import BaseEmbeddingModel
 from ..enumeration import MemorySource
 from ..schema import FileMetadata, MemoryChunk, MemorySearchResult
+from ..utils import get_logger
+
+logger = get_logger()
 
 
 class BaseFileStore(ABC):
@@ -54,24 +57,46 @@ class BaseFileStore(ABC):
         """Generate a zero vector based on embedding model dimensions."""
         return [0.0] * self.embedding_dim
 
+    def _disable_vector_search(self, reason: str = "embedding API error") -> None:
+        """Disable vector search and log a warning."""
+        if self.vector_enabled:
+            logger.warning(
+                f"[{self.store_name}] Disabling vector search due to {reason}. "
+                "Falling back to full-text search only.",
+            )
+            self.vector_enabled = False
+
     async def get_embedding(self, query: str, **kwargs) -> list[float]:
         """Get embedding for a single query string."""
         if not self.vector_enabled:
             return self._get_mock_embedding()
-        return await self.embedding_model.get_embedding(query, **kwargs)
+        try:
+            return await self.embedding_model.get_embedding(query, **kwargs)
+        except Exception as e:
+            self._disable_vector_search(str(e))
+            return self._get_mock_embedding()
 
     async def get_embeddings(self, queries: list[str], **kwargs) -> list[list[float]]:
         """Get embeddings for a batch of query strings."""
         if not self.vector_enabled:
             return [self._get_mock_embedding() for _ in queries]
-        return await self.embedding_model.get_embeddings(queries, **kwargs)
+        try:
+            return await self.embedding_model.get_embeddings(queries, **kwargs)
+        except Exception as e:
+            self._disable_vector_search(str(e))
+            return [self._get_mock_embedding() for _ in queries]
 
     async def get_chunk_embedding(self, chunk: MemoryChunk, **kwargs) -> MemoryChunk:
         """Generate and populate embedding field for a single MemoryChunk object."""
         if not self.vector_enabled:
             chunk.embedding = self._get_mock_embedding()
             return chunk
-        return await self.embedding_model.get_chunk_embedding(chunk, **kwargs)
+        try:
+            return await self.embedding_model.get_chunk_embedding(chunk, **kwargs)
+        except Exception as e:
+            self._disable_vector_search(str(e))
+            chunk.embedding = self._get_mock_embedding()
+            return chunk
 
     async def get_chunk_embeddings(self, chunks: list[MemoryChunk], **kwargs) -> list[MemoryChunk]:
         """Generate and populate embedding fields for a batch of MemoryChunk objects."""
@@ -80,7 +105,14 @@ class BaseFileStore(ABC):
             for chunk in chunks:
                 chunk.embedding = mock_embedding.copy()
             return chunks
-        return await self.embedding_model.get_chunk_embeddings(chunks, **kwargs)
+        try:
+            return await self.embedding_model.get_chunk_embeddings(chunks, **kwargs)
+        except Exception as e:
+            self._disable_vector_search(str(e))
+            mock_embedding = self._get_mock_embedding()
+            for chunk in chunks:
+                chunk.embedding = mock_embedding.copy()
+            return chunks
 
     @abstractmethod
     async def start(self):
