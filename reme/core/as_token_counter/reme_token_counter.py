@@ -47,9 +47,18 @@ class ReMeTokenCounter(HuggingFaceTokenCounter):
 
         # Set HuggingFace endpoint for mirror support
         if use_mirror:
-            os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+            mirror = "https://hf-mirror.com"
         else:
-            os.environ.pop("HF_ENDPOINT", None)
+            mirror = "https://huggingface.co"
+
+        os.environ["HF_ENDPOINT"] = mirror
+
+        # if the huggingface is already imported in other dependencies,
+        # we need to set the endpoint manually
+        import huggingface_hub.constants
+
+        huggingface_hub.constants.ENDPOINT = mirror
+        huggingface_hub.constants.HUGGINGFACE_CO_URL_TEMPLATE = mirror + "/{repo_id}/resolve/{revision}/{filename}"
 
         try:
             super().__init__(

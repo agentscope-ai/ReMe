@@ -41,15 +41,42 @@ def truncate_text(text: str, max_length: int) -> str:
     )
 
 
+def truncate_text_head(text: str, max_length: int) -> str:
+    """Truncate text from the beginning, keeping only the head portion.
+
+    Args:
+        text: The text to truncate
+        max_length: Maximum allowed length
+
+    Returns:
+        Truncated text with marker indicating truncation at the end
+    """
+    text = str(text) if text else ""
+    if not text:
+        return text
+
+    if len(text) <= max_length:
+        return text
+
+    truncated_chars = len(text) - max_length
+    logger.debug(
+        "Text truncated from head: original %d chars, kept %d, removed %d chars from tail.",
+        len(text),
+        max_length,
+        truncated_chars,
+    )
+    return f"{text[:max_length]}{TRUNCATION_MARKER_START}"
+
+
 def is_truncated(text: str) -> bool:
-    """Check if the text has been truncated (contains truncation markers).
+    """Check if the text has been truncated (contains truncation marker).
 
     Args:
         text: The text to check
 
     Returns:
-        bool: True if text contains truncation markers, False otherwise
+        bool: True if text contains truncation marker, False otherwise
     """
     if not text:
         return False
-    return TRUNCATION_MARKER_START in text and TRUNCATION_MARKER_END in text
+    return TRUNCATION_MARKER_START in text

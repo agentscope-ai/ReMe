@@ -19,7 +19,7 @@ from .pydantic_utils import create_pydantic_model
 from .singleton import singleton
 from .time import timer, get_now_time
 from .hf_token_counter_utils import get_hf_token_counter
-from .truncate_text_utils import truncate_text, is_truncated
+from .truncate_text_utils import truncate_text, truncate_text_head, is_truncated, TRUNCATION_MARKER_START
 
 __all__ = [
     "convert_dashscope_to_agentscope",
@@ -52,5 +52,7 @@ __all__ = [
     "get_now_time",
     "get_hf_token_counter",
     "truncate_text",
+    "truncate_text_head",
     "is_truncated",
+    "TRUNCATION_MARKER_START",
 ]

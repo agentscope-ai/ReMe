@@ -34,6 +34,7 @@ async def main():
         default_as_llm_config={"model_name": "qwen3.5-35b-a3b"},
         # default_embedding_model_config={"model_name": "text-embedding-v4"},
         default_file_store_config={"fts_enabled": True, "vector_enabled": False},
+        enable_load_env=True,
     )
     logging.getLogger("reme").setLevel(logging.WARNING)
     await reme.start()
