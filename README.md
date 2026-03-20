@@ -34,6 +34,8 @@ conversations) and **stateless sessions** (new sessions cannot inherit history a
 ReMe gives agents **real memory** — old conversations are automatically compacted, important information is persistently
 stored, and relevant context is automatically recalled in future interactions.
 
+ReMe achieves state-of-the-art results on the LoCoMo and HaluMem benchmarks; see the [Experimental results](#experimental-results).
+
 <details>
 <summary><b>What you can do with ReMe</b></summary>
 
