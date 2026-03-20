@@ -195,6 +195,7 @@ class ReMe(Application):
         version: str = "default",
         retrieve_top_k: int = 20,
         return_dict: bool = False,
+        raise_exception: bool = False,
         llm_config_name: str = "default",
         **kwargs,
     ) -> str | dict:
@@ -215,14 +216,14 @@ class ReMe(Application):
                     enable_when_to_use=False,
                     enable_multiple=True,
                     top_k=retrieve_top_k,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
                 AddMemory(
                     enable_thinking_params=enable_thinking_params,
                     enable_memory_target=False,
                     enable_when_to_use=False,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
             ]
             if self.enable_profile:
@@ -232,21 +233,21 @@ class ReMe(Application):
                             enable_thinking_params=False,
                             enable_memory_target=False,
                             profile_dir=self.profile_dir,
-                            raise_exception=True,
+                            raise_exception=raise_exception,
                         ),
                         UpdateProfilesV1(
                             enable_thinking_params=enable_thinking_params,
                             enable_memory_target=False,
                             enable_multiple=True,
                             profile_dir=self.profile_dir,
-                            raise_exception=True,
+                            raise_exception=raise_exception,
                         ),
                     ],
                 )
             personal_summarizer: BaseMemoryAgent = PersonalSummarizer(
                 llm=llm_config_name,
                 tools=personal_summarizer_tools,
-                raise_exception=True,
+                raise_exception=raise_exception,
             )
 
         else:
@@ -261,17 +262,17 @@ class ReMe(Application):
                     enable_when_to_use=False,
                     enable_multiple=True,
                     top_k=retrieve_top_k,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
                 AddMemory(
                     enable_thinking_params=enable_thinking_params,
                     enable_memory_target=False,
                     enable_when_to_use=False,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
             ],
-            raise_exception=True,
+            raise_exception=raise_exception,
         )
         tool_summarizer: BaseMemoryAgent = ToolSummarizer(
             llm=llm_config_name,
@@ -282,17 +283,17 @@ class ReMe(Application):
                     enable_when_to_use=False,
                     enable_multiple=True,
                     top_k=retrieve_top_k,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
                 AddMemory(
                     enable_thinking_params=enable_thinking_params,
                     enable_memory_target=False,
                     enable_when_to_use=False,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
             ],
-            raise_exception=True,
+            raise_exception=raise_exception,
         )
 
         memory_agents = []
@@ -341,10 +342,10 @@ class ReMe(Application):
 
         reme_summarizer: BaseMemoryAgent = ReMeSummarizer(
             tools=[
-                AddHistory(raise_exception=True),
-                DelegateTask(memory_agents=memory_agents, raise_exception=True),
+                AddHistory(raise_exception=raise_exception),
+                DelegateTask(memory_agents=memory_agents, raise_exception=raise_exception),
             ],
-            raise_exception=True,
+            raise_exception=raise_exception,
         )
 
         result = await reme_summarizer.call(
@@ -370,6 +371,7 @@ class ReMe(Application):
         retrieve_top_k: int = 20,
         enable_time_filter: bool = True,
         return_dict: bool = False,
+        raise_exception: bool = False,
         llm_config_name: str = "default",
         **kwargs,
     ) -> str | dict:
@@ -384,7 +386,7 @@ class ReMe(Application):
                         enable_thinking_params=False,
                         enable_memory_target=False,
                         profile_dir=self.profile_dir,
-                        raise_exception=True,
+                        raise_exception=raise_exception,
                     ),
                 )
             personal_retriever_tools.extend(
@@ -394,19 +396,19 @@ class ReMe(Application):
                         enable_thinking_params=enable_thinking_params,
                         enable_time_filter=enable_time_filter,
                         enable_multiple=True,
-                        raise_exception=True,
+                        raise_exception=raise_exception,
                     ),
                     ReadHistory(
                         enable_thinking_params=enable_thinking_params,
                         enable_multiple=True,
-                        raise_exception=True,
+                        raise_exception=raise_exception,
                     ),
                 ],
             )
             personal_retriever: BaseMemoryAgent = PersonalRetriever(
                 llm=llm_config_name,
                 tools=personal_retriever_tools,
-                raise_exception=True,
+                raise_exception=raise_exception,
             )
         else:
             raise NotImplementedError(f"version={version} is not supported")
@@ -419,15 +421,15 @@ class ReMe(Application):
                     enable_thinking_params=enable_thinking_params,
                     enable_time_filter=False,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
                 ReadHistory(
                     enable_thinking_params=enable_thinking_params,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
             ],
-            raise_exception=True,
+            raise_exception=raise_exception,
         )
         tool_retriever: BaseMemoryAgent = ToolRetriever(
             llm=llm_config_name,
@@ -437,15 +439,15 @@ class ReMe(Application):
                     enable_thinking_params=enable_thinking_params,
                     enable_time_filter=False,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
                 ReadHistory(
                     enable_thinking_params=enable_thinking_params,
                     enable_multiple=True,
-                    raise_exception=True,
+                    raise_exception=raise_exception,
                 ),
             ],
-            raise_exception=True,
+            raise_exception=raise_exception,
         )
 
         memory_agents = []
@@ -490,8 +492,8 @@ class ReMe(Application):
             memory_agents = [personal_retriever, procedural_retriever, tool_retriever]
 
         reme_retriever: BaseMemoryAgent = ReMeRetriever(
-            tools=[DelegateTask(memory_agents=memory_agents, raise_exception=True)],
-            raise_exception=True,
+            tools=[DelegateTask(memory_agents=memory_agents, raise_exception=raise_exception)],
+            raise_exception=raise_exception,
         )
 
         result = await reme_retriever.call(
