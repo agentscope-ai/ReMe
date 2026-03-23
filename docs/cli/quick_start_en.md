@@ -176,7 +176,6 @@ Controls how context space is allocated and how memory is searched:
 | `watch_paths`    | Directories/files to monitor           |
 | `suffix_filters` | Which file suffixes to watch (`.md`)   |
 | `recursive`      | Whether to recurse into subdirectories |
-| `scan_on_start`  | Whether to do a full scan on startup   |
 
 **token_counters — Token Counter**
 

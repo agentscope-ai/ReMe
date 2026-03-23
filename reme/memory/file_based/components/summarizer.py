@@ -35,6 +35,15 @@ class Summarizer(BaseOp):
         self.console_enabled: bool = console_enabled
         self.timezone: str | None = timezone
 
+    def _get_current_datetime(self) -> datetime.datetime:
+        """Get current datetime with timezone, fallback to local time if timezone is invalid."""
+        if self.timezone:
+            try:
+                return datetime.datetime.now(zoneinfo.ZoneInfo(self.timezone))
+            except Exception as e:
+                logger.error(f"Invalid timezone: {self.timezone}, falling back to local time error={e}")
+        return datetime.datetime.now()
+
     async def execute(self):
         messages: list[Msg] = self.context.get("messages", [])
 
@@ -65,13 +74,7 @@ class Summarizer(BaseOp):
 
         user_message: str = f"# conversation\n{history_formatted_str}\n\n" + self.prompt_format(
             "user_message",
-            date=(
-                datetime.datetime.now(
-                    zoneinfo.ZoneInfo(self.timezone),
-                )
-                if self.timezone
-                else datetime.datetime.now()
-            ).strftime("%Y-%m-%d"),
+            date=self._get_current_datetime().strftime("%Y-%m-%d"),
             working_dir=self.working_dir,
             memory_dir=self.memory_dir,
         )

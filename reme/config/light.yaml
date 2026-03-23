@@ -34,4 +34,3 @@ file_watchers:
     file_store: default
     suffix_filters: [ ".md" ]
     recursive: false
-    scan_on_start: true
