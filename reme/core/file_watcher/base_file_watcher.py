@@ -34,7 +34,7 @@ class BaseFileWatcher:
         chunk_overlap: int = 80,
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
-        rebuild_index_on_start: bool = False,
+        rebuild_index_on_start: bool = True,
         **kwargs,
     ):
         """
