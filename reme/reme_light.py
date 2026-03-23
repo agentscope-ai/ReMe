@@ -347,7 +347,8 @@ class ReMeLight(Application):
         max_input_length: float = 128 * 1024,
         compact_ratio: float = 0.7,
         previous_summary: str = "",
-    ) -> str:
+        return_dict: bool = False,
+    ) -> str | dict:
         """
         Compact a list of messages into a condensed summary.
 
@@ -371,10 +372,13 @@ class ReMeLight(Application):
                 Defaults to 0.7.
             previous_summary (str): Previous summary to incorporate into the new
                 summary for continuity. Defaults to empty string.
+            return_dict (bool): If True, returns a dict with user_message,
+                history_compact, and is_valid. Defaults to False.
 
         Returns:
-            str: The condensed summary of the messages, or an empty string if
-                an error occurred during compaction.
+            str | dict: The condensed summary string, or a dict containing
+                user_message, history_compact, and is_valid if return_dict=True.
+                Returns empty string or dict with empty values if an error occurred.
         """
         try:
             compactor = Compactor(
@@ -383,6 +387,7 @@ class ReMeLight(Application):
                 as_llm_formatter=as_llm_formatter,
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
+                return_dict=return_dict,
             )
 
             return await compactor.call(
@@ -392,8 +397,10 @@ class ReMeLight(Application):
             )
 
         except Exception as e:
-            # Log error and return empty string to indicate failure
+            # Log error and return appropriate empty result
             logger.exception(f"Error compacting memory: {e}")
+            if return_dict:
+                return {"user_message": str(e), "history_compact": str(e), "is_valid": False}
             return ""
 
     async def summary_memory(
