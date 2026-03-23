@@ -126,11 +126,8 @@ class ReMeInMemoryMemory(InMemoryMemory):
 
         if prepend_summary and self._compressed_summary:
             previous_summary = f"""
-<previous-summary>
 {self._compressed_summary}
-</previous-summary>
-The above is a summary of our previous conversation.
-Use it as context to maintain continuity.
+The above is a summary of previous conversation, use it as context to maintain continuity.
                     """.strip()
 
             return [

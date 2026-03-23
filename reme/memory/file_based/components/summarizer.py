@@ -25,6 +25,7 @@ class Summarizer(BaseOp):
         toolkit: Toolkit | None = None,
         console_enabled: bool = False,
         timezone: str | None = None,
+        add_thinking_block: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -34,6 +35,7 @@ class Summarizer(BaseOp):
         self.toolkit: Toolkit | None = toolkit
         self.console_enabled: bool = console_enabled
         self.timezone: str | None = timezone
+        self.add_thinking_block: bool = add_thinking_block
 
     def _get_current_datetime(self) -> datetime.datetime:
         """Get current datetime with timezone, fallback to local time if timezone is invalid."""
@@ -55,6 +57,7 @@ class Summarizer(BaseOp):
         history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
+            include_thinking=self.add_thinking_block,
         )
         after_token_count = await msg_handler.count_str_token(history_formatted_str)
         logger.info(f"Summarizer before_token_count={before_token_count} after_token_count={after_token_count}")

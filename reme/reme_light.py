@@ -348,6 +348,7 @@ class ReMeLight(Application):
         compact_ratio: float = 0.7,
         previous_summary: str = "",
         return_dict: bool = False,
+        add_thinking_block: bool = True,
     ) -> str | dict:
         """
         Compact a list of messages into a condensed summary.
@@ -388,6 +389,7 @@ class ReMeLight(Application):
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
                 return_dict=return_dict,
+                add_thinking_block=add_thinking_block,
             )
 
             return await compactor.call(
@@ -414,6 +416,7 @@ class ReMeLight(Application):
         max_input_length: float = 128 * 1024,
         compact_ratio: float = 0.7,
         timezone: str | None = None,
+        add_thinking_block: bool = True,
     ) -> str:
         """
         Generate a comprehensive summary of the given messages.
@@ -466,6 +469,7 @@ class ReMeLight(Application):
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
                 timezone=timezone,
+                add_thinking_block=add_thinking_block,
             )
 
             return await summarizer.call(messages=messages, service_context=self.service_context)

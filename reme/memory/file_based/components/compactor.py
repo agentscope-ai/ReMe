@@ -34,12 +34,14 @@ class Compactor(BaseOp):
         memory_compact_threshold: int,
         console_enabled: bool = False,
         return_dict: bool = False,
+        add_thinking_block: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.memory_compact_threshold: int = memory_compact_threshold
         self.console_enabled: bool = console_enabled
         self.return_dict: bool = return_dict
+        self.add_thinking_block: bool = add_thinking_block
 
     # pylint: disable=too-many-return-statements
     async def execute(self):
@@ -56,6 +58,7 @@ class Compactor(BaseOp):
         history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
+            include_thinking=self.add_thinking_block,
         )
         after_token_count = await msg_handler.count_str_token(history_formatted_str)
         logger.info(f"Compactor before_token_count={before_token_count} after_token_count={after_token_count}")
