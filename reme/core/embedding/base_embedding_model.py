@@ -203,7 +203,7 @@ class BaseEmbeddingModel(ABC):
                     continue
 
             logger.info(
-                f"Loaded {loaded_count} embeddings from cache file: {cache_file} in {time.time() - load_start:.2f}s"
+                f"Loaded {loaded_count} embeddings from cache file: {cache_file} in {time.time() - load_start:.2f}s",
             )
         except Exception as e:
             logger.error(f"Failed to load cache from {cache_file}: {e}, deleting cache file")
