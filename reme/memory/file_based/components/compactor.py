@@ -55,13 +55,13 @@ class Compactor(BaseOp):
             prefix: str = self.get_prompt("update_user_message_prefix")
             suffix: str = self.get_prompt("update_user_message_suffix")
             user_message: str = (
-                f"<conversation>\n{history_formatted_str}\n</conversation>\n\n"
+                f"# conversation\n{history_formatted_str}\n\n"
                 f"{prefix}\n\n"
-                f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
+                f"# previous-summary\n{previous_summary}\n\n"
                 f"{suffix}"
             )
         else:
-            user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n\n" + self.get_prompt(
+            user_message: str = f"# conversation\n{history_formatted_str}\n\n" + self.get_prompt(
                 "initial_user_message",
             )
         logger.info(f"Compactor sys_prompt={agent.sys_prompt} user_message={user_message}")

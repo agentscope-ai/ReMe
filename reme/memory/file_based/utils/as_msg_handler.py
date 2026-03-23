@@ -204,7 +204,7 @@ class AsMsgHandler:
         self,
         messages: list[Msg],
         memory_compact_threshold: int,
-        include_thinking: bool = False,
+        include_thinking: bool = True,
     ) -> str:
         """Format list of messages to a single formatted string.
 

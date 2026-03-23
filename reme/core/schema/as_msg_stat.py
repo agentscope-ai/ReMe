@@ -27,7 +27,8 @@ class AsBlockStat(BaseModel):
         return self.format(_DEFAULT_MAX_BLOCK_TEXT_PREVIEW_LENGTH)
 
     def _truncate(self, text: str, max_length: int) -> str:
-        """Simple truncation with ellipsis."""
+        """Truncate text with ellipsis, replacing newlines with spaces."""
+        text = text.replace("\n", " ")
         if len(text) <= max_length:
             return text
         return text[:max_length] + "..."
@@ -46,22 +47,22 @@ class AsBlockStat(BaseModel):
         if self.block_type == "text":
             if not self.text:
                 return ""
-            return f"<text>{self._truncate(self.text, max_length)}</text>"
+            return f"[text]: {self._truncate(self.text, max_length)}"
         if self.block_type == "thinking":
             if not include_thinking or not self.text:
                 return ""
-            return f"<thinking>{self._truncate(self.text, max_length)}</thinking>"
+            return f"[think]: {self._truncate(self.text, max_length)}"
         if self.block_type in ("image", "audio", "video"):
             content = self.media_url if self.media_url else ""
-            return f"<{self.block_type}>{content}</{self.block_type}>"
+            return f"[{self.block_type}]: {content}"
         if self.block_type == "tool_use":
             content = f"{self.tool_name} params={self._truncate(self.tool_input, max_length)}"
-            return f"<tool_use>{content}</tool_use>"
+            return f"[tool_use]: {content}"
         if self.block_type == "tool_result":
             if not self.tool_output:
                 return ""
             content = f"{self.tool_name} output={self._truncate(self.tool_output, max_length)}"
-            return f"<tool_result>{content}</tool_result>"
+            return f"[tool_result]: {content}"
         return ""
 
 

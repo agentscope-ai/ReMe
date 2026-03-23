@@ -63,7 +63,7 @@ class Summarizer(BaseOp):
         )
         agent.set_console_output_enabled(self.console_enabled)
 
-        user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n" + self.prompt_format(
+        user_message: str = f"# conversation\n{history_formatted_str}\n\n" + self.prompt_format(
             "user_message",
             date=(
                 datetime.datetime.now(
