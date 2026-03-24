@@ -7,7 +7,7 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ..utils import DEFAULT_MAX_BYTES, read_file_safe, truncate_output
+from ..utils import read_file_safe, truncate_text_output
 
 
 class FileIO:
@@ -38,13 +38,13 @@ class FileIO:
         else:
             return str(self.working_dir / file_path)
 
-    async def read(  # pylint: disable=too-many-return-statements
-        self,
-        file_path: str,
-        start_line: Optional[int] = None,
-        end_line: Optional[int] = None,
+    async def read_file(  # pylint: disable=too-many-return-statements
+            self,
+            file_path: str,
+            start_line: Optional[int] = None,
+            end_line: Optional[int] = None,
     ) -> ToolResponse:
-        """Read a file. Relative paths resolve from working_dir.
+        """Read a file. Relative paths resolve from WORKING_DIR.
 
         Use start_line/end_line to read a specific line range (output includes
         line numbers). Omit both to read the full file.
@@ -57,6 +57,34 @@ class FileIO:
             end_line (`int`, optional):
                 Last line to read (1-based, inclusive).
         """
+
+        # Convert start_line/end_line to int if they are strings
+        if start_line is not None:
+            try:
+                start_line = int(start_line)
+            except (ValueError, TypeError):
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"Error: start_line must be an integer, got {start_line!r}.",
+                        ),
+                    ],
+                )
+
+        if end_line is not None:
+            try:
+                end_line = int(end_line)
+            except (ValueError, TypeError):
+                return ToolResponse(
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=f"Error: end_line must be an integer, got {end_line!r}.",
+                        ),
+                    ],
+                )
+
         file_path = self._resolve_file_path(file_path)
 
         if not os.path.exists(file_path):
@@ -109,31 +137,23 @@ class FileIO:
                 )
 
             # Extract selected lines
-            selected_content = "\n".join(all_lines[s - 1 : e])
+            selected_content = "\n".join(all_lines[s - 1: e])
 
-            # Apply smart truncation (keep head for file reading)
-            truncated, was_truncated, output_lines, reason = truncate_output(selected_content, keep="head")
+            # Apply smart truncation (consistent with shell output format)
+            text = truncate_text_output(
+                selected_content,
+                start_line=s,
+                total_lines=total,
+                file_path=file_path,
+            )
 
-            # Build response with truncation hints
-            if was_truncated:
-                end_display = s + output_lines - 1
-                next_line = end_display + 1
-                if reason == "lines":
-                    hint = f"\n\n[Lines {s}-{end_display} of {total}. Use start_line={next_line} to continue.]"
-                else:
-                    hint = (
-                        f"\n\n[Lines {s}-{end_display} of {total} ({DEFAULT_MAX_BYTES // 1024}KB limit). "
-                        f"Use start_line={next_line} to continue.]"
-                    )
-                text = truncated + hint
-            elif e < total:
+            # Add continuation hint if partial read without truncation
+            if text == selected_content and e < total:
                 remaining = total - e
                 text = (
-                    f"{file_path}  (lines {s}-{e} of {total})\n{truncated}\n\n[{remaining} more lines. "
-                    f"Use start_line={e + 1} to continue.]"
+                    f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
+                    f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
                 )
-            else:
-                text = truncated
 
             return ToolResponse(
                 content=[TextBlock(type="text", text=text)],
@@ -149,7 +169,7 @@ class FileIO:
                 ],
             )
 
-    async def write(
+    async def write_file(
         self,
         file_path: str,
         content: str,
@@ -195,7 +215,7 @@ class FileIO:
                 ],
             )
 
-    async def edit(
+    async def edit_file(
         self,
         file_path: str,
         old_text: str,
@@ -212,7 +232,7 @@ class FileIO:
             new_text (`str`):
                 Replacement text.
         """
-        response = await self.read(file_path=file_path)
+        response = await self.read_file(file_path=file_path)
         if response.content and len(response.content) > 0:
             error_text = response.content[0].get("text", "")
             if error_text.startswith("Error:"):
@@ -239,7 +259,7 @@ class FileIO:
             )
 
         new_content = content.replace(old_text, new_text)
-        write_response = await self.write(file_path=file_path, content=new_content)
+        write_response = await self.write_file(file_path=file_path, content=new_content)
 
         if write_response.content and len(write_response.content) > 0:
             write_text = write_response.content[0].get("text", "")

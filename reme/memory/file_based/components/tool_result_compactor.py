@@ -8,25 +8,14 @@ from agentscope.message import Msg
 
 from ....core.op import BaseOp
 from ....core.utils import get_logger
-from ....core.utils import truncate_text_head, TRUNCATION_MARKER_START
+from ..utils import truncate_text_output, DEFAULT_MAX_BYTES, TRUNCATION_NOTICE_MARKER
 
 logger = get_logger()
 
 MAX_LINE_LENGTH = 10000
 
 
-def _split_long_lines(text: str, max_len: int = MAX_LINE_LENGTH) -> str:
-    """Split lines that exceed max_len by inserting newlines."""
-    lines = text.split("\n")
-    result = []
-    for line in lines:
-        if len(line) <= max_len:
-            result.append(line)
-        else:
-            # Split line into chunks of max_len
-            for i in range(0, len(line), max_len):
-                result.append(line[i : i + max_len])
-    return "\n".join(result)
+
 
 
 class ToolResultCompactor(BaseOp):
@@ -37,57 +26,69 @@ class ToolResultCompactor(BaseOp):
         tool_result_dir: str | Path,
         retention_days: int = 7,
         recent_n: int = 1,
-        old_threshold: int = 500,
-        recent_threshold: int = 30000,
+        old_max_bytes: int = 1000,
+        recent_max_bytes: int = DEFAULT_MAX_BYTES,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.tool_result_dir = Path(tool_result_dir)
         self.retention_days = retention_days
         self.recent_n = recent_n
-        self.old_threshold = old_threshold
-        self.recent_threshold = recent_threshold
+        self.old_max_bytes = old_max_bytes
+        self.recent_max_bytes = recent_max_bytes
 
-    def _save_and_truncate(self, content: str, tool_name: str, threshold: int) -> str:
+    @staticmethod
+    def _split_long_lines(text: str, max_len: int = MAX_LINE_LENGTH) -> str:
+        """Split lines that exceed max_len by inserting newlines."""
+        lines = text.split("\n")
+        result = []
+        for line in lines:
+            if len(line) <= max_len:
+                result.append(line)
+            else:
+                # Split line into chunks of max_len
+                for i in range(0, len(line), max_len):
+                    result.append(line[i: i + max_len])
+        return "\n".join(result)
+
+    def _save_and_truncate(self, content: str, tool_name: str, max_bytes: int) -> str:
         """Save full content to file and return truncated version with file reference."""
         if not content:
             return content
 
-        # Check if content was previously truncated
-        if TRUNCATION_MARKER_START in content:
-            parts = content.split(TRUNCATION_MARKER_START, 1)
-            if len(parts[0]) <= threshold:
-                return content
-            return f"{truncate_text_head(parts[0], threshold)}{parts[1]}"
-
-        # Not truncated before
-        if len(content) <= threshold:
+        if len(content.encode("utf-8")) <= max_bytes:
             return content
+
+        # Strip any prior truncation notice to work with the original text
+        if TRUNCATION_NOTICE_MARKER in content:
+            content = content.split(TRUNCATION_NOTICE_MARKER, 1)[0]
 
         # Save full content with long lines split
         self.tool_result_dir.mkdir(parents=True, exist_ok=True)
         file_path = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
         created_at = datetime.now().isoformat()
 
-        processed_content = _split_long_lines(content)
+        processed_content = self._split_long_lines(content)
         file_path.write_text(
             f"# tool_name: {tool_name}\n# created_at: {created_at}\n# ---\n{processed_content}",
             encoding="utf-8",
         )
-        logger.debug("Saved tool result to %s (len=%d)", file_path, len(content))
+        logger.debug("Saved tool result to %s (%d bytes)", file_path, len(content.encode("utf-8")))
 
-        # Return truncated with file reference
-        return f"{truncate_text_head(content, threshold)}\n\n[Full content saved to: {file_path}]"
+        total_lines = content.count("\n") + 1
+        truncated = truncate_text_output(content, 1, total_lines, max_bytes)
+        return f"{truncated}\n[Full content saved to: {file_path}]"
 
-    def _process_output(self, output: str | list[dict], tool_name: str, threshold: int) -> str | list[dict]:
+
+    def _process_output(self, output: str | list[dict], tool_name: str, max_bytes: int) -> str | list[dict]:
         """Process tool result output, truncating if necessary."""
         if isinstance(output, str):
-            return self._save_and_truncate(output, tool_name, threshold)
+            return self._save_and_truncate(output, tool_name, max_bytes)
 
         if isinstance(output, list):
             return [
                 (
-                    {**b, "text": self._save_and_truncate(b.get("text", ""), tool_name, threshold)}
+                    {**b, "text": self._save_and_truncate(b.get("text", ""), tool_name, max_bytes)}
                     if isinstance(b, dict) and b.get("type") == "text"
                     else b
                 )
@@ -108,14 +109,14 @@ class ToolResultCompactor(BaseOp):
             if not isinstance(msg.content, list):
                 continue
 
-            # Determine threshold based on message position
-            threshold = self.recent_threshold if idx >= split_index else self.old_threshold
+            # Determine max_bytes based on message position
+            max_bytes = self.recent_max_bytes if idx >= split_index else self.old_max_bytes
 
             for block in msg.content:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     output = block.get("output")
                     if output:
-                        block["output"] = self._process_output(output, block.get("name", "unknown"), threshold)
+                        block["output"] = self._process_output(output, block.get("name", "unknown"), max_bytes)
 
         return messages
 
