@@ -44,7 +44,6 @@ dependencies = [
     "fastapi>=0.121.3",
     "fastmcp>=2.14.1",
     "httpx>=0.28.1",
-    "litellm>=1.80.0",
     "loguru>=0.7.3",
     "mcp>=1.25.0",
     "numpy>=2.2.6",
@@ -74,6 +73,7 @@ dev = [
     "furo",
     "sphinxcontrib-mermaid",
     "pre-commit",
+    "litellm==1.80.0",
 ]
 
 full = [
