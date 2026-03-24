@@ -73,11 +73,11 @@ dev = [
     "furo",
     "sphinxcontrib-mermaid",
     "pre-commit",
-    "litellm==1.80.0",
 ]
 
 full = [
     "reme_ai[dev,ray,light]",
+    "litellm==1.80.0",
 ]
 
 light = [
