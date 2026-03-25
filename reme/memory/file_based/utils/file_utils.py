@@ -2,12 +2,12 @@
 """Shared utilities for file and shell tools."""
 
 # Default truncation limit
-DEFAULT_MAX_BYTES = 50 * 1024  # 50KB
+DEFAULT_MAX_BYTES = 100 * 1024
 
 # Marker prepended to every truncation notice.
 # Split on this to recover the original (un-truncated) portion:
 #   original = output.split(TRUNCATION_NOTICE_MARKER)[0]
-TRUNCATION_NOTICE_MARKER = "\x00[TRUNCATION_NOTICE]"
+TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
 
 
 def truncate_text_output(
@@ -54,14 +54,16 @@ def truncate_text_output(
             end_line = start_line + newline_count - 1
             next_line = end_line + 1
             extra = ""
+
         elif newline_count == 0:
             # The single line itself exceeds max_bytes; partially shown.
             end_line = start_line
             next_line = start_line + 1
             extra = (
                 f" Line {end_line} exceeds the {max_bytes // 1024}KB limit"
-                f" and is partially shown."
+                " and is partially shown."
             )
+
         else:
             # Ends mid-line: last line is partially shown.
             end_line = start_line + newline_count
