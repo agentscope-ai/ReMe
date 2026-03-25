@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+_TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
+
 _DEFAULT_MAX_BLOCK_TEXT_PREVIEW_LENGTH = 100
 _DEFAULT_MAX_FORMATTER_TEXT_LENGTH = 1000
 
@@ -61,7 +63,8 @@ class AsBlockStat(BaseModel):
         if self.block_type == "tool_result":
             if not self.tool_output:
                 return ""
-            content = f"{self.tool_name} output={self._truncate(self.tool_output, max_length)}"
+            display_output = self.tool_output.split(_TRUNCATION_NOTICE_MARKER)[0]
+            content = f"{self.tool_name} output={self._truncate(display_output, max_length)}"
             return f"[tool_result]: {content}"
         return ""
 

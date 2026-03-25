@@ -7,8 +7,8 @@ from pathlib import Path
 
 from agentscope.message import Msg
 
-from reme.core.utils import is_truncated
 from reme.memory.file_based.components import ToolResultCompactor
+from reme.memory.file_based.utils import TRUNCATION_NOTICE_MARKER
 
 
 def create_tool_result_msg(output: str | list, tool_name: str = "test_tool") -> Msg:
@@ -52,7 +52,7 @@ class TestToolResultCompactor:
             _ = asyncio.run(op.call(messages=messages))
 
             output = messages[0].content[0]["output"]
-            assert is_truncated(output)
+            assert TRUNCATION_NOTICE_MARKER in output
             assert "[Full content saved to:" in output
 
             # Verify file was created
@@ -87,7 +87,7 @@ class TestToolResultCompactor:
             asyncio.run(op.call(messages=messages))
 
             text_block = messages[0].content[0]["output"][0]
-            assert is_truncated(text_block["text"])
+            assert TRUNCATION_NOTICE_MARKER in text_block["text"]
             assert len(list(Path(tmpdir).glob("*.txt"))) == 1
 
     def test_list_output_no_truncation_when_short(self):
@@ -116,9 +116,9 @@ class TestToolResultCompactor:
             asyncio.run(op.call(messages=messages))
 
             output = messages[0].content[0]["output"]
-            assert is_truncated(output[0]["text"])
+            assert TRUNCATION_NOTICE_MARKER in output[0]["text"]
             assert output[1]["text"] == "short"  # unchanged
-            assert is_truncated(output[2]["text"])
+            assert TRUNCATION_NOTICE_MARKER in output[2]["text"]
             assert len(list(Path(tmpdir).glob("*.txt"))) == 2
 
     def test_list_output_mixed_block_types(self):
@@ -134,7 +134,7 @@ class TestToolResultCompactor:
             asyncio.run(op.call(messages=messages))
 
             output = messages[0].content[0]["output"]
-            assert is_truncated(output[0]["text"])
+            assert TRUNCATION_NOTICE_MARKER in output[0]["text"]
             assert output[1] == {"type": "image", "source": {"type": "url", "url": "http://example.com/img.png"}}
             assert len(list(Path(tmpdir).glob("*.txt"))) == 1
 

@@ -7,7 +7,7 @@ from typing import Optional
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ..utils import read_file_safe, truncate_text_output
+from ..utils import read_file_safe, truncate_text_output, TRUNCATION_NOTICE_MARKER
 
 
 class FileIO:
@@ -147,13 +147,19 @@ class FileIO:
                 file_path=file_path,
             )
 
-            # Add continuation hint if partial read without truncation
+            # Add continuation hint if partial read without truncation.
+            # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
+            # re-truncate with the correct start_line when compacting old messages.
             if text == selected_content and e < total:
-                remaining = total - e
-                text = (
-                    f"{file_path}  (lines {s}-{e} of {total})\n{text}\n\n"
-                    f"[{remaining} more lines. Use start_line={e + 1} to continue.]"
+                content_bytes = len(text.encode("utf-8"))
+                notice = (
+                    TRUNCATION_NOTICE_MARKER
+                    + f"\n\nFile: {file_path}\nContent from start_line={s},"
+                    f" next {content_bytes} bytes."
+                    f"\ntotal_lines={total}"
+                    f"\nUse start_line={e + 1} to continue."
                 )
+                text = text + notice
 
             return ToolResponse(
                 content=[TextBlock(type="text", text=text)],
