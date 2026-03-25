@@ -220,6 +220,7 @@ class FileIO:
                 ],
             )
 
+    # pylint: disable=too-many-return-statements
     async def edit_file(
         self,
         file_path: str,
