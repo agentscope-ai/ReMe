@@ -35,7 +35,7 @@ class BaseFileWatcher:
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
         rebuild_index_on_start: bool = True,
-        poll_delay_ms: int = 1000,
+        poll_delay_ms: int = 2000,
         **kwargs,
     ):
         """
@@ -181,15 +181,12 @@ class BaseFileWatcher:
 
             try:
                 logger.info(f"Starting watch on valid paths: {valid_paths}")
-                # Enable force_polling if poll_delay_ms > default 300ms to reduce CPU usage
-                force_polling = self.poll_delay_ms > 300
                 async for changes in awatch(
                     *valid_paths,
                     watch_filter=self.watch_filter,
                     recursive=self.recursive,
                     debounce=self.debounce,
                     poll_delay_ms=self.poll_delay_ms,
-                    force_polling=force_polling,
                     stop_event=self._stop_event,
                 ):
                     if self._stop_event.is_set():
