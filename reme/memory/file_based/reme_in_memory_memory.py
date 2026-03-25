@@ -126,8 +126,9 @@ class ReMeInMemoryMemory(InMemoryMemory):
 
         if prepend_summary and self._compressed_summary:
             previous_summary = f"""
-Raw conversation logs are in dialog/YYYY-MM-DD.jsonl (or nearby date files).
-Entries are chronological; read from the end for recent history.
+Earlier conversation logs are in dialog/YYYY-MM-DD.jsonl (or nearby date files).
+Note: dialog files can be large; read them with caution.
+
 {self._compressed_summary}
 The above is a summary of previous conversation, use it as context to maintain continuity.""".strip()
 
