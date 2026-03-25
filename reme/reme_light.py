@@ -234,6 +234,7 @@ class ReMeLight(Application):
         old_max_bytes: int = 3000,
         recent_max_bytes: int = 100 * 1024,
         retention_days: int = 3,
+        recent_n: int = 1,
     ) -> list[Msg]:
         """
         Compact tool results by truncating large outputs and saving full content to files.
@@ -253,6 +254,10 @@ class ReMeLight(Application):
                 read_file-style truncation notice and the saved file path.
             retention_days (int): Number of days to retain tool result files.
                 Default 3.
+            recent_n (int): Minimum number of most-recent tool-result messages to treat
+                as "recent" (using recent_max_bytes). The actual recent window is the
+                larger of this value and the trailing consecutive tool-result run.
+                Default 1.
 
         Returns:
             list[Msg]: The processed list of messages with large tool results compacted.
@@ -272,6 +277,7 @@ class ReMeLight(Application):
                 retention_days=retention_days,
                 old_max_bytes=old_max_bytes,
                 recent_max_bytes=recent_max_bytes,
+                recent_n=recent_n,
             )
 
             # Execute compaction and get processed messages
