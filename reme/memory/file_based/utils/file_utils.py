@@ -14,12 +14,14 @@ DEFAULT_MAX_BYTES = 100 * 1024
 MAX_FILE_READ_BYTES = 1024 * 1024 * 1024
 
 # Marker prepended to every truncation notice.
-# Format: <<<TRUNCATED>>>
-#         File: file_path
-#         Content from start_line=X, next N bytes.
-#         total_lines=Z
-#         Use start_line=Y to continue.
-# Split on this to recover the original (un-truncated) portion:
+# Format:
+#   <<<TRUNCATED>>>
+#   File: <path>
+#   Starting at start_line=X, next N bytes.
+#   Total lines: Z
+#   Use start_line=Y to continue.
+#
+# Split output on this marker to recover the original (untruncated) portion:
 #   original = output.split(TRUNCATION_NOTICE_MARKER)[0]
 TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
 
@@ -72,8 +74,8 @@ def truncate_text_output(
                 return text
 
             # Parse start_line and total_lines from notice; return text unchanged if not found
-            start_match = re.search(r"start_line=(\d+),", old_notice)
-            total_match = re.search(r"total_lines=(\d+)", old_notice)
+            start_match = re.search(r"Starting at start_line=(\d+)", old_notice)
+            total_match = re.search(r"Total lines: (\d+)", old_notice)
             if not start_match or not total_match:
                 return text
             start_line_parsed = int(start_match.group(1))
@@ -92,7 +94,7 @@ def truncate_text_output(
             if has_continuation:
                 new_notice = re.sub(r"Use start_line=\d+", f"Use start_line={next_line}", new_notice)
             elif next_line <= total_lines_parsed:
-                new_notice = re.sub(r"(total_lines=\d+)", f"\\1\nUse start_line={next_line} to continue.", new_notice)
+                new_notice = re.sub(r"(Total lines: \d+)", f"\\1\nUse start_line={next_line} to continue.", new_notice)
 
             return result + TRUNCATION_NOTICE_MARKER + new_notice
 
@@ -112,8 +114,8 @@ def truncate_text_output(
             continuation = f"\nUse start_line={next_line} to continue." if next_line <= total_lines else ""
             notice = (
                 TRUNCATION_NOTICE_MARKER
-                + f"\n\nFile: {file_path or ''}\nContent from start_line={start_line}, next {max_bytes} bytes."
-                f"\ntotal_lines={total_lines}{continuation}"
+                + f"\nFile: {file_path or ''}\nStarting at start_line={start_line}, next {max_bytes} bytes."
+                f"\nTotal lines: {total_lines}{continuation}"
             )
 
             return result + notice

@@ -32,7 +32,7 @@ class FileIO:
         Returns:
             The resolved absolute file path as string.
         """
-        path = Path(file_path)
+        path = Path(file_path).expanduser()
         if path.is_absolute():
             return str(path)
         else:
@@ -154,9 +154,8 @@ class FileIO:
                 content_bytes = len(text.encode("utf-8"))
                 notice = (
                     TRUNCATION_NOTICE_MARKER
-                    + f"\n\nFile: {file_path}\nContent from start_line={s},"
-                    f" next {content_bytes} bytes."
-                    f"\ntotal_lines={total}"
+                    + f"\nFile: {file_path}\nStarting at start_line={s}, next {content_bytes} bytes."
+                    f"\nTotal lines: {total}"
                     f"\nUse start_line={e + 1} to continue."
                 )
                 text = text + notice
@@ -193,7 +192,7 @@ class FileIO:
                 content=[
                     TextBlock(
                         type="text",
-                        text="Error: No `file_path` provide.",
+                        text="Error: No `file_path` provided.",
                     ),
                 ],
             )
@@ -238,22 +237,50 @@ class FileIO:
             new_text (`str`):
                 Replacement text.
         """
-        response = await self.read_file(file_path=file_path)
-        if response.content and len(response.content) > 0:
-            error_text = response.content[0].get("text", "")
-            if error_text.startswith("Error:"):
-                return response
-        if not response.content or len(response.content) == 0:
+        if not file_path:
             return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
-                        text=f"Error: Failed to read file {file_path}.",
+                        text="Error: No `file_path` provided.",
                     ),
                 ],
             )
 
-        content = response.content[0].get("text", "")
+        resolved_path = self._resolve_file_path(file_path)
+
+        if not os.path.exists(resolved_path):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The file {resolved_path} does not exist.",
+                    ),
+                ],
+            )
+
+        if not os.path.isfile(resolved_path):
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The path {resolved_path} is not a file.",
+                    ),
+                ],
+            )
+
+        try:
+            content = read_file_safe(resolved_path)
+        except Exception as e:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Read file failed due to \n{e}",
+                    ),
+                ],
+            )
+
         if old_text not in content:
             return ToolResponse(
                 content=[
@@ -265,7 +292,7 @@ class FileIO:
             )
 
         new_content = content.replace(old_text, new_text)
-        write_response = await self.write_file(file_path=file_path, content=new_content)
+        write_response = await self.write_file(file_path=resolved_path, content=new_content)
 
         if write_response.content and len(write_response.content) > 0:
             write_text = write_response.content[0].get("text", "")
@@ -280,3 +307,50 @@ class FileIO:
                 ),
             ],
         )
+
+    async def append_file(
+        self,
+        file_path: str,
+        content: str,
+    ) -> ToolResponse:
+        """Append content to the end of a file. Relative paths resolve from
+        working_dir.
+
+        Args:
+            file_path (`str`):
+                Path to the file.
+            content (`str`):
+                Content to append.
+        """
+        if not file_path:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="Error: No `file_path` provided.",
+                    ),
+                ],
+            )
+
+        file_path = self._resolve_file_path(file_path)
+
+        try:
+            with open(file_path, "a", encoding="utf-8") as file:
+                file.write(content)
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Appended {len(content)} bytes to {file_path}.",
+                    ),
+                ],
+            )
+        except Exception as e:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Append file failed due to \n{e}",
+                    ),
+                ],
+            )
