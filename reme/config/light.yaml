@@ -3,6 +3,8 @@ as_llms:
     backend: openai
     model_name: qwen3.5-plus
 
+thread_pool_max_workers: -1
+
 as_llm_formatters:
   default:
     backend: openai

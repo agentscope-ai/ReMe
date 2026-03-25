@@ -301,7 +301,7 @@ class BaseOp(metaclass=ABCMeta):
 
     def submit_sync_task(self, fn: Callable, *args, **kwargs) -> "BaseOp":
         """Submit a task to the thread pool or local queue."""
-        if self.enable_parallel:
+        if self.enable_parallel and self.service_context.thread_pool is not None:
             task = self.service_context.thread_pool.submit(fn, *args, **kwargs)
         else:
             task = (fn, args, kwargs)

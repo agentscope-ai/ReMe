@@ -29,12 +29,13 @@ class BaseFileWatcher:
         watch_paths: list[str] | str,
         suffix_filters: list[str] | None = None,
         recursive: bool = False,
-        debounce: int = 500,  # Millisecond debounce
+        debounce: int = 2000,
         chunk_tokens: int = 400,
         chunk_overlap: int = 80,
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
         rebuild_index_on_start: bool = True,
+        poll_delay_ms: int = 1000,
         **kwargs,
     ):
         """
@@ -51,6 +52,7 @@ class BaseFileWatcher:
             callback: Callback function for changes
             rebuild_index_on_start: If True, clear all indexed data on start and rescan existing files.
                            If False, only monitor new changes without initialization.
+            poll_delay_ms: Polling delay in milliseconds. If > 300ms, force_polling will be enabled automatically.
             **kwargs: Additional keyword arguments
         """
         self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
@@ -62,6 +64,7 @@ class BaseFileWatcher:
         self.file_store: BaseFileStore = file_store
         self.callback = callback
         self.rebuild_index_on_start: bool = rebuild_index_on_start
+        self.poll_delay_ms: int = poll_delay_ms
         self.kwargs: dict = kwargs
 
         self._stop_event = asyncio.Event()
@@ -178,11 +181,15 @@ class BaseFileWatcher:
 
             try:
                 logger.info(f"Starting watch on valid paths: {valid_paths}")
+                # Enable force_polling if poll_delay_ms > default 300ms to reduce CPU usage
+                force_polling = self.poll_delay_ms > 300
                 async for changes in awatch(
                     *valid_paths,
                     watch_filter=self.watch_filter,
                     recursive=self.recursive,
                     debounce=self.debounce,
+                    poll_delay_ms=self.poll_delay_ms,
+                    force_polling=force_polling,
                     stop_event=self._stop_event,
                 ):
                     if self._stop_event.is_set():
