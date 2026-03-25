@@ -156,12 +156,9 @@ class Application:
             if not ray.is_initialized():
                 ray.init(num_cpus=self.service_config.ray_max_workers)
 
-        if (
-            self.service_config.thread_pool_max_workers > 0
-            and (
-                self.service_context.thread_pool is None
-                or self.service_context.thread_pool._shutdown  # pylint: disable=protected-access
-            )
+        if self.service_config.thread_pool_max_workers > 0 and (
+            self.service_context.thread_pool is None
+            or self.service_context.thread_pool._shutdown  # pylint: disable=protected-access
         ):
             self.service_context.thread_pool = ThreadPoolExecutor(
                 max_workers=self.service_config.thread_pool_max_workers,

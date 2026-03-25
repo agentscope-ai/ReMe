@@ -39,10 +39,10 @@ class FileIO:
             return str(self.working_dir / file_path)
 
     async def read_file(  # pylint: disable=too-many-return-statements
-            self,
-            file_path: str,
-            start_line: Optional[int] = None,
-            end_line: Optional[int] = None,
+        self,
+        file_path: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
     ) -> ToolResponse:
         """Read a file. Relative paths resolve from WORKING_DIR.
 
@@ -137,7 +137,7 @@ class FileIO:
                 )
 
             # Extract selected lines
-            selected_content = "\n".join(all_lines[s - 1: e])
+            selected_content = "\n".join(all_lines[s - 1 : e])
 
             # Apply smart truncation (consistent with shell output format)
             text = truncate_text_output(

@@ -1,6 +1,7 @@
 """Tool Result Compactor: truncate large tool results and save full content to files."""
 
 import os
+import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,86 +19,52 @@ class ToolResultCompactor(BaseOp):
     """Truncate large tool_result outputs and save full content to files."""
 
     def __init__(
-            self,
-            tool_result_dir: str | Path,
-            retention_days: int = 3,
-            old_max_bytes: int = 3000,
-            recent_max_bytes: int = DEFAULT_MAX_BYTES,
-            encoding: str = "utf-8",
-            **kwargs,
+        self,
+        tool_result_dir: str | Path,
+        retention_days: int = 3,
+        old_max_bytes: int = 3000,
+        recent_max_bytes: int = DEFAULT_MAX_BYTES,
+        recent_n: int = 1,
+        encoding: str = "utf-8",
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.tool_result_dir = Path(tool_result_dir)
         self.retention_days = retention_days
         self.old_max_bytes = old_max_bytes
         self.recent_max_bytes = recent_max_bytes
+        self.recent_n = recent_n
         self.encoding = encoding
-
         self.tool_result_dir.mkdir(parents=True, exist_ok=True)
 
-    def _save_and_truncate(
-            self,
-            content: str,
-            max_bytes: int,
-            allow_retruncate: bool = True,
-    ) -> str:
-        """Save full content to file and return truncated version with file reference.
+    def _compact(self, output: str | list[dict], max_bytes: int) -> str | list[dict]:
+        """Truncate output to max_bytes, saving full content to file if needed."""
 
-        Args:
-            content: The content to potentially truncate
-            max_bytes: Maximum bytes allowed
-            allow_retruncate: If True and content already truncated, do re-truncation.
-                             If False and content already truncated, return as-is.
-        """
-        if not content:
-            return content
-
-        if TRUNCATION_NOTICE_MARKER in content:
-            if not allow_retruncate:
-                return content
-            origin_context, extra = content.split(TRUNCATION_NOTICE_MARKER, 1)
-            origin_context_encode = origin_context.encode(self.encoding)
-            if len(origin_context_encode) <= max_bytes:
-                return content
-            else:
-                origin_context_retruncate = origin_context_encode[:max_bytes].decode(self.encoding, errors="ignore")
-                content = origin_context_retruncate + "..." + TRUNCATION_NOTICE_MARKER + extra
-                return content
-        else:
-            content_encode = content.encode(self.encoding)
-            if len(content_encode) <= max_bytes:
-                return content
-            else:
-                # Save full content to file
-                file_path = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
-                file_path.write_text(content, encoding="utf-8")
-
-                total_lines = content.count("\n") + 1
-                content = truncate_text_output(content, 1, total_lines, max_bytes, file_path=str(file_path))
+        def _truncate(content: str) -> str:
+            if not content:
                 return content
 
-    def _process_output(
-            self,
-            output: str | list[dict],
-            max_bytes: int,
-            allow_retruncate: bool = True,
-    ) -> str | list[dict]:
-        """Process tool result output, truncating if necessary."""
+            if TRUNCATION_NOTICE_MARKER in content:
+                return truncate_text_output(content, max_bytes=max_bytes)
+
+            if len(content.encode(self.encoding)) <= max_bytes + 100:
+                return content
+
+            saved_path: str | None = None
+            try:
+                fp = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
+                fp.write_text(content, encoding=self.encoding)
+                saved_path = str(fp)
+            except Exception as e:
+                logger.warning("Failed to save full tool result to file: %s", e)
+
+            return truncate_text_output(content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path)
+
         if isinstance(output, str):
-            return self._save_and_truncate(output, max_bytes, allow_retruncate)
-
+            return _truncate(output)
         if isinstance(output, list):
             return [
-                (
-                    {
-                        **b,
-                        "text": self._save_and_truncate(
-                            b.get("text", ""), max_bytes, allow_retruncate
-                        ),
-                    }
-                    if isinstance(b, dict) and b.get("type") == "text"
-                    else b
-                )
+                {**b, "text": _truncate(b.get("text", ""))} if isinstance(b, dict) and b.get("type") == "text" else b
                 for b in output
             ]
         return output
@@ -108,60 +75,54 @@ class ToolResultCompactor(BaseOp):
         if not messages:
             return messages
 
-        # Calculate recent_n: count consecutive messages with tool_result from the end
         recent_n = 0
         for msg in reversed(messages):
-            if not isinstance(msg.content, list):
-                break
-            has_tool_result = any(
-                isinstance(b, dict) and b.get("type") == "tool_result"
-                for b in msg.content
-            )
-            if not has_tool_result:
+            if not isinstance(msg.content, list) or not any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in msg.content
+            ):
                 break
             recent_n += 1
-        recent_n = max(recent_n, 1)
-
-        # Split messages into old and recent parts
-        split_index = max(0, len(messages) - recent_n)
+        split_index = max(0, len(messages) - max(recent_n, self.recent_n))
 
         for idx, msg in enumerate(messages):
             if not isinstance(msg.content, list):
                 continue
-
-            # Determine max_bytes and allow_retruncate based on message position
             is_recent = idx >= split_index
             max_bytes = self.recent_max_bytes if is_recent else self.old_max_bytes
-            allow_retruncate = not is_recent  # recent messages: no re-truncate, old messages: allow re-truncate
-
             for block in msg.content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    output = block.get("output")
-                    if output:
-                        block["output"] = self._process_output(
-                            output, max_bytes, allow_retruncate
-                        )
+                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("output"):
+                    block["output"] = self._compact(block["output"], max_bytes)
 
         return messages
 
     def cleanup_expired_files(self) -> int:
-        """Clean up files older than retention_days."""
+        """Clean up files older than retention_days.
+
+        Returns:
+            Number of files successfully deleted.
+        """
         if not self.tool_result_dir.exists():
             return 0
 
         cutoff = datetime.now() - timedelta(days=self.retention_days)
-        deleted = 0
+        deleted = failed = 0
 
         for fp in self.tool_result_dir.glob("*.txt"):
             try:
-                stat_info = os.stat(fp)
-                created_at = datetime.fromtimestamp(stat_info.st_birthtime)
-                if created_at < cutoff:
+                stat = os.stat(fp)
+                if sys.platform == "win32":
+                    ts = stat.st_ctime  # creation time on Windows
+                else:
+                    ts = getattr(stat, "st_birthtime", stat.st_mtime)  # macOS/BSD; Linux fallback to mtime
+                if datetime.fromtimestamp(ts) < cutoff:
                     fp.unlink()
                     deleted += 1
+            except FileNotFoundError:
+                pass  # deleted by another process between glob and stat/unlink
             except Exception as e:
-                logger.warning("Failed to process %s: %s", fp, e)
+                failed += 1
+                logger.warning("Failed to delete %s: %s", fp, e)
 
-        if deleted:
-            logger.info("Cleaned up %d expired files", deleted)
+        if deleted or failed:
+            logger.info("Cleaned up %d expired files (%d failed)", deleted, failed)
         return deleted

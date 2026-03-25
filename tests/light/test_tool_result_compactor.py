@@ -33,7 +33,7 @@ class TestToolResultCompactor:
     def test_no_truncation_when_under_threshold(self):
         """Test that short content is not truncated."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=1000)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=1000)
             messages = [create_tool_result_msg("short content")]
 
             result = asyncio.run(op.call(messages=messages))
@@ -45,7 +45,7 @@ class TestToolResultCompactor:
     def test_truncation_when_over_threshold(self):
         """Test that long content is truncated and saved to file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             long_content = "x" * 500
             messages = [create_tool_result_msg(long_content)]
 
@@ -68,7 +68,7 @@ class TestToolResultCompactor:
     def test_skip_already_truncated(self):
         """Test that already truncated content is not re-truncated."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             truncated_content = "head<<<TRUNCATED>>>(100 chars omitted)<<<END_TRUNCATED>>>tail"
             messages = [create_tool_result_msg(truncated_content)]
 
@@ -80,7 +80,7 @@ class TestToolResultCompactor:
     def test_truncation_list_output(self):
         """Test truncation of list output with text blocks."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             list_output = [{"type": "text", "text": "y" * 500}]
             messages = [create_tool_result_msg(list_output)]
 
@@ -93,7 +93,7 @@ class TestToolResultCompactor:
     def test_list_output_no_truncation_when_short(self):
         """Test that short list output is not truncated."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=1000)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=1000)
             list_output = [{"type": "text", "text": "short"}]
             messages = [create_tool_result_msg(list_output)]
 
@@ -105,7 +105,7 @@ class TestToolResultCompactor:
     def test_list_output_multiple_text_blocks(self):
         """Test truncation of multiple text blocks in list output."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             list_output = [
                 {"type": "text", "text": "a" * 500},
                 {"type": "text", "text": "short"},
@@ -124,7 +124,7 @@ class TestToolResultCompactor:
     def test_list_output_mixed_block_types(self):
         """Test that non-text blocks in list output are unchanged."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             list_output = [
                 {"type": "text", "text": "c" * 500},
                 {"type": "image", "source": {"type": "url", "url": "http://example.com/img.png"}},
@@ -141,7 +141,7 @@ class TestToolResultCompactor:
     def test_cleanup_expired_files(self):
         """Test cleanup of expired files."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100, retention_days=1)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100, retention_days=1)
 
             # Create an old file
             old_time = (datetime.now() - timedelta(days=2)).isoformat()
@@ -162,7 +162,7 @@ class TestToolResultCompactor:
     def test_string_content_msg_unchanged(self):
         """Test that messages with string content are unchanged."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            op = ToolResultCompactor(tool_result_dir=tmpdir, tool_result_threshold=100)
+            op = ToolResultCompactor(tool_result_dir=tmpdir, recent_max_bytes=100)
             messages = [Msg(name="user", role="user", content="hello world")]
 
             asyncio.run(op.call(messages=messages))
