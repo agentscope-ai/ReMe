@@ -74,6 +74,7 @@ class ReMeLight(Application):
         default_as_llm_config: dict | None = None,
         default_embedding_model_config: dict | None = None,
         default_file_store_config: dict | None = None,
+        default_file_watcher_config: dict | None = None,
         vector_weight: float = 0.7,
         candidate_multiplier: float = 3.0,
         enable_load_env: bool = False,
@@ -101,6 +102,10 @@ class ReMeLight(Application):
                 dictionary for the embedding model.
             default_file_store_config (dict | None): Default configuration
                 dictionary for the file storage backend.
+            default_file_watcher_config (dict | None): Default configuration
+                dictionary for the file watcher. If ``watch_paths`` is included,
+                it is used as-is. Otherwise the built-in watch paths (MEMORY.md,
+                memory.md, and the memory directory) are used.
             vector_weight (float): Weight assigned to vector similarity search
                 in hybrid search operations. Range [0.0, 1.0], default 0.7.
                 Higher values prioritize semantic similarity over keyword matching.
@@ -130,6 +135,20 @@ class ReMeLight(Application):
         self.vector_weight: float = vector_weight
         self.candidate_multiplier: float = candidate_multiplier
 
+        # Build the file watcher config: use provided watch_paths if given, otherwise use defaults
+        _default_watch_paths = [
+            str(self.working_path / "MEMORY.md"),
+            str(self.working_path / "memory.md"),
+            str(self.memory_path),
+        ]
+        if default_file_watcher_config and default_file_watcher_config.get("watch_paths"):
+            _merged_file_watcher_config = default_file_watcher_config
+        else:
+            _merged_file_watcher_config = {
+                **(default_file_watcher_config or {}),
+                "watch_paths": _default_watch_paths,
+            }
+
         # Initialize the parent Application class with comprehensive configuration
         super().__init__(
             llm_api_key=llm_api_key,
@@ -145,13 +164,7 @@ class ReMeLight(Application):
             default_as_llm_config=default_as_llm_config,
             default_embedding_model_config=default_embedding_model_config,
             default_file_store_config=default_file_store_config,
-            default_file_watcher_config={
-                "watch_paths": [
-                    str(self.working_path / "MEMORY.md"),
-                    str(self.working_path / "memory.md"),
-                    str(self.memory_path),
-                ],
-            },
+            default_file_watcher_config=_merged_file_watcher_config,
         )
 
         # Initialize list to track background summarization tasks
