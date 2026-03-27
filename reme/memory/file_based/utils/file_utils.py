@@ -29,7 +29,7 @@ TRUNCATION_NOTICE_MARKER = "<<<TRUNCATED>>>"
 # pylint: disable=too-many-return-statements
 def truncate_text_output(
     text: str,
-    start_line: int = 0,
+    start_line: int = 1,
     total_lines: int = 0,
     max_bytes: int = DEFAULT_MAX_BYTES,
     file_path: str | None = None,

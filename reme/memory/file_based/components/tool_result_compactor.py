@@ -37,36 +37,35 @@ class ToolResultCompactor(BaseOp):
         self.encoding = encoding
         self.tool_result_dir.mkdir(parents=True, exist_ok=True)
 
+    def _truncate(self, content: str, max_bytes: int) -> str:
+        if not content:
+            return content
+
+        if TRUNCATION_NOTICE_MARKER in content:
+            return truncate_text_output(content, max_bytes=max_bytes)
+
+        if len(content.encode(self.encoding)) <= max_bytes + 100:
+            return content
+
+        saved_path: str | None = None
+        try:
+            fp = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
+            fp.write_text(content, encoding=self.encoding)
+            saved_path = str(fp)
+        except Exception as e:
+            logger.warning("Failed to save full tool result to file: %s", e)
+
+        return truncate_text_output(content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path)
+
     def _compact(self, output: str | list[dict], max_bytes: int) -> str | list[dict]:
         """Truncate output to max_bytes, saving full content to file if needed."""
 
-        def _truncate(content: str) -> str:
-            if not content:
-                return content
-
-            if TRUNCATION_NOTICE_MARKER in content:
-                return truncate_text_output(content, max_bytes=max_bytes)
-
-            if len(content.encode(self.encoding)) <= max_bytes + 100:
-                return content
-
-            saved_path: str | None = None
-            try:
-                fp = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
-                fp.write_text(content, encoding=self.encoding)
-                saved_path = str(fp)
-            except Exception as e:
-                logger.warning("Failed to save full tool result to file: %s", e)
-
-            return truncate_text_output(content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path)
-
         if isinstance(output, str):
-            return _truncate(output)
+            return self._truncate(output, max_bytes)
         if isinstance(output, list):
-            return [
-                {**b, "text": _truncate(b.get("text", ""))} if isinstance(b, dict) and b.get("type") == "text" else b
-                for b in output
-            ]
+            for b in output:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    b["text"] = self._truncate(b.get("text", ""), max_bytes)
         return output
 
     async def execute(self) -> list[Msg]:
@@ -84,6 +83,24 @@ class ToolResultCompactor(BaseOp):
             recent_n += 1
         split_index = max(0, len(messages) - max(recent_n, self.recent_n))
 
+        skills_tool_ids = set()
+        for msg in messages:
+            if not isinstance(msg.content, list):
+                continue
+
+            for block in msg.content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_id = block.get("id", "")
+                    if not tool_id:
+                        continue
+
+                    if (
+                        block.get("name", "").lower() == "read_file"
+                        and "skill.md" in block.get("raw_input", "").lower()
+                    ):
+                        skills_tool_ids.add(tool_id)
+        logger.info(f"skills_tool_ids: {skills_tool_ids}")
+
         for idx, msg in enumerate(messages):
             if not isinstance(msg.content, list):
                 continue
@@ -91,7 +108,12 @@ class ToolResultCompactor(BaseOp):
             max_bytes = self.recent_max_bytes if is_recent else self.old_max_bytes
             for block in msg.content:
                 if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("output"):
-                    block["output"] = self._compact(block["output"], max_bytes)
+                    tool_use_id = block.get("id", "")
+                    if tool_use_id in skills_tool_ids:
+                        effective_max_bytes = self.recent_max_bytes
+                    else:
+                        effective_max_bytes = max_bytes
+                    block["output"] = self._compact(block["output"], effective_max_bytes)
 
         return messages
 
