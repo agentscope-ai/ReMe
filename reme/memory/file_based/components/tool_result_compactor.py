@@ -42,7 +42,7 @@ class ToolResultCompactor(BaseOp):
             return content
 
         if TRUNCATION_NOTICE_MARKER in content:
-            return truncate_text_output(content, max_bytes=max_bytes)
+            return truncate_text_output(content, max_bytes=max_bytes, encoding=self.encoding)
 
         if len(content.encode(self.encoding)) <= max_bytes + 100:
             return content
@@ -55,7 +55,9 @@ class ToolResultCompactor(BaseOp):
         except Exception as e:
             logger.warning("Failed to save full tool result to file: %s", e)
 
-        return truncate_text_output(content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path)
+        return truncate_text_output(
+            content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path, encoding=self.encoding
+        )
 
     def _compact(self, output: str | list[dict], max_bytes: int) -> str | list[dict]:
         """Truncate output to max_bytes, saving full content to file if needed."""
@@ -84,21 +86,24 @@ class ToolResultCompactor(BaseOp):
         split_index = max(0, len(messages) - max(recent_n, self.recent_n))
 
         skills_tool_ids = set()
-        for msg in messages:
-            if not isinstance(msg.content, list):
-                continue
+        try:
+            for msg in messages:
+                if not isinstance(msg.content, list):
+                    continue
 
-            for block in msg.content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tool_id = block.get("id", "")
-                    if not tool_id:
-                        continue
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_id = block.get("id", "")
+                        if not tool_id:
+                            continue
 
-                    if (
-                        block.get("name", "").lower() == "read_file"
-                        and "skill.md" in block.get("raw_input", "").lower()
-                    ):
-                        skills_tool_ids.add(tool_id)
+                        if (
+                            block.get("name", "").lower() == "read_file"
+                            and "skill.md" in (block.get("raw_input") or "").lower()
+                        ):
+                            skills_tool_ids.add(tool_id)
+        except Exception as e:
+            logger.warning("Failed to detect skill tool ids: %s", e)
         logger.info(f"skills_tool_ids: {skills_tool_ids}")
 
         for idx, msg in enumerate(messages):

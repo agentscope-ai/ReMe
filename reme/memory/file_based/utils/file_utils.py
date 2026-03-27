@@ -33,6 +33,7 @@ def truncate_text_output(
     total_lines: int = 0,
     max_bytes: int = DEFAULT_MAX_BYTES,
     file_path: str | None = None,
+    encoding: str = "utf-8",
 ) -> str:
     """Truncate file output by bytes with line integrity.
 
@@ -52,6 +53,7 @@ def truncate_text_output(
             contains a truncation notice (values are parsed from the notice instead).
         max_bytes: Maximum size in bytes.
         file_path: Optional file path to include in the truncation notice.
+        encoding: Character encoding used for byte-length calculation and decoding.
 
     Returns:
         Truncated text with notice if truncated.
@@ -67,7 +69,7 @@ def truncate_text_output(
             original_content = parts[0]
             old_notice = parts[1]
 
-            text_bytes = original_content.encode("utf-8")
+            text_bytes = original_content.encode(encoding)
 
             # Allow a small slack to avoid re-truncating near-limit content
             if len(text_bytes) <= max_bytes + 100:
@@ -82,7 +84,7 @@ def truncate_text_output(
             total_lines_parsed = int(total_match.group(1))
 
             truncated_bytes = text_bytes[:max_bytes]
-            result = truncated_bytes.decode("utf-8", errors="ignore")
+            result = truncated_bytes.decode(encoding, errors="ignore")
             newline_count = result.count("\n")
 
             next_line = start_line_parsed + max(1, newline_count)
@@ -99,13 +101,13 @@ def truncate_text_output(
             return result + TRUNCATION_NOTICE_MARKER + new_notice
 
         else:
-            text_bytes = text.encode("utf-8")
+            text_bytes = text.encode(encoding)
 
             if len(text_bytes) <= max_bytes:
                 return text
 
             truncated = text_bytes[:max_bytes]
-            result = truncated.decode("utf-8", errors="ignore")
+            result = truncated.decode(encoding, errors="ignore")
 
             newline_count = result.count("\n")
 
