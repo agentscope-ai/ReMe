@@ -41,23 +41,29 @@ class ToolResultCompactor(BaseOp):
         if not content:
             return content
 
-        if TRUNCATION_NOTICE_MARKER in content:
-            return truncate_text_output(content, max_bytes=max_bytes, encoding=self.encoding)
-
-        if len(content.encode(self.encoding)) <= max_bytes + 100:
-            return content
-
-        saved_path: str | None = None
         try:
+            if TRUNCATION_NOTICE_MARKER in content:
+                return truncate_text_output(content, max_bytes=max_bytes, encoding=self.encoding)
+
+            if len(content.encode(self.encoding)) <= max_bytes + 100:
+                return content
+
+            saved_path: str | None = None
             fp = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
             fp.write_text(content, encoding=self.encoding)
             saved_path = str(fp)
-        except Exception as e:
-            logger.warning("Failed to save full tool result to file: %s", e)
 
-        return truncate_text_output(
-            content, 1, content.count("\n") + 1, max_bytes, file_path=saved_path, encoding=self.encoding
-        )
+            return truncate_text_output(
+                content,
+                1,
+                content.count("\n") + 1,
+                max_bytes,
+                file_path=saved_path,
+                encoding=self.encoding,
+            )
+        except Exception as e:
+            logger.warning("Failed to truncate content, returning original: %s", e)
+            return content
 
     def _compact(self, output: str | list[dict], max_bytes: int) -> str | list[dict]:
         """Truncate output to max_bytes, saving full content to file if needed."""

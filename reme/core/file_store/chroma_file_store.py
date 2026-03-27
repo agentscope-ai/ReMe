@@ -2,6 +2,7 @@
 
 import json
 import random
+import shutil
 import time
 from pathlib import Path
 
@@ -108,19 +109,32 @@ class ChromaFileStore(BaseFileStore):
         except Exception as e:
             logger.error(f"Failed to save file metadata to {self._metadata_file}: {e}")
 
-    async def start(self) -> None:
-        """Initialize ChromaDB client and collection."""
-        if self.client is not None:
-            return
-
-        # Initialize persistent ChromaDB client
-        self.client = chromadb.PersistentClient(
+    def _create_chroma_client(self):
+        """Create a ChromaDB PersistentClient instance."""
+        return chromadb.PersistentClient(
             path=str(self.db_path),
             settings=Settings(
                 anonymized_telemetry=False,
                 allow_reset=True,
             ),
         )
+
+    async def start(self) -> None:
+        """Initialize ChromaDB client and collection."""
+        if self.client is not None:
+            return
+
+        # Initialize persistent ChromaDB client, retry once after wiping db_path on failure
+        try:
+            self.client = self._create_chroma_client()
+        except Exception as e:
+            logger.warning(
+                f"ChromaDB failed to initialize at {self.db_path} ({e}). " f"Deleting corrupted database and retrying.",
+            )
+            if self.db_path.exists():
+                shutil.rmtree(self.db_path)
+                logger.info(f"Deleted ChromaDB directory: {self.db_path}")
+            self.client = self._create_chroma_client()
 
         # Get or create the chunks collection
         # ChromaDB uses cosine distance by default for similarity
