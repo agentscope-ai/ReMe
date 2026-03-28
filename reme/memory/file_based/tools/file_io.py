@@ -153,10 +153,13 @@ class FileIO:
             if text == selected_content and e < total:
                 content_bytes = len(text.encode("utf-8"))
                 notice = (
-                    TRUNCATION_NOTICE_MARKER
-                    + f"\nFile: {file_path}\nStarting at start_line={s}, next {content_bytes} bytes."
-                    f"\nTotal lines: {total}"
-                    f"\nUse start_line={e + 1} to continue."
+                    TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+                    f"\nThe full content is saved to the file "
+                    f"and contains {total} lines in total."
+                    f"\nThis excerpt starts at line {s} and "
+                    f"covers the next {content_bytes} bytes."
+                    "\nIf the current content is not enough, "
+                    f"call `read_file` with file_path={file_path} start_line={e + 1} to read more."
                 )
                 text = text + notice
 

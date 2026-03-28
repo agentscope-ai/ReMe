@@ -91,7 +91,7 @@ class ToolResultCompactor(BaseOp):
             recent_n += 1
         split_index = max(0, len(messages) - max(recent_n, self.recent_n))
 
-        skills_tool_ids = set()
+        md_file_tool_ids = set()
         try:
             for msg in messages:
                 if not isinstance(msg.content, list):
@@ -105,12 +105,12 @@ class ToolResultCompactor(BaseOp):
 
                         if (
                             block.get("name", "").lower() == "read_file"
-                            and "skill.md" in (block.get("raw_input") or "").lower()
+                            and ".md" in (block.get("raw_input") or "").lower()
                         ):
-                            skills_tool_ids.add(tool_id)
+                            md_file_tool_ids.add(tool_id)
         except Exception as e:
-            logger.warning("Failed to detect skill tool ids: %s", e)
-        logger.info(f"skills_tool_ids: {skills_tool_ids}")
+            logger.warning("Failed to detect md file tool ids: %s", e)
+        logger.info(f"md_file_tool_ids: {md_file_tool_ids}")
 
         for idx, msg in enumerate(messages):
             if not isinstance(msg.content, list):
@@ -120,7 +120,7 @@ class ToolResultCompactor(BaseOp):
             for block in msg.content:
                 if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("output"):
                     tool_use_id = block.get("id", "")
-                    if tool_use_id in skills_tool_ids:
+                    if tool_use_id in md_file_tool_ids:
                         effective_max_bytes = self.recent_max_bytes
                     else:
                         effective_max_bytes = max_bytes
