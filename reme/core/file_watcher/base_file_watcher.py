@@ -29,13 +29,13 @@ class BaseFileWatcher:
         watch_paths: list[str] | str,
         suffix_filters: list[str] | None = None,
         recursive: bool = False,
-        debounce: int = 500,  # Millisecond debounce
+        debounce: int = 2000,
         chunk_tokens: int = 400,
         chunk_overlap: int = 80,
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
-        scan_on_start: bool = True,
-        clear_on_start: bool = True,
+        rebuild_index_on_start: bool = True,
+        poll_delay_ms: int = 2000,
         **kwargs,
     ):
         """
@@ -50,9 +50,9 @@ class BaseFileWatcher:
             chunk_overlap: Overlap size for chunks
             file_store: File store instance
             callback: Callback function for changes
-            scan_on_start: If True, scan existing files on start and trigger on_changes with Change.added
-            clear_on_start: If True, clear all indexed data on start before scanning.
-                           Useful for full rebuild of the index.
+            rebuild_index_on_start: If True, clear all indexed data on start and rescan existing files.
+                           If False, only monitor new changes without initialization.
+            poll_delay_ms: Polling delay in milliseconds. If > 300ms, force_polling will be enabled automatically.
             **kwargs: Additional keyword arguments
         """
         self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
@@ -63,8 +63,8 @@ class BaseFileWatcher:
         self.chunk_overlap: int = chunk_overlap
         self.file_store: BaseFileStore = file_store
         self.callback = callback
-        self.scan_on_start: bool = scan_on_start
-        self.clear_on_start: bool = clear_on_start
+        self.rebuild_index_on_start: bool = rebuild_index_on_start
+        self.poll_delay_ms: int = poll_delay_ms
         self.kwargs: dict = kwargs
 
         self._stop_event = asyncio.Event()
@@ -78,16 +78,14 @@ class BaseFileWatcher:
 
         self._running = True
 
-        # Clear all indexed data if requested
-        if self.clear_on_start and self.file_store is not None:
-            await self.file_store.clear_all()
-            logger.info("Cleared all indexed data on start")
+        async def _initialize_and_watch():
+            if self.rebuild_index_on_start:
+                await self.file_store.clear_all()
+                logger.info("Cleared all indexed data on start")
+                await self._scan_existing_files()
+            await self._watch_loop()
 
-        # Scan existing files if requested
-        if self.scan_on_start:
-            await self._scan_existing_files()
-
-        self._watch_task = asyncio.create_task(self._watch_loop())
+        self._watch_task = asyncio.create_task(_initialize_and_watch())
         logger.info(f"Started watching: {self.watch_paths}")
 
     async def close(self):
@@ -188,6 +186,7 @@ class BaseFileWatcher:
                     watch_filter=self.watch_filter,
                     recursive=self.recursive,
                     debounce=self.debounce,
+                    poll_delay_ms=self.poll_delay_ms,
                     stop_event=self._stop_event,
                 ):
                     if self._stop_event.is_set():

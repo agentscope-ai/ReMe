@@ -116,7 +116,10 @@ class ServiceConfig(BasicConfig):
     working_dir: str = Field(default=".reme")
     enable_logo: bool = Field(default=True)
     language: str = Field(default="")
-    thread_pool_max_workers: int = Field(default=16)
+    thread_pool_max_workers: int = Field(
+        default=16,
+        description="Number of thread pool workers. Set to -1 to disable thread pool.",
+    )
     ray_max_workers: int = Field(default=-1)
     log_to_console: bool = Field(default=True)
     disabled_flows: list[str] = Field(default_factory=list)

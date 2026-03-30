@@ -5,7 +5,7 @@ Async unit tests for BaseFileWatcher covering:
 - File suffix filtering
 - Start/stop lifecycle
 - Callback functionality
-- scan_on_start feature
+- rebuild_index_on_start feature
 
 Usage:
     pytest tests/test_base_file_watcher.py -v
@@ -369,12 +369,12 @@ class TestCallbackFunctionality:
 # ==================== Test Scan on Start ====================
 
 
-class TestScanOnStart:
-    """Tests for scan_on_start feature."""
+class TestRebuildIndexOnStart:
+    """Tests for rebuild_index_on_start feature."""
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_false(self, temp_files, temp_dir: Path):
-        """Test that scan_on_start=False doesn't scan existing files."""
+    async def test_rebuild_index_on_start_false(self, temp_files, temp_dir: Path):
+        """Test that rebuild_index_on_start=False doesn't scan existing files."""
         callback_called = []
 
         async def callback(changes):
@@ -387,7 +387,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            scan_on_start=False,
+            rebuild_index_on_start=False,
             callback=callback,
             file_store=mock_file_store,
         )
@@ -400,8 +400,8 @@ class TestScanOnStart:
         assert len(callback_called) == 0
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_true_with_files(self, temp_files, temp_dir: Path):
-        """Test that scan_on_start=True scans existing files."""
+    async def test_rebuild_index_on_start_true_with_files(self, temp_files, temp_dir: Path):
+        """Test that rebuild_index_on_start=True scans existing files."""
         callback_called = []
 
         async def callback(changes):
@@ -414,7 +414,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             callback=callback,
             file_store=mock_file_store,
         )
@@ -434,8 +434,8 @@ class TestScanOnStart:
         assert all(change == Change.added for change, _ in all_changes)
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_with_suffix_filter(self, temp_files, temp_dir: Path):
-        """Test scan_on_start respects suffix filters."""
+    async def test_rebuild_index_on_start_with_suffix_filter(self, temp_files, temp_dir: Path):
+        """Test rebuild_index_on_start respects suffix filters."""
         callback_called = []
 
         async def callback(changes):
@@ -447,7 +447,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             suffix_filters=[".txt"],
             callback=callback,
             file_store=mock_file_store,
@@ -467,8 +467,8 @@ class TestScanOnStart:
                 assert path.endswith(".txt"), f"Expected .txt file, got {path}"
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_recursive(self, temp_nested_dir: Path):
-        """Test scan_on_start with recursive=True."""
+    async def test_rebuild_index_on_start_recursive(self, temp_nested_dir: Path):
+        """Test rebuild_index_on_start with recursive=True."""
         callback_called = []
 
         async def callback(changes):
@@ -480,7 +480,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_nested_dir),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             recursive=True,
             suffix_filters=[".txt"],
             callback=callback,
@@ -503,8 +503,8 @@ class TestScanOnStart:
             assert nested_found, "Should find files in nested directories"
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_non_recursive(self, temp_nested_dir: Path):
-        """Test scan_on_start with recursive=False."""
+    async def test_rebuild_index_on_start_non_recursive(self, temp_nested_dir: Path):
+        """Test rebuild_index_on_start with recursive=False."""
         callback_called = []
 
         async def callback(changes):
@@ -516,7 +516,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_nested_dir),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             recursive=False,
             suffix_filters=[".txt"],
             callback=callback,
@@ -538,8 +538,8 @@ class TestScanOnStart:
             assert not nested_found, "Should not find files in nested directories"
 
     @pytest.mark.asyncio
-    async def test_scan_on_start_nonexistent_path(self):
-        """Test scan_on_start with non-existent path."""
+    async def test_rebuild_index_on_start_nonexistent_path(self):
+        """Test rebuild_index_on_start with non-existent path."""
         callback_called = []
 
         async def callback(changes):
@@ -551,7 +551,7 @@ class TestScanOnStart:
 
         watcher = BaseFileWatcher(
             watch_paths="/nonexistent/path",
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             callback=callback,
             file_store=mock_file_store,
         )
@@ -709,7 +709,7 @@ class TestEdgeCases:
 
         watcher = BaseFileWatcher(
             watch_paths=str(file_path),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             callback=callback,
             file_store=mock_file_store,
         )
@@ -742,7 +742,7 @@ class TestEdgeCases:
 
         watcher = BaseFileWatcher(
             watch_paths=str(empty_dir),
-            scan_on_start=True,
+            rebuild_index_on_start=True,
             callback=callback,
             file_store=mock_file_store,
         )

@@ -34,6 +34,7 @@ class ReMeInMemoryMemory(InMemoryMemory):
         self._token_counter: HuggingFaceTokenCounter = token_counter
         self._msg_handler: AsMsgHandler = AsMsgHandler(token_counter)
         self._dialog_path: Path | None = Path(dialog_path) if dialog_path else None
+        self._long_term_memory: str = ""
 
     def _append_messages_to_dialog(self, messages: list[Msg]) -> int:
         """Append messages to dialog storage file.
@@ -124,23 +125,20 @@ class ReMeInMemoryMemory(InMemoryMemory):
         """
         filtered_content = [(msg, marks) for msg, marks in self.content if _MemoryMark.COMPRESSED not in marks]
 
+        parts = []
+        if self._long_term_memory:
+            parts.append(f"# Memories\n\n{self._long_term_memory}")
         if prepend_summary and self._compressed_summary:
-            previous_summary = f"""
-<previous-summary>
-{self._compressed_summary}
-</previous-summary>
-The above is a summary of our previous conversation.
-Use it as context to maintain continuity.
-                    """.strip()
+            parts.append(
+                f"# Summary of previous conversation\n\n"
+                f"Previous conversation logs are offloaded to dialog/YYYY-MM-DD.jsonl (or nearby date files). "
+                "Here is the summary:\n\n"
+                f"{self._compressed_summary}\n"
+                f"The above is a summary of previous conversation, use it as context to maintain continuity.",
+            )
 
-            return [
-                Msg(
-                    "user",
-                    previous_summary,
-                    "user",
-                ),
-                *[msg for msg, _ in filtered_content],
-            ]
+        if parts:
+            return [Msg("user", "\n\n".join(parts), "user"), *[msg for msg, _ in filtered_content]]
 
         return [msg for msg, _ in filtered_content]
 

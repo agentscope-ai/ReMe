@@ -74,6 +74,7 @@ class ReMeLight(Application):
         default_as_llm_config: dict | None = None,
         default_embedding_model_config: dict | None = None,
         default_file_store_config: dict | None = None,
+        default_file_watcher_config: dict | None = None,
         vector_weight: float = 0.7,
         candidate_multiplier: float = 3.0,
         enable_load_env: bool = False,
@@ -101,6 +102,10 @@ class ReMeLight(Application):
                 dictionary for the embedding model.
             default_file_store_config (dict | None): Default configuration
                 dictionary for the file storage backend.
+            default_file_watcher_config (dict | None): Default configuration
+                dictionary for the file watcher. If ``watch_paths`` is included,
+                it is used as-is. Otherwise the built-in watch paths (MEMORY.md,
+                memory.md, and the memory directory) are used.
             vector_weight (float): Weight assigned to vector similarity search
                 in hybrid search operations. Range [0.0, 1.0], default 0.7.
                 Higher values prioritize semantic similarity over keyword matching.
@@ -130,6 +135,20 @@ class ReMeLight(Application):
         self.vector_weight: float = vector_weight
         self.candidate_multiplier: float = candidate_multiplier
 
+        # Build the file watcher config: use provided watch_paths if given, otherwise use defaults
+        _default_watch_paths = [
+            str(self.working_path / "MEMORY.md"),
+            str(self.working_path / "memory.md"),
+            str(self.memory_path),
+        ]
+        if default_file_watcher_config and default_file_watcher_config.get("watch_paths"):
+            _merged_file_watcher_config = default_file_watcher_config
+        else:
+            _merged_file_watcher_config = {
+                **(default_file_watcher_config or {}),
+                "watch_paths": _default_watch_paths,
+            }
+
         # Initialize the parent Application class with comprehensive configuration
         super().__init__(
             llm_api_key=llm_api_key,
@@ -145,13 +164,7 @@ class ReMeLight(Application):
             default_as_llm_config=default_as_llm_config,
             default_embedding_model_config=default_embedding_model_config,
             default_file_store_config=default_file_store_config,
-            default_file_watcher_config={
-                "watch_paths": [
-                    str(self.working_path / "MEMORY.md"),
-                    str(self.working_path / "memory.md"),
-                    str(self.memory_path),
-                ],
-            },
+            default_file_watcher_config=_merged_file_watcher_config,
         )
 
         # Initialize list to track background summarization tasks
@@ -168,7 +181,7 @@ class ReMeLight(Application):
         Returns:
             Computed compaction threshold as an integer.
         """
-        return int(max_input_length * compact_ratio * 0.9)
+        return int(max_input_length * compact_ratio * 0.95)
 
     def _cleanup_tool_results(self) -> int:
         """
@@ -231,10 +244,10 @@ class ReMeLight(Application):
     async def compact_tool_result(
         self,
         messages: list[Msg],
+        old_max_bytes: int = 3000,
+        recent_max_bytes: int = 100 * 1024,
+        retention_days: int = 3,
         recent_n: int = 1,
-        old_threshold: int = 500,
-        recent_threshold: int = 30000,
-        retention_days: int = 7,
     ) -> list[Msg]:
         """
         Compact tool results by truncating large outputs and saving full content to files.
@@ -247,30 +260,37 @@ class ReMeLight(Application):
         Args:
             messages (list[Msg]): List of messages potentially containing tool results
                 that may need compaction.
-            recent_n (int): Number of recent messages to use recent_threshold for.
-                Default 1.
-            old_threshold (int): Character threshold for old messages. Default 500.
-            recent_threshold (int): Character threshold for recent messages. Default 30000.
+            old_max_bytes (int): Byte threshold for old (non-recent) messages. Default 3000.
+            recent_max_bytes (int): Byte threshold for recent messages (trailing consecutive
+                tool-result messages). Default 100KB (102400 bytes). Content exceeding this
+                limit is saved to disk; the message retains the first 100KB with a
+                read_file-style truncation notice and the saved file path.
             retention_days (int): Number of days to retain tool result files.
-                Default 7.
+                Default 3.
+            recent_n (int): Minimum number of most-recent tool-result messages to treat
+                as "recent" (using recent_max_bytes). The actual recent window is the
+                larger of this value and the trailing consecutive tool-result run.
+                Default 1.
 
         Returns:
             list[Msg]: The processed list of messages with large tool results compacted.
                 If an error occurs, returns the original unmodified messages.
 
         Note:
-            - Tool results are truncated based on old_threshold/recent_threshold
-            - Full content of truncated results is saved to tool_result_path
-            - Expired files are automatically cleaned up during this operation
+            - Recent tool results (trailing consecutive tool-result messages) are truncated
+              to recent_max_bytes using read_file-style output with a file path hint.
+            - Old tool results are truncated to old_max_bytes bytes.
+            - Full content of truncated results is saved to tool_result_path.
+            - Expired files are automatically cleaned up during this operation.
         """
         try:
             # Create compactor with instance configuration
             compactor = ToolResultCompactor(
                 tool_result_dir=self.tool_result_path,
                 retention_days=retention_days,
+                old_max_bytes=old_max_bytes,
+                recent_max_bytes=recent_max_bytes,
                 recent_n=recent_n,
-                old_threshold=old_threshold,
-                recent_threshold=recent_threshold,
             )
 
             # Execute compaction and get processed messages
@@ -347,7 +367,9 @@ class ReMeLight(Application):
         max_input_length: float = 128 * 1024,
         compact_ratio: float = 0.7,
         previous_summary: str = "",
-    ) -> str:
+        return_dict: bool = False,
+        add_thinking_block: bool = True,
+    ) -> str | dict:
         """
         Compact a list of messages into a condensed summary.
 
@@ -371,10 +393,13 @@ class ReMeLight(Application):
                 Defaults to 0.7.
             previous_summary (str): Previous summary to incorporate into the new
                 summary for continuity. Defaults to empty string.
+            return_dict (bool): If True, returns a dict with user_message,
+                history_compact, and is_valid. Defaults to False.
 
         Returns:
-            str: The condensed summary of the messages, or an empty string if
-                an error occurred during compaction.
+            str | dict: The condensed summary string, or a dict containing
+                user_message, history_compact, and is_valid if return_dict=True.
+                Returns empty string or dict with empty values if an error occurred.
         """
         try:
             compactor = Compactor(
@@ -383,6 +408,8 @@ class ReMeLight(Application):
                 as_llm_formatter=as_llm_formatter,
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
+                return_dict=return_dict,
+                add_thinking_block=add_thinking_block,
             )
 
             return await compactor.call(
@@ -392,8 +419,10 @@ class ReMeLight(Application):
             )
 
         except Exception as e:
-            # Log error and return empty string to indicate failure
+            # Log error and return appropriate empty result
             logger.exception(f"Error compacting memory: {e}")
+            if return_dict:
+                return {"user_message": str(e), "history_compact": str(e), "is_valid": False}
             return ""
 
     async def summary_memory(
@@ -407,6 +436,7 @@ class ReMeLight(Application):
         max_input_length: float = 128 * 1024,
         compact_ratio: float = 0.7,
         timezone: str | None = None,
+        add_thinking_block: bool = True,
     ) -> str:
         """
         Generate a comprehensive summary of the given messages.
@@ -445,9 +475,9 @@ class ReMeLight(Application):
             if toolkit is None:
                 toolkit = Toolkit()
                 file_io = FileIO(working_dir=str(self.working_path))
-                toolkit.register_tool_function(file_io.read)
-                toolkit.register_tool_function(file_io.write)
-                toolkit.register_tool_function(file_io.edit)
+                toolkit.register_tool_function(file_io.read_file)
+                toolkit.register_tool_function(file_io.write_file)
+                toolkit.register_tool_function(file_io.edit_file)
 
             summarizer = Summarizer(
                 working_dir=str(self.working_path),
@@ -459,6 +489,7 @@ class ReMeLight(Application):
                 as_token_counter=as_token_counter,
                 language=language if language == "zh" else "",
                 timezone=timezone,
+                add_thinking_block=add_thinking_block,
             )
 
             return await summarizer.call(messages=messages, service_context=self.service_context)

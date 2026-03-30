@@ -1,32 +1,18 @@
 """Tool Result Compactor: truncate large tool results and save full content to files."""
 
+import os
+import sys
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from agentscope.message import Msg
 
+from ..utils import truncate_text_output, DEFAULT_MAX_BYTES, TRUNCATION_NOTICE_MARKER
 from ....core.op import BaseOp
 from ....core.utils import get_logger
-from ....core.utils import truncate_text_head, TRUNCATION_MARKER_START
 
 logger = get_logger()
-
-MAX_LINE_LENGTH = 10000
-
-
-def _split_long_lines(text: str, max_len: int = MAX_LINE_LENGTH) -> str:
-    """Split lines that exceed max_len by inserting newlines."""
-    lines = text.split("\n")
-    result = []
-    for line in lines:
-        if len(line) <= max_len:
-            result.append(line)
-        else:
-            # Split line into chunks of max_len
-            for i in range(0, len(line), max_len):
-                result.append(line[i : i + max_len])
-    return "\n".join(result)
 
 
 class ToolResultCompactor(BaseOp):
@@ -35,64 +21,59 @@ class ToolResultCompactor(BaseOp):
     def __init__(
         self,
         tool_result_dir: str | Path,
-        retention_days: int = 7,
+        retention_days: int = 3,
+        old_max_bytes: int = 3000,
+        recent_max_bytes: int = DEFAULT_MAX_BYTES,
         recent_n: int = 1,
-        old_threshold: int = 500,
-        recent_threshold: int = 30000,
+        encoding: str = "utf-8",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.tool_result_dir = Path(tool_result_dir)
         self.retention_days = retention_days
+        self.old_max_bytes = old_max_bytes
+        self.recent_max_bytes = recent_max_bytes
         self.recent_n = recent_n
-        self.old_threshold = old_threshold
-        self.recent_threshold = recent_threshold
+        self.encoding = encoding
+        self.tool_result_dir.mkdir(parents=True, exist_ok=True)
 
-    def _save_and_truncate(self, content: str, tool_name: str, threshold: int) -> str:
-        """Save full content to file and return truncated version with file reference."""
+    def _truncate(self, content: str, max_bytes: int) -> str:
         if not content:
             return content
 
-        # Check if content was previously truncated
-        if TRUNCATION_MARKER_START in content:
-            parts = content.split(TRUNCATION_MARKER_START, 1)
-            if len(parts[0]) <= threshold:
-                return content
-            return f"{truncate_text_head(parts[0], threshold)}{parts[1]}"
+        try:
+            if TRUNCATION_NOTICE_MARKER in content:
+                return truncate_text_output(content, max_bytes=max_bytes, encoding=self.encoding)
 
-        # Not truncated before
-        if len(content) <= threshold:
+            if len(content.encode(self.encoding)) <= max_bytes + 100:
+                return content
+
+            saved_path: str | None = None
+            fp = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
+            fp.write_text(content, encoding=self.encoding)
+            saved_path = str(fp)
+
+            return truncate_text_output(
+                content,
+                1,
+                content.count("\n") + 1,
+                max_bytes,
+                file_path=saved_path,
+                encoding=self.encoding,
+            )
+        except Exception as e:
+            logger.warning("Failed to truncate content, returning original: %s", e)
             return content
 
-        # Save full content with long lines split
-        self.tool_result_dir.mkdir(parents=True, exist_ok=True)
-        file_path = self.tool_result_dir / f"{uuid.uuid4().hex}.txt"
-        created_at = datetime.now().isoformat()
+    def _compact(self, output: str | list[dict], max_bytes: int) -> str | list[dict]:
+        """Truncate output to max_bytes, saving full content to file if needed."""
 
-        processed_content = _split_long_lines(content)
-        file_path.write_text(
-            f"# tool_name: {tool_name}\n# created_at: {created_at}\n# ---\n{processed_content}",
-            encoding="utf-8",
-        )
-        logger.debug("Saved tool result to %s (len=%d)", file_path, len(content))
-
-        # Return truncated with file reference
-        return f"{truncate_text_head(content, threshold)}\n\n[Full content saved to: {file_path}]"
-
-    def _process_output(self, output: str | list[dict], tool_name: str, threshold: int) -> str | list[dict]:
-        """Process tool result output, truncating if necessary."""
         if isinstance(output, str):
-            return self._save_and_truncate(output, tool_name, threshold)
-
+            return self._truncate(output, max_bytes)
         if isinstance(output, list):
-            return [
-                (
-                    {**b, "text": self._save_and_truncate(b.get("text", ""), tool_name, threshold)}
-                    if isinstance(b, dict) and b.get("type") == "text"
-                    else b
-                )
-                for b in output
-            ]
+            for b in output:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    b["text"] = self._truncate(b.get("text", ""), max_bytes)
         return output
 
     async def execute(self) -> list[Msg]:
@@ -101,43 +82,80 @@ class ToolResultCompactor(BaseOp):
         if not messages:
             return messages
 
-        # Split messages into old and recent parts
-        split_index = max(0, len(messages) - self.recent_n)
+        recent_n = 0
+        for msg in reversed(messages):
+            if not isinstance(msg.content, list) or not any(
+                isinstance(b, dict) and b.get("type") == "tool_result" for b in msg.content
+            ):
+                break
+            recent_n += 1
+        split_index = max(0, len(messages) - max(recent_n, self.recent_n))
+
+        md_file_tool_ids = set()
+        try:
+            for msg in messages:
+                if not isinstance(msg.content, list):
+                    continue
+
+                for block in msg.content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_id = block.get("id", "")
+                        if not tool_id:
+                            continue
+
+                        if (
+                            block.get("name", "").lower() == "read_file"
+                            and ".md" in (block.get("raw_input") or "").lower()
+                        ):
+                            md_file_tool_ids.add(tool_id)
+        except Exception as e:
+            logger.warning("Failed to detect md file tool ids: %s", e)
+        logger.info(f"md_file_tool_ids: {md_file_tool_ids}")
 
         for idx, msg in enumerate(messages):
             if not isinstance(msg.content, list):
                 continue
-
-            # Determine threshold based on message position
-            threshold = self.recent_threshold if idx >= split_index else self.old_threshold
-
+            is_recent = idx >= split_index
+            max_bytes = self.recent_max_bytes if is_recent else self.old_max_bytes
             for block in msg.content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    output = block.get("output")
-                    if output:
-                        block["output"] = self._process_output(output, block.get("name", "unknown"), threshold)
+                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("output"):
+                    tool_use_id = block.get("id", "")
+                    if tool_use_id in md_file_tool_ids:
+                        effective_max_bytes = self.recent_max_bytes
+                    else:
+                        effective_max_bytes = max_bytes
+                    block["output"] = self._compact(block["output"], effective_max_bytes)
 
         return messages
 
     def cleanup_expired_files(self) -> int:
-        """Clean up files older than retention_days."""
+        """Clean up files older than retention_days.
+
+        Returns:
+            Number of files successfully deleted.
+        """
         if not self.tool_result_dir.exists():
             return 0
 
         cutoff = datetime.now() - timedelta(days=self.retention_days)
-        deleted = 0
+        deleted = failed = 0
 
         for fp in self.tool_result_dir.glob("*.txt"):
             try:
-                for line in fp.read_text(encoding="utf-8").splitlines()[:3]:
-                    if line.startswith("# created_at:"):
-                        if datetime.fromisoformat(line.split(":", 1)[1].strip()) < cutoff:
-                            fp.unlink()
-                            deleted += 1
-                        break
+                stat = os.stat(fp)
+                if sys.platform == "win32":
+                    ts = stat.st_ctime  # creation time on Windows
+                else:
+                    ts = getattr(stat, "st_birthtime", stat.st_mtime)  # macOS/BSD; Linux fallback to mtime
+                if datetime.fromtimestamp(ts) < cutoff:
+                    fp.unlink()
+                    deleted += 1
+            except FileNotFoundError:
+                pass  # deleted by another process between glob and stat/unlink
             except Exception as e:
-                logger.warning("Failed to process %s: %s", fp, e)
+                failed += 1
+                logger.warning("Failed to delete %s: %s", fp, e)
 
-        if deleted:
-            logger.info("Cleaned up %d expired files", deleted)
+        if deleted or failed:
+            logger.info("Cleaned up %d expired files (%d failed)", deleted, failed)
         return deleted

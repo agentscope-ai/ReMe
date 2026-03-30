@@ -295,7 +295,6 @@ async def test_file_watch_integration():
             "watch_paths": [TestConfig.WORKING_DIR, f"{TestConfig.WORKING_DIR}/memory"],
             "suffix_filters": [".md"],
             "recursive": False,
-            "scan_on_start": True,
         },
     )
 

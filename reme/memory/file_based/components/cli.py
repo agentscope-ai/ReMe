@@ -113,9 +113,9 @@ class CliAgent(BaseOp):
 
         toolkit = Toolkit()
         file_io = FileIO(working_dir=self.working_dir)
-        toolkit.register_tool_function(file_io.read)
-        toolkit.register_tool_function(file_io.write)
-        toolkit.register_tool_function(file_io.edit)
+        toolkit.register_tool_function(file_io.read_file)
+        toolkit.register_tool_function(file_io.write_file)
+        toolkit.register_tool_function(file_io.edit_file)
 
         return toolkit
 

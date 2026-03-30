@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+<a href="https://trendshift.io/repositories/20528" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20528" alt="agentscope-ai%2FReMe | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</p>
+
+<p align="center">
   <strong>面向智能体的记忆管理工具包，Remember Me, Refine Me.</strong><br>
 </p>
 
@@ -25,12 +29,14 @@
 
 ---
 
-🧠 ReMe 是一个专为 **AI 智能体** 打造的记忆管理框架，同时提供基于[文件系统](#-基于文件的记忆系统-remelight)和基于[向量库](#-基于向量库的记忆系统)的记忆系统。
-
+🧠 ReMe 是一个专为 **AI 智能体** 打造的记忆管理框架，同时提供基于[文件系统](#-基于文件的记忆系统-remelight)
+和基于[向量库](#-基于向量库的记忆系统)的记忆系统。
 
 它解决智能体记忆的两类核心问题：**上下文窗口有限**（长对话时早期信息被截断或丢失）、**会话无状态**（新对话无法继承历史，每次从零开始）。
 
 ReMe 让智能体拥有**真正的记忆力**——旧对话自动浓缩，重要信息持久保存，下次对话自动想起来。
+
+在 LoCoMo 与 HaluMem 基准测试中，ReMe 取得了领先结果，详见[实验效果](#实验效果)。
 
 <details>
 <summary><b>你可以用 ReMe 做什么</b></summary>
@@ -67,6 +73,8 @@ working_dir/
 ├── MEMORY.md              # 长期记忆：用户偏好等持久信息
 ├── memory/
 │   └── YYYY-MM-DD.md      # 每日日记：对话结束后自动写入
+├── dialog/                # 原始对话记录：压缩前的完整对话
+│   └── YYYY-MM-DD.jsonl   # 按日期存储的对话消息（JSONL 格式）
 └── tool_result/           # 超长工具输出缓存（自动管理，超期自动清理）
     └── <uuid>.txt
 ```
@@ -83,6 +91,8 @@ working_dir/
 <tr><td><code>pre_reasoning_hook</code></td><td>🔄 推理前预处理钩子</td><td>compact_tool_result + check_context + compact_memory + summary_memory(async)</td></tr>
 <tr><td rowspan="2">长期记忆</td><td><code>summary_memory</code></td><td>📝 将重要记忆写入文件</td><td><a href="reme/memory/file_based/components/summarizer.py">Summarizer</a> — ReActAgent + 文件工具（read / write / edit）</td></tr>
 <tr><td><code>memory_search</code></td><td>🔍 语义搜索记忆</td><td><a href="reme/memory/file_based/tools/memory_search.py">MemorySearch</a> — 向量 + BM25 混合检索</td></tr>
+<tr><td rowspan="2">会话内存</td><td><code>get_in_memory_memory</code></td><td>💾 创建会话内存实例</td><td>返回 ReMeInMemoryMemory，自动配置 dialog_path 实现对话持久化</td></tr>
+<tr><td><code>await_summary_tasks</code></td><td>⏳ 等待异步摘要任务</td><td>阻塞等待所有后台摘要任务完成</td></tr>
 <tr><td>-</td><td><code>start</code></td><td>🚀 启动记忆系统</td><td>初始化文件存储、文件监控、Embedding 缓存；清理过期工具结果文件</td></tr>
 <tr><td>-</td><td><code>close</code></td><td>📕 关闭并清理</td><td>清理工具结果文件、停止文件监控、保存 Embedding 缓存</td></tr>
 </table>
@@ -139,8 +149,12 @@ async def main():
 
     messages = [...]  # 对话消息列表
 
-    # 1. 压缩超长工具输出（防止工具结果撑爆上下文）
-    messages = await reme.compact_tool_result(messages)
+    # 1. 检查上下文大小（Token 计数，判断是否需要压缩）
+    messages_to_compact, messages_to_keep, is_valid = await reme.check_context(
+        messages=messages,
+        memory_compact_threshold=90000,  # 触发压缩的阈值（tokens）
+        memory_compact_reserve=10000,  # 保留的近期消息 token 数
+    )
 
     # 2. 将历史对话压缩为结构化摘要（可传入上轮摘要，实现增量更新）
     summary = await reme.compact_memory(
@@ -151,10 +165,10 @@ async def main():
         language="zh",  # 摘要语言（zh / ""）
     )
 
-    # 3. 后台异步提交摘要任务（不阻塞对话，摘要写入 memory/YYYY-MM-DD.md）
-    reme.add_async_summary_task(messages=messages)
+    # 3. 压缩超长工具输出（防止工具结果撑爆上下文）
+    messages = await reme.compact_tool_result(messages)
 
-    # 4. 推理前预处理钩子（自动压缩工具结果 + 生成摘要）
+    # 4. 推理前预处理钩子（自动压缩工具结果 + 检查上下文 + 生成摘要）
     processed_messages, compressed_summary = await reme.pre_reasoning_hook(
         messages=messages,
         system_prompt="你是一个有帮助的 AI 助手。",
@@ -166,12 +180,18 @@ async def main():
         tool_result_compact_keep_n=3,
     )
 
-    # 5. 语义搜索记忆（向量 + BM25 混合检索）
+    # 5. 将重要记忆写入文件（摘要写入 memory/YYYY-MM-DD.md）
+    summary_result = await reme.summary_memory(
+        messages=messages,
+        language="zh",
+    )
+
+    # 6. 语义搜索记忆（向量 + BM25 混合检索）
     result = await reme.memory_search(query="Python 版本偏好", max_results=5)
 
-    # 6. 创建会话内存实例（管理单次对话的上下文）
+    # 7. 创建会话内存实例（管理单次对话的上下文）
     from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-    memory = ReMeInMemoryMemory()
+    memory = reme.get_in_memory_memory()  # 自动配置 dialog_path
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
@@ -179,8 +199,8 @@ async def main():
     print(f"消息 Token 数: {token_stats['messages_tokens']}")
     print(f"预估总 Token 数: {token_stats['estimated_tokens']}")
 
-    # 7. 关闭前等待后台任务完成
-    summary_result = await reme.await_summary_tasks()
+    # 8. 标记消息为压缩状态（自动持久化到 dialog/YYYY-MM-DD.jsonl）
+    # await memory.mark_messages_compressed(messages_to_compact)
 
     # 关闭 ReMeLight
     await reme.close()
@@ -195,7 +215,21 @@ if __name__ == "__main__":
 
 ### 基于文件的 ReMeLight 记忆系统架构
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py) 继承
+#### 上下文数据结构
+
+```mermaid
+flowchart TD
+    A[Context] --> B[compact_summary]
+    B --> C[dialog 路径引导 + Goal/Constraints/Progress/KeyDecisions/NextSteps]
+    A --> E[messages: 完整对话历史]
+    A --> F[文件系统缓存]
+    F --> G[dialog/YYYY-MM-DD.jsonl]
+    F --> H[tool_result/uuid.txt  N天TTL]
+```
+
+---
+
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py) 继承
 `ReMeLight`，将记忆能力集成到 Agent 推理流程中：
 
 ```mermaid
@@ -206,8 +240,11 @@ graph LR
     CC -->|超限| CM[compact_memory<br>生成摘要]
     CC -->|超限| SM[summary_memory<br>异步持久化]
     SM -->|ReAct + FileIO| Files[memory/*.md]
+    CC -->|超限| MMC[mark_messages_compressed<br>持久化原始对话]
+    MMC --> Dialog[dialog/*.jsonl]
     Agent -->|主动调用| Search[memory_search<br>向量+BM25]
     Agent -->|会话内存| InMem[ReMeInMemoryMemory<br>Token感知内存]
+    InMem -->|压缩/清空| Dialog
     Files -.->|FileWatcher| Store[(FileStore<br>向量+FTS索引)]
     Search --> Store
 ```
@@ -258,6 +295,7 @@ graph LR
 | `## Critical Context` | 文件路径、函数名、错误信息等关键数据 |
 
 - **增量更新**：传入 `previous_summary` 时，自动将新对话与旧摘要合并
+- **思考增强**：`add_thinking_block=True`（默认）时，在生成摘要前加入思考步骤，提升摘要质量
 
 ---
 
@@ -288,17 +326,23 @@ graph LR
 
 #### 4. compact_tool_result — 工具结果压缩
 
-[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。
+[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。根据消息是否在 `recent_n` 范围内，采用不同的截断策略：
 
 ```mermaid
 graph LR
-    M[messages] --> L{遍历 tool_result<br>len > threshold?}
-    L -->|否| K[保留原样]
-    L -->|是| T[truncate_text<br>截断到 threshold]
-    T --> S[完整内容写入<br>tool_result/uuid.txt]
-    S --> R[消息追加文件路径引用]
-    R --> C[cleanup_expired_files<br>清理过期文件]
+    M[messages] --> B{属于 recent_n 范围?}
+    B -->|是 近期消息| C[低截断 recent_max_bytes=100KB<br>完整内容写入 tool_result/uuid.txt<br>消息追加: 从第N行开始读]
+    B -->|否 历史消息| D[高截断 old_max_bytes=3KB<br>引用已有文件路径<br>更激进截断]
+    C --> E[cleanup_expired_files<br>清理过期文件]
+    D --> E
 ```
+
+| 参数                 | 默认值                 | 说明                                           |
+|--------------------|---------------------|----------------------------------------------|
+| `recent_n`         | `1`                 | 末尾连续工具结果消息的最小数量，视为"近期"，使用低截断阈值               |
+| `recent_max_bytes` | `100 * 1024`（100KB） | 近期消息的截断阈值；超出部分转存到 `tool_result/` 并附注文件路径和起始行 |
+| `old_max_bytes`    | `3000`（3KB）         | 历史消息的截断阈值，截断更激进                              |
+| `retention_days`   | `3`                 | 工具结果文件的保留天数，过期自动清理                           |
 
 - **自动清理**：过期文件（超过 `retention_days`）在 `start`/`close`/`compact_tool_result` 时自动删除
 
@@ -326,7 +370,7 @@ graph LR
 #### 6. ReMeInMemoryMemory — 会话内存
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) 扩展 AgentScope 的 `InMemoryMemory`，提供 Token
-感知的内存管理。
+感知的内存管理和原始对话持久化能力。
 
 ```mermaid
 graph LR
@@ -336,13 +380,19 @@ graph LR
     P -->|是| S[头部插入 previous-summary]
     S --> O[输出 messages]
     P -->|否| O
+    M[mark_messages_compressed] --> D[持久化到 dialog/YYYY-MM-DD.jsonl]
+    D --> R[从内存移除]
 ```
 
-| 功能                               | 说明                |
-|----------------------------------|-------------------|
-| `get_memory`                     | 按标记过滤，自动追加压缩摘要    |
-| `estimate_tokens`                | 估算上下文 Token 用量    |
-| `state_dict` / `load_state_dict` | 状态序列化/反序列化（会话持久化） |
+| 功能                               | 说明                    |
+|----------------------------------|-----------------------|
+| `get_memory`                     | 按标记过滤，自动追加压缩摘要        |
+| `estimate_tokens`                | 估算上下文 Token 用量        |
+| `state_dict` / `load_state_dict` | 状态序列化/反序列化（会话持久化）     |
+| `mark_messages_compressed`       | 标记消息压缩并持久化到 dialog 目录 |
+| `clear_content`                  | 持久化所有消息后清空内存          |
+
+**原始对话持久化**：当消息被压缩或清空时，自动保存到 `{dialog_path}/{date}.jsonl`，每行一条 JSON 格式的消息记录。
 
 ---
 
@@ -365,10 +415,16 @@ graph LR
 
 **执行流程**：
 
-1. `compact_tool_result` — 压缩超长工具输出
-2. `check_context` — 检查上下文是否超限
-3. `compact_memory` — 生成压缩摘要（同步）
-4. `summary_memory` — 持久化记忆（异步后台）
+1. `compact_tool_result` — 对除最近 `tool_result_compact_keep_n` 条消息之外的历史消息压缩超长工具输出
+2. `check_context` — 检查上下文是否超限（扣除 system_prompt 和 compressed_summary 的 token 后计算剩余空间）
+3. `compact_memory` — 生成压缩摘要（同步），结果追加到 `compact_summary`
+4. `summary_memory` — 持久化记忆到 `memory/*.md`（异步后台，不阻塞推理）
+
+| 关键参数                         | 默认值     | 说明                                               |
+|------------------------------|---------|--------------------------------------------------|
+| `tool_result_compact_keep_n` | `3`     | 最近 N 条消息跳过工具结果压缩（保留完整内容）                         |
+| `memory_compact_reserve`     | `10000` | 保留近期消息的 token 数，超出部分触发压缩                         |
+| `compact_ratio`              | `0.7`   | 压缩阈值比例：`max_input_length × compact_ratio × 0.95` |
 
 ---
 
@@ -514,39 +570,38 @@ graph LR
 
 ### 实验效果
 
-本实验部分在 LoCoMo、HaluMem 两个数据集上进行评测，实验设置如下：
+本实验部分在 LoCoMo和HaluMem 两个数据集上进行评测，实验设置如下：
 
 1. **ReMe 使用模型**：如各表 backbone 列所示。
 2. **评估使用模型**：采用 LLM-as-a-Judge 协议（参照 MemOS）——每条回答由 GPT-4o-mini 裁判模型打分。
 
 实验设置尽量与各基线论文保持一致，以复用其公开结果。
 
+### LoCoMo
 
-#### LoCoMo
-
-| Method | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
-|--------|------------|-----------|-----------|-------------|-----------|
+| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
+|----------|------------|-----------|-----------|-------------|-----------|
 | MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
-| Mem0 | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
-| MemU | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
-| MemOS | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
-| HiMem | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
-| Zep | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
-| TiMem | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
-| TSM | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
-| MemR3 | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
+| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
+| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
+| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
+| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
+| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
+| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
+| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
+| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
 | **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
 
-
-#### HaluMem
+### HaluMem
 
 | Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
-|-------------|------------------|---------------|-------------|
-| MemoBase    | 14.55            | 92.24         | 35.53       |
-| Supermemory | 41.53            | 90.32         | 54.07       |
-| Mem0        | 42.91            | 86.26         | 53.02       |
-| ProMem      | **73.80**        | 89.47         | 62.26       |
-| **ReMe**        | 67.72            | **94.06**     | **88.78**   |
+|-------------|------------------|-----------------|-------------|
+| MemoBase    | 14.55            | 92.24           | 35.53       |
+| Supermemory | 41.53            | 90.32           | 54.07       |
+| Mem0        | 42.91            | 86.26           | 53.02       |
+| ProMem      | **73.80**        | 89.47           | 62.26       |
+| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
+
 ---
 
 ## 🧪 程序化记忆论文

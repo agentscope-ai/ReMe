@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+<a href="https://trendshift.io/repositories/20528" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20528" alt="agentscope-ai%2FReMe | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</p>
+
+<p align="center">
   <strong>A memory management toolkit for AI agents — Remember Me, Refine Me.</strong><br>
 </p>
 
@@ -25,13 +29,16 @@
 
 ---
 
-🧠 ReMe is a memory management framework designed for **AI agents**, providing both [file-based](#-file-based-memory-system-remelight) and [vector-based](#-vector-based-memory-system) memory systems.
+🧠 ReMe is a memory management framework designed for **AI agents**, providing
+both [file-based](#-file-based-memory-system-remelight) and [vector-based](#-vector-based-memory-system) memory systems.
 
 It tackles two core problems of agent memory: **limited context window** (early information is truncated or lost in long
 conversations) and **stateless sessions** (new sessions cannot inherit history and always start from scratch).
 
 ReMe gives agents **real memory** — old conversations are automatically compacted, important information is persistently
 stored, and relevant context is automatically recalled in future interactions.
+
+ReMe achieves state-of-the-art results on the LoCoMo and HaluMem benchmarks; see the [Experimental results](#experimental-results).
 
 <details>
 <summary><b>What you can do with ReMe</b></summary>
@@ -73,6 +80,8 @@ working_dir/
 ├── MEMORY.md              # Long-term memory: persistent info such as user preferences
 ├── memory/
 │   └── YYYY-MM-DD.md      # Daily journal: automatically written after each conversation
+├── dialog/                # Raw conversation records: full dialog before compression
+│   └── YYYY-MM-DD.jsonl   # Daily conversation messages in JSONL format
 └── tool_result/           # Cache for long tool outputs (auto-managed, expired entries auto-cleaned)
     └── <uuid>.txt
 ```
@@ -90,6 +99,8 @@ capabilities for AI agents:
 <tr><td><code>pre_reasoning_hook</code></td><td>🔄 Pre-reasoning hook</td><td><code>compact_tool_result</code> + <code>check_context</code> + <code>compact_memory</code> + <code>summary_memory</code> (async)</td></tr>
 <tr><td rowspan="2">Long-term Memory</td><td><code>summary_memory</code></td><td>📝 Persist important memory to files</td><td><a href="reme/memory/file_based/components/summarizer.py">Summarizer</a> — ReActAgent + file tools (<code>read</code> / <code>write</code> / <code>edit</code>)</td></tr>
 <tr><td><code>memory_search</code></td><td>🔍 Semantic memory search</td><td><a href="reme/memory/file_based/tools/memory_search.py">MemorySearch</a> — hybrid retrieval with vectors + BM25</td></tr>
+<tr><td rowspan="2">Session Memory</td><td><code>get_in_memory_memory</code></td><td>💾 Create in-session memory instance</td><td>Returns ReMeInMemoryMemory with dialog_path configured for persistence</td></tr>
+<tr><td><code>await_summary_tasks</code></td><td>⏳ Wait for async summary tasks</td><td>Block until all background summary tasks complete</td></tr>
 <tr><td>-</td><td><code>start</code></td><td>🚀 Start memory system</td><td>Initialize file storage, file watcher, and embedding cache; clean up expired tool result files</td></tr>
 <tr><td>-</td><td><code>close</code></td><td>📕 Shutdown and cleanup</td><td>Clean up tool result files, stop file watcher, and persist embedding cache</td></tr>
 </table>
@@ -146,8 +157,12 @@ async def main():
 
     messages = [...]  # List of conversation messages
 
-    # 1. Compact long tool outputs (prevent tool results from blowing up context)
-    messages = await reme.compact_tool_result(messages)
+    # 1. Check context size (token counting, determine if compaction is needed)
+    messages_to_compact, messages_to_keep, is_valid = await reme.check_context(
+        messages=messages,
+        memory_compact_threshold=90000,  # Threshold to trigger compaction (tokens)
+        memory_compact_reserve=10000,  # Token count to reserve for recent messages
+    )
 
     # 2. Compact conversation history into a structured summary
     summary = await reme.compact_memory(
@@ -158,10 +173,10 @@ async def main():
         language="zh",  # Summary language (e.g., "zh" / "")
     )
 
-    # 3. Submit summary task asynchronously (non-blocking, writes to memory/YYYY-MM-DD.md)
-    reme.add_async_summary_task(messages=messages)
+    # 3. Compact long tool outputs (prevent tool results from blowing up context)
+    messages = await reme.compact_tool_result(messages)
 
-    # 4. Pre-reasoning hook (auto compact tool results + generate summaries)
+    # 4. Pre-reasoning hook (auto compact tool results + check context + generate summaries)
     processed_messages, compressed_summary = await reme.pre_reasoning_hook(
         messages=messages,
         system_prompt="You are a helpful AI assistant.",
@@ -173,12 +188,17 @@ async def main():
         tool_result_compact_keep_n=3,
     )
 
-    # 5. Semantic memory search (vector + BM25 hybrid retrieval)
+    # 5. Persist important memory to files (writes to memory/YYYY-MM-DD.md)
+    summary_result = await reme.summary_memory(
+        messages=messages,
+        language="zh",
+    )
+
+    # 6. Semantic memory search (vector + BM25 hybrid retrieval)
     result = await reme.memory_search(query="Python version preference", max_results=5)
 
-    # 6. Create in-session memory instance (manages context for one conversation)
-    from reme.memory.file_based.reme_in_memory_memory import ReMeInMemoryMemory
-    memory = ReMeInMemoryMemory()
+    # 7. Create in-session memory instance (manages context for one conversation)
+    memory = reme.get_in_memory_memory()  # Auto-configures dialog_path
     for msg in messages:
         await memory.add(msg)
     token_stats = await memory.estimate_tokens(max_input_length=128000)
@@ -186,8 +206,8 @@ async def main():
     print(f"Message token count: {token_stats['messages_tokens']}")
     print(f"Estimated total tokens: {token_stats['estimated_tokens']}")
 
-    # 7. Wait for background summary tasks to complete before shutdown
-    summary_result = await reme.await_summary_tasks()
+    # 8. Mark messages as compressed (auto-persists to dialog/YYYY-MM-DD.jsonl)
+    # await memory.mark_messages_compressed(messages_to_compact)
 
     # Shutdown ReMeLight
     await reme.close()
@@ -203,9 +223,22 @@ if __name__ == "__main__":
 
 ### Architecture of the file-based ReMeLight memory system
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py)
-inherits
-`ReMeLight` and integrates its memory capabilities into the agent reasoning loop:
+#### Context data structure
+
+```mermaid
+flowchart TD
+    A[Context] --> B[compact_summary]
+    B --> C[dialog path guide + Goal/Constraints/Progress/KeyDecisions/NextSteps]
+    A --> E[messages: full dialogue history]
+    A --> F[File System Cache]
+    F --> G[dialog/YYYY-MM-DD.jsonl]
+    F --> H[tool_result/uuid.txt N-day TTL]
+```
+
+---
+
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py)
+inherits `ReMeLight` and integrates its memory capabilities into the agent reasoning loop:
 
 ```mermaid
 graph LR
@@ -215,8 +248,11 @@ graph LR
     CC -->|Exceeds limit| CM[compact_memory<br>Generate summary]
     CC -->|Exceeds limit| SM[summary_memory<br>Async persistence]
     SM -->|ReAct + FileIO| Files[memory/*.md]
+    CC -->|Exceeds limit| MMC[mark_messages_compressed<br>Persist raw dialog]
+    MMC --> Dialog[dialog/*.jsonl]
     Agent -->|Explicit call| Search[memory_search<br>Vector+BM25]
     Agent -->|In - session| InMem[ReMeInMemoryMemory<br>Token-aware memory]
+    InMem -->|Compress/Clear| Dialog
     Files -.->|FileWatcher| Store[(FileStore<br>Vector+FTS index)]
     Search --> Store
 ```
@@ -260,16 +296,18 @@ graph LR
 
 **Summary structure** (context checkpoints):
 
-| Field                 | Description                                                            |
-|-----------------------|------------------------------------------------------------------------|
-| `## Goal`             | User goals                                                             |
-| `## Constraints`      | Constraints and preferences                                            |
-| `## Progress`         | Task progress                                                          |
-| `## Key Decisions`    | Key decisions                                                          |
-| `## Next Steps`       | Next step plans                                                        |
-| `## Critical Context` | Critical data such as file paths, function names, error messages, etc. |
+| Field                 | Description                                                                             |
+|-----------------------|-----------------------------------------------------------------------------------------|
+| `## Goal`             | User goals                                                                              |
+| `## Constraints`      | Constraints and preferences                                                             |
+| `## Progress`         | Task progress                                                                           |
+| `## Key Decisions`    | Key decisions                                                                           |
+| `## Next Steps`       | Next step plans                                                                         |
+| `## Critical Context` | Critical data such as file paths, function names, error messages, etc.                  |
 
 - **Incremental updates**: when `previous_summary` is provided, new conversations are merged into the existing summary.
+- **Thinking enhancement**: with `add_thinking_block=True` (default), a reasoning step is added before generating the
+  summary to improve quality.
 
 ---
 
@@ -302,17 +340,24 @@ graph LR
 #### 4. `compact_tool_result` — tool result compaction
 
 [ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) addresses the problem of long tool
-outputs bloating the context.
+outputs bloating the context. It applies two different truncation strategies depending on whether a message falls within
+the `recent_n` window:
 
 ```mermaid
 graph LR
-    M[messages] --> L{Iterate tool_result<br>len > threshold?}
-    L -->|No| K[Keep as-is]
-    L -->|Yes| T[truncate_text<br>Truncate to threshold]
-    T --> S[Write full content<br>tool_result/uuid.txt]
-    S --> R[Append file path reference<br>to message]
-    R --> C[cleanup_expired_files<br>Delete expired files]
+    M[messages] --> B{Within recent_n?}
+    B -->|Yes - recent| C[Low truncation recent_max_bytes=100KB<br>Save full content to tool_result/uuid.txt<br>Hint: 'Read from line N']
+    B -->|No - old| D[High truncation old_max_bytes=3KB<br>Reference existing file<br>More aggressive truncation]
+    C --> E[cleanup_expired_files<br>Delete expired files]
+    D --> E
 ```
+
+| Parameter          | Default               | Description                                                                                                                   |
+|--------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `recent_n`         | `1`                   | Minimum number of trailing consecutive tool-result messages treated as "recent" (use low truncation)                          |
+| `recent_max_bytes` | `100 * 1024` (100 KB) | Truncation threshold for recent messages; content beyond this is saved to `tool_result/` with a file path and start-line hint |
+| `old_max_bytes`    | `3000` (3 KB)         | Truncation threshold for older messages; truncation is more aggressive                                                        |
+| `retention_days`   | `3`                   | Number of days to retain tool result files; expired files are auto-cleaned                                                    |
 
 - **Auto cleanup**: expired files (older than `retention_days`) are deleted automatically during `start` / `close` /
   `compact_tool_result`.
@@ -341,7 +386,7 @@ graph LR
 #### 6. `ReMeInMemoryMemory` — in-session memory
 
 [ReMeInMemoryMemory](reme/memory/file_based/reme_in_memory_memory.py) extends AgentScope's `InMemoryMemory` to provide
-token-aware memory management.
+token-aware memory management and raw conversation persistence.
 
 ```mermaid
 graph LR
@@ -351,13 +396,20 @@ graph LR
     P -->|Yes| S[Prepend previous summary]
     S --> O[Output messages]
     P -->|No| O
+    M[mark_messages_compressed] --> D[Persist to dialog/YYYY-MM-DD.jsonl]
+    D --> R[Remove from memory]
 ```
 
-| Function                         | Description                                       |
-|----------------------------------|---------------------------------------------------|
-| `get_memory`                     | Filter messages by mark and auto-append summary   |
-| `estimate_tokens`                | Estimate token usage of the context               |
-| `state_dict` / `load_state_dict` | Serialize/deserialize state (session persistence) |
+| Function                         | Description                                              |
+|----------------------------------|----------------------------------------------------------|
+| `get_memory`                     | Filter messages by mark and auto-append summary          |
+| `estimate_tokens`                | Estimate token usage of the context                      |
+| `state_dict` / `load_state_dict` | Serialize/deserialize state (session persistence)        |
+| `mark_messages_compressed`       | Mark messages compressed and persist to dialog directory |
+| `clear_content`                  | Persist all messages before clearing memory              |
+
+**Raw conversation persistence**: When messages are compressed or cleared, they are automatically saved to
+`{dialog_path}/{date}.jsonl` with one JSON-formatted message per line.
 
 ---
 
@@ -381,10 +433,18 @@ graph LR
 
 **Execution flow**:
 
-1. `compact_tool_result` — compact long tool outputs.
-2. `check_context` — check whether the context exceeds limits.
-3. `compact_memory` — generate compact summary (sync).
-4. `summary_memory` — persist memory (async in the background).
+1. `compact_tool_result` — compact long tool outputs for all messages except the most recent
+   `tool_result_compact_keep_n`.
+2. `check_context` — check whether the context exceeds limits (remaining space = threshold minus tokens used by system
+   prompt and compressed summary).
+3. `compact_memory` — generate compact summary (sync), appended into `compact_summary`.
+4. `summary_memory` — persist memory to `memory/*.md` (async in the background, non-blocking).
+
+| Key parameter                | Default | Description                                                                         |
+|------------------------------|---------|-------------------------------------------------------------------------------------|
+| `tool_result_compact_keep_n` | `3`     | Skip tool result compaction for the most recent N messages (preserve full content)  |
+| `memory_compact_reserve`     | `10000` | Token count to reserve for recent messages; messages beyond this trigger compaction |
+| `compact_ratio`              | `0.7`   | Compaction threshold ratio: `max_input_length × compact_ratio × 0.95`               |
 
 ---
 
@@ -415,7 +475,6 @@ memories:
 
 Installation and environment configuration are the same as [ReMeLight](#installation).
 API keys are configured via environment variables and can be stored in a `.env` file at the project root.
-
 
 ### Python usage
 
@@ -532,7 +591,7 @@ graph LR
 
 ### Experimental results
 
-Evaluations are conducted on Two benchmarks: **LoCoMo** and **HaluMem**. Experimental settings:
+Evaluations are conducted on two benchmarks: **LoCoMo** and **HaluMem**. Experimental settings:
 
 1. **ReMe backbone**: as specified in each table.
 2. **Evaluation protocol**: LLM-as-a-Judge following MemOS — each answer is scored by GPT-4o-mini.
@@ -541,29 +600,28 @@ Baseline results are reproduced from their respective papers under aligned setti
 
 ### LoCoMo
 
-| Method | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
-|--------|------------|-----------|-----------|-------------|-----------|
+| Method   | Single Hop | Multi Hop | Temporal  | Open Domain | Overall   |
+|----------|------------|-----------|-----------|-------------|-----------|
 | MemoryOS | 62.43      | 56.50     | 37.18     | 40.28       | 54.70     |
-| Mem0 | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
-| MemU | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
-| MemOS | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
-| HiMem | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
-| Zep | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
-| TiMem | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
-| TSM | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
-| MemR3 | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
+| Mem0     | 66.71      | 58.16     | 55.45     | 40.62       | 61.00     |
+| MemU     | 72.77      | 62.41     | 33.96     | 46.88       | 61.15     |
+| MemOS    | 81.45      | 69.15     | 72.27     | 60.42       | 75.87     |
+| HiMem    | 89.22      | 70.92     | 74.77     | 54.86       | 80.71     |
+| Zep      | 88.11      | 71.99     | 74.45     | 66.67       | 81.06     |
+| TiMem    | 81.43      | 62.20     | 77.63     | 52.08       | 75.30     |
+| TSM      | 84.30      | 66.67     | 71.03     | 58.33       | 76.69     |
+| MemR3    | 89.44      | 71.39     | 76.22     | 61.11       | 81.55     |
 | **ReMe** | **89.89**  | **82.98** | **83.80** | **71.88**   | **86.23** |
-
 
 ### HaluMem
 
 | Method      | Memory Integrity | Memory Accuracy | QA Accuracy |
-|-------------|------------------|---------------|-------------|
-| MemoBase    | 14.55            | 92.24         | 35.53       |
-| Supermemory | 41.53            | 90.32         | 54.07       |
-| Mem0        | 42.91            | 86.26         | 53.02       |
-| ProMem      | **73.80**        | 89.47         | 62.26       |
-| **ReMe**        | 67.72            | **94.06**     | **88.78**   |
+|-------------|------------------|-----------------|-------------|
+| MemoBase    | 14.55            | 92.24           | 35.53       |
+| Supermemory | 41.53            | 90.32           | 54.07       |
+| Mem0        | 42.91            | 86.26           | 53.02       |
+| ProMem      | **73.80**        | 89.47           | 62.26       |
+| **ReMe**    | 67.72            | **94.06**       | **88.78**   |
 
 ---
 

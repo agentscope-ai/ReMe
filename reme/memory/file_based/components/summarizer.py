@@ -25,6 +25,7 @@ class Summarizer(BaseOp):
         toolkit: Toolkit | None = None,
         console_enabled: bool = False,
         timezone: str | None = None,
+        add_thinking_block: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -34,6 +35,16 @@ class Summarizer(BaseOp):
         self.toolkit: Toolkit | None = toolkit
         self.console_enabled: bool = console_enabled
         self.timezone: str | None = timezone
+        self.add_thinking_block: bool = add_thinking_block
+
+    def _get_current_datetime(self) -> datetime.datetime:
+        """Get current datetime with timezone, fallback to local time if timezone is invalid."""
+        if self.timezone:
+            try:
+                return datetime.datetime.now(zoneinfo.ZoneInfo(self.timezone))
+            except Exception as e:
+                logger.error(f"Invalid timezone: {self.timezone}, falling back to local time error={e}")
+        return datetime.datetime.now()
 
     async def execute(self):
         messages: list[Msg] = self.context.get("messages", [])
@@ -46,6 +57,7 @@ class Summarizer(BaseOp):
         history_formatted_str: str = await msg_handler.format_msgs_to_str(
             messages=messages,
             memory_compact_threshold=self.memory_compact_threshold,
+            include_thinking=self.add_thinking_block,
         )
         after_token_count = await msg_handler.count_str_token(history_formatted_str)
         logger.info(f"Summarizer before_token_count={before_token_count} after_token_count={after_token_count}")
@@ -63,15 +75,9 @@ class Summarizer(BaseOp):
         )
         agent.set_console_output_enabled(self.console_enabled)
 
-        user_message: str = f"<conversation>\n{history_formatted_str}\n</conversation>\n" + self.prompt_format(
+        user_message: str = f"# conversation\n{history_formatted_str}\n\n" + self.prompt_format(
             "user_message",
-            date=(
-                datetime.datetime.now(
-                    zoneinfo.ZoneInfo(self.timezone),
-                )
-                if self.timezone
-                else datetime.datetime.now()
-            ).strftime("%Y-%m-%d"),
+            date=self._get_current_datetime().strftime("%Y-%m-%d"),
             working_dir=self.working_dir,
             memory_dir=self.memory_dir,
         )

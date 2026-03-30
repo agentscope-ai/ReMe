@@ -159,6 +159,7 @@ class BaseEmbeddingModel(ABC):
             return
 
         try:
+            load_start = time.time()
             # Read all lines first (to load in reverse order)
             with open(cache_file, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -201,7 +202,9 @@ class BaseEmbeddingModel(ABC):
                     logger.warning(f"Failed to parse line in cache file: {e}")
                     continue
 
-            logger.info(f"Loaded {loaded_count} embeddings from cache file: {cache_file}")
+            logger.info(
+                f"Loaded {loaded_count} embeddings from cache file: {cache_file} in {time.time() - load_start:.2f}s",
+            )
         except Exception as e:
             logger.error(f"Failed to load cache from {cache_file}: {e}, deleting cache file")
             try:

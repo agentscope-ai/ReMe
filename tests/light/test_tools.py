@@ -4,6 +4,7 @@
 
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 
@@ -11,7 +12,7 @@ import pytest
 
 from reme.memory.file_based.tools.file_io import FileIO
 from reme.memory.file_based.tools.shell import Shell
-from reme.memory.file_based.utils import DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES
+from reme.memory.file_based.utils import DEFAULT_MAX_BYTES
 
 
 # ============ Shell Tests ============
@@ -76,23 +77,6 @@ def test_shell_multiline_output(shell_env):
     assert "line3" in text
 
 
-def test_shell_truncated_output(shell_env):
-    """Test output truncation for large output."""
-    lines_to_generate = DEFAULT_MAX_LINES + 500
-    cmd = f"seq 1 {lines_to_generate}"
-    result = asyncio.run(shell_env["shell"].execute_shell_command(cmd))
-    text = result.content[0].get("text", "")
-
-    # Should contain truncation notice
-    assert "truncated" in text.lower()
-    # Should contain the last line (tail is kept)
-    assert str(lines_to_generate) in text
-    # Verify first numeric line is > 1 (truncated from head)
-    numeric_lines = [tl for tl in text.strip().split("\n") if tl.isdigit()]
-    if numeric_lines:
-        assert int(numeric_lines[0]) > 1
-
-
 def test_shell_timeout(shell_env):
     """Test command timeout handling."""
     result = asyncio.run(
@@ -116,13 +100,17 @@ def fileio_env():
     with open(simple_file, "w", encoding="utf-8") as f:
         f.write("line1\nline2\nline3\nline4\nline5")
 
-    # Create large file (exceeds DEFAULT_MAX_LINES)
+    # Create large file (exceeds DEFAULT_MAX_BYTES)
     large_file = os.path.join(test_dir, "large.txt")
     with open(large_file, "w", encoding="utf-8") as f:
-        for i in range(1, DEFAULT_MAX_LINES + 500):
+        # Each line is ~7-10 bytes ("line N\n"); generate enough to exceed limit.
+        # Line 1 is literally "line 1" so the head-kept assertion can match it.
+        line_count = (DEFAULT_MAX_BYTES // 7) + 1000
+        for i in range(1, line_count + 1):
             f.write(f"line {i}\n")
 
     # Create large bytes file (exceeds DEFAULT_MAX_BYTES)
+    # Lines are 101 bytes each; at DEFAULT_MAX_BYTES the cut lands mid-line → else branch
     large_bytes_file = os.path.join(test_dir, "large_bytes.txt")
     with open(large_bytes_file, "w", encoding="utf-8") as f:
         content = "x" * 100 + "\n"
@@ -130,19 +118,31 @@ def fileio_env():
         for _ in range(lines_needed):
             f.write(content)
 
+    # Single line larger than DEFAULT_MAX_BYTES → newline_count==0 branch in truncate
+    huge_line_file = os.path.join(test_dir, "huge_line.txt")
+    with open(huge_line_file, "w", encoding="utf-8") as f:
+        f.write("A" * (DEFAULT_MAX_BYTES + 1000) + "\nline2\n")
+
+    # Empty file
+    empty_file = os.path.join(test_dir, "empty.txt")
+    with open(empty_file, "w", encoding="utf-8") as f:
+        f.write("")
+
     yield {
         "dir": test_dir,
         "file_io": file_io,
         "simple_file": simple_file,
         "large_file": large_file,
         "large_bytes_file": large_bytes_file,
+        "huge_line_file": huge_line_file,
+        "empty_file": empty_file,
     }
     shutil.rmtree(test_dir, ignore_errors=True)
 
 
 def test_read_file_success(fileio_env):
     """Test successful file reading."""
-    result = asyncio.run(fileio_env["file_io"].read(fileio_env["simple_file"]))
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["simple_file"]))
     text = result.content[0].get("text", "")
     assert "line1" in text
     assert "line5" in text
@@ -150,14 +150,14 @@ def test_read_file_success(fileio_env):
 
 def test_read_file_relative_path(fileio_env):
     """Test reading file with relative path."""
-    result = asyncio.run(fileio_env["file_io"].read("simple.txt"))
+    result = asyncio.run(fileio_env["file_io"].read_file("simple.txt"))
     text = result.content[0].get("text", "")
     assert "line1" in text
 
 
 def test_read_file_not_exists(fileio_env):
     """Test reading non-existent file."""
-    result = asyncio.run(fileio_env["file_io"].read("nonexistent.txt"))
+    result = asyncio.run(fileio_env["file_io"].read_file("nonexistent.txt"))
     text = result.content[0].get("text", "")
     assert "Error" in text
     assert "does not exist" in text
@@ -166,7 +166,7 @@ def test_read_file_not_exists(fileio_env):
 def test_read_file_with_line_range(fileio_env):
     """Test reading specific line range."""
     result = asyncio.run(
-        fileio_env["file_io"].read(fileio_env["simple_file"], start_line=2, end_line=4),
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=2, end_line=4),
     )
     text = result.content[0].get("text", "")
     assert "line2" in text
@@ -177,7 +177,7 @@ def test_read_file_with_line_range(fileio_env):
 def test_read_file_start_line_exceeds(fileio_env):
     """Test start_line exceeding file length."""
     result = asyncio.run(
-        fileio_env["file_io"].read(fileio_env["simple_file"], start_line=100),
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=100),
     )
     text = result.content[0].get("text", "")
     assert "Error" in text
@@ -187,15 +187,15 @@ def test_read_file_start_line_exceeds(fileio_env):
 def test_read_file_invalid_range(fileio_env):
     """Test invalid line range (start > end)."""
     result = asyncio.run(
-        fileio_env["file_io"].read(fileio_env["simple_file"], start_line=4, end_line=2),
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=4, end_line=2),
     )
     text = result.content[0].get("text", "")
     assert "Error" in text
 
 
-def test_read_file_truncated_by_lines(fileio_env):
-    """Test file truncation by line limit."""
-    result = asyncio.run(fileio_env["file_io"].read(fileio_env["large_file"]))
+def test_read_file_truncated(fileio_env):
+    """Test file truncation by byte limit."""
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["large_file"]))
     text = result.content[0].get("text", "")
     assert "line 1" in text  # Head is kept
     assert "continue" in text.lower()
@@ -203,17 +203,138 @@ def test_read_file_truncated_by_lines(fileio_env):
 
 def test_read_file_truncated_by_bytes(fileio_env):
     """Test file truncation by byte limit."""
-    result = asyncio.run(fileio_env["file_io"].read(fileio_env["large_bytes_file"]))
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["large_bytes_file"]))
     text = result.content[0].get("text", "")
-    assert "continue" in text.lower() or "KB" in text
+    assert "continue" in text.lower()
+    assert "KB limit" in text
 
 
 def test_read_directory_error(fileio_env):
     """Test reading a directory returns error."""
-    result = asyncio.run(fileio_env["file_io"].read(fileio_env["dir"]))
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["dir"]))
     text = result.content[0].get("text", "")
     assert "Error" in text
     assert "not a file" in text
+
+
+def test_read_file_single_line_range(fileio_env):
+    """Test reading exactly one line (start_line == end_line)."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=3, end_line=3),
+    )
+    text = result.content[0].get("text", "")
+    assert "line3" in text
+    assert "line2" not in text
+    assert "line4" not in text
+
+
+def test_read_file_only_start_line(fileio_env):
+    """Test reading from start_line to end of file (no end_line)."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=4),
+    )
+    text = result.content[0].get("text", "")
+    assert "line4" in text
+    assert "line5" in text
+    assert "line1" not in text
+    assert "line3" not in text
+
+
+def test_read_file_only_end_line(fileio_env):
+    """Test reading from beginning to end_line (no start_line)."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], end_line=2),
+    )
+    text = result.content[0].get("text", "")
+    assert "line1" in text
+    assert "line2" in text
+    assert "line4" not in text
+    assert "line5" not in text
+
+
+def test_read_file_end_line_clamped(fileio_env):
+    """Test end_line beyond total lines is silently clamped to file end."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=1, end_line=999),
+    )
+    text = result.content[0].get("text", "")
+    assert "Error" not in text
+    assert "line1" in text
+    assert "line5" in text
+
+
+def test_read_file_continuation_hint(fileio_env):
+    """Partial range read without truncation shows remaining-lines continuation hint."""
+    # simple.txt has 5 lines; reading 1-3 leaves 2 more
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line=1, end_line=3),
+    )
+    text = result.content[0].get("text", "")
+    assert "more lines" in text
+    assert "start_line=4" in text
+
+
+def test_read_file_truncated_next_line_hint(fileio_env):
+    """Truncated large file provides a valid start_line > 1 to continue."""
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["large_file"]))
+    text = result.content[0].get("text", "")
+    match = re.search(r"start_line=(\d+)", text)
+    assert match is not None, "Expected start_line hint in truncated output"
+    assert int(match.group(1)) > 1
+
+
+def test_read_file_truncated_mid_line_message(fileio_env):
+    """Truncation mid-line reports which line is truncated (else branch)."""
+    # large_bytes_file lines are 101 bytes; truncation lands mid-line
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["large_bytes_file"]))
+    text = result.content[0].get("text", "")
+    assert "is truncated" in text.lower()
+
+
+def test_read_file_huge_single_line(fileio_env):
+    """Single line exceeding byte limit triggers 'partially shown' notice (newline_count==0 branch)."""
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["huge_line_file"]))
+    text = result.content[0].get("text", "")
+    assert "partially shown" in text.lower()
+    assert "start_line=2" in text
+
+
+def test_read_file_invalid_start_line_type(fileio_env):
+    """Non-integer start_line returns a descriptive error."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line="abc"),
+    )
+    text = result.content[0].get("text", "")
+    assert "Error" in text
+    assert "start_line" in text
+
+
+def test_read_file_invalid_end_line_type(fileio_env):
+    """Non-integer end_line returns a descriptive error."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], end_line="xyz"),
+    )
+    text = result.content[0].get("text", "")
+    assert "Error" in text
+    assert "end_line" in text
+
+
+def test_read_file_start_line_as_string(fileio_env):
+    """Numeric-string start_line/end_line are coerced to int successfully."""
+    result = asyncio.run(
+        fileio_env["file_io"].read_file(fileio_env["simple_file"], start_line="2", end_line="4"),
+    )
+    text = result.content[0].get("text", "")
+    assert "Error" not in text
+    assert "line2" in text
+    assert "line4" in text
+
+
+def test_read_file_empty(fileio_env):
+    """Reading an empty file returns without error."""
+    result = asyncio.run(fileio_env["file_io"].read_file(fileio_env["empty_file"]))
+    text = result.content[0].get("text", "")
+    assert "Error" not in text
 
 
 # ============ FileIO Write Tests ============
@@ -231,7 +352,7 @@ def write_env():
 def test_write_new_file(write_env):
     """Test writing a new file."""
     file_path = os.path.join(write_env["dir"], "new_file.txt")
-    result = asyncio.run(write_env["file_io"].write(file_path, "test content"))
+    result = asyncio.run(write_env["file_io"].write_file(file_path, "test content"))
     text = result.content[0].get("text", "")
     assert "Wrote" in text
 
@@ -245,7 +366,7 @@ def test_write_overwrite_file(write_env):
     with open(file_path, "w", encoding="utf-8") as f:
         f.write("old content")
 
-    result = asyncio.run(write_env["file_io"].write(file_path, "new content"))
+    result = asyncio.run(write_env["file_io"].write_file(file_path, "new content"))
     text = result.content[0].get("text", "")
     assert "Wrote" in text
 
@@ -255,14 +376,14 @@ def test_write_overwrite_file(write_env):
 
 def test_write_empty_path(write_env):
     """Test writing with empty path."""
-    result = asyncio.run(write_env["file_io"].write("", "content"))
+    result = asyncio.run(write_env["file_io"].write_file("", "content"))
     text = result.content[0].get("text", "")
     assert "Error" in text
 
 
 def test_write_relative_path(write_env):
     """Test writing file with relative path."""
-    result = asyncio.run(write_env["file_io"].write("relative.txt", "relative content"))
+    result = asyncio.run(write_env["file_io"].write_file("relative.txt", "relative content"))
     text = result.content[0].get("text", "")
     assert "Wrote" in text
 
@@ -290,7 +411,7 @@ def edit_env():
 def test_edit_replace_text(edit_env):
     """Test replacing text in file."""
     result = asyncio.run(
-        edit_env["file_io"].edit(edit_env["edit_file"], "Hello", "Hi"),
+        edit_env["file_io"].edit_file(edit_env["edit_file"], "Hello", "Hi"),
     )
     text = result.content[0].get("text", "")
     assert "Successfully" in text
@@ -305,7 +426,7 @@ def test_edit_replace_text(edit_env):
 def test_edit_text_not_found(edit_env):
     """Test editing when text not found."""
     result = asyncio.run(
-        edit_env["file_io"].edit(edit_env["edit_file"], "NotExists", "Replacement"),
+        edit_env["file_io"].edit_file(edit_env["edit_file"], "NotExists", "Replacement"),
     )
     text = result.content[0].get("text", "")
     assert "Error" in text
@@ -315,7 +436,7 @@ def test_edit_text_not_found(edit_env):
 def test_edit_nonexistent_file(edit_env):
     """Test editing non-existent file."""
     result = asyncio.run(
-        edit_env["file_io"].edit("nonexistent.txt", "old", "new"),
+        edit_env["file_io"].edit_file("nonexistent.txt", "old", "new"),
     )
     text = result.content[0].get("text", "")
     assert "Error" in text

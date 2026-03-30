@@ -12,8 +12,6 @@ from pathlib import Path
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ..utils import truncate_shell_output
-
 
 def _execute_subprocess_sync(
     cmd: str,
@@ -188,10 +186,6 @@ class Shell:
                     except ProcessLookupError:
                         stdout_str = ""
                         stderr_str = stderr_suffix
-
-            # Apply output truncation
-            stdout_str = truncate_shell_output(stdout_str)
-            stderr_str = truncate_shell_output(stderr_str)
 
             # Format the response in a human-friendly way
             if returncode == 0:

@@ -47,5 +47,4 @@ file_watchers:
     watch_paths: [ ".reme", ".reme/memory" ]
     suffix_filters: [ ".md" ]
     recursive: false
-    scan_on_start: true
 

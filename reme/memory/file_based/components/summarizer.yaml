@@ -1,28 +1,29 @@
 user_message: |
-   Memory Pre-compression Flush Cycle Initiated
+   Memory Pre-compression Flush Cycle.
 
    The current session is about to enter the automatic compression phase. Please capture persistent memory AND session reflections, then write them to disk.
 
    Current date: {date}
    Working directory: {working_dir}
 
+   # Task
    Immediately store persistent memory and reflections to: {memory_dir}/YYYY-MM-DD.md
 
-   Workflow:
-   1. First, `read` {memory_dir}/YYYY-MM-DD.md (if the file doesn’t exist, an error message will be returned).
-   2. Extract and synthesize content from the current session:
+   # Workflow
+   1. Extract and synthesize content from the current session:
       - Persistent Memory: Facts, user profile updates, project states, and important events.
       - Experience Reflection: Reusable thinking logic derived from user feedback, successful problem-solving strategies, mistakes made/pitfalls to avoid, and actionable insights for future interactions.
-   3. Intelligently merge new information with existing content (skip merging if the file doesn’t exist):
+   2. `read` {memory_dir}/YYYY-MM-DD.md (if the file doesn’t exist, an error message will be returned)
+      - If the file doesn’t exist, use `write` tool directly.
+      - If the file exists, intelligently merge new information with existing content, prefer using `edit` to update specific sections.
+      - Use `write` to overwrite the entire file only if substantial restructuring is required.
+
+   # Principles
+   - Intelligently merge new information with existing content:
       - Categorize clearly (e.g., separate "Factual Memory" from "Reflections & Logic").
       - Avoid duplicating already recorded information.
       - Enrich existing entries with new details where relevant.
       - Maintain chronological order wherever applicable.
-   4. Write the updated content:
-      - Prefer using `edit` to update specific sections when possible.
-      - Use `write` to overwrite the entire file only if substantial restructuring is required.
-
-   Principles:
    - Always preserve timestamps and any date/time-related context.
    - Add only genuinely new or meaningfully enriching information.
    - Reflections MUST focus on forming reusable cognitive frameworks based on user feedback, aiming to improve future task execution.
@@ -37,23 +38,23 @@ user_message_zh: |
    当前日期：{date}
    工作目录：{working_dir}
 
+   # 任务
    立即存储持久化记忆与反思（使用路径 {memory_dir}/YYYY-MM-DD.md）。
 
-   工作流程：
-   1. 先 `read` {memory_dir}/YYYY-MM-DD.md（如文件不存在，会返回错误提示）
-   2. 从当前会话中提取并综合两类内容：
+   # 工作流程
+   1. 从当前会话中提取并综合两类内容：
       - 持久化记忆：客观事实、用户信息更新、项目状态及重要事件。
       - 经验反思：基于用户反馈形成的可复用思考逻辑、成功的问题解决策略、犯下的错误/应避免的陷阱，以及对未来交互有帮助的行动指南。
-   3. 智能合并新信息与现有内容（若文件不存在则跳过合并）：
+   2. `read` {memory_dir}/YYYY-MM-DD.md（如文件不存在，会返回错误提示）
+      - 若文件不存在，直接使用 `write` 工具写入。
+      - 若文件已存在，智能合并新信息与现有内容，尽可能使用 `edit` 更新特定部分，仅在需要大幅重构时使用 `write` 覆盖整个文件。
+
+   # 原则
+   - 智能合并新信息与现有内容：
       - 将内容进行清晰的分类（例如明确区分“事实记忆”与“反思与逻辑”）。
       - 避免重复已记录的信息。
       - 在相关时丰富现有条目的新细节。
       - 在适用时保持时间顺序。
-   4. 写入更新后的内容：
-      - 尽可能使用 `edit` 更新特定部分。
-      - 如需大幅重构则使用 `write` 覆盖整个文件。
-
-   原则：
    - 始终保留时间戳、日期和时间相关上下文。
    - 仅添加真正新的或有丰富价值的信息。
    - 反思内容必须侧重于根据用户反馈构建可复用的思维逻辑，以改善未来的任务执行。
