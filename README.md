@@ -223,9 +223,22 @@ if __name__ == "__main__":
 
 ### Architecture of the file-based ReMeLight memory system
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py)
-inherits
-`ReMeLight` and integrates its memory capabilities into the agent reasoning loop:
+#### Context data structure
+
+```mermaid
+flowchart TD
+    A[Context] --> B[compact_summary]
+    B --> C[dialog path guide + Goal/Constraints/Progress/KeyDecisions/NextSteps]
+    A --> E[messages: full dialogue history]
+    A --> F[File System Cache]
+    F --> G[dialog/YYYY-MM-DD.jsonl]
+    F --> H[tool_result/uuid.txt N-day TTL]
+```
+
+---
+
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py)
+inherits `ReMeLight` and integrates its memory capabilities into the agent reasoning loop:
 
 ```mermaid
 graph LR
@@ -283,16 +296,18 @@ graph LR
 
 **Summary structure** (context checkpoints):
 
-| Field                 | Description                                                            |
-|-----------------------|------------------------------------------------------------------------|
-| `## Goal`             | User goals                                                             |
-| `## Constraints`      | Constraints and preferences                                            |
-| `## Progress`         | Task progress                                                          |
-| `## Key Decisions`    | Key decisions                                                          |
-| `## Next Steps`       | Next step plans                                                        |
-| `## Critical Context` | Critical data such as file paths, function names, error messages, etc. |
+| Field                 | Description                                                                             |
+|-----------------------|-----------------------------------------------------------------------------------------|
+| `## Goal`             | User goals                                                                              |
+| `## Constraints`      | Constraints and preferences                                                             |
+| `## Progress`         | Task progress                                                                           |
+| `## Key Decisions`    | Key decisions                                                                           |
+| `## Next Steps`       | Next step plans                                                                         |
+| `## Critical Context` | Critical data such as file paths, function names, error messages, etc.                  |
 
 - **Incremental updates**: when `previous_summary` is provided, new conversations are merged into the existing summary.
+- **Thinking enhancement**: with `add_thinking_block=True` (default), a reasoning step is added before generating the
+  summary to improve quality.
 
 ---
 
@@ -325,17 +340,24 @@ graph LR
 #### 4. `compact_tool_result` — tool result compaction
 
 [ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) addresses the problem of long tool
-outputs bloating the context.
+outputs bloating the context. It applies two different truncation strategies depending on whether a message falls within
+the `recent_n` window:
 
 ```mermaid
 graph LR
-    M[messages] --> L{Iterate tool_result<br>len > threshold?}
-    L -->|No| K[Keep as-is]
-    L -->|Yes| T[truncate_text<br>Truncate to threshold]
-    T --> S[Write full content<br>tool_result/uuid.txt]
-    S --> R[Append file path reference<br>to message]
-    R --> C[cleanup_expired_files<br>Delete expired files]
+    M[messages] --> B{Within recent_n?}
+    B -->|Yes - recent| C[Low truncation recent_max_bytes=100KB<br>Save full content to tool_result/uuid.txt<br>Hint: 'Read from line N']
+    B -->|No - old| D[High truncation old_max_bytes=3KB<br>Reference existing file<br>More aggressive truncation]
+    C --> E[cleanup_expired_files<br>Delete expired files]
+    D --> E
 ```
+
+| Parameter          | Default               | Description                                                                                                                   |
+|--------------------|-----------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `recent_n`         | `1`                   | Minimum number of trailing consecutive tool-result messages treated as "recent" (use low truncation)                          |
+| `recent_max_bytes` | `100 * 1024` (100 KB) | Truncation threshold for recent messages; content beyond this is saved to `tool_result/` with a file path and start-line hint |
+| `old_max_bytes`    | `3000` (3 KB)         | Truncation threshold for older messages; truncation is more aggressive                                                        |
+| `retention_days`   | `3`                   | Number of days to retain tool result files; expired files are auto-cleaned                                                    |
 
 - **Auto cleanup**: expired files (older than `retention_days`) are deleted automatically during `start` / `close` /
   `compact_tool_result`.
@@ -411,10 +433,18 @@ graph LR
 
 **Execution flow**:
 
-1. `compact_tool_result` — compact long tool outputs.
-2. `check_context` — check whether the context exceeds limits.
-3. `compact_memory` — generate compact summary (sync).
-4. `summary_memory` — persist memory (async in the background).
+1. `compact_tool_result` — compact long tool outputs for all messages except the most recent
+   `tool_result_compact_keep_n`.
+2. `check_context` — check whether the context exceeds limits (remaining space = threshold minus tokens used by system
+   prompt and compressed summary).
+3. `compact_memory` — generate compact summary (sync), appended into `compact_summary`.
+4. `summary_memory` — persist memory to `memory/*.md` (async in the background, non-blocking).
+
+| Key parameter                | Default | Description                                                                         |
+|------------------------------|---------|-------------------------------------------------------------------------------------|
+| `tool_result_compact_keep_n` | `3`     | Skip tool result compaction for the most recent N messages (preserve full content)  |
+| `memory_compact_reserve`     | `10000` | Token count to reserve for recent messages; messages beyond this trigger compaction |
+| `compact_ratio`              | `0.7`   | Compaction threshold ratio: `max_input_length × compact_ratio × 0.95`               |
 
 ---
 

@@ -215,7 +215,21 @@ if __name__ == "__main__":
 
 ### 基于文件的 ReMeLight 记忆系统架构
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/memory_manager.py) 继承
+#### 上下文数据结构
+
+```mermaid
+flowchart TD
+    A[Context] --> B[compact_summary]
+    B --> C[dialog 路径引导 + Goal/Constraints/Progress/KeyDecisions/NextSteps]
+    A --> E[messages: 完整对话历史]
+    A --> F[文件系统缓存]
+    F --> G[dialog/YYYY-MM-DD.jsonl]
+    F --> H[tool_result/uuid.txt  N天TTL]
+```
+
+---
+
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py) 继承
 `ReMeLight`，将记忆能力集成到 Agent 推理流程中：
 
 ```mermaid
@@ -281,6 +295,7 @@ graph LR
 | `## Critical Context` | 文件路径、函数名、错误信息等关键数据 |
 
 - **增量更新**：传入 `previous_summary` 时，自动将新对话与旧摘要合并
+- **思考增强**：`add_thinking_block=True`（默认）时，在生成摘要前加入思考步骤，提升摘要质量
 
 ---
 
@@ -311,17 +326,23 @@ graph LR
 
 #### 4. compact_tool_result — 工具结果压缩
 
-[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。
+[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。根据消息是否在 `recent_n` 范围内，采用不同的截断策略：
 
 ```mermaid
 graph LR
-    M[messages] --> L{遍历 tool_result<br>len > threshold?}
-    L -->|否| K[保留原样]
-    L -->|是| T[truncate_text<br>截断到 threshold]
-    T --> S[完整内容写入<br>tool_result/uuid.txt]
-    S --> R[消息追加文件路径引用]
-    R --> C[cleanup_expired_files<br>清理过期文件]
+    M[messages] --> B{属于 recent_n 范围?}
+    B -->|是 近期消息| C[低截断 recent_max_bytes=100KB<br>完整内容写入 tool_result/uuid.txt<br>消息追加: 从第N行开始读]
+    B -->|否 历史消息| D[高截断 old_max_bytes=3KB<br>引用已有文件路径<br>更激进截断]
+    C --> E[cleanup_expired_files<br>清理过期文件]
+    D --> E
 ```
+
+| 参数                 | 默认值                 | 说明                                           |
+|--------------------|---------------------|----------------------------------------------|
+| `recent_n`         | `1`                 | 末尾连续工具结果消息的最小数量，视为"近期"，使用低截断阈值               |
+| `recent_max_bytes` | `100 * 1024`（100KB） | 近期消息的截断阈值；超出部分转存到 `tool_result/` 并附注文件路径和起始行 |
+| `old_max_bytes`    | `3000`（3KB）         | 历史消息的截断阈值，截断更激进                              |
+| `retention_days`   | `3`                 | 工具结果文件的保留天数，过期自动清理                           |
 
 - **自动清理**：过期文件（超过 `retention_days`）在 `start`/`close`/`compact_tool_result` 时自动删除
 
@@ -394,10 +415,16 @@ graph LR
 
 **执行流程**：
 
-1. `compact_tool_result` — 压缩超长工具输出
-2. `check_context` — 检查上下文是否超限
-3. `compact_memory` — 生成压缩摘要（同步）
-4. `summary_memory` — 持久化记忆（异步后台）
+1. `compact_tool_result` — 对除最近 `tool_result_compact_keep_n` 条消息之外的历史消息压缩超长工具输出
+2. `check_context` — 检查上下文是否超限（扣除 system_prompt 和 compressed_summary 的 token 后计算剩余空间）
+3. `compact_memory` — 生成压缩摘要（同步），结果追加到 `compact_summary`
+4. `summary_memory` — 持久化记忆到 `memory/*.md`（异步后台，不阻塞推理）
+
+| 关键参数                         | 默认值     | 说明                                               |
+|------------------------------|---------|--------------------------------------------------|
+| `tool_result_compact_keep_n` | `3`     | 最近 N 条消息跳过工具结果压缩（保留完整内容）                         |
+| `memory_compact_reserve`     | `10000` | 保留近期消息的 token 数，超出部分触发压缩                         |
+| `compact_ratio`              | `0.7`   | 压缩阈值比例：`max_input_length × compact_ratio × 0.95` |
 
 ---
 
