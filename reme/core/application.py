@@ -173,14 +173,17 @@ class Application:
             if config.backend not in R.as_llms:
                 logger.warning(f"AS LLM backend {config.backend} is not supported.")
             else:
-                config_dict = config.model_dump(exclude={"backend"})
-                if not config_dict.get("api_key", ""):
-                    config_dict["api_key"] = self.llm_api_key
-                if "client_kwargs" not in config_dict:
-                    config_dict["client_kwargs"] = {}
-                if not config_dict["client_kwargs"].get("base_url", ""):
-                    config_dict["client_kwargs"]["base_url"] = self.llm_base_url
-                self.service_context.as_llms[name] = R.as_llms[config.backend](**config_dict)
+                try:
+                    config_dict = config.model_dump(exclude={"backend"})
+                    if not config_dict.get("api_key", ""):
+                        config_dict["api_key"] = self.llm_api_key
+                    if "client_kwargs" not in config_dict:
+                        config_dict["client_kwargs"] = {}
+                    if not config_dict["client_kwargs"].get("base_url", ""):
+                        config_dict["client_kwargs"]["base_url"] = self.llm_base_url
+                    self.service_context.as_llms[name] = R.as_llms[config.backend](**config_dict)
+                except Exception as e:
+                    logger.error(f"Failed to initialize AS LLM '{name}': {e}")
 
         for name, config in self.service_config.as_llm_formatters.items():
             if config.backend not in R.as_llm_formatters:
@@ -287,15 +290,18 @@ class Application:
                     logger.warning(f"AS LLM backend {config.get('backend')} is not supported.")
                     continue
 
-                config_dict = {k: v for k, v in config.items() if k != "backend"}
-                if not config_dict.get("api_key", ""):
-                    config_dict["api_key"] = self.llm_api_key
-                if "client_kwargs" not in config_dict:
-                    config_dict["client_kwargs"] = {}
-                if not config_dict["client_kwargs"].get("base_url", ""):
-                    config_dict["client_kwargs"]["base_url"] = self.llm_base_url
-                self.service_context.as_llms[name] = R.as_llms[config["backend"]](**config_dict)
-                logger.info(f"Restarted AS LLM: {name}")
+                try:
+                    config_dict = {k: v for k, v in config.items() if k != "backend"}
+                    if not config_dict.get("api_key", ""):
+                        config_dict["api_key"] = self.llm_api_key
+                    if "client_kwargs" not in config_dict:
+                        config_dict["client_kwargs"] = {}
+                    if not config_dict["client_kwargs"].get("base_url", ""):
+                        config_dict["client_kwargs"]["base_url"] = self.llm_base_url
+                    self.service_context.as_llms[name] = R.as_llms[config["backend"]](**config_dict)
+                    logger.info(f"Restarted AS LLM: {name}")
+                except Exception as e:
+                    logger.error(f"Failed to restart AS LLM '{name}': {e}")
 
         # as_llm_formatters
         if "as_llm_formatters" in restart_config:

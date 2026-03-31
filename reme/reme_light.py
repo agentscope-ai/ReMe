@@ -369,6 +369,7 @@ class ReMeLight(Application):
         previous_summary: str = "",
         return_dict: bool = False,
         add_thinking_block: bool = True,
+        extra_instruction: str = "",
     ) -> str | dict:
         """
         Compact a list of messages into a condensed summary.
@@ -395,6 +396,12 @@ class ReMeLight(Application):
                 summary for continuity. Defaults to empty string.
             return_dict (bool): If True, returns a dict with user_message,
                 history_compact, and is_valid. Defaults to False.
+            add_thinking_block (bool): If True, adds a thinking block to the summary.
+            extra_instruction (str): Optional additional instruction appended to the
+                compaction prompt. Use this to guide what information to keep or
+                remove. For example: "Remove debug logs and tool-call details. Keep
+                requirements, decisions, and pending tasks." Defaults to empty string
+                (no extra instruction, preserving default behavior).
 
         Returns:
             str | dict: The condensed summary string, or a dict containing
@@ -410,6 +417,7 @@ class ReMeLight(Application):
                 language=language if language == "zh" else "",
                 return_dict=return_dict,
                 add_thinking_block=add_thinking_block,
+                extra_instruction=extra_instruction,
             )
 
             return await compactor.call(

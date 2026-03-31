@@ -83,7 +83,7 @@ litellm = [
 ]
 
 light = [
-    "agentscope==1.0.17",
+    "agentscope==1.0.18",
     "flowllm[reme]>=0.2.0.10",
 ]
 
