@@ -1,6 +1,6 @@
-# Halumem
+# Longmemeval
 Experiment Quick Start Guide
-This guide helps you quickly set up and run Halumem experiments with ReMe integration.
+This guide helps you quickly set up and run Longmemeval experiments with ReMe integration.
 
 ### 1. Start ReMe Service
 Install ReMe (if not already installed)
