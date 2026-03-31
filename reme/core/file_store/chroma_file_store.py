@@ -16,8 +16,8 @@ try:
     import chromadb
     from chromadb.config import Settings
 
-    _CHROMADB_IMPORT_ERROR: ImportError | None = None
-except ImportError as e:
+    _CHROMADB_IMPORT_ERROR: Exception | None = None
+except Exception as e:
     _CHROMADB_IMPORT_ERROR = e
     chromadb = None
     Settings = None

@@ -9,7 +9,7 @@ from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
-_QDRANT_IMPORT_ERROR = None
+_QDRANT_IMPORT_ERROR: Exception | None = None
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -23,7 +23,7 @@ try:
         Range,
         VectorParams,
     )
-except ImportError as e:
+except Exception as e:
     _QDRANT_IMPORT_ERROR = e
     AsyncQdrantClient = None
     Distance = None

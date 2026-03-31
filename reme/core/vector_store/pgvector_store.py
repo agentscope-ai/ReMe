@@ -11,12 +11,12 @@ from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
-_ASYNCPG_IMPORT_ERROR = None
+_ASYNCPG_IMPORT_ERROR: Exception | None = None
 
 try:
     import asyncpg
     from asyncpg import Pool
-except ImportError as e:
+except Exception as e:
     _ASYNCPG_IMPORT_ERROR = e
     asyncpg = None
     Pool = None

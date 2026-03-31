@@ -10,11 +10,11 @@ from tqdm import tqdm
 from .base_op import BaseOp
 from ..base_dict import BaseDict
 
-_RAY_IMPORT_ERROR = None
+_RAY_IMPORT_ERROR: Exception | None = None
 
 try:
     import ray
-except ImportError as _e:
+except Exception as _e:
     _RAY_IMPORT_ERROR = _e
     ray = None
 
