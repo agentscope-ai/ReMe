@@ -189,15 +189,21 @@ class Application:
             if config.backend not in R.as_llm_formatters:
                 logger.warning(f"AS LLM formatter backend {config.backend} is not supported.")
             else:
-                config_dict = config.model_dump(exclude={"backend"})
-                self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config.backend](**config_dict)
+                try:
+                    config_dict = config.model_dump(exclude={"backend"})
+                    self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config.backend](**config_dict)
+                except Exception as e:
+                    logger.error(f"Failed to initialize AS LLM formatter '{name}': {e}")
 
         for name, config in self.service_config.as_token_counters.items():
             if config.backend not in R.as_token_counters:
                 logger.warning(f"Token counter backend {config.backend} is not supported.")
             else:
-                config_dict = config.model_dump(exclude={"backend"})
-                self.service_context.as_token_counters[name] = R.as_token_counters[config.backend](**config_dict)
+                try:
+                    config_dict = config.model_dump(exclude={"backend"})
+                    self.service_context.as_token_counters[name] = R.as_token_counters[config.backend](**config_dict)
+                except Exception as e:
+                    logger.error(f"Failed to initialize AS token counter '{name}': {e}")
 
         for name, config in self.service_config.llms.items():
             if config.backend not in R.llms:
@@ -314,9 +320,12 @@ class Application:
                 if config.get("backend") not in R.as_llm_formatters:
                     logger.warning(f"AS LLM formatter backend {config.get('backend')} is not supported.")
                     continue
-                config_dict = {k: v for k, v in config.items() if k != "backend"}
-                self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config["backend"]](**config_dict)
-                logger.info(f"Restarted AS LLM formatter: {name}")
+                try:
+                    config_dict = {k: v for k, v in config.items() if k != "backend"}
+                    self.service_context.as_llm_formatters[name] = R.as_llm_formatters[config["backend"]](**config_dict)
+                    logger.info(f"Restarted AS LLM formatter: {name}")
+                except Exception as e:
+                    logger.error(f"Failed to restart AS LLM formatter '{name}': {e}")
 
         # as_token_counters
         if "as_token_counters" in restart_config:
@@ -329,9 +338,12 @@ class Application:
                 if config.get("backend") not in R.as_token_counters:
                     logger.warning(f"Token counter backend {config.get('backend')} is not supported.")
                     continue
-                config_dict = {k: v for k, v in config.items() if k != "backend"}
-                self.service_context.as_token_counters[name] = R.as_token_counters[config["backend"]](**config_dict)
-                logger.info(f"Restarted AS token counter: {name}")
+                try:
+                    config_dict = {k: v for k, v in config.items() if k != "backend"}
+                    self.service_context.as_token_counters[name] = R.as_token_counters[config["backend"]](**config_dict)
+                    logger.info(f"Restarted AS token counter: {name}")
+                except Exception as e:
+                    logger.error(f"Failed to restart AS token counter '{name}': {e}")
 
         # llms
         if "llms" in restart_config:
