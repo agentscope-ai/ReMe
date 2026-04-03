@@ -2,8 +2,8 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, and ChromaVectorStore implementations. Tests can be
-run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, and ObVecVectorStore implementations.
+Tests can be run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -11,9 +11,8 @@ Usage:
     python test_vector_store.py --pgvector   # Test PGVectorStore only
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
-    python test_vector_store.py --obvec      # Test ObVecVectorStore only
+    python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
     python test_vector_store.py --all        # Test all vector stores
-
 """
 
 import argparse
@@ -40,6 +39,12 @@ from reme.core.vector_store import (
 )
 
 load_env()
+
+
+def _search_score_for_log(metadata: dict) -> object:
+    """Similarity score for log lines (implementations use ``metadata['score']``)."""
+    return metadata.get("score", metadata.get("_score", "N/A"))
+
 
 # ==================== Configuration ====================
 
@@ -76,8 +81,10 @@ class TestConfig:
     CHROMA_TENANT = None  # Set for ChromaDB Cloud tenant
     CHROMA_DATABASE = None  # Set for ChromaDB Cloud database
 
-    # ObVecVectorStore: seekdb uses user `root`; OceanBase multi-tenant often uses `root@test`.
-    # Defaults match docker-compose.obvec.yml (ROOT_PASSWORD=root).
+    # ObVecVectorStore: seekdb docker often uses user `root` + ROOT_PASSWORD; OceanBase
+    # multi-tenant commonly uses `root@<tenant>` (see pyobvector defaults).
+    # OBVEC_PASSWORD default `root` matches docker-compose.obvec.yml only—override if your
+    # seekdb uses another ROOT_PASSWORD (e.g. another compose stack on the same port).
     OBVEC_URI = os.environ.get("OBVEC_URI", "127.0.0.1:2881")
     OBVEC_USER = os.environ.get("OBVEC_USER", "root")
     OBVEC_PASSWORD = os.environ.get("OBVEC_PASSWORD", "root")
@@ -351,7 +358,7 @@ async def test_search(store: BaseVectorStore, _store_name: str):
 
     logger.info(f"Search returned {len(results)} results")
     for i, r in enumerate(results, 1):
-        score = r.metadata.get("_score", "N/A")
+        score = _search_score_for_log(r.metadata)
         logger.info(f"  Result {i}: {r.content[:60]}... (score: {score})")
 
     assert len(results) > 0, "Search should return results"
@@ -1034,7 +1041,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
 
     logger.info(f"Search results for: '{query}'")
     for i, result in enumerate(results, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = _search_score_for_log(result.metadata)
         relevance = result.metadata.get("relevance", "unknown")
         logger.info(f"  {i}. [{relevance}] score={score}: {result.content[:60]}...")
 
@@ -1052,7 +1059,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
     results2 = await store.search(query=query2, limit=5)
     logger.info(f"\nSearch results for: '{query2}'")
     for i, result in enumerate(results2, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = _search_score_for_log(result.metadata)
         logger.info(f"  {i}. score={score}: {result.content[:60]}...")
 
     logger.info("✓ Search relevance ranking test passed")
@@ -1742,7 +1749,7 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
 
     Args:
         store: Vector store instance
-        store_type: Type of vector store ("local" or "es")
+        store_type: Backend key (e.g. ``"local"``, ``"obvec"``)
     """
     logger.info("=" * 20 + " CLEANUP " + "=" * 20)
 
@@ -1776,6 +1783,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(test_dir)
                 logger.info(f"Cleaned up chroma directory: {config.CHROMA_PATH}")
 
+        # ObVecVectorStore uses a temp db_path per run (reserved for local sidecar files).
+        if store_type == "obvec":
+            obvec_dir = getattr(store, "db_path", None)
+            if obvec_dir and Path(obvec_dir).exists():
+                shutil.rmtree(obvec_dir, ignore_errors=True)
+                logger.info(f"Cleaned up obvec temp directory: {obvec_dir}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1796,6 +1810,7 @@ Examples:
   python test_vector_store.py --pgvector   # Test PGVectorStore only
   python test_vector_store.py --qdrant     # Test QdrantVectorStore only
   python test_vector_store.py --chroma     # Test ChromaVectorStore only
+  python test_vector_store.py --obvec      # Test ObVecVectorStore (seekdb / OceanBase)
   python test_vector_store.py --all        # Test all vector stores
         """,
     )

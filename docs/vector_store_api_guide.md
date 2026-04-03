@@ -116,7 +116,7 @@ The asynchronous interface is particularly useful in the following scenarios:
 - **password**: Database password (seekdb Docker images commonly set this via `ROOT_PASSWORD`).
 - **database**: Logical database name (default: `test`).
 - **index_type**: Vector index family (default: `HNSW`).
-- **index_metric**: Distance metric for the vector index: `cosine`, `l2`, or `ip` (inner product); default `cosine`.
+- **index_metric**: Distance metric for the vector index: `cosine` or `ip` (inner product); default `cosine`.
 - **index_ef_search**: HNSW `ef_search` parameter passed to pyobvector (default: `100`).
 - **collection_name**: Table name for the collection (from `VectorStoreConfig`, default `reme`). Use lowercase names if your deployment restricts identifiers.
 
@@ -131,8 +131,6 @@ docker compose -f docker-compose.obvec.yml up -d
 ```shell
 OBVEC_PASSWORD=<your_root_password> python tests/test_vector_store.py --obvec
 ```
-
-**Dependencies**: `pyobvector` is declared in ReMe’s `pyproject.toml`. A compatible `sqlglot` range is pinned so the pyobvector client imports cleanly.
 
 ## Configuration File Examples
 
