@@ -1,14 +1,18 @@
-"""OceanBase vector store implementation for ReMe.
+"""OceanBase / SeekDB vector store for ReMe (pyobvector).
 
-This module provides an OceanBase-based vector store that implements the BaseVectorStore
-interface for high-performance dense vector storage and retrieval using pyobvector.
+Dense vectors, kNN via ``ObVecClient.ann_search``, JSON metadata filters, and
+helpers for coercion / metrics live in this module (pyobvector-aligned).
 """
 
+from __future__ import annotations
+
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import text as sa_text
 
 from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
@@ -25,39 +29,117 @@ except Exception as e:
     VecIndexType = None
     VECTOR = None
 
+# HNSW index metric strings for pyobvector ``IndexParam`` (metric_type / distance).
+_METRIC_TO_INDEX_DISTANCE: dict[str, str] = {
+    "cosine": "cosine",
+    "l2": "l2_distance",
+    "ip": "inner_product",
+}
+
+
+def _is_safe_metadata_key(key: str) -> bool:
+    return bool(key.replace("_", "").replace(".", "").isalnum())
+
+
+def _coerce_db_vector(raw: Any) -> list[float] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [float(x) for x in raw]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [float(x) for x in parsed]
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return None
+
+
+def _coerce_db_metadata(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return {}
+
+
+def _build_metadata_filter_sql(filters: dict[str, Any] | None) -> str:
+    if not filters:
+        return ""
+
+    parts: list[str] = []
+    for key, value in filters.items():
+        if not _is_safe_metadata_key(key):
+            continue
+
+        path = f"$.{key}"
+        if isinstance(value, list) and len(value) == 2:
+            lo, hi = value[0], value[1]
+            if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+                parts.append(
+                    f"(JSON_EXTRACT(metadata, '{path}') >= {lo} AND "
+                    f"JSON_EXTRACT(metadata, '{path}') <= {hi})",
+                )
+            else:
+                parts.append(
+                    f"(JSON_EXTRACT(metadata, '{path}') >= '{lo}' AND "
+                    f"JSON_EXTRACT(metadata, '{path}') <= '{hi}')",
+                )
+        elif isinstance(value, (int, float)):
+            parts.append(f"JSON_EXTRACT(metadata, '{path}') = {value}")
+        else:
+            parts.append(f"JSON_EXTRACT(metadata, '{path}') = '{value}'")
+
+    return " AND ".join(parts)
+
+
+def _format_vector_sql_literal(vector: list[float]) -> str:
+    return "[" + ",".join(str(float(v)) for v in vector) + "]"
+
+
+def _normalize_embedding_for_ann(raw: Any) -> list[float]:
+    if hasattr(raw, "tolist"):
+        raw = raw.tolist()
+    return [float(x) for x in raw]
+
+
+def _get_distance_function(metric: str) -> Callable[..., Any]:
+    from pyobvector import cosine_distance, inner_product, l2_distance
+
+    registry: dict[str, Callable[..., Any]] = {
+        "cosine": cosine_distance,
+        "l2": l2_distance,
+        "ip": inner_product,
+    }
+    return registry.get(metric.lower(), cosine_distance)
+
+
+def _similarity_from_distance(metric: str, distance: float) -> float:
+    m = metric.lower()
+    if m in ("cosine", "l2"):
+        return max(0.0, 1.0 - distance / 2.0)
+    return max(0.0, float(distance))
+
+
+def _vector_node_from_db_row(row: tuple[Any, ...]) -> VectorNode:
+    return VectorNode(
+        vector_id=row[0],
+        content=row[1] or "",
+        vector=_coerce_db_vector(row[2]),
+        metadata=_coerce_db_metadata(row[3]),
+    )
+
 
 class ObVecVectorStore(BaseVectorStore):
-    """OceanBase-based vector store for dense vector storage and kNN search."""
-
-    @staticmethod
-    def _coerce_db_vector(raw: Any) -> list[float] | None:
-        if raw is None:
-            return None
-        if isinstance(raw, list):
-            return [float(x) for x in raw]
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, list):
-                    return [float(x) for x in parsed]
-            except (json.JSONDecodeError, TypeError, ValueError):
-                pass
-        return None
-
-    @staticmethod
-    def _coerce_db_metadata(raw: Any) -> dict[str, Any]:
-        if raw is None:
-            return {}
-        if isinstance(raw, dict):
-            return raw
-        if isinstance(raw, str):
-            try:
-                parsed = json.loads(raw)
-                if isinstance(parsed, dict):
-                    return parsed
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return {}
+    """OceanBase or SeekDB vector store for dense vectors and kNN search."""
 
     def __init__(
         self,
@@ -73,24 +155,9 @@ class ObVecVectorStore(BaseVectorStore):
         index_ef_search: int = 100,
         **kwargs,
     ):
-        """Initialize the OceanBase vector store with connection parameters.
-
-        Args:
-            collection_name: Name of the collection (table).
-            db_path: Database path (not used for remote OceanBase, kept for API consistency).
-            embedding_model: Model instance used to generate vector embeddings.
-            uri: Connection URI for OceanBase server.
-            user: Username for authentication.
-            password: Password for authentication.
-            database: Database name to use.
-            index_type: Type of vector index (HNSW).
-            index_metric: Distance metric (cosine, l2, ip).
-            index_ef_search: HNSW ef_search parameter.
-            **kwargs: Additional configuration passed to the base class.
-        """
         if _OBVECTOR_IMPORT_ERROR is not None:
             raise ImportError(
-                "ObVecVectorStore requires extra dependencies. Install with `pip install pyobvector`",
+                "ObVecVectorStore requires pyobvector. Install with `pip install pyobvector`",
             ) from _OBVECTOR_IMPORT_ERROR
 
         super().__init__(
@@ -112,9 +179,6 @@ class ObVecVectorStore(BaseVectorStore):
         self.embedding_model_dims = embedding_model.dimensions
 
     async def list_collections(self) -> list[str]:
-        """List all available table names in the current database."""
-        # OceanBase doesn't have a direct list collections API
-        # We'll return the current collection name if it exists
         if self.client is None:
             return []
         try:
@@ -124,26 +188,23 @@ class ObVecVectorStore(BaseVectorStore):
             rows = result.fetchall()
             return [row[0] for row in rows if row]
         except Exception as e:
-            logger.warning(f"Failed to list collections: {e}")
+            logger.warning("Failed to list collections: {}", e)
             return []
 
     async def create_collection(self, collection_name: str, **kwargs):
-        """Create a new table with vector support and appropriate indexing."""
         dimensions = kwargs.get("dimensions", self.embedding_model_dims)
 
         if self.client is None:
             logger.warning("Client not initialized, skipping collection creation")
             return
 
-        # Check if table already exists
         if self.client.check_table_exists(collection_name):
-            logger.info(f"Collection {collection_name} already exists")
+            logger.info("Collection {} already exists", collection_name)
             return
 
-        from sqlalchemy import Column, String, Text, JSON, create_engine
+        from sqlalchemy import Column, JSON, String
         from sqlalchemy.dialects.mysql import LONGTEXT
 
-        # Create columns
         columns = [
             Column("id", String(255), primary_key=True),
             Column("content", LONGTEXT),
@@ -153,12 +214,7 @@ class ObVecVectorStore(BaseVectorStore):
 
         vidxs: IndexParams | None = None
         if self.index_type == "HNSW":
-            metric_map = {
-                "cosine": "cosine",
-                "l2": "l2_distance",
-                "ip": "inner_product",
-            }
-            metric = metric_map.get(self.index_metric, "cosine")
+            metric = _METRIC_TO_INDEX_DISTANCE.get(self.index_metric, "cosine")
             vidxs = IndexParams()
             vidxs.add_index(
                 "vector",
@@ -169,63 +225,52 @@ class ObVecVectorStore(BaseVectorStore):
             )
 
         try:
-            # Create table with index
             self.client.create_table_with_index_params(
                 table_name=collection_name,
                 columns=columns,
                 vidxs=vidxs,
             )
-            logger.info(f"Created collection {collection_name} with dimensions={dimensions}")
+            logger.info("Created collection {} with dimensions={}", collection_name, dimensions)
         except Exception as e:
-            logger.error(f"Failed to create collection {collection_name}: {e}")
+            logger.error("Failed to create collection {}: {}", collection_name, e)
             raise
 
     async def delete_collection(self, collection_name: str, **kwargs):
-        """Permanently delete a collection table from the database."""
         if self.client is None:
             logger.warning("Client not initialized, skipping collection deletion")
             return
 
         try:
             self.client.drop_table_if_exist(collection_name)
-            logger.info(f"Deleted collection {collection_name}")
+            logger.info("Deleted collection {}", collection_name)
         except Exception as e:
-            logger.error(f"Failed to delete collection {collection_name}: {e}")
+            logger.error("Failed to delete collection {}: {}", collection_name, e)
             raise
 
     async def copy_collection(self, collection_name: str, **kwargs):
-        """Duplicate the current collection to a new one with the given name."""
         if self.client is None:
             logger.warning("Client not initialized, skipping collection copy")
             return
 
-        # Check if source collection exists
         if not self.client.check_table_exists(self.collection_name):
             raise ValueError(f"Source collection {self.collection_name} does not exist")
 
-        # Create new collection with same structure
         await self.create_collection(collection_name)
 
-        # Copy data from source to target
         try:
-            # Get all data from source
             source_data = await self.list(limit=None)
-
-            # Insert into new collection
             if source_data:
                 await self.insert(source_data, collection_name=collection_name)
 
-            logger.info(f"Copied collection {self.collection_name} to {collection_name}")
-        except Exception as e:
-            # Clean up the created collection if copy fails
+            logger.info("Copied collection {} to {}", self.collection_name, collection_name)
+        except Exception:
             try:
                 self.client.drop_table_if_exist(collection_name)
-            except:
-                pass
+            except Exception as cleanup_err:
+                logger.warning("Cleanup after failed copy failed: {}", cleanup_err)
             raise
 
     async def insert(self, nodes: VectorNode | list[VectorNode], **kwargs):
-        """Insert or upsert vector nodes into the OceanBase collection."""
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
 
@@ -236,16 +281,15 @@ class ObVecVectorStore(BaseVectorStore):
         if nodes_without_vectors:
             nodes_with_vectors = await self.get_node_embeddings(nodes_without_vectors)
             vector_map = {n.vector_id: n for n in nodes_with_vectors}
-            nodes_to_insert = [vector_map.get(n.vector_id, n) if n.vector is None else n for n in nodes]
+            nodes_to_insert = [
+                vector_map.get(n.vector_id, n) if n.vector is None else n for n in nodes
+            ]
         else:
             nodes_to_insert = nodes
 
-        # Prepare data for insertion
         data = []
         for node in nodes_to_insert:
-            # Convert vector to list if it's not already
             vector_list = node.vector if node.vector is not None else []
-
             data.append({
                 "id": node.vector_id,
                 "content": node.content,
@@ -253,7 +297,6 @@ class ObVecVectorStore(BaseVectorStore):
                 "metadata": node.metadata if node.metadata else {},
             })
 
-        # Determine which collection to use
         target_collection = kwargs.get("collection_name", self.collection_name)
 
         try:
@@ -261,47 +304,10 @@ class ObVecVectorStore(BaseVectorStore):
                 table_name=target_collection,
                 data=data,
             )
-            logger.info(f"Inserted {len(nodes_to_insert)} documents into {target_collection}")
+            logger.info("Inserted {} documents into {}", len(nodes_to_insert), target_collection)
         except Exception as e:
-            logger.error(f"Failed to insert documents: {e}")
+            logger.error("Failed to insert documents: {}", e)
             raise
-
-    def _build_filter_clause(self, filters: dict | None) -> str:
-        """Generate a WHERE clause from filter dictionary.
-
-        Supports two filter formats:
-        1. Range query: {"field": [start_value, end_value]} - filters for field >= start_value AND field <= end_value
-        2. Exact match: {"field": value} - filters for field == value
-        """
-        if not filters:
-            return ""
-
-        conditions = []
-        for key, value in filters.items():
-            # Sanitize key to prevent SQL injection
-            if not key.replace("_", "").replace(".", "").isalnum():
-                continue
-
-            # New syntax: [start, end] represents a range query
-            if isinstance(value, list) and len(value) == 2:
-                lo, hi = value[0], value[1]
-                if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
-                    conditions.append(
-                        f"(JSON_EXTRACT(metadata, '$.{key}') >= {lo} AND "
-                        f"JSON_EXTRACT(metadata, '$.{key}') <= {hi})",
-                    )
-                else:
-                    conditions.append(
-                        f"(JSON_EXTRACT(metadata, '$.{key}') >= '{lo}' AND "
-                        f"JSON_EXTRACT(metadata, '$.{key}') <= '{hi}')",
-                    )
-            else:
-                if isinstance(value, (int, float)):
-                    conditions.append(f"JSON_EXTRACT(metadata, '$.{key}') = {value}")
-                else:
-                    conditions.append(f"JSON_EXTRACT(metadata, '$.{key}') = '{value}'")
-
-        return " AND ".join(conditions)
 
     async def search(
         self,
@@ -310,32 +316,14 @@ class ObVecVectorStore(BaseVectorStore):
         filters: dict | None = None,
         **kwargs,
     ) -> list[VectorNode]:
-        """Perform a kNN similarity search based on a text query."""
-        query_vector = await self.get_embedding(query)
-        if hasattr(query_vector, "tolist"):
-            query_vector = query_vector.tolist()
-        else:
-            query_vector = [float(x) for x in query_vector]
+        raw_vec = await self.get_embedding(query)
+        query_vector = _normalize_embedding_for_ann(raw_vec)
+        distance_func = _get_distance_function(self.index_metric)
 
-        # Determine distance function based on metric
-        if self.index_metric == "cosine":
-            from pyobvector import cosine_distance
-            distance_func = cosine_distance
-        elif self.index_metric == "l2":
-            from pyobvector import l2_distance
-            distance_func = l2_distance
-        else:  # ip (inner product)
-            from pyobvector import inner_product
-            distance_func = inner_product
-
-        # ann_search passes where_clause to SQLAlchemy where(*...); use text(), not raw str.
-        from sqlalchemy import text as sa_text
-
-        filter_sql = self._build_filter_clause(filters)
+        filter_sql = _build_metadata_filter_sql(filters)
         where_parts = [sa_text(filter_sql)] if filter_sql else None
 
         try:
-            # pyobvector expects vec_data as a flat list of floats, not [vector].
             results = self.client.ann_search(
                 table_name=self.collection_name,
                 vec_data=query_vector,
@@ -347,54 +335,39 @@ class ObVecVectorStore(BaseVectorStore):
                 where_clause=where_parts,
             )
 
-            search_results = []
+            search_results: list[VectorNode] = []
             score_threshold = kwargs.get("score_threshold")
 
             for row in results:
-                # row format: (id, content, metadata, distance)
-                if len(row) >= 4:
-                    vector_id = row[0]
-                    content = row[1]
-                    metadata_str = row[2]
-                    distance = row[3]
+                if len(row) < 4:
+                    continue
+                vector_id, content, metadata_raw, distance = row[0], row[1], row[2], row[3]
+                score = _similarity_from_distance(self.index_metric, float(distance))
 
-                    # Convert distance to similarity score
-                    if self.index_metric == "cosine":
-                        score = max(0.0, 1.0 - distance / 2.0)
-                    elif self.index_metric == "l2":
-                        # For L2, we need to normalize - this is a rough approximation
-                        score = max(0.0, 1.0 - distance / 2.0)
-                    else:  # inner product
-                        # For IP, higher is better, no conversion needed
-                        score = max(0.0, distance)
+                if score_threshold is not None and score < score_threshold:
+                    continue
 
-                    if score_threshold is not None and score < score_threshold:
-                        continue
+                metadata: dict[str, Any] = {}
+                if metadata_raw:
+                    metadata = _coerce_db_metadata(metadata_raw)
+                metadata["score"] = score
+                metadata["_distance"] = distance
 
-                    # Parse metadata
-                    metadata = {}
-                    if metadata_str:
-                        metadata = self._coerce_db_metadata(metadata_str)
-
-                    metadata["score"] = score
-                    metadata["_distance"] = distance
-
-                    search_results.append(
-                        VectorNode(
-                            vector_id=vector_id,
-                            content=content or "",
-                            vector=None,  # Don't return vector in search results
-                            metadata=metadata,
-                        ),
-                    )
+                search_results.append(
+                    VectorNode(
+                        vector_id=vector_id,
+                        content=content or "",
+                        vector=None,
+                        metadata=metadata,
+                    ),
+                )
 
             return search_results
         except Exception as e:
-            logger.error(f"Search failed: {e}")
+            logger.error("Search failed: {}", e)
             return []
 
     async def delete(self, vector_ids: str | list[str], **kwargs):
-        """Remove specific vector records from the collection by their IDs."""
         if isinstance(vector_ids, str):
             vector_ids = [vector_ids]
 
@@ -403,22 +376,20 @@ class ObVecVectorStore(BaseVectorStore):
 
         try:
             self.client.delete(self.collection_name, ids=vector_ids)
-            logger.info(f"Deleted {len(vector_ids)} documents from {self.collection_name}")
+            logger.info("Deleted {} documents from {}", len(vector_ids), self.collection_name)
         except Exception as e:
-            logger.error(f"Failed to delete documents: {e}")
+            logger.error("Failed to delete documents: {}", e)
             raise
 
     async def delete_all(self, **kwargs):
-        """Remove all vectors from the collection."""
         try:
             self.client.delete(self.collection_name)
-            logger.info(f"Deleted all documents from {self.collection_name}")
+            logger.info("Deleted all documents from {}", self.collection_name)
         except Exception as e:
-            logger.error(f"Failed to delete all documents: {e}")
+            logger.error("Failed to delete all documents: {}", e)
             raise
 
     async def update(self, nodes: VectorNode | list[VectorNode], **kwargs):
-        """Update existing vector nodes with new content, embeddings, or metadata."""
         if isinstance(nodes, VectorNode):
             nodes = [nodes]
 
@@ -429,7 +400,9 @@ class ObVecVectorStore(BaseVectorStore):
         if nodes_without_vectors:
             nodes_with_vectors = await self.get_node_embeddings(nodes_without_vectors)
             vector_map = {n.vector_id: n for n in nodes_with_vectors}
-            nodes_to_update = [vector_map.get(n.vector_id, n) if n.vector is None and n.content else n for n in nodes]
+            nodes_to_update = [
+                vector_map.get(n.vector_id, n) if n.vector is None and n.content else n for n in nodes
+            ]
         else:
             nodes_to_update = nodes
 
@@ -446,29 +419,29 @@ class ObVecVectorStore(BaseVectorStore):
 
                 if node.vector is not None:
                     updates.append("vector = :vector")
-                    # VECTOR column expects a single literal, not a Python list bound as multi-column
-                    params["vector"] = "[" + ",".join(str(float(v)) for v in node.vector) + "]"
+                    params["vector"] = _format_vector_sql_literal(node.vector)
 
                 if node.metadata is not None:
                     updates.append("metadata = :metadata")
                     params["metadata"] = json.dumps(node.metadata)
 
-                if updates:
-                    params["vid"] = node.vector_id
-                    update_sql = (
-                        f"UPDATE `{self.collection_name}` SET {', '.join(updates)} WHERE id = :vid"
-                    )
-                    with self.client.engine.connect() as conn:
-                        with conn.begin():
-                            conn.execute(text(update_sql), params)
+                if not updates:
+                    continue
 
-            logger.info(f"Updated {len(nodes_to_update)} documents in {self.collection_name}")
+                params["vid"] = node.vector_id
+                update_sql = (
+                    f"UPDATE `{self.collection_name}` SET {', '.join(updates)} WHERE id = :vid"
+                )
+                with self.client.engine.connect() as conn:
+                    with conn.begin():
+                        conn.execute(text(update_sql), params)
+
+            logger.info("Updated {} documents in {}", len(nodes_to_update), self.collection_name)
         except Exception as e:
-            logger.error(f"Failed to update documents: {e}")
+            logger.error("Failed to update documents: {}", e)
             raise
 
     async def get(self, vector_ids: str | list[str]) -> VectorNode | list[VectorNode] | None:
-        """Retrieve vector nodes by their unique identifiers."""
         single_result = isinstance(vector_ids, str)
         if single_result:
             vector_ids = [vector_ids]
@@ -486,23 +459,13 @@ class ObVecVectorStore(BaseVectorStore):
             result = self.client.perform_raw_text_sql(select_sql)
             rows = result.fetchall()
 
-            results = []
-            for row in rows:
-                if row:
-                    results.append(
-                        VectorNode(
-                            vector_id=row[0],
-                            content=row[1] or "",
-                            vector=self._coerce_db_vector(row[2]),
-                            metadata=self._coerce_db_metadata(row[3]),
-                        ),
-                    )
+            results = [_vector_node_from_db_row(row) for row in rows if row]
 
             if single_result:
                 return results[0] if results else None
             return results
         except Exception as e:
-            logger.error(f"Failed to get documents: {e}")
+            logger.error("Failed to get documents: {}", e)
             return [] if not single_result else None
 
     async def list(
@@ -512,53 +475,29 @@ class ObVecVectorStore(BaseVectorStore):
         sort_key: str | None = None,
         reverse: bool = False,
     ) -> list[VectorNode]:
-        """Retrieve a list of vector nodes matching the provided filters and limit.
-
-        Args:
-            filters: Dictionary of filter conditions to match vectors
-            limit: Maximum number of vectors to return
-            sort_key: Key to sort the results by (e.g., field name in metadata). None for no sorting
-            reverse: If True, sort in descending order; if False, sort in ascending order
-        """
         try:
-            # Build select SQL
             select_sql = f"SELECT id, content, vector, metadata FROM `{self.collection_name}`"
 
-            where_clause = self._build_filter_clause(filters)
+            where_clause = _build_metadata_filter_sql(filters)
             if where_clause:
                 select_sql += f" WHERE {where_clause}"
 
-            # Add sorting
-            if sort_key:
+            if sort_key and _is_safe_metadata_key(sort_key):
                 order = "DESC" if reverse else "ASC"
                 select_sql += f" ORDER BY JSON_EXTRACT(metadata, '$.{sort_key}') {order}"
 
-            # Add limit
-            if limit:
+            if limit is not None:
                 select_sql += f" LIMIT {limit}"
 
             result = self.client.perform_raw_text_sql(select_sql)
             rows = result.fetchall()
 
-            results = []
-            for row in rows:
-                if row:
-                    results.append(
-                        VectorNode(
-                            vector_id=row[0],
-                            content=row[1] or "",
-                            vector=self._coerce_db_vector(row[2]),
-                            metadata=self._coerce_db_metadata(row[3]),
-                        ),
-                    )
-
-            return results
+            return [_vector_node_from_db_row(row) for row in rows if row]
         except Exception as e:
-            logger.error(f"Failed to list documents: {e}")
+            logger.error("Failed to list documents: {}", e)
             return []
 
     async def collection_info(self) -> dict[str, Any]:
-        """Fetch metadata including record count for the collection."""
         try:
             count_sql = f"SELECT COUNT(*) FROM `{self.collection_name}`"
             result = self.client.perform_raw_text_sql(count_sql)
@@ -570,27 +509,20 @@ class ObVecVectorStore(BaseVectorStore):
                 "count": count,
             }
         except Exception as e:
-            logger.error(f"Failed to get collection info: {e}")
+            logger.error("Failed to get collection info: {}", e)
             return {"name": self.collection_name, "count": 0}
 
     async def reset(self):
-        """Purge all data by dropping and recreating the collection table."""
-        logger.warning(f"Resetting collection {self.collection_name}...")
+        logger.warning("Resetting collection {}...", self.collection_name)
         await self.delete_collection(self.collection_name)
         await self.create_collection(self.collection_name)
 
     async def reset_collection(self, collection_name: str):
-        """Reset collection with the given name."""
         self.collection_name = collection_name
         await self.create_collection(collection_name)
-        logger.info(f"Collection reset to {collection_name}")
+        logger.info("Collection reset to {}", collection_name)
 
     async def start(self) -> None:
-        """Initialize the OceanBase client and ensure the collection exists.
-
-        Creates the collection table if it doesn't exist.
-        """
-        # Initialize the client
         self.client = ObVecClient(
             uri=self.uri,
             user=self.user,
@@ -599,11 +531,8 @@ class ObVecVectorStore(BaseVectorStore):
         )
 
         await super().start()
-        logger.info(f"OceanBase collection {self.collection_name} initialized")
+        logger.info("OceanBase collection {} initialized", self.collection_name)
 
     async def close(self):
-        """Terminate the OceanBase client connection and release resources."""
-        # Note: ObVecClient may not have a close method
-        # We'll just log the closure
         self.client = None
         logger.info("OceanBase client connection closed")
