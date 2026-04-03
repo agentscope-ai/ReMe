@@ -66,6 +66,7 @@ Agent Memory = Long-Term Memory + Short-Term Memory
 - **[2025-09]** 🧪 Validated effectiveness in appworld, bfcl(v3), and frozenlake ([Experiments](docs/cookbook))
 - **[2025-08]** 🚀 MCP protocol support ([Quick Start](docs/mcp_quick_start.md))
 - **[2025-06]** 🚀 Multiple backend vector storage (Elasticsearch & ChromaDB) ([Guide](docs/vector_store_api_guide.md))
+- **[2026-04]** 🚀 ObVec vector storage (OceanBase / seekdb via pyobvector) ([Guide](docs/vector_store_api_guide.md))
 - **[2024-09]** 🧠 Personalized and time-aware memory storage
 
 ---
@@ -814,7 +815,7 @@ You can find more details in [tool_bench.md](docs/tool_memory/tool_bench.md) and
 
 ### Advanced Topics
 - **[Operator Pipelines](reme_ai/config/default.yaml)**: Customize memory processing workflows by modifying operator chains
-- **[Vector Store Backends](docs/vector_store_api_guide.md)**: Configure local, Elasticsearch, Qdrant, or ChromaDB storage
+- **[Vector Store Backends](docs/vector_store_api_guide.md)**: Configure local, Elasticsearch, Qdrant, ChromaDB, or ObVec (OceanBase / seekdb) storage
 - **[Example Collection](./cookbook)**: Real-world use cases and best practices
 
 ---

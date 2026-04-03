@@ -67,6 +67,7 @@ Agent Memory = Long-Term Memory + Short-Term Memory
 - **[2025-09]** 🧪 在 appworld、bfcl(v3)、frozenlake 等环境中验证有效性（[实验文档](docs/cookbook)）
 - **[2025-08]** 🚀 支持 MCP 协议（[快速开始](docs/mcp_quick_start.md)）
 - **[2025-06]** 🚀 支持多种向量存储后端（Elasticsearch & ChromaDB）（[向量库指南](docs/vector_store_api_guide.md)）
+- **[2026-04]** 🚀 支持 ObVec 向量存储（OceanBase / seekdb，基于 pyobvector）（[向量库指南](docs/vector_store_api_guide.md)）
 - **[2024-09]** 🧠 支持个性化与时间敏感的记忆存储
 
 ---
@@ -820,7 +821,7 @@ Pass@K 衡量在生成 K 个候选中，至少一个成功完成任务（score=1
 
 ### 高级主题
 - **[算子管道](reme_ai/config/default.yaml)**：通过修改算子链来自定义记忆处理工作流
-- **[向量存储后端](docs/vector_store_api_guide.md)**：配置本地、Elasticsearch、Qdrant 或 ChromaDB 存储
+- **[向量存储后端](docs/vector_store_api_guide.md)**：配置本地、Elasticsearch、Qdrant、ChromaDB 或 ObVec（OceanBase / seekdb）存储
 - **[案例集](./cookbook)**：真实场景的用例和最佳实践
 
 ---

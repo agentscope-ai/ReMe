@@ -76,7 +76,7 @@ class TestConfig:
     CHROMA_TENANT = None  # Set for ChromaDB Cloud tenant
     CHROMA_DATABASE = None  # Set for ChromaDB Cloud database
 
-    # ObVecVectorStore: SeekDB uses user `root`; OceanBase multi-tenant often uses `root@test`.
+    # ObVecVectorStore: seekdb uses user `root`; OceanBase multi-tenant often uses `root@test`.
     # Defaults match docker-compose.obvec.yml (ROOT_PASSWORD=root).
     OBVEC_URI = os.environ.get("OBVEC_URI", "127.0.0.1:2881")
     OBVEC_USER = os.environ.get("OBVEC_USER", "root")

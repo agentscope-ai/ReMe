@@ -1,4 +1,4 @@
-"""OceanBase / SeekDB vector store for ReMe (pyobvector).
+"""OceanBase / seekdb vector store for ReMe (pyobvector).
 
 Dense vectors, kNN via ``ObVecClient.ann_search``, JSON metadata filters, and
 helpers for coercion / metrics live in this module (pyobvector-aligned).
@@ -139,7 +139,7 @@ def _vector_node_from_db_row(row: tuple[Any, ...]) -> VectorNode:
 
 
 class ObVecVectorStore(BaseVectorStore):
-    """OceanBase or SeekDB vector store for dense vectors and kNN search."""
+    """OceanBase or seekdb vector store for dense vectors and kNN search."""
 
     def __init__(
         self,
