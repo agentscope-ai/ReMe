@@ -1,13 +1,8 @@
-"""OceanBase / seekdb vector store for ReMe (pyobvector).
-
-Dense vectors, kNN via ``ObVecClient.ann_search``, JSON metadata filters, and
-helpers for coercion / metrics live in this module (pyobvector-aligned).
-"""
+"""OceanBase / seekdb vector store for ReMe (pyobvector)."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +15,6 @@ from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
 _OBVECTOR_IMPORT_ERROR: Exception | None = None
-_DISTANCE_BY_METRIC: dict[str, Callable[..., Any]] | None = None
 
 try:
     from pyobvector import IndexParams, ObVecClient, VecIndexType, VECTOR
@@ -31,22 +25,8 @@ except Exception as e:
     ObVecClient = None  # type: ignore[misc, assignment]
     VecIndexType = None  # type: ignore[misc, assignment]
     VECTOR = None  # type: ignore[misc, assignment]
-else:
-    _DISTANCE_BY_METRIC = {
-        "cosine": cosine_distance,
-        "ip": inner_product,
-    }
-
-# ann_search with ``with_dist=True`` yields id, content, metadata, distance.
-_ANN_ROW_MIN_COLUMNS = 4
 
 _COL_SELECT = "id, content, vector, metadata"
-
-# HNSW index metric strings for pyobvector ``IndexParam`` (metric_type / distance).
-_METRIC_TO_INDEX_DISTANCE: dict[str, str] = {
-    "cosine": "cosine",
-    "ip": "inner_product",
-}
 
 
 def _is_safe_metadata_key(key: str) -> bool:
@@ -97,13 +77,11 @@ def _build_metadata_filter_sql(filters: dict[str, Any] | None) -> str:
             lo, hi = value[0], value[1]
             if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
                 parts.append(
-                    f"(JSON_EXTRACT(metadata, '{path}') >= {lo} AND "
-                    f"JSON_EXTRACT(metadata, '{path}') <= {hi})",
+                    f"(JSON_EXTRACT(metadata, '{path}') >= {lo} AND " f"JSON_EXTRACT(metadata, '{path}') <= {hi})",
                 )
             else:
                 parts.append(
-                    f"(JSON_EXTRACT(metadata, '{path}') >= '{lo}' AND "
-                    f"JSON_EXTRACT(metadata, '{path}') <= '{hi}')",
+                    f"(JSON_EXTRACT(metadata, '{path}') >= '{lo}' AND " f"JSON_EXTRACT(metadata, '{path}') <= '{hi}')",
                 )
         elif isinstance(value, (int, float)):
             parts.append(f"JSON_EXTRACT(metadata, '{path}') = {value}")
@@ -123,19 +101,6 @@ def _normalize_embedding_for_ann(raw: Any) -> list[float]:
     return [float(x) for x in raw]
 
 
-def _distance_function(metric: str) -> Callable[..., Any]:
-    if _DISTANCE_BY_METRIC is None:
-        raise RuntimeError("pyobvector distance functions are unavailable")
-    return _DISTANCE_BY_METRIC.get(metric.lower(), _DISTANCE_BY_METRIC["cosine"])
-
-
-def _similarity_from_distance(metric: str, distance: float) -> float:
-    m = metric.lower()
-    if m == "cosine":
-        return max(0.0, 1.0 - distance / 2.0)
-    return max(0.0, float(distance))
-
-
 def _vector_node_from_db_row(row: tuple[Any, ...]) -> VectorNode:
     return VectorNode(
         vector_id=row[0],
@@ -149,20 +114,17 @@ def _normalize_nodes(nodes: VectorNode | list[VectorNode]) -> list[VectorNode]:
     return [nodes] if isinstance(nodes, VectorNode) else list(nodes)
 
 
-def _search_result_metadata(metadata_raw: Any, score: float, distance: Any) -> dict[str, Any]:
-    meta = _coerce_db_metadata(metadata_raw) if metadata_raw is not None else {}
-    meta["score"] = score
-    meta["_score"] = score
-    meta["_distance"] = distance
-    return meta
-
-
 def _sql_table(name: str) -> str:
     return f"`{name}`"
 
 
 class ObVecVectorStore(BaseVectorStore):
-    """OceanBase or seekdb vector store for dense vectors and kNN search."""
+    """OceanBase or seekdb vector store for dense vectors and kNN search.
+
+    Args:
+        index_metric: ``cosine`` or ``ip`` (inner product). Invalid values raise
+            ``ValueError``; unsupported strings are not mapped to another metric.
+    """
 
     def __init__(
         self,
@@ -173,7 +135,6 @@ class ObVecVectorStore(BaseVectorStore):
         user: str = "root",
         password: str = "",
         database: str = "test",
-        index_type: str = "HNSW",
         index_metric: str = "cosine",
         index_ef_search: int = 100,
         **kwargs,
@@ -190,12 +151,16 @@ class ObVecVectorStore(BaseVectorStore):
             **kwargs,
         )
 
+        key = index_metric.strip().lower()
+        if key not in ("cosine", "ip"):
+            raise ValueError(
+                f"ObVecVectorStore index_metric must be 'cosine' or 'ip', got {index_metric!r}",
+            )
         self.uri = uri
         self.user = user
         self.password = password
         self.database = database
-        self.index_type = index_type.upper()
-        self.index_metric = index_metric.lower()
+        self.index_metric = key
         self.index_ef_search = index_ef_search
 
         self.client: ObVecClient | None = None
@@ -206,28 +171,11 @@ class ObVecVectorStore(BaseVectorStore):
             raise RuntimeError("ObVecVectorStore.start() must be called before this operation")
         return self.client
 
-    async def _nodes_with_filled_embeddings(
-        self,
-        nodes: list[VectorNode],
-        embed_if: Callable[[VectorNode], bool],
-    ) -> list[VectorNode]:
-        need = [n for n in nodes if embed_if(n)]
-        if not need:
-            return nodes
-        filled = await self.get_node_embeddings(need)
-        by_id = {n.vector_id: n for n in filled}
-        return [by_id.get(n.vector_id, n) if embed_if(n) else n for n in nodes]
-
     async def list_collections(self) -> list[str]:
-        if self.client is None:
-            return []
-        try:
-            result = self.client.perform_raw_text_sql(f"SHOW TABLES FROM {_sql_table(self.database)}")
-            rows = result.fetchall()
-            return [row[0] for row in rows if row]
-        except Exception as e:
-            logger.warning("Failed to list collections: {}", e)
-            return []
+        client = self._require_client()
+        result = client.perform_raw_text_sql(f"SHOW TABLES FROM {_sql_table(self.database)}")
+        rows = result.fetchall()
+        return [row[0] for row in rows if row]
 
     def _table_columns_for_create(self, dimensions: int) -> list[Any]:
         return [
@@ -237,10 +185,8 @@ class ObVecVectorStore(BaseVectorStore):
             Column("metadata", JSON),
         ]
 
-    def _hnsw_index_params(self, collection_name: str) -> IndexParams | None:
-        if self.index_type != "HNSW":
-            return None
-        metric = _METRIC_TO_INDEX_DISTANCE.get(self.index_metric, "cosine")
+    def _hnsw_index_params(self, collection_name: str) -> IndexParams:
+        metric = "cosine" if self.index_metric == "cosine" else "inner_product"
         vidxs = IndexParams()
         vidxs.add_index(
             "vector",
@@ -301,10 +247,13 @@ class ObVecVectorStore(BaseVectorStore):
 
         client = self._require_client()
 
-        nodes_to_insert = await self._nodes_with_filled_embeddings(
-            nodes,
-            embed_if=lambda n: n.vector is None,
-        )
+        need_emb = [n for n in nodes if n.vector is None]
+        if need_emb:
+            filled = await self.get_node_embeddings(need_emb)
+            by_id = {n.vector_id: n for n in filled}
+            nodes_to_insert = [by_id.get(n.vector_id, n) for n in nodes]
+        else:
+            nodes_to_insert = nodes
 
         data = [
             {
@@ -329,7 +278,7 @@ class ObVecVectorStore(BaseVectorStore):
         client = self._require_client()
         raw_vec = await self.get_embedding(query)
         query_vector = _normalize_embedding_for_ann(raw_vec)
-        dist_fn = _distance_function(self.index_metric)
+        dist_fn = cosine_distance if self.index_metric == "cosine" else inner_product
 
         filter_sql = _build_metadata_filter_sql(filters)
         where_parts = [sa_text(filter_sql)] if filter_sql else None
@@ -348,18 +297,21 @@ class ObVecVectorStore(BaseVectorStore):
         score_threshold = kwargs.get("score_threshold")
         out: list[VectorNode] = []
         for row in results:
-            if len(row) < _ANN_ROW_MIN_COLUMNS:
-                logger.warning(
-                    "ann_search row has unexpected width: len={} (expected >= {})",
-                    len(row),
-                    _ANN_ROW_MIN_COLUMNS,
+            if len(row) < 4:
+                raise RuntimeError(
+                    "ann_search row must have id, content, metadata, distance " f"(got {len(row)} columns)",
                 )
-                continue
             vid, content, metadata_raw, distance = row[0], row[1], row[2], row[3]
-            score = _similarity_from_distance(self.index_metric, float(distance))
+            dist_f = float(distance)
+            if self.index_metric == "cosine":
+                score = max(0.0, 1.0 - dist_f / 2.0)
+            else:
+                score = max(0.0, dist_f)
             if score_threshold is not None and score < score_threshold:
                 continue
-            meta = _search_result_metadata(metadata_raw, score, distance)
+            meta = _coerce_db_metadata(metadata_raw) if metadata_raw is not None else {}
+            meta["score"] = score
+            meta["_distance"] = dist_f
             out.append(
                 VectorNode(
                     vector_id=vid,
@@ -390,10 +342,15 @@ class ObVecVectorStore(BaseVectorStore):
             return
 
         client = self._require_client()
-        nodes_to_update = await self._nodes_with_filled_embeddings(
-            nodes,
-            embed_if=lambda n: n.vector is None and bool(n.content),
-        )
+        need_emb = [n for n in nodes if n.vector is None and bool(n.content)]
+        if need_emb:
+            filled = await self.get_node_embeddings(need_emb)
+            by_id = {n.vector_id: n for n in filled}
+            nodes_to_update = [
+                by_id.get(n.vector_id, n) if (n.vector is None and bool(n.content)) else n for n in nodes
+            ]
+        else:
+            nodes_to_update = nodes
 
         for node in nodes_to_update:
             updates: list[str] = []
@@ -430,21 +387,14 @@ class ObVecVectorStore(BaseVectorStore):
             return [] if not single else None
 
         client = self._require_client()
-        try:
-            ids_str = "', '".join(vector_ids)
-            select_sql = (
-                f"SELECT {_COL_SELECT} FROM {_sql_table(self.collection_name)} "
-                f"WHERE id IN ('{ids_str}')"
-            )
-            result = client.perform_raw_text_sql(select_sql)
-            rows = result.fetchall()
-            parsed = [_vector_node_from_db_row(row) for row in rows if row]
-            if single:
-                return parsed[0] if parsed else None
-            return parsed
-        except Exception as e:
-            logger.error("Failed to get documents: {}", e)
-            return [] if not single else None
+        ids_str = "', '".join(vector_ids)
+        select_sql = f"SELECT {_COL_SELECT} FROM {_sql_table(self.collection_name)} " f"WHERE id IN ('{ids_str}')"
+        result = client.perform_raw_text_sql(select_sql)
+        rows = result.fetchall()
+        parsed = [_vector_node_from_db_row(row) for row in rows if row]
+        if single:
+            return parsed[0] if parsed else None
+        return parsed
 
     async def list(
         self,
@@ -454,36 +404,30 @@ class ObVecVectorStore(BaseVectorStore):
         reverse: bool = False,
     ) -> list[VectorNode]:
         client = self._require_client()
-        try:
-            select_sql = f"SELECT {_COL_SELECT} FROM {_sql_table(self.collection_name)}"
-            where_clause = _build_metadata_filter_sql(filters)
-            if where_clause:
-                select_sql += f" WHERE {where_clause}"
-            if sort_key and _is_safe_metadata_key(sort_key):
-                order = "DESC" if reverse else "ASC"
-                select_sql += f" ORDER BY JSON_EXTRACT(metadata, '$.{sort_key}') {order}"
-            if limit is not None:
-                select_sql += f" LIMIT {limit}"
-            result = client.perform_raw_text_sql(select_sql)
-            rows = result.fetchall()
-            return [_vector_node_from_db_row(row) for row in rows if row]
-        except Exception as e:
-            logger.error("Failed to list documents: {}", e)
-            return []
+        select_sql = f"SELECT {_COL_SELECT} FROM {_sql_table(self.collection_name)}"
+        where_clause = _build_metadata_filter_sql(filters)
+        if where_clause:
+            select_sql += f" WHERE {where_clause}"
+        if sort_key and _is_safe_metadata_key(sort_key):
+            order = "DESC" if reverse else "ASC"
+            select_sql += f" ORDER BY JSON_EXTRACT(metadata, '$.{sort_key}') {order}"
+        if limit is not None:
+            select_sql += f" LIMIT {limit}"
+        result = client.perform_raw_text_sql(select_sql)
+        rows = result.fetchall()
+        return [_vector_node_from_db_row(row) for row in rows if row]
 
     async def collection_info(self) -> dict[str, Any]:
+        """Return collection name and row count."""
         client = self._require_client()
-        try:
-            count_sql = f"SELECT COUNT(*) FROM {_sql_table(self.collection_name)}"
-            result = client.perform_raw_text_sql(count_sql)
-            row = result.fetchone()
-            count = row[0] if row else 0
-            return {"name": self.collection_name, "count": count}
-        except Exception as e:
-            logger.error("Failed to get collection info: {}", e)
-            return {"name": self.collection_name, "count": 0}
+        count_sql = f"SELECT COUNT(*) FROM {_sql_table(self.collection_name)}"
+        result = client.perform_raw_text_sql(count_sql)
+        row = result.fetchone()
+        count = row[0] if row else 0
+        return {"name": self.collection_name, "count": count}
 
     async def reset(self):
+        """Drop and recreate the current collection table."""
         logger.warning("Resetting collection {}...", self.collection_name)
         await self.delete_collection(self.collection_name)
         await self.create_collection(self.collection_name)

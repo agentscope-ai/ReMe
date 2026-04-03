@@ -115,7 +115,6 @@ The asynchronous interface is particularly useful in the following scenarios:
 - **user**: MySQL-compatible user. seekdb single-tenant images often use `root`; OceanBase multi-tenant setups typically use `root@<tenant>` (e.g. `root@test`).
 - **password**: Database password (seekdb Docker images commonly set this via `ROOT_PASSWORD`).
 - **database**: Logical database name (default: `test`).
-- **index_type**: Vector index family (default: `HNSW`).
 - **index_metric**: Distance metric for the vector index: `cosine` or `ip` (inner product); default `cosine`.
 - **index_ef_search**: HNSW `ef_search` parameter passed to pyobvector (default: `100`).
 - **collection_name**: Table name for the collection (from `VectorStoreConfig`, default `reme`). Use lowercase names if your deployment restricts identifiers.
