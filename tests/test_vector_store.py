@@ -11,12 +11,14 @@ Usage:
     python test_vector_store.py --pgvector   # Test PGVectorStore only
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
+    python test_vector_store.py --obvec      # Test ObVecVectorStore only
     python test_vector_store.py --all        # Test all vector stores
 
 """
 
 import argparse
 import asyncio
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -32,6 +34,7 @@ from reme.core.vector_store import (
     ChromaVectorStore,
     LocalVectorStore,
     ESVectorStore,
+    ObVecVectorStore,
     PGVectorStore,
     QdrantVectorStore,
 )
@@ -72,6 +75,13 @@ class TestConfig:
     CHROMA_API_KEY = None  # Set for ChromaDB Cloud authentication
     CHROMA_TENANT = None  # Set for ChromaDB Cloud tenant
     CHROMA_DATABASE = None  # Set for ChromaDB Cloud database
+
+    # ObVecVectorStore: SeekDB uses user `root`; OceanBase multi-tenant often uses `root@test`.
+    # Defaults match docker-compose.obvec.yml (ROOT_PASSWORD=root).
+    OBVEC_URI = os.environ.get("OBVEC_URI", "127.0.0.1:2881")
+    OBVEC_USER = os.environ.get("OBVEC_USER", "root")
+    OBVEC_PASSWORD = os.environ.get("OBVEC_PASSWORD", "root")
+    OBVEC_DATABASE = os.environ.get("OBVEC_DATABASE", "test")
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -182,7 +192,7 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", or "chroma")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -194,6 +204,8 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "pgvector"
     elif isinstance(store, ChromaVectorStore):
         return "chroma"
+    elif isinstance(store, ObVecVectorStore):
+        return "obvec"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
@@ -202,7 +214,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """Create a vector store instance based on type.
 
     Args:
-        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", or "chroma")
+        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
         collection_name: Name of the collection
 
     Returns:
@@ -263,6 +275,18 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             api_key=config.CHROMA_API_KEY,
             tenant=config.CHROMA_TENANT,
             database=config.CHROMA_DATABASE,
+        )
+    elif store_type == "obvec":
+        return ObVecVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=tempfile.mkdtemp(prefix="test_obvec_"),
+            uri=config.OBVEC_URI,
+            user=config.OBVEC_USER,
+            password=config.OBVEC_PASSWORD,
+            database=config.OBVEC_DATABASE,
+            index_metric="cosine",
+            index_ef_search=100,
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -581,9 +605,9 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
     config = TestConfig()
     copy_collection_name = f"{config.TEST_COLLECTION_PREFIX}_{store_name}_copy"
 
-    # Elasticsearch and PostgreSQL require lowercase table/index names
+    # Elasticsearch, PostgreSQL and OceanBase require lowercase table/index names
     store_type = get_store_type(store)
-    if store_type in ("es", "pgvector"):
+    if store_type in ("es", "pgvector", "obvec"):
         copy_collection_name = copy_collection_name.lower()
 
     # Clean up if exists
@@ -1801,6 +1825,11 @@ Examples:
         help="Test ChromaVectorStore",
     )
     parser.add_argument(
+        "--obvec",
+        action="store_true",
+        help="Test ObVecVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1818,6 +1847,7 @@ Examples:
             ("pgvector", "PGVectorStore"),
             ("qdrant", "QdrantVectorStore"),
             ("chroma", "ChromaVectorStore"),
+            ("obvec", "ObVecVectorStore"),
         ]
     else:
         # Build list based on individual flags
@@ -1831,6 +1861,8 @@ Examples:
             stores_to_test.append(("qdrant", "QdrantVectorStore"))
         if args.chroma:
             stores_to_test.append(("chroma", "ChromaVectorStore"))
+        if args.obvec:
+            stores_to_test.append(("obvec", "ObVecVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1840,10 +1872,11 @@ Examples:
                 ("pgvector", "PGVectorStore"),
                 ("qdrant", "QdrantVectorStore"),
                 ("chroma", "ChromaVectorStore"),
+                ("obvec", "ObVecVectorStore"),
             ]
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec to test specific ones\n",
             )
 
     # Run tests for each vector store
