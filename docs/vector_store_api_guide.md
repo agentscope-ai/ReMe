@@ -119,10 +119,10 @@ The asynchronous interface is particularly useful in the following scenarios:
 - **index_ef_search**: HNSW `ef_search` parameter passed to pyobvector (default: `100`).
 - **collection_name**: Table name for the collection (from `VectorStoreConfig`, default `reme`). Use lowercase names if your deployment restricts identifiers.
 
-**Local seekdb via Docker** (repository root):
+**Local seekdb via Docker**
 
 ```text
-docker compose -f docker-compose.obvec.yml up -d
+docker run -d --name reme_seekdb -p 2881:2881 -e ROOT_PASSWORD=<your_root_password> quay.io/oceanbase/seekdb:latest
 ```
 
 **Integration tests** (requires a running server, embedding API credentials in `.env`, and matching DB password):
