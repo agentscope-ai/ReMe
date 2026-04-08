@@ -4,7 +4,7 @@ import inspect
 from typing import Callable, TypeVar
 
 from .base_dict import BaseDict
-from .utils import singleton
+from ..utils import singleton
 
 T = TypeVar("T")
 
