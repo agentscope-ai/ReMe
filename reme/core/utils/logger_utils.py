@@ -17,7 +17,7 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
 
     # Remove default handler to avoid duplicate logs
     logger.remove()
-    # test
+
     # Configure colorized standard output logging if enabled
     if log_to_console:
         logger.add(
