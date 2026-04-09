@@ -35,6 +35,7 @@ class Compactor(BaseOp):
         console_enabled: bool = False,
         return_dict: bool = False,
         add_thinking_block: bool = True,
+        extra_instruction: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -42,6 +43,7 @@ class Compactor(BaseOp):
         self.console_enabled: bool = console_enabled
         self.return_dict: bool = return_dict
         self.add_thinking_block: bool = add_thinking_block
+        self.extra_instruction: str = extra_instruction
 
     # pylint: disable=too-many-return-statements
     async def execute(self):
@@ -84,6 +86,9 @@ class Compactor(BaseOp):
             )
         else:
             user_message: str = f"# conversation\n{history_formatted_str}\n\n" + self.get_prompt("initial_user_message")
+
+        if self.extra_instruction:
+            user_message += f"\n\n# extra-instruction\n{self.extra_instruction}"
         logger.info(f"Compactor sys_prompt={agent.sys_prompt} user_message={user_message}")
 
         compact_msg: Msg = await agent.reply(

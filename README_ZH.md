@@ -29,6 +29,14 @@
 
 ---
 
+## 📰 最新文章
+
+| 日期         | 标题                                                 |
+|------------|----------------------------------------------------|
+| 2026-03-30 | [CoPaw 上下文管理设计解析](docs/copaw_context_design_zh.md) |
+
+---
+
 🧠 ReMe 是一个专为 **AI 智能体** 打造的记忆管理框架，同时提供基于[文件系统](#-基于文件的记忆系统-remelight)
 和基于[向量库](#-基于向量库的记忆系统)的记忆系统。
 
@@ -224,12 +232,13 @@ flowchart TD
     A --> E[messages: 完整对话历史]
     A --> F[文件系统缓存]
     F --> G[dialog/YYYY-MM-DD.jsonl]
-    F --> H[tool_result/uuid.txt  N天TTL]
+    F --> H[tool_result/uuid.txt N天TTL]
 ```
 
 ---
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py) 继承
+[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py)
+继承
 `ReMeLight`，将记忆能力集成到 Agent 推理流程中：
 
 ```mermaid
@@ -326,7 +335,8 @@ graph LR
 
 #### 4. compact_tool_result — 工具结果压缩
 
-[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。根据消息是否在 `recent_n` 范围内，采用不同的截断策略：
+[ToolResultCompactor](reme/memory/file_based/components/tool_result_compactor.py) 解决工具输出过长导致上下文膨胀的问题。根据消息是否在
+`recent_n` 范围内，采用不同的截断策略：
 
 ```mermaid
 graph LR
@@ -454,7 +464,6 @@ graph LR
 
 安装和环境变量配置与 [ReMeLight 一致](#安装)，通过环境变量设置 API 密钥，可写在项目根目录的 `.env` 文件中。
 
-
 ### Python 使用
 
 ```python
@@ -477,7 +486,7 @@ async def main():
             "dimensions": 1024,
         },
         default_vector_store_config={
-            "backend": "local",  # 支持 local/chroma/qdrant/elasticsearch
+            "backend": "local",  # 支持 local/chroma/qdrant/elasticsearch/obvec
         },
     )
     await reme.start()

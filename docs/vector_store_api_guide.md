@@ -33,8 +33,9 @@ FlowLLM provides multiple Vector Store implementations tailored to different use
 - **QdrantVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/qdrant_vector_store.py)): Built on the Qdrant vector database, supporting high-performance vector search. Recommended for large-scale production environments.
 - **ChromaVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/chroma_vector_store.py)): Based on ChromaDB, providing persistent storage and metadata filtering capabilities.
 - **EsVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/es_vector_store.py)): Built on Elasticsearch, enabling powerful combined full-text and vector search functionalities.
+- **ObVecVectorStore** ([source code](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/obvec_vector_store.py)): Uses [pyobvector](https://pypi.org/project/pyobvector/) against **OceanBase** or **seekdb** (MySQL-compatible wire protocol). Suitable when you already run OceanBase/seekdb or need a SQL-native vector table with HNSW-style ANN search and JSON metadata filters.
 
-All Vector Store implementations inherit from **BaseVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/base_vector_store.py)), ensuring a consistent interface specification.
+All Vector Store implementations inherit from **BaseVectorStore** ([source code](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/base_vector_store.py)) in ReMe, ensuring a consistent interface specification.
 
 ## Core Features
 
@@ -108,6 +109,28 @@ The asynchronous interface is particularly useful in the following scenarios:
 - **hosts**: Elasticsearch host address(es), either a string or a list (default: `http://localhost:9200`).
 - **basic_auth**: Basic authentication credentials (username and password).
 
+### ObVecVectorStore Configuration
+
+- **uri**: Server address as `host:port` (default: `127.0.0.1:2881`).
+- **user**: MySQL-compatible user. seekdb single-tenant images often use `root`; OceanBase multi-tenant setups typically use `root@<tenant>` (e.g. `root@test`).
+- **password**: Database password (seekdb Docker images commonly set this via `ROOT_PASSWORD`).
+- **database**: Logical database name (default: `test`).
+- **index_metric**: Distance metric for the vector index: `cosine` or `ip` (inner product); default `cosine`.
+- **index_ef_search**: HNSW `ef_search` parameter passed to pyobvector (default: `100`).
+- **collection_name**: Table name for the collection (from `VectorStoreConfig`, default `reme`). Use lowercase names if your deployment restricts identifiers.
+
+**Local seekdb via Docker**
+
+```text
+docker run -d --name reme_seekdb -p 2881:2881 -e ROOT_PASSWORD=<your_root_password> quay.io/oceanbase/seekdb:latest
+```
+
+**Integration tests** (requires a running server, embedding API credentials in `.env`, and matching DB password):
+
+```shell
+OBVEC_PASSWORD=<your_root_password> python tests/test_vector_store.py --obvec
+```
+
 ## Configuration File Examples
 
 Configure Vector Store in `flowllm/config/default.yaml` under the `vector_store` section. The basic structure is as follows:
@@ -128,7 +151,7 @@ vector_store.default.params.<param_name>=<param_value>
 
 ### Configuration Field Descriptions
 
-- **`backend`** (required): Vector store backend type. Options: `local`, `memory`, `chroma`, `qdrant`, `elasticsearch`.
+- **`backend`** (required): Vector store backend type. Options: `local`, `memory`, `chroma`, `qdrant`, `elasticsearch`, `obvec`.
 - **`embedding_model`** (required): Name of the embedding model configuration, referencing the `embedding_model` section.
 - **`params`** (optional): Dictionary of backend-specific parameters passed to the vector store constructor.
 
@@ -295,6 +318,35 @@ vector_store.default.backend=elasticsearch
 vector_store.default.params.hosts='["http://es-node1:9200", "http://es-node2:9200", "http://es-node3:9200"]'
 ```
 
+#### 6. ObVecVectorStore Configuration (OceanBase / seekdb)
+
+**Implementation**: [`reme/core/vector_store/obvec_vector_store.py`](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/obvec_vector_store.py)
+
+**Example (seekdb on localhost)**:
+
+```yaml
+vector_stores:
+  default:
+    backend: obvec
+    embedding_model: default
+    collection_name: reme
+    uri: "127.0.0.1:2881"
+    user: "root"
+    password: "your-root-password"
+    database: "test"
+    index_metric: "cosine"
+    index_ef_search: 100
+```
+
+```shell
+vector_stores.default.backend=obvec
+vector_stores.default.uri=127.0.0.1:2881
+vector_stores.default.user=root
+vector_stores.default.password=your-root-password
+```
+
+ReMe service YAML uses the key `vector_stores` (plural); CLI overrides use the same nested paths.
+
 ### Complete Configuration Example
 
 Below is a complete `default.yaml` example including both embedding model and vector store configurations:
@@ -352,8 +404,9 @@ Two types of metadata filtering are supported:
 
 - **Development & Testing**: Use MemoryVectorStore or LocalVectorStore—no additional services required.
 - **Small-Scale Applications**: Use LocalVectorStore or ChromaVectorStore for simplicity and ease of use.
-- **Production Environments**: Use QdrantVectorStore or EsVectorStore for high performance and scalability.
+- **Production Environments**: Use QdrantVectorStore, EsVectorStore, or ObVecVectorStore (OceanBase/seekdb) for high performance and scalability, depending on your existing infrastructure.
 - **Hybrid Search**: Use EsVectorStore to combine vector search with full-text search capabilities.
+- **OceanBase / seekdb**: Use ObVecVectorStore when you standardize on pyobvector and SQL-accessible vector tables.
 
 ## Important Notes
 

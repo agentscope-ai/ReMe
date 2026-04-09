@@ -49,6 +49,9 @@ dependencies = [
     "openai>=2.8.1",
     "pandas>=2.3.3",
     "pydantic>=2.12.4",
+    "pyobvector>=0.1.20",
+    # pyobvector imports Expression from sqlglot; removed from sqlglot 30+ top-level API
+    "sqlglot>=25,<30",
     "qdrant-client>=1.16.0",
     "tavily-python>=0.7.13",
     "tiktoken>=0.12.0",
@@ -83,7 +86,7 @@ litellm = [
 ]
 
 light = [
-    "agentscope==1.0.17",
+    "agentscope==1.0.18",
     "flowllm[reme]>=0.2.0.10",
 ]
 

@@ -2,8 +2,8 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, and ChromaVectorStore implementations. Tests can be
-run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, and ObVecVectorStore implementations.
+Tests can be run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -11,12 +11,13 @@ Usage:
     python test_vector_store.py --pgvector   # Test PGVectorStore only
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
+    python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
     python test_vector_store.py --all        # Test all vector stores
-
 """
 
 import argparse
 import asyncio
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -32,11 +33,18 @@ from reme.core.vector_store import (
     ChromaVectorStore,
     LocalVectorStore,
     ESVectorStore,
+    ObVecVectorStore,
     PGVectorStore,
     QdrantVectorStore,
 )
 
 load_env()
+
+
+def _search_score_for_log(metadata: dict) -> object:
+    """Similarity score for log lines (implementations use ``metadata['score']``)."""
+    return metadata.get("score", metadata.get("_score", "N/A"))
+
 
 # ==================== Configuration ====================
 
@@ -72,6 +80,15 @@ class TestConfig:
     CHROMA_API_KEY = None  # Set for ChromaDB Cloud authentication
     CHROMA_TENANT = None  # Set for ChromaDB Cloud tenant
     CHROMA_DATABASE = None  # Set for ChromaDB Cloud database
+
+    # ObVecVectorStore: seekdb docker often uses user `root` + ROOT_PASSWORD; OceanBase
+    # multi-tenant commonly uses `root@<tenant>` (see pyobvector defaults).
+    # OBVEC_PASSWORD default `root` matches docker-compose.obvec.yml only—override if your
+    # seekdb uses another ROOT_PASSWORD (e.g. another compose stack on the same port).
+    OBVEC_URI = os.environ.get("OBVEC_URI", "127.0.0.1:2881")
+    OBVEC_USER = os.environ.get("OBVEC_USER", "root")
+    OBVEC_PASSWORD = os.environ.get("OBVEC_PASSWORD", "root")
+    OBVEC_DATABASE = os.environ.get("OBVEC_DATABASE", "test")
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -182,7 +199,7 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", or "chroma")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -194,6 +211,8 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "pgvector"
     elif isinstance(store, ChromaVectorStore):
         return "chroma"
+    elif isinstance(store, ObVecVectorStore):
+        return "obvec"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
@@ -202,7 +221,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """Create a vector store instance based on type.
 
     Args:
-        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", or "chroma")
+        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
         collection_name: Name of the collection
 
     Returns:
@@ -263,6 +282,18 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             api_key=config.CHROMA_API_KEY,
             tenant=config.CHROMA_TENANT,
             database=config.CHROMA_DATABASE,
+        )
+    elif store_type == "obvec":
+        return ObVecVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=tempfile.mkdtemp(prefix="test_obvec_"),
+            uri=config.OBVEC_URI,
+            user=config.OBVEC_USER,
+            password=config.OBVEC_PASSWORD,
+            database=config.OBVEC_DATABASE,
+            index_metric="cosine",
+            index_ef_search=100,
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -327,7 +358,7 @@ async def test_search(store: BaseVectorStore, _store_name: str):
 
     logger.info(f"Search returned {len(results)} results")
     for i, r in enumerate(results, 1):
-        score = r.metadata.get("_score", "N/A")
+        score = _search_score_for_log(r.metadata)
         logger.info(f"  Result {i}: {r.content[:60]}... (score: {score})")
 
     assert len(results) > 0, "Search should return results"
@@ -581,9 +612,9 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
     config = TestConfig()
     copy_collection_name = f"{config.TEST_COLLECTION_PREFIX}_{store_name}_copy"
 
-    # Elasticsearch and PostgreSQL require lowercase table/index names
+    # Elasticsearch, PostgreSQL and OceanBase require lowercase table/index names
     store_type = get_store_type(store)
-    if store_type in ("es", "pgvector"):
+    if store_type in ("es", "pgvector", "obvec"):
         copy_collection_name = copy_collection_name.lower()
 
     # Clean up if exists
@@ -1010,7 +1041,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
 
     logger.info(f"Search results for: '{query}'")
     for i, result in enumerate(results, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = _search_score_for_log(result.metadata)
         relevance = result.metadata.get("relevance", "unknown")
         logger.info(f"  {i}. [{relevance}] score={score}: {result.content[:60]}...")
 
@@ -1028,7 +1059,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
     results2 = await store.search(query=query2, limit=5)
     logger.info(f"\nSearch results for: '{query2}'")
     for i, result in enumerate(results2, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = _search_score_for_log(result.metadata)
         logger.info(f"  {i}. score={score}: {result.content[:60]}...")
 
     logger.info("✓ Search relevance ranking test passed")
@@ -1718,7 +1749,7 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
 
     Args:
         store: Vector store instance
-        store_type: Type of vector store ("local" or "es")
+        store_type: Backend key (e.g. ``"local"``, ``"obvec"``)
     """
     logger.info("=" * 20 + " CLEANUP " + "=" * 20)
 
@@ -1752,6 +1783,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(test_dir)
                 logger.info(f"Cleaned up chroma directory: {config.CHROMA_PATH}")
 
+        # ObVecVectorStore uses a temp db_path per run (reserved for local sidecar files).
+        if store_type == "obvec":
+            obvec_dir = getattr(store, "db_path", None)
+            if obvec_dir and Path(obvec_dir).exists():
+                shutil.rmtree(obvec_dir, ignore_errors=True)
+                logger.info(f"Cleaned up obvec temp directory: {obvec_dir}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1772,6 +1810,7 @@ Examples:
   python test_vector_store.py --pgvector   # Test PGVectorStore only
   python test_vector_store.py --qdrant     # Test QdrantVectorStore only
   python test_vector_store.py --chroma     # Test ChromaVectorStore only
+  python test_vector_store.py --obvec      # Test ObVecVectorStore (seekdb / OceanBase)
   python test_vector_store.py --all        # Test all vector stores
         """,
     )
@@ -1801,6 +1840,11 @@ Examples:
         help="Test ChromaVectorStore",
     )
     parser.add_argument(
+        "--obvec",
+        action="store_true",
+        help="Test ObVecVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1818,6 +1862,7 @@ Examples:
             ("pgvector", "PGVectorStore"),
             ("qdrant", "QdrantVectorStore"),
             ("chroma", "ChromaVectorStore"),
+            ("obvec", "ObVecVectorStore"),
         ]
     else:
         # Build list based on individual flags
@@ -1831,6 +1876,8 @@ Examples:
             stores_to_test.append(("qdrant", "QdrantVectorStore"))
         if args.chroma:
             stores_to_test.append(("chroma", "ChromaVectorStore"))
+        if args.obvec:
+            stores_to_test.append(("obvec", "ObVecVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1840,10 +1887,11 @@ Examples:
                 ("pgvector", "PGVectorStore"),
                 ("qdrant", "QdrantVectorStore"),
                 ("chroma", "ChromaVectorStore"),
+                ("obvec", "ObVecVectorStore"),
             ]
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec to test specific ones\n",
             )
 
     # Run tests for each vector store

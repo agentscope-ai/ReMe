@@ -9,12 +9,12 @@ from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
-_CHROMADB_IMPORT_ERROR = None
+_CHROMADB_IMPORT_ERROR: Exception | None = None
 
 try:
     import chromadb
     from chromadb.config import Settings
-except ImportError as e:
+except Exception as e:
     _CHROMADB_IMPORT_ERROR = e
     chromadb = None
     Settings = None

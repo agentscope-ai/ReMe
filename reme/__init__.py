@@ -6,7 +6,7 @@ from . import extension
 from . import memory
 from .reme import ReMe
 
-__version__ = "0.3.1.6"
+__version__ = "0.3.1.8"
 
 __all__ = [
     "config",

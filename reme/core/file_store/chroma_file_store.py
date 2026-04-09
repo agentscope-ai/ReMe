@@ -5,19 +5,20 @@ import random
 import time
 from pathlib import Path
 
-from loguru import logger
-
 from .base_file_store import BaseFileStore
 from ..enumeration import MemorySource
 from ..schema import FileMetadata, MemoryChunk, MemorySearchResult
+from ..utils import get_logger
+
+logger = get_logger()
 
 try:
     import chromadb
     from chromadb.config import Settings
 
-    CHROMADB_AVAILABLE = True
-except ImportError:
-    CHROMADB_AVAILABLE = False
+    _CHROMADB_IMPORT_ERROR: Exception | None = None
+except Exception as e:
+    _CHROMADB_IMPORT_ERROR = e
     chromadb = None
     Settings = None
 
@@ -39,10 +40,8 @@ class ChromaFileStore(BaseFileStore):
         self,
         **kwargs,
     ):
-        if not CHROMADB_AVAILABLE:
-            raise ImportError(
-                "chromadb package is required for ChromaFileStore. Install it with: pip install chromadb",
-            )
+        if _CHROMADB_IMPORT_ERROR is not None:
+            raise _CHROMADB_IMPORT_ERROR
 
         super().__init__(**kwargs)
         self.client: "chromadb.ClientAPI | None" = None

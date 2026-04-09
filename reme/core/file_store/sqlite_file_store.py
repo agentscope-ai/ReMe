@@ -1,7 +1,7 @@
 """SQLite storage backend for file store."""
 
 import json
-import sqlite3
+
 import struct
 import time
 
@@ -29,6 +29,7 @@ class SqliteFileStore(BaseFileStore):
     def __init__(self, vec_ext_path: str = "", **kwargs):
         super().__init__(**kwargs)
         self.vec_ext_path = vec_ext_path
+        import sqlite3
 
         self.conn: sqlite3.Connection | None = None
 
@@ -61,6 +62,7 @@ class SqliteFileStore(BaseFileStore):
         """Initialize database and load extensions."""
         if self.conn is not None:
             return
+        import sqlite3
 
         self.conn = sqlite3.connect(self.db_path / "reme.db", check_same_thread=False)
 
