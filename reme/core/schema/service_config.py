@@ -122,6 +122,7 @@ class ServiceConfig(BasicConfig):
     )
     ray_max_workers: int = Field(default=-1)
     log_to_console: bool = Field(default=True)
+    log_to_file: bool = Field(default=True)
     disabled_flows: list[str] = Field(default_factory=list)
     enabled_flows: list[str] = Field(default_factory=list)
 
