@@ -4,21 +4,40 @@ import os
 import sys
 from datetime import datetime
 
+from loguru import logger
 
-def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool = True) -> None:
-    """Initialize the logger with both file and console handlers.
+_initialized = False
+
+
+def get_logger(
+    log_dir: str = "logs",
+    level: str = "INFO",
+    log_to_console: bool = True,
+    force_init: bool = False,
+):
+    """Get a configured logger instance.
+
+    Automatically initializes on first call. Subsequent calls return
+    the same logger without re-initializing unless force_init=True.
 
     Args:
-        log_dir: Directory path for log files
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_to_console: Whether to print logs to console/screen
+        log_dir: Directory path for log files.
+        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        log_to_console: Whether to print logs to console/screen.
+        force_init: Force re-initialization even if already initialized.
+
+    Returns:
+        The configured logger instance.
     """
-    from loguru import logger
+    global _initialized
+
+    if _initialized and not force_init:
+        return logger
 
     # Remove default handler to avoid duplicate logs
     logger.remove()
 
-    # Configure colorized standard output logging if enabled
+    # Configure colorized console logging if enabled
     if log_to_console:
         logger.add(
             sink=sys.stdout,
@@ -27,18 +46,13 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
             colorize=True,
         )
 
-    # Try to configure file-based logging (skip if permission denied)
+    # Configure file-based logging (skip if permission denied)
     try:
-        # Ensure the logging directory exists
         os.makedirs(log_dir, exist_ok=True)
 
-        # Generate filename based on the current timestamp
-        # Use dashes instead of colons for Windows compatibility
         current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_filename = f"{current_ts}.log"
-        log_filepath = os.path.join(log_dir, log_filename)
+        log_filepath = os.path.join(log_dir, f"{current_ts}.log")
 
-        # Configure file-based logging with rotation and compression
         logger.add(
             log_filepath,
             level=level,
@@ -51,9 +65,5 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
     except Exception as e:
         logger.error(f"Error configuring file logging: {e}")
 
-
-def get_logger():
-    """Get a configured logger instance using loguru."""
-    from loguru import logger
-
+    _initialized = True
     return logger
