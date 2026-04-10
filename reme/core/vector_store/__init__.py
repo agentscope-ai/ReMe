@@ -22,3 +22,11 @@ R.vector_stores.register("es")(ESVectorStore)
 R.vector_stores.register("local")(LocalVectorStore)
 R.vector_stores.register("pgvector")(PGVectorStore)
 R.vector_stores.register("qdrant")(QdrantVectorStore)
+
+try:
+    from .seekdb_vector_store import SeekdbVectorStore
+
+    R.vector_stores.register("seekdb")(SeekdbVectorStore)
+    __all__.append("SeekdbVectorStore")
+except ImportError:
+    pass

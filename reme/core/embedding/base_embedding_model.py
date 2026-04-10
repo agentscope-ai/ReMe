@@ -81,12 +81,21 @@ class BaseEmbeddingModel(ABC):
     @property
     def api_key(self) -> str | None:
         """Get API key from environment variable."""
-        return os.getenv("REME_EMBEDDING_API_KEY") or self._api_key
+        return (
+            os.getenv("REME_EMBEDDING_API_KEY")
+            or os.getenv("EMBEDDING_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or self._api_key
+        )
 
     @property
     def base_url(self) -> str | None:
         """Get base URL from environment variable."""
-        return os.getenv("REME_EMBEDDING_BASE_URL") or self._base_url
+        return (
+            os.getenv("REME_EMBEDDING_BASE_URL")
+            or os.getenv("EMBEDDING_BASE_URL")
+            or self._base_url
+        )
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_input_length if it exceeds the limit."""

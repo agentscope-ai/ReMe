@@ -139,6 +139,7 @@ class ReMeLight(Application):
 
         # Determine the memory store backend to use
         # "auto" selects based on platform (local for Windows, chroma otherwise)
+        # Supported: auto, local, chroma, sqlite, seekdb
         memory_store_backend = os.environ.get("MEMORY_STORE_BACKEND", "auto")
         if memory_store_backend == "auto":
             memory_backend = "local" if platform.system() == "Windows" else "chroma"

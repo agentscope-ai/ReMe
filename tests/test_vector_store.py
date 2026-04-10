@@ -2,8 +2,8 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, and ChromaVectorStore implementations. Tests can be
-run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, and SeekdbVectorStore implementations.
+Tests can be run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -11,6 +11,7 @@ Usage:
     python test_vector_store.py --pgvector   # Test PGVectorStore only
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
+    python test_vector_store.py --seekdb     # Test SeekdbVectorStore only (requires pyseekdb)
     python test_vector_store.py --all        # Test all vector stores
 
 """
@@ -35,6 +36,12 @@ from reme.core.vector_store import (
     PGVectorStore,
     QdrantVectorStore,
 )
+try:
+    from reme.core.vector_store import SeekdbVectorStore
+    SEEKDB_AVAILABLE = True
+except ImportError:
+    SeekdbVectorStore = None
+    SEEKDB_AVAILABLE = False
 
 load_env()
 
@@ -64,6 +71,9 @@ class TestConfig:
     PG_MAX_SIZE = 5  # Maximum connections in pool
     PG_USE_HNSW = True  # Use HNSW index for faster search
     PG_USE_DISKANN = False  # Use DiskANN index (requires vectorscale extension)
+
+    # SeekdbVectorStore settings (embedded, temp dir used if not set)
+    SEEKDB_PATH = None  # e.g. "./test_vector_store_seekdb"; None => temp dir
 
     # ChromaVectorStore settings
     CHROMA_PATH = "./test_vector_store_chroma"  # For local persistent mode
@@ -182,7 +192,7 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", or "chroma")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", or "seekdb")
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -194,6 +204,8 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "pgvector"
     elif isinstance(store, ChromaVectorStore):
         return "chroma"
+    elif SeekdbVectorStore is not None and isinstance(store, SeekdbVectorStore):
+        return "seekdb"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
@@ -202,7 +214,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """Create a vector store instance based on type.
 
     Args:
-        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", or "chroma")
+        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", or "seekdb")
         collection_name: Name of the collection
 
     Returns:
@@ -210,10 +222,11 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """
     config = TestConfig()
 
-    # Initialize embedding model
+    # Initialize embedding model (use_dimensions=True so API output matches HNSW dim / vector column)
     embedding_model = OpenAIEmbeddingModel(
         model_name=config.EMBEDDING_MODEL_NAME,
         dimensions=config.EMBEDDING_DIMENSIONS,
+        use_dimensions=True,
     )
 
     if store_type == "local":
@@ -263,6 +276,16 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             api_key=config.CHROMA_API_KEY,
             tenant=config.CHROMA_TENANT,
             database=config.CHROMA_DATABASE,
+        )
+    elif store_type == "seekdb":
+        if SeekdbVectorStore is None:
+            raise ImportError("SeekdbVectorStore not available; install pyseekdb")
+        return SeekdbVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.SEEKDB_PATH or tempfile.mkdtemp(prefix="test_seekdb_"),
+            database="reme_vector",
+            distance="cosine",
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -327,7 +350,7 @@ async def test_search(store: BaseVectorStore, _store_name: str):
 
     logger.info(f"Search returned {len(results)} results")
     for i, r in enumerate(results, 1):
-        score = r.metadata.get("_score", "N/A")
+        score = r.metadata.get("score", r.metadata.get("_score", "N/A"))
         logger.info(f"  Result {i}: {r.content[:60]}... (score: {score})")
 
     assert len(results) > 0, "Search should return results"
@@ -585,6 +608,7 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
     store_type = get_store_type(store)
     if store_type in ("es", "pgvector"):
         copy_collection_name = copy_collection_name.lower()
+    # seekdb uses collection names as-is
 
     # Clean up if exists
     collections = await store.list_collections()
@@ -1010,7 +1034,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
 
     logger.info(f"Search results for: '{query}'")
     for i, result in enumerate(results, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = result.metadata.get("score", result.metadata.get("_score", "N/A"))
         relevance = result.metadata.get("relevance", "unknown")
         logger.info(f"  {i}. [{relevance}] score={score}: {result.content[:60]}...")
 
@@ -1028,7 +1052,7 @@ async def test_search_relevance_ranking(store: BaseVectorStore, _store_name: str
     results2 = await store.search(query=query2, limit=5)
     logger.info(f"\nSearch results for: '{query2}'")
     for i, result in enumerate(results2, 1):
-        score = result.metadata.get("_score", "N/A")
+        score = result.metadata.get("score", result.metadata.get("_score", "N/A"))
         logger.info(f"  {i}. score={score}: {result.content[:60]}...")
 
     logger.info("✓ Search relevance ranking test passed")
@@ -1752,6 +1776,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(test_dir)
                 logger.info(f"Cleaned up chroma directory: {config.CHROMA_PATH}")
 
+        # Clean up temp directory if SeekdbVectorStore used temp dir
+        if store_type == "seekdb" and config.SEEKDB_PATH is None and getattr(store, "db_path", None):
+            test_dir = Path(store.db_path)
+            if test_dir.exists() and "test_seekdb_" in str(test_dir):
+                shutil.rmtree(test_dir, ignore_errors=True)
+                logger.info(f"Cleaned up seekdb temp directory: {test_dir}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1772,6 +1803,7 @@ Examples:
   python test_vector_store.py --pgvector   # Test PGVectorStore only
   python test_vector_store.py --qdrant     # Test QdrantVectorStore only
   python test_vector_store.py --chroma     # Test ChromaVectorStore only
+  python test_vector_store.py --seekdb     # Test SeekdbVectorStore only
   python test_vector_store.py --all        # Test all vector stores
         """,
     )
@@ -1801,6 +1833,11 @@ Examples:
         help="Test ChromaVectorStore",
     )
     parser.add_argument(
+        "--seekdb",
+        action="store_true",
+        help="Test SeekdbVectorStore (requires pyseekdb)",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1819,6 +1856,8 @@ Examples:
             ("qdrant", "QdrantVectorStore"),
             ("chroma", "ChromaVectorStore"),
         ]
+        if SEEKDB_AVAILABLE:
+            stores_to_test.append(("seekdb", "SeekdbVectorStore"))
     else:
         # Build list based on individual flags
         if args.local:
@@ -1831,6 +1870,10 @@ Examples:
             stores_to_test.append(("qdrant", "QdrantVectorStore"))
         if args.chroma:
             stores_to_test.append(("chroma", "ChromaVectorStore"))
+        if args.seekdb:
+            if not SEEKDB_AVAILABLE:
+                raise ImportError("seekdb tests require pyseekdb; install with: pip install pyseekdb")
+            stores_to_test.append(("seekdb", "SeekdbVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1841,9 +1884,11 @@ Examples:
                 ("qdrant", "QdrantVectorStore"),
                 ("chroma", "ChromaVectorStore"),
             ]
+            if SEEKDB_AVAILABLE:
+                stores_to_test.append(("seekdb", "SeekdbVectorStore"))
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--seekdb to test specific ones\n",
             )
 
     # Run tests for each vector store
