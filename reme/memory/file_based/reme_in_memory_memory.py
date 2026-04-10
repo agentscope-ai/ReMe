@@ -1,16 +1,18 @@
 """Custom memory implementation with bugfixes and extensions."""
 
-import logging
+import json
+from datetime import datetime
+from pathlib import Path
 
-from agentscope.agent._react_agent import _MemoryMark
-from agentscope.formatter import FormatterBase
+from agentscope.agent._react_agent import _MemoryMark  # noqa
 from agentscope.memory import InMemoryMemory
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 
-from .utils import safe_count_message_tokens, safe_count_str_tokens, _get_block_tokens
+from .utils import AsMsgHandler
+from ...core.utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 
 class ReMeInMemoryMemory(InMemoryMemory):
@@ -19,62 +21,124 @@ class ReMeInMemoryMemory(InMemoryMemory):
     def __init__(
         self,
         token_counter: HuggingFaceTokenCounter,
-        formatter: FormatterBase,
-        max_input_length: int = 0,
+        dialog_path: str | Path | None = None,
     ):
+        """Initialize the ReMeInMemoryMemory.
+
+        Args:
+            token_counter: Token counter for measuring content length.
+            dialog_path: Path to the dialog storage directory. If provided,
+                messages will be persisted to jsonl files when cleared or compressed.
+        """
         super().__init__()
         self._token_counter: HuggingFaceTokenCounter = token_counter
-        self._formatter: FormatterBase = formatter
-        self._max_input_length: int = max_input_length
+        self._msg_handler: AsMsgHandler = AsMsgHandler(token_counter)
+        self._dialog_path: Path | None = Path(dialog_path) if dialog_path else None
+        self._long_term_memory: str = ""
+
+    def _append_messages_to_dialog(self, messages: list[Msg]) -> int:
+        """Append messages to dialog storage file.
+
+        Saves messages to jsonl files named by message date (YYYY-mm-dd.jsonl).
+        Each line is a JSON representation of a message.
+        Messages are grouped by their timestamp date.
+
+        Args:
+            messages: List of messages to append to the dialog file.
+
+        Returns:
+            Number of messages successfully appended.
+        """
+        if not messages:
+            return 0
+
+        if self._dialog_path is None:
+            logger.warning("dialog_path is not set, skipping dialog persistence")
+            return 0
+
+        # Ensure dialog directory exists
+        try:
+            self._dialog_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            logger.exception(f"Failed to create dialog directory {self._dialog_path}: {e}")
+            return 0
+
+        # Group messages by date (extracted from timestamp)
+        # timestamp format: "YYYY-mm-dd HH:MM:SS.fff"
+        messages_by_date: dict[str, list[Msg]] = {}
+        for msg in messages:
+            try:
+                if msg.timestamp:
+                    # Extract date part from timestamp
+                    date_str = msg.timestamp.split()[0]  # "YYYY-mm-dd"
+                else:
+                    date_str = datetime.now().strftime("%Y-%m-%d")
+
+                if date_str not in messages_by_date:
+                    messages_by_date[date_str] = []
+                messages_by_date[date_str].append(msg)
+            except Exception as e:
+                logger.warning(f"Failed to process message timestamp: {e}, using today's date")
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                if date_str not in messages_by_date:
+                    messages_by_date[date_str] = []
+                messages_by_date[date_str].append(msg)
+
+        # Append messages to corresponding date files (sorted by timestamp within each date)
+        total_count = 0
+        for date_str, msgs in messages_by_date.items():
+            # Sort messages by timestamp within the same date
+            try:
+                msgs_sorted = sorted(msgs, key=lambda m: m.timestamp or "")
+            except Exception as e:
+                logger.warning(f"Failed to sort messages by timestamp: {e}")
+                msgs_sorted = msgs
+
+            filename = f"{date_str}.jsonl"
+            filepath = self._dialog_path / filename
+
+            try:
+                with open(filepath, "a", encoding="utf-8") as f:
+                    for msg in msgs_sorted:
+                        msg_dict = msg.to_dict()
+                        f.write(json.dumps(msg_dict, ensure_ascii=False) + "\n")
+                        total_count += 1
+                logger.info(f"Appended {len(msgs_sorted)} messages to {filepath}")
+            except Exception as e:
+                logger.exception(f"Failed to append messages to dialog file {filepath}: {e}")
+
+        return total_count
 
     async def get_memory(
         self,
-        mark: str | None = None,
-        exclude_mark: str | None = _MemoryMark.COMPRESSED,
         prepend_summary: bool = True,
         **_kwargs,
     ) -> list[Msg]:
         """Get the messages from the memory by mark (if provided).
 
         Args:
-            mark: Optional mark to filter messages
-            exclude_mark: Optional mark to exclude messages
             prepend_summary: Whether to prepend compressed summary
             **_kwargs: Additional keyword arguments (ignored)
 
         Returns:
             List of filtered messages
         """
-        if not (mark is None or isinstance(mark, str)):
-            raise TypeError(f"The mark should be a string or None, but got {type(mark)}.")
+        filtered_content = [(msg, marks) for msg, marks in self.content if _MemoryMark.COMPRESSED not in marks]
 
-        if not (exclude_mark is None or isinstance(exclude_mark, str)):
-            raise TypeError(f"The exclude_mark should be a string or None, but got {type(exclude_mark)}.")
-
-        # Filter messages based on mark
-        filtered_content = [(msg, marks) for msg, marks in self.content if mark is None or mark in marks]
-
-        # Further filter messages based on exclude_mark
-        if exclude_mark is not None:
-            filtered_content = [(msg, marks) for msg, marks in filtered_content if exclude_mark not in marks]
-
+        parts = []
+        if self._long_term_memory:
+            parts.append(f"# Memories\n\n{self._long_term_memory}")
         if prepend_summary and self._compressed_summary:
-            previous_summary = f"""
-<previous-summary>
-{self._compressed_summary}
-</previous-summary>
-The above is a summary of our previous conversation.
-Use it as context to maintain continuity.
-                    """.strip()
+            parts.append(
+                f"# Summary of previous conversation\n\n"
+                f"Previous conversation logs are offloaded to dialog/YYYY-MM-DD.jsonl (or nearby date files). "
+                "Here is the summary:\n\n"
+                f"{self._compressed_summary}\n"
+                f"The above is a summary of previous conversation, use it as context to maintain continuity.",
+            )
 
-            return [
-                Msg(
-                    "user",
-                    previous_summary,
-                    "user",
-                ),
-                *[msg for msg, _ in filtered_content],
-            ]
+        if parts:
+            return [Msg("user", "\n\n".join(parts), "user"), *[msg for msg, _ in filtered_content]]
 
         return [msg for msg, _ in filtered_content]
 
@@ -113,22 +177,58 @@ Use it as context to maintain continuity.
         self._compressed_summary = state_dict.get("_compressed_summary", "")
 
     async def mark_messages_compressed(self, messages: list[Msg]) -> int:
-        """Mark messages as compressed and return count."""
-        return await self.update_messages_mark(
-            new_mark=_MemoryMark.COMPRESSED,
-            msg_ids=[msg.id for msg in messages],
-        )
+        """Mark messages as compressed, persist them to dialog, and remove from memory.
+
+        This method:
+        1. Persists the given messages to the dialog storage
+        2. Removes them from memory
+
+        Args:
+            messages: List of messages to mark as compressed.
+
+        Returns:
+            Number of messages marked as compressed.
+        """
+        if not messages:
+            return 0
+
+        # Persist messages to dialog storage instead of compressed
+        self._append_messages_to_dialog(messages)
+
+        # Remove messages from memory
+        msg_ids = {msg.id for msg in messages}
+        initial_size = len(self.content)
+        self.content = [(msg, marks) for msg, marks in self.content if msg.id not in msg_ids]
+        removed_count = initial_size - len(self.content)
+
+        logger.info(f"Marked {removed_count} messages as compressed and removed from memory")
+        return removed_count
 
     def clear_compressed_summary(self):
         """Clear the compressed summary."""
         self._compressed_summary = ""  # pylint: disable=attribute-defined-outside-init
 
     def clear_content(self):
-        """Clear the content."""
-        self.content.clear()
+        """Persist all messages to dialog storage and clear the content.
 
-    async def estimate_tokens(self) -> dict:
+        This method:
+        1. Persists all messages in memory to the dialog storage
+        2. Clears the in-memory content
+        """
+        # Persist all messages to dialog storage
+        if self.content:
+            messages = [msg for msg, _ in self.content]
+            self._append_messages_to_dialog(messages)
+
+        # Clear in-memory content
+        self.content.clear()
+        logger.info("Cleared all messages from memory")
+
+    async def estimate_tokens(self, max_input_length: int) -> dict:
         """Estimate token usage for current memory.
+
+        Args:
+            max_input_length: Max input length for context usage calculation.
 
         Returns:
             Dict containing detailed token statistics:
@@ -138,69 +238,22 @@ Use it as context to maintain continuity.
             - estimated_tokens: Total estimated tokens
             - max_input_length: Max input length from config
             - context_usage_ratio: Usage percentage
-            - messages_detail: List of per-message token details
+            - messages_detail: List of per-message AsMsgStat objects
         """
-        messages = await self.get_memory(
-            exclude_mark=_MemoryMark.COMPRESSED,
-            prepend_summary=False,
-        )
+        messages = await self.get_memory(prepend_summary=False)
 
         compressed_summary = self.get_compressed_summary()
-        compressed_summary_tokens = safe_count_str_tokens(self._token_counter, compressed_summary)
+        compressed_summary_tokens = await self._msg_handler.count_str_token(compressed_summary)
 
-        # Calculate total token count using formatter
-        prompt = await self._formatter.format(msgs=messages)
-        messages_tokens = safe_count_message_tokens(self._token_counter, prompt)
+        # Build per-message token details using AsMsgHandler
+        messages_detail = [await self._msg_handler.stat_message(msg) for msg in messages]
+
+        # Calculate total message tokens from stats
+        messages_tokens = sum(stat.total_tokens for stat in messages_detail)
         estimated_tokens = messages_tokens + compressed_summary_tokens
 
         # Calculate context usage ratio
-        max_input_length = self._max_input_length
         context_usage_ratio = (estimated_tokens / max_input_length * 100) if max_input_length > 0 else 0
-
-        # Build per-message token details
-        messages_detail = []
-        for i, msg in enumerate(messages, 1):
-            msg_detail = {
-                "index": i,
-                "role": msg.role,
-                "text_tokens": 0,
-                "blocks": [],
-                "preview": "",
-            }
-            try:
-                content = msg.content
-                if isinstance(content, str):
-                    text_tokens = safe_count_str_tokens(self._token_counter, content)
-                    msg_detail["text_tokens"] = text_tokens
-                    msg_detail["preview"] = f"{content[:100]}..." if len(content) > 100 else content
-                else:
-                    total_tokens = 0
-                    text_parts = []
-                    for block in content:
-                        if not isinstance(block, dict):
-                            continue
-                        block_type = block.get("type", "unknown")
-                        block_tokens, block_str = _get_block_tokens(
-                            block,
-                            block_type,
-                            self._token_counter,
-                        )
-                        total_tokens += block_tokens
-                        text_parts.append(block_str)
-                        msg_detail["blocks"].append(
-                            {
-                                "type": block_type,
-                                "tokens": block_tokens,
-                            },
-                        )
-                    msg_detail["text_tokens"] = total_tokens
-                    text_preview = "".join(text_parts)
-                    msg_detail["preview"] = f"{text_preview[:100]}..." if len(text_preview) > 100 else text_preview
-            except Exception as e:
-                msg_detail["error"] = str(e)
-                msg_detail["preview"] = f"<error: {e}>"
-
-            messages_detail.append(msg_detail)
 
         return {
             "total_messages": len(messages),
@@ -212,25 +265,28 @@ Use it as context to maintain continuity.
             "messages_detail": messages_detail,
         }
 
-    async def get_history_str(self) -> str:
+    async def get_history_str(self, max_input_length: int) -> str:
         """Get formatted history string similar to /history command output.
+
+        Args:
+            max_input_length: Max input length for context usage calculation.
 
         Returns:
             Formatted string containing conversation history details
         """
-        stats = await self.estimate_tokens()
+        stats = await self.estimate_tokens(max_input_length)
 
         lines = []
-        for msg_detail in stats["messages_detail"]:
+        for i, msg_stat in enumerate(stats["messages_detail"], 1):
             blocks_info = ""
-            if msg_detail["blocks"]:
-                block_strs = [f"{b['type']}(tokens={b['tokens']})" for b in msg_detail["blocks"]]
+            if msg_stat.content:
+                block_strs = [f"{b.block_type}(tokens={b.token_count})" for b in msg_stat.content]
                 blocks_info = f"\n    content: [{', '.join(block_strs)}]"
 
             lines.append(
-                f"[{msg_detail['index']}] **{msg_detail['role']}** "
-                f"(text_tokens={msg_detail['text_tokens']})"
-                f"{blocks_info}\n    preview: {msg_detail['preview']}",
+                f"[{i}] **{msg_stat.role}** "
+                f"(total_tokens={msg_stat.total_tokens})"
+                f"{blocks_info}\n    preview: {msg_stat.preview}",
             )
 
         return (

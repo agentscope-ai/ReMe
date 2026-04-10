@@ -10,17 +10,18 @@ This document provides answers to frequently asked questions about our paper "[R
 reme2 \
   backend=http \
   http.port=8002 \
-  llm.default.model_name=qwen3-8b \
-  embedding_model.default.model_name=text-embedding-v4 \
-  vector_store.default.backend=es
+  llms.default.model_name=qwen3-8b \
+  embedding_models.default.model_name=text-embedding-v4 \
+  vector_stores.default.backend=es \
+  vector_stores.default.hosts=http://xx.yy.zz.mm:nn
 ```
 **Evaluation Code:** [run_appworld.py](https://github.com/agentscope-ai/ReMe/blob/main/benchmark/appworld/run_appworld.py) with the following parameters
 |Experimental Settings|No Memory |ReMe (fixed) |ReMe (dynamic)|
 |---|---|---|---|
-|max_workers| 16|16|16|
+|max_workers|16|16|16|
 |batch_size|8|8|8|
 |num_runs|4|4|1|
-|num_trials|1 |1|3|
+|num_trials|1|1|3|
 |model_name|"qwen3-8b"|"qwen3-8b"|"qwen3-8b"|
 |use_memory| False| True|True|
 |use_memory_addition|False|False|True|

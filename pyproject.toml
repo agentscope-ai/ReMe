@@ -33,7 +33,6 @@ classifiers = [
 keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http", "reme", "personal"]
 
 dependencies = [
-    "flowllm[reme]>=0.2.0.10",
     "sqlite-vec>=0.1.6",
     "prompt_toolkit>=3.0.52",
     "rich>=14.2.0",
@@ -45,13 +44,15 @@ dependencies = [
     "fastapi>=0.121.3",
     "fastmcp>=2.14.1",
     "httpx>=0.28.1",
-    "litellm>=1.80.0",
     "loguru>=0.7.3",
     "mcp>=1.25.0",
     "numpy>=2.2.6",
     "openai>=2.8.1",
     "pandas>=2.3.3",
     "pydantic>=2.12.4",
+    "pyobvector>=0.1.20",
+    # pyobvector imports Expression from sqlglot; removed from sqlglot 30+ top-level API
+    "sqlglot>=25,<30",
     "qdrant-client>=1.16.0",
     "tavily-python>=0.7.13",
     "tiktoken>=0.12.0",
@@ -81,8 +82,13 @@ full = [
     "reme_ai[dev,ray,light]",
 ]
 
+litellm = [
+    "litellm==1.80.0",
+]
+
 light = [
-    "agentscope==1.0.16.dev0",
+    "agentscope==1.0.18",
+    "flowllm[reme]>=0.2.0.10",
 ]
 
 [tool.setuptools.packages.find]

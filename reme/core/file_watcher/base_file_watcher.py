@@ -29,12 +29,13 @@ class BaseFileWatcher:
         watch_paths: list[str] | str,
         suffix_filters: list[str] | None = None,
         recursive: bool = False,
-        debounce: int = 500,  # Millisecond debounce
+        debounce: int = 2000,
         chunk_tokens: int = 400,
         chunk_overlap: int = 80,
         file_store: BaseFileStore | None = None,
         callback: Callable[[set[tuple[Change, str]]], None | Coroutine[Any, Any, None]] | None = None,
-        scan_on_start: bool = False,
+        rebuild_index_on_start: bool = True,
+        poll_delay_ms: int = 2000,
         **kwargs,
     ):
         """
@@ -49,7 +50,9 @@ class BaseFileWatcher:
             chunk_overlap: Overlap size for chunks
             file_store: File store instance
             callback: Callback function for changes
-            scan_on_start: If True, scan existing files on start and trigger on_changes with Change.added
+            rebuild_index_on_start: If True, clear all indexed data on start and rescan existing files.
+                           If False, only monitor new changes without initialization.
+            poll_delay_ms: Polling delay in milliseconds. If > 300ms, force_polling will be enabled automatically.
             **kwargs: Additional keyword arguments
         """
         self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
@@ -60,7 +63,8 @@ class BaseFileWatcher:
         self.chunk_overlap: int = chunk_overlap
         self.file_store: BaseFileStore = file_store
         self.callback = callback
-        self.scan_on_start: bool = scan_on_start
+        self.rebuild_index_on_start: bool = rebuild_index_on_start
+        self.poll_delay_ms: int = poll_delay_ms
         self.kwargs: dict = kwargs
 
         self._stop_event = asyncio.Event()
@@ -74,11 +78,14 @@ class BaseFileWatcher:
 
         self._running = True
 
-        # Scan existing files if requested
-        if self.scan_on_start:
-            await self._scan_existing_files()
+        async def _initialize_and_watch():
+            if self.rebuild_index_on_start:
+                await self.file_store.clear_all()
+                logger.info("Cleared all indexed data on start")
+                await self._scan_existing_files()
+            await self._watch_loop()
 
-        self._watch_task = asyncio.create_task(self._watch_loop())
+        self._watch_task = asyncio.create_task(_initialize_and_watch())
         logger.info(f"Started watching: {self.watch_paths}")
 
     async def close(self):
@@ -140,35 +147,64 @@ class BaseFileWatcher:
         else:
             logger.info("[SCAN_ON_START] No existing files found matching watch criteria")
 
-        files: list[str] = await self.file_store.list_files(MemorySource.MEMORY)
-        for file_path in files:
-            chunks = await self.file_store.get_file_chunks(file_path, MemorySource.MEMORY)
-            logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
+        if self.file_store is not None:
+            files: list[str] = await self.file_store.list_files(MemorySource.MEMORY)
+            for file_path in files:
+                chunks = await self.file_store.get_file_chunks(file_path, MemorySource.MEMORY)
+                logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
+
+    async def _interruptible_sleep(self, seconds: float):
+        """Sleep that can be interrupted by stop_event."""
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass  # Normal timeout, continue
 
     async def _watch_loop(self):
-        """Core monitoring loop"""
+        """Core monitoring loop with auto-restart on failure"""
         if not self.watch_paths:
             logger.warning("No watch paths specified")
             return
 
-        try:
-            async for changes in awatch(
-                *self.watch_paths,
-                watch_filter=self.watch_filter,
-                recursive=self.recursive,
-                debounce=self.debounce,
-                stop_event=self._stop_event,
-            ):
-                if self._stop_event.is_set():
-                    break
+        while not self._stop_event.is_set():
+            # Filter out non-existent paths before each watch attempt
+            valid_paths = [p for p in self.watch_paths if Path(p).exists()]
 
-                await self.on_changes(changes)
-        except FileNotFoundError as e:
-            # Watch path was deleted, this is expected during cleanup
-            logger.debug(f"Watch path no longer exists: {e}")
-        except Exception as e:
-            # Log other exceptions but don't crash
-            logger.error(f"Error in watch loop: {e}", exc_info=True)
+            if not valid_paths:
+                logger.warning("No valid watch paths exist, waiting 10 seconds before retry...")
+                await self._interruptible_sleep(10)
+                continue
+
+            invalid_paths = set(self.watch_paths) - set(valid_paths)
+            if invalid_paths:
+                logger.warning(f"Skipping non-existent paths: {invalid_paths}")
+
+            try:
+                logger.info(f"Starting watch on valid paths: {valid_paths}")
+                async for changes in awatch(
+                    *valid_paths,
+                    watch_filter=self.watch_filter,
+                    recursive=self.recursive,
+                    debounce=self.debounce,
+                    poll_delay_ms=self.poll_delay_ms,
+                    stop_event=self._stop_event,
+                ):
+                    if self._stop_event.is_set():
+                        break
+
+                    await self.on_changes(changes)
+
+            except FileNotFoundError as e:
+                # Watch path was deleted during monitoring
+                logger.error(f"Watch path no longer exists: {e}, restarting in 10 seconds...")
+                if not self._stop_event.is_set():
+                    await self._interruptible_sleep(10)
+
+            except Exception as e:
+                # Log other exceptions and restart
+                logger.error(f"Error in watch loop: {e}, restarting in 10 seconds...", exc_info=True)
+                if not self._stop_event.is_set():
+                    await self._interruptible_sleep(10)
 
     async def _on_changes(self, changes: set[tuple[Change, str]]):
         """Callback method to handle file changes"""

@@ -3,10 +3,60 @@
 import json
 import re
 
+from agentscope.message import Msg
 from loguru import logger
 
 from ..enumeration import Role
-from ..schema import Message, Trajectory, MemoryNode
+from ..schema import Message, Trajectory, MemoryNode, ToolCall
+
+
+def convert_as_msg_to_message(msg) -> Message:
+    """Convert an agentscope Msg object to the project's Message type."""
+    role_str = getattr(msg, "role", "user")
+    role = (
+        Role(role_str.lower())
+        if isinstance(role_str, str) and role_str.lower() in [r.value for r in Role]
+        else Role.USER
+    )
+
+    content_blocks = msg.get_content_blocks()
+    content = ""
+    reasoning_content = ""
+    tool_calls = []
+    tool_call_id = ""
+
+    for block in content_blocks:
+        block_type = block["type"]
+        if block_type == "thinking":
+            reasoning_content = block["thinking"]
+        elif block_type == "tool_use":
+            try:
+                tool_calls.append(
+                    ToolCall(
+                        id=block["id"],
+                        name=block["name"],
+                        arguments=json.dumps(block["input"], ensure_ascii=False),
+                    ),
+                )
+            except (json.JSONDecodeError, TypeError):
+                pass
+        elif block_type == "tool_result":
+            role = Role.TOOL
+            tool_call_id = block["id"]
+            content = block["output"][0]["text"]
+        else:
+            content = block[block_type]
+
+    return Message(
+        name=getattr(msg, "name", None),
+        role=role,
+        content=content,
+        reasoning_content=reasoning_content,
+        tool_calls=tool_calls,
+        tool_call_id=tool_call_id,
+        time_created=getattr(msg, "timestamp", "") or "",
+        metadata=getattr(msg, "metadata", {}) or {},
+    )
 
 
 def format_messages(
@@ -24,6 +74,8 @@ def format_messages(
     for i, message in enumerate(messages):
         if isinstance(message, dict):
             message = Message(**message)
+        if isinstance(message, Msg):
+            message = convert_as_msg_to_message(message)
         if not enable_system and message.role is Role.SYSTEM:
             continue
 

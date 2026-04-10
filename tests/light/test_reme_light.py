@@ -1,197 +1,195 @@
-"""测试 ReMeLight"""
+"""测试 ReMeLight
+
+演示 ReMeLight 的完整功能，并使用 AsMsgHandler 跟踪每步 Token 变化：
+1. compact_tool_result - 压缩超长工具输出
+2. compact_memory - 生成压缩摘要
+3. summary_memory - 生成完整摘要并写入文件
+4. pre_reasoning_hook - 推理前预处理钩子
+5. memory_search - 语义搜索记忆
+6. ReMeInMemoryMemory.estimate_tokens - 估算 Token 使用
+7. ReMeInMemoryMemory.get_history_str - 获取格式化历史记录
+"""
 
 import asyncio
-
-from agentscope.message import Msg
+import logging
+from test_utils import build_sample_messages, get_msg_handler
 from reme.reme_light import ReMeLight
 
 
-# ==================== 消息创建辅助函数 ====================
-def create_user_msg(content: str) -> Msg:
-    """创建用户消息"""
-    return Msg(name="user", role="user", content=content)
-
-
-def create_assistant_msg(content: str) -> Msg:
-    """创建助手消息"""
-    return Msg(name="assistant", role="assistant", content=content)
-
-
-def create_tool_use_msg(tool_id: str, tool_name: str, tool_input: dict) -> Msg:
-    """创建工具调用消息"""
-    return Msg(
-        name="assistant",
-        role="assistant",
-        content=[
-            {
-                "type": "tool_use",
-                "id": tool_id,
-                "name": tool_name,
-                "input": tool_input,
-            },
-        ],
-    )
-
-
-def create_tool_result_msg(tool_id: str, tool_name: str, output: str) -> Msg:
-    """创建工具结果消息"""
-    return Msg(
-        name="tool",
-        role="user",
-        content=[
-            {
-                "type": "tool_result",
-                "id": tool_id,
-                "name": tool_name,
-                "output": output,
-            },
-        ],
-    )
-
-
-def create_thinking_msg(thinking_content: str) -> Msg:
-    """创建思考消息"""
-    return Msg(
-        name="assistant",
-        role="assistant",
-        content=[
-            {
-                "type": "thinking",
-                "text": thinking_content,
-            },
-        ],
-    )
-
-
-# ==================== 构建模拟对话历史 ====================
-def build_sample_messages() -> list[Msg]:
-    """构建一段包含多种消息类型的模拟对话"""
-    messages = [
-        # 用户询问 Python 版本
-        create_user_msg("我想设置一个 Python 开发环境，你有什么建议？"),
-        # 助手思考
-        create_thinking_msg("用户想要搭建 Python 开发环境，我需要了解他的需求和偏好..."),
-        # 助手回复
-        create_assistant_msg(
-            "好的！我建议使用 Python 3.11 或 3.12 版本，它们性能更好且功能丰富。"
-            "你希望用于什么类型的开发？Web、数据科学还是其他？",
-        ),
-        # 用户提供更多信息
-        create_user_msg("主要是做 Web 开发，使用 FastAPI 框架。另外我喜欢用 pyenv 管理版本。"),
-        # 助手调用工具查询
-        create_tool_use_msg(
-            tool_id="call_001",
-            tool_name="search_web",
-            tool_input={"query": "FastAPI Python version compatibility 2024"},
-        ),
-        # 工具返回结果（模拟较长的输出）
-        create_tool_result_msg(
-            tool_id="call_001",
-            tool_name="search_web",
-            output=(
-                "FastAPI 官方推荐使用 Python 3.8+ 版本，但 3.11/3.12 性能最佳。\n"
-                "主要依赖：\n"
-                "- Starlette: ASGI 框架\n"
-                "- Pydantic v2: 数据验证\n"
-                "- Uvicorn: ASGI 服务器\n"
-                "最新版本 FastAPI 0.109+ 完全支持 Python 3.12。\n"
-                "建议搭配 uv 或 pip-tools 进行依赖管理。"
-            ),
-        ),
-        # 助手总结建议
-        create_assistant_msg(
-            "根据查询结果，我的建议是：\n"
-            "1. **Python 版本**: 使用 Python 3.11 或 3.12（通过 pyenv 安装）\n"
-            "2. **框架**: FastAPI 0.109+ 完全兼容这些版本\n"
-            "3. **依赖管理**: 推荐使用 uv（更快）或 pip-tools\n"
-            "4. **ASGI 服务器**: Uvicorn 配合 gunicorn 用于生产环境\n\n"
-            "需要我帮你生成一个项目模板吗？",
-        ),
-        # 用户确认偏好
-        create_user_msg("好的，我决定用 Python 3.12 + FastAPI + uv。请记住我的这些偏好。"),
-        # 助手确认
-        create_assistant_msg(
-            "已记录你的开发偏好：\n"
-            "- Python 版本: 3.12 (通过 pyenv 管理)\n"
-            "- Web 框架: FastAPI\n"
-            "- 包管理器: uv\n"
-            "以后有相关问题我会参考这些偏好给你建议！",
-        ),
-    ]
-    return messages
+def print_token_change(_step_name: str, before: int, after: int):
+    """打印 Token 变化统计。"""
+    change = after - before
+    change_pct = (change / before * 100) if before > 0 else 0
+    print(f"  📊 Token 统计: {before:,} → {after:,} (变化: {change:+,}, {change_pct:+.1f}%)")
 
 
 # ==================== 主测试流程 ====================
 async def main():
-    """ReMeLight 主测试流程，演示完整的记忆管理功能。"""
+    """测试 ReMeLight 的完整功能，并跟踪每步 Token 变化。"""
+    # 初始化 AsMsgHandler 用于 Token 统计
+    msg_handler = get_msg_handler()
+
     # 初始化 ReMeLight
     reme = ReMeLight(
-        working_dir=".reme",  # 记忆文件存储目录
-        max_input_length=128000,  # 模型上下文窗口（tokens）
-        memory_compact_ratio=0.7,  # 达到 max_input_length * 0.7 时触发压缩
-        language="zh",  # 摘要语言（zh / ""）
-        tool_result_threshold=1000,  # 超过此字符数的工具输出自动转存
-        retention_days=7,  # tool_result/ 文件保留天数
+        default_as_llm_config={"model_name": "qwen3.5-35b-a3b"},
+        # default_embedding_model_config={"model_name": "text-embedding-v4"},
+        default_file_store_config={"fts_enabled": True, "vector_enabled": False},
+        enable_load_env=True,
     )
+    logging.getLogger("reme").setLevel(logging.WARNING)
     await reme.start()
-    print("=" * 60)
+    print("=" * 70)
     print("ReMeLight 已启动")
-    print("=" * 60)
+    print("=" * 70)
 
-    # 构建模拟对话历史
-    messages = build_sample_messages()
-    print(f"\n[原始消息数量]: {len(messages)} 条")
+    # 构建模拟对话历史（包含超长 tool_result，确保超过 128K token）
+    original_messages = build_sample_messages(include_large_tool_result=True)
+    initial_tokens = await msg_handler.count_msgs_token(original_messages)
 
-    # 1. 压缩超长工具输出（防止工具结果撑爆上下文）
-    print("\n" + "-" * 40)
-    print("[步骤 1] 压缩超长工具输出...")
-    messages = await reme.compact_tool_result(messages)
-    print(f"处理后消息数量: {len(messages)} 条")
+    print(f"\n[原始消息]: {len(original_messages)} 条, {initial_tokens:,} tokens")
+    print(f"  目标阈值: 128K = {128 * 1024:,} tokens")
+    print(f"  超出阈值: {initial_tokens > 128 * 1024}")
 
-    # 2. 将历史对话压缩为结构化摘要（触发时机：上下文接近上限）
-    print("\n" + "-" * 40)
-    print("[步骤 2] 生成结构化压缩摘要...")
-    summary = await reme.compact_memory(
+    # ==================== 1. compact_tool_result ====================
+    print("\n" + "=" * 70)
+    print("[步骤 1] compact_tool_result - 压缩超长工具输出")
+    print("=" * 70)
+
+    # 重新获取原始消息
+    messages = build_sample_messages(include_large_tool_result=True)
+    tokens_before = await msg_handler.count_msgs_token(messages)
+    messages_after_step1 = await reme.compact_tool_result(messages)
+    tokens_after = await msg_handler.count_msgs_token(messages_after_step1)
+
+    print(f"  消息数量: {len(messages)} → {len(messages_after_step1)}")
+    print_token_change("compact_tool_result", tokens_before, tokens_after)
+
+    # ==================== 2. compact_memory ====================
+    print("\n" + "=" * 70)
+    print("[步骤 2] compact_memory - 生成结构化压缩摘要")
+    print("=" * 70)
+
+    # 重新获取原始消息
+    messages = build_sample_messages(include_large_tool_result=True)
+    tokens_before = await msg_handler.count_msgs_token(messages)
+    compact_summary = await reme.compact_memory(
         messages=messages,
-        previous_summary="",  # 可传入上轮摘要，实现增量更新
+        previous_summary="",
     )
-    print(f"压缩摘要:\n{summary[:500]}..." if len(summary) > 500 else f"压缩摘要:\n{summary}")
+    summary_tokens = await msg_handler.count_str_token(compact_summary)
 
-    # 3. 后台异步提交摘要任务（不阻塞对话，摘要写入 memory/YYYY-MM-DD.md）
-    print("\n" + "-" * 40)
-    print("[步骤 3] 提交后台异步摘要任务...")
-    reme.add_async_summary_task(messages=messages)
-    print("异步任务已提交")
+    print(f"  输入消息 tokens: {tokens_before:,}")
+    print(f"  压缩摘要长度: {len(compact_summary)} 字符, {summary_tokens:,} tokens")
+    print(f"  压缩比: {summary_tokens / tokens_before * 100:.1f}%" if tokens_before > 0 else "  压缩比: N/A")
+    print(f"  摘要预览: {compact_summary[:200]}..." if len(compact_summary) > 200 else f"  摘要: {compact_summary}")
 
-    # 4. 语义搜索记忆（向量 + BM25 混合检索）
-    print("\n" + "-" * 40)
-    print("[步骤 4] 语义搜索记忆...")
-    result = await reme.memory_search(query="Python 版本偏好", max_results=5)
-    print(f"搜索结果: {result}")
+    # ==================== 3. summary_memory ====================
+    print("\n" + "=" * 70)
+    print("[步骤 3] summary_memory - 生成完整摘要并写入文件")
+    print("=" * 70)
 
-    # 5. 获取会话内存实例（ReMeInMemoryMemory，管理单次对话的上下文）
-    print("\n" + "-" * 40)
-    print("[步骤 5] 获取会话内存实例并估算 Token 使用...")
+    # 重新获取原始消息
+    messages = build_sample_messages(include_large_tool_result=True)
+    tokens_before = await msg_handler.count_msgs_token(messages)
+    summary_result = await reme.summary_memory(messages=messages)
+
+    print(f"  输入消息 tokens: {tokens_before:,}")
+    print(f"  摘要结果长度: {len(summary_result)} 字符")
+    print(f"  摘要预览: {summary_result[:200]}..." if len(summary_result) > 200 else f"  摘要: {summary_result}")
+
+    # ==================== 4. pre_reasoning_hook ====================
+    print("\n" + "=" * 70)
+    print("[步骤 4] pre_reasoning_hook - 推理前预处理")
+    print("=" * 70)
+
+    # 重新获取原始消息
+    messages = build_sample_messages(include_large_tool_result=True)
+    tokens_before = await msg_handler.count_msgs_token(messages)
+    processed_messages, compressed_summary = await reme.pre_reasoning_hook(
+        messages=messages,
+        system_prompt="你是一个有帮助的 AI 助手。",
+        compressed_summary="",
+        max_input_length=128000,
+        compact_ratio=0.7,
+        memory_compact_reserve=10000,
+        enable_tool_result_compact=True,
+        tool_result_compact_keep_n=3,
+    )
+    tokens_after = await msg_handler.count_msgs_token(processed_messages)
+    compressed_summary_tokens = await msg_handler.count_str_token(compressed_summary)
+
+    print(f"  消息数量: {len(messages)} → {len(processed_messages)}")
+    print_token_change("pre_reasoning_hook", tokens_before, tokens_after)
+    print(f"  压缩摘要: {len(compressed_summary)} 字符, {compressed_summary_tokens:,} tokens")
+    print(f"  总上下文: {tokens_after + compressed_summary_tokens:,} tokens")
+
+    # ==================== 5. memory_search ====================
+    print("\n" + "=" * 70)
+    print("[步骤 5] memory_search - 语义搜索记忆")
+    print("=" * 70)
+
+    search_result = await reme.memory_search(query="Python 版本偏好", max_results=5)
+    if search_result.content:
+        print(f"  搜索结果: {search_result.content}")
+    else:
+        print("  未找到相关记忆")
+
+    # ==================== 6 & 7. ReMeInMemoryMemory ====================
+    print("\n" + "=" * 70)
+    print("[步骤 6] ReMeInMemoryMemory - 会话内存管理")
+    print("=" * 70)
+
+    # 重新获取原始消息
+    messages = build_sample_messages(include_large_tool_result=True)
     memory = reme.get_in_memory_memory()
-    # 将消息添加到内存中以便估算
     for msg in messages:
         await memory.add(msg)
-    token_stats = await memory.estimate_tokens()
-    print(f"当前上下文使用率: {token_stats['context_usage_ratio']:.1f}%")
-    print(f"消息 Token 数: {token_stats['messages_tokens']}")
-    print(f"预估总 Token 数: {token_stats['estimated_tokens']}")
+    print(f"  已添加 {len(messages)} 条原始消息到内存")
 
-    # 6. 关闭前等待后台任务完成
-    print("\n" + "-" * 40)
-    print("[步骤 6] 等待后台任务完成...")
-    summary_result = await reme.await_summary_tasks()
-    print(f"后台摘要任务完成，结果长度: {len(summary_result)} 字符")
+    # 6.1 estimate_tokens
+    print("\n[6.1] estimate_tokens - 估算 Token 使用:")
+    token_stats = await memory.estimate_tokens(max_input_length=128000)
+    print(f"  - 总消息数: {token_stats['total_messages']}")
+    print(f"  - 消息 Token 数: {token_stats['messages_tokens']:,}")
+    print(f"  - 压缩摘要 Token 数: {token_stats['compressed_summary_tokens']:,}")
+    print(f"  - 预估总 Token 数: {token_stats['estimated_tokens']:,}")
+    print(f"  - 最大输入长度: {token_stats['max_input_length']:,}")
+    print(f"  - 上下文使用率: {token_stats['context_usage_ratio']:.2f}%")
+
+    # 6.2 get_history_str
+    print("\n[6.2] get_history_str - 格式化历史记录:")
+    history_str = await memory.get_history_str(max_input_length=128000)
+    print(history_str[:1000] + "..." if len(history_str) > 1000 else history_str)
+
+    # ==================== 等待后台任务完成 ====================
+    print("\n" + "=" * 70)
+    print("[步骤 7] 等待后台任务完成")
+    print("=" * 70)
+    await_result = await reme.await_summary_tasks()
+    print(f"  后台任务完成，结果长度: {len(await_result)} 字符")
+
+    # ==================== 总结 ====================
+    print("\n" + "=" * 70)
+    print("📊 Token 变化总结")
+    print("=" * 70)
+    print(f"  原始消息: {initial_tokens:,} tokens")
+    print(f"  Step 1 compact_tool_result 后: {(await msg_handler.count_msgs_token(messages_after_step1)):,} tokens")
+    print(f"  Step 2 compact_memory 摘要: {summary_tokens:,} tokens")
+    print(
+        f"  Step 4 pre_reasoning_hook 后: {tokens_after:,} tokens + 摘要 {compressed_summary_tokens:,} "
+        f"tokens = {tokens_after + compressed_summary_tokens:,} tokens",
+    )
+    print(
+        f"  最大节省: {initial_tokens - tokens_after:,} "
+        f"tokens ({(initial_tokens - tokens_after) / initial_tokens * 100:.1f}%)",
+    )
+    print(f"  目标阈值: {128 * 1024:,} tokens")
 
     # 关闭 ReMeLight
     await reme.close()
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 70)
     print("ReMeLight 已关闭")
-    print("=" * 60)
+    print("=" * 70)
 
 
 if __name__ == "__main__":

@@ -13,12 +13,12 @@ from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
-_ELASTICSEARCH_IMPORT_ERROR = None
+_ELASTICSEARCH_IMPORT_ERROR: Exception | None = None
 
 try:
     from elasticsearch import AsyncElasticsearch
     from elasticsearch.helpers import async_bulk
-except ImportError as e:
+except Exception as e:
     _ELASTICSEARCH_IMPORT_ERROR = e
     AsyncElasticsearch = None
     async_bulk = None

@@ -3,3 +3,4 @@ loguru
 openai
 ray
 pandas
+soundfile

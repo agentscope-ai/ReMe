@@ -2,25 +2,22 @@
 
 import asyncio
 import datetime
-import logging
 import tempfile
 from pathlib import Path
 
 from agentscope.message import Msg
-
+from agentscope.tool import Toolkit
 from test_utils import (
     get_dash_chat_model,
     get_formatter,
     get_token_counter,
 )
-from reme.memory.file_based import Summarizer
+from reme.core.utils import get_logger
+from reme.memory.file_based.components import Summarizer
+from reme.memory.file_based.tools import FileIO
 
-# 配置日志输出到控制台
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+
+logger = get_logger()
 
 
 # ANSI 颜色码
@@ -100,6 +97,16 @@ def create_tool_result_msg(tool_name: str, output: str) -> Msg:
     )
 
 
+def create_toolkit(working_dir: str) -> Toolkit:
+    """Create a default Toolkit with FileIO tools for testing."""
+    toolkit = Toolkit()
+    file_io = FileIO(working_dir=working_dir)
+    toolkit.register_tool_function(file_io.read_file)
+    toolkit.register_tool_function(file_io.write_file)
+    toolkit.register_tool_function(file_io.edit_file)
+    return toolkit
+
+
 def create_summarizer(working_dir: str = None, memory_dir: str = "memory"):
     """Create a Summarizer instance for testing."""
     if working_dir is None:
@@ -114,9 +121,10 @@ def create_summarizer(working_dir: str = None, memory_dir: str = "memory"):
             working_dir=working_dir,
             memory_dir=memory_dir,
             memory_compact_threshold=4000,
-            chat_model=get_dash_chat_model(),
-            formatter=get_formatter(),
-            token_counter=get_token_counter(),
+            as_token_counter=get_token_counter(),
+            toolkit=create_toolkit(working_dir),
+            as_llm=get_dash_chat_model(),
+            as_llm_formatter=get_formatter(),
         ),
         working_dir,
     )
@@ -195,9 +203,10 @@ def test_consecutive_summaries():
         working_dir=working_dir,
         memory_dir=memory_dir,
         memory_compact_threshold=4000,
-        chat_model=get_dash_chat_model(),
-        formatter=get_formatter(),
-        token_counter=get_token_counter(),
+        as_token_counter=get_token_counter(),
+        toolkit=create_toolkit(working_dir),
+        as_llm=get_dash_chat_model(),
+        as_llm_formatter=get_formatter(),
     )
 
     # 第一轮对话

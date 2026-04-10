@@ -58,74 +58,68 @@ class FlowConfig(ToolCall):
     cache_expire_hours: float = Field(default=0.1)
 
 
-class LLMConfig(BaseModel):
+class BasicConfig(BaseModel):
+    """Configuration for basic service settings and parameters."""
+
+    model_config = ConfigDict(extra="allow")
+
+    backend: str = Field(default="")
+
+
+class ModelConfig(BasicConfig):
+    """Configuration for model-based services with backend and model name."""
+
+    model_name: str = Field(default="")
+
+
+class LLMConfig(ModelConfig):
     """Configuration for Large Language Model backend and model identification."""
 
-    model_config = ConfigDict(extra="allow")
 
-    backend: str = Field(default="")
-    model_name: str = Field(default="")
-
-
-class EmbeddingModelConfig(BaseModel):
+class EmbeddingModelConfig(ModelConfig):
     """Configuration for embedding model backends and identity."""
 
-    model_config = ConfigDict(extra="allow")
 
-    backend: str = Field(default="")
-    model_name: str = Field(default="")
-
-
-class VectorStoreConfig(BaseModel):
-    """Configuration for vector database storage and associated embeddings."""
-
-    model_config = ConfigDict(extra="allow")
-
-    backend: str = Field(default="local")
-    collection_name: str = Field(default="reme")
-    embedding_model: str = Field(default="default")
-
-
-class FileStoreConfig(BaseModel):
-    """Configuration for file store database storage and associated embeddings."""
-
-    model_config = ConfigDict(extra="allow")
-
-    backend: str = Field(default="sqlite")
-    store_name: str = Field(default="reme")
-    embedding_model: str = Field(default="default")
-
-
-class TokenCounterConfig(BaseModel):
+class TokenCounterConfig(ModelConfig):
     """Configuration for token counting services and model mapping."""
 
-    model_config = ConfigDict(extra="allow")
 
-    backend: str = Field(default="base")
-    model_name: str = Field(default="")
+class StoreConfig(BasicConfig):
+    """Configuration for storage services with embedding model support."""
+
+    embedding_model: str = Field(default="default")
 
 
-class FileWatcherConfig(BaseModel):
+class VectorStoreConfig(StoreConfig):
+    """Configuration for vector database storage and associated embeddings."""
+
+    collection_name: str = Field(default="reme")
+
+
+class FileStoreConfig(StoreConfig):
+    """Configuration for file store database storage and associated embeddings."""
+
+    store_name: str = Field(default="reme")
+
+
+class FileWatcherConfig(BasicConfig):
     """Configuration for file watcher service."""
 
-    model_config = ConfigDict(extra="allow")
-
-    backend: str = Field(default="")
     file_store: str = Field(default="")
     watch_paths: list[str] = Field(default_factory=list)
 
 
-class ServiceConfig(BaseModel):
+class ServiceConfig(BasicConfig):
     """Root configuration schema aggregating all service-level settings and components."""
 
-    model_config = ConfigDict(extra="allow")
-
-    backend: str = Field(default="")
     app_name: str = Field(default=os.getenv("APP_NAME", "ReMe"))
     working_dir: str = Field(default=".reme")
     enable_logo: bool = Field(default=True)
     language: str = Field(default="")
-    thread_pool_max_workers: int = Field(default=16)
+    thread_pool_max_workers: int = Field(
+        default=16,
+        description="Number of thread pool workers. Set to -1 to disable thread pool.",
+    )
     ray_max_workers: int = Field(default=-1)
     log_to_console: bool = Field(default=True)
     disabled_flows: list[str] = Field(default_factory=list)
@@ -137,6 +131,9 @@ class ServiceConfig(BaseModel):
     cmd: CmdConfig = Field(default_factory=CmdConfig)
     ops: dict[str, OpConfig] = Field(default_factory=dict)
     flows: dict[str, FlowConfig] = Field(default_factory=dict)
+    as_llms: dict[str, BasicConfig] = Field(default_factory=dict)
+    as_llm_formatters: dict[str, BasicConfig] = Field(default_factory=dict)
+    as_token_counters: dict[str, BasicConfig] = Field(default_factory=dict)
     llms: dict[str, LLMConfig] = Field(default_factory=dict)
     embedding_models: dict[str, EmbeddingModelConfig] = Field(default_factory=dict)
     vector_stores: dict[str, VectorStoreConfig] = Field(default_factory=dict)

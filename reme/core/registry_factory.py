@@ -34,6 +34,9 @@ class RegistryFactory:
 
     def __init__(self):
         self.llms = Registry()
+        self.as_llms = Registry()
+        self.as_llm_formatters = Registry()
+        self.as_token_counters = Registry()
         self.embedding_models = Registry()
         self.vector_stores = Registry()
         self.file_stores = Registry()

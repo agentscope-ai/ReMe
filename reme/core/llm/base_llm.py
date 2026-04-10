@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 import time
 from abc import ABC, abstractmethod
 from typing import Callable, Generator, AsyncGenerator, Any
@@ -36,8 +35,8 @@ class BaseLLM(ABC):
             request_interval: Minimum seconds between requests (default: 0.0)
             **kwargs: Additional model-specific parameters
         """
-        self._api_key: str = api_key
-        self._base_url: str = base_url
+        self.api_key: str = api_key
+        self.base_url: str = base_url
         self.model_name: str = model_name
         self.max_retries: int = max_retries
         self.raise_exception: bool = raise_exception
@@ -46,16 +45,6 @@ class BaseLLM(ABC):
 
         self._last_request_time: float = 0.0
         self._request_lock: asyncio.Lock = asyncio.Lock()
-
-    @property
-    def api_key(self) -> str | None:
-        """Get API key from environment variable."""
-        return os.getenv("LLM_API_KEY") or self._api_key
-
-    @property
-    def base_url(self) -> str | None:
-        """Get base URL from environment variable."""
-        return os.getenv("LLM_BASE_URL") or self._base_url
 
     @staticmethod
     def _accumulate_tool_call_chunk(tool_call, ret_tools: list[ToolCall]):

@@ -172,7 +172,6 @@ pip install -e .
 | `watch_paths`    | 要监控的目录/文件          |
 | `suffix_filters` | 只关心哪些后缀（`.md`）     |
 | `recursive`      | 是否递归子目录            |
-| `scan_on_start`  | 启动时先全量扫一遍          |
 
 **token_counters — Token 计数器**
 

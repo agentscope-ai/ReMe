@@ -66,7 +66,7 @@ flows:
           description: "Whether to enable soft comparison between highest and lowest scoring trajectories (default: true)."
         enable_similarity_comparison:
           type: boolean
-          description: "Whether to enable similarity-based comparison between success and failure trajectories (default: true)."
+          description: "Whether to enable similarity-based comparison between success and failure trajectories (default: false)."
         max_similarity_sequences:
           type: integer
           description: "Maximum number of sequences to compare for similarity (default: 5)."
@@ -155,6 +155,7 @@ flows:
           description: "The path to the memories file."
       required:
         - dump_file_path
+
   test:
     flow_content: TestOp()
     description: "test"
