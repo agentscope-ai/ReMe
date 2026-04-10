@@ -1,4 +1,9 @@
-"""seekdb vector store implementation for the ReMe framework."""
+"""seekdb vector store implementation for the ReMe framework.
+
+Uses ``pyseekdb`` (Chroma-like Collection API) for **embedded** local storage or
+**remote** OceanBase / seekdb—the same deployment modes as ``pyseekdb.Client``.
+For SQL-table-oriented helpers via ``pyobvector``, see ``ObVecVectorStore``.
+"""
 
 from pathlib import Path
 from typing import Any
@@ -8,6 +13,11 @@ from loguru import logger
 from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
+from ..utils.pyseekdb_conn import (
+    DEFAULT_SEEKDB_TENANT,
+    admin_kwargs_from_client_kwargs,
+    build_pyseekdb_client_kwargs,
+)
 
 # Optional: preserve original exception for "raise ... from _PYSEEKDB_IMPORT_ERROR" (better diagnostics)
 _PYSEEKDB_IMPORT_ERROR = None
@@ -25,11 +35,13 @@ except ImportError as e:
 
 
 class SeekdbVectorStore(BaseVectorStore):
-    """Vector store implementation using seekdb (pyseekdb) for embedded vector search.
+    """Vector store using ``pyseekdb`` and the Chroma-like Collection API.
 
-    Uses the same embedded Client + Collection API as SeekdbFileStore; supports
-    vector similarity search and metadata filtering. No full-text index by default
-    (vector_store use case is vector search + filter).
+    **Embedded** (default): optional ``path`` to the embedded data directory; if omitted,
+    pyseekdb applies its default (typically a ``seekdb.db`` directory name). **Remote**:
+    ``host`` / ``port`` plus auth (same deployment style as ``ObVecVectorStore``, without ``uri``).
+
+    Vector similarity search and metadata filtering; no full-text index by default.
     """
 
     def __init__(
@@ -39,16 +51,30 @@ class SeekdbVectorStore(BaseVectorStore):
         embedding_model: BaseEmbeddingModel,
         database: str = "reme_vector",
         distance: str = "cosine",
+        host: str | None = None,
+        port: int | None = None,
+        tenant: str = DEFAULT_SEEKDB_TENANT,
+        user: str | None = None,
+        password: str = "",
+        path: str | None = None,
         **kwargs: Any,
     ):
         """Initialize the seekdb vector store.
 
         Args:
             collection_name: Name of the collection.
-            db_path: Local path for embedded seekdb storage (e.g. working_dir / "vector_store").
+            db_path: Working directory for ReMe (metadata sidecar); also used when resolving
+                a default location alongside **remote** mode (mirrors ``ObVecVectorStore``).
             embedding_model: Model used for generating vector embeddings.
-            database: seekdb database name (all vector_store collections live in this DB).
+            database: Database name on the seekdb / OceanBase instance.
             distance: Similarity metric: cosine, euclid, dot.
+            host: Remote server host (embedded mode if unset or empty).
+            port: Remote port (default ``2881`` when ``host`` is set).
+            tenant: OceanBase / seekdb tenant (remote).
+            user: Remote user (``None`` uses library default ``root``).
+            password: Remote password.
+            path: Embedded data directory passed to ``pyseekdb.Client``; omit to use the
+                library default (typically ``./seekdb.db`` as the directory name).
             **kwargs: Additional options (ignored for compatibility).
         """
         if _PYSEEKDB_IMPORT_ERROR is not None:
@@ -67,12 +93,31 @@ class SeekdbVectorStore(BaseVectorStore):
         self.client: Any = None
         self.collection: Any = None
 
+        self._is_remote, self._client_kw = build_pyseekdb_client_kwargs(
+            path=None if (host and host.strip()) else path,
+            database=self.database,
+            host=host,
+            port=port,
+            tenant=tenant,
+            user=user,
+            password=password,
+        )
+
     def _client_kwargs(self) -> dict:
-        """Build Client kwargs for embedded mode."""
-        return {
-            "path": str(self.db_path / "seekdb"),
-            "database": self.database,
-        }
+        """Kwargs passed to ``pyseekdb.Client`` (embedded or remote)."""
+        return self._client_kw
+
+    def _coerce_embedding_for_upsert(self, vec: Any) -> list[float]:
+        """Normalize vectors before ``collection.upsert`` (pyseekdb SQL rejects empty hex)."""
+        if vec is None:
+            raw: list[float] = []
+        elif hasattr(vec, "tolist"):
+            raw = list(vec.tolist())
+        elif isinstance(vec, list):
+            raw = vec
+        else:
+            raw = list(vec)
+        return self.embedding_model._validate_and_adjust_embedding(raw)
 
     @staticmethod
     def _build_where(filters: dict | None) -> dict | None:
@@ -201,10 +246,12 @@ class SeekdbVectorStore(BaseVectorStore):
             embedding_function=None,
         )
         new_coll = self.client.get_collection(name=collection_name, embedding_function=None)
+        emb_out = data.get("embeddings") or []
+        emb_norm = [self._coerce_embedding_for_upsert(e) for e in emb_out] if emb_out else []
         new_coll.upsert(
             ids=ids,
             documents=data.get("documents", []),
-            embeddings=data.get("embeddings", []),
+            embeddings=emb_norm,
             metadatas=data.get("metadatas", []),
         )
         logger.info(f"Copied {self.collection_name} to {collection_name}")
@@ -224,7 +271,7 @@ class SeekdbVectorStore(BaseVectorStore):
             nodes_to_insert = nodes
         ids = [n.vector_id for n in nodes_to_insert]
         documents = [n.content for n in nodes_to_insert]
-        embeddings = [n.vector for n in nodes_to_insert]
+        embeddings = [self._coerce_embedding_for_upsert(n.vector) for n in nodes_to_insert]
         metadatas = [n.metadata for n in nodes_to_insert]
         self.collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
         logger.info(f"Inserted {len(nodes_to_insert)} nodes into {self.collection_name}")
@@ -294,7 +341,7 @@ class SeekdbVectorStore(BaseVectorStore):
             nodes_to_update = nodes
         ids = [n.vector_id for n in nodes_to_update]
         documents = [n.content for n in nodes_to_update]
-        embeddings = [n.vector for n in nodes_to_update]
+        embeddings = [self._coerce_embedding_for_upsert(n.vector) for n in nodes_to_update]
         metadatas = [n.metadata for n in nodes_to_update]
         self.collection.upsert(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
         logger.info(f"Updated {len(nodes_to_update)} nodes in {self.collection_name}")
@@ -360,17 +407,19 @@ class SeekdbVectorStore(BaseVectorStore):
 
     async def start(self) -> None:
         """Initialize seekdb client and ensure collection exists."""
-        path = Path(self._client_kwargs()["path"])
-        path.mkdir(parents=True, exist_ok=True)
+        kw = self._client_kwargs()
+        if not self._is_remote and "path" in kw:
+            Path(kw["path"]).parent.mkdir(parents=True, exist_ok=True)
         try:
-            admin = pyseekdb.AdminClient(path=str(path))
+            admin = pyseekdb.AdminClient(**admin_kwargs_from_client_kwargs(kw))
             if not any(db.name == self.database for db in admin.list_databases()):
                 admin.create_database(self.database)
         except Exception as e:
-            logger.debug("seekdb AdminClient: %s", e)
-        self.client = pyseekdb.Client(**self._client_kwargs())
+            logger.debug("seekdb AdminClient create_database: %s", e)
+        self.client = pyseekdb.Client(**kw)
         await self.create_collection(self.collection_name)
-        logger.info(f"seekdb vector store {self.collection_name} initialized")
+        mode = "remote" if self._is_remote else "embedded"
+        logger.info(f"seekdb vector store ({mode}) {self.collection_name} initialized")
 
     async def close(self) -> None:
         """Release client; no explicit close in pyseekdb, clear references."""

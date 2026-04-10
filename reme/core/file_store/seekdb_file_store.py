@@ -1,4 +1,9 @@
-"""seekdb storage backend for file store."""
+"""seekdb storage backend for file store.
+
+``pyseekdb.Client`` supports **embedded** (``path``) and **remote** OceanBase /
+seekdb (``host`` / ``port`` / credentials). SQL-table-oriented helpers can still
+use **pyobvector** via ``ObVecFileStore`` if needed.
+"""
 
 import time
 from pathlib import Path
@@ -8,6 +13,11 @@ from loguru import logger
 from .base_file_store import BaseFileStore
 from ..enumeration import MemorySource
 from ..schema import FileMetadata, MemoryChunk, MemorySearchResult
+from ..utils.pyseekdb_conn import (
+    DEFAULT_SEEKDB_TENANT,
+    admin_kwargs_from_client_kwargs,
+    build_pyseekdb_client_kwargs,
+)
 
 try:
     import pyseekdb
@@ -28,14 +38,22 @@ def _escape_sql(s: str) -> str:
 
 
 class SeekdbFileStore(BaseFileStore):
-    """seekdb file storage with vector and full-text search (embedded mode only).
+    """seekdb file storage with vector and full-text search via ``pyseekdb``.
 
-    File metadata is stored in a DB table (same as SqliteFileStore); uses pyseekdb
-    BaseClient execute/_execute for SQL. No env vars, uses db_path and store_name only.
+    **Embedded** (default): optional ``path`` for the data directory; if omitted, pyseekdb
+    uses its default (typically ``./seekdb.db``). **Remote**: ``host`` / ``port`` plus auth.
+
+    File metadata is in a SQL table like SqliteFileStore; raw SQL uses ``execute``/``_execute``.
     """
 
     def __init__(
         self,
+        host: str | None = None,
+        port: int | None = None,
+        tenant: str = DEFAULT_SEEKDB_TENANT,
+        user: str | None = None,
+        password: str = "",
+        path: str | None = None,
         **kwargs,
     ):
         if not PYSEEKDB_AVAILABLE:
@@ -48,6 +66,16 @@ class SeekdbFileStore(BaseFileStore):
         self.client: "pyseekdb.Client | None" = None
         self.collection = None
 
+        self._is_remote, self._client_kw = build_pyseekdb_client_kwargs(
+            path=None if (host and host.strip()) else path,
+            database=self.store_name,
+            host=host,
+            port=port,
+            tenant=tenant,
+            user=user,
+            password=password,
+        )
+
     @property
     def collection_name(self) -> str:
         """Collection name for chunks."""
@@ -59,8 +87,8 @@ class SeekdbFileStore(BaseFileStore):
         return f"files_{self.store_name}"
 
     def _client_kwargs(self) -> dict:
-        """Build Client kwargs for embedded mode from db_path and store_name (same as Chroma/SQLite)."""
-        return {"path": str(self.db_path / "seekdb"), "database": self.store_name}
+        """Kwargs for ``pyseekdb.Client`` (embedded or remote)."""
+        return self._client_kw
 
     def _sql_client(self):
         """Underlying BaseClient for raw SQL (pyseekdb Client proxy exposes _server)."""
@@ -99,16 +127,15 @@ class SeekdbFileStore(BaseFileStore):
             return
 
         kwargs = self._client_kwargs()
-        if "path" in kwargs:
-            path = Path(kwargs["path"])
-            path.mkdir(parents=True, exist_ok=True)
-            database = kwargs.get("database", self.store_name)
-            try:
-                admin = pyseekdb.AdminClient(path=str(path))
-                if not any(db.name == database for db in admin.list_databases()):
-                    admin.create_database(database)
-            except Exception as e:
-                logger.debug("seekdb AdminClient create_database: %s", e)
+        if not self._is_remote and "path" in kwargs:
+            Path(kwargs["path"]).parent.mkdir(parents=True, exist_ok=True)
+        database = kwargs.get("database", self.store_name)
+        try:
+            admin = pyseekdb.AdminClient(**admin_kwargs_from_client_kwargs(kwargs))
+            if not any(db.name == database for db in admin.list_databases()):
+                admin.create_database(database)
+        except Exception as e:
+            logger.debug("seekdb AdminClient create_database: %s", e)
         self.client = pyseekdb.Client(**kwargs)
 
         dim = self.embedding_dim

@@ -67,9 +67,14 @@ class TestConfig:
     LOCAL_DB_PATH = "./test_file_store_local"
     LOCAL_FTS_ENABLED = True
 
-    # SeekdbFileStore settings (embedded mode)
+    # SeekdbFileStore: embedded by default; SEEKDB_HOST (and optional SEEKDB_PORT) => remote
     SEEKDB_DB_PATH = "./test_file_store_seekdb"
     SEEKDB_FTS_ENABLED = True
+    SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
+    SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
+    SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "root")
+    SEEKDB_TENANT = os.environ.get("SEEKDB_TENANT", "sys")
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -269,13 +274,23 @@ def create_file_store(store_type: str) -> BaseFileStore:
             raise ImportError(
                 "SeekdbFileStore requires pyseekdb. Install with: pip install reme-ai (pyseekdb is included)",
             )
-        return SeekdbFileStore(
-            store_name=config.NAME,
-            db_path=config.SEEKDB_DB_PATH,
-            embedding_model=embedding_model,
-            fts_enabled=config.SEEKDB_FTS_ENABLED,
-            vector_enabled=True,
-        )
+        remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
+        kw: dict = {
+            "store_name": config.NAME,
+            "db_path": config.SEEKDB_DB_PATH,
+            "embedding_model": embedding_model,
+            "fts_enabled": config.SEEKDB_FTS_ENABLED,
+            "vector_enabled": True,
+        }
+        if remote:
+            kw["host"] = config.SEEKDB_HOST.strip()
+            kw["port"] = config.SEEKDB_PORT
+            kw["user"] = config.SEEKDB_USER
+            kw["password"] = config.SEEKDB_PASSWORD
+            kw["tenant"] = config.SEEKDB_TENANT
+        else:
+            kw["path"] = str(Path(config.SEEKDB_DB_PATH) / "seekdb.db")
+        return SeekdbFileStore(**kw)
     else:
         raise ValueError(f"Unknown store type: {store_type}")
 

@@ -81,8 +81,14 @@ class TestConfig:
     PG_USE_HNSW = True  # Use HNSW index for faster search
     PG_USE_DISKANN = False  # Use DiskANN index (requires vectorscale extension)
 
-    # SeekdbVectorStore settings (embedded, temp dir used if not set)
+    # SeekdbVectorStore: embedded by default; set SEEKDB_HOST (and optional SEEKDB_PORT) for remote
     SEEKDB_PATH = None  # e.g. "./test_vector_store_seekdb"; None => temp dir
+    SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
+    SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
+    SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "root")
+    SEEKDB_TENANT = os.environ.get("SEEKDB_TENANT", "sys")
+    SEEKDB_DATABASE = os.environ.get("SEEKDB_DATABASE", "reme_vector")
 
     # ChromaVectorStore settings
     CHROMA_PATH = "./test_vector_store_chroma"  # For local persistent mode
@@ -314,13 +320,24 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     elif store_type == "seekdb":
         if SeekdbVectorStore is None:
             raise ImportError("SeekdbVectorStore not available; install pyseekdb")
-        return SeekdbVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=config.SEEKDB_PATH or tempfile.mkdtemp(prefix="test_seekdb_"),
-            database="reme_vector",
-            distance="cosine",
-        )
+        remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
+        db_path = config.SEEKDB_PATH or tempfile.mkdtemp(prefix="test_seekdb_")
+        kw: dict = {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": db_path,
+            "database": config.SEEKDB_DATABASE if remote else "reme_vector",
+            "distance": "cosine",
+        }
+        if remote:
+            kw["host"] = config.SEEKDB_HOST.strip()
+            kw["port"] = config.SEEKDB_PORT
+            kw["user"] = config.SEEKDB_USER
+            kw["password"] = config.SEEKDB_PASSWORD
+            kw["tenant"] = config.SEEKDB_TENANT
+        else:
+            kw["path"] = str(Path(db_path) / "seekdb.db")
+        return SeekdbVectorStore(**kw)
     else:
         raise ValueError(f"Unknown store type: {store_type}")
 
