@@ -1,14 +1,15 @@
 """Module for registering AgentScope LLM models."""
 
-from agentscope.model import OpenAIChatModel
+import asyncio
+
+from agentscope.model import OpenAIChatModel, ChatModelBase
 
 from ..base_component import BaseComponent
 from ..component_registry import R
 from ...enumeration import ComponentEnum
 
 
-@R.register("openai")
-class AsOpenAIChatModel(BaseComponent):
+class BaseAsLLM(BaseComponent):
     """Simple wrapper for AgentScope LLM models."""
 
     component_type = ComponentEnum.AS_LLM
@@ -16,7 +17,18 @@ class AsOpenAIChatModel(BaseComponent):
     def __init__(self, **kwargs) -> None:
         """Initialize with model configuration."""
         super().__init__(**kwargs)
-        self.model: OpenAIChatModel | None = None
+        self.model: ChatModelBase | None = None
+
+    async def _start(self, app_context=None) -> None:
+        """Initialize the AgentScope model instance."""
+
+    async def _close(self) -> None:
+        """Close the AgentScope model and release resources."""
+        self.model = None
+
+
+@R.register("openai")
+class OpenAIAsLLM(BaseAsLLM):
 
     async def _start(self, app_context=None) -> None:
         """Initialize the AgentScope model instance."""
@@ -25,10 +37,17 @@ class AsOpenAIChatModel(BaseComponent):
     async def _close(self) -> None:
         """Close the AgentScope model and release resources."""
         if self.model is not None:
-            await self.model.client.close()
+            client = getattr(self.model, "client", None)
+            if client is not None and hasattr(client, "close"):
+                close_method = client.close
+                if asyncio.iscoroutinefunction(close_method):
+                    await close_method()
+                else:
+                    close_method()
             self.model = None
 
 
 __all__ = [
-    "AsOpenAIChatModel",
+    "BaseAsLLM",
+    "OpenAIAsLLM",
 ]
