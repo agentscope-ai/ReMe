@@ -8,9 +8,8 @@ from ..component_registry import R
 from ...enumeration import ComponentEnum
 
 
-@R.register("openai")
-class AsOpenAIChatFormatter(BaseComponent):
-    """Wrapper for ReMeOpenAIChatFormatter."""
+class BaseAsLLMFormatter(BaseComponent):
+    """Base wrapper for AgentScope LLM formatters."""
 
     component_type = ComponentEnum.AS_LLM_FORMATTER
 
@@ -21,13 +20,22 @@ class AsOpenAIChatFormatter(BaseComponent):
 
     async def _start(self, app_context=None) -> None:
         """Initialize the formatter instance."""
-        self.formatter = ReMeOpenAIChatFormatter(**self.kwargs)
 
     async def _close(self) -> None:
         """Close the formatter (no-op for formatter)."""
         self.formatter = None
 
 
+@R.register("openai")
+class AsOpenAIChatFormatter(BaseAsLLMFormatter):
+    """Wrapper for ReMeOpenAIChatFormatter."""
+
+    async def _start(self, app_context=None) -> None:
+        """Initialize the formatter instance."""
+        self.formatter = ReMeOpenAIChatFormatter(**self.kwargs)
+
+
 __all__ = [
+    "BaseAsLLMFormatter",
     "AsOpenAIChatFormatter",
 ]
