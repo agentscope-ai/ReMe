@@ -13,6 +13,7 @@ class ApplicationConfig(BaseModel):
     enable_logo: bool = Field(default=False)
     language: str = Field(default="")
     log_to_console: bool = Field(default=True)
+    log_to_file: bool = Field(default=True)
     mcp_servers: dict[str, dict] = Field(default_factory=dict)
     service: dict = Field(default_factory=dict)
     ops: dict[str, dict] = Field(default_factory=dict)
