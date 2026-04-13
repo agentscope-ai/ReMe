@@ -1,26 +1,49 @@
-"""Chunking logic for Markdown files."""
+"""Markdown file chunking utilities.
+
+Provides functionality to split Markdown documents into smaller chunks
+while maintaining overlap between consecutive chunks for context preservation.
+"""
 
 from .common_utils import hash_text
 from ..schema import FileChunk
 
 
 def chunk_markdown(
-    text: str,
-    path: str,
-    chunk_tokens: int,
-    overlap: int,
+        text: str,
+        path: str,
+        chunk_tokens: int,
+        overlap: int,
 ) -> list[FileChunk]:
-    """
-    Markdown chunking logic implemented based on the TypeScript version.
+    """Split Markdown text into chunks with configurable size and overlap.
+
+    Implements a sliding window approach to chunk Markdown content while
+    preserving context through overlap between consecutive chunks. Token
+    counts are approximated using a 1:4 ratio (1 token ≈ 4 characters).
 
     Args:
-        text: Input text
-        path: File path
-        chunk_tokens: Maximum tokens per chunk
-        overlap: Overlap tokens between chunks
+        text: Input Markdown text to be chunked.
+        path: File path identifier for the source document.
+        chunk_tokens: Maximum number of tokens per chunk. Will be converted
+            to characters using the 1:4 ratio, with a minimum of 32 characters.
+        overlap: Number of overlapping tokens between consecutive chunks.
+            Helps maintain context across chunk boundaries.
 
     Returns:
-        List of FileChunk objects
+        A list of FileChunk objects, each containing:
+            - id: Unique identifier based on path, line numbers, and hash
+            - path: The source file path
+            - start_line: Starting line number (1-indexed)
+            - end_line: Ending line number (1-indexed)
+            - text: The chunk content
+            - hash: SHA-256 hash of the chunk content
+
+    Examples:
+        >>> text = "# Header\\nParagraph content here.\\n\\n## Subheader"
+        >>> chunks = chunk_markdown(text, "doc.md", chunk_tokens=100, overlap=20)
+        >>> len(chunks)
+        1
+        >>> chunks[0].path
+        'doc.md'
     """
     if not text.strip():
         return []
@@ -37,8 +60,8 @@ def chunk_markdown(
     current: list[dict] = []  # [{'line': str, 'line_no': int}]
     current_chars = 0
 
-    def flush():
-        """Add current chunk to results list"""
+    def flush() -> None:
+        """Add current chunk to results list."""
         if not current:
             return
 
@@ -65,8 +88,8 @@ def chunk_markdown(
             ),
         )
 
-    def carry_overlap():
-        """Keep overlapping part and clear the rest"""
+    def carry_overlap() -> None:
+        """Keep overlapping part and clear the rest."""
         nonlocal current, current_chars
 
         if overlap_chars <= 0 or not current:
@@ -102,7 +125,7 @@ def chunk_markdown(
         else:
             # If line is too long, split by maximum character count
             for start in range(0, len(line), max_chars):
-                segments.append(line[start : start + max_chars])
+                segments.append(line[start: start + max_chars])
 
         for segment in segments:
             line_size = len(segment) + 1  # +1 for newline

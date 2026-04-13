@@ -1,13 +1,8 @@
-"""Base file watcher implementation.
-
-This module provides the base class for file watcher implementations
-that monitor file system changes and trigger callbacks.
-"""
+"""Base file watcher with watchfiles integration."""
 
 import asyncio
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from watchfiles import Change, awatch
 
@@ -15,16 +10,18 @@ from ..base_component import BaseComponent
 from ..file_store import BaseFileStore
 from ...enumeration import ComponentEnum
 
-if TYPE_CHECKING:
-    from ..application_context import ApplicationContext
-
 
 class BaseFileWatcher(BaseComponent):
-    """Abstract base class for file watcher implementations.
+    """Abstract base class for file watchers.
 
-    This base class provides file monitoring functionality that can be extended
-    to implement specific file monitoring requirements.
+    Provides file monitoring with:
+        - watchfiles integration for efficient change detection
+        - Suffix-based filtering
+        - Auto-restart on failure
+        - Optional index rebuild on start
     """
+
+    component_type = ComponentEnum.FILE_WATCHER
 
     def __init__(
             self,
@@ -39,20 +36,18 @@ class BaseFileWatcher(BaseComponent):
             poll_delay_ms: int = 2000,
             **kwargs,
     ):
-        """Initialize the file watcher.
+        """Initialize file watcher configuration.
 
         Args:
-            watch_paths: Paths to watch for changes
-            suffix_filters: File suffix filters (e.g., ['.py', '.txt'])
-            recursive: Whether to watch directories recursively
-            debounce: Debounce time in milliseconds
-            chunk_tokens: Token size for chunking
-            chunk_overlap: Overlap size for chunks
-            file_store: Name of the file store component to use
-            rebuild_index_on_start: If True, clear all indexed data on start and rescan existing files.
-                           If False, only monitor new changes without initialization.
+            watch_paths: Paths to watch for changes.
+            suffix_filters: File suffix filters (e.g., ['.py', '.txt']).
+            recursive: Whether to watch directories recursively.
+            debounce: Debounce time in milliseconds.
+            chunk_tokens: Token size for chunking.
+            chunk_overlap: Overlap size for chunks.
+            file_store: Name of the file store component.
+            rebuild_index_on_start: Clear index and rescan files on start.
             poll_delay_ms: Polling delay in milliseconds.
-            **kwargs: Additional keyword arguments
         """
         super().__init__(**kwargs)
         self._file_store_name: str = file_store
@@ -69,10 +64,10 @@ class BaseFileWatcher(BaseComponent):
         self._stop_event = asyncio.Event()
         self._watch_task: asyncio.Task | None = None
 
-    async def _start(self, app_context: ApplicationContext | None = None):
-        """Initialize the file watcher and resolve file_store from app_context."""
-        # Resolve file_store from app_context
+    async def _start(self, app_context=None):
+        """Resolve file_store and start watching task."""
         if self._file_store_name:
+            assert app_context is not None, "app_context must be provided"
             stores = app_context.components.get(ComponentEnum.FILE_STORE, {})
             if self._file_store_name not in stores:
                 raise ValueError(f"File store '{self._file_store_name}' not found.")
@@ -81,7 +76,6 @@ class BaseFileWatcher(BaseComponent):
                 raise TypeError(f"Expected BaseFileStore, got {type(store).__name__}")
             self.file_store = store
 
-        # Start watching task
         async def _initialize_and_watch():
             if self.rebuild_index_on_start and self.file_store:
                 await self.file_store.clear_all()
@@ -94,8 +88,7 @@ class BaseFileWatcher(BaseComponent):
         self.logger.info(f"Started watching: {self.watch_paths}")
 
     async def _close(self):
-        """Stop the file watcher and release resources."""
-        # Signal stop and cancel watch task
+        """Stop watching and release resources."""
         self._stop_event.set()
         if self._watch_task and not self._watch_task.done():
             self._watch_task.cancel()
@@ -110,18 +103,17 @@ class BaseFileWatcher(BaseComponent):
         self.logger.info("Stopped watching")
 
     def watch_filter(self, _change: Change, path: str) -> bool:
-        """Filter function for file watching."""
+        """Filter files by suffix. Returns True if no filters configured."""
         if not self.suffix_filters:
             return True
 
         for suffix in self.suffix_filters:
             if path.endswith("." + suffix.strip(".")):
                 return True
-
         return False
 
     async def _scan_existing_files(self):
-        """Scan existing files matching watch criteria and trigger on_changes with Change.added."""
+        """Scan existing files and add them as Change.added."""
         if not self.file_store:
             return
 
@@ -148,11 +140,11 @@ class BaseFileWatcher(BaseComponent):
                             existing_files.add((Change.added, str(file_path)))
 
         if existing_files:
-            self.logger.info(f"[SCAN_ON_START] Found {len(existing_files)} existing files matching watch criteria")
+            self.logger.info(f"[SCAN_ON_START] Found {len(existing_files)} existing files")
             await self.on_changes(existing_files)
             self.logger.info(f"[SCAN_ON_START] Added {len(existing_files)} files to memory store")
         else:
-            self.logger.info("[SCAN_ON_START] No existing files found matching watch criteria")
+            self.logger.info("[SCAN_ON_START] No existing files found")
 
         files: list[str] = await self.file_store.list_files()
         for file_path in files:
@@ -176,7 +168,7 @@ class BaseFileWatcher(BaseComponent):
             valid_paths = [p for p in self.watch_paths if Path(p).exists()]
 
             if not valid_paths:
-                self.logger.warning("No valid watch paths exist, waiting 10 seconds before retry...")
+                self.logger.warning("No valid watch paths exist, waiting 10 seconds...")
                 await self._interruptible_sleep(10)
                 continue
 
@@ -185,7 +177,7 @@ class BaseFileWatcher(BaseComponent):
                 self.logger.warning(f"Skipping non-existent paths: {invalid_paths}")
 
             try:
-                self.logger.info(f"Starting watch on valid paths: {valid_paths}")
+                self.logger.info(f"Starting watch on: {valid_paths}")
                 async for changes in awatch(
                         *valid_paths,
                         watch_filter=self.watch_filter,
@@ -196,7 +188,6 @@ class BaseFileWatcher(BaseComponent):
                 ):
                     if self._stop_event.is_set():
                         break
-
                     await self.on_changes(changes)
 
             except FileNotFoundError as e:
@@ -210,14 +201,10 @@ class BaseFileWatcher(BaseComponent):
                     await self._interruptible_sleep(10)
 
     async def on_changes(self, changes: set[tuple[Change, str]]):
-        """Hook method to handle file changes."""
+        """Hook method for handling file changes."""
         await self._on_changes(changes)
         self.logger.info(f"[{self.__class__.__name__}] on_changes: {changes}")
 
     @abstractmethod
     async def _on_changes(self, changes: set[tuple[Change, str]]):
-        """Callback method to handle file changes.
-
-        Args:
-            changes: Set of (Change, path) tuples representing file changes
-        """
+        """Handle file changes. Override in subclasses."""
