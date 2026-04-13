@@ -1,31 +1,28 @@
-"""Defines the types of data chunks used in streaming responses."""
+"""Chunk enumeration module.
+
+Defines the types of data chunks used in streaming responses.
+"""
 
 from enum import Enum
 
 
 class ChunkEnum(str, Enum):
-    """Enumeration of possible chunk categories for stream processing."""
+    """Enumeration of possible chunk categories for stream processing.
 
-    # Internal reasoning or chain-of-thought process
+    This enum defines the various types of chunks that can be transmitted
+    during a streaming response from an LLM or agent system.
+    """
+
     THINK = "think"
 
-    # The final generated response content
-    ANSWER = "answer"
+    CONTENT = "content"
 
-    # Metadata or calls related to external tools
-    TOOL = "tool"
+    TOOL_CALL = "tool_call"
 
-    # Resource consumption and token usage statistics
-    USAGE = "usage"
-
-    # Error messages or exception details
-    ERROR = "error"
-
-    # Signal indicating the start of a new ReAct step
-    STEP_START = "step_start"
-
-    # Tool execution result
     TOOL_RESULT = "tool_result"
 
-    # Final signal indicating the completion of the stream
+    USAGE = "usage"
+
+    ERROR = "error"
+
     DONE = "done"
