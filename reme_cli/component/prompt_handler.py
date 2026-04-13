@@ -1,12 +1,11 @@
 """Module for managing and formatting prompt templates."""
 
+import inspect
 import json
 from pathlib import Path
 from string import Formatter
 
 import yaml
-
-from ..utils import get_logger
 
 
 class PromptHandler:
@@ -17,7 +16,6 @@ class PromptHandler:
     def __init__(self, language: str = "", **kwargs):
         self.data: dict[str, str] = {k: v for k, v in kwargs.items() if isinstance(v, str)}
         self.language: str = language.strip()
-        self.logger = get_logger()
 
     def load_prompt_by_file(self, prompt_file_path: str | Path | None = None,
                             overwrite: bool = True) -> "PromptHandler":
@@ -26,26 +24,29 @@ class PromptHandler:
             return self
 
         path = Path(prompt_file_path)
-        if not path.exists():
-            self.logger.warning(f"Prompt file not found: {path}")
-            return self
-
-        suffix = path.suffix.lower()
-        if suffix not in self._SUPPORTED_EXTENSIONS:
-            self.logger.warning(f"Unsupported file extension '{suffix}', expected one of {self._SUPPORTED_EXTENSIONS}")
+        if not path.exists() or path.suffix.lower() not in self._SUPPORTED_EXTENSIONS:
             return self
 
         try:
             with path.open(encoding="utf-8") as f:
-                prompt_dict = yaml.safe_load(f) if suffix in (".yaml", ".yml") else json.load(f)
-        except (json.JSONDecodeError, yaml.YAMLError) as e:
-            self.logger.error(f"Failed to parse prompt file {path}: {e}")
-            return self
-        except OSError as e:
-            self.logger.error(f"Failed to read prompt file {path}: {e}")
+                prompt_dict = yaml.safe_load(f) if path.suffix in (".yaml", ".yml") else json.load(f)
+        except (json.JSONDecodeError, yaml.YAMLError, OSError):
             return self
 
         return self.load_prompt_dict(prompt_dict, overwrite)
+
+    def load_prompt_by_class(self, cls: type, overwrite: bool = True) -> "PromptHandler":
+        """Load prompts from a YAML file named after the class."""
+        try:
+            base_path = Path(inspect.getfile(cls)).with_suffix("")
+        except (TypeError, OSError):
+            return self
+
+        for ext in (".yaml", ".yml"):
+            if (prompt_path := base_path.with_suffix(ext)).exists():
+                return self.load_prompt_by_file(prompt_path, overwrite)
+
+        return self
 
     def load_prompt_dict(self, prompt_dict: dict | None = None, overwrite: bool = True) -> "PromptHandler":
         """Merge prompts from a dictionary."""
@@ -53,25 +54,16 @@ class PromptHandler:
             return self
 
         for key, value in prompt_dict.items():
-            if not isinstance(value, str):
-                continue
-            if key in self.data and not overwrite:
-                continue
-            if key in self.data:
-                self.logger.warning(f"Overwriting prompt '{key}'")
-            self.data[key] = value
+            if isinstance(value, str) and (overwrite or key not in self.data):
+                self.data[key] = value
 
         return self
 
     def get_prompt(self, prompt_name: str) -> str:
         """Retrieve a prompt by name with language suffix fallback."""
-        if self.language:
-            key = f"{prompt_name}_{self.language}"
+        for key in (f"{prompt_name}_{self.language}", prompt_name) if self.language else (prompt_name,):
             if key in self.data:
                 return self.data[key].strip()
-
-        if prompt_name in self.data:
-            return self.data[prompt_name].strip()
 
         raise KeyError(f"Prompt '{prompt_name}' not found. Available: {list(self.data.keys())[:10]}")
 
@@ -89,7 +81,6 @@ class PromptHandler:
     def prompt_format(self, prompt_name: str, validate: bool = True, **kwargs) -> str:
         """Format a prompt with conditional line filtering and variable substitution."""
         prompt = self.get_prompt(prompt_name)
-
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
         formats = {k: v for k, v in kwargs.items() if not isinstance(v, bool)}
 
@@ -97,30 +88,20 @@ class PromptHandler:
             lines = []
             for line in prompt.split("\n"):
                 remaining = line
-                has_flag = False
                 should_include = False
-                while True:
-                    matched = False
-                    for flag, enabled in flags.items():
-                        prefix = f"[{flag}]"
-                        if remaining.startswith(prefix):
-                            remaining = remaining[len(prefix):]
-                            has_flag = True
-                            if enabled:
-                                should_include = True
-                            matched = True
-                            break
-                    if not matched:
-                        break
-                # Include line if: no flag prefix, or at least one flag is enabled
-                if not has_flag or should_include:
+                for flag, enabled in flags.items():
+                    prefix = f"[{flag}]"
+                    while remaining.startswith(prefix):
+                        remaining = remaining[len(prefix):]
+                        if enabled:
+                            should_include = True
+                if should_include or not any(line.startswith(f"[{f}]") for f in flags):
                     lines.append(remaining)
             prompt = "\n".join(lines)
 
         if validate:
-            required = {f for _, f, _, _ in Formatter().parse(prompt) if f}
-            missing = required - set(formats.keys())
-            if missing:
+            required = {f for _, f, _, _ in Formatter().parse(prompt) if f is not None}
+            if missing := required - set(formats.keys()):
                 raise ValueError(f"Missing format variables for '{prompt_name}': {sorted(missing)}")
 
         return prompt.format(**formats).strip() if formats else prompt.strip()

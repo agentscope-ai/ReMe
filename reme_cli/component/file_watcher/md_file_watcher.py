@@ -1,8 +1,4 @@
-"""Markdown file watcher for Markdown file synchronization.
-
-This module provides a file watcher that processes Markdown files
-on any change, ensuring complete synchronization.
-"""
+"""Markdown file watcher for synchronization."""
 
 import asyncio
 from pathlib import Path
@@ -15,14 +11,13 @@ from ...utils import hash_text, chunk_markdown
 
 
 class MdFileWatcher(BaseFileWatcher):
-    """Markdown file watcher implementation for Markdown file synchronization."""
+    """Markdown file watcher that syncs .md files to memory store."""
 
     def __init__(self, encoding: str = "utf-8", **kwargs):
         """Initialize Markdown file watcher.
 
         Args:
-            encoding: File encoding (default: "utf-8")
-            **kwargs: Additional keyword arguments passed to BaseFileWatcher
+            encoding: File encoding.
         """
         super().__init__(**kwargs)
         self.encoding = encoding
@@ -73,7 +68,7 @@ class MdFileWatcher(BaseFileWatcher):
                 self.logger.error(f"Error processing {path}: {e}", exc_info=True)
 
     async def _build_file_metadata(self, path: str) -> FileMetadata:
-        """Build file metadata from path."""
+        """Build FileMetadata from file path."""
         file_path = Path(path)
 
         def _read_file_sync():

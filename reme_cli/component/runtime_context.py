@@ -19,30 +19,15 @@ class RuntimeContext:
         """Get or create the response object."""
         return self.data.setdefault("response", Response())
 
-    @response.setter
-    def response(self, value: Response) -> None:
-        """Set the response object."""
-        self.data["response"] = value
-
     @property
-    def stream_queue(self) -> asyncio.Queue | None:
+    def stream_queue(self) -> asyncio.Queue:
         """Get the stream queue."""
-        return self.data.get("stream_queue")
-
-    @stream_queue.setter
-    def stream_queue(self, value: asyncio.Queue | None) -> None:
-        """Set the stream queue."""
-        self.data["stream_queue"] = value
+        return self.data["stream_queue"]
 
     @property
-    def application_context(self) -> ApplicationContext | None:
+    def application_context(self) -> ApplicationContext:
         """Get the application context."""
-        return self.data.get("application_context")
-
-    @application_context.setter
-    def application_context(self, value: ApplicationContext | None) -> None:
-        """Set the application context."""
-        self.data["application_context"] = value
+        return self.data["application_context"]
 
     @classmethod
     def from_context(cls, context: "RuntimeContext | None" = None, **kwargs) -> "RuntimeContext":

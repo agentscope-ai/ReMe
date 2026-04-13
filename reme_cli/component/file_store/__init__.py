@@ -1,7 +1,7 @@
 """File store module for persistent memory management.
 
-This module provides storage backends for memory chunks and file metadata,
-including pure-Python local implementations with vector and full-text search.
+Provides storage backends for memory chunks and file metadata with
+vector and full-text search capabilities.
 """
 
 from .base_file_store import BaseFileStore

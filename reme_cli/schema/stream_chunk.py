@@ -1,14 +1,28 @@
-"""Defines the data structure for individual data packets in a streaming response."""
+"""Stream chunk schema module.
 
-from pydantic import Field, BaseModel
+This module defines the StreamChunk model for handling streaming
+responses in the application, particularly for LLM outputs.
+"""
+
+from pydantic import BaseModel, Field
 
 from ..enumeration import ChunkEnum
 
 
 class StreamChunk(BaseModel):
-    """Represents a single chunk of streamed data including its type, content, and completion status."""
+    """A chunk of streaming response data.
 
-    chunk_type: ChunkEnum = Field(default=ChunkEnum.ANSWER)
-    chunk: str | dict | list = Field(default="")
-    done: bool = Field(default=False)
-    metadata: dict = Field(default_factory=dict)
+    Represents a single chunk in a streaming response sequence,
+    commonly used for LLM outputs that are delivered incrementally.
+
+    Attributes:
+        chunk_type: Type identifier for the chunk content.
+        chunk: The actual chunk data (string, dict, or list).
+        done: Whether this is the final chunk in the stream.
+        metadata: Additional metadata about this chunk.
+    """
+
+    chunk_type: ChunkEnum = Field(default=ChunkEnum.CONTENT, description="Type of chunk content")
+    chunk: str | dict | list = Field(default="", description="Chunk payload data")
+    done: bool = Field(default=False, description="Whether stream is complete")
+    metadata: dict = Field(default_factory=dict, description="Chunk metadata")

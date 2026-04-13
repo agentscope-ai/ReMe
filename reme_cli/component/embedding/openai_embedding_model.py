@@ -1,4 +1,4 @@
-"""Asynchronous OpenAI-compatible embedding model implementation for ReMe."""
+"""OpenAI-compatible async embedding model."""
 
 from openai import AsyncOpenAI
 
@@ -8,10 +8,10 @@ from ..component_registry import R
 
 @R.register("openai")
 class OpenAIEmbeddingModel(BaseEmbeddingModel):
-    """Asynchronous embedding model implementation compatible with OpenAI-style APIs."""
+    """Async embedding model compatible with OpenAI-style APIs."""
 
     def __init__(self, **kwargs):
-        """Initialize the OpenAI async embedding model with API credentials and configuration."""
+        """Initialize OpenAI embedding model."""
         super().__init__(**kwargs)
         self._client: AsyncOpenAI | None = None
 
@@ -21,14 +21,14 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         await super()._start(app_context)
 
     async def _close(self) -> None:
-        """Close the AsyncOpenAI client and release resources."""
+        """Close the AsyncOpenAI client."""
         if self._client is not None:
             await self._client.close()
             self._client = None
         await super()._close()
 
     async def _get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float]]:
-        """Fetch embeddings from the API for a batch of strings."""
+        """Fetch embeddings for a batch of texts."""
         if self._client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
@@ -49,7 +49,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
                 if vec is not None:
                     result_emb[emb.index] = list(vec)
                 else:
-                    self.logger.warning(f"Empty embedding returned for index {emb.index}")
+                    self.logger.warning(f"Empty embedding for index {emb.index}")
             else:
                 self.logger.warning(f"Invalid index {emb.index} for input length {len(input_text)}")
 

@@ -1,4 +1,4 @@
-"""ReMeOpenAIChatFormatter"""
+"""ReMe OpenAI chat message formatter."""
 
 import json
 from typing import Any
@@ -9,53 +9,49 @@ from agentscope.formatter._openai_formatter import (
     _to_openai_audio_data,
 )
 from agentscope.message import Msg, TextBlock, ImageBlock, URLSource
-from loguru import logger
+
+from ...utils import get_logger
+
+logger = get_logger()
 
 
 def _format_openai_video_block(video_block: dict) -> dict[str, Any]:
     """Format a video block for OpenAI API.
 
     Args:
-        video_block: The video block to format.
+        video_block: The video block containing a URL or base64 source.
 
     Returns:
-        A dictionary with video content in OpenAI format.
+        A dict with OpenAI-compatible video_url content.
     """
     source = video_block["source"]
     if source["type"] == "url":
         url = source["url"]
     elif source["type"] == "base64":
-        data = source["data"]
-        media_type = source["media_type"]
-        url = f"data:{media_type};base64,{data}"
+        url = f"data:{source['media_type']};base64,{source['data']}"
     else:
         raise ValueError(f"Unsupported video source type: {source['type']}")
 
-    return {
-        "type": "video_url",
-        "video_url": {
-            "url": url,
-        },
-    }
+    return {"type": "video_url", "video_url": {"url": url}}
 
 
 class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
-    """ReMeOpenAIChatFormatter"""
+    """Extends OpenAIChatFormatter with tool result image promotion and reasoning content support."""
 
     async def _format(
-        self,
-        msgs: list[Msg],
+            self,
+            msgs: list[Msg],
     ) -> list[dict[str, Any]]:
-        """Format message objects into OpenAI API required format.
+        """Format messages into OpenAI API format.
+
+        Handles text, thinking (reasoning_content), tool_use, tool_result,
+        image, audio, and video content blocks.
 
         Args:
-            msgs (`list[Msg]`):
-                The list of Msg objects to format.
+            msgs: List of Msg objects.
 
         Returns:
-            `list[dict[str, Any]]`:
-                A list of dictionaries, where each dictionary has "name",
-                "role", and "content" keys.
+            List of dicts with "role", "name", "content" and optional "tool_calls" or "reasoning_content".
         """
         self.assert_list_of_msgs(msgs)
 
@@ -69,126 +65,77 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
 
             for block in msg.get_content_blocks():
                 typ = block.get("type")
+
                 if typ == "text":
                     content_blocks.append({**block})
 
                 elif typ == "thinking":
-                    # Collect thinking blocks for reasoning_content field
-                    # This is compatible with models like DeepSeek that support
-                    # extended thinking via reasoning_content field
                     reasoning_content_blocks.append({**block})
 
                 elif typ == "tool_use":
-                    tool_calls.append(
-                        {
-                            "id": block.get("id"),
-                            "type": "function",
-                            "function": {
-                                "name": block.get("name"),
-                                "arguments": json.dumps(
-                                    block.get("input", {}),
-                                    ensure_ascii=False,
-                                ),
-                            },
+                    tool_calls.append({
+                        "id": block.get("id"),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name"),
+                            "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
                         },
-                    )
+                    })
 
                 elif typ == "tool_result":
-                    (
-                        textual_output,
-                        multimodal_data,
-                    ) = self.convert_tool_result_to_string(block["output"])
+                    textual_output, multimodal_data = self.convert_tool_result_to_string(block["output"])
 
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": block.get("id"),
-                            "content": (textual_output),  # type: ignore[arg-type]
-                            "name": block.get("name"),
-                        },
-                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": block.get("id"),
+                        "content": textual_output,
+                        "name": block.get("name"),
+                    })
 
-                    # Then, handle the multimodal data if any
-                    promoted_blocks: list = []
+                    # Promote tool result images into a follow-up user message
+                    promoted_blocks = []
                     for url, multimodal_block in multimodal_data:
                         if multimodal_block["type"] == "image" and self.promote_tool_result_images:
-                            promoted_blocks.extend(
-                                [
-                                    TextBlock(
-                                        type="text",
-                                        text=f"\n- The image from '{url}': ",
-                                    ),
-                                    ImageBlock(
-                                        type="image",
-                                        source=URLSource(
-                                            type="url",
-                                            url=url,
-                                        ),
-                                    ),
-                                ],
-                            )
+                            promoted_blocks.extend([
+                                TextBlock(type="text", text=f"\n- The image from '{url}': "),
+                                ImageBlock(type="image", source=URLSource(type="url", url=url)),
+                            ])
 
                     if promoted_blocks:
-                        # Insert promoted blocks as new user message(s)
                         promoted_blocks = [
                             TextBlock(
                                 type="text",
-                                text="<system-info>The following are "
-                                "the image contents from the tool "
-                                f"result of '{block['name']}':",
+                                text="<system-info>The following are the image contents from the tool "
+                                     f"result of '{block['name']}':",
                             ),
                             *promoted_blocks,
-                            TextBlock(
-                                type="text",
-                                text="</system-info>",
-                            ),
+                            TextBlock(type="text", text="</system-info>"),
                         ]
-
                         msgs.insert(
                             i + 1,
-                            Msg(
-                                name="user",
-                                content=promoted_blocks,
-                                role="user",
-                            ),
+                            Msg(name="user", content=promoted_blocks, role="user"),
                         )
 
                 elif typ == "image":
-                    content_blocks.append(
-                        _format_openai_image_block(
-                            block,  # type: ignore[arg-type]
-                        ),
-                    )
+                    content_blocks.append(_format_openai_image_block(block))
 
                 elif typ == "audio":
-                    # Filter out audio content when the multimodal model
-                    # outputs both text and audio, to prevent errors in
-                    # subsequent model calls
+                    # Skip assistant audio output
                     if msg.role == "assistant":
                         continue
-                    input_audio = _to_openai_audio_data(block["source"])
-                    content_blocks.append(
-                        {
-                            "type": "input_audio",
-                            "input_audio": input_audio,
-                        },
-                    )
+                    content_blocks.append({
+                        "type": "input_audio",
+                        "input_audio": _to_openai_audio_data(block["source"]),
+                    })
 
                 elif typ == "video":
-                    # Filter out video content when the multimodal model
-                    # outputs both text and video, to prevent errors in
-                    # subsequent model calls
+                    # Skip assistant video output
                     if msg.role == "assistant":
                         continue
-                    content_blocks.append(
-                        _format_openai_video_block(block),
-                    )
+                    content_blocks.append(_format_openai_video_block(block))
 
                 else:
-                    logger.warning(
-                        "Unsupported block type %s in the message, skipped.",
-                        typ,
-                    )
+                    logger.warning("Unsupported block type %s, skipped.", typ)
 
             msg_openai = {
                 "role": msg.role,
@@ -199,17 +146,16 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
             if tool_calls:
                 msg_openai["tool_calls"] = tool_calls
 
-            # Add reasoning_content for thinking blocks (compatible with DeepSeek, etc.)
             if reasoning_content_blocks:
-                reasoning_msg = "\n".join(reasoning.get("thinking", "") for reasoning in reasoning_content_blocks)
+                reasoning_msg = "\n".join(
+                    r.get("thinking", "") for r in reasoning_content_blocks
+                )
                 if reasoning_msg:
                     msg_openai["reasoning_content"] = reasoning_msg
 
-            # When both content and tool_calls are None, skipped
             if msg_openai["content"] or msg_openai.get("tool_calls"):
                 messages.append(msg_openai)
 
-            # Move to next message
             i += 1
 
         return messages
