@@ -74,9 +74,9 @@ class RuntimeContext:
         return self
 
     def validate_required_keys(
-            self,
-            required_keys: dict[str, bool],
-            context_name: str = "context",
+        self,
+        required_keys: dict[str, bool],
+        context_name: str = "context",
     ) -> "RuntimeContext":
         """Ensure all required keys are present in the context.
 

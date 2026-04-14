@@ -15,15 +15,16 @@ class BaseJob(BaseComponent):
     through each step. Steps are configured via ComponentConfig and instantiated
     lazily when the job starts.
     """
+
     component_type = ComponentEnum.JOB
 
     def __init__(
-            self,
-            name: str = "",
-            description: str = "",
-            parameters: dict | None = None,
-            steps: list[ComponentConfig] | None = None,
-            **kwargs
+        self,
+        name: str = "",
+        description: str = "",
+        parameters: dict | None = None,
+        steps: list[ComponentConfig] | None = None,
+        **kwargs,
     ):
         """Initialize the job.
 
@@ -59,7 +60,10 @@ class BaseJob(BaseComponent):
             if not backend_cls:
                 raise ValueError(f"{step_config.backend} is not registered.")
 
-            step = backend_cls(**step_config.model_dump(exclude={"backend"}))
+            step = backend_cls(
+                language=app_context.app_config.language,
+                **step_config.model_dump(exclude={"backend"}),
+            )
             self.steps.append(step)
 
     async def _close(self) -> None:
