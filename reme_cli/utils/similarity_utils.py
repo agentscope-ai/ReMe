@@ -74,7 +74,7 @@ def batch_cosine_similarity(nd_array1: np.ndarray, nd_array2: np.ndarray) -> np.
     """
     if nd_array1.shape[1] != nd_array2.shape[1]:
         raise ValueError(
-            f"Embedding dimensions must match: {nd_array1.shape[1]} != {nd_array2.shape[1]}"
+            f"Embedding dimensions must match: {nd_array1.shape[1]} != {nd_array2.shape[1]}",
         )
 
     # Compute dot products: (batch_size1, emb_size) @ (emb_size, batch_size2)

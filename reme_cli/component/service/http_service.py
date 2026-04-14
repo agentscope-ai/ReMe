@@ -26,6 +26,7 @@ class HttpService(BaseService):
     Regular jobs return JSON responses, while StreamJobs return
     server-sent events (SSE) for real-time streaming.
     """
+
     from ...application import Application
 
     def __init__(self, host: str = REME_DEFAULT_HOST, port: int = REME_DEFAULT_PORT, **kwargs):
@@ -66,15 +67,15 @@ class HttpService(BaseService):
         async def execute_stream_endpoint(request: Request) -> StreamingResponse:
             stream_queue = asyncio.Queue()
             task = asyncio.create_task(
-                job(stream_queue=stream_queue, **request.model_dump(exclude_none=True))
+                job(stream_queue=stream_queue, **request.model_dump(exclude_none=True)),
             )
 
             async def generate_stream() -> AsyncGenerator[bytes, None]:
                 async for chunk in execute_stream_task(
-                        stream_queue=stream_queue,
-                        task=task,
-                        task_name=job.name,
-                        output_format="bytes",
+                    stream_queue=stream_queue,
+                    task=task,
+                    task_name=job.name,
+                    output_format="bytes",
                 ):
                     assert isinstance(chunk, bytes)
                     yield chunk
@@ -96,7 +97,7 @@ class HttpService(BaseService):
         else:
             self._add_job(job)
 
-    def build_service(self, app: "Application") -> None:
+    def build_service(self, app: Application) -> None:
         """Build the FastAPI application with CORS middleware.
 
         Args:
@@ -106,10 +107,12 @@ class HttpService(BaseService):
         @asynccontextmanager
         async def lifespan(_: FastAPI):
             await app.start()
-            service_info = json.dumps({
-                "host": self.host,
-                "port": self.port,
-            })
+            service_info = json.dumps(
+                {
+                    "host": self.host,
+                    "port": self.port,
+                },
+            )
             os.environ[REME_SERVICE_INFO] = service_info
             self.logger.info(f"ReMe Service started: {REME_SERVICE_INFO}={service_info}")
             yield
@@ -126,7 +129,7 @@ class HttpService(BaseService):
         )
         self.service.post("/health")(lambda: {"status": "healthy"})
 
-    def start_service(self, app: "Application") -> None:
+    def start_service(self, app: Application) -> None:
         """Start the HTTP server.
 
         Args:

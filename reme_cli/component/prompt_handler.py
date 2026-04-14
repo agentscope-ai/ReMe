@@ -17,8 +17,11 @@ class PromptHandler:
         self.data: dict[str, str] = {k: v for k, v in kwargs.items() if isinstance(v, str)}
         self.language: str = language.strip()
 
-    def load_prompt_by_file(self, prompt_file_path: str | Path | None = None,
-                            overwrite: bool = True) -> "PromptHandler":
+    def load_prompt_by_file(
+        self,
+        prompt_file_path: str | Path | None = None,
+        overwrite: bool = True,
+    ) -> "PromptHandler":
         """Load prompts from a YAML or JSON file."""
         if prompt_file_path is None:
             return self
@@ -92,7 +95,7 @@ class PromptHandler:
                 for flag, enabled in flags.items():
                     prefix = f"[{flag}]"
                     while remaining.startswith(prefix):
-                        remaining = remaining[len(prefix):]
+                        remaining = remaining[len(prefix) :]
                         if enabled:
                             should_include = True
                 if should_include or not any(line.startswith(f"[{f}]") for f in flags):

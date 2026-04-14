@@ -13,6 +13,7 @@ class BaseService(BaseComponent):
     Services provide different ways to invoke jobs (HTTP, CLI, MCP, etc.).
     Subclasses must implement add_job to register jobs with the service.
     """
+
     component_type = ComponentEnum.SERVICE
 
     from ...application import Application
@@ -53,6 +54,7 @@ class BaseService(BaseComponent):
         """Start the service."""
 
     def add_jobs(self, app: "Application") -> None:
+        """Register all jobs from the application context."""
         for name, job in app.context.jobs.values():
             try:
                 self.add_job(job)

@@ -35,8 +35,8 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
     """Extends OpenAIChatFormatter with tool result image promotion and reasoning content support."""
 
     async def _format(
-            self,
-            msgs: list[Msg],
+        self,
+        msgs: list[Msg],
     ) -> list[dict[str, Any]]:
         """Format messages into OpenAI API format.
 
@@ -69,40 +69,46 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                     reasoning_content_blocks.append({**block})
 
                 elif typ == "tool_use":
-                    tool_calls.append({
-                        "id": block.get("id"),
-                        "type": "function",
-                        "function": {
-                            "name": block.get("name"),
-                            "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                    tool_calls.append(
+                        {
+                            "id": block.get("id"),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name"),
+                                "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                            },
                         },
-                    })
+                    )
 
                 elif typ == "tool_result":
                     textual_output, multimodal_data = self.convert_tool_result_to_string(block["output"])
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": block.get("id"),
-                        "content": textual_output,
-                        "name": block.get("name"),
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": block.get("id"),
+                            "content": textual_output,
+                            "name": block.get("name"),
+                        },
+                    )
 
                     # Promote tool result images into a follow-up user message
                     promoted_blocks = []
                     for url, multimodal_block in multimodal_data:
                         if multimodal_block["type"] == "image" and self.promote_tool_result_images:
-                            promoted_blocks.extend([
-                                TextBlock(type="text", text=f"\n- The image from '{url}': "),
-                                ImageBlock(type="image", source=URLSource(type="url", url=url)),
-                            ])
+                            promoted_blocks.extend(
+                                [
+                                    TextBlock(type="text", text=f"\n- The image from '{url}': "),
+                                    ImageBlock(type="image", source=URLSource(type="url", url=url)),
+                                ],
+                            )
 
                     if promoted_blocks:
                         promoted_blocks = [
                             TextBlock(
                                 type="text",
                                 text="<system-info>The following are the image contents from the tool "
-                                     f"result of '{block['name']}':",
+                                f"result of '{block['name']}':",
                             ),
                             *promoted_blocks,
                             TextBlock(type="text", text="</system-info>"),
@@ -119,10 +125,12 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                     # Skip assistant audio output
                     if msg.role == "assistant":
                         continue
-                    content_blocks.append({
-                        "type": "input_audio",
-                        "input_audio": _to_openai_audio_data(block["source"]),
-                    })
+                    content_blocks.append(
+                        {
+                            "type": "input_audio",
+                            "input_audio": _to_openai_audio_data(block["source"]),
+                        },
+                    )
 
                 elif typ == "video":
                     # Skip assistant video output
@@ -131,8 +139,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                     content_blocks.append(_format_openai_video_block(block))
 
                 else:
-                    ...
-                    # logger.warning("Unsupported block type %s, skipped.", typ)
+                    pass  # Unsupported block type, skip
 
             msg_openai = {
                 "role": msg.role,
@@ -144,9 +151,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                 msg_openai["tool_calls"] = tool_calls
 
             if reasoning_content_blocks:
-                reasoning_msg = "\n".join(
-                    r.get("thinking", "") for r in reasoning_content_blocks
-                )
+                reasoning_msg = "\n".join(r.get("thinking", "") for r in reasoning_content_blocks)
                 if reasoning_msg:
                     msg_openai["reasoning_content"] = reasoning_msg
 

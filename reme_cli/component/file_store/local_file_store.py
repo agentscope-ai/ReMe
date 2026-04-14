@@ -48,7 +48,7 @@ class LocalFileStore(BaseFileStore):
         """Persist chunks to JSONL file with atomic write."""
         lines = [json.dumps(c.model_dump(mode="json"), ensure_ascii=False) for c in self._chunks.values()]
         content = "\n".join(lines)
-        temp_path = self._chunks_file.with_suffix('.tmp')
+        temp_path = self._chunks_file.with_suffix(".tmp")
         try:
             temp_path.write_text(content, encoding=self._encoding)
             temp_path.replace(self._chunks_file)
@@ -72,10 +72,11 @@ class LocalFileStore(BaseFileStore):
 
     async def _save_metadata(self) -> None:
         """Persist file metadata to JSON file with atomic write."""
-        raw = {path: meta.model_dump(exclude={"content", "metadata"}, mode="json")
-               for path, meta in self._files.items()}
+        raw = {
+            path: meta.model_dump(exclude={"content", "metadata"}, mode="json") for path, meta in self._files.items()
+        }
         content = json.dumps(raw, indent=2, ensure_ascii=False)
-        temp_path = self._metadata_file.with_suffix('.tmp')
+        temp_path = self._metadata_file.with_suffix(".tmp")
         try:
             temp_path.write_text(content, encoding=self._encoding)
             temp_path.replace(self._metadata_file)
@@ -141,9 +142,7 @@ class LocalFileStore(BaseFileStore):
         for cid in chunk_ids:
             self._chunks.pop(cid, None)
         if path in self._files:
-            self._files[path].chunk_count = sum(
-                1 for chunk in self._chunks.values() if chunk.path == path
-            )
+            self._files[path].chunk_count = sum(1 for chunk in self._chunks.values() if chunk.path == path)
 
     async def upsert_chunks(self, chunks: list[FileChunk]) -> None:
         """Insert or update specific chunks without affecting others."""
@@ -211,16 +210,18 @@ class LocalFileStore(BaseFileStore):
 
         results = []
         for chunk, sim in zip(candidates, similarities):
-            results.append(FileChunk(
-                id=chunk.id,
-                path=chunk.path,
-                start_line=chunk.start_line,
-                end_line=chunk.end_line,
-                hash=chunk.hash,
-                text=chunk.text,
-                embedding=chunk.embedding,
-                scores={"vector": float(sim), "score": float(sim)},
-            ))
+            results.append(
+                FileChunk(
+                    id=chunk.id,
+                    path=chunk.path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    hash=chunk.hash,
+                    text=chunk.text,
+                    embedding=chunk.embedding,
+                    scores={"vector": float(sim), "score": float(sim)},
+                ),
+            )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
@@ -249,25 +250,27 @@ class LocalFileStore(BaseFileStore):
             phrase_bonus = 0.2 if n_words > 1 and query_lower in text_lower else 0.0
             score = min(1.0, base_score + phrase_bonus)
 
-            results.append(FileChunk(
-                id=chunk.id,
-                path=chunk.path,
-                start_line=chunk.start_line,
-                end_line=chunk.end_line,
-                hash=chunk.hash,
-                text=chunk.text,
-                scores={"keyword": score, "score": score},
-            ))
+            results.append(
+                FileChunk(
+                    id=chunk.id,
+                    path=chunk.path,
+                    start_line=chunk.start_line,
+                    end_line=chunk.end_line,
+                    hash=chunk.hash,
+                    text=chunk.text,
+                    scores={"keyword": score, "score": score},
+                ),
+            )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
     async def hybrid_search(
-            self,
-            query: str,
-            limit: int,
-            vector_weight: float = 0.7,
-            candidate_multiplier: float = 3.0,
+        self,
+        query: str,
+        limit: int,
+        vector_weight: float = 0.7,
+        candidate_multiplier: float = 3.0,
     ) -> list[FileChunk]:
         """Hybrid search combining vector and keyword results."""
         assert 0.0 <= vector_weight <= 1.0
@@ -299,10 +302,10 @@ class LocalFileStore(BaseFileStore):
 
     @staticmethod
     def _merge_hybrid_results(
-            vector: list[FileChunk],
-            keyword: list[FileChunk],
-            vector_weight: float,
-            text_weight: float,
+        vector: list[FileChunk],
+        keyword: list[FileChunk],
+        vector_weight: float,
+        text_weight: float,
     ) -> list[FileChunk]:
         """Merge vector and keyword results with weighted scoring."""
         merged: dict[str, FileChunk] = {}

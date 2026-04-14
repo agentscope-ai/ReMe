@@ -8,6 +8,7 @@ from ...enumeration import ComponentEnum
 
 class BaseClient(BaseComponent):
     """Abstract base class for clients that communicate with ReMe services."""
+
     component_type = ComponentEnum.CLIENT
 
     def __init__(self, **kwargs) -> None:

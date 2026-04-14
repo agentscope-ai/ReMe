@@ -20,6 +20,7 @@ class Response(BaseModel):
         success: Whether the operation completed successfully.
         metadata: Additional context and diagnostic information.
     """
+
     model_config = ConfigDict(extra="allow")
 
     answer: str | Any = Field(default="", description="Response content or result data")

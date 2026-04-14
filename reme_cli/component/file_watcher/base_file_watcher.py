@@ -24,17 +24,17 @@ class BaseFileWatcher(BaseComponent):
     component_type = ComponentEnum.FILE_WATCHER
 
     def __init__(
-            self,
-            watch_paths: list[str] | str,
-            suffix_filters: list[str] | None = None,
-            recursive: bool = False,
-            debounce: int = 2000,
-            chunk_tokens: int = 400,
-            chunk_overlap: int = 80,
-            file_store: str = "default",
-            rebuild_index_on_start: bool = True,
-            poll_delay_ms: int = 2000,
-            **kwargs,
+        self,
+        watch_paths: list[str] | str,
+        suffix_filters: list[str] | None = None,
+        recursive: bool = False,
+        debounce: int = 2000,
+        chunk_tokens: int = 400,
+        chunk_overlap: int = 80,
+        file_store: str = "default",
+        rebuild_index_on_start: bool = True,
+        poll_delay_ms: int = 2000,
+        **kwargs,
     ):
         """Initialize file watcher configuration.
 
@@ -179,12 +179,12 @@ class BaseFileWatcher(BaseComponent):
             try:
                 self.logger.info(f"Starting watch on: {valid_paths}")
                 async for changes in awatch(
-                        *valid_paths,
-                        watch_filter=self.watch_filter,
-                        recursive=self.recursive,
-                        debounce=self.debounce,
-                        poll_delay_ms=self.poll_delay_ms,
-                        stop_event=self._stop_event,
+                    *valid_paths,
+                    watch_filter=self.watch_filter,
+                    recursive=self.recursive,
+                    debounce=self.debounce,
+                    poll_delay_ms=self.poll_delay_ms,
+                    stop_event=self._stop_event,
                 ):
                     if self._stop_event.is_set():
                         break
