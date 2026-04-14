@@ -3,10 +3,12 @@
 import asyncio
 
 from .base_job import BaseJob
+from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...enumeration import ChunkEnum
 
 
+@R.register("stream")
 class StreamJob(BaseJob):
     """Job that streams execution results in real-time.
 

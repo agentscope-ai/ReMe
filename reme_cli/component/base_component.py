@@ -163,6 +163,9 @@ class BaseComponent(ABC):
         """
         return self._is_started
 
+    async def __call__(self, **kwargs):
+        """Call the component instance as a function."""
+
     async def __aenter__(self) -> "BaseComponent":
         """Enter the async context manager by starting the component.
 

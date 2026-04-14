@@ -6,10 +6,12 @@ from pathlib import Path
 from watchfiles import Change
 
 from .base_file_watcher import BaseFileWatcher
+from ..component_registry import R
 from ...schema import FileMetadata
 from ...utils import hash_text, chunk_markdown
 
 
+@R.register("md")
 class MdFileWatcher(BaseFileWatcher):
     """Markdown file watcher that syncs .md files to memory store."""
 

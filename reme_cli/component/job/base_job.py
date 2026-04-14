@@ -7,6 +7,7 @@ from ...enumeration import ComponentEnum
 from ...schema import Response, ComponentConfig
 
 
+@R.register("base")
 class BaseJob(BaseComponent):
     """Base job that executes a sequence of steps.
 
@@ -14,6 +15,7 @@ class BaseJob(BaseComponent):
     through each step. Steps are configured via ComponentConfig and instantiated
     lazily when the job starts.
     """
+    component_type = ComponentEnum.JOB
 
     def __init__(
             self,

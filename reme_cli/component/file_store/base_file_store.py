@@ -16,6 +16,7 @@ class BaseFileStore(BaseComponent):
     Provides embedding resolution, validation, and safe embedding retrieval
     with automatic fallback on failure.
     """
+    component_type = ComponentEnum.FILE_STORE
 
     def __init__(
             self,

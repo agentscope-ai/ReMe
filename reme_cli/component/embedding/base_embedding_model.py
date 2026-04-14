@@ -9,6 +9,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..base_component import BaseComponent
+from ...enumeration import ComponentEnum
 from ...schema import BaseNode
 
 
@@ -21,6 +22,7 @@ class BaseEmbeddingModel(BaseComponent):
         - Retry logic with exponential backoff
         - Batch embedding support
     """
+    component_type = ComponentEnum.EMBEDDING_MODEL
 
     def __init__(
             self,

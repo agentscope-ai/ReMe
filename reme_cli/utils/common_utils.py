@@ -6,13 +6,27 @@ stream processing for task execution.
 
 import asyncio
 import hashlib
-from typing import AsyncGenerator, Literal
+from collections.abc import AsyncGenerator, Coroutine
+from typing import Any, Literal
 
 from .logger_utils import get_logger
 from ..enumeration import ChunkEnum
 from ..schema import StreamChunk
 
-logger = get_logger()
+
+def run_coro_safely(coro: Coroutine[Any, Any, Any]) -> Any | asyncio.Task[Any]:
+    """Run a coroutine in the current event loop or a new one if none exists."""
+    try:
+        # Attempt to retrieve the event loop associated with the current thread
+        loop = asyncio.get_running_loop()
+
+    except RuntimeError:
+        # Start a new event loop to run the coroutine to completion
+        return asyncio.run(coro)
+
+    else:
+        # Schedule the coroutine as a background task in the active loop
+        return loop.create_task(coro)
 
 
 def hash_text(text: str, encoding: str = "utf-8") -> str:
@@ -68,6 +82,7 @@ async def execute_stream_task(
     Raises:
         Exception: Re-raises any exception from the background task.
     """
+    logger = get_logger()
     try:
         while True:
             # Wait for next chunk or check if task failed
