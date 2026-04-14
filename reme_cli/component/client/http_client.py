@@ -1,85 +1,61 @@
-"""HTTP client implementation using httpx."""
+"""HTTP client for ReMe services."""
 
+import json
+import os
 from typing import Any
 
 import httpx
 
 from .base_client import BaseClient
-from ...schema import Response
+from ..component_registry import R
+from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
 
+@R.register("http")
 class HttpClient(BaseClient):
-    """HTTP client for communicating with ReMe HTTP service.
+    """HTTP client for ReMe service."""
 
-    Provides a simple interface to invoke jobs/actions via HTTP POST requests.
-    """
+    def __init__(
+            self,
+            action: str,
+            host: str | None = None,
+            port: int | None = None,
+            timeout: float = 30.0,
+            **kwargs
+    ):
+        super().__init__(**kwargs)
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8000", timeout: float = 30.0, **kwargs):
-        """Initialize the HTTP client.
+        if host and port:
+            pass
+        elif service_info := os.environ.get(REME_SERVICE_INFO):
+            try:
+                data = json.loads(service_info)
+                host = data.get("host", host)
+                port = data.get("port", port)
+            except Exception:
+                pass
+        else:
+            host = REME_DEFAULT_HOST
+            port = REME_DEFAULT_PORT
 
-        Args:
-            base_url: Base URL of the ReMe HTTP service.
-            timeout: Request timeout in seconds.
-            **kwargs: Additional arguments passed to httpx.AsyncClient.
-        """
-        self.base_url = base_url.rstrip("/")
+        self.action = action
+        self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
-        self._client: httpx.AsyncClient | None = None
-        self._kwargs = kwargs
 
-    @property
-    def client(self) -> httpx.AsyncClient:
-        """Get or create the underlying httpx client."""
-        if self._client is None:
-            self._client = httpx.AsyncClient(
+    async def _start(self, app_context=None) -> None:
+        """Initialize the HTTP client."""
+        if self.client is None:
+            self.client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self.timeout,
-                **self._kwargs
             )
-        return self._client
 
-    async def invoke(self, action: str, **config: Any) -> Response:
-        """Invoke an action via HTTP POST request.
-
-        Args:
-            action: The action/job endpoint name (appended to base_url).
-            **config: Configuration parameters sent as JSON body.
-
-        Returns:
-            Response from the service.
-        """
-        response = await self.client.post(f"/{action}", json=config)
-        response.raise_for_status()
-        return Response.model_validate(response.json())
-
-    async def invoke_raw(self, action: str, **config: Any) -> dict:
-        """Invoke an action and return raw dict response.
-
-        Args:
-            action: The action/job endpoint name.
-            **config: Configuration parameters sent as JSON body.
-
-        Returns:
-            Raw response dict.
-        """
-        response = await self.client.post(f"/{action}", json=config)
+    async def __call__(self, **_kwargs) -> dict:
+        response = await self.client.post(f"/{self.action}", json=self.kwargs)
         response.raise_for_status()
         return response.json()
 
-    async def health_check(self) -> bool:
-        """Check if the service is healthy.
-
-        Returns:
-            True if healthy, False otherwise.
-        """
-        try:
-            response = await self.client.get("/health")
-            return response.status_code == 200
-        except Exception:
-            return False
-
-    async def close(self) -> None:
-        """Close the underlying HTTP client."""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+    async def _close(self) -> None:
+        if self.client is not None:
+            await self.client.aclose()
+            self.client = None

@@ -6,10 +6,12 @@ from pathlib import Path
 import numpy as np
 
 from .base_file_store import BaseFileStore
+from ..component_registry import R
 from ...schema import FileChunk, FileMetadata
 from ...utils import batch_cosine_similarity
 
 
+@R.register("local")
 class LocalFileStore(BaseFileStore):
     """In-memory file storage with JSONL disk persistence.
 

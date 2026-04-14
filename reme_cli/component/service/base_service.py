@@ -4,6 +4,7 @@ from abc import abstractmethod
 
 from ..base_component import BaseComponent
 from ..job.base_job import BaseJob
+from ...enumeration import ComponentEnum
 
 
 class BaseService(BaseComponent):
@@ -12,6 +13,7 @@ class BaseService(BaseComponent):
     Services provide different ways to invoke jobs (HTTP, CLI, MCP, etc.).
     Subclasses must implement add_job to register jobs with the service.
     """
+    component_type = ComponentEnum.SERVICE
 
     from ...application import Application
 
