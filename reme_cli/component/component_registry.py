@@ -13,7 +13,6 @@ from .base_component import BaseComponent
 from ..enumeration import ComponentEnum
 from ..utils import get_logger
 
-logger = get_logger()
 T = TypeVar("T", bound=BaseComponent)
 
 
@@ -22,6 +21,7 @@ class ComponentRegistry:
 
     def __init__(self) -> None:
         self._registry: dict[ComponentEnum, dict[str, type[BaseComponent]]] = {}
+        self.logger = get_logger()
 
     def _do_register(self, cls: type[T], name: str) -> type[T]:
         if not hasattr(cls, 'component_type'):
@@ -31,7 +31,7 @@ class ComponentRegistry:
 
         component_type = cls.component_type
         if name in self._registry[component_type]:
-            logger.warning(f"Component '{name}' already registered for {component_type}, overwriting")
+            self.logger.warning(f"Component '{name}' already registered for {component_type}, overwriting")
 
         self._registry[component_type][name] = cls
         return cls

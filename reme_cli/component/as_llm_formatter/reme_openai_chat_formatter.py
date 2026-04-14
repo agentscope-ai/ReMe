@@ -10,10 +10,6 @@ from agentscope.formatter._openai_formatter import (
 )
 from agentscope.message import Msg, TextBlock, ImageBlock, URLSource
 
-from ...utils import get_logger
-
-logger = get_logger()
-
 
 def _format_openai_video_block(video_block: dict) -> dict[str, Any]:
     """Format a video block for OpenAI API.
@@ -135,7 +131,8 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                     content_blocks.append(_format_openai_video_block(block))
 
                 else:
-                    logger.warning("Unsupported block type %s, skipped.", typ)
+                    ...
+                    # logger.warning("Unsupported block type %s, skipped.", typ)
 
             msg_openai = {
                 "role": msg.role,

@@ -28,6 +28,8 @@ class ComponentEnum(str, Enum):
 
     SERVICE = "service"
 
+    CLIENT = "client"
+
     STEP = "step"
 
     JOB = "job"
