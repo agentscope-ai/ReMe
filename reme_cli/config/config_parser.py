@@ -48,36 +48,24 @@ def _convert_value(value_str: str) -> Any:
     Use JSON format (e.g., '"yes"', '"no"') to preserve these as strings.
     """
     s = value_str.strip()
-
-    # Null
-    if s.lower() in ("none", "null"):
-        return None
-
-    # Boolean: only accept strict true/false to avoid surprising conversions
     lower = s.lower()
+
+    # Handle special values (null, bool)
+    if lower in ("none", "null"):
+        return None
     if lower == "true":
         return True
     if lower == "false":
         return False
 
-    # Int
-    try:
-        return int(s)
-    except ValueError:
-        pass
+    # Try numeric and JSON conversions
+    for converter in (int, float, json.loads):
+        try:
+            return converter(s)
+        except (ValueError, json.JSONDecodeError):
+            continue
 
-    # Float
-    try:
-        return float(s)
-    except ValueError:
-        pass
-
-    # JSON (list, dict, quoted strings)
-    try:
-        return json.loads(s)
-    except json.JSONDecodeError:
-        pass
-
+    # Fallback to string
     return s
 
 

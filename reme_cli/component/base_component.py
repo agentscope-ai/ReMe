@@ -35,6 +35,7 @@ class BaseComponent(ABC):
         _is_started: Internal flag indicating whether the component has been
             started and not yet closed.
     """
+
     from .application_context import ApplicationContext
 
     component_type = ComponentEnum.BASE
@@ -181,10 +182,10 @@ class BaseComponent(ABC):
         return self
 
     async def __aexit__(
-            self,
-            exc_type: type[BaseException] | None,
-            exc_val: BaseException | None,
-            exc_tb,
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb,
     ) -> bool:
         """Exit the async context manager by closing the component.
 

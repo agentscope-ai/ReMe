@@ -24,7 +24,8 @@ class ComponentRegistry:
         self.logger = get_logger()
 
     def _do_register(self, cls: type[T], name: str) -> type[T]:
-        if not hasattr(cls, 'component_type'):
+        """Register a component class with the given name."""
+        if not hasattr(cls, "component_type"):
             raise TypeError(f"{cls.__name__} must have 'component_type' attribute")
         if not name:
             raise ValueError("Component name cannot be empty")
@@ -37,8 +38,11 @@ class ComponentRegistry:
         return cls
 
     def register(
-            self, cls_or_name: type[T] | str, name: str | None = None
+        self,
+        cls_or_name: type[T] | str,
+        name: str | None = None,
     ) -> Callable[[type[T]], type[T]] | type[T]:
+        """Register a component class. Supports direct and decorator modes."""
         # Direct registration: R.register(MyClass, "name")
         if isinstance(cls_or_name, type):
             return self._do_register(cast(type[T], cls_or_name), name or cls_or_name.__name__)
@@ -52,18 +56,22 @@ class ComponentRegistry:
         return decorator
 
     def get(self, component_type: ComponentEnum, name: str) -> type[BaseComponent] | None:
+        """Get a registered component class by type and name."""
         return self._registry.get(component_type, {}).get(name)
 
     def get_all(self, component_type: ComponentEnum) -> dict[str, type[BaseComponent]]:
+        """Get all registered components of a given type."""
         return dict(self._registry.get(component_type, {}))
 
     def unregister(self, component_type: ComponentEnum, name: str) -> bool:
+        """Remove a component from the registry. Returns True if found."""
         if name in self._registry.get(component_type, {}):
             del self._registry[component_type][name]
             return True
         return False
 
     def clear(self) -> None:
+        """Clear all registered components."""
         self._registry.clear()
 
 

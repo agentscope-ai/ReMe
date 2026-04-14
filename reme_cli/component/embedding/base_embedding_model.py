@@ -22,24 +22,25 @@ class BaseEmbeddingModel(BaseComponent):
         - Retry logic with exponential backoff
         - Batch embedding support
     """
+
     component_type = ComponentEnum.EMBEDDING_MODEL
 
     def __init__(
-            self,
-            api_key: str | None = None,
-            base_url: str | None = None,
-            model_name: str = "",
-            dimensions: int = 1024,
-            use_dimensions: bool = False,
-            max_batch_size: int = 10,
-            max_retries: int = 3,
-            raise_exception: bool = True,
-            max_input_length: int = 8192,
-            cache_dir: str | Path = ".reme",
-            max_cache_size: int = 2000,
-            enable_cache: bool = True,
-            encoding: str = "utf-8",
-            **kwargs,
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model_name: str = "",
+        dimensions: int = 1024,
+        use_dimensions: bool = False,
+        max_batch_size: int = 10,
+        max_retries: int = 3,
+        raise_exception: bool = True,
+        max_input_length: int = 8192,
+        cache_dir: str | Path = ".reme",
+        max_cache_size: int = 2000,
+        enable_cache: bool = True,
+        encoding: str = "utf-8",
+        **kwargs,
     ):
         """Initialize embedding model configuration.
 
@@ -90,12 +91,12 @@ class BaseEmbeddingModel(BaseComponent):
 
         if actual_len < self.dimensions:
             self.logger.warning(
-                f"[ACTUAL_EMB_LENGTH] Embedding {actual_len} < expected {self.dimensions}, padding with zeros"
+                f"[ACTUAL_EMB_LENGTH] Embedding {actual_len} < expected {self.dimensions}, padding with zeros",
             )
             return embedding + [0.0] * (self.dimensions - actual_len)
 
         self.logger.warning(
-            f"[ACTUAL_EMB_LENGTH] Embedding {actual_len} > expected {self.dimensions}, truncating"
+            f"[ACTUAL_EMB_LENGTH] Embedding {actual_len} > expected {self.dimensions}, truncating",
         )
         return embedding[: self.dimensions]
 
@@ -145,7 +146,7 @@ class BaseEmbeddingModel(BaseComponent):
                     if len(embedding) != self.dimensions:
                         self.logger.warning(
                             f"Cache dimension mismatch for {cache_key}: "
-                            f"expected {self.dimensions}, got {len(embedding)}"
+                            f"expected {self.dimensions}, got {len(embedding)}",
                         )
                         continue
                     if len(self._embedding_cache) >= self.max_cache_size:
@@ -191,7 +192,7 @@ class BaseEmbeddingModel(BaseComponent):
 
         embeddings = self._embedding_cache[cache_key]
         if len(embeddings) != self.dimensions:
-            self.logger.warning(f"Cached embedding dimension mismatch, removing entry")
+            self.logger.warning("Cached embedding dimension mismatch, removing entry")
             del self._embedding_cache[cache_key]
             self._cache_misses += 1
             return None
@@ -255,7 +256,8 @@ class BaseEmbeddingModel(BaseComponent):
                     self._put_to_cache(truncated_text, embedding)
                     return embedding
                 self.logger.warning(
-                    f"Model {self.model_name} returned {len(result) if result else 0} results, expected 1")
+                    f"Model {self.model_name} returned {len(result) if result else 0} results, expected 1",
+                )
                 if retry == self.max_retries - 1:
                     if self.raise_exception:
                         raise RuntimeError("Embedding API returned empty result")
@@ -286,8 +288,8 @@ class BaseEmbeddingModel(BaseComponent):
         if texts_to_compute:
             uncached_texts = [text for _, text in texts_to_compute]
             for i in range(0, len(uncached_texts), self.max_batch_size):
-                batch_texts = uncached_texts[i: i + self.max_batch_size]
-                batch_indices = [idx for idx, _ in texts_to_compute[i: i + self.max_batch_size]]
+                batch_texts = uncached_texts[i : i + self.max_batch_size]
+                batch_indices = [idx for idx, _ in texts_to_compute[i : i + self.max_batch_size]]
 
                 for retry in range(self.max_retries):
                     try:
@@ -300,7 +302,7 @@ class BaseEmbeddingModel(BaseComponent):
                             break
                         self.logger.warning(
                             f"Batch returned {len(batch_embeddings) if batch_embeddings else 0} "
-                            f"results for {len(batch_texts)} inputs"
+                            f"results for {len(batch_texts)} inputs",
                         )
                         if retry == self.max_retries - 1:
                             if self.raise_exception:

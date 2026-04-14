@@ -75,5 +75,6 @@ class ApplicationConfig(BaseModel):
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
     jobs: list[JobConfig] = Field(default_factory=list, description="Job definitions")
     components: dict[ComponentEnum, dict[str, ComponentConfig]] = Field(
-        default_factory=dict, description="Component registry by type"
+        default_factory=dict,
+        description="Component registry by type",
     )

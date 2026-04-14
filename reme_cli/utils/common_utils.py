@@ -47,10 +47,10 @@ def hash_text(text: str, encoding: str = "utf-8") -> str:
 
 
 async def execute_stream_task(
-        stream_queue: asyncio.Queue,
-        task: asyncio.Task,
-        task_name: str | None = None,
-        output_format: Literal["str", "bytes", "chunk"] = "str",
+    stream_queue: asyncio.Queue,
+    task: asyncio.Task,
+    task_name: str | None = None,
+    output_format: Literal["str", "bytes", "chunk"] = "str",
 ) -> AsyncGenerator[str | bytes | StreamChunk, None]:
     """Core stream flow execution logic.
 
@@ -88,7 +88,8 @@ async def execute_stream_task(
             # Wait for next chunk or check if task failed
             get_chunk = asyncio.create_task(stream_queue.get())
             done, _pending = await asyncio.wait(
-                {get_chunk, task}, return_when=asyncio.FIRST_COMPLETED
+                {get_chunk, task},
+                return_when=asyncio.FIRST_COMPLETED,
             )
 
             # Priority 1: Check if main task finished (may have exception)

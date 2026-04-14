@@ -16,15 +16,16 @@ class BaseFileStore(BaseComponent):
     Provides embedding resolution, validation, and safe embedding retrieval
     with automatic fallback on failure.
     """
+
     component_type = ComponentEnum.FILE_STORE
 
     def __init__(
-            self,
-            store_name: str,
-            db_path: str | Path,
-            embedding_model: str = "default",
-            fts_enabled: bool = True,
-            **kwargs,
+        self,
+        store_name: str,
+        db_path: str | Path,
+        embedding_model: str = "default",
+        fts_enabled: bool = True,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self._embedding_model_name: str = embedding_model
@@ -37,7 +38,8 @@ class BaseFileStore(BaseComponent):
 
         if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
             raise ValueError(
-                f"Invalid store name '{store_name}'. Only alphanumeric characters and underscores are allowed.")
+                f"Invalid store name '{store_name}'. Only alphanumeric characters and underscores are allowed.",
+            )
         if not self.vector_enabled and not self.fts_enabled:
             raise ValueError("At least one of embedding_model or fts_enabled must be set.")
 
@@ -153,11 +155,11 @@ class BaseFileStore(BaseComponent):
 
     @abstractmethod
     async def hybrid_search(
-            self,
-            query: str,
-            limit: int,
-            vector_weight: float = 0.7,
-            candidate_multiplier: float = 3.0,
+        self,
+        query: str,
+        limit: int,
+        vector_weight: float = 0.7,
+        candidate_multiplier: float = 3.0,
     ) -> list[FileChunk]:
         """Perform hybrid search combining vector and keyword results.
 

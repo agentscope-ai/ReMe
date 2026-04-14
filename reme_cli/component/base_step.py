@@ -29,13 +29,13 @@ class BaseStep(BaseComponent):
         return instance
 
     def __init__(
-            self,
-            name: str = "",
-            language: str = "",
-            prompt_dict: dict[str, str] | None = None,
-            input_mapping: dict[str, str] | None = None,
-            output_mapping: dict[str, str] | None = None,
-            **kwargs,
+        self,
+        name: str = "",
+        language: str = "",
+        prompt_dict: dict[str, str] | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        **kwargs,
     ):
         """Initialize step configurations."""
         super().__init__(**kwargs)
@@ -73,15 +73,18 @@ class BaseStep(BaseComponent):
 
     @property
     def application_context(self) -> ApplicationContext:
+        """Get the application context from runtime context."""
         assert self.context is not None, "Runtime context not set."
         return self.context.application_context
 
     @property
     def app_config(self) -> ApplicationConfig:
+        """Get the application configuration."""
         return self.application_context.app_config
 
     @property
     def as_llm(self) -> BaseAsLLM:
+        """Get the AsLLM instance by name."""
         name: str = self.kwargs.get("as_llm", "default")
         llms = self.application_context.components[ComponentEnum.AS_LLM]
         if name not in llms:
@@ -93,6 +96,7 @@ class BaseStep(BaseComponent):
 
     @property
     def as_llm_formatter(self) -> BaseAsLLMFormatter:
+        """Get the AsLLMFormatter instance by name."""
         name: str = self.kwargs.get("as_llm_formatter", "default")
         formatters = self.application_context.components[ComponentEnum.AS_LLM_FORMATTER]
         if name not in formatters:
@@ -104,6 +108,7 @@ class BaseStep(BaseComponent):
 
     @property
     def file_store(self) -> BaseFileStore:
+        """Get the FileStore instance by name."""
         name: str = self.kwargs.get("file_store", "default")
         stores = self.application_context.components[ComponentEnum.FILE_STORE]
         if name not in stores:
@@ -115,6 +120,7 @@ class BaseStep(BaseComponent):
 
     @property
     def embedding(self) -> BaseEmbeddingModel:
+        """Get the EmbeddingModel instance by name."""
         name: str = self.kwargs.get("embedding", "default")
         models = self.application_context.components[ComponentEnum.EMBEDDING_MODEL]
         if name not in models:

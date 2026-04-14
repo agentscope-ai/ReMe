@@ -1,9 +1,13 @@
+"""Application module for managing the main application lifecycle."""
+
 import asyncio
+from pathlib import Path
 from typing import AsyncGenerator
 
+from enumeration import ComponentEnum
 from .component import BaseComponent, ApplicationContext
 from .schema import Response, StreamChunk
-from .utils import execute_stream_task
+from .utils import execute_stream_task, print_logo, get_logger
 
 
 class Application(BaseComponent):
@@ -13,8 +17,65 @@ class Application(BaseComponent):
         super().__init__()
         self.context = ApplicationContext(**kwargs)
 
+        working_path = Path(self.config.working_dir).absolute()
+        working_path.mkdir(parents=True, exist_ok=True)
+        memory_path = working_path / "memory"
+        memory_path.mkdir(parents=True, exist_ok=True)
+
+        if self.config.enable_logo:
+            print_logo(self.config)
+
+        logger = get_logger(
+            log_to_console=self.config.log_to_console,
+            log_to_file=self.config.log_to_file,
+            force_init=True,
+        )
+        logger.info(f"Initializing {self.config.app_name} Application")
+
+        from .component import R
+
+        # Initialize the service
+        service_config = self.config.service
+        if not service_config.backend:
+            raise ValueError("Service configuration is missing the required 'backend' field")
+        service_cls = R.get(ComponentEnum.SERVICE, service_config.backend)
+        if not service_cls:
+            raise ValueError(
+                f"Service references an unregistered backend '{service_config.backend}' "
+                f"of type '{ComponentEnum.SERVICE}'",
+            )
+        self.context.service = service_cls(**service_config.model_dump(exclude={"backend"}))
+
+        # Initialize all components grouped by type and name
+        for component_type, component_configs in self.config.components.items():
+            self.context.components[component_type] = {}
+            for name, config in component_configs.items():
+                if not config.backend:
+                    raise ValueError(f"Component '{name}' is missing the required 'backend' field")
+                backend_cls = R.get(component_type, config.backend)
+                if not backend_cls:
+                    raise ValueError(
+                        f"Component '{name}' references an unregistered backend '{config.backend}' "
+                        f"of type '{component_type}'",
+                    )
+                self.context.components[component_type][name] = backend_cls(**config.model_dump(exclude={"backend"}))
+
+        # Initialize all jobs
+        for job_config in self.config.jobs:
+            if not job_config.backend:
+                raise ValueError(f"Job '{job_config.name}' is missing the required 'backend' field")
+
+            job_cls = R.get(ComponentEnum.JOB, job_config.backend)
+            if not job_cls:
+                raise ValueError(
+                    f"Job '{job_config.name}' references an unregistered backend '{job_config.backend}' "
+                    f"of type '{ComponentEnum.JOB}'",
+                )
+            self.context.jobs[job_config.name] = job_cls(**job_config.model_dump(exclude={"backend"}))
+
     @property
     def config(self):
+        """Get application configuration."""
         return self.context.app_config
 
     async def _start(self, app_context=None) -> None:
@@ -48,22 +109,24 @@ class Application(BaseComponent):
                     self.logger.exception(f"Failed to close component {component.__class__.__name__}: {e}")
 
     async def run_job(self, name: str, **kwargs) -> Response:
+        """Execute a registered job by name."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         job = self.context.jobs[name]
         return await job(app_context=self.context, **kwargs)
 
     async def run_stream_job(self, name: str, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+        """Execute a streaming job and yield chunks."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         job = self.context.jobs[name]
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, app_context=self.context, **kwargs))
         async for chunk in execute_stream_task(
-                stream_queue=stream_queue,
-                task=task,
-                task_name=name,
-                output_format="chunk",
+            stream_queue=stream_queue,
+            task=task,
+            task_name=name,
+            output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk

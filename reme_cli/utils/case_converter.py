@@ -43,8 +43,4 @@ def snake_to_camel(content: str) -> str:
     Returns:
         The converted PascalCase string with acronyms preserved.
     """
-    return "".join(
-        _ACRONYM_MAP.get(part.lower(), part.capitalize())
-        for part in content.split("_")
-        if part
-    )
+    return "".join(_ACRONYM_MAP.get(part.lower(), part.capitalize()) for part in content.split("_") if part)
