@@ -3,10 +3,11 @@
 import copy
 from abc import abstractmethod
 
+from agentscope.formatter import FormatterBase
+from agentscope.model import ChatModelBase
+from agentscope.token import TokenCounterBase
+
 from .application_context import ApplicationContext
-from .as_llm import BaseAsLLM
-from .as_llm_formatter import BaseAsLLMFormatter
-from .as_token_counter import BaseAsTokenCounter
 from .base_component import BaseComponent
 from .embedding import BaseEmbeddingModel
 from .file_store import BaseFileStore
@@ -84,40 +85,46 @@ class BaseStep(BaseComponent):
         return self.application_context.app_config
 
     @property
-    def as_llm(self) -> BaseAsLLM:
+    def as_llm(self) -> ChatModelBase:
         """Get the AsLLM instance by name."""
-        name: str = self.kwargs.get("as_llm", "default")
-        llms = self.application_context.components[ComponentEnum.AS_LLM]
-        if name not in llms:
-            raise ValueError(f"AsLLM {name} not found.")
-        llm = llms[name]
-        if not isinstance(llm, BaseAsLLM):
-            raise TypeError(f"{name} is not a BaseAsLLM instance.")
-        return llm
+        name_or_instance = self.kwargs.get("as_llm", "default")
+        if isinstance(name_or_instance, ChatModelBase):
+            return name_or_instance
+
+        name = name_or_instance
+        as_llm_dict = self.application_context.components[ComponentEnum.AS_LLM]
+        if name not in as_llm_dict:
+            raise ValueError(f"AsLLM '{name}' not found.")
+        wrapper = as_llm_dict[name]
+        return wrapper.model
 
     @property
-    def as_llm_formatter(self) -> BaseAsLLMFormatter:
+    def as_llm_formatter(self) -> FormatterBase:
         """Get the AsLLMFormatter instance by name."""
-        name: str = self.kwargs.get("as_llm_formatter", "default")
-        formatters = self.application_context.components[ComponentEnum.AS_LLM_FORMATTER]
-        if name not in formatters:
-            raise ValueError(f"AsLLMFormatter {name} not found.")
-        formatter = formatters[name]
-        if not isinstance(formatter, BaseAsLLMFormatter):
-            raise TypeError(f"{name} is not a BaseAsLLMFormatter instance.")
-        return formatter
+        name_or_instance = self.kwargs.get("as_llm_formatter", "default")
+        if isinstance(name_or_instance, FormatterBase):
+            return name_or_instance
+
+        name = name_or_instance
+        formatter_dict = self.application_context.components[ComponentEnum.AS_LLM_FORMATTER]
+        if name not in formatter_dict:
+            raise ValueError(f"AsLLMFormatter '{name}' not found.")
+        wrapper = formatter_dict[name]
+        return wrapper.formatter
 
     @property
-    def as_token_counter(self):
+    def as_token_counter(self) -> TokenCounterBase:
         """Get the TokenCounter instance by name."""
-        name: str = self.kwargs.get("as_token_counter", "default")
-        counters = self.application_context.components[ComponentEnum.AS_TOKEN_COUNTER]
-        if name not in counters:
-            raise ValueError(f"AsTokenCounter {name} not found.")
-        counter = counters[name]
-        if not isinstance(counter, BaseAsTokenCounter):
-            raise TypeError(f"{name} is not a BaseAsTokenCounter instance.")
-        return counter
+        name_or_instance = self.kwargs.get("as_token_counter", "default")
+        if isinstance(name_or_instance, TokenCounterBase):
+            return name_or_instance
+
+        name = name_or_instance
+        counter_dict = self.application_context.components[ComponentEnum.AS_TOKEN_COUNTER]
+        if name not in counter_dict:
+            raise ValueError(f"AsTokenCounter '{name}' not found.")
+        wrapper = counter_dict[name]
+        return wrapper.token_counter
 
     @property
     def file_store(self) -> BaseFileStore:
