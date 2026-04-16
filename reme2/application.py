@@ -14,13 +14,10 @@ class Application(BaseComponent):
     """Application component for managing the main application."""
 
     def __init__(self, **kwargs) -> None:
-        super().__init__()
         self.context = ApplicationContext(**kwargs)
 
         working_path = Path(self.config.working_dir).absolute()
         working_path.mkdir(parents=True, exist_ok=True)
-        memory_path = working_path / "memory"
-        memory_path.mkdir(parents=True, exist_ok=True)
 
         if self.config.enable_logo:
             print_logo(self.config)
@@ -31,6 +28,8 @@ class Application(BaseComponent):
             force_init=True,
         )
         logger.info(f"Initializing {self.config.app_name} Application")
+
+        super().__init__()
 
         from .component import R
 
@@ -123,10 +122,10 @@ class Application(BaseComponent):
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, app_context=self.context, **kwargs))
         async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
+                stream_queue=stream_queue,
+                task=task,
+                task_name=name,
+                output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk
