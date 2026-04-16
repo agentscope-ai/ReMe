@@ -11,17 +11,18 @@ from agentscope.token import HuggingFaceTokenCounter, TokenCounterBase
 from agentscope.tool import Toolkit
 
 from .application import Application
-from .component import R
-from .component.runtime_context import RuntimeContext
+from .component import R, RuntimeContext
 from .config import parse_args
 from .enumeration import ComponentEnum
 from .file_based.summarizer import Summarizer
+from .utils import run_coro_safely
 
 
 class ReMe(Application):
     """ReMe memory management application."""
-
-    async def summary_memory(
+    memory_path = working_path / "memory"
+    memory_path.mkdir(parents=True, exist_ok=True)
+    async def summarize(
             self,
             messages: list[Msg],
             as_llm: str | ChatModelBase = "default",
@@ -116,6 +117,14 @@ class ReMe(Application):
         """Generate proactive memory insights."""
 
 
+class ReMeLight(ReMe):
+    """ReMe memory management application."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.context.app_config.service.backend = "http"
+
+
 def main():
     """Entry point for ReMe CLI."""
     action, config = parse_args(sys.argv[1:])
@@ -127,7 +136,7 @@ def main():
         backend: str = config.pop("backend", "http")
         client_cls = R.get(ComponentEnum.CLIENT, backend)
         client = client_cls(action=action, **config)
-        asyncio.run(client())
+        run_coro_safely(client())
 
 
 if __name__ == "__main__":
