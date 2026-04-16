@@ -6,6 +6,7 @@ from abc import abstractmethod
 from .application_context import ApplicationContext
 from .as_llm import BaseAsLLM
 from .as_llm_formatter import BaseAsLLMFormatter
+from .as_token_counter import BaseAsTokenCounter
 from .base_component import BaseComponent
 from .embedding import BaseEmbeddingModel
 from .file_store import BaseFileStore
@@ -29,13 +30,13 @@ class BaseStep(BaseComponent):
         return instance
 
     def __init__(
-        self,
-        name: str = "",
-        language: str = "",
-        prompt_dict: dict[str, str] | None = None,
-        input_mapping: dict[str, str] | None = None,
-        output_mapping: dict[str, str] | None = None,
-        **kwargs,
+            self,
+            name: str = "",
+            language: str = "",
+            prompt_dict: dict[str, str] | None = None,
+            input_mapping: dict[str, str] | None = None,
+            output_mapping: dict[str, str] | None = None,
+            **kwargs,
     ):
         """Initialize step configurations."""
         super().__init__(**kwargs)
@@ -105,6 +106,18 @@ class BaseStep(BaseComponent):
         if not isinstance(formatter, BaseAsLLMFormatter):
             raise TypeError(f"{name} is not a BaseAsLLMFormatter instance.")
         return formatter
+
+    @property
+    def as_token_counter(self):
+        """Get the TokenCounter instance by name."""
+        name: str = self.kwargs.get("as_token_counter", "default")
+        counters = self.application_context.components[ComponentEnum.AS_TOKEN_COUNTER]
+        if name not in counters:
+            raise ValueError(f"AsTokenCounter {name} not found.")
+        counter = counters[name]
+        if not isinstance(counter, BaseAsTokenCounter):
+            raise TypeError(f"{name} is not a BaseAsTokenCounter instance.")
+        return counter
 
     @property
     def file_store(self) -> BaseFileStore:

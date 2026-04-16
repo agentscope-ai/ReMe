@@ -14,6 +14,58 @@ class RuntimeContext:
         """Initialize the context with all keyword arguments stored in data."""
         self.data: dict = kwargs
 
+    def get(self, key: str, default=None):
+        """Get a value from data by key, with optional default."""
+        return self.data.get(key, default)
+
+    def set(self, key: str, value) -> "RuntimeContext":
+        """Set a value in data by key."""
+        self.data[key] = value
+        return self
+
+    def delete(self, key: str) -> "RuntimeContext":
+        """Delete a key from data."""
+        if key in self.data:
+            del self.data[key]
+        return self
+
+    def contains(self, key: str) -> bool:
+        """Check if a key exists in data."""
+        return key in self.data
+
+    def update(self, data: dict) -> "RuntimeContext":
+        """Update data with a dictionary."""
+        self.data.update(data)
+        return self
+
+    def keys(self) -> list[str]:
+        """Get all keys in data."""
+        return list(self.data.keys())
+
+    def values(self) -> list:
+        """Get all values in data."""
+        return list(self.data.values())
+
+    def items(self) -> list[tuple]:
+        """Get all key-value pairs in data."""
+        return list(self.data.items())
+
+    def __getitem__(self, key: str):
+        """Get a value using bracket syntax."""
+        return self.data[key]
+
+    def __setitem__(self, key: str, value):
+        """Set a value using bracket syntax."""
+        self.data[key] = value
+
+    def __delitem__(self, key: str):
+        """Delete a key using bracket syntax."""
+        del self.data[key]
+
+    def __contains__(self, key: str) -> bool:
+        """Check if a key exists using 'in' operator."""
+        return key in self.data
+
     @property
     def response(self) -> Response:
         """Get or create the response object."""

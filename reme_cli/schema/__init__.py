@@ -1,6 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .as_msg_stat import AsBlockStat, AsMsgStat
 from .base_node import BaseNode
 from .file_chunk import FileChunk
 from .file_metadata import FileMetadata
@@ -12,6 +13,8 @@ __all__ = [
     "ApplicationConfig",
     "ComponentConfig",
     "JobConfig",
+    "AsBlockStat",
+    "AsMsgStat",
     "BaseNode",
     "FileChunk",
     "FileMetadata",
