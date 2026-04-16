@@ -33,6 +33,7 @@ classifiers = [
 keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http", "reme", "personal"]
 
 dependencies = [
+    "aiofiles>=24.1.0",
     "sqlite-vec>=0.1.6",
     "prompt_toolkit>=3.0.52",
     "rich>=14.2.0",
