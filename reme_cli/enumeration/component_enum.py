@@ -20,6 +20,8 @@ class ComponentEnum(str, Enum):
 
     AS_LLM_FORMATTER = "as_llm_formatter"
 
+    AS_TOKEN_COUNTER = "as_token_counter"
+
     EMBEDDING_MODEL = "embedding_model"
 
     FILE_STORE = "file_store"
