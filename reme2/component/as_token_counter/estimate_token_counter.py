@@ -19,7 +19,7 @@ class EstimatedTokenCounter(TokenCounterBase):
                 Default 4 assumes roughly 4 characters per token.
                 Use 2-3 for Chinese/Japanese text, 4-5 for English.
         """
-        if estimate_divisor == 0:
+        if estimate_divisor <= 0:
             raise ValueError("estimate_divisor cannot be zero")
         self.estimate_divisor: float = estimate_divisor
 
