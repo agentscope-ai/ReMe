@@ -108,6 +108,13 @@ class ToolResultCompactor(BaseOp):
                             and ".md" in (block.get("raw_input") or "").lower()
                         ):
                             md_file_tool_ids.add(tool_id)
+
+
+                        if (
+                            block.get("name", "").lower() == "chat_with_agent"
+                        ):
+                            md_file_tool_ids.add(tool_id)
+
         except Exception as e:
             logger.warning("Failed to detect md file tool ids: %s", e)
         logger.info(f"md_file_tool_ids: {md_file_tool_ids}")
