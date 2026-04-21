@@ -20,20 +20,19 @@ from .utils import run_coro_safely
 
 class ReMe(Application):
     """ReMe memory management application."""
-    memory_path = working_path / "memory"
-    memory_path.mkdir(parents=True, exist_ok=True)
+
     async def summarize(
-            self,
-            messages: list[Msg],
-            as_llm: str | ChatModelBase = "default",
-            as_llm_formatter: str | FormatterBase = "default",
-            as_token_counter: str | TokenCounterBase | HuggingFaceTokenCounter = "default",
-            toolkit: Toolkit | None = None,
-            language: str = "zh",
-            max_input_length: float = 128 * 1024,
-            compact_ratio: float = 0.7,
-            timezone: str | None = None,
-            add_thinking_block: bool = True,
+        self,
+        messages: list[Msg],
+        as_llm: str | ChatModelBase = "default",
+        as_llm_formatter: str | FormatterBase = "default",
+        as_token_counter: str | TokenCounterBase | HuggingFaceTokenCounter = "default",
+        toolkit: Toolkit | None = None,
+        language: str = "zh",
+        max_input_length: float = 128 * 1024,
+        compact_ratio: float = 0.7,
+        timezone: str | None = None,
+        add_thinking_block: bool = True,
     ) -> str:
         """Summarize and compact memory messages.
 
@@ -87,6 +86,7 @@ class ReMe(Application):
     async def memory_search(self, query: str, max_results: int = 5, min_score: float = 0.1) -> str:
         """Search memory for relevant entries."""
         from .file_based.memory_search import MemorySearch
+
         try:
             search_step = MemorySearch()
             self.logger.info(f"Running memory search with {query} {max_results} {min_score}")
@@ -95,26 +95,28 @@ class ReMe(Application):
             return str(e)
 
     async def dream(
-            self,
-            as_llm: str | ChatModelBase = "default",
-            as_llm_formatter: str | FormatterBase = "default",
-            as_token_counter: str | TokenCounterBase = "default",
-            toolkit: Toolkit | None = None,
-            language: str = "zh",
-            timezone: str | None = None,
+        self,
+        as_llm: str | ChatModelBase = "default",
+        as_llm_formatter: str | FormatterBase = "default",
+        as_token_counter: str | TokenCounterBase = "default",
+        toolkit: Toolkit | None = None,
+        language: str = "zh",
+        timezone: str | None = None,
     ) -> str:
         """Process and consolidate memories in background."""
+        return ""
 
     async def proactive(
-            self,
-            as_llm: str | ChatModelBase = "default",
-            as_llm_formatter: str | FormatterBase = "default",
-            as_token_counter: str | TokenCounterBase = "default",
-            toolkit: Toolkit | None = None,
-            language: str = "zh",
-            timezone: str | None = None,
+        self,
+        as_llm: str | ChatModelBase = "default",
+        as_llm_formatter: str | FormatterBase = "default",
+        as_token_counter: str | TokenCounterBase = "default",
+        toolkit: Toolkit | None = None,
+        language: str = "zh",
+        timezone: str | None = None,
     ) -> str:
         """Generate proactive memory insights."""
+        return ""
 
 
 class ReMeLight(ReMe):

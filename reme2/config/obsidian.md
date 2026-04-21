@@ -6,7 +6,7 @@ reme version
 reme vault="My Vault"
 
 
-# daily 
+# daily
 daily:path
 reme daily:xxx
 
@@ -28,12 +28,12 @@ reme list file/path
 reme search query="search term" limit=10 tag="[]" score=0.1 copy=true
 
 # property
-reme property:read 
+reme property:read
 reme property:update file="My Note" status=done xx=xxx
 reme property:delete keys="[xxxx, xxxx]"
 
 # 全局所有标签
-reme tags 
+reme tags
 
 # show link
 reme backlinks file="My Note"

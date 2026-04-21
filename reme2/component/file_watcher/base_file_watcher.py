@@ -7,6 +7,7 @@ from pathlib import Path
 from watchfiles import Change, awatch
 
 from ..base_component import BaseComponent
+from ..file_parser import BaseFileParser
 from ..file_store import BaseFileStore
 from ...enumeration import ComponentEnum
 
@@ -16,7 +17,7 @@ class BaseFileWatcher(BaseComponent):
 
     Provides file monitoring with:
         - watchfiles integration for efficient change detection
-        - Suffix-based filtering
+        - Parser-based file filtering
         - Auto-restart on failure
         - Optional index rebuild on start
     """
@@ -26,34 +27,23 @@ class BaseFileWatcher(BaseComponent):
     def __init__(
         self,
         watch_paths: list[str] | str,
-        suffix_filters: list[str] | None = None,
         recursive: bool = False,
         debounce: int = 2000,
         chunk_tokens: int = 400,
         chunk_overlap: int = 80,
         file_store: str = "default",
+        default_parser: str | None = None,
         rebuild_index_on_start: bool = True,
         poll_delay_ms: int = 2000,
         **kwargs,
     ):
-        """Initialize file watcher configuration.
-
-        Args:
-            watch_paths: Paths to watch for changes.
-            suffix_filters: File suffix filters (e.g., ['.py', '.txt']).
-            recursive: Whether to watch directories recursively.
-            debounce: Debounce time in milliseconds.
-            chunk_tokens: Token size for chunking.
-            chunk_overlap: Overlap size for chunks.
-            file_store: Name of the file store component.
-            rebuild_index_on_start: Clear index and rescan files on start.
-            poll_delay_ms: Polling delay in milliseconds.
-        """
         super().__init__(**kwargs)
         self._file_store_name: str = file_store
+        self._default_parser_name: str | None = default_parser
         self.file_store: BaseFileStore | None = None
+        self._suffix_to_parser: dict[str, BaseFileParser] = {}
+        self._default_parser: BaseFileParser | None = None
         self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
-        self.suffix_filters: list[str] = suffix_filters or []
         self.recursive: bool = recursive
         self.debounce: int = debounce
         self.chunk_tokens: int = chunk_tokens
@@ -68,6 +58,7 @@ class BaseFileWatcher(BaseComponent):
         """Resolve file_store and start watching task."""
         if self._file_store_name:
             assert app_context is not None, "app_context must be provided"
+
             stores = app_context.components.get(ComponentEnum.FILE_STORE, {})
             if self._file_store_name not in stores:
                 raise ValueError(f"File store '{self._file_store_name}' not found.")
@@ -75,6 +66,20 @@ class BaseFileWatcher(BaseComponent):
             if not isinstance(store, BaseFileStore):
                 raise TypeError(f"Expected BaseFileStore, got {type(store).__name__}")
             self.file_store = store
+
+            parsers = app_context.components.get(ComponentEnum.FILE_PARSER, {})
+            for parser in parsers.values():
+                if isinstance(parser, BaseFileParser):
+                    for suffix in parser.suffixes:
+                        self._suffix_to_parser[suffix] = parser
+
+            if self._default_parser_name and self._default_parser_name in parsers:
+                parser = parsers[self._default_parser_name]
+                if isinstance(parser, BaseFileParser):
+                    self._default_parser = parser
+
+            if not self._suffix_to_parser and not self._default_parser:
+                self.logger.warning("No file parsers registered")
 
         async def _initialize_and_watch():
             if self.rebuild_index_on_start and self.file_store:
@@ -100,17 +105,9 @@ class BaseFileWatcher(BaseComponent):
         self._watch_task = None
         self._stop_event.clear()
         self.file_store = None
+        self._suffix_to_parser.clear()
+        self._default_parser = None
         self.logger.info("Stopped watching")
-
-    def watch_filter(self, _change: Change, path: str) -> bool:
-        """Filter files by suffix. Returns True if no filters configured."""
-        if not self.suffix_filters:
-            return True
-
-        for suffix in self.suffix_filters:
-            if path.endswith("." + suffix.strip(".")):
-                return True
-        return False
 
     async def _scan_existing_files(self):
         """Scan existing files and add them as Change.added."""
@@ -127,17 +124,12 @@ class BaseFileWatcher(BaseComponent):
                 continue
 
             if watch_path.is_file():
-                if self.watch_filter(Change.added, str(watch_path)):
-                    existing_files.add((Change.added, str(watch_path)))
+                existing_files.add((Change.added, str(watch_path)))
             elif watch_path.is_dir():
-                if self.recursive:
-                    for file_path in watch_path.rglob("*"):
-                        if file_path.is_file() and self.watch_filter(Change.added, str(file_path)):
-                            existing_files.add((Change.added, str(file_path)))
-                else:
-                    for file_path in watch_path.iterdir():
-                        if file_path.is_file() and self.watch_filter(Change.added, str(file_path)):
-                            existing_files.add((Change.added, str(file_path)))
+                iterator = watch_path.rglob("*") if self.recursive else watch_path.iterdir()
+                for file_path in iterator:
+                    if file_path.is_file():
+                        existing_files.add((Change.added, str(file_path)))
 
         if existing_files:
             self.logger.info(f"[SCAN_ON_START] Found {len(existing_files)} existing files")
@@ -180,7 +172,6 @@ class BaseFileWatcher(BaseComponent):
                 self.logger.info(f"Starting watch on: {valid_paths}")
                 async for changes in awatch(
                     *valid_paths,
-                    watch_filter=self.watch_filter,
                     recursive=self.recursive,
                     debounce=self.debounce,
                     poll_delay_ms=self.poll_delay_ms,

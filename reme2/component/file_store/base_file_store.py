@@ -7,7 +7,7 @@ from pathlib import Path
 from ..base_component import BaseComponent
 from ..embedding import BaseEmbeddingModel
 from ...enumeration import ComponentEnum
-from ...schema import FileChunk, FileMetadata
+from ...schema import FileChunk, FileMetadata, SearchFilter
 
 
 class BaseFileStore(BaseComponent):
@@ -145,12 +145,36 @@ class BaseFileStore(BaseComponent):
     async def get_file_chunks(self, path: str) -> list[FileChunk]:
         """Get all chunks for a file."""
 
+    def _apply_filter(
+        self,
+        chunks: list[FileChunk],
+        search_filter: SearchFilter | None,
+        file_metadata: dict[str, FileMetadata] | None = None,
+    ) -> list[FileChunk]:
+        """Apply search filter to a list of chunks.
+
+        Args:
+            chunks: Candidate chunks to filter.
+            search_filter: Filter conditions.
+            file_metadata: File-level metadata lookup (path -> FileMetadata).
+                Used for tag filtering since tags are file-level, not chunk-level.
+        """
+        if not search_filter or search_filter.is_empty():
+            return chunks
+        fm = file_metadata or {}
+        return [c for c in chunks if search_filter.match(c.path, fm[c.path].metadata if c.path in fm else None)]
+
     @abstractmethod
-    async def vector_search(self, query: str, limit: int) -> list[FileChunk]:
+    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
         """Perform vector similarity search."""
 
     @abstractmethod
-    async def keyword_search(self, query: str, limit: int) -> list[FileChunk]:
+    async def keyword_search(
+        self,
+        query: str,
+        limit: int,
+        search_filter: SearchFilter | None = None,
+    ) -> list[FileChunk]:
         """Perform full-text/keyword search."""
 
     @abstractmethod
@@ -160,6 +184,7 @@ class BaseFileStore(BaseComponent):
         limit: int,
         vector_weight: float = 0.7,
         candidate_multiplier: float = 3.0,
+        search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Perform hybrid search combining vector and keyword results.
 
@@ -168,6 +193,7 @@ class BaseFileStore(BaseComponent):
             limit: Maximum number of results.
             vector_weight: Weight for vector scores (0.0-1.0).
             candidate_multiplier: Multiplier for candidate pool size.
+            search_filter: Optional filter for paths/tags.
 
         Returns:
             FileChunk list with score populated, sorted by relevance.
