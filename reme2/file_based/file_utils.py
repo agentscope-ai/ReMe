@@ -12,12 +12,12 @@ from ..constants import (
 
 
 def _truncate_fresh(
-        text: str,
-        start_line: int,
-        total_lines: int,
-        max_bytes: int,
-        file_path: str | None,
-        encoding: str,
+    text: str,
+    start_line: int,
+    total_lines: int,
+    max_bytes: int,
+    file_path: str | None,
+    encoding: str,
 ) -> str:
     """Truncate fresh text (no prior truncation marker) by bytes with line integrity.
 
@@ -66,21 +66,20 @@ def _truncate_fresh(
         return result
 
     notice = (
-            TRUNCATION_NOTICE_MARKER
-            + f"\nThe output above was truncated."
-              f"\nThe full content is saved to the file and contains {total_lines} lines in total."
-              f"\nThis excerpt starts at line {start_line} and covers the next {max_bytes} bytes."
-              f"\nIf the current content is not enough, call `read_file` with file_path={file_path or ''} "
-              f"start_line={read_from} to read more."
+        TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+        f"\nThe full content is saved to the file and contains {total_lines} lines in total."
+        f"\nThis excerpt starts at line {start_line} and covers the next {max_bytes} bytes."
+        f"\nIf the current content is not enough, call `read_file` with file_path={file_path or ''} "
+        f"start_line={read_from} to read more."
     )
 
     return result + notice
 
 
 def _retruncate(
-        text: str,
-        max_bytes: int,
-        encoding: str,
+    text: str,
+    max_bytes: int,
+    encoding: str,
 ) -> str:
     """Re-truncate text that was previously truncated (contains TRUNCATION_NOTICE_MARKER).
 
@@ -133,12 +132,12 @@ def _retruncate(
 
 
 def truncate_text_output(
-        text: str,
-        start_line: int = 1,
-        total_lines: int = 0,
-        max_bytes: int = DEFAULT_MAX_BYTES,
-        file_path: str | None = None,
-        encoding: str = "utf-8",
+    text: str,
+    start_line: int = 1,
+    total_lines: int = 0,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    file_path: str | None = None,
+    encoding: str = "utf-8",
 ) -> str:
     """Truncate file output by bytes with line integrity.
 

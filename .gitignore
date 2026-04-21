@@ -43,3 +43,4 @@ meta_memory/*
 *.db
 memories/*
 .reme/*
+/test_data

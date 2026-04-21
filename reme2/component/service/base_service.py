@@ -1,4 +1,5 @@
 """Abstract base class for service implementations."""
+
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 

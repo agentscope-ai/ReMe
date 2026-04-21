@@ -7,6 +7,7 @@ from .file_chunk import FileChunk
 from .file_metadata import FileMetadata
 from .request import Request
 from .response import Response
+from .search_filter import SearchFilter
 from .stream_chunk import StreamChunk
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "FileMetadata",
     "Request",
     "Response",
+    "SearchFilter",
     "StreamChunk",
 ]

@@ -7,7 +7,7 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ...schema import FileChunk, FileMetadata
+from ...schema import FileChunk, FileMetadata, SearchFilter
 from ...utils import batch_cosine_similarity
 
 
@@ -72,9 +72,7 @@ class LocalFileStore(BaseFileStore):
 
     async def _save_metadata(self) -> None:
         """Persist file metadata to JSON file with atomic write."""
-        raw = {
-            path: meta.model_dump(exclude={"content", "metadata"}, mode="json") for path, meta in self._files.items()
-        }
+        raw = {path: meta.model_dump(exclude={"content"}, mode="json") for path, meta in self._files.items()}
         content = json.dumps(raw, indent=2, ensure_ascii=False)
         temp_path = self._metadata_file.with_suffix(".tmp")
         try:
@@ -97,7 +95,7 @@ class LocalFileStore(BaseFileStore):
             f"LocalFileStore '{self.store_name}' ready: "
             f"{len(self._chunks)} chunks, metadata at {self._metadata_file}",
         )
-        await super()._start()
+        await super()._start(app_context)
 
     async def _close(self) -> None:
         """Flush state to disk and clear memory."""
@@ -111,14 +109,12 @@ class LocalFileStore(BaseFileStore):
 
     async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]) -> None:
         """Insert or update a file and its chunks."""
-        if not chunks:
-            return
-
         await self.delete_file(file_meta.path)
-        chunks = await self.get_chunk_embeddings(chunks)
 
-        for chunk in chunks:
-            self._chunks[chunk.id] = chunk
+        if chunks:
+            chunks = await self.get_chunk_embeddings(chunks)
+            for chunk in chunks:
+                self._chunks[chunk.id] = chunk
 
         self._files[file_meta.path] = FileMetadata(
             hash=file_meta.hash,
@@ -126,6 +122,7 @@ class LocalFileStore(BaseFileStore):
             size=file_meta.size,
             path=file_meta.path,
             chunk_count=len(chunks),
+            metadata=file_meta.metadata,
         )
 
     async def delete_file(self, path: str) -> None:
@@ -170,6 +167,7 @@ class LocalFileStore(BaseFileStore):
             size=file_meta.size,
             path=file_meta.path,
             chunk_count=file_meta.chunk_count,
+            metadata=file_meta.metadata,
         )
 
     async def get_file_chunks(self, path: str) -> list[FileChunk]:
@@ -180,7 +178,7 @@ class LocalFileStore(BaseFileStore):
 
     # -- Search -------------------------------------------------------------
 
-    async def vector_search(self, query: str, limit: int) -> list[FileChunk]:
+    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
         """Cosine-similarity vector search over in-memory embeddings."""
         if not self.vector_enabled or not query:
             return []
@@ -189,7 +187,11 @@ class LocalFileStore(BaseFileStore):
         if not query_embedding:
             return []
 
-        candidates = [c for c in self._chunks.values() if c.embedding]
+        candidates = self._apply_filter(
+            [c for c in self._chunks.values() if c.embedding],
+            search_filter,
+            self._files,
+        )
         if not candidates:
             return []
 
@@ -226,7 +228,12 @@ class LocalFileStore(BaseFileStore):
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
-    async def keyword_search(self, query: str, limit: int) -> list[FileChunk]:
+    async def keyword_search(
+        self,
+        query: str,
+        limit: int,
+        search_filter: SearchFilter | None = None,
+    ) -> list[FileChunk]:
         """Keyword search via substring matching."""
         if not self.fts_enabled or not query:
             return []
@@ -239,8 +246,10 @@ class LocalFileStore(BaseFileStore):
         words_lower = [w.lower() for w in words]
         n_words = len(words)
 
+        filtered_chunks = self._apply_filter(list(self._chunks.values()), search_filter, self._files)
+
         results = []
-        for chunk in self._chunks.values():
+        for chunk in filtered_chunks:
             text_lower = chunk.text.lower()
             match_count = sum(1 for w in words_lower if w in text_lower)
             if match_count == 0:
@@ -271,6 +280,7 @@ class LocalFileStore(BaseFileStore):
         limit: int,
         vector_weight: float = 0.7,
         candidate_multiplier: float = 3.0,
+        search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Hybrid search combining vector and keyword results."""
         assert 0.0 <= vector_weight <= 1.0
@@ -279,8 +289,8 @@ class LocalFileStore(BaseFileStore):
         text_weight = 1.0 - vector_weight
 
         if self.vector_enabled and self.fts_enabled:
-            keyword_results = await self.keyword_search(query, candidates)
-            vector_results = await self.vector_search(query, candidates)
+            keyword_results = await self.keyword_search(query, candidates, search_filter)
+            vector_results = await self.vector_search(query, candidates, search_filter)
 
             if not keyword_results:
                 return vector_results[:limit]
@@ -295,9 +305,9 @@ class LocalFileStore(BaseFileStore):
             )
             return merged[:limit]
         elif self.vector_enabled:
-            return await self.vector_search(query, limit)
+            return await self.vector_search(query, limit, search_filter)
         elif self.fts_enabled:
-            return await self.keyword_search(query, limit)
+            return await self.keyword_search(query, limit, search_filter)
         return []
 
     @staticmethod

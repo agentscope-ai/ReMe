@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import AsyncGenerator
 
-from enumeration import ComponentEnum
+from .enumeration import ComponentEnum
 from .component import BaseComponent, ApplicationContext
 from .schema import Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
@@ -122,10 +122,10 @@ class Application(BaseComponent):
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, app_context=self.context, **kwargs))
         async for chunk in execute_stream_task(
-                stream_queue=stream_queue,
-                task=task,
-                task_name=name,
-                output_format="chunk",
+            stream_queue=stream_queue,
+            task=task,
+            task_name=name,
+            output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk
