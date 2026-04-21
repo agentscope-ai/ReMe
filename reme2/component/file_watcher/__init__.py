@@ -1,9 +1,11 @@
 """File watcher implementations for monitoring file system changes."""
 
 from .base_file_watcher import BaseFileWatcher
-from .md_file_watcher import MdFileWatcher
+from .full_file_watcher import FullFileWatcher
+from .light_file_watcher import LightFileWatcher
 
 __all__ = [
     "BaseFileWatcher",
-    "MdFileWatcher",
+    "FullFileWatcher",
+    "LightFileWatcher",
 ]

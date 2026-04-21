@@ -5,6 +5,7 @@ import json
 from ..component import R
 from ..component.base_step import BaseStep
 from ..enumeration import ComponentEnum
+from ..schema import SearchFilter
 
 
 @R.register("memory_search")
@@ -33,17 +34,26 @@ class MemorySearch(BaseStep):
         max_results: int = self.context.get("max_results", 5)
 
         assert query, "Query cannot be empty"
-        assert isinstance(min_score, float | int) and 0.0 <= min_score <= 1.0, \
-            f"min_score must be between 0 and 1, got {min_score}"
-        assert isinstance(max_results, int) and max_results > 0, \
-            f"max_results must be a positive integer, got {max_results}"
+        assert (
+            isinstance(min_score, float | int) and 0.0 <= min_score <= 1.0
+        ), f"min_score must be between 0 and 1, got {min_score}"
+        assert (
+            isinstance(max_results, int) and max_results > 0
+        ), f"max_results must be a positive integer, got {max_results}"
 
-        # Use hybrid_search from file_store
+        filter_paths: list[str] | None = self.context.get("paths") or None
+        filter_tags: list[str] | None = self.context.get("tags") or None
+        exclude_paths: list[str] | None = self.context.get("exclude_paths") or None
+        search_filter = None
+        if filter_paths or filter_tags or exclude_paths:
+            search_filter = SearchFilter(paths=filter_paths, tags=filter_tags, exclude_paths=exclude_paths)
+
         results = await self.file_store.hybrid_search(
             query=query,
             limit=max_results,
             vector_weight=self.vector_weight,
             candidate_multiplier=self.candidate_multiplier,
+            search_filter=search_filter,
         )
 
         # Filter by min_score
