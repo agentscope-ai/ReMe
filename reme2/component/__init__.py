@@ -9,9 +9,9 @@ from .runtime_context import RuntimeContext
 
 from . import as_llm
 from . import as_llm_formatter
-from . import as_token_counter
 from . import client
 from . import embedding
+from . import file_parser
 from . import file_store
 from . import file_watcher
 from . import job
@@ -28,9 +28,9 @@ __all__ = [
     # base components
     "as_llm",
     "as_llm_formatter",
-    
     "client",
     "embedding",
+    "file_parser",
     "file_store",
     "file_watcher",
     "job",

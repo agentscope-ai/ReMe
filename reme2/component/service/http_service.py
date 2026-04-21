@@ -27,7 +27,8 @@ class HttpService(BaseService):
     server-sent events (SSE) for real-time streaming.
     """
 
-    from ...application import Application
+    # Removed the circular import - using string annotation instead
+    # from ...application import Application
 
     def __init__(self, host: str = REME_DEFAULT_HOST, port: int = REME_DEFAULT_PORT, **kwargs):
         """Initialize the HTTP service.
@@ -97,7 +98,7 @@ class HttpService(BaseService):
         else:
             self._add_job(job)
 
-    def build_service(self, app: Application) -> None:
+    def build_service(self, app: "Application") -> None:
         """Build the FastAPI application with CORS middleware.
 
         Args:
@@ -129,7 +130,7 @@ class HttpService(BaseService):
         )
         self.service.post("/health")(lambda: {"status": "healthy"})
 
-    def start_service(self, app: Application) -> None:
+    def start_service(self, app: "Application") -> None:
         """Start the HTTP server.
 
         Args:

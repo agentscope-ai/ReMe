@@ -31,6 +31,8 @@ class ComponentRegistry:
             raise ValueError("Component name cannot be empty")
 
         component_type = cls.component_type
+        if component_type not in self._registry:
+            self._registry[component_type] = {}
         if name in self._registry[component_type]:
             self.logger.warning(f"Component '{name}' already registered for {component_type}, overwriting")
 

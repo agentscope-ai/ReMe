@@ -8,6 +8,7 @@ from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.token import HuggingFaceTokenCounter
 from agentscope.tool import Toolkit
+from loguru import logger
 
 from ..component import BaseStep
 from ..schema import AsMsgStat, AsBlockStat
@@ -17,16 +18,16 @@ class Summarizer(BaseStep):
     """Summarizer step for summarizing memory messages."""
 
     def __init__(
-            self,
-            working_dir: str,
-            memory_dir: str,
-            memory_compact_threshold: int,
-            toolkit: Toolkit | None = None,
-            console_enabled: bool = False,
-            timezone: str | None = None,
-            add_thinking_block: bool = True,
-            as_token_counter: HuggingFaceTokenCounter | None = None,
-            **kwargs,
+        self,
+        working_dir: str,
+        memory_dir: str,
+        memory_compact_threshold: int,
+        toolkit: Toolkit | None = None,
+        console_enabled: bool = False,
+        timezone: str | None = None,
+        add_thinking_block: bool = True,
+        as_token_counter: HuggingFaceTokenCounter | None = None,
+        **kwargs,
     ):
         """Initialize the summarizer step.
 
@@ -50,7 +51,6 @@ class Summarizer(BaseStep):
         self.timezone: str | None = timezone
         self.add_thinking_block: bool = add_thinking_block
         self._as_token_counter: HuggingFaceTokenCounter | None = as_token_counter
-
 
     def _get_current_datetime(self) -> datetime.datetime:
         """Get current datetime with timezone, fallback to local time if timezone is invalid."""
@@ -227,10 +227,10 @@ class Summarizer(BaseStep):
         return total
 
     async def _format_msgs_to_str(
-            self,
-            messages: list[Msg],
-            memory_compact_threshold: int,
-            include_thinking: bool = True,
+        self,
+        messages: list[Msg],
+        memory_compact_threshold: int,
+        include_thinking: bool = True,
     ) -> str:
         """Format list of messages to a single formatted string.
 

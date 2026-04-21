@@ -31,13 +31,13 @@ class BaseStep(BaseComponent):
         return instance
 
     def __init__(
-            self,
-            name: str = "",
-            language: str = "",
-            prompt_dict: dict[str, str] | None = None,
-            input_mapping: dict[str, str] | None = None,
-            output_mapping: dict[str, str] | None = None,
-            **kwargs,
+        self,
+        name: str = "",
+        language: str = "",
+        prompt_dict: dict[str, str] | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        **kwargs,
     ):
         """Initialize step configurations."""
         super().__init__(**kwargs)

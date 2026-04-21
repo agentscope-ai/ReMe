@@ -3,7 +3,7 @@ log_to_console: true
 log_to_file: false
 
 service:
-  backend: cmd
+  backend: http
 
 jobs:
   - backend: base
@@ -22,18 +22,19 @@ jobs:
         backend: xxx
 
 components:
-  as_llms:
+  as_llm:
     default:
       backend: openai
       model_name: qwen3.6-plus
 
-  as_llm_formatters:
+  as_llm_formatter:
     default:
       backend: openai
 
-  embedding_models:
+  embedding_model:
     default:
       backend: openai
+      model_name: text-embedding-v3
       dimensions: 1024
       use_dimensions: false
       enable_cache: true
@@ -41,15 +42,23 @@ components:
       max_cache_size: 2000
       max_input_length: 8192
 
-  file_stores:
+  file_parser:
+    md:
+      backend: md
     default:
-      backend: chroma
+      backend: default
+
+  file_store:
+    default:
+      backend: local
       embedding_model: default
       store_name: "reme"
+      db_path: ".reme/store"
 
-  file_watchers:
+  file_watcher:
     default:
       backend: full
       file_store: default
-      suffix_filters: [ ".md" ]
-      recursive: false
+      default_parser: default
+      watch_paths: ["./test_data"]
+      recursive: true
