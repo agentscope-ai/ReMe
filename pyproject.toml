@@ -33,6 +33,7 @@ classifiers = [
 keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http", "reme", "personal"]
 
 dependencies = [
+    "aiofiles>=24.1.0",
     "sqlite-vec>=0.1.6",
     "prompt_toolkit>=3.0.52",
     "rich>=14.2.0",
@@ -117,7 +118,7 @@ Documentation = "https://reme.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]
-reme = "reme_ai.main:main"
+reme = "remecli.reme:main"
 reme2 = "reme.reme:main"
 remecli = "reme.reme_cli:main"
 

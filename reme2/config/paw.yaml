@@ -1,0 +1,64 @@
+enable_logo: false
+log_to_console: true
+log_to_file: false
+
+service:
+  backend: http
+
+jobs:
+  - backend: base
+    name: test
+    description: "test job"
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "name of the user"
+    steps:
+      - name: "test1"
+        backend: xxx
+      - name: "test2"
+        backend: xxx
+
+components:
+  as_llm:
+    default:
+      backend: openai
+      model_name: qwen3.6-plus
+
+  as_llm_formatter:
+    default:
+      backend: openai
+
+  embedding_model:
+    default:
+      backend: openai
+      model_name: text-embedding-v3
+      dimensions: 1024
+      use_dimensions: false
+      enable_cache: true
+      max_batch_size: 10
+      max_cache_size: 2000
+      max_input_length: 8192
+
+  file_parser:
+    md:
+      backend: md
+    default:
+      backend: default
+
+  file_store:
+    default:
+      backend: local
+      embedding_model: default
+      store_name: "reme"
+      db_path: ".reme/store"
+
+  file_watcher:
+    default:
+      backend: full
+      file_store: default
+      default_parser: default
+      watch_paths: ["./test_data"]
+      recursive: true
