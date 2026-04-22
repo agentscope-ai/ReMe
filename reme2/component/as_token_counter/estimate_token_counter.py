@@ -11,17 +11,21 @@ class EstimatedTokenCounter(TokenCounterBase):
     model's tokenizer directly.
     """
 
-    def __init__(self, estimate_divisor: float = 4):
+    def __init__(
+        self, estimate_divisor: float = 4, encoding: str = "utf-8"
+    ):
         """Initialize the estimated token counter.
 
         Args:
             estimate_divisor: The divisor for character-to-token estimation.
                 Default 4 assumes roughly 4 characters per token.
                 Use 2-3 for Chinese/Japanese text, 4-5 for English.
+            encoding: The character encoding to use for byte length calculation.
         """
         if estimate_divisor <= 0:
             raise ValueError("estimate_divisor cannot be zero")
         self.estimate_divisor: float = estimate_divisor
+        self.encoding: str = encoding
 
     async def count(self, text: str, **kwargs) -> int:
         """Count tokens in the given messages.
@@ -35,4 +39,4 @@ class EstimatedTokenCounter(TokenCounterBase):
         """
         if not text:
             return 0
-        return int(len(text.encode("utf-8")) / self.estimate_divisor + 0.5)
+        return int(len(text.encode(self.encoding)) / self.estimate_divisor + 0.5)
