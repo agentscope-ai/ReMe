@@ -26,8 +26,9 @@ class ApplicationContext:
         self.app_config: ApplicationConfig = ApplicationConfig(**kwargs)
 
         from .base_component import BaseComponent
-        from .job.base_job import BaseJob
+        from .job import BaseJob
+        from .service import BaseService
 
-        self.service = None
+        self.service: BaseService | None = None
         self.components: dict[ComponentEnum, dict[str, BaseComponent]] = {}
         self.jobs: dict[str, BaseJob] = {}

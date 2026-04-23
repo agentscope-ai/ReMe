@@ -1,9 +1,10 @@
-"""Base embedding model with caching, batching, and retry support."""
+"""Base embedding model with caching and batching support."""
 
-import asyncio
 import hashlib
-import json
+import os
 import time
+
+import numpy as np
 from abc import abstractmethod
 from collections import OrderedDict
 from pathlib import Path
@@ -14,33 +15,30 @@ from ...schema import BaseNode
 
 
 class BaseEmbeddingModel(BaseComponent):
-    """Abstract base class for embedding models with LRU cache and retry logic.
+    """Abstract base class for embedding models with LRU cache.
 
     Provides:
-        - LRU in-memory cache with disk persistence (JSONL)
+        - LRU in-memory cache with disk persistence (npz)
         - Automatic text truncation to max_input_length
-        - Retry logic with exponential backoff
         - Batch embedding support
     """
 
     component_type = ComponentEnum.EMBEDDING_MODEL
 
     def __init__(
-        self,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        model_name: str = "",
-        dimensions: int = 1024,
-        use_dimensions: bool = False,
-        max_batch_size: int = 10,
-        max_retries: int = 3,
-        raise_exception: bool = True,
-        max_input_length: int = 8192,
-        cache_dir: str | Path = ".reme",
-        max_cache_size: int = 2000,
-        enable_cache: bool = True,
-        encoding: str = "utf-8",
-        **kwargs,
+            self,
+            api_key: str | None = None,
+            base_url: str | None = None,
+            model_name: str = "",
+            dimensions: int = 1024,
+            pass_dimensions: bool = False,
+            max_batch_size: int = 10,
+            max_input_length: int = 8192,
+            cache_dir: str | Path = ".reme",
+            max_cache_size: int = 2000,
+            enable_cache: bool = True,
+            encoding: str = "utf-8",
+            **kwargs,
     ):
         """Initialize embedding model configuration.
 
@@ -49,10 +47,8 @@ class BaseEmbeddingModel(BaseComponent):
             base_url: Base URL for the embedding service.
             model_name: Name of the embedding model.
             dimensions: Vector dimensions.
-            use_dimensions: Whether to pass dimensions parameter to API.
+            pass_dimensions: Whether to pass dimensions parameter to API.
             max_batch_size: Maximum batch size for embedding requests.
-            max_retries: Maximum retry attempts on failure.
-            raise_exception: Whether to raise exceptions on failure.
             max_input_length: Maximum input text length.
             cache_dir: Directory for cache storage.
             max_cache_size: Maximum LRU cache size.
@@ -60,14 +56,12 @@ class BaseEmbeddingModel(BaseComponent):
             encoding: Text encoding for cache file operations.
         """
         super().__init__(**kwargs)
-        self.api_key: str | None = api_key
-        self.base_url: str | None = base_url
+        self.api_key: str = api_key or os.environ.get("EMBEDDING_API_KEY", "")
+        self.base_url: str = base_url or os.environ.get("EMBEDDING_BASE_URL", "")
         self.model_name = model_name
         self.dimensions = dimensions
-        self.use_dimensions = use_dimensions
+        self.pass_dimensions = pass_dimensions
         self.max_batch_size = max_batch_size
-        self.max_retries = max_retries
-        self.raise_exception = raise_exception
         self.max_input_length = max_input_length
         self.cache_dir = cache_dir
         self.max_cache_size = max_cache_size
@@ -78,6 +72,17 @@ class BaseEmbeddingModel(BaseComponent):
         self._cache_hits = 0
         self._cache_misses = 0
         self.cache_path: Path = Path(self.cache_dir)
+
+    async def _start(self) -> None:
+        """Load cache on start."""
+        assert self.app_context is not None, "app_context must be provided"
+        working_path = Path(self.app_context.app_config.working_dir)
+        working_path.embedding_cache = self.cache_path
+        self._load_cache()
+
+    async def _close(self) -> None:
+        """Save cache on close."""
+        self._save_cache()
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to max_input_length."""
@@ -106,11 +111,11 @@ class BaseEmbeddingModel(BaseComponent):
         return hashlib.sha256(cache_string.encode(self.encoding)).hexdigest()
 
     def _get_cache_file_path(self) -> Path:
-        """Return path to the cache JSONL file."""
-        return self.cache_path / "embedding_cache.jsonl"
+        """Return path to the cache npz file."""
+        return self.cache_path / "embedding_cache.npz"
 
     def _load_cache(self) -> None:
-        """Load embedding cache from disk (JSONL format)."""
+        """Load embedding cache from disk (npz format)."""
         if not self.enable_cache:
             return
 
@@ -122,38 +127,25 @@ class BaseEmbeddingModel(BaseComponent):
 
         try:
             load_start = time.time()
-            with open(cache_file, "r", encoding=self.encoding) as f:
-                lines = f.readlines()
+            data = np.load(cache_file)
+            keys = data["keys"]
+            embeddings = data["embeddings"]
 
             loaded_count = 0
-            for line in reversed(lines):
-                line = line.strip()
-                if not line:
+            for key, emb in zip(keys, embeddings):
+                key_str = str(key)
+                emb_list = emb.tolist()
+                if len(emb_list) != self.dimensions:
+                    self.logger.warning(
+                        f"Cache dimension mismatch for {key_str}: "
+                        f"expected {self.dimensions}, got {len(emb_list)}",
+                    )
                     continue
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError as e:
-                    self.logger.warning(f"Failed to parse cache line: {e}")
-                    continue
-
-                if not data:
-                    continue
-
-                cache_key, embedding = next(iter(data.items()))
-                if cache_key and embedding and isinstance(embedding, list):
-                    if cache_key in self._embedding_cache:
-                        continue
-                    if len(embedding) != self.dimensions:
-                        self.logger.warning(
-                            f"Cache dimension mismatch for {cache_key}: "
-                            f"expected {self.dimensions}, got {len(embedding)}",
-                        )
-                        continue
-                    if len(self._embedding_cache) >= self.max_cache_size:
-                        self.logger.info(f"Cache limit reached ({self.max_cache_size}), loaded {loaded_count}")
-                        break
-                    self._embedding_cache[cache_key] = embedding
-                    loaded_count += 1
+                if len(self._embedding_cache) >= self.max_cache_size:
+                    self.logger.info(f"Cache limit reached ({self.max_cache_size}), loaded {loaded_count}")
+                    break
+                self._embedding_cache[key_str] = emb_list
+                loaded_count += 1
 
             self.logger.info(f"Loaded {loaded_count} embeddings from {cache_file} in {time.time() - load_start:.2f}s")
         except Exception as e:
@@ -164,19 +156,27 @@ class BaseEmbeddingModel(BaseComponent):
                 self.logger.error(f"Failed to delete cache file: {del_e}")
 
     def _save_cache(self) -> None:
-        """Save embedding cache to disk (JSONL format)."""
+        """Save embedding cache to disk (npz format)."""
         if not self.enable_cache or not self._embedding_cache:
             return
 
         cache_file = self._get_cache_file_path()
         try:
-            with open(cache_file, "w", encoding=self.encoding) as f:
-                for cache_key, embedding in self._embedding_cache.items():
-                    if len(embedding) != self.dimensions:
-                        self.logger.warning(f"Cache dimension mismatch for {cache_key}")
-                        continue
-                    f.write(json.dumps({cache_key: embedding}, ensure_ascii=False) + "\n")
-            self.logger.info(f"Saved {len(self._embedding_cache)} embeddings to {cache_file}")
+            keys = []
+            embeddings = []
+            for cache_key, embedding in self._embedding_cache.items():
+                if len(embedding) != self.dimensions:
+                    self.logger.warning(f"Cache dimension mismatch for {cache_key}")
+                    continue
+                keys.append(cache_key)
+                embeddings.append(embedding)
+
+            np.savez(
+                cache_file,
+                keys=np.array(keys, dtype=str),
+                embeddings=np.array(embeddings, dtype=np.float32),
+            )
+            self.logger.info(f"Saved {len(keys)} embeddings to {cache_file}")
         except Exception as e:
             self.logger.error(f"Failed to save cache to {cache_file}: {e}")
 
@@ -242,34 +242,23 @@ class BaseEmbeddingModel(BaseComponent):
         """Fetch embeddings for a batch of texts. Override in subclasses."""
 
     async def get_embedding(self, input_text: str, **kwargs) -> list[float]:
-        """Get embedding for a single text with cache and retry."""
+        """Get embedding for a single text with cache."""
         truncated_text = self._truncate_text(input_text)
         cached = self._get_from_cache(truncated_text)
         if cached is not None:
             return cached
 
-        for retry in range(self.max_retries):
-            try:
-                result = await self._get_embeddings([truncated_text], **kwargs)
-                if result and len(result) == 1:
-                    embedding = self._validate_and_adjust_embedding(result[0])
-                    self._put_to_cache(truncated_text, embedding)
-                    return embedding
-                self.logger.warning(
-                    f"Model {self.model_name} returned {len(result) if result else 0} results, expected 1",
-                )
-                if retry == self.max_retries - 1:
-                    if self.raise_exception:
-                        raise RuntimeError("Embedding API returned empty result")
-                    return []
-                await asyncio.sleep(retry + 1)
-            except Exception as e:
-                self.logger.error(f"Model {self.model_name} failed: {e}")
-                if retry == self.max_retries - 1:
-                    if self.raise_exception:
-                        raise
-                    return []
-                await asyncio.sleep(retry + 1)
+        try:
+            result = await self._get_embeddings([truncated_text], **kwargs)
+            if result and len(result) == 1:
+                embedding = self._validate_and_adjust_embedding(result[0])
+                self._put_to_cache(truncated_text, embedding)
+                return embedding
+            self.logger.warning(
+                f"Model {self.model_name} returned {len(result) if result else 0} results, expected 1",
+            )
+        except Exception as e:
+            self.logger.error(f"Model {self.model_name} failed: {e}")
         return []
 
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float]]:
@@ -288,40 +277,29 @@ class BaseEmbeddingModel(BaseComponent):
         if texts_to_compute:
             uncached_texts = [text for _, text in texts_to_compute]
             for i in range(0, len(uncached_texts), self.max_batch_size):
-                batch_texts = uncached_texts[i : i + self.max_batch_size]
-                batch_indices = [idx for idx, _ in texts_to_compute[i : i + self.max_batch_size]]
+                batch_texts = uncached_texts[i: i + self.max_batch_size]
+                batch_indices = [idx for idx, _ in texts_to_compute[i: i + self.max_batch_size]]
 
-                for retry in range(self.max_retries):
-                    try:
-                        batch_embeddings = await self._get_embeddings(batch_texts, **kwargs)
-                        if batch_embeddings and len(batch_embeddings) == len(batch_texts):
-                            for orig_idx, text, embedding in zip(batch_indices, batch_texts, batch_embeddings):
-                                adjusted = self._validate_and_adjust_embedding(embedding)
-                                results[orig_idx] = adjusted
-                                self._put_to_cache(text, adjusted)
-                            break
+                try:
+                    batch_embeddings = await self._get_embeddings(batch_texts, **kwargs)
+                    if batch_embeddings and len(batch_embeddings) == len(batch_texts):
+                        for orig_idx, text, embedding in zip(batch_indices, batch_texts, batch_embeddings):
+                            adjusted = self._validate_and_adjust_embedding(embedding)
+                            results[orig_idx] = adjusted
+                            self._put_to_cache(text, adjusted)
+                    else:
                         self.logger.warning(
                             f"Batch returned {len(batch_embeddings) if batch_embeddings else 0} "
                             f"results for {len(batch_texts)} inputs",
                         )
-                        if retry == self.max_retries - 1:
-                            if self.raise_exception:
-                                raise RuntimeError(f"Batch embedding failed after {self.max_retries} retries")
-                            for orig_idx in batch_indices:
-                                if results[orig_idx] is None:
-                                    results[orig_idx] = []
-                        else:
-                            await asyncio.sleep(retry + 1)
-                    except Exception as e:
-                        self.logger.error(f"Model {self.model_name} batch failed: {e}")
-                        if retry == self.max_retries - 1:
-                            if self.raise_exception:
-                                raise
-                            for orig_idx in batch_indices:
-                                if results[orig_idx] is None:
-                                    results[orig_idx] = []
-                        else:
-                            await asyncio.sleep(retry + 1)
+                        for orig_idx in batch_indices:
+                            if results[orig_idx] is None:
+                                results[orig_idx] = []
+                except Exception as e:
+                    self.logger.error(f"Model {self.model_name} batch failed: {e}")
+                    for orig_idx in batch_indices:
+                        if results[orig_idx] is None:
+                            results[orig_idx] = []
 
         return [r if r is not None else [] for r in results]
 
@@ -337,10 +315,4 @@ class BaseEmbeddingModel(BaseComponent):
             self.logger.warning(f"Mismatch: {len(embeddings)} vectors for {len(nodes)} nodes, skipping assignment")
         return nodes
 
-    async def _start(self, app_context=None) -> None:
-        """Load cache on start."""
-        self._load_cache()
 
-    async def _close(self) -> None:
-        """Save cache on close."""
-        self._save_cache()

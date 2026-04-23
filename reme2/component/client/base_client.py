@@ -15,8 +15,7 @@ class BaseClient(BaseComponent):
         super().__init__(**kwargs)
         self.client = None
 
-    async def _start(self, app_context=None) -> None:
-        """Initialize the client."""
+    async def _start(self) -> None:
 
     async def _close(self) -> None:
         """Close the client."""
