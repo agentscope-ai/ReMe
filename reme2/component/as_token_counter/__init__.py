@@ -22,6 +22,7 @@ class BaseAsTokenCounter(BaseComponent):
         self.token_counter: TokenCounterBase | None = None
 
     async def _start(self) -> None:
+        """Initialize the token counter."""
 
     async def _close(self) -> None:
         """Release token counter resources."""

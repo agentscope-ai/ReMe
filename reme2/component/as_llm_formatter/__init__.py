@@ -18,6 +18,7 @@ class BaseAsLLMFormatter(BaseComponent):
         self.formatter: FormatterBase | None = None
 
     async def _start(self) -> None:
+        """Initialize the formatter."""
 
     async def _close(self) -> None:
         self.formatter = None
@@ -28,6 +29,7 @@ class AsOpenAIChatFormatter(BaseAsLLMFormatter):
     """Wrapper for OpenAI chat completion formatter."""
 
     async def _start(self) -> None:
+        """Initialize the OpenAI chat formatter."""
         self.formatter = ReMeOpenAIChatFormatter(**self.kwargs)
 
 

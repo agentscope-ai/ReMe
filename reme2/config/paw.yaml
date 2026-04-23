@@ -60,5 +60,5 @@ components:
       backend: full
       file_store: default
       default_parser: default
-      watch_paths: ["./test_data"]
+      watch_paths: [ "./test_data" ]
       recursive: true

@@ -40,10 +40,10 @@ class FileIO:
             return str(self.working_dir / file_path)
 
     async def read_file(  # pylint: disable=too-many-return-statements
-        self,
-        file_path: str,
-        start_line: int | None = None,
-        end_line: int | None = None,
+            self,
+            file_path: str,
+            start_line: int | None = None,
+            end_line: int | None = None,
     ) -> ToolResponse:
         """Read a file. Relative paths resolve from WORKING_DIR.
 
@@ -138,7 +138,7 @@ class FileIO:
                 )
 
             # Extract selected lines
-            selected_content = "\n".join(all_lines[s - 1 : e])
+            selected_content = "\n".join(all_lines[s - 1: e])
 
             # Apply smart truncation (consistent with shell output format)
             text = truncate_text_output(
@@ -154,13 +154,13 @@ class FileIO:
             if text == selected_content and e < total:
                 content_bytes = len(text.encode("utf-8"))
                 notice = (
-                    TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
-                    f"\nThe full content is saved to the file "
-                    f"and contains {total} lines in total."
-                    f"\nThis excerpt starts at line {s} and "
-                    f"covers the next {content_bytes} bytes."
-                    "\nIf the current content is not enough, "
-                    f"call `read_file` with file_path={file_path} start_line={e + 1} to read more."
+                        TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+                                                   f"\nThe full content is saved to the file "
+                                                   f"and contains {total} lines in total."
+                                                   f"\nThis excerpt starts at line {s} and "
+                                                   f"covers the next {content_bytes} bytes."
+                                                   "\nIf the current content is not enough, "
+                                                   f"call `read_file` with file_path={file_path} start_line={e + 1} to read more."
                 )
                 text = text + notice
 
@@ -179,9 +179,9 @@ class FileIO:
             )
 
     async def write_file(
-        self,
-        file_path: str,
-        content: str,
+            self,
+            file_path: str,
+            content: str,
     ) -> ToolResponse:
         """Create or overwrite a file. Relative paths resolve from working_dir.
 
@@ -226,10 +226,10 @@ class FileIO:
 
     # pylint: disable=too-many-return-statements
     async def edit_file(
-        self,
-        file_path: str,
-        old_text: str,
-        new_text: str,
+            self,
+            file_path: str,
+            old_text: str,
+            new_text: str,
     ) -> ToolResponse:
         """Find-and-replace text in a file. All occurrences of old_text are
         replaced with new_text. Relative paths resolve from working_dir.
@@ -314,9 +314,9 @@ class FileIO:
         )
 
     async def append_file(
-        self,
-        file_path: str,
-        content: str,
+            self,
+            file_path: str,
+            content: str,
     ) -> ToolResponse:
         """Append content to the end of a file. Relative paths resolve from
         working_dir.

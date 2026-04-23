@@ -21,12 +21,12 @@ class BaseFileStore(BaseComponent):
     component_type = ComponentEnum.FILE_STORE
 
     def __init__(
-        self,
-        store_name: str,
-        db_path: str | Path,
-        embedding_model: str = "default",
-        fts_enabled: bool = True,
-        **kwargs,
+            self,
+            store_name: str,
+            db_path: str | Path,
+            embedding_model: str = "default",
+            fts_enabled: bool = True,
+            **kwargs,
     ):
         super().__init__(**kwargs)
         self._embedding_model_name: str = embedding_model
@@ -134,12 +134,12 @@ class BaseFileStore(BaseComponent):
     # -- Hybrid search (concrete, delegates to abstract vector/keyword) -----
 
     async def hybrid_search(
-        self,
-        query: str,
-        limit: int,
-        vector_weight: float = 0.7,
-        candidate_multiplier: float = 3.0,
-        search_filter: SearchFilter | None = None,
+            self,
+            query: str,
+            limit: int,
+            vector_weight: float = 0.7,
+            candidate_multiplier: float = 3.0,
+            search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Perform hybrid search combining vector and keyword results."""
         assert 0.0 <= vector_weight <= 1.0
@@ -171,10 +171,10 @@ class BaseFileStore(BaseComponent):
 
     @staticmethod
     def _merge_hybrid_results(
-        vector: list[FileChunk],
-        keyword: list[FileChunk],
-        vector_weight: float,
-        text_weight: float,
+            vector: list[FileChunk],
+            keyword: list[FileChunk],
+            vector_weight: float,
+            text_weight: float,
     ) -> list[FileChunk]:
         """Merge vector and keyword results with weighted scoring."""
         merged: dict[str, FileChunk] = {}
@@ -182,10 +182,10 @@ class BaseFileStore(BaseComponent):
         for result in vector:
             v_score = result.scores.get("vector", 0)
             result.scores["score"] = v_score * vector_weight
-            merged[result.merge_key] = result
+            merged[result.unique_key] = result
 
         for result in keyword:
-            key = result.merge_key
+            key = result.unique_key
             k_score = result.scores.get("keyword", 0)
             if key in merged:
                 merged[key].scores["score"] += k_score * text_weight
@@ -200,10 +200,10 @@ class BaseFileStore(BaseComponent):
     # -- Filter utility -----------------------------------------------------
 
     def _apply_filter(
-        self,
-        chunks: list[FileChunk],
-        search_filter: SearchFilter | None,
-        file_metadata: dict[str, FileMetadata] | None = None,
+            self,
+            chunks: list[FileChunk],
+            search_filter: SearchFilter | None,
+            file_metadata: dict[str, FileMetadata] | None = None,
     ) -> list[FileChunk]:
         """Apply search filter to a list of chunks.
 
@@ -250,9 +250,9 @@ class BaseFileStore(BaseComponent):
 
     @abstractmethod
     async def keyword_search(
-        self,
-        query: str,
-        limit: int,
-        search_filter: SearchFilter | None = None,
+            self,
+            query: str,
+            limit: int,
+            search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Perform full-text/keyword search."""

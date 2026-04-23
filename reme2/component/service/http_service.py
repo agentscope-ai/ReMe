@@ -77,10 +77,10 @@ class HttpService(BaseService):
 
             async def generate_stream() -> AsyncGenerator[bytes, None]:
                 async for chunk in execute_stream_task(
-                    stream_queue=stream_queue,
-                    task=task,
-                    task_name=job.name,
-                    output_format="bytes",
+                        stream_queue=stream_queue,
+                        task=task,
+                        task_name=job.name,
+                        output_format="bytes",
                 ):
                     assert isinstance(chunk, bytes)
                     yield chunk

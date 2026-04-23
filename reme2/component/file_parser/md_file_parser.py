@@ -42,13 +42,13 @@ class MdFileParser(BaseFileParser):
         )
 
         chunks = (
-            chunk_markdown(
-                content,
-                file_meta.path,
-                self.chunk_tokens,
-                self.chunk_overlap,
-            )
-            or []
+                chunk_markdown(
+                    content,
+                    file_meta.path,
+                    self.chunk_tokens,
+                    self.chunk_overlap,
+                )
+                or []
         )
 
         file_meta.chunk_count = len(chunks)

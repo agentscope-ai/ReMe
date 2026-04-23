@@ -19,12 +19,12 @@ class BaseJob(BaseComponent):
     component_type = ComponentEnum.JOB
 
     def __init__(
-        self,
-        name: str = "",
-        description: str = "",
-        parameters: dict | None = None,
-        steps: list[ComponentConfig] | None = None,
-        **kwargs,
+            self,
+            name: str = "",
+            description: str = "",
+            parameters: dict | None = None,
+            steps: list[ComponentConfig] | None = None,
+            **kwargs,
     ):
         """Initialize the job.
 

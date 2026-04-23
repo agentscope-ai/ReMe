@@ -201,10 +201,10 @@ class ChromaFileStore(BaseFileStore):
         return chunks[:limit]
 
     async def keyword_search(
-        self,
-        query: str,
-        limit: int,
-        search_filter: SearchFilter | None = None,
+            self,
+            query: str,
+            limit: int,
+            search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Keyword search via ChromaDB $contains with case variants."""
         if not self.fts_enabled or not query:

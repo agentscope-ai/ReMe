@@ -1,6 +1,5 @@
 """ReMe CLI application entry point."""
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -22,17 +21,17 @@ class ReMe(Application):
     """ReMe memory management application."""
 
     async def summarize(
-        self,
-        messages: list[Msg],
-        as_llm: str | ChatModelBase = "default",
-        as_llm_formatter: str | FormatterBase = "default",
-        as_token_counter: str | TokenCounterBase | HuggingFaceTokenCounter = "default",
-        toolkit: Toolkit | None = None,
-        language: str = "zh",
-        max_input_length: float = 128 * 1024,
-        compact_ratio: float = 0.7,
-        timezone: str | None = None,
-        add_thinking_block: bool = True,
+            self,
+            messages: list[Msg],
+            as_llm: str | ChatModelBase = "default",
+            as_llm_formatter: str | FormatterBase = "default",
+            as_token_counter: str | TokenCounterBase | HuggingFaceTokenCounter = "default",
+            toolkit: Toolkit | None = None,
+            language: str = "zh",
+            max_input_length: float = 128 * 1024,
+            compact_ratio: float = 0.7,
+            timezone: str | None = None,
+            add_thinking_block: bool = True,
     ) -> str:
         """Summarize and compact memory messages.
 
@@ -95,25 +94,25 @@ class ReMe(Application):
             return str(e)
 
     async def dream(
-        self,
-        as_llm: str | ChatModelBase = "default",
-        as_llm_formatter: str | FormatterBase = "default",
-        as_token_counter: str | TokenCounterBase = "default",
-        toolkit: Toolkit | None = None,
-        language: str = "zh",
-        timezone: str | None = None,
+            self,
+            as_llm: str | ChatModelBase = "default",
+            as_llm_formatter: str | FormatterBase = "default",
+            as_token_counter: str | TokenCounterBase = "default",
+            toolkit: Toolkit | None = None,
+            language: str = "zh",
+            timezone: str | None = None,
     ) -> str:
         """Process and consolidate memories in background."""
         return ""
 
     async def proactive(
-        self,
-        as_llm: str | ChatModelBase = "default",
-        as_llm_formatter: str | FormatterBase = "default",
-        as_token_counter: str | TokenCounterBase = "default",
-        toolkit: Toolkit | None = None,
-        language: str = "zh",
-        timezone: str | None = None,
+            self,
+            as_llm: str | ChatModelBase = "default",
+            as_llm_formatter: str | FormatterBase = "default",
+            as_token_counter: str | TokenCounterBase = "default",
+            toolkit: Toolkit | None = None,
+            language: str = "zh",
+            timezone: str | None = None,
     ) -> str:
         """Generate proactive memory insights."""
         return ""

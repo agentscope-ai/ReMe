@@ -76,7 +76,6 @@ class Application(BaseComponent):
                     f"of type '{ComponentEnum.JOB}'",
                 )
             params = job_config.model_dump()
-            params.setdefault("name", job_config.name)
             params["app_context"] = self.context
             self.context.jobs[job_config.name] = job_cls(**params)
 

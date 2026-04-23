@@ -2,10 +2,13 @@
 
 import inspect
 import json
+import re
 from pathlib import Path
 from string import Formatter
 
 import yaml
+
+_FLAG_PATTERN = re.compile(r"^\[(\w+)\]")
 
 
 class PromptHandler:
@@ -18,9 +21,9 @@ class PromptHandler:
         self.language: str = language.strip()
 
     def load_prompt_by_file(
-        self,
-        prompt_file_path: str | Path | None = None,
-        overwrite: bool = True,
+            self,
+            prompt_file_path: str | Path | None = None,
+            overwrite: bool = True,
     ) -> "PromptHandler":
         """Load prompts from a YAML or JSON file."""
         if prompt_file_path is None:
@@ -32,7 +35,7 @@ class PromptHandler:
 
         try:
             with path.open(encoding="utf-8") as f:
-                prompt_dict = yaml.safe_load(f) if path.suffix in (".yaml", ".yml") else json.load(f)
+                prompt_dict = yaml.safe_load(f) if path.suffix.lower() in (".yaml", ".yml") else json.load(f)
         except (json.JSONDecodeError, yaml.YAMLError, OSError):
             return self
 
@@ -53,7 +56,7 @@ class PromptHandler:
 
     def load_prompt_dict(self, prompt_dict: dict | None = None, overwrite: bool = True) -> "PromptHandler":
         """Merge prompts from a dictionary."""
-        if not prompt_dict:
+        if not isinstance(prompt_dict, dict):
             return self
 
         for key, value in prompt_dict.items():
@@ -72,11 +75,12 @@ class PromptHandler:
 
     def has_prompt(self, prompt_name: str) -> bool:
         """Check if a prompt exists."""
-        return prompt_name in self.data or f"{prompt_name}_{self.language}" in self.data
+        keys = (f"{prompt_name}_{self.language}", prompt_name) if self.language else (prompt_name,)
+        return any(k in self.data for k in keys)
 
     def list_prompts(self, language_filter: str | None = None) -> list[str]:
         """List all available prompt names."""
-        if not language_filter:
+        if language_filter is None:
             return list(self.data.keys())
         suffix = f"_{language_filter.strip()}"
         return [k for k in self.data if k.endswith(suffix)]
@@ -90,16 +94,10 @@ class PromptHandler:
         if flags:
             lines = []
             for line in prompt.split("\n"):
-                remaining = line
-                should_include = False
-                for flag, enabled in flags.items():
-                    prefix = f"[{flag}]"
-                    while remaining.startswith(prefix):
-                        remaining = remaining[len(prefix) :]
-                        if enabled:
-                            should_include = True
-                if should_include or not any(line.startswith(f"[{f}]") for f in flags):
-                    lines.append(remaining)
+                active_flags = _FLAG_PATTERN.findall(line)
+                cleaned = _FLAG_PATTERN.sub("", line).lstrip()
+                if not active_flags or any(flags.get(f, False) for f in active_flags):
+                    lines.append(cleaned)
             prompt = "\n".join(lines)
 
         if validate:
@@ -107,7 +105,7 @@ class PromptHandler:
             if missing := required - set(formats.keys()):
                 raise ValueError(f"Missing format variables for '{prompt_name}': {sorted(missing)}")
 
-        return prompt.format(**formats).strip() if formats else prompt.strip()
+        return prompt.format(**formats).strip() if formats else prompt
 
     def __repr__(self) -> str:
         return f"PromptHandler(language='{self.language}', num_prompts={len(self.data)})"

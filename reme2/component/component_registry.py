@@ -25,35 +25,34 @@ class ComponentRegistry:
 
     def _do_register(self, cls: type[T], name: str) -> type[T]:
         """Register a component class with the given name."""
-        if not hasattr(cls, "component_type"):
-            raise TypeError(f"{cls.__name__} must have 'component_type' attribute")
+        component_type = getattr(cls, "component_type", None)
+        if not isinstance(component_type, ComponentEnum):
+            raise TypeError(f"{cls.__name__} must have a ComponentEnum 'component_type' attribute")
         if not name:
             raise ValueError("Component name cannot be empty")
 
-        component_type = cls.component_type
-        if component_type not in self._registry:
-            self._registry[component_type] = {}
-        if name in self._registry[component_type]:
+        group = self._registry.setdefault(component_type, {})
+        if name in group:
             self.logger.warning(f"Component '{name}' already registered for {component_type}, overwriting")
-
-        self._registry[component_type][name] = cls
+        group[name] = cls
         return cls
 
     def register(
-        self,
-        cls_or_name: type[T] | str,
-        name: str | None = None,
+            self,
+            cls_or_name: type[T] | str,
+            name: str | None = None,
     ) -> Callable[[type[T]], type[T]] | type[T]:
         """Register a component class. Supports direct and decorator modes."""
         # Direct registration: R.register(MyClass, "name")
         if isinstance(cls_or_name, type):
-            return self._do_register(cast(type[T], cls_or_name), name or cls_or_name.__name__)
+            return self._do_register(cast(type[T], cls_or_name), name if name is not None else cls_or_name.__name__)
 
         # Decorator mode: @R.register("name")
-        decorator_name = cls_or_name
+        if not isinstance(cls_or_name, str):
+            raise TypeError(f"Expected a class or string, got {type(cls_or_name).__name__}")
 
         def decorator(decorated_cls: type[T]) -> type[T]:
-            return self._do_register(decorated_cls, decorator_name or decorated_cls.__name__)
+            return self._do_register(decorated_cls, cls_or_name)
 
         return decorator
 
@@ -67,8 +66,8 @@ class ComponentRegistry:
 
     def unregister(self, component_type: ComponentEnum, name: str) -> bool:
         """Remove a component from the registry. Returns True if found."""
-        if name in self._registry.get(component_type, {}):
-            del self._registry[component_type][name]
+        if (group := self._registry.get(component_type)) and name in group:
+            del group[name]
             return True
         return False
 
