@@ -1,7 +1,6 @@
 """Markdown file parser."""
 
 import asyncio
-import os
 from pathlib import Path
 
 import frontmatter
@@ -9,7 +8,7 @@ import frontmatter
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
 from ...schema import FileChunk, FileMetadata
-from ...utils import hash_text, chunk_markdown
+from ...utils import chunk_markdown
 
 
 @R.register("md")
@@ -29,17 +28,13 @@ class MdFileParser(BaseFileParser):
             raw = file_path.read_text(encoding=self.encoding)
             post = frontmatter.loads(raw)
             stat = file_path.stat()
-            os.stat()
             return stat, dict(post.metadata), post.content
 
         stat, metadata, content = await asyncio.to_thread(_read_and_parse)
 
         file_meta = FileMetadata(
-            hash=hash_text(content),
             modified_time=stat.st_mtime,
-            size=stat.st_size,
             path=str(file_path.absolute()),
-            content=content,
             metadata=metadata,
         )
 
@@ -53,5 +48,4 @@ class MdFileParser(BaseFileParser):
                 or []
         )
 
-        file_meta.chunk_count = len(chunks)
         return file_meta, chunks

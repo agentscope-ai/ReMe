@@ -100,11 +100,8 @@ class SqliteFileStore(BaseFileStore):
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self.files_table} (
                     path TEXT PRIMARY KEY,
-                    hash TEXT,
                     mtime REAL,
-                    size INTEGER,
-                    metadata TEXT,
-                    chunk_count INTEGER DEFAULT 0
+                    metadata TEXT
                 )
             """)
 
@@ -162,14 +159,12 @@ class SqliteFileStore(BaseFileStore):
         """Load all file metadata from SQL into a dict for tag filtering."""
         cursor = self.conn.cursor()
         try:
-            cursor.execute(f"SELECT path, hash, mtime, size, metadata FROM {self.files_table}")
+            cursor.execute(f"SELECT path, mtime, metadata FROM {self.files_table}")
             result = {}
-            for path, hash_val, mtime, size, meta_str in cursor.fetchall():
+            for path, mtime, meta_str in cursor.fetchall():
                 metadata = json.loads(meta_str) if meta_str else {}
                 result[path] = FileMetadata(
-                    hash=hash_val,
                     modified_time=mtime,
-                    size=size,
                     path=path,
                     metadata=metadata,
                 )
@@ -190,15 +185,12 @@ class SqliteFileStore(BaseFileStore):
             # Upsert file metadata
             cursor.execute(
                 f"""INSERT OR REPLACE INTO {self.files_table}
-                    (path, hash, mtime, size, metadata, chunk_count)
-                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (path, mtime, metadata)
+                    VALUES (?, ?, ?)""",
                 (
                     file_meta.path,
-                    file_meta.hash,
                     file_meta.modified_time,
-                    file_meta.size,
                     json.dumps(file_meta.metadata, ensure_ascii=False) if file_meta.metadata else None,
-                    len(chunks),
                 ),
             )
 
@@ -307,20 +299,17 @@ class SqliteFileStore(BaseFileStore):
         cursor = self.conn.cursor()
         try:
             cursor.execute(
-                f"SELECT hash, mtime, size, metadata, chunk_count FROM {self.files_table} WHERE path = ?",
+                f"SELECT mtime, metadata FROM {self.files_table} WHERE path = ?",
                 (path,),
             )
             row = cursor.fetchone()
             if not row:
                 return None
-            hash_val, mtime, size, meta_str, chunk_count = row
+            mtime, meta_str = row
             metadata = json.loads(meta_str) if meta_str else {}
             return FileMetadata(
-                hash=hash_val,
                 modified_time=mtime,
-                size=size,
                 path=path,
-                chunk_count=chunk_count,
                 metadata=metadata,
             )
         except Exception as e:

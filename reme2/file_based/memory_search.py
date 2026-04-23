@@ -4,15 +4,12 @@ import json
 
 from ..component import R
 from ..component.base_step import BaseStep
-from ..enumeration import ComponentEnum
 from ..schema import SearchFilter
 
 
 @R.register("memory_search")
 class MemorySearch(BaseStep):
     """Semantically search MEMORY.md and memory files."""
-
-    component_type = ComponentEnum.STEP
 
     def __init__(self, vector_weight: float = 0.7, candidate_multiplier: float = 3.0, **kwargs):
         """Initialize memory search step.

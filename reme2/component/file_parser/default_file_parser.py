@@ -1,13 +1,12 @@
 """Default file parser for unknown file types."""
 
 import asyncio
-import hashlib
 from pathlib import Path
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
 from ...schema import FileChunk, FileMetadata
-from ...utils import hash_text, chunk_markdown
+from ...utils import chunk_markdown
 
 
 @R.register("default")
@@ -31,21 +30,15 @@ class DefaultFileParser(BaseFileParser):
             stat = file_path.stat()
             raw = file_path.read_bytes()
             try:
-                content = raw.decode(self.encoding)
-                content_hash = hash_text(content)
-                return stat, content_hash, content
+                return stat, raw.decode(self.encoding)
             except (UnicodeDecodeError, ValueError):
-                binary_hash = hashlib.sha256(raw).hexdigest()
-                return stat, binary_hash, None
+                return stat, None
 
-        stat, file_hash, content = await asyncio.to_thread(_read_file)
+        stat, content = await asyncio.to_thread(_read_file)
 
         file_meta = FileMetadata(
-            hash=file_hash,
             modified_time=stat.st_mtime,
-            size=stat.st_size,
             path=str(file_path.absolute()),
-            content=content,
         )
 
         chunks: list[FileChunk] = []
@@ -60,5 +53,4 @@ class DefaultFileParser(BaseFileParser):
                     or []
             )
 
-        file_meta.chunk_count = len(chunks)
         return file_meta, chunks
