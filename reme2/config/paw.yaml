@@ -36,7 +36,7 @@ components:
       backend: openai
       model_name: text-embedding-v3
       dimensions: 1024
-      use_dimensions: false
+      pass_dimensions: false
       enable_cache: true
       max_batch_size: 10
       max_cache_size: 2000

@@ -15,10 +15,10 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         super().__init__(**kwargs)
         self._client: AsyncOpenAI | None = None
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Initialize the AsyncOpenAI client."""
         self._client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url, **self.kwargs)
-        await super()._start(app_context)
+        await super()._start()
 
     async def _close(self) -> None:
         """Close the AsyncOpenAI client."""
@@ -37,7 +37,7 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
             "input": input_text,
             **kwargs,
         }
-        if self.use_dimensions:
+        if self.pass_dimensions:
             create_kwargs["dimensions"] = self.dimensions
 
         completion = await self._client.embeddings.create(**create_kwargs)

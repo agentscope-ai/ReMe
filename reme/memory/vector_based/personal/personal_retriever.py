@@ -106,5 +106,5 @@ class PersonalRetriever(BaseMemoryAgent):
                 ],
             )
 
-        result["retrieved_nodes"] = self.retrieved_nodes
+        result["retrieved_nodes"] = self.retri eved_nodes
         return result

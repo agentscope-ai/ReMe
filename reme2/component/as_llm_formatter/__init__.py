@@ -1,6 +1,6 @@
 """Module for AgentScope LLM formatter components."""
 
-from agentscope.formatter import FormatterBase
+from agentscope.formatter import FormatterBase, AnthropicChatFormatter
 
 from .reme_openai_chat_formatter import ReMeOpenAIChatFormatter
 from ..base_component import BaseComponent
@@ -17,8 +17,7 @@ class BaseAsLLMFormatter(BaseComponent):
         super().__init__(**kwargs)
         self.formatter: FormatterBase | None = None
 
-    async def _start(self, app_context=None) -> None:
-        """Initialize the formatter instance."""
+    async def _start(self) -> None:
 
     async def _close(self) -> None:
         self.formatter = None
@@ -28,11 +27,20 @@ class BaseAsLLMFormatter(BaseComponent):
 class AsOpenAIChatFormatter(BaseAsLLMFormatter):
     """Wrapper for OpenAI chat completion formatter."""
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         self.formatter = ReMeOpenAIChatFormatter(**self.kwargs)
+
+
+@R.register("anthropic")
+class AsAnthropicChatFormatter(BaseAsLLMFormatter):
+    """Wrapper for Anthropic chat completion formatter."""
+
+    async def _start(self) -> None:
+        self.formatter = AnthropicChatFormatter(**self.kwargs)
 
 
 __all__ = [
     "BaseAsLLMFormatter",
     "AsOpenAIChatFormatter",
+    "AsAnthropicChatFormatter",
 ]

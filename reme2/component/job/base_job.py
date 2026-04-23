@@ -43,15 +43,9 @@ class BaseJob(BaseComponent):
         self.step_configs: list[ComponentConfig] = steps or []
         self.steps: list = []
 
-    async def _start(self, app_context=None) -> None:
-        """Instantiate all configured steps.
-
-        Args:
-            app_context: Application context for dependency injection.
-
-        Raises:
-            ValueError: If a step backend is not specified or not registered.
-        """
+    async def _start(self) -> None:
+        """Instantiate all configured steps."""
+        assert self.app_context is not None, "app_context must be provided"
         for step_config in self.step_configs:
             if not step_config.backend:
                 raise ValueError(f"{step_config.backend} backend is not specified.")
@@ -61,7 +55,7 @@ class BaseJob(BaseComponent):
                 raise ValueError(f"{step_config.backend} is not registered.")
 
             step = backend_cls(
-                language=app_context.app_config.language,
+                language=self.app_context.app_config.language,
                 **step_config.model_dump(exclude={"backend"}),
             )
             self.steps.append(step)

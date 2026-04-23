@@ -54,12 +54,12 @@ class BaseFileWatcher(BaseComponent):
         self._stop_event = asyncio.Event()
         self._watch_task: asyncio.Task | None = None
 
-    async def _start(self, app_context=None):
+    async def _start(self):
         """Resolve file_store and start watching task."""
         if self._file_store_name:
-            assert app_context is not None, "app_context must be provided"
+            assert self.app_context is not None, "app_context must be provided"
 
-            stores = app_context.components.get(ComponentEnum.FILE_STORE, {})
+            stores = self.app_context.components.get(ComponentEnum.FILE_STORE, {})
             if self._file_store_name not in stores:
                 raise ValueError(f"File store '{self._file_store_name}' not found.")
             store = stores[self._file_store_name]
@@ -67,7 +67,7 @@ class BaseFileWatcher(BaseComponent):
                 raise TypeError(f"Expected BaseFileStore, got {type(store).__name__}")
             self.file_store = store
 
-            parsers = app_context.components.get(ComponentEnum.FILE_PARSER, {})
+            parsers = self.app_context.components.get(ComponentEnum.FILE_PARSER, {})
             for parser in parsers.values():
                 if isinstance(parser, BaseFileParser):
                     for suffix in parser.suffixes:

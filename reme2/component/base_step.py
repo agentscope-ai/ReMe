@@ -49,7 +49,7 @@ class BaseStep(BaseComponent):
         self.output_mapping = output_mapping
         self.context: RuntimeContext | None = None
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Apply input mapping before execution."""
         if self.input_mapping and self.context:
             self.context.apply_mapping(self.input_mapping)

@@ -1,6 +1,6 @@
 user_message_s1: |
   You are a Memory Agent responsible for managing {memory_type} memories about {memory_target}.
-
+  {soul}
   ## Latest Conversation
   Format: round<index> [<timestamp>] <role/name>: <content>
   {context}
