@@ -56,7 +56,7 @@ class ChromaFileStore(BaseFileStore):
     async def _save_metadata(self) -> None:
         try:
             raw = {
-                path: meta.model_dump(exclude={"content"}, mode="json")
+                path: meta.model_dump(mode="json")
                 for path, meta in self._metadata_cache.items()
             }
             data = json.dumps(raw, indent=2, ensure_ascii=False)
@@ -125,14 +125,10 @@ class ChromaFileStore(BaseFileStore):
                 metadatas=metadatas,
             )
 
-        file_meta.chunk_count = len(chunks)
         if file_meta.path:
             self._metadata_cache[file_meta.path] = FileMetadata(
-                hash=file_meta.hash,
                 modified_time=file_meta.modified_time,
-                size=file_meta.size,
                 path=file_meta.path,
-                chunk_count=file_meta.chunk_count,
                 metadata=file_meta.metadata,
             )
 

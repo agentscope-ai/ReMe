@@ -72,7 +72,7 @@ class LocalFileStore(BaseFileStore):
 
     async def _save_metadata(self) -> None:
         """Persist file metadata to JSON file with atomic write."""
-        raw = {path: meta.model_dump(exclude={"content"}, mode="json") for path, meta in self._files.items()}
+        raw = {path: meta.model_dump(mode="json") for path, meta in self._files.items()}
         content = json.dumps(raw, indent=2, ensure_ascii=False)
         temp_path = self._metadata_file.with_suffix(".tmp")
         try:
@@ -116,14 +116,10 @@ class LocalFileStore(BaseFileStore):
             for chunk in chunks:
                 self._chunks[chunk.id] = chunk
 
-        file_meta.chunk_count = len(chunks)
         if file_meta.path:
             self._files[file_meta.path] = FileMetadata(
-                hash=file_meta.hash,
                 modified_time=file_meta.modified_time,
-                size=file_meta.size,
                 path=file_meta.path,
-                chunk_count=file_meta.chunk_count,
                 metadata=file_meta.metadata,
             )
 
