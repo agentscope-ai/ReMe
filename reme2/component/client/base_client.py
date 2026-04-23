@@ -22,5 +22,5 @@ class BaseClient(BaseComponent):
         """Close the client."""
 
     @abstractmethod
-    async def __call__(self, action: str, **kwargs) -> dict:
+    async def __call__(self) -> dict:
         """Invoke an action with the given configuration."""

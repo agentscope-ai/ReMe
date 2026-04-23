@@ -1,6 +1,7 @@
 """Markdown file parser."""
 
 import asyncio
+import os
 from pathlib import Path
 
 import frontmatter
@@ -28,13 +29,14 @@ class MdFileParser(BaseFileParser):
             raw = file_path.read_text(encoding=self.encoding)
             post = frontmatter.loads(raw)
             stat = file_path.stat()
+            os.stat()
             return stat, dict(post.metadata), post.content
 
         stat, metadata, content = await asyncio.to_thread(_read_and_parse)
 
         file_meta = FileMetadata(
             hash=hash_text(content),
-            mtime_ms=stat.st_mtime * 1000,
+            modified_time=stat.st_mtime,
             size=stat.st_size,
             path=str(file_path.absolute()),
             content=content,

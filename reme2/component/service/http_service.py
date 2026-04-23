@@ -25,34 +25,14 @@ if TYPE_CHECKING:
 
 @R.register("http")
 class HttpService(BaseService):
-    """HTTP service that exposes jobs as REST endpoints.
-
-    Regular jobs return JSON responses, while StreamJobs return
-    server-sent events (SSE) for real-time streaming.
-    """
-
-    # Removed the circular import - using string annotation instead
-    # from ...application import Application
+    """HTTP service: jobs -> JSON endpoints, StreamJobs -> SSE endpoints."""
 
     def __init__(self, host: str = REME_DEFAULT_HOST, port: int = REME_DEFAULT_PORT, **kwargs):
-        """Initialize the HTTP service.
-
-        Args:
-            host: Bind address for the server.
-            port: Port number for the server.
-            **kwargs: Additional arguments passed to uvicorn.
-        """
         super().__init__(**kwargs)
         self.host: str = host
         self.port: int = port
 
     def _add_job(self, job: BaseJob) -> None:
-        """Register a regular job as a POST endpoint.
-
-        Args:
-            job: The job to register.
-        """
-
         async def execute_endpoint(request: Request) -> Response:
             return await job(**request.model_dump(exclude_none=True))
 
@@ -63,12 +43,6 @@ class HttpService(BaseService):
         )(execute_endpoint)
 
     def _add_stream_job(self, job: StreamJob) -> None:
-        """Register a stream job as an SSE endpoint.
-
-        Args:
-            job: The stream job to register.
-        """
-
         async def execute_stream_endpoint(request: Request) -> StreamingResponse:
             stream_queue = asyncio.Queue()
             task = asyncio.create_task(
@@ -90,41 +64,23 @@ class HttpService(BaseService):
         self.service.post(f"/{job.name}")(execute_stream_endpoint)
 
     def add_job(self, job: BaseJob) -> None:
-        """Register a job with the HTTP service.
-
-        StreamJobs are registered as SSE endpoints, regular jobs as JSON endpoints.
-
-        Args:
-            job: The job to register.
-        """
         if isinstance(job, StreamJob):
             self._add_stream_job(job)
         else:
             self._add_job(job)
 
     def build_service(self, app: "Application") -> None:
-        """Build the FastAPI application with CORS middleware.
-
-        Args:
-            app: The application instance.
-        """
 
         @asynccontextmanager
         async def lifespan(_: FastAPI):
             await app.start()
-            service_info = json.dumps(
-                {
-                    "host": self.host,
-                    "port": self.port,
-                },
-            )
+            service_info = json.dumps({"host": self.host, "port": self.port})
             os.environ[REME_SERVICE_INFO] = service_info
             self.logger.info(f"ReMe Service started: {REME_SERVICE_INFO}={service_info}")
             yield
             await app.close()
 
         self.service = FastAPI(title=app.config.app_name, lifespan=lifespan)
-
         self.service.add_middleware(
             CORSMiddleware,  # type: ignore[arg-type]
             allow_origins=["*"],
@@ -135,9 +91,4 @@ class HttpService(BaseService):
         self.service.post("/health")(lambda: {"status": "healthy"})
 
     def start_service(self, app: "Application") -> None:
-        """Start the HTTP server.
-
-        Args:
-            app: The application instance.
-        """
         uvicorn.run(self.service, host=self.host, port=self.port, **self.kwargs)

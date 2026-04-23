@@ -12,39 +12,28 @@ if TYPE_CHECKING:
 
 
 class BaseService(BaseComponent):
-    """Abstract base class for services that expose jobs.
-
-    Services provide different ways to invoke jobs (HTTP, CLI, MCP, etc.).
-    Subclasses must implement add_job to register jobs with the service.
-    """
+    """Abstract base class for services that expose jobs (HTTP, MCP, etc.)."""
 
     component_type = ComponentEnum.SERVICE
 
     def __init__(self, **kwargs):
-        """Initialize the service."""
         super().__init__(**kwargs)
         self.service = None
 
-    async def _start(self) -> None:
-
-    async def _close(self) -> None:
-        """Default empty implementation for sync services."""
-
     @abstractmethod
     def build_service(self, app: "Application") -> None:
-        """Build the service."""
+        ...
 
     @abstractmethod
     def add_job(self, job: BaseJob) -> None:
-        """Register a job with the service."""
+        ...
 
     @abstractmethod
     def start_service(self, app: "Application") -> None:
-        """Start the service."""
+        ...
 
     def add_jobs(self, app: "Application") -> None:
-        """Register all jobs from the application context."""
-        for name, job in app.context.jobs.values():
+        for name, job in app.context.jobs.items():
             try:
                 self.add_job(job)
                 self.logger.info(f"Successfully Added job {name}")
@@ -52,11 +41,6 @@ class BaseService(BaseComponent):
                 self.logger.error(f"Failed to add job {name}: {e}")
 
     def run_app(self, app: "Application") -> None:
-        """Register all jobs from the application and start the service.
-
-        Args:
-            app: The application containing jobs to register.
-        """
         self.build_service(app)
         self.add_jobs(app)
         self.start_service(app)

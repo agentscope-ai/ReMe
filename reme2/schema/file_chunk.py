@@ -4,7 +4,7 @@ from .base_node import BaseNode
 
 
 class FileChunk(BaseNode):
-    """文件内容分块，包含位置和评分元数据。"""
+    """File content chunk with positional and scoring metadata."""
 
     path: str = Field(...)
     start_line: int = Field(...)

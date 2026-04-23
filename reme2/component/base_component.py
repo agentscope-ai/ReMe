@@ -37,11 +37,9 @@ class BaseComponent(ABC):
         self._is_started: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
 
-    @abstractmethod
     async def _start(self) -> None:
         """Start the component."""
 
-    @abstractmethod
     async def _close(self) -> None:
         """Close the component."""
 

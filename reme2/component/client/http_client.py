@@ -24,7 +24,7 @@ class HttpClient(BaseClient):
     ):
         super().__init__(**kwargs)
 
-        if host and port:
+        if host is not None and port is not None:
             pass
         elif service_info := os.environ.get(REME_SERVICE_INFO):
             try:
@@ -49,7 +49,9 @@ class HttpClient(BaseClient):
                 timeout=self.timeout,
             )
 
-    async def __call__(self, **_kwargs) -> dict:
+    async def __call__(self) -> dict:
+        if self.client is None:
+            await self._start()
         response = await self.client.post(f"/{self.action}", json=self.kwargs)
         response.raise_for_status()
         return response.json()
