@@ -16,7 +16,7 @@ class FileMetadata(BaseModel):
 
     Attributes:
         hash: Hash of the file content for change detection.
-        mtime_ms: Last modification time in milliseconds since epoch.
+        modified_time: Last modification time in seconds since epoch.
         size: File size in bytes.
         path: Relative path to the file within the workspace.
         content: Parsed content from the file (optional, memory-intensive).
@@ -25,7 +25,7 @@ class FileMetadata(BaseModel):
     """
 
     hash: str = Field(..., description="Hash of file content for change detection")
-    mtime_ms: float = Field(..., description="Last modification time in milliseconds")
+    modified_time: float = Field(..., description="Last modification time in seconds")
     size: int = Field(..., description="File size in bytes")
     path: str | None = Field(default=None, description="Relative path within workspace")
     content: str | None = Field(default=None, description="Parsed content (optional)")

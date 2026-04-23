@@ -42,7 +42,7 @@ class DefaultFileParser(BaseFileParser):
 
         file_meta = FileMetadata(
             hash=file_hash,
-            mtime_ms=stat.st_mtime * 1000,
+            modified_time=stat.st_mtime,
             size=stat.st_size,
             path=str(file_path.absolute()),
             content=content,
