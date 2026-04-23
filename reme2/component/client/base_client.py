@@ -16,6 +16,7 @@ class BaseClient(BaseComponent):
         self.client = None
 
     async def _start(self) -> None:
+        """Initialize the client."""
 
     async def _close(self) -> None:
         """Close the client."""

@@ -47,10 +47,10 @@ def hash_text(text: str, encoding: str = "utf-8") -> str:
 
 
 async def execute_stream_task(
-    stream_queue: asyncio.Queue,
-    task: asyncio.Task,
-    task_name: str | None = None,
-    output_format: Literal["str", "bytes", "chunk"] = "str",
+        stream_queue: asyncio.Queue,
+        task: asyncio.Task,
+        task_name: str | None = None,
+        output_format: Literal["str", "bytes", "chunk"] = "str",
 ) -> AsyncGenerator[str | bytes | StreamChunk, None]:
     """Core stream flow execution logic.
 

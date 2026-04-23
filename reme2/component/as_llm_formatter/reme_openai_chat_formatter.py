@@ -35,8 +35,8 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
     """Extends OpenAIChatFormatter with tool result image promotion and reasoning content support."""
 
     async def _format(
-        self,
-        msgs: list[Msg],
+            self,
+            msgs: list[Msg],
     ) -> list[dict[str, Any]]:
         """Format messages into OpenAI API format.
 
@@ -108,7 +108,7 @@ class ReMeOpenAIChatFormatter(OpenAIChatFormatter):
                             TextBlock(
                                 type="text",
                                 text="<system-info>The following are the image contents from the tool "
-                                f"result of '{block['name']}':",
+                                     f"result of '{block['name']}':",
                             ),
                             *promoted_blocks,
                             TextBlock(type="text", text="</system-info>"),
