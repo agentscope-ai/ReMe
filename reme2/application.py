@@ -4,8 +4,8 @@ import asyncio
 from pathlib import Path
 from typing import AsyncGenerator
 
-from .enumeration import ComponentEnum
 from .component import BaseComponent, ApplicationContext
+from .enumeration import ComponentEnum
 from .schema import Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
 
@@ -43,7 +43,9 @@ class Application(BaseComponent):
                 f"Service references an unregistered backend '{service_config.backend}' "
                 f"of type '{ComponentEnum.SERVICE}'",
             )
-        self.context.service = service_cls(**service_config.model_dump(exclude={"backend"}))
+        params = service_config.model_dump()
+        params["app_context"] = self.context
+        self.context.service = service_cls(**params)
 
         # Initialize all components grouped by type and name
         for component_type, component_configs in self.config.components.items():
@@ -57,7 +59,10 @@ class Application(BaseComponent):
                         f"Component '{name}' references an unregistered backend '{config.backend}' "
                         f"of type '{component_type}'",
                     )
-                self.context.components[component_type][name] = backend_cls(**config.model_dump(exclude={"backend"}))
+                params = config.model_dump()
+                params.setdefault("name", name)
+                params["app_context"] = self.context
+                self.context.components[component_type][name] = backend_cls(**params)
 
         # Initialize all jobs
         for job_config in self.config.jobs:
@@ -70,25 +75,28 @@ class Application(BaseComponent):
                     f"Job '{job_config.name}' references an unregistered backend '{job_config.backend}' "
                     f"of type '{ComponentEnum.JOB}'",
                 )
-            self.context.jobs[job_config.name] = job_cls(**job_config.model_dump(exclude={"backend"}))
+            params = job_config.model_dump()
+            params.setdefault("name", job_config.name)
+            params["app_context"] = self.context
+            self.context.jobs[job_config.name] = job_cls(**params)
 
     @property
     def config(self):
         """Get application configuration."""
         return self.context.app_config
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Start the application."""
         for components in self.context.components.values():
             for component in components.values():
                 try:
-                    await component.start(self.context)
+                    await component.start()
                 except Exception as e:
                     self.logger.exception(f"Failed to start component {component.__class__.__name__}: {e}")
 
         for name, job in self.context.jobs.items():
             try:
-                await job.start(self.context)
+                await job.start()
             except Exception as e:
                 self.logger.exception(f"Failed to start job '{name}': {e}")
 
@@ -112,7 +120,7 @@ class Application(BaseComponent):
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         job = self.context.jobs[name]
-        return await job(app_context=self.context, **kwargs)
+        return await job(**kwargs)
 
     async def run_stream_job(self, name: str, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job and yield chunks."""
@@ -120,12 +128,12 @@ class Application(BaseComponent):
             raise KeyError(f"Job '{name}' not found")
         job = self.context.jobs[name]
         stream_queue = asyncio.Queue()
-        task = asyncio.create_task(job(stream_queue=stream_queue, app_context=self.context, **kwargs))
+        task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
+                stream_queue=stream_queue,
+                task=task,
+                task_name=name,
+                output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk

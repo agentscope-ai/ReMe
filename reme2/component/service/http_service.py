@@ -5,6 +5,7 @@ import json
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI
@@ -17,6 +18,9 @@ from ..job import BaseJob, StreamJob
 from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, REME_SERVICE_INFO
 from ...schema import Request, Response
 from ...utils import execute_stream_task
+
+if TYPE_CHECKING:
+    from ...application import Application
 
 
 @R.register("http")

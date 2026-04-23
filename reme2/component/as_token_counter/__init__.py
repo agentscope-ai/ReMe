@@ -21,8 +21,7 @@ class BaseAsTokenCounter(BaseComponent):
         super().__init__(**kwargs)
         self.token_counter: TokenCounterBase | None = None
 
-    async def _start(self, app_context=None) -> None:
-        """Initialize the token counter. Override in subclasses."""
+    async def _start(self) -> None:
 
     async def _close(self) -> None:
         """Release token counter resources."""
@@ -33,7 +32,7 @@ class BaseAsTokenCounter(BaseComponent):
 class EstimatedAsTokenCounter(BaseAsTokenCounter):
     """Estimated token counter using character-based estimation."""
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Initialize the estimated token counter."""
         self.token_counter = EstimatedTokenCounter(**self.kwargs)
 

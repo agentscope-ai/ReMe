@@ -25,8 +25,7 @@ class BaseService(BaseComponent):
         super().__init__(**kwargs)
         self.service = None
 
-    async def _start(self, app_context=None) -> None:
-        """Default empty implementation for sync services."""
+    async def _start(self) -> None:
 
     async def _close(self) -> None:
         """Default empty implementation for sync services."""

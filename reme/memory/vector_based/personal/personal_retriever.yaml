@@ -65,7 +65,8 @@ user_message_s2: |
   - Can read multiple histories at once by passing multiple history_ids
   - Be selective: choose only the top 1-3 most promising histories
   - Use this to understand the full conversation surrounding a memory
-
+  {
+  }
   ## Response Guidelines
   - Base your answer EXCLUSIVELY on the profile search results, retrieved memories, and history data
   - Never infer, assume, or hallucinate information

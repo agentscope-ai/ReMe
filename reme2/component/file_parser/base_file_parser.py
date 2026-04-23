@@ -23,7 +23,7 @@ class BaseFileParser(BaseComponent):
         self.chunk_tokens = chunk_tokens
         self.chunk_overlap = chunk_overlap
 
-    async def _start(self, app_context=None):
+    async def _start(self):
         pass
 
     async def _close(self):

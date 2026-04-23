@@ -41,7 +41,7 @@ class HttpClient(BaseClient):
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Initialize the HTTP client."""
         if self.client is None:
             self.client = httpx.AsyncClient(

@@ -87,7 +87,7 @@ class LocalFileStore(BaseFileStore):
 
     # -- Lifecycle ----------------------------------------------------------
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Load persisted data into memory."""
         await self._load_metadata()
         await self._load_chunks()
@@ -95,7 +95,7 @@ class LocalFileStore(BaseFileStore):
             f"LocalFileStore '{self.store_name}' ready: "
             f"{len(self._chunks)} chunks, metadata at {self._metadata_file}",
         )
-        await super()._start(app_context)
+        await super()._start()
 
     async def _close(self) -> None:
         """Flush state to disk and clear memory."""

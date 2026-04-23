@@ -1,8 +1,6 @@
 """AgentScope LLM model wrappers."""
 
-import asyncio
-
-from agentscope.model import OpenAIChatModel, ChatModelBase
+from agentscope.model import OpenAIChatModel, ChatModelBase, AnthropicChatModel
 
 from ..base_component import BaseComponent
 from ..component_registry import R
@@ -22,8 +20,8 @@ class BaseAsLLM(BaseComponent):
         super().__init__(**kwargs)
         self.model: ChatModelBase | None = None
 
-    async def _start(self, app_context=None) -> None:
-        """Initialize the AgentScope model. Override in subclasses."""
+    async def _start(self) -> None:
+        """Initialize the model."""
 
     async def _close(self) -> None:
         """Release model resources."""
@@ -34,24 +32,34 @@ class BaseAsLLM(BaseComponent):
 class OpenAIAsLLM(BaseAsLLM):
     """OpenAI chat model wrapper."""
 
-    async def _start(self, app_context=None) -> None:
+    async def _start(self) -> None:
         """Initialize the OpenAI chat model."""
         self.model = OpenAIChatModel(**self.kwargs)
 
     async def _close(self) -> None:
         """Close the HTTP client and release resources."""
         if self.model is not None:
-            client = getattr(self.model, "client", None)
-            if client is not None and hasattr(client, "close"):
-                close_method = client.close
-                if asyncio.iscoroutinefunction(close_method):
-                    await close_method()
-                else:
-                    close_method()
-            self.model = None
+            assert isinstance(self.model, OpenAIChatModel)
+            await self.model.client.close()
+
+
+@R.register("anthropic")
+class AnthropicAsLLM(BaseAsLLM):
+    """Anthropic chat model wrapper."""
+
+    async def _start(self) -> None:
+        """Initialize the Anthropic chat model."""
+        self.model = AnthropicChatModel(**self.kwargs)
+
+    async def _close(self) -> None:
+        """Close the HTTP client and release resources."""
+        if self.model is not None:
+            assert isinstance(self.model, AnthropicChatModel)
+            await self.model.client.close()
 
 
 __all__ = [
     "BaseAsLLM",
     "OpenAIAsLLM",
+    "AnthropicAsLLM",
 ]

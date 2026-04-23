@@ -44,12 +44,12 @@ class BaseFileStore(BaseComponent):
         if not self.vector_enabled and not self.fts_enabled:
             raise ValueError("At least one of embedding_model or fts_enabled must be set.")
 
-    async def _start(self, app_context=None):
+    async def _start(self):
         """Resolve embedding model from app_context."""
         if not self._embedding_model_name:
             return
-        assert app_context is not None, "app_context must be provided"
-        models = app_context.components.get(ComponentEnum.EMBEDDING_MODEL, {})
+        assert self.app_context is not None, "app_context must be provided"
+        models = self.app_context.components.get(ComponentEnum.EMBEDDING_MODEL, {})
         if self._embedding_model_name not in models:
             raise ValueError(f"Embedding model '{self._embedding_model_name}' not found.")
         model = models[self._embedding_model_name]
