@@ -116,14 +116,16 @@ class LocalFileStore(BaseFileStore):
             for chunk in chunks:
                 self._chunks[chunk.id] = chunk
 
-        self._files[file_meta.path] = FileMetadata(
-            hash=file_meta.hash,
-            mtime_ms=file_meta.mtime_ms,
-            size=file_meta.size,
-            path=file_meta.path,
-            chunk_count=len(chunks),
-            metadata=file_meta.metadata,
-        )
+        file_meta.chunk_count = len(chunks)
+        if file_meta.path:
+            self._files[file_meta.path] = FileMetadata(
+                hash=file_meta.hash,
+                mtime_ms=file_meta.mtime_ms,
+                size=file_meta.size,
+                path=file_meta.path,
+                chunk_count=file_meta.chunk_count,
+                metadata=file_meta.metadata,
+            )
 
     async def delete_file(self, path: str) -> None:
         """Delete a file and all its chunks."""
@@ -132,23 +134,6 @@ class LocalFileStore(BaseFileStore):
             del self._chunks[cid]
         self._files.pop(path, None)
 
-    async def delete_file_chunks(self, path: str, chunk_ids: list[str]) -> None:
-        """Delete specific chunks for a file."""
-        if not chunk_ids:
-            return
-        for cid in chunk_ids:
-            self._chunks.pop(cid, None)
-        if path in self._files:
-            self._files[path].chunk_count = sum(1 for chunk in self._chunks.values() if chunk.path == path)
-
-    async def upsert_chunks(self, chunks: list[FileChunk]) -> None:
-        """Insert or update specific chunks without affecting others."""
-        if not chunks:
-            return
-        chunks = await self.get_chunk_embeddings(chunks)
-        for chunk in chunks:
-            self._chunks[chunk.id] = chunk
-
     # -- Read operations ----------------------------------------------------
 
     async def list_files(self) -> list[str]:
@@ -156,19 +141,8 @@ class LocalFileStore(BaseFileStore):
         return list(self._files.keys())
 
     async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        """Get file metadata."""
+        """Get metadata for a specific file."""
         return self._files.get(path)
-
-    async def update_file_metadata(self, file_meta: FileMetadata) -> None:
-        """Update file metadata without affecting chunks."""
-        self._files[file_meta.path] = FileMetadata(
-            hash=file_meta.hash,
-            mtime_ms=file_meta.mtime_ms,
-            size=file_meta.size,
-            path=file_meta.path,
-            chunk_count=file_meta.chunk_count,
-            metadata=file_meta.metadata,
-        )
 
     async def get_file_chunks(self, path: str) -> list[FileChunk]:
         """Get all chunks for a file, sorted by start_line."""
@@ -176,7 +150,7 @@ class LocalFileStore(BaseFileStore):
         chunks.sort(key=lambda c: c.start_line)
         return chunks
 
-    # -- Search -------------------------------------------------------------
+    # -- Search operations --------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
         """Cosine-similarity vector search over in-memory embeddings."""
@@ -190,7 +164,6 @@ class LocalFileStore(BaseFileStore):
         candidates = self._apply_filter(
             [c for c in self._chunks.values() if c.embedding],
             search_filter,
-            self._files,
         )
         if not candidates:
             return []
@@ -242,23 +215,13 @@ class LocalFileStore(BaseFileStore):
         if not words:
             return []
 
-        query_lower = query.lower()
-        words_lower = [w.lower() for w in words]
-        n_words = len(words)
-
-        filtered_chunks = self._apply_filter(list(self._chunks.values()), search_filter, self._files)
+        filtered_chunks = self._apply_filter(list(self._chunks.values()), search_filter)
 
         results = []
         for chunk in filtered_chunks:
-            text_lower = chunk.text.lower()
-            match_count = sum(1 for w in words_lower if w in text_lower)
-            if match_count == 0:
+            score = self._score_keyword_match(query, chunk.text)
+            if score == 0.0:
                 continue
-
-            base_score = match_count / n_words
-            phrase_bonus = 0.2 if n_words > 1 and query_lower in text_lower else 0.0
-            score = min(1.0, base_score + phrase_bonus)
-
             results.append(
                 FileChunk(
                     id=chunk.id,
@@ -273,70 +236,6 @@ class LocalFileStore(BaseFileStore):
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
-
-    async def hybrid_search(
-        self,
-        query: str,
-        limit: int,
-        vector_weight: float = 0.7,
-        candidate_multiplier: float = 3.0,
-        search_filter: SearchFilter | None = None,
-    ) -> list[FileChunk]:
-        """Hybrid search combining vector and keyword results."""
-        assert 0.0 <= vector_weight <= 1.0
-
-        candidates = min(200, max(1, int(limit * candidate_multiplier)))
-        text_weight = 1.0 - vector_weight
-
-        if self.vector_enabled and self.fts_enabled:
-            keyword_results = await self.keyword_search(query, candidates, search_filter)
-            vector_results = await self.vector_search(query, candidates, search_filter)
-
-            if not keyword_results:
-                return vector_results[:limit]
-            if not vector_results:
-                return keyword_results[:limit]
-
-            merged = self._merge_hybrid_results(
-                vector=vector_results,
-                keyword=keyword_results,
-                vector_weight=vector_weight,
-                text_weight=text_weight,
-            )
-            return merged[:limit]
-        elif self.vector_enabled:
-            return await self.vector_search(query, limit, search_filter)
-        elif self.fts_enabled:
-            return await self.keyword_search(query, limit, search_filter)
-        return []
-
-    @staticmethod
-    def _merge_hybrid_results(
-        vector: list[FileChunk],
-        keyword: list[FileChunk],
-        vector_weight: float,
-        text_weight: float,
-    ) -> list[FileChunk]:
-        """Merge vector and keyword results with weighted scoring."""
-        merged: dict[str, FileChunk] = {}
-
-        for result in vector:
-            v_score = result.scores.get("vector", 0)
-            result.scores["score"] = v_score * vector_weight
-            merged[result.merge_key] = result
-
-        for result in keyword:
-            key = result.merge_key
-            k_score = result.scores.get("keyword", 0)
-            if key in merged:
-                merged[key].scores["score"] += k_score * text_weight
-            else:
-                result.scores["score"] = k_score * text_weight
-                merged[key] = result
-
-        results = list(merged.values())
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results
 
     async def clear_all(self) -> None:
         """Clear all indexed data from memory and disk."""
