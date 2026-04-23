@@ -15,12 +15,12 @@ class HttpClient(BaseClient):
     """HTTP client for ReMe service."""
 
     def __init__(
-        self,
-        action: str,
-        host: str | None = None,
-        port: int | None = None,
-        timeout: float = 30.0,
-        **kwargs,
+            self,
+            action: str,
+            host: str | None = None,
+            port: int | None = None,
+            timeout: float = 30.0,
+            **kwargs,
     ):
         super().__init__(**kwargs)
 

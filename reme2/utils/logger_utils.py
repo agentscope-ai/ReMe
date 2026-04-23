@@ -14,11 +14,11 @@ _initialized = False
 
 
 def get_logger(
-    log_dir: str = "logs",
-    level: str = "INFO",
-    log_to_console: bool = True,
-    log_to_file: bool = True,
-    force_init: bool = False,
+        log_dir: str = "logs",
+        level: str = "INFO",
+        log_to_console: bool = True,
+        log_to_file: bool = True,
+        force_init: bool = False,
 ):
     """Get a configured logger instance.
 

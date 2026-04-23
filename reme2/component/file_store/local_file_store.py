@@ -202,10 +202,10 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def keyword_search(
-        self,
-        query: str,
-        limit: int,
-        search_filter: SearchFilter | None = None,
+            self,
+            query: str,
+            limit: int,
+            search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Keyword search via substring matching."""
         if not self.fts_enabled or not query:

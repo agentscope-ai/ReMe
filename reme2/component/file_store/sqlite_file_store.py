@@ -1,10 +1,9 @@
 """SQLite storage backend for file store."""
 
 import json
+import sqlite3
 import struct
 import time
-
-import sqlite3
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
@@ -426,10 +425,10 @@ class SqliteFileStore(BaseFileStore):
             cursor.close()
 
     async def keyword_search(
-        self,
-        query: str,
-        limit: int,
-        search_filter: SearchFilter | None = None,
+            self,
+            query: str,
+            limit: int,
+            search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         if not self.fts_enabled or not query:
             return []

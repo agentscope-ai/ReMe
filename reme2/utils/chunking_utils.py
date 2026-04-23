@@ -9,10 +9,10 @@ from ..schema import FileChunk
 
 
 def chunk_markdown(
-    text: str,
-    path: str,
-    chunk_tokens: int,
-    overlap: int,
+        text: str,
+        path: str,
+        chunk_tokens: int,
+        overlap: int,
 ) -> list[FileChunk]:
     """Split Markdown text into chunks with configurable size and overlap.
 
@@ -125,7 +125,7 @@ def chunk_markdown(
         else:
             # If line is too long, split by maximum character count
             for start in range(0, len(line), max_chars):
-                segments.append(line[start : start + max_chars])
+                segments.append(line[start: start + max_chars])
 
         for segment in segments:
             line_size = len(segment) + 1  # +1 for newline

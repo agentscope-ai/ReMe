@@ -35,10 +35,10 @@ class MemorySearch(BaseStep):
 
         assert query, "Query cannot be empty"
         assert (
-            isinstance(min_score, float | int) and 0.0 <= min_score <= 1.0
+                isinstance(min_score, float | int) and 0.0 <= min_score <= 1.0
         ), f"min_score must be between 0 and 1, got {min_score}"
         assert (
-            isinstance(max_results, int) and max_results > 0
+                isinstance(max_results, int) and max_results > 0
         ), f"max_results must be a positive integer, got {max_results}"
 
         filter_paths: list[str] | None = self.context.get("paths") or None
