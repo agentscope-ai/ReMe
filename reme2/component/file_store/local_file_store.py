@@ -120,7 +120,7 @@ class LocalFileStore(BaseFileStore):
         if file_meta.path:
             self._files[file_meta.path] = FileMetadata(
                 hash=file_meta.hash,
-                mtime_ms=file_meta.mtime_ms,
+                modified_time=file_meta.modified_time,
                 size=file_meta.size,
                 path=file_meta.path,
                 chunk_count=file_meta.chunk_count,

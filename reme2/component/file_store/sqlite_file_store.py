@@ -168,7 +168,7 @@ class SqliteFileStore(BaseFileStore):
                 metadata = json.loads(meta_str) if meta_str else {}
                 result[path] = FileMetadata(
                     hash=hash_val,
-                    mtime_ms=mtime,
+                    modified_time=mtime,
                     size=size,
                     path=path,
                     metadata=metadata,
@@ -195,7 +195,7 @@ class SqliteFileStore(BaseFileStore):
                 (
                     file_meta.path,
                     file_meta.hash,
-                    file_meta.mtime_ms,
+                    file_meta.modified_time,
                     file_meta.size,
                     json.dumps(file_meta.metadata, ensure_ascii=False) if file_meta.metadata else None,
                     len(chunks),
@@ -317,7 +317,7 @@ class SqliteFileStore(BaseFileStore):
             metadata = json.loads(meta_str) if meta_str else {}
             return FileMetadata(
                 hash=hash_val,
-                mtime_ms=mtime,
+                modified_time=mtime,
                 size=size,
                 path=path,
                 chunk_count=chunk_count,
