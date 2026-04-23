@@ -12,7 +12,9 @@ class EstimatedTokenCounter(TokenCounterBase):
     """
 
     def __init__(
-        self, estimate_divisor: float = 4, encoding: str = "utf-8"
+        self,
+        estimate_divisor: float = 4,
+        encoding: str = "utf-8",
     ):
         """Initialize the estimated token counter.
 

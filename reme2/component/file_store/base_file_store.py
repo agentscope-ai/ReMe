@@ -13,8 +13,9 @@ from ...schema import FileChunk, FileMetadata, SearchFilter
 class BaseFileStore(BaseComponent):
     """Abstract base class for file storage backends.
 
-    Provides embedding resolution, validation, and safe embedding retrieval
-    with automatic fallback on failure.
+    Provides embedding resolution, validation, safe embedding retrieval,
+    metadata caching, hybrid search, and keyword scoring utilities.
+    Subclasses must implement the storage-specific CRUD and search methods.
     """
 
     component_type = ComponentEnum.FILE_STORE
@@ -109,41 +110,94 @@ class BaseFileStore(BaseComponent):
                 chunk.embedding = None
         return chunks
 
-    @abstractmethod
-    async def clear_all(self):
-        """Clear all indexed data."""
+    # -- Keyword scoring utility --------------------------------------------
 
-    @abstractmethod
-    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]):
-        """Insert or update a file and its chunks."""
+    @staticmethod
+    def _score_keyword_match(query: str, text: str) -> float:
+        """Score a keyword match using word-match ratio + phrase bonus."""
+        words = query.split()
+        if not words:
+            return 0.0
+        query_lower = query.lower()
+        words_lower = [w.lower() for w in words]
+        text_lower = text.lower()
+        n_words = len(words)
 
-    @abstractmethod
-    async def delete_file(self, path: str):
-        """Delete a file and all its chunks."""
+        match_count = sum(1 for w in words_lower if w in text_lower)
+        if match_count == 0:
+            return 0.0
 
-    @abstractmethod
-    async def delete_file_chunks(self, path: str, chunk_ids: list[str]):
-        """Delete specific chunks for a file."""
+        base_score = match_count / n_words
+        phrase_bonus = 0.2 if n_words > 1 and query_lower in text_lower else 0.0
+        return min(1.0, base_score + phrase_bonus)
 
-    @abstractmethod
-    async def upsert_chunks(self, chunks: list[FileChunk]):
-        """Insert or update specific chunks without affecting others."""
+    # -- Hybrid search (concrete, delegates to abstract vector/keyword) -----
 
-    @abstractmethod
-    async def list_files(self) -> list[str]:
-        """List all indexed file paths."""
+    async def hybrid_search(
+        self,
+        query: str,
+        limit: int,
+        vector_weight: float = 0.7,
+        candidate_multiplier: float = 3.0,
+        search_filter: SearchFilter | None = None,
+    ) -> list[FileChunk]:
+        """Perform hybrid search combining vector and keyword results."""
+        assert 0.0 <= vector_weight <= 1.0
 
-    @abstractmethod
-    async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        """Get file metadata."""
+        candidates = min(200, max(1, int(limit * candidate_multiplier)))
+        text_weight = 1.0 - vector_weight
 
-    @abstractmethod
-    async def update_file_metadata(self, file_meta: FileMetadata) -> None:
-        """Update file metadata without affecting chunks."""
+        if self.vector_enabled and self.fts_enabled:
+            keyword_results = await self.keyword_search(query, candidates, search_filter)
+            vector_results = await self.vector_search(query, candidates, search_filter)
 
-    @abstractmethod
-    async def get_file_chunks(self, path: str) -> list[FileChunk]:
-        """Get all chunks for a file."""
+            if not keyword_results:
+                return vector_results[:limit]
+            if not vector_results:
+                return keyword_results[:limit]
+
+            merged = self._merge_hybrid_results(
+                vector_results,
+                keyword_results,
+                vector_weight,
+                text_weight,
+            )
+            return merged[:limit]
+        elif self.vector_enabled:
+            return await self.vector_search(query, limit, search_filter)
+        elif self.fts_enabled:
+            return await self.keyword_search(query, limit, search_filter)
+        return []
+
+    @staticmethod
+    def _merge_hybrid_results(
+        vector: list[FileChunk],
+        keyword: list[FileChunk],
+        vector_weight: float,
+        text_weight: float,
+    ) -> list[FileChunk]:
+        """Merge vector and keyword results with weighted scoring."""
+        merged: dict[str, FileChunk] = {}
+
+        for result in vector:
+            v_score = result.scores.get("vector", 0)
+            result.scores["score"] = v_score * vector_weight
+            merged[result.merge_key] = result
+
+        for result in keyword:
+            key = result.merge_key
+            k_score = result.scores.get("keyword", 0)
+            if key in merged:
+                merged[key].scores["score"] += k_score * text_weight
+            else:
+                result.scores["score"] = k_score * text_weight
+                merged[key] = result
+
+        results = list(merged.values())
+        results.sort(key=lambda r: r.score, reverse=True)
+        return results
+
+    # -- Filter utility -----------------------------------------------------
 
     def _apply_filter(
         self,
@@ -164,6 +218,32 @@ class BaseFileStore(BaseComponent):
         fm = file_metadata or {}
         return [c for c in chunks if search_filter.match(c.path, fm[c.path].metadata if c.path in fm else None)]
 
+    # -- Abstract methods ---------------------------------------------------
+
+    @abstractmethod
+    async def clear_all(self):
+        """Clear all indexed data."""
+
+    @abstractmethod
+    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]):
+        """Insert or update a file and its chunks."""
+
+    @abstractmethod
+    async def delete_file(self, path: str):
+        """Delete a file and all its chunks."""
+
+    @abstractmethod
+    async def list_files(self) -> list[str]:
+        """List all indexed file paths."""
+
+    @abstractmethod
+    async def get_file_chunks(self, path: str) -> list[FileChunk]:
+        """Get all chunks for a file."""
+
+    @abstractmethod
+    async def get_file_metadata(self, path: str) -> FileMetadata | None:
+        """Get metadata for a specific file."""
+
     @abstractmethod
     async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
         """Perform vector similarity search."""
@@ -176,25 +256,3 @@ class BaseFileStore(BaseComponent):
         search_filter: SearchFilter | None = None,
     ) -> list[FileChunk]:
         """Perform full-text/keyword search."""
-
-    @abstractmethod
-    async def hybrid_search(
-        self,
-        query: str,
-        limit: int,
-        vector_weight: float = 0.7,
-        candidate_multiplier: float = 3.0,
-        search_filter: SearchFilter | None = None,
-    ) -> list[FileChunk]:
-        """Perform hybrid search combining vector and keyword results.
-
-        Args:
-            query: Search query text.
-            limit: Maximum number of results.
-            vector_weight: Weight for vector scores (0.0-1.0).
-            candidate_multiplier: Multiplier for candidate pool size.
-            search_filter: Optional filter for paths/tags.
-
-        Returns:
-            FileChunk list with score populated, sorted by relevance.
-        """
