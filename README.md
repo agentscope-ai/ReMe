@@ -33,7 +33,7 @@
 
 | Date       | Title                                                           |
 |------------|-----------------------------------------------------------------|
-| 2026-03-30 | [CoPaw Context Management Design](docs/copaw_context_design.md) |
+| 2026-03-30 | [Context Management Design](docs/copaw_context_design.md) |
 
 ---
 
@@ -53,7 +53,7 @@ ReMe achieves state-of-the-art results on the LoCoMo and HaluMem benchmarks; see
 
 <br>
 
-- **Personal assistant**: Provide long-term memory for agents like [CoPaw](https://github.com/agentscope-ai/CoPaw),
+- **Personal assistant**: Provide long-term memory for agents like [QwenPaw](https://github.com/agentscope-ai/CoPaw),
   remembering user preferences and conversation history.
 - **Coding assistant**: Record code style preferences and project context, maintaining a consistent development
   experience across sessions.
@@ -73,7 +73,7 @@ ReMe achieves state-of-the-art results on the LoCoMo and HaluMem benchmarks; see
 > Memory as files, files as memory.
 
 Treat **memory as files** — readable, editable, and copyable.
-[CoPaw](https://github.com/agentscope-ai/CoPaw) integrates long-term memory and context management by inheriting from
+[QwenPaw](https://github.com/agentscope-ai/CoPaw) integrates long-term memory and context management by inheriting from
 `ReMeLight`.
 
 | Traditional memory system | File-based ReMe      |
@@ -245,7 +245,7 @@ flowchart TD
 
 ---
 
-[CoPaw MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py)
+[MemoryManager](https://github.com/agentscope-ai/CoPaw/blob/main/src/copaw/agents/memory/reme_light_memory_manager.py)
 inherits `ReMeLight` and integrates its memory capabilities into the agent reasoning loop:
 
 ```mermaid
@@ -671,7 +671,7 @@ For more details on how to reproduce the experiments, see [quickstart.md](benchm
 - **Need a new feature?** Open a feature request; we’ll evolve ReMe together with the community.
 - **Code contributions**: All forms of contributions are welcome. Please see
   the [contribution guide](docs/contribution.md).
-- **Acknowledgements**: We thank excellent open-source projects such as OpenClaw, Mem0, MemU, and CoPaw for their
+- **Acknowledgements**: We thank excellent open-source projects such as OpenClaw, Mem0, MemU, and QwenPaw for their
   inspiration and support.
 
 ### Contributors
