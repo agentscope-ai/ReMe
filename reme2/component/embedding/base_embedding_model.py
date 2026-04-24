@@ -187,6 +187,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]:
         """Get embeddings for multiple texts with cache and batching."""
+        # TODO change to bytes instead of str
         truncated_texts = [t[:self.max_input_length] for t in input_text]
         results: list[list[float] | None] = [None] * len(truncated_texts)
         texts_to_compute: list[tuple[int, str]] = []
