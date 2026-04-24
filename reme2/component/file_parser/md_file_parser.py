@@ -7,6 +7,7 @@ import frontmatter
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
+from ...enumeration import FileSuffixEnum
 from ...schema import FileChunk, FileMetadata
 from ...utils import chunk_markdown
 
@@ -15,11 +16,13 @@ from ...utils import chunk_markdown
 class MdFileParser(BaseFileParser):
     """Parser for Markdown files with YAML frontmatter support."""
 
-    suffixes = [".md", ".markdown"]
+    suffixes = [FileSuffixEnum.MD, FileSuffixEnum.MARKDOWN]
 
-    def __init__(self, encoding: str = "utf-8", **kwargs):
+    def __init__(self, encoding: str = "utf-8", chunk_tokens: int = 400, chunk_overlap: int = 80, **kwargs):
         super().__init__(**kwargs)
         self.encoding = encoding
+        self.chunk_tokens = chunk_tokens
+        self.chunk_overlap = chunk_overlap
 
     async def parse(self, path: str) -> tuple[FileMetadata, list[FileChunk]]:
         file_path = Path(path)
