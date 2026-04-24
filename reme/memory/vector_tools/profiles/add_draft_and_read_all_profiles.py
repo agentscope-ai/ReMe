@@ -1,8 +1,7 @@
-"""Add draft profile and read all profiles from local storage"""
+"""Add draft profile and read all profiles from the configured backend."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -92,9 +91,8 @@ class AddDraftAndReadAllProfiles(BaseMemoryTool):
                 continue
             targets_processed.add(target)
 
-            profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=target)
-
-            profiles_str = profile_handler.read_all(add_profile_id=True)
+            profile_handler = self.get_profile_handler(target)
+            profiles_str = await profile_handler.aread_all(add_profile_id=True)
             if profiles_str:
                 all_profiles.append(f"## Profiles for {target}:\n{profiles_str}")
 

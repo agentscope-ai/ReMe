@@ -1,8 +1,7 @@
-"""Update user profile tool"""
+"""Update user profile tool."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -113,8 +112,8 @@ class UpdateProfilesV1(BaseMemoryTool):
             for target, profile_ids in delete_by_target.items():
                 if profile_ids:
                     profile_ids = sorted(set(profile_ids))  # Remove duplicates and sort
-                    profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=target)
-                    profile_handler.delete(profile_ids)
+                    profile_handler = self.get_profile_handler(target)
+                    await profile_handler.adelete(profile_ids)
 
         # Step 2: Prepare all profiles to add (both updated and new)
         all_profiles_to_add = []
@@ -158,8 +157,8 @@ class UpdateProfilesV1(BaseMemoryTool):
         added_count = len(profiles_to_add)
 
         for target, target_profiles in profiles_by_target.items():
-            profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=target)
-            new_nodes = profile_handler.add_batch(profiles=target_profiles, ref_memory_id=self.history_id)
+            profile_handler = self.get_profile_handler(target)
+            new_nodes = await profile_handler.aadd_batch(profiles=target_profiles, ref_memory_id=self.history_id)
             all_memory_nodes.extend(new_nodes)
 
         # Extend memory_nodes for tracking

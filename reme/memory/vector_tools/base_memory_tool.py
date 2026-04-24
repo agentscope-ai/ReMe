@@ -3,6 +3,7 @@
 from abc import ABCMeta
 from pathlib import Path
 
+from .profiles.profile_handler import ProfileHandler
 from ...core.enumeration import MemoryType
 from ...core.op import BaseTool
 from ...core.schema import ToolCall, MemoryNode, ToolAttr
@@ -16,12 +17,18 @@ class BaseMemoryTool(BaseTool, metaclass=ABCMeta):
         enable_multiple: bool = True,
         enable_thinking_params: bool = False,
         profile_dir: str = "",
+        profile_backend: str = "filesystem",
+        profile_store_name: str = "profile",
+        profile_max_capacity: int = 50,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.enable_multiple: bool = enable_multiple
         self.enable_thinking_params: bool = enable_thinking_params
         self.profile_dir: str = profile_dir
+        self.profile_backend: str = profile_backend
+        self.profile_store_name: str = profile_store_name
+        self.profile_max_capacity: int = profile_max_capacity
 
     def _build_tool_call(self) -> ToolCall:
         """Build and return the tool call schema"""
@@ -103,6 +110,19 @@ class BaseMemoryTool(BaseTool, metaclass=ABCMeta):
         return self.context.service_context.memory_target_type_mapping
 
     @property
-    def profile_path(self) -> Path:
+    def profile_path(self) -> Path | None:
         """Get the path to the profile directory for the current collection."""
+        if not self.profile_dir:
+            return None
         return Path(self.profile_dir) / self.vector_store.collection_name
+
+    def get_profile_handler(self, memory_target: str) -> ProfileHandler:
+        """Build a profile handler for the current backend configuration."""
+        return ProfileHandler(
+            memory_target=memory_target,
+            profile_path=self.profile_path,
+            service_context=self.service_context,
+            profile_backend=self.profile_backend,
+            profile_store_name=self.profile_store_name,
+            max_capacity=self.profile_max_capacity,
+        )

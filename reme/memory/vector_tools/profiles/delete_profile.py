@@ -1,8 +1,7 @@
-"""Delete user profile tool"""
+"""Delete user profile tool."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -32,7 +31,7 @@ class DeleteProfile(BaseMemoryTool):
         )
 
     async def execute(self):
-        profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=self.memory_target)
+        profile_handler = self.get_profile_handler(self.memory_target)
 
         # Get profile_id parameter
         profile_id = self.context.get("profile_id", "")
@@ -41,7 +40,7 @@ class DeleteProfile(BaseMemoryTool):
             return "No profile_id provided, operation cancelled."
 
         # Delete profile using ProfileHandler
-        success = profile_handler.delete(profile_id)
+        success = await profile_handler.adelete(profile_id)
 
         if success:
             output = f"Successfully deleted profile with ID: {profile_id}"

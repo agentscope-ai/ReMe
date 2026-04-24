@@ -15,6 +15,7 @@ from .profiles.add_draft_and_read_all_profiles import AddDraftAndReadAllProfiles
 from .profiles.add_profile import AddProfile
 from .profiles.delete_profile import DeleteProfile
 from .profiles.read_all_profiles import ReadAllProfiles
+from .profiles.retrieve_profile import RetrieveProfile
 from .profiles.update_profile import UpdateProfile
 from .profiles.update_profiles_v1 import UpdateProfilesV1
 
@@ -43,6 +44,7 @@ __all__ = [
     "AddProfile",
     "DeleteProfile",
     "ReadAllProfiles",
+    "RetrieveProfile",
     "UpdateProfile",
     "UpdateProfilesV1",
     # record tools
