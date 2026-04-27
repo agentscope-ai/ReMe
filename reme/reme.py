@@ -58,6 +58,7 @@ class ReMe(Application):
         enable_profile: bool = True,
         profile_backend: str = "filesystem",
         profile_store_name: str = "profile",
+        profile_collection_name: str | None = None,
         profile_max_capacity: int = 50,
         **kwargs,
     ):
@@ -73,8 +74,37 @@ class ReMe(Application):
             ```
 
         Args:
+            *args: Positional arguments forwarded to the base `Application`.
+            llm_api_key: API key used by the default LLM backend when provided.
+            llm_base_url: Base URL used by the default LLM backend when provided.
+            embedding_api_key: API key used by the default embedding backend when provided.
+            embedding_base_url: Base URL used by the default embedding backend when provided.
+            working_dir: Directory for generated config, logs, caches, and local stores.
+            config_path: Built-in config name or config file path used to initialize services.
+            enable_logo: Whether to print the ReMe logo during startup.
+            log_to_console: Whether to emit logs to the console.
+            log_to_file: Whether to write logs under `working_dir`.
+            default_llm_config: Overrides for the default LLM configuration.
+            default_embedding_model_config: Overrides for the default embedding model configuration.
+            default_vector_store_config: Configuration for the default memory vector store.
+                Its `collection_name` is used for normal memory storage.
+            default_token_counter_config: Overrides for the default token counter configuration.
+            target_user_names: Personal memory targets to register at initialization.
+            target_task_names: Procedural memory targets to register at initialization.
+            target_tool_names: Tool memory targets to register at initialization.
             enable_profile: Whether to enable profile functionality. Set to False when using
-                profile-free memory flows. Default is True.
+                profile-free memory flows.
+            profile_backend: Profile storage backend. Use "filesystem" for local JSONL profile
+                files or "vector" for a dedicated profile vector collection.
+            profile_store_name: Internal vector store key used to register and look up the
+                profile vector store in `service_context.vector_stores`. This is not the
+                database collection name.
+            profile_collection_name: Dedicated database collection/table name for vector
+                profiles. When unset, vector profiles use the default memory collection name
+                with a "_profile" suffix.
+            profile_max_capacity: Maximum number of profile rows to keep per memory target.
+                When the limit is exceeded, the oldest profile rows are removed.
+            **kwargs: Additional keyword arguments forwarded to the base `Application`.
         """
         super().__init__(
             *args,
@@ -98,6 +128,7 @@ class ReMe(Application):
         self.enable_profile = enable_profile
         self.profile_backend = profile_backend
         self.profile_store_name = profile_store_name
+        self.profile_collection_name = profile_collection_name
         self.profile_max_capacity = profile_max_capacity
 
         memory_target_type_mapping: dict[str, MemoryType] = {}
@@ -199,14 +230,19 @@ class ReMe(Application):
     def _ensure_profile_vector_store_config(self) -> None:
         """Ensure the dedicated profile vector store exists in service config."""
         vector_store_configs = self.service_context.service_config.vector_stores
-        if self.profile_store_name in vector_store_configs:
-            return
-
         if "default" not in vector_store_configs:
             raise RuntimeError("Vector profile backend requires a default vector store configuration")
 
         default_config = vector_store_configs["default"]
-        profile_collection_name = f"{default_config.collection_name}_profile"
+        profile_collection_name = self.profile_collection_name or f"{default_config.collection_name}_profile"
+
+        if self.profile_store_name in vector_store_configs:
+            if self.profile_collection_name:
+                vector_store_configs[self.profile_store_name] = vector_store_configs[self.profile_store_name].model_copy(
+                    update={"collection_name": profile_collection_name},
+                )
+            return
+
         vector_store_configs[self.profile_store_name] = default_config.model_copy(
             update={"collection_name": profile_collection_name},
         )
