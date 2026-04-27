@@ -1,7 +1,6 @@
 """Base file watcher with watchfiles integration."""
 
 import asyncio
-from abc import abstractmethod
 from pathlib import Path
 
 from watchfiles import Change, awatch
@@ -10,6 +9,7 @@ from ..base_component import BaseComponent
 from ..file_parser import BaseFileParser
 from ..file_store import BaseFileStore
 from ...enumeration import ComponentEnum
+from ...file_graph import FileGraph
 
 
 class BaseFileWatcher(BaseComponent):
@@ -26,14 +26,14 @@ class BaseFileWatcher(BaseComponent):
 
     def __init__(
             self,
-            watch_paths: list[str] | str,
+            watch_path: str,
             recursive: bool = False,
             debounce: int = 2000,
             chunk_tokens: int = 400,
             chunk_overlap: int = 80,
             file_store: str = "default",
             default_parser: str | None = None,
-            rebuild_index_on_start: bool = True,
+            rebuild_index_on_start: bool = False,
             poll_delay_ms: int = 2000,
             **kwargs,
     ):
@@ -43,7 +43,7 @@ class BaseFileWatcher(BaseComponent):
         self.file_store: BaseFileStore | None = None
         self._suffix_to_parser: dict[str, BaseFileParser] = {}
         self._default_parser: BaseFileParser | None = None
-        self.watch_paths: list[str] = [watch_paths] if isinstance(watch_paths, str) else watch_paths
+        self.watch_path: str = watch_path
         self.recursive: bool = recursive
         self.debounce: int = debounce
         self.chunk_tokens: int = chunk_tokens
@@ -51,11 +51,22 @@ class BaseFileWatcher(BaseComponent):
         self.rebuild_index_on_start: bool = rebuild_index_on_start
         self.poll_delay_ms: int = poll_delay_ms
 
+        self.file_graph: FileGraph = FileGraph()
         self._stop_event = asyncio.Event()
         self._watch_task: asyncio.Task | None = None
 
+    _META_DIR = ".reme"
+
+    @property
+    def _meta_path(self) -> Path:
+        return Path(self.watch_path) / self._META_DIR
+
+    @property
+    def _graph_path(self) -> Path:
+        return self._meta_path / "file_graph.json"
+
     async def _start(self):
-        """Resolve file_store and start watching task."""
+        """Resolve file_store, load or build file_graph, and start watching."""
         if self._file_store_name:
             assert self.app_context is not None, "app_context must be provided"
 
@@ -82,15 +93,27 @@ class BaseFileWatcher(BaseComponent):
                 self.logger.warning("No file parsers registered")
 
         async def _initialize_and_watch():
-            if self.rebuild_index_on_start and self.file_store:
-                await self.file_store.clear_all()
-                self.logger.info("Cleared all indexed data on start")
-                await self._scan_existing_files()
+            await self._load_or_build_graph()
             await self._watch_loop()
 
         self._stop_event.clear()
         self._watch_task = asyncio.create_task(_initialize_and_watch())
-        self.logger.info(f"Started watching: {self.watch_paths}")
+        self.logger.info(f"Started watching: {self.watch_path}")
+
+    async def _load_or_build_graph(self) -> None:
+        graph_path = self._graph_path
+        if not self.rebuild_index_on_start and graph_path.exists():
+            self.file_graph = FileGraph.load(graph_path)
+            self.logger.info(f"Loaded file graph from {graph_path} ({len(self.file_graph)} nodes)")
+        else:
+            if self.rebuild_index_on_start:
+                self.logger.info("Rebuild on start enabled, scanning to build")
+            else:
+                self.logger.info("No persisted file graph found, scanning to build")
+            self.file_graph = FileGraph()
+            await self._scan_existing_files()
+            self.file_graph.save(graph_path)
+            self.logger.info(f"Saved file graph to {graph_path} ({len(self.file_graph)} nodes)")
 
     async def _close(self):
         """Stop watching and release resources."""
@@ -109,39 +132,29 @@ class BaseFileWatcher(BaseComponent):
         self._default_parser = None
         self.logger.info("Stopped watching")
 
-    async def _scan_existing_files(self):
-        """Scan existing files and add them as Change.added."""
+    async def _scan_existing_files(self) -> None:
         if not self.file_store:
             return
 
+        watch_path = Path(self.watch_path)
+        if not watch_path.exists():
+            self.logger.warning(f"Watch path does not exist: {watch_path}")
+            return
+
         existing_files: set[tuple[Change, str]] = set()
-
-        for watch_path_str in self.watch_paths:
-            watch_path = Path(watch_path_str)
-
-            if not watch_path.exists():
-                self.logger.warning(f"Watch path does not exist: {watch_path}")
-                continue
-
-            if watch_path.is_file():
-                existing_files.add((Change.added, str(watch_path)))
-            elif watch_path.is_dir():
-                iterator = watch_path.rglob("*") if self.recursive else watch_path.iterdir()
-                for file_path in iterator:
-                    if file_path.is_file():
-                        existing_files.add((Change.added, str(file_path)))
+        if watch_path.is_file():
+            existing_files.add((Change.added, str(watch_path)))
+        elif watch_path.is_dir():
+            iterator = watch_path.rglob("*") if self.recursive else watch_path.iterdir()
+            for file_path in iterator:
+                if file_path.is_file() and self._watch_filter(str(file_path)):
+                    existing_files.add((Change.added, str(file_path)))
 
         if existing_files:
-            self.logger.info(f"[SCAN_ON_START] Found {len(existing_files)} existing files")
+            self.logger.info(f"Scanning {len(existing_files)} existing files")
             await self.on_changes(existing_files)
-            self.logger.info(f"[SCAN_ON_START] Added {len(existing_files)} files to memory store")
         else:
-            self.logger.info("[SCAN_ON_START] No existing files found")
-
-        files: list[str] = await self.file_store.list_files()
-        for file_path in files:
-            chunks = await self.file_store.get_file_chunks(file_path)
-            self.logger.info(f"Found existing file: {file_path}, {len(chunks)} chunks")
+            self.logger.info("No existing files found")
 
     async def _interruptible_sleep(self, seconds: float):
         """Sleep that can be interrupted by stop_event."""
@@ -151,27 +164,17 @@ class BaseFileWatcher(BaseComponent):
             pass
 
     async def _watch_loop(self):
-        """Core monitoring loop with auto-restart on failure."""
-        if not self.watch_paths:
-            self.logger.warning("No watch paths specified")
-            return
-
         while not self._stop_event.is_set():
-            valid_paths = [p for p in self.watch_paths if Path(p).exists()]
-
-            if not valid_paths:
-                self.logger.warning("No valid watch paths exist, waiting 10 seconds...")
+            if not Path(self.watch_path).exists():
+                self.logger.warning(f"Watch path does not exist: {self.watch_path}, waiting 10 seconds...")
                 await self._interruptible_sleep(10)
                 continue
 
-            invalid_paths = set(self.watch_paths) - set(valid_paths)
-            if invalid_paths:
-                self.logger.warning(f"Skipping non-existent paths: {invalid_paths}")
-
             try:
-                self.logger.info(f"Starting watch on: {valid_paths}")
+                self.logger.info(f"Starting watch on: {self.watch_path}")
                 async for changes in awatch(
-                        *valid_paths,
+                        self.watch_path,
+                        watch_filter=lambda _, p: self._watch_filter(p),
                         recursive=self.recursive,
                         debounce=self.debounce,
                         poll_delay_ms=self.poll_delay_ms,
@@ -191,11 +194,54 @@ class BaseFileWatcher(BaseComponent):
                 if not self._stop_event.is_set():
                     await self._interruptible_sleep(10)
 
-    async def on_changes(self, changes: set[tuple[Change, str]]):
-        """Hook method for handling file changes."""
-        await self._on_changes(changes)
-        self.logger.info(f"[{self.__class__.__name__}] on_changes: {changes}")
+    def _watch_filter(self, path: str) -> bool:
+        return self._meta_path not in Path(path).parents
 
-    @abstractmethod
-    async def _on_changes(self, changes: set[tuple[Change, str]]):
-        """Handle file changes. Override in subclasses."""
+    def _get_parser(self, path: str) -> BaseFileParser | None:
+        suffix = Path(path).suffix.lower()
+        return self._suffix_to_parser.get(suffix, self._default_parser)
+
+    async def on_changes(self, changes: set[tuple[Change, str]]) -> None:
+        if not self.file_store:
+            self.logger.warning("File store not initialized, skipping changes")
+            return
+
+        for change_type, path in changes:
+            try:
+                if change_type == Change.added:
+                    await self._on_added(path)
+                elif change_type == Change.modified:
+                    await self._on_modified(path)
+                elif change_type == Change.deleted:
+                    await self._on_deleted(path)
+            except FileNotFoundError:
+                self.logger.warning(f"File not found: {path}, skipping")
+            except PermissionError:
+                self.logger.warning(f"Permission denied: {path}, skipping")
+            except Exception as e:
+                self.logger.error(f"Error processing {path}: {e}", exc_info=True)
+
+    async def _on_added(self, path: str) -> None:
+        parser = self._get_parser(path)
+        if not parser:
+            self.logger.debug(f"No parser for {path}, skipping")
+            return
+        file_meta, chunks = await parser.parse(path)
+        await self.file_store.upsert_file(file_meta, chunks)
+        self.file_graph.add(file_meta)
+        self.logger.info(f"Added {path} ({len(chunks)} chunks)")
+
+    async def _on_modified(self, path: str) -> None:
+        parser = self._get_parser(path)
+        if not parser:
+            self.logger.debug(f"No parser for {path}, skipping")
+            return
+        file_meta, chunks = await parser.parse(path)
+        await self.file_store.upsert_file(file_meta, chunks)
+        self.file_graph.update(file_meta)
+        self.logger.info(f"Modified {path} ({len(chunks)} chunks)")
+
+    async def _on_deleted(self, path: str) -> None:
+        await self.file_store.delete_file(path)
+        self.file_graph.remove(path)
+        self.logger.info(f"Deleted {path}")
