@@ -98,7 +98,10 @@ class UpdateProfile(BaseMemoryTool):
                 # Add profiles for each target
                 for target, target_profiles in profiles_by_target.items():
                     profile_handler = self.get_profile_handler(target)
-                    new_nodes = await profile_handler.aadd_batch(profiles=target_profiles, ref_memory_id=self.history_id)
+                    new_nodes = await profile_handler.aadd_batch(
+                        profiles=target_profiles,
+                        ref_memory_id=self.history_id,
+                    )
                     self.memory_nodes.extend(new_nodes)
                     added_count += len(new_nodes)
             else:

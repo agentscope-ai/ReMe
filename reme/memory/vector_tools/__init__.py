@@ -1,5 +1,7 @@
 """memory tools"""
 
+# pylint: disable=no-name-in-module
+
 from .base_memory_tool import BaseMemoryTool
 
 # chunk tools

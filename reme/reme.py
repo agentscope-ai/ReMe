@@ -238,7 +238,9 @@ class ReMe(Application):
 
         if self.profile_store_name in vector_store_configs:
             if self.profile_collection_name:
-                vector_store_configs[self.profile_store_name] = vector_store_configs[self.profile_store_name].model_copy(
+                vector_store_configs[self.profile_store_name] = vector_store_configs[
+                    self.profile_store_name
+                ].model_copy(
                     update={"collection_name": profile_collection_name},
                 )
             return

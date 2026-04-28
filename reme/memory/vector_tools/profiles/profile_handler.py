@@ -1,5 +1,7 @@
 """Profile handler facade for filesystem and vector backends."""
 
+# pylint: disable=missing-function-docstring
+
 import asyncio
 from pathlib import Path
 
@@ -66,7 +68,9 @@ class ProfileHandler:
             asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(coro)
-        raise RuntimeError("Synchronous profile access is not available in an active event loop. Use async methods instead.")
+        raise RuntimeError(
+            "Synchronous profile access is not available in an active event loop. Use async methods instead.",
+        )
 
     async def adelete(self, profile_id: str | list[str]) -> bool | int:
         return await self.backend.delete(profile_id)
@@ -74,7 +78,13 @@ class ProfileHandler:
     async def adelete_all(self) -> int:
         return await self.backend.delete_all()
 
-    async def aadd(self, message_time: str, profile_key: str, profile_value: str, ref_memory_id: str = "") -> MemoryNode:
+    async def aadd(
+        self,
+        message_time: str,
+        profile_key: str,
+        profile_value: str,
+        ref_memory_id: str = "",
+    ) -> MemoryNode:
         return await self.backend.add(message_time, profile_key, profile_value, ref_memory_id)
 
     async def aadd_batch(self, profiles: list[dict], ref_memory_id: str = "") -> list[MemoryNode]:
