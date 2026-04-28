@@ -1,8 +1,8 @@
 """File store module for persistent memory management.
 
 This module provides storage backends for memory chunks and file metadata,
-including SQLite-based, ChromaDB-based, and pure-Python local implementations
-with vector and full-text search.
+including SQLite-based, ChromaDB-based, seekdb-based, and pure-Python local
+implementations with vector and full-text search.
 """
 
 from .base_file_store import BaseFileStore
@@ -21,3 +21,11 @@ __all__ = [
 R.file_stores.register("sqlite")(SqliteFileStore)
 R.file_stores.register("chroma")(ChromaFileStore)
 R.file_stores.register("local")(LocalFileStore)
+
+try:
+    from .seekdb_file_store import SeekdbFileStore
+
+    R.file_stores.register("seekdb")(SeekdbFileStore)
+    __all__.append("SeekdbFileStore")
+except ImportError:
+    pass
