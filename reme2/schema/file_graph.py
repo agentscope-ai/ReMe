@@ -2,7 +2,8 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from reme2.schema.file_metadata import FileMetadata
+from .chunk_filter import ChunkFilter
+from .file_metadata import FileMetadata
 
 
 class FileGraph:
@@ -13,7 +14,7 @@ class FileGraph:
 
     # -- CRUD ----------------------------------------------------------------
 
-    def add(self, *metadatas: FileMetadata) -> None:
+    def create(self, *metadatas: FileMetadata) -> None:
         for metadata in metadatas:
             path = metadata.path
             if path in self._nodes:
@@ -21,6 +22,9 @@ class FileGraph:
             self._nodes[path] = metadata
         for metadata in metadatas:
             self._add_forward(metadata)
+
+    def read(self, path: str) -> FileMetadata | None:
+        return self._nodes.get(path)
 
     def update(self, path: str, **fields) -> FileMetadata | None:
         metadata = self._nodes.get(path)
@@ -32,16 +36,13 @@ class FileGraph:
         self._add_forward(updated)
         return updated
 
-    def remove(self, path: str) -> FileMetadata | None:
+    def delete(self, path: str) -> FileMetadata | None:
         metadata = self._nodes.pop(path, None)
         if metadata is None:
             return None
         self._remove_forward(metadata)
         self._backlinks.pop(path, None)
         return metadata
-
-    def get(self, path: str) -> FileMetadata | None:
-        return self._nodes.get(path)
 
     # -- Link queries --------------------------------------------------------
 
@@ -57,6 +58,21 @@ class FileGraph:
             for src in self._backlinks.get(path, set())
             if src in self._nodes
         ]
+
+    def filter(
+            self,
+            paths: list[str] | None = None,
+            tags: list[str] | None = None,
+            exclude_paths: list[str] | None = None,
+    ) -> ChunkFilter:
+        cf = ChunkFilter(paths=paths, tags=tags, exclude_paths=exclude_paths)
+        if cf.is_empty():
+            return cf
+        cf.resolved_paths = {
+            path for path, meta in self._nodes.items()
+            if cf.match_metadata(path, meta.metadata)
+        }
+        return cf
 
     # -- Index helpers -------------------------------------------------------
 
@@ -87,7 +103,7 @@ class FileGraph:
             return graph
         raw: dict = json.loads(path.read_text(encoding="utf-8"))
         nodes = [FileMetadata(**meta) for meta in raw.values()]
-        graph.add(*nodes)
+        graph.create(*nodes)
         return graph
 
     # -- Dunder --------------------------------------------------------------
