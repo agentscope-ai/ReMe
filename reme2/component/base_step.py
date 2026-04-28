@@ -8,11 +8,12 @@ from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
 
 from .base_component import BaseComponent
+from .chunk_store import BaseChunkStore
 from .embedding import BaseEmbeddingModel
-from .file_store import BaseFileStore
 from .prompt_handler import PromptHandler
 from .runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
+from ..schema.file_graph import FileGraph
 
 
 class BaseStep(BaseComponent):
@@ -83,9 +84,15 @@ class BaseStep(BaseComponent):
                                                                                    "token_counter")
 
     @property
-    def file_store(self) -> BaseFileStore:
-        name = self.kwargs.get("file_store", "default")
-        return name if isinstance(name, BaseFileStore) else self._get_component(ComponentEnum.FILE_STORE, name)
+    def chunk_store(self) -> BaseChunkStore:
+        name = self.kwargs.get("chunk_store", "default")
+        return name if isinstance(name, BaseChunkStore) else self._get_component(ComponentEnum.CHUNK_STORE, name)
+
+    @property
+    def file_graph(self) -> FileGraph:
+        name = self.kwargs.get("file_watcher", "default")
+        watcher = self._get_component(ComponentEnum.FILE_WATCHER, name)
+        return watcher.file_graph
 
     @property
     def embedding(self) -> BaseEmbeddingModel:

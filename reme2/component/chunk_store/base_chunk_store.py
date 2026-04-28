@@ -1,4 +1,4 @@
-"""Abstract base class for file storage backends."""
+"""Abstract base class for chunk storage backends."""
 
 import re
 from abc import abstractmethod
@@ -7,18 +7,18 @@ from pathlib import Path
 from ..base_component import BaseComponent
 from ..embedding import BaseEmbeddingModel
 from ...enumeration import ComponentEnum
-from ...schema import FileChunk, FileMetadata, SearchFilter
+from ...schema import ChunkFilter, FileChunk
 
 
-class BaseFileStore(BaseComponent):
-    """Abstract base class for file storage backends.
+class BaseChunkStore(BaseComponent):
+    """Abstract base class for chunk storage backends.
 
-    Provides embedding resolution, validation, safe embedding retrieval,
-    metadata caching, hybrid search, and keyword scoring utilities.
-    Subclasses must implement the storage-specific CRUD and search methods.
+    Handles chunk persistence and retrieval (vector / keyword / hybrid search).
+    File-level metadata and search filter resolution live in FileGraph; this
+    layer only consumes a compiled ChunkFilter (path set) for restricting search.
     """
 
-    component_type = ComponentEnum.FILE_STORE
+    component_type = ComponentEnum.CHUNK_STORE
 
     def __init__(
             self,
@@ -45,7 +45,6 @@ class BaseFileStore(BaseComponent):
             raise ValueError("At least one of embedding_model or fts_enabled must be set.")
 
     async def _start(self):
-        """Resolve embedding model from app_context."""
         if not self._embedding_model_name:
             return
         assert self.app_context is not None, "app_context must be provided"
@@ -139,7 +138,7 @@ class BaseFileStore(BaseComponent):
             limit: int,
             vector_weight: float = 0.7,
             candidate_multiplier: float = 3.0,
-            search_filter: SearchFilter | None = None,
+            chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
         """Perform hybrid search combining vector and keyword results."""
         assert 0.0 <= vector_weight <= 1.0
@@ -148,8 +147,8 @@ class BaseFileStore(BaseComponent):
         text_weight = 1.0 - vector_weight
 
         if self.vector_enabled and self.fts_enabled:
-            keyword_results = await self.keyword_search(query, candidates, search_filter)
-            vector_results = await self.vector_search(query, candidates, search_filter)
+            keyword_results = await self.keyword_search(query, candidates, chunk_filter)
+            vector_results = await self.vector_search(query, candidates, chunk_filter)
 
             if not keyword_results:
                 return vector_results[:limit]
@@ -164,9 +163,9 @@ class BaseFileStore(BaseComponent):
             )
             return merged[:limit]
         elif self.vector_enabled:
-            return await self.vector_search(query, limit, search_filter)
+            return await self.vector_search(query, limit, chunk_filter)
         elif self.fts_enabled:
-            return await self.keyword_search(query, limit, search_filter)
+            return await self.keyword_search(query, limit, chunk_filter)
         return []
 
     @staticmethod
@@ -199,24 +198,11 @@ class BaseFileStore(BaseComponent):
 
     # -- Filter utility -----------------------------------------------------
 
-    def _apply_filter(
-            self,
-            chunks: list[FileChunk],
-            search_filter: SearchFilter | None,
-            file_metadata: dict[str, FileMetadata] | None = None,
-    ) -> list[FileChunk]:
-        """Apply search filter to a list of chunks.
-
-        Args:
-            chunks: Candidate chunks to filter.
-            search_filter: Filter conditions.
-            file_metadata: File-level metadata lookup (path -> FileMetadata).
-                Used for tag filtering since tags are file-level, not chunk-level.
-        """
-        if not search_filter or search_filter.is_empty():
+    @staticmethod
+    def _apply_filter(chunks: list[FileChunk], chunk_filter: ChunkFilter | None) -> list[FileChunk]:
+        if chunk_filter is None or chunk_filter.resolved_paths is None:
             return chunks
-        fm = file_metadata or {}
-        return [c for c in chunks if search_filter.match(c.path, fm[c.path].metadata if c.path in fm else None)]
+        return [c for c in chunks if chunk_filter.match_path(c.path)]
 
     # -- Abstract methods ---------------------------------------------------
 
@@ -225,34 +211,31 @@ class BaseFileStore(BaseComponent):
         """Clear all indexed data."""
 
     @abstractmethod
-    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]):
-        """Insert or update a file and its chunks."""
+    async def upsert_chunks(self, path: str, chunks: list[FileChunk]):
+        """Insert or update all chunks for a file path."""
 
     @abstractmethod
-    async def delete_file(self, path: str):
-        """Delete a file and all its chunks."""
+    async def delete_chunks(self, path: str):
+        """Delete all chunks for a file path."""
 
     @abstractmethod
-    async def list_files(self) -> list[str]:
-        """List all indexed file paths."""
+    async def get_chunks(self, path: str) -> list[FileChunk]:
+        """Get all chunks for a file path."""
 
     @abstractmethod
-    async def get_file_chunks(self, path: str) -> list[FileChunk]:
-        """Get all chunks for a file."""
-
-    @abstractmethod
-    async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        """Get metadata for a specific file."""
-
-    @abstractmethod
-    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
-        """Perform vector similarity search."""
+    async def vector_search(
+            self,
+            query: str,
+            limit: int,
+            chunk_filter: ChunkFilter | None = None,
+    ) -> list[FileChunk]:
+        """Perform vector similarity search, optionally restricted by chunk_filter."""
 
     @abstractmethod
     async def keyword_search(
             self,
             query: str,
             limit: int,
-            search_filter: SearchFilter | None = None,
+            chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
-        """Perform full-text/keyword search."""
+        """Perform full-text/keyword search, optionally restricted by chunk_filter."""
