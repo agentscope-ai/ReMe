@@ -139,8 +139,13 @@ async def test_summarize_memory_raises_runtime_error_for_unstructured_result(mon
 
 @pytest.mark.asyncio
 async def test_read_history_accepts_single_history_id_in_multiple_mode():
+    """Verify multiple-mode history lookup accepts a single history_id string."""
+
     class FakeVectorStore:
+        """Minimal vector store stub for ReadHistory tests."""
+
         async def get(self, vector_ids):
+            """Return the requested history node."""
             assert vector_ids == ["history_123"]
             node = MemoryNode(
                 memory_id="history_123",
@@ -151,7 +156,7 @@ async def test_read_history_accepts_single_history_id_in_multiple_mode():
             return [node.to_vector_node()]
 
     tool = ReadHistory(enable_multiple=True)
-    tool._vector_store = FakeVectorStore()
+    tool._vector_store = FakeVectorStore()  # pylint: disable=protected-access
     tool.context = RuntimeContext(
         history_id="history_123",
         retrieved_nodes=[],
