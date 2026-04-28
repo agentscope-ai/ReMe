@@ -2,7 +2,7 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, ChromaVectorStore, and ObVecVectorStore implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore and ZvecVectorStore implementations.
 Tests can be run for specific vector stores or all implementations.
 
 Usage:
@@ -12,6 +12,7 @@ Usage:
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
     python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
+    python test_vector_store.py --zvec       # Test ZvecVectorStore only
     python test_vector_store.py --all        # Test all vector stores
 """
 
@@ -36,6 +37,7 @@ from reme.core.vector_store import (
     ObVecVectorStore,
     PGVectorStore,
     QdrantVectorStore,
+    ZvecVectorStore,
 )
 
 load_env()
@@ -89,6 +91,9 @@ class TestConfig:
     OBVEC_USER = os.environ.get("OBVEC_USER", "root")
     OBVEC_PASSWORD = os.environ.get("OBVEC_PASSWORD", "root")
     OBVEC_DATABASE = os.environ.get("OBVEC_DATABASE", "test")
+
+    # ZvecVectorStore settings
+    ZVEC_PATH = "./test_vector_store_zvec"  # For local persistent mode
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -192,6 +197,7 @@ class SampleDataGenerator:
 # ==================== Vector Store Factory ====================
 
 
+# pylint: disable=too-many-return-statements
 def get_store_type(store: BaseVectorStore) -> str:
     """Get the type identifier of a vector store instance.
 
@@ -199,7 +205,7 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", "obvec", or "zvec")
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -213,10 +219,13 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "chroma"
     elif isinstance(store, ObVecVectorStore):
         return "obvec"
+    elif isinstance(store, ZvecVectorStore):
+        return "zvec"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
 
+# pylint: disable=too-many-return-statements
 def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStore:
     """Create a vector store instance based on type.
 
@@ -294,6 +303,14 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             database=config.OBVEC_DATABASE,
             index_metric="cosine",
             index_ef_search=100,
+        )
+    elif store_type == "zvec":
+        return ZvecVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.ZVEC_PATH or tempfile.mkdtemp(prefix="test_zvec_"),
+            dimension=config.EMBEDDING_DIMENSIONS,
+            distance="cosine",
         )
     else:
         raise ValueError(f"Unknown store type: {store_type}")
@@ -1790,6 +1807,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(obvec_dir, ignore_errors=True)
                 logger.info(f"Cleaned up obvec temp directory: {obvec_dir}")
 
+        # Clean up local directory if ZvecVectorStore
+        if store_type == "zvec" and config.ZVEC_PATH:
+            test_dir = Path(config.ZVEC_PATH)
+            if test_dir.exists():
+                shutil.rmtree(test_dir)
+                logger.info(f"Cleaned up zvec directory: {config.ZVEC_PATH}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1845,6 +1869,11 @@ Examples:
         help="Test ObVecVectorStore",
     )
     parser.add_argument(
+        "--zvec",
+        action="store_true",
+        help="Test ZvecVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1863,6 +1892,7 @@ Examples:
             ("qdrant", "QdrantVectorStore"),
             ("chroma", "ChromaVectorStore"),
             ("obvec", "ObVecVectorStore"),
+            ("zvec", "ZvecVectorStore"),
         ]
     else:
         # Build list based on individual flags
@@ -1878,6 +1908,8 @@ Examples:
             stores_to_test.append(("chroma", "ChromaVectorStore"))
         if args.obvec:
             stores_to_test.append(("obvec", "ObVecVectorStore"))
+        if args.zvec:
+            stores_to_test.append(("zvec", "ZvecVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1888,10 +1920,11 @@ Examples:
                 ("qdrant", "QdrantVectorStore"),
                 ("chroma", "ChromaVectorStore"),
                 ("obvec", "ObVecVectorStore"),
+                ("zvec", "ZvecVectorStore"),
             ]
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--zvec to test specific ones\n",
             )
 
     # Run tests for each vector store

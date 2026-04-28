@@ -506,7 +506,7 @@ async def main():
             "dimensions": 1024,
         },
         default_vector_store_config={
-            "backend": "local",  # Supports local/chroma/qdrant/elasticsearch/obvec
+            "backend": "local",  # Supports local/chroma/qdrant/elasticsearch/obvec/zvec
         },
     )
     await reme.start()

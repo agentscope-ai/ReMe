@@ -34,6 +34,7 @@ FlowLLM provides multiple Vector Store implementations tailored to different use
 - **ChromaVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/chroma_vector_store.py)): Based on ChromaDB, providing persistent storage and metadata filtering capabilities.
 - **EsVectorStore** ([source code](https://github.com/flowllm-ai/flowllm/blob/main/flowllm/core/vector_store/es_vector_store.py)): Built on Elasticsearch, enabling powerful combined full-text and vector search functionalities.
 - **ObVecVectorStore** ([source code](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/obvec_vector_store.py)): Uses [pyobvector](https://pypi.org/project/pyobvector/) against **OceanBase** or **seekdb** (MySQL-compatible wire protocol). Suitable when you already run OceanBase/seekdb or need a SQL-native vector table with HNSW-style ANN search and JSON metadata filters.
+- **ZvecVectorStore** ([source code](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/zvec_vector_store.py)): Built on zvec, a high-performance local vector database with strong-schema support and HNSW indexing. Suitable for single-machine deployments requiring fast vector search.
 
 All Vector Store implementations inherit from **BaseVectorStore** ([source code](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/base_vector_store.py)) in ReMe, ensuring a consistent interface specification.
 
@@ -130,6 +131,11 @@ docker run -d --name reme_seekdb -p 2881:2881 -e ROOT_PASSWORD=<your_root_passwo
 ```shell
 OBVEC_PASSWORD=<your_root_password> python tests/test_vector_store.py --obvec
 ```
+### ZvecVectorStore Configuration
+
+- **db_path**: Local storage path for persistent mode (required).
+- **dimension**: Dimensionality of the embedding vectors (default: `1024`).
+- **distance**: Distance metric — supports `cosine`, `l2`, `ip` (default: `cosine`).
 
 ## Configuration File Examples
 
@@ -151,7 +157,7 @@ vector_store.default.params.<param_name>=<param_value>
 
 ### Configuration Field Descriptions
 
-- **`backend`** (required): Vector store backend type. Options: `local`, `memory`, `chroma`, `qdrant`, `elasticsearch`, `obvec`.
+- **`backend`** (required): Vector store backend type. Options: `local`, `memory`, `chroma`, `qdrant`, `elasticsearch`, `obvec`, `zvec`.
 - **`embedding_model`** (required): Name of the embedding model configuration, referencing the `embedding_model` section.
 - **`params`** (optional): Dictionary of backend-specific parameters passed to the vector store constructor.
 
@@ -347,6 +353,30 @@ vector_stores.default.password=your-root-password
 
 ReMe service YAML uses the key `vector_stores` (plural); CLI overrides use the same nested paths.
 
+#### 7. ZvecVectorStore Configuration
+
+Persistent local storage based on zvec with HNSW indexing and strong-schema support.
+
+**Implementation**: [`reme/core/vector_store/zvec_vector_store.py`](https://github.com/agentscope-ai/ReMe/blob/main/reme/core/vector_store/zvec_vector_store.py)
+
+```yaml
+vector_store:
+  default:
+    backend: zvec
+    embedding_model: default
+    params:
+      db_path: "./zvec_vector_store"  # Local storage path (required)
+      dimension: 1024                 # Vector dimension (optional; default: 1024)
+      distance: "cosine"              # Distance metric (optional; default: cosine; options: cosine, l2, ip)
+```
+
+```shell
+vector_store.default.backend=zvec
+vector_store.default.params.db_path=./zvec_vector_store
+vector_store.default.params.dimension=1024
+vector_store.default.params.distance=cosine
+```
+
 ### Complete Configuration Example
 
 Below is a complete `default.yaml` example including both embedding model and vector store configurations:
@@ -405,6 +435,7 @@ Two types of metadata filtering are supported:
 - **Development & Testing**: Use MemoryVectorStore or LocalVectorStore—no additional services required.
 - **Small-Scale Applications**: Use LocalVectorStore or ChromaVectorStore for simplicity and ease of use.
 - **Production Environments**: Use QdrantVectorStore, EsVectorStore, or ObVecVectorStore (OceanBase/seekdb) for high performance and scalability, depending on your existing infrastructure.
+- **High-Performance Local Search**: Use ZvecVectorStore for single-machine deployments requiring fast HNSW-based vector search with local persistence.
 - **Hybrid Search**: Use EsVectorStore to combine vector search with full-text search capabilities.
 - **OceanBase / seekdb**: Use ObVecVectorStore when you standardize on pyobvector and SQL-accessible vector tables.
 
