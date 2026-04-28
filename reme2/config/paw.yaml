@@ -48,7 +48,7 @@ components:
     default:
       backend: default
 
-  file_store:
+  chunk_store:
     default:
       backend: local
       embedding_model: default
@@ -58,7 +58,7 @@ components:
   file_watcher:
     default:
       backend: full
-      file_store: default
+      chunk_store: default
       default_parser: default
       watch_paths: [ "./test_data" ]
       recursive: true

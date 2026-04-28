@@ -1,18 +1,18 @@
-"""SQLite storage backend for file store."""
+"""SQLite chunk storage backend."""
 
 import json
 import sqlite3
 import struct
 import time
 
-from .base_file_store import BaseFileStore
+from .base_chunk_store import BaseChunkStore
 from ..component_registry import R
-from ...schema import FileChunk, FileMetadata, SearchFilter
+from ...schema import ChunkFilter, FileChunk
 
 
 @R.register("sqlite")
-class SqliteFileStore(BaseFileStore):
-    """SQLite file storage with vector and full-text search.
+class SqliteChunkStore(BaseChunkStore):
+    """SQLite chunk storage with vector and full-text search.
 
     Uses sqlite-vec for vector similarity search and FTS5 with trigram
     tokenizer for keyword search. Falls back to LIKE-based substring
@@ -29,10 +29,6 @@ class SqliteFileStore(BaseFileStore):
     @property
     def chunks_table(self) -> str:
         return f"chunks_{self.store_name}"
-
-    @property
-    def files_table(self) -> str:
-        return f"files_{self.store_name}"
 
     @property
     def vector_table(self) -> str:
@@ -88,23 +84,12 @@ class SqliteFileStore(BaseFileStore):
             self.conn.enable_load_extension(False)
 
         await self._create_tables()
-        self.logger.info(
-            f"SqliteFileStore '{self.store_name}' ready: "
-            f"db={self.db_path / 'reme.db'}",
-        )
+        self.logger.info(f"SqliteChunkStore '{self.store_name}' ready: db={self.db_path / 'reme.db'}")
         await super()._start(app_context)
 
     async def _create_tables(self) -> None:
         cursor = self.conn.cursor()
         try:
-            cursor.execute(f"""
-                CREATE TABLE IF NOT EXISTS {self.files_table} (
-                    path TEXT PRIMARY KEY,
-                    mtime REAL,
-                    metadata TEXT
-                )
-            """)
-
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self.chunks_table} (
                     id TEXT PRIMARY KEY,
@@ -117,6 +102,10 @@ class SqliteFileStore(BaseFileStore):
                     updated_at INTEGER
                 )
             """)
+            cursor.execute(
+                f"CREATE INDEX IF NOT EXISTS idx_{self.chunks_table}_path "
+                f"ON {self.chunks_table}(path)",
+            )
 
             if self.vector_enabled:
                 cursor.execute(f"""
@@ -153,52 +142,17 @@ class SqliteFileStore(BaseFileStore):
             self.conn = None
         await super()._close()
 
-    # -- Metadata helpers ---------------------------------------------------
-
-    async def _get_all_metadata(self) -> dict[str, FileMetadata]:
-        """Load all file metadata from SQL into a dict for tag filtering."""
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(f"SELECT path, mtime, metadata FROM {self.files_table}")
-            result = {}
-            for path, mtime, meta_str in cursor.fetchall():
-                metadata = json.loads(meta_str) if meta_str else {}
-                result[path] = FileMetadata(
-                    modified_time=mtime,
-                    path=path,
-                    metadata=metadata,
-                )
-            return result
-        except Exception as e:
-            self.logger.error(f"Failed to load all metadata: {e}")
-            return {}
-        finally:
-            cursor.close()
-
     # -- Write operations ---------------------------------------------------
 
-    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]) -> None:
+    async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
         cursor = self.conn.cursor()
         try:
             cursor.execute("BEGIN")
 
-            # Upsert file metadata
-            cursor.execute(
-                f"""INSERT OR REPLACE INTO {self.files_table}
-                    (path, mtime, metadata)
-                    VALUES (?, ?, ?)""",
-                (
-                    file_meta.path,
-                    file_meta.modified_time,
-                    json.dumps(file_meta.metadata, ensure_ascii=False) if file_meta.metadata else None,
-                ),
-            )
-
-            # Delete old chunks and vectors/fts for this file
             old_ids = [
                 row[0] for row in cursor.execute(
                     f"SELECT id FROM {self.chunks_table} WHERE path = ?",
-                    (file_meta.path,),
+                    (path,),
                 ).fetchall()
             ]
             if old_ids:
@@ -208,9 +162,8 @@ class SqliteFileStore(BaseFileStore):
                     for oid in old_ids:
                         cursor.execute(f"DELETE FROM {self.vector_table} WHERE id = ?", (oid,))
                 if self.fts_enabled:
-                    cursor.execute(f"DELETE FROM {self.fts_table} WHERE path = ?", (file_meta.path,))
+                    cursor.execute(f"DELETE FROM {self.fts_table} WHERE path = ?", (path,))
 
-            # Insert new chunks
             if chunks:
                 chunks = await self.get_chunk_embeddings(chunks)
                 now = int(time.time() * 1000)
@@ -221,7 +174,7 @@ class SqliteFileStore(BaseFileStore):
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             chunk.id,
-                            file_meta.path,
+                            path,
                             chunk.start_line,
                             chunk.end_line,
                             chunk.hash,
@@ -242,18 +195,18 @@ class SqliteFileStore(BaseFileStore):
                             f"""INSERT INTO {self.fts_table}
                                 (text, id, path, start_line, end_line)
                                 VALUES (?, ?, ?, ?, ?)""",
-                            (chunk.text, chunk.id, file_meta.path, chunk.start_line, chunk.end_line),
+                            (chunk.text, chunk.id, path, chunk.start_line, chunk.end_line),
                         )
 
             cursor.execute("COMMIT")
         except Exception as e:
             cursor.execute("ROLLBACK")
-            self.logger.error(f"Failed to upsert file {file_meta.path}: {e}")
+            self.logger.error(f"Failed to upsert chunks for {path}: {e}")
             raise
         finally:
             cursor.close()
 
-    async def delete_file(self, path: str) -> None:
+    async def delete_chunks(self, path: str) -> None:
         cursor = self.conn.cursor()
         try:
             cursor.execute("BEGIN")
@@ -272,53 +225,18 @@ class SqliteFileStore(BaseFileStore):
                 cursor.execute(f"DELETE FROM {self.fts_table} WHERE path = ?", (path,))
 
             cursor.execute(f"DELETE FROM {self.chunks_table} WHERE path = ?", (path,))
-            cursor.execute(f"DELETE FROM {self.files_table} WHERE path = ?", (path,))
 
             cursor.execute("COMMIT")
         except Exception as e:
             cursor.execute("ROLLBACK")
-            self.logger.error(f"Failed to delete file {path}: {e}")
+            self.logger.error(f"Failed to delete chunks for {path}: {e}")
             raise
         finally:
             cursor.close()
 
-    # -- Read operations (SQL overrides) ------------------------------------
+    # -- Read operations ----------------------------------------------------
 
-    async def list_files(self) -> list[str]:
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(f"SELECT path FROM {self.files_table}")
-            return [row[0] for row in cursor.fetchall()]
-        except Exception as e:
-            self.logger.error(f"Failed to list files: {e}")
-            return []
-        finally:
-            cursor.close()
-
-    async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(
-                f"SELECT mtime, metadata FROM {self.files_table} WHERE path = ?",
-                (path,),
-            )
-            row = cursor.fetchone()
-            if not row:
-                return None
-            mtime, meta_str = row
-            metadata = json.loads(meta_str) if meta_str else {}
-            return FileMetadata(
-                modified_time=mtime,
-                path=path,
-                metadata=metadata,
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to get file metadata for {path}: {e}")
-            return None
-        finally:
-            cursor.close()
-
-    async def get_file_chunks(self, path: str) -> list[FileChunk]:
+    async def get_chunks(self, path: str) -> list[FileChunk]:
         cursor = self.conn.cursor()
         try:
             cursor.execute(
@@ -347,7 +265,7 @@ class SqliteFileStore(BaseFileStore):
                 ))
             return chunks
         except Exception as e:
-            self.logger.error(f"Failed to get file chunks for {path}: {e}")
+            self.logger.error(f"Failed to get chunks for {path}: {e}")
             return []
         finally:
             cursor.close()
@@ -364,9 +282,25 @@ class SqliteFileStore(BaseFileStore):
             cleaned = cleaned.replace(ch, " ")
         return " ".join(cleaned.split())
 
+    @staticmethod
+    def _path_filter_clause(chunk_filter: ChunkFilter | None, column: str = "path") -> tuple[str, list]:
+        """Build a WHERE clause fragment for ChunkFilter; returns (sql_fragment, params)."""
+        if chunk_filter is None or chunk_filter.resolved_paths is None:
+            return "", []
+        paths = chunk_filter.resolved_paths
+        if not paths:
+            return "0", []  # filter excludes everything
+        placeholders = ",".join("?" * len(paths))
+        return f"{column} IN ({placeholders})", list(paths)
+
     # -- Search operations --------------------------------------------------
 
-    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
+    async def vector_search(
+            self,
+            query: str,
+            limit: int,
+            chunk_filter: ChunkFilter | None = None,
+    ) -> list[FileChunk]:
         if not self.vector_enabled or not query:
             return []
 
@@ -391,7 +325,7 @@ class SqliteFileStore(BaseFileStore):
             chunks = []
             for cid, path, start, end, text, dist in cursor.fetchall():
                 score = max(0.0, 1.0 - dist / 2.0)
-                chunk = FileChunk(
+                chunks.append(FileChunk(
                     id=cid,
                     path=path,
                     start_line=start,
@@ -399,12 +333,9 @@ class SqliteFileStore(BaseFileStore):
                     text=text,
                     hash="",
                     scores={"vector": score, "score": score},
-                )
-                chunks.append(chunk)
+                ))
 
-            # Apply filter with SQL-based metadata for tag support
-            file_meta = await self._get_all_metadata() if (search_filter and search_filter.tags) else None
-            chunks = self._apply_filter(chunks, search_filter, file_meta)
+            chunks = self._apply_filter(chunks, chunk_filter)
             chunks.sort(key=lambda c: c.score, reverse=True)
             return chunks[:limit]
         except Exception as e:
@@ -417,7 +348,7 @@ class SqliteFileStore(BaseFileStore):
             self,
             query: str,
             limit: int,
-            search_filter: SearchFilter | None = None,
+            chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
         if not self.fts_enabled or not query:
             return []
@@ -430,18 +361,14 @@ class SqliteFileStore(BaseFileStore):
         if not words:
             return []
 
-        file_meta = await self._get_all_metadata() if (search_filter and search_filter.tags) else None
-
-        # FTS5 trigram requires all terms >= 3 chars
         if all(len(w) >= 3 for w in words):
             results = await self._fts_trigram_search(words, limit)
             if results:
-                return self._apply_filter(results, search_filter, file_meta)[:limit]
+                return self._apply_filter(results, chunk_filter)[:limit]
 
         return self._apply_filter(
             await self._like_search(cleaned, words, limit),
-            search_filter,
-            file_meta,
+            chunk_filter,
         )[:limit]
 
     async def _fts_trigram_search(self, words: list[str], limit: int) -> list[FileChunk]:
@@ -464,7 +391,7 @@ class SqliteFileStore(BaseFileStore):
             chunks = []
             for cid, path, start, end, text, rank in cursor.fetchall():
                 score = max(0.0, 1.0 / (1.0 + abs(rank)))
-                chunk = FileChunk(
+                chunks.append(FileChunk(
                     id=cid,
                     path=path,
                     start_line=start,
@@ -472,8 +399,7 @@ class SqliteFileStore(BaseFileStore):
                     text=text,
                     hash="",
                     scores={"keyword": score, "score": score},
-                )
-                chunks.append(chunk)
+                ))
             chunks.sort(key=lambda c: c.score, reverse=True)
             return chunks
         except Exception as e:
@@ -511,7 +437,7 @@ class SqliteFileStore(BaseFileStore):
                 if score == 0.0:
                     continue
 
-                chunk = FileChunk(
+                chunks.append(FileChunk(
                     id=cid,
                     path=path,
                     start_line=start,
@@ -519,8 +445,7 @@ class SqliteFileStore(BaseFileStore):
                     text=text,
                     hash="",
                     scores={"keyword": score, "score": score},
-                )
-                chunks.append(chunk)
+                ))
 
             chunks.sort(key=lambda c: c.score, reverse=True)
             return chunks[:limit]
@@ -536,7 +461,6 @@ class SqliteFileStore(BaseFileStore):
         cursor = self.conn.cursor()
         try:
             cursor.execute("BEGIN")
-            cursor.execute(f"DELETE FROM {self.files_table}")
             cursor.execute(f"DELETE FROM {self.chunks_table}")
             if self.vector_enabled:
                 cursor.execute(f"DELETE FROM {self.vector_table}")
@@ -549,4 +473,4 @@ class SqliteFileStore(BaseFileStore):
             raise
         finally:
             cursor.close()
-        self.logger.info(f"Cleared all data from SqliteFileStore '{self.store_name}'")
+        self.logger.info(f"Cleared all data from SqliteChunkStore '{self.store_name}'")

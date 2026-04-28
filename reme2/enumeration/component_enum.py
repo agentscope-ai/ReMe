@@ -26,7 +26,7 @@ class ComponentEnum(str, Enum):
 
     FILE_PARSER = "file_parser"
 
-    FILE_STORE = "file_store"
+    CHUNK_STORE = "chunk_store"
 
     FILE_WATCHER = "file_watcher"
 

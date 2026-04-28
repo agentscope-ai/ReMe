@@ -1,12 +1,10 @@
-"""ChromaDB storage backend for file store."""
+"""ChromaDB chunk storage backend."""
 
-import json
 import time
-from pathlib import Path
 
-from .base_file_store import BaseFileStore
+from .base_chunk_store import BaseChunkStore
 from ..component_registry import R
-from ...schema import FileChunk, FileMetadata, SearchFilter
+from ...schema import ChunkFilter, FileChunk
 
 try:
     import chromadb
@@ -20,12 +18,11 @@ except Exception as e:
 
 
 @R.register("chroma")
-class ChromaFileStore(BaseFileStore):
-    """ChromaDB file storage with vector and full-text search.
+class ChromaChunkStore(BaseChunkStore):
+    """ChromaDB chunk storage with vector and full-text search.
 
     Uses ChromaDB's native vector search and `where_document` $contains
-    for keyword matching. File metadata is persisted to a JSON file
-    alongside the ChromaDB database.
+    for keyword matching.
     """
 
     def __init__(self, **kwargs):
@@ -34,41 +31,10 @@ class ChromaFileStore(BaseFileStore):
         super().__init__(**kwargs)
         self.client: "chromadb.ClientAPI | None" = None
         self.chunks_collection: "chromadb.Collection | None" = None
-        self._metadata_file: Path = self.db_path / f"{self.store_name}_file_metadata.json"
-        self._metadata_cache: dict[str, FileMetadata] = {}
 
     @property
     def collection_name(self) -> str:
         return f"chunks_{self.store_name}"
-
-    # -- Persistence helpers ------------------------------------------------
-
-    async def _load_metadata(self) -> None:
-        if not self._metadata_file.exists():
-            return
-        try:
-            data = self._metadata_file.read_text(encoding="utf-8")
-            raw = json.loads(data)
-            self._metadata_cache = {path: FileMetadata(**meta) for path, meta in raw.items()}
-        except Exception as e:
-            self.logger.warning(f"Failed to load metadata: {e}")
-
-    async def _save_metadata(self) -> None:
-        try:
-            raw = {
-                path: meta.model_dump(mode="json")
-                for path, meta in self._metadata_cache.items()
-            }
-            data = json.dumps(raw, indent=2, ensure_ascii=False)
-            temp = self._metadata_file.with_suffix(".tmp")
-            temp.write_text(data, encoding="utf-8")
-            temp.replace(self._metadata_file)
-        except Exception as e:
-            self.logger.error(f"Failed to save metadata: {e}")
-            raise
-        finally:
-            if temp.exists():
-                temp.unlink()
 
     # -- Lifecycle ----------------------------------------------------------
 
@@ -81,76 +47,77 @@ class ChromaFileStore(BaseFileStore):
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        await self._load_metadata()
-        self.logger.info(
-            f"ChromaFileStore '{self.store_name}' ready: "
-            f"collection={self.collection_name}, metadata at {self._metadata_file}",
-        )
+        self.logger.info(f"ChromaChunkStore '{self.store_name}' ready: collection={self.collection_name}")
         await super()._start(app_context)
 
     async def _close(self) -> None:
-        await self._save_metadata()
         self.client = None
         self.chunks_collection = None
         await super()._close()
 
+    # -- Filter helper ------------------------------------------------------
+
+    @staticmethod
+    def _path_where(chunk_filter: ChunkFilter | None) -> dict | None:
+        if chunk_filter is None or chunk_filter.resolved_paths is None:
+            return None
+        paths = chunk_filter.resolved_paths
+        if not paths:
+            return {"path": "__nonexistent__"}
+        if len(paths) == 1:
+            return {"path": next(iter(paths))}
+        return {"path": {"$in": list(paths)}}
+
     # -- Write operations ---------------------------------------------------
 
-    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]) -> None:
-        # Always delete existing data for this file first
-        if file_meta.path:
-            await self.delete_file(file_meta.path)
+    async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
+        await self.delete_chunks(path)
 
-        if chunks:
-            chunks = await self.get_chunk_embeddings(chunks)
+        if not chunks:
+            return
 
-            ids, documents, embeddings, metadatas = [], [], [], []
-            now = int(time.time() * 1000)
-            for chunk in chunks:
-                ids.append(chunk.id)
-                documents.append(chunk.text)
-                embeddings.append(chunk.embedding if chunk.embedding else [0.0] * self.embedding_dim)
-                metadatas.append({
-                    "path": file_meta.path,
-                    "start_line": chunk.start_line,
-                    "end_line": chunk.end_line,
-                    "hash": chunk.hash,
-                    "updated_at": now,
-                })
+        chunks = await self.get_chunk_embeddings(chunks)
 
-            self.chunks_collection.upsert(
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings,
-                metadatas=metadatas,
-            )
+        ids, documents, embeddings, metadatas = [], [], [], []
+        now = int(time.time() * 1000)
+        for chunk in chunks:
+            ids.append(chunk.id)
+            documents.append(chunk.text)
+            embeddings.append(chunk.embedding if chunk.embedding else [0.0] * self.embedding_dim)
+            metadatas.append({
+                "path": path,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "hash": chunk.hash,
+                "updated_at": now,
+            })
 
-        if file_meta.path:
-            self._metadata_cache[file_meta.path] = FileMetadata(
-                modified_time=file_meta.modified_time,
-                path=file_meta.path,
-                metadata=file_meta.metadata,
-            )
+        self.chunks_collection.upsert(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
 
-    async def delete_file(self, path: str) -> None:
+    async def delete_chunks(self, path: str) -> None:
         results = self.chunks_collection.get(where={"path": path}, include=[])
         if results["ids"]:
             self.chunks_collection.delete(ids=results["ids"])
-        self._metadata_cache.pop(path, None)
 
     # -- Read operations ----------------------------------------------------
 
-    async def list_files(self) -> list[str]:
-        """List all indexed file paths."""
-        return list(self._metadata_cache.keys())
-
-    async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        """Get metadata for a specific file."""
-        return self._metadata_cache.get(path)
+    async def get_chunks(self, path: str) -> list[FileChunk]:
+        results = self.chunks_collection.get(where={"path": path}, include=["documents", "metadatas"])
+        chunks: list[FileChunk] = []
+        for cid, md, text in zip(results["ids"], results["metadatas"], results["documents"]):
+            chunks.append(self._chunk_from_chroma(cid, md, text))
+        chunks.sort(key=lambda c: c.start_line)
+        return chunks
 
     # -- Search helpers -----------------------------------------------------
 
-    def _chunk_from_chroma(self, chunk_id: str, md: dict, text: str, embedding=None) -> FileChunk:
+    @staticmethod
+    def _chunk_from_chroma(chunk_id: str, md: dict, text: str, embedding=None) -> FileChunk:
         return FileChunk(
             id=chunk_id,
             path=md["path"],
@@ -163,7 +130,12 @@ class ChromaFileStore(BaseFileStore):
 
     # -- Search operations --------------------------------------------------
 
-    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
+    async def vector_search(
+            self,
+            query: str,
+            limit: int,
+            chunk_filter: ChunkFilter | None = None,
+    ) -> list[FileChunk]:
         if not self.vector_enabled or not query:
             return []
 
@@ -175,6 +147,7 @@ class ChromaFileStore(BaseFileStore):
             results = self.chunks_collection.query(
                 query_embeddings=[query_embedding],
                 n_results=limit,
+                where=self._path_where(chunk_filter),
                 include=["documents", "metadatas", "distances"],
             )
         except Exception as e:
@@ -192,7 +165,6 @@ class ChromaFileStore(BaseFileStore):
                 chunk.scores = {"vector": score, "score": score}
                 chunks.append(chunk)
 
-        chunks = self._apply_filter(chunks, search_filter)
         chunks.sort(key=lambda c: c.score, reverse=True)
         return chunks[:limit]
 
@@ -200,9 +172,8 @@ class ChromaFileStore(BaseFileStore):
             self,
             query: str,
             limit: int,
-            search_filter: SearchFilter | None = None,
+            chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
-        """Keyword search via ChromaDB $contains with case variants."""
         if not self.fts_enabled or not query:
             return []
 
@@ -210,7 +181,6 @@ class ChromaFileStore(BaseFileStore):
         if not words:
             return []
 
-        # Generate case variants for case-insensitive matching
         word_variants = set()
         for word in words:
             word_variants.add(word)
@@ -225,6 +195,7 @@ class ChromaFileStore(BaseFileStore):
             where_document = {"$or": [{"$contains": w} for w in variants_list]}
 
         results = self.chunks_collection.get(
+            where=self._path_where(chunk_filter),
             where_document=where_document,
             include=["documents", "metadatas"],
         )
@@ -241,7 +212,6 @@ class ChromaFileStore(BaseFileStore):
             chunk.scores = {"keyword": score, "score": score}
             chunks.append(chunk)
 
-        chunks = self._apply_filter(chunks, search_filter)
         chunks.sort(key=lambda c: c.score, reverse=True)
         return chunks[:limit]
 
@@ -253,6 +223,4 @@ class ChromaFileStore(BaseFileStore):
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"},
         )
-        self._metadata_cache = {}
-        await self._save_metadata()
-        self.logger.info(f"Cleared all data from ChromaFileStore '{self.store_name}'")
+        self.logger.info(f"Cleared all data from ChromaChunkStore '{self.store_name}'")

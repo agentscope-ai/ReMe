@@ -2,10 +2,10 @@
 
 from . import as_llm
 from . import as_llm_formatter
+from . import chunk_store
 from . import client
 from . import embedding
 from . import file_parser
-from . import file_store
 from . import file_watcher
 from . import job
 from . import service
@@ -27,10 +27,10 @@ __all__ = [
     # base components
     "as_llm",
     "as_llm_formatter",
+    "chunk_store",
     "client",
     "embedding",
     "file_parser",
-    "file_store",
     "file_watcher",
     "job",
     "service",

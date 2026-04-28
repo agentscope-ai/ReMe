@@ -4,7 +4,6 @@ import json
 
 from ..component import R
 from ..component.base_step import BaseStep
-from ..schema import SearchFilter
 
 
 @R.register("memory_search")
@@ -38,22 +37,20 @@ class MemorySearch(BaseStep):
                 isinstance(max_results, int) and max_results > 0
         ), f"max_results must be a positive integer, got {max_results}"
 
-        filter_paths: list[str] | None = self.context.get("paths") or None
-        filter_tags: list[str] | None = self.context.get("tags") or None
-        exclude_paths: list[str] | None = self.context.get("exclude_paths") or None
-        search_filter = None
-        if filter_paths or filter_tags or exclude_paths:
-            search_filter = SearchFilter(paths=filter_paths, tags=filter_tags, exclude_paths=exclude_paths)
+        chunk_filter = self.file_graph.filter(
+            paths=self.context.get("paths") or None,
+            tags=self.context.get("tags") or None,
+            exclude_paths=self.context.get("exclude_paths") or None,
+        )
 
-        results = await self.file_store.hybrid_search(
+        results = await self.chunk_store.hybrid_search(
             query=query,
             limit=max_results,
             vector_weight=self.vector_weight,
             candidate_multiplier=self.candidate_multiplier,
-            search_filter=search_filter,
+            chunk_filter=chunk_filter,
         )
 
-        # Filter by min_score
         results = [r for r in results if r.score >= min_score]
 
         return json.dumps([result.model_dump(exclude_none=True) for result in results], indent=2, ensure_ascii=False)

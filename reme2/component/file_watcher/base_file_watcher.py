@@ -6,10 +6,10 @@ from pathlib import Path
 from watchfiles import Change, awatch
 
 from ..base_component import BaseComponent
+from ..chunk_store import BaseChunkStore
 from ..file_parser import BaseFileParser
-from ..file_store import BaseFileStore
 from ...enumeration import ComponentEnum
-from ...file_graph import FileGraph
+from ...schema.file_graph import FileGraph
 
 
 class BaseFileWatcher(BaseComponent):
@@ -31,16 +31,16 @@ class BaseFileWatcher(BaseComponent):
             debounce: int = 2000,
             chunk_tokens: int = 400,
             chunk_overlap: int = 80,
-            file_store: str = "default",
+            chunk_store: str = "default",
             default_parser: str | None = None,
             rebuild_index_on_start: bool = False,
             poll_delay_ms: int = 2000,
             **kwargs,
     ):
         super().__init__(**kwargs)
-        self._file_store_name: str = file_store
+        self._chunk_store_name: str = chunk_store
         self._default_parser_name: str | None = default_parser
-        self.file_store: BaseFileStore | None = None
+        self.chunk_store: BaseChunkStore | None = None
         self._suffix_to_parser: dict[str, BaseFileParser] = {}
         self._default_parser: BaseFileParser | None = None
         self.watch_path: str = watch_path
@@ -66,17 +66,17 @@ class BaseFileWatcher(BaseComponent):
         return self._meta_path / "file_graph.json"
 
     async def _start(self):
-        """Resolve file_store, load or build file_graph, and start watching."""
-        if self._file_store_name:
+        """Resolve chunk_store, load or build file_graph, and start watching."""
+        if self._chunk_store_name:
             assert self.app_context is not None, "app_context must be provided"
 
-            stores = self.app_context.components.get(ComponentEnum.FILE_STORE, {})
-            if self._file_store_name not in stores:
-                raise ValueError(f"File store '{self._file_store_name}' not found.")
-            store = stores[self._file_store_name]
-            if not isinstance(store, BaseFileStore):
-                raise TypeError(f"Expected BaseFileStore, got {type(store).__name__}")
-            self.file_store = store
+            stores = self.app_context.components.get(ComponentEnum.CHUNK_STORE, {})
+            if self._chunk_store_name not in stores:
+                raise ValueError(f"Chunk store '{self._chunk_store_name}' not found.")
+            store = stores[self._chunk_store_name]
+            if not isinstance(store, BaseChunkStore):
+                raise TypeError(f"Expected BaseChunkStore, got {type(store).__name__}")
+            self.chunk_store = store
 
             parsers = self.app_context.components.get(ComponentEnum.FILE_PARSER, {})
             for parser in parsers.values():
@@ -127,13 +127,13 @@ class BaseFileWatcher(BaseComponent):
 
         self._watch_task = None
         self._stop_event.clear()
-        self.file_store = None
+        self.chunk_store = None
         self._suffix_to_parser.clear()
         self._default_parser = None
         self.logger.info("Stopped watching")
 
     async def _scan_existing_files(self) -> None:
-        if not self.file_store:
+        if not self.chunk_store:
             return
 
         watch_path = Path(self.watch_path)
@@ -202,7 +202,7 @@ class BaseFileWatcher(BaseComponent):
         return self._suffix_to_parser.get(suffix, self._default_parser)
 
     async def on_changes(self, changes: set[tuple[Change, str]]) -> None:
-        if not self.file_store:
+        if not self.chunk_store:
             self.logger.warning("File store not initialized, skipping changes")
             return
 
@@ -227,8 +227,8 @@ class BaseFileWatcher(BaseComponent):
             self.logger.debug(f"No parser for {path}, skipping")
             return
         file_meta, chunks = await parser.parse(path)
-        await self.file_store.upsert_file(file_meta, chunks)
-        self.file_graph.add(file_meta)
+        await self.chunk_store.upsert_chunks(path, chunks)
+        self.file_graph.create(file_meta)
         self.logger.info(f"Added {path} ({len(chunks)} chunks)")
 
     async def _on_modified(self, path: str) -> None:
@@ -237,11 +237,11 @@ class BaseFileWatcher(BaseComponent):
             self.logger.debug(f"No parser for {path}, skipping")
             return
         file_meta, chunks = await parser.parse(path)
-        await self.file_store.upsert_file(file_meta, chunks)
-        self.file_graph.update(file_meta)
+        await self.chunk_store.upsert_chunks(path, chunks)
+        self.file_graph.create(file_meta)
         self.logger.info(f"Modified {path} ({len(chunks)} chunks)")
 
     async def _on_deleted(self, path: str) -> None:
-        await self.file_store.delete_file(path)
-        self.file_graph.remove(path)
+        await self.chunk_store.delete_chunks(path)
+        self.file_graph.delete(path)
         self.logger.info(f"Deleted {path}")
