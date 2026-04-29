@@ -643,7 +643,7 @@ class LocomoEvaluator:
             },
             "personal_retriever": {
                 "prompt_dict": {
-                    "user_message": self.retriever_prompt,
+                    "user_message_s2": self.retriever_prompt,
                 },
                 "params": {
                     "return_memory_nodes": True,
