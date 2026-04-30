@@ -2,19 +2,21 @@
 """Unified test suite for file store implementations.
 
 This module provides comprehensive test coverage for SqliteFileStore, ChromaFileStore,
-LocalFileStore and future file store implementations. Tests can be run for specific stores
-or all implementations.
+LocalFileStore, SeekdbFileStore and future file store implementations. Tests can be
+run for specific stores or all implementations.
 
 Usage:
     python test_file_store.py --sqlite     # Test SqliteFileStore only
     python test_file_store.py --chroma     # Test ChromaFileStore only
     python test_file_store.py --local      # Test LocalFileStore only
+    python test_file_store.py --seekdb     # Test SeekdbFileStore only (requires pyseekdb)
     python test_file_store.py --all        # Test all file stores
 """
 
 import argparse
 import asyncio
 import hashlib
+import os
 import shutil
 import time
 from pathlib import Path
@@ -28,6 +30,14 @@ from reme.core.file_store.base_file_store import BaseFileStore
 from reme.core.file_store.chroma_file_store import ChromaFileStore
 from reme.core.file_store.local_file_store import LocalFileStore
 from reme.core.file_store.sqlite_file_store import SqliteFileStore
+
+try:
+    from reme.core.file_store.seekdb_file_store import SeekdbFileStore
+
+    SEEKDB_AVAILABLE = True
+except ImportError:
+    SeekdbFileStore = None  # type: ignore[misc, assignment]
+    SEEKDB_AVAILABLE = False
 from reme.core.schema.file_metadata import FileMetadata
 from reme.core.schema.memory_chunk import MemoryChunk
 from reme.core.utils import load_env
@@ -56,6 +66,15 @@ class TestConfig:
     # LocalFileStore settings
     LOCAL_DB_PATH = "./test_file_store_local"
     LOCAL_FTS_ENABLED = True
+
+    # SeekdbFileStore: embedded by default; SEEKDB_HOST (and optional SEEKDB_PORT) => remote
+    SEEKDB_DB_PATH = "./test_file_store_seekdb"
+    SEEKDB_FTS_ENABLED = True
+    SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
+    SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
+    SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "root")
+    SEEKDB_TENANT = os.environ.get("SEEKDB_TENANT", "sys")
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -191,7 +210,7 @@ def get_store_type(store: BaseFileStore) -> str:
         store: File store instance
 
     Returns:
-        str: Type identifier ("sqlite", "chroma", etc.)
+        str: Type identifier ("sqlite", "chroma", "local", "seekdb", etc.)
     """
     if isinstance(store, SqliteFileStore):
         return "sqlite"
@@ -199,6 +218,8 @@ def get_store_type(store: BaseFileStore) -> str:
         return "chroma"
     elif isinstance(store, LocalFileStore):
         return "local"
+    elif SEEKDB_AVAILABLE and isinstance(store, SeekdbFileStore):
+        return "seekdb"
     else:
         raise ValueError(f"Unknown file store type: {type(store)}")
 
@@ -214,10 +235,16 @@ def create_file_store(store_type: str) -> BaseFileStore:
     """
     config = TestConfig()
 
-    # Initialize embedding model
+    # Initialize embedding model (api_key/base_url from env: EMBEDDING_* or OPENAI_API_KEY)
+    embedding_api_key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    embedding_base_url = os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    # use_dimensions=True so API returns 64-dim, matching collection/table schema for all backends
     embedding_model = OpenAIEmbeddingModel(
         model_name=config.EMBEDDING_MODEL_NAME,
         dimensions=config.EMBEDDING_DIMENSIONS,
+        use_dimensions=True,
+        api_key=embedding_api_key or None,
+        base_url=embedding_base_url or None,
     )
 
     if store_type == "sqlite":
@@ -242,6 +269,28 @@ def create_file_store(store_type: str) -> BaseFileStore:
             embedding_model=embedding_model,
             fts_enabled=config.LOCAL_FTS_ENABLED,
         )
+    elif store_type == "seekdb":
+        if not SEEKDB_AVAILABLE:
+            raise ImportError(
+                "SeekdbFileStore requires pyseekdb. Install with: pip install reme-ai (pyseekdb is included)",
+            )
+        remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
+        kw: dict = {
+            "store_name": config.NAME,
+            "db_path": config.SEEKDB_DB_PATH,
+            "embedding_model": embedding_model,
+            "fts_enabled": config.SEEKDB_FTS_ENABLED,
+            "vector_enabled": True,
+        }
+        if remote:
+            kw["host"] = config.SEEKDB_HOST.strip()
+            kw["port"] = config.SEEKDB_PORT
+            kw["user"] = config.SEEKDB_USER
+            kw["password"] = config.SEEKDB_PASSWORD
+            kw["tenant"] = config.SEEKDB_TENANT
+        else:
+            kw["path"] = str(Path(config.SEEKDB_DB_PATH) / "seekdb.db")
+        return SeekdbFileStore(**kw)
     else:
         raise ValueError(f"Unknown store type: {store_type}")
 
@@ -283,6 +332,12 @@ async def test_start_store(store: BaseFileStore, _store_name: str):
         assert isinstance(store._chunks, dict), "Chunks index should be a dict"
         assert isinstance(store._files, dict), "Files index should be a dict"
         logger.info(f"✓ LocalFileStore ready (chunks file: {store._chunks_file})")
+
+    # Verify SeekdbFileStore initialized
+    if SEEKDB_AVAILABLE and isinstance(store, SeekdbFileStore):
+        assert store.client is not None, "seekdb client should be initialized"
+        assert store.collection is not None, "seekdb collection should exist"
+        logger.info(f"✓ seekdb collection created: {store.collection_name}")
 
 
 async def test_upsert_file(store: BaseFileStore, _store_name: str) -> tuple[FileMetadata, List[MemoryChunk]]:
@@ -1013,6 +1068,18 @@ async def cleanup_store(store: BaseFileStore, store_type: str):
                     json_file.unlink()
                     logger.info(f"✓ Cleaned up file: {json_file}")
 
+        # Clean up SeekdbFileStore directory and metadata file
+        if store_type == "seekdb":
+            config = TestConfig()
+            db_dir = Path(config.SEEKDB_DB_PATH)
+            if db_dir.exists():
+                shutil.rmtree(db_dir)
+                logger.info(f"✓ Cleaned up directory: {db_dir}")
+            metadata_file = db_dir.parent / f"{config.NAME}_file_metadata.json"
+            if metadata_file.exists():
+                metadata_file.unlink()
+                logger.info(f"✓ Cleaned up metadata file: {metadata_file}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1054,6 +1121,11 @@ Examples:
         action="store_true",
         help="Run tests for all available file stores",
     )
+    parser.add_argument(
+        "--seekdb",
+        action="store_true",
+        help="Test SeekdbFileStore (pyseekdb included with reme-ai)",
+    )
 
     args = parser.parse_args()
 
@@ -1066,6 +1138,10 @@ Examples:
             ("chroma", "ChromaFileStore"),
             ("local", "LocalFileStore"),
         ]
+        if SEEKDB_AVAILABLE:
+            stores_to_test.append(("seekdb", "SeekdbFileStore"))
+        else:
+            logger.warning("SeekdbFileStore skipped (pyseekdb not installed)")
     else:
         # Build list based on individual flags
         if args.sqlite:
@@ -1074,6 +1150,8 @@ Examples:
             stores_to_test.append(("chroma", "ChromaFileStore"))
         if args.local:
             stores_to_test.append(("local", "LocalFileStore"))
+        if args.seekdb:
+            stores_to_test.append(("seekdb", "SeekdbFileStore"))
 
         if not stores_to_test:
             # Default to all file stores if no argument provided
@@ -1082,8 +1160,10 @@ Examples:
                 ("chroma", "ChromaFileStore"),
                 ("local", "LocalFileStore"),
             ]
+            if SEEKDB_AVAILABLE:
+                stores_to_test.append(("seekdb", "SeekdbFileStore"))
             print("No file store specified, defaulting to test all file stores")
-            print("Use --sqlite, --chroma, or --local to test specific ones\n")
+            print("Use --sqlite, --chroma, --local, or --seekdb to test specific ones\n")
 
     # Run tests for each file store
     for store_type, store_name in stores_to_test:
