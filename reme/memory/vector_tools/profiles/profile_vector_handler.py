@@ -39,6 +39,7 @@ class ProfileVectorHandler:
         return hash_obj.hexdigest()[:16]
 
     def _base_filters(self) -> dict:
+        """Filters shared by all profile rows in the vector collection."""
         return {
             "memory_type": MemoryType.IDENTITY.value,
             "memory_target": self.memory_target,
@@ -46,6 +47,7 @@ class ProfileVectorHandler:
         }
 
     def _build_profile_node(self, profile: dict, ref_memory_id: str = "") -> MemoryNode:
+        """Turn a profile dict into a ``MemoryNode`` for upsert into the vector store."""
         profile_key = profile.get("profile_key", "").strip()
         profile_value = profile.get("profile_value", "").strip()
         message_time = profile.get("message_time", "")
@@ -69,7 +71,41 @@ class ProfileVectorHandler:
             metadata=metadata,
         )
 
+    def _vector_profile_matches(self, memory_node: MemoryNode) -> bool:
+        """True if ``memory_node`` belongs to this handler's target and profile kind."""
+        if memory_node.memory_target != self.memory_target:
+            return False
+        if memory_node.memory_type is not MemoryType.IDENTITY:
+            return False
+        if memory_node.metadata.get("profile_kind") != self.PROFILE_KIND:
+            return False
+        return True
+
+    async def _get_by_profile_id(self, profile_id: str) -> MemoryNode | None:
+        """Load by vector id and validate filters."""
+        try:
+            vector_node = await self.vector_store.get(profile_id)
+        except KeyError:
+            logger.warning(f"Profile {profile_id} not found in vector store")
+            return None
+        if vector_node is None:
+            logger.warning(f"Profile {profile_id} not found in vector store")
+            return None
+        memory_node = MemoryNode.from_vector_node(vector_node)
+        if not self._vector_profile_matches(memory_node):
+            return None
+        return memory_node
+
+    async def _get_by_profile_key(self, profile_key: str) -> MemoryNode | None:
+        """Load the single row matching ``profile_key`` under base filters."""
+        filters = {**self._base_filters(), "profile_key": profile_key}
+        vector_nodes = await self.vector_store.list(filters=filters, limit=1)
+        if not vector_nodes:
+            return None
+        return MemoryNode.from_vector_node(vector_nodes[0])
+
     async def get_all(self) -> list[MemoryNode]:
+        """List every profile row for this memory target, sorted by store."""
         vector_nodes = await self.vector_store.list(
             filters=self._base_filters(),
             sort_key="message_time",
@@ -78,34 +114,15 @@ class ProfileVectorHandler:
         return [MemoryNode.from_vector_node(node) for node in vector_nodes]
 
     async def get_by(self, *, profile_id: str | None = None, profile_key: str | None = None) -> MemoryNode | None:
+        """Return one profile by stable id or by logical profile key."""
         if not profile_id and not profile_key:
             raise ValueError("Must provide either profile_id or profile_key")
-
         if profile_id:
-            try:
-                vector_node = await self.vector_store.get(profile_id)
-            except KeyError:
-                logger.warning(f"Profile {profile_id} not found in vector store")
-                return None
-            if vector_node is None:
-                logger.warning(f"Profile {profile_id} not found in vector store")
-                return None
-            memory_node = MemoryNode.from_vector_node(vector_node)
-            if memory_node.memory_target != self.memory_target:
-                return None
-            if memory_node.memory_type is not MemoryType.IDENTITY:
-                return None
-            if memory_node.metadata.get("profile_kind") != self.PROFILE_KIND:
-                return None
-            return memory_node
-
-        profile_key = profile_key or ""
-        vector_nodes = await self.vector_store.list(filters={**self._base_filters(), "profile_key": profile_key}, limit=1)
-        if not vector_nodes:
-            return None
-        return MemoryNode.from_vector_node(vector_nodes[0])
+            return await self._get_by_profile_id(profile_id)
+        return await self._get_by_profile_key(profile_key or "")
 
     async def delete(self, profile_id: str | list[str]) -> bool | int:
+        """Delete one id, many ids, or report zero/false when nothing matched."""
         if isinstance(profile_id, list):
             profile_ids = list(dict.fromkeys(pid for pid in profile_id if pid))
             if not profile_ids:
@@ -127,6 +144,7 @@ class ProfileVectorHandler:
         return True
 
     async def delete_all(self) -> int:
+        """Remove all profile vectors for this target; returns how many were deleted."""
         nodes = await self.get_all()
         if not nodes:
             return 0
@@ -134,6 +152,7 @@ class ProfileVectorHandler:
         return len(nodes)
 
     async def add_batch(self, profiles: list[dict], ref_memory_id: str = "") -> list[MemoryNode]:
+        """Upsert many profiles at once (last dict wins per key), then enforce capacity."""
         if not profiles:
             return []
 
@@ -144,7 +163,9 @@ class ProfileVectorHandler:
                 continue
             deduped_profiles[profile_key] = profile
 
-        new_nodes = [self._build_profile_node(profile, ref_memory_id=ref_memory_id) for profile in deduped_profiles.values()]
+        new_nodes = [
+            self._build_profile_node(profile, ref_memory_id=ref_memory_id) for profile in deduped_profiles.values()
+        ]
         if not new_nodes:
             return []
 
@@ -154,6 +175,7 @@ class ProfileVectorHandler:
         return new_nodes
 
     async def add(self, message_time: str, profile_key: str, profile_value: str, ref_memory_id: str = "") -> MemoryNode:
+        """Insert or replace a single profile row."""
         nodes = await self.add_batch(
             [
                 {
@@ -173,6 +195,7 @@ class ProfileVectorHandler:
         profile_key: str,
         profile_value: str,
     ) -> MemoryNode | None:
+        """Replace content and key for ``profile_id``; return ``None`` if missing."""
         existing_node = await self.get_by(profile_id=profile_id)
         if existing_node is None:
             return None
@@ -197,6 +220,7 @@ class ProfileVectorHandler:
         return new_node
 
     async def search(self, query: str | list[str], limit: int = 5) -> list[MemoryNode]:
+        """Semantic search with de-duplication across multiple query strings."""
         queries = [query] if isinstance(query, str) else query
         seen_nodes: dict[str, MemoryNode] = {}
         for item in queries:
@@ -211,6 +235,7 @@ class ProfileVectorHandler:
         return nodes[:limit]
 
     async def enforce_capacity(self):
+        """Drop oldest rows when count exceeds ``max_capacity``."""
         nodes = await self.get_all()
         overflow = len(nodes) - self.max_capacity
         if overflow <= 0:

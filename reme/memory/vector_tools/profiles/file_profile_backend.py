@@ -42,11 +42,13 @@ class FileProfileBackend(BaseProfileBackend):
         logger.info(f"Saved {len(nodes)} profiles to {self.cache_key}")
 
     def get_all_sync(self) -> list[MemoryNode]:
+        """Load all profile nodes from cache, ordered by ``message_time``."""
         nodes = self._load_nodes()
         nodes.sort(key=lambda n: n.message_time)
         return nodes
 
     def get_by_sync(self, *, profile_id: str | None = None, profile_key: str | None = None) -> MemoryNode | None:
+        """Return the first node matching ``profile_id`` or ``profile_key``."""
         if not profile_id and not profile_key:
             raise ValueError("Must provide either profile_id or profile_key")
 
@@ -58,6 +60,7 @@ class FileProfileBackend(BaseProfileBackend):
         return None
 
     def delete_sync(self, profile_id: str | list[str]) -> bool | int:
+        """Remove one id, many ids, or none; returns bool, count, or 0/false if nothing removed."""
         nodes = self._load_nodes()
         original_count = len(nodes)
 
@@ -83,6 +86,7 @@ class FileProfileBackend(BaseProfileBackend):
         return True
 
     def delete_all_sync(self) -> int:
+        """Clear every cached profile for this target; returns how many were stored."""
         nodes = self._load_nodes()
         count = len(nodes)
         self._save_nodes([], apply_limits=False)
@@ -90,6 +94,7 @@ class FileProfileBackend(BaseProfileBackend):
         return count
 
     def add_sync(self, message_time: str, profile_key: str, profile_value: str, ref_memory_id: str = "") -> MemoryNode:
+        """Append a profile row, replacing any existing row with the same key."""
         nodes = self._load_nodes()
 
         new_node = MemoryNode(
@@ -112,6 +117,7 @@ class FileProfileBackend(BaseProfileBackend):
         return new_node
 
     def add_batch_sync(self, profiles: list[dict], ref_memory_id: str = "") -> list[MemoryNode]:
+        """Insert many profiles in one write, deduping by key against existing rows."""
         if not profiles:
             return []
 
@@ -146,6 +152,7 @@ class FileProfileBackend(BaseProfileBackend):
         profile_key: str,
         profile_value: str,
     ) -> MemoryNode | None:
+        """Update fields for ``profile_id``; return ``None`` if that id is missing."""
         nodes = self._load_nodes()
         target_node = None
         for node in nodes:
@@ -165,6 +172,7 @@ class FileProfileBackend(BaseProfileBackend):
         return target_node
 
     def search_sync(self, query: str | list[str], limit: int = 5) -> list[MemoryNode]:
+        """Simple substring/token match over key and content, best matches first."""
         queries = [query] if isinstance(query, str) else query
         query_terms = [q.strip().lower() for q in queries if q and q.strip()]
         if not query_terms:

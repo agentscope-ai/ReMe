@@ -115,7 +115,8 @@ class ProfileHandler:
         return await self.backend.search(query=query, limit=limit)
 
     @staticmethod
-    def _format_node(node: MemoryNode, add_profile_id: bool = False, add_history_id: bool = False) -> str:
+    def format_node(node: MemoryNode, add_profile_id: bool = False, add_history_id: bool = False) -> str:
+        """Render a profile ``MemoryNode`` as a single-line string for tools/logs."""
         parts = []
         profile_key = str(node.metadata.get("profile_key", node.when_to_use))
 
@@ -134,7 +135,7 @@ class ProfileHandler:
 
     async def aread_all(self, add_profile_id: bool = False, add_history_id: bool = False) -> str:
         nodes = await self.aget_all()
-        formatted_profiles = [self._format_node(node, add_profile_id, add_history_id) for node in nodes]
+        formatted_profiles = [self.format_node(node, add_profile_id, add_history_id) for node in nodes]
         logger.info(f"Read {len(formatted_profiles)} profiles from {self.cache_key}")
         return "\n".join(formatted_profiles).strip()
 
@@ -146,7 +147,7 @@ class ProfileHandler:
         add_history_id: bool = False,
     ) -> tuple[list[MemoryNode], str]:
         nodes = await self.asearch(query=query, limit=limit)
-        formatted_profiles = [self._format_node(node, add_profile_id, add_history_id) for node in nodes]
+        formatted_profiles = [self.format_node(node, add_profile_id, add_history_id) for node in nodes]
         return nodes, "\n".join(formatted_profiles).strip()
 
     def delete(self, profile_id: str | list[str]) -> bool | int:

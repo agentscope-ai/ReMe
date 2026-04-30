@@ -95,7 +95,7 @@ class RetrieveProfile(BaseMemoryTool):
             output = "No new profiles found."
         else:
             output = "\n".join(
-                [ProfileHandler._format_node(node, add_profile_id=True, add_history_id=True) for node in new_nodes],
+                [ProfileHandler.format_node(node, add_profile_id=True, add_history_id=True) for node in new_nodes],
             )
 
         logger.info(f"Retrieved {len(profile_nodes)} profiles, {len(new_nodes)} new after deduplication")
