@@ -2,8 +2,8 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, ChromaVectorStore, and ObVecVectorStore implementations.
-Tests can be run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore, and HologresVectorStore
+implementations. Tests can be run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -12,6 +12,7 @@ Usage:
     python test_vector_store.py --qdrant     # Test QdrantVectorStore only
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
     python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
+    python test_vector_store.py --hologres   # Test HologresVectorStore only
     python test_vector_store.py --all        # Test all vector stores
 """
 
@@ -31,6 +32,7 @@ from reme.core.utils import load_env, cosine_similarity
 from reme.core.vector_store import (
     BaseVectorStore,
     ChromaVectorStore,
+    HologresVectorStore,
     LocalVectorStore,
     ESVectorStore,
     ObVecVectorStore,
@@ -89,6 +91,20 @@ class TestConfig:
     OBVEC_USER = os.environ.get("OBVEC_USER", "root")
     OBVEC_PASSWORD = os.environ.get("OBVEC_PASSWORD", "root")
     OBVEC_DATABASE = os.environ.get("OBVEC_DATABASE", "test")
+
+    # HologresVectorStore settings
+    HOLOGRES_DSN = os.environ.get(
+        "HOLOGRES_DSN",
+        "",
+    )  # Full DSN connection string (overrides host/port/database/user/password)
+    HOLOGRES_HOST = os.environ.get("HOLOGRES_HOST", "localhost")
+    HOLOGRES_PORT = int(os.environ.get("HOLOGRES_PORT", "80"))
+    HOLOGRES_DATABASE = os.environ.get("HOLOGRES_DATABASE", "postgres")
+    HOLOGRES_USER = os.environ.get("HOLOGRES_USER", "postgres")
+    HOLOGRES_PASSWORD = os.environ.get("HOLOGRES_PASSWORD", "")
+    HOLOGRES_SCHEMA = os.environ.get("HOLOGRES_SCHEMA", "public")
+    HOLOGRES_MIN_SIZE = 1
+    HOLOGRES_MAX_SIZE = 5
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -192,6 +208,17 @@ class SampleDataGenerator:
 # ==================== Vector Store Factory ====================
 
 
+_STORE_TYPE_MAP = {
+    LocalVectorStore: "local",
+    QdrantVectorStore: "qdrant",
+    ESVectorStore: "es",
+    PGVectorStore: "pgvector",
+    ChromaVectorStore: "chroma",
+    ObVecVectorStore: "obvec",
+    HologresVectorStore: "hologres",
+}
+
+
 def get_store_type(store: BaseVectorStore) -> str:
     """Get the type identifier of a vector store instance.
 
@@ -199,29 +226,107 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", "obvec", or "hologres")
     """
-    if isinstance(store, LocalVectorStore):
-        return "local"
-    elif isinstance(store, QdrantVectorStore):
-        return "qdrant"
-    elif isinstance(store, ESVectorStore):
-        return "es"
-    elif isinstance(store, PGVectorStore):
-        return "pgvector"
-    elif isinstance(store, ChromaVectorStore):
-        return "chroma"
-    elif isinstance(store, ObVecVectorStore):
-        return "obvec"
-    else:
-        raise ValueError(f"Unknown vector store type: {type(store)}")
+    for cls, name in _STORE_TYPE_MAP.items():
+        if isinstance(store, cls):
+            return name
+    raise ValueError(f"Unknown vector store type: {type(store)}")
+
+
+def _build_store_kwargs(store_type, config, collection_name, embedding_model):
+    """Build keyword arguments for creating a vector store instance."""
+    store_kwargs_map = {
+        "local": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": config.LOCAL_ROOT_PATH,
+        },
+        "es": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": tempfile.mkdtemp(prefix="test_es_"),
+            "hosts": config.ES_HOSTS,
+            "basic_auth": config.ES_BASIC_AUTH,
+        },
+        "qdrant": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": config.QDRANT_PATH or tempfile.mkdtemp(prefix="test_qdrant_"),
+            "host": config.QDRANT_HOST,
+            "port": config.QDRANT_PORT,
+            "url": config.QDRANT_URL,
+            "api_key": config.QDRANT_API_KEY,
+            "distance": "cosine",
+            "on_disk": False,
+        },
+        "pgvector": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": tempfile.mkdtemp(prefix="test_pgvector_"),
+            "dsn": config.PG_DSN,
+            "min_size": config.PG_MIN_SIZE,
+            "max_size": config.PG_MAX_SIZE,
+            "use_hnsw": config.PG_USE_HNSW,
+            "use_diskann": config.PG_USE_DISKANN,
+        },
+        "chroma": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": config.CHROMA_PATH,
+            "host": config.CHROMA_HOST,
+            "port": config.CHROMA_PORT,
+            "api_key": config.CHROMA_API_KEY,
+            "tenant": config.CHROMA_TENANT,
+            "database": config.CHROMA_DATABASE,
+        },
+        "obvec": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": tempfile.mkdtemp(prefix="test_obvec_"),
+            "uri": config.OBVEC_URI,
+            "user": config.OBVEC_USER,
+            "password": config.OBVEC_PASSWORD,
+            "database": config.OBVEC_DATABASE,
+            "index_metric": "cosine",
+            "index_ef_search": 100,
+        },
+        "hologres": lambda: {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": tempfile.mkdtemp(prefix="test_hologres_"),
+            "host": config.HOLOGRES_HOST,
+            "port": config.HOLOGRES_PORT,
+            "database": config.HOLOGRES_DATABASE,
+            "user": config.HOLOGRES_USER,
+            "password": config.HOLOGRES_PASSWORD,
+            "schema": config.HOLOGRES_SCHEMA,
+            "min_size": config.HOLOGRES_MIN_SIZE,
+            "max_size": config.HOLOGRES_MAX_SIZE,
+            **({"dsn": config.HOLOGRES_DSN} if config.HOLOGRES_DSN else {}),
+        },
+    }
+    if store_type not in store_kwargs_map:
+        raise ValueError(f"Unknown store type: {store_type}")
+    return store_kwargs_map[store_type]()
+
+
+_STORE_CLASS_MAP = {
+    "local": LocalVectorStore,
+    "es": ESVectorStore,
+    "qdrant": QdrantVectorStore,
+    "pgvector": PGVectorStore,
+    "chroma": ChromaVectorStore,
+    "obvec": ObVecVectorStore,
+    "hologres": HologresVectorStore,
+}
 
 
 def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStore:
     """Create a vector store instance based on type.
 
     Args:
-        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", or "obvec")
+        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", "obvec", or "hologres")
         collection_name: Name of the collection
 
     Returns:
@@ -235,68 +340,9 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         dimensions=config.EMBEDDING_DIMENSIONS,
     )
 
-    if store_type == "local":
-        return LocalVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=config.LOCAL_ROOT_PATH,
-        )
-    elif store_type == "es":
-        return ESVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=tempfile.mkdtemp(prefix="test_es_"),
-            hosts=config.ES_HOSTS,
-            basic_auth=config.ES_BASIC_AUTH,
-        )
-    elif store_type == "qdrant":
-        return QdrantVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=config.QDRANT_PATH or tempfile.mkdtemp(prefix="test_qdrant_"),
-            host=config.QDRANT_HOST,
-            port=config.QDRANT_PORT,
-            url=config.QDRANT_URL,
-            api_key=config.QDRANT_API_KEY,
-            distance="cosine",
-            on_disk=False,
-        )
-    elif store_type == "pgvector":
-        return PGVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=tempfile.mkdtemp(prefix="test_pgvector_"),
-            dsn=config.PG_DSN,
-            min_size=config.PG_MIN_SIZE,
-            max_size=config.PG_MAX_SIZE,
-            use_hnsw=config.PG_USE_HNSW,
-            use_diskann=config.PG_USE_DISKANN,
-        )
-    elif store_type == "chroma":
-        return ChromaVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=config.CHROMA_PATH,
-            host=config.CHROMA_HOST,
-            port=config.CHROMA_PORT,
-            api_key=config.CHROMA_API_KEY,
-            tenant=config.CHROMA_TENANT,
-            database=config.CHROMA_DATABASE,
-        )
-    elif store_type == "obvec":
-        return ObVecVectorStore(
-            collection_name=collection_name,
-            embedding_model=embedding_model,
-            db_path=tempfile.mkdtemp(prefix="test_obvec_"),
-            uri=config.OBVEC_URI,
-            user=config.OBVEC_USER,
-            password=config.OBVEC_PASSWORD,
-            database=config.OBVEC_DATABASE,
-            index_metric="cosine",
-            index_ef_search=100,
-        )
-    else:
-        raise ValueError(f"Unknown store type: {store_type}")
+    kwargs = _build_store_kwargs(store_type, config, collection_name, embedding_model)
+    store_cls = _STORE_CLASS_MAP[store_type]
+    return store_cls(**kwargs)
 
 
 # ==================== Test Functions ====================
@@ -614,7 +660,7 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
 
     # Elasticsearch, PostgreSQL and OceanBase require lowercase table/index names
     store_type = get_store_type(store)
-    if store_type in ("es", "pgvector", "obvec"):
+    if store_type in ("es", "pgvector", "obvec", "hologres"):
         copy_collection_name = copy_collection_name.lower()
 
     # Clean up if exists
@@ -1811,6 +1857,7 @@ Examples:
   python test_vector_store.py --qdrant     # Test QdrantVectorStore only
   python test_vector_store.py --chroma     # Test ChromaVectorStore only
   python test_vector_store.py --obvec      # Test ObVecVectorStore (seekdb / OceanBase)
+  python test_vector_store.py --hologres   # Test HologresVectorStore
   python test_vector_store.py --all        # Test all vector stores
         """,
     )
@@ -1845,6 +1892,11 @@ Examples:
         help="Test ObVecVectorStore",
     )
     parser.add_argument(
+        "--hologres",
+        action="store_true",
+        help="Test HologresVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1863,6 +1915,7 @@ Examples:
             ("qdrant", "QdrantVectorStore"),
             ("chroma", "ChromaVectorStore"),
             ("obvec", "ObVecVectorStore"),
+            ("hologres", "HologresVectorStore"),
         ]
     else:
         # Build list based on individual flags
@@ -1878,6 +1931,8 @@ Examples:
             stores_to_test.append(("chroma", "ChromaVectorStore"))
         if args.obvec:
             stores_to_test.append(("obvec", "ObVecVectorStore"))
+        if args.hologres:
+            stores_to_test.append(("hologres", "HologresVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1888,10 +1943,11 @@ Examples:
                 ("qdrant", "QdrantVectorStore"),
                 ("chroma", "ChromaVectorStore"),
                 ("obvec", "ObVecVectorStore"),
+                ("hologres", "HologresVectorStore"),
             ]
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--hologres to test specific ones\n",
             )
 
     # Run tests for each vector store
