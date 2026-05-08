@@ -26,17 +26,17 @@ class BaseEmbeddingModel(BaseComponent):
     component_type = ComponentEnum.EMBEDDING_MODEL
 
     def __init__(
-            self,
-            api_key: str | None = None,
-            base_url: str | None = None,
-            model_name: str = "",
-            dimensions: int = 1024,
-            pass_dimensions: bool = False,
-            max_batch_size: int = 10,
-            max_input_length: int = 8192,
-            max_cache_size: int = 2000,
-            enable_cache: bool = True,
-            **kwargs,
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model_name: str = "",
+        dimensions: int = 1024,
+        pass_dimensions: bool = False,
+        max_batch_size: int = 10,
+        max_input_length: int = 8192,
+        max_cache_size: int = 2000,
+        enable_cache: bool = True,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.api_key: str = api_key or os.environ.get("EMBEDDING_API_KEY", "")
@@ -81,7 +81,7 @@ class BaseEmbeddingModel(BaseComponent):
             self.logger.warning(f"Embedding dim {actual_len} < expected {self.dimensions}, padding")
             return embedding + [0.0] * (self.dimensions - actual_len)
         self.logger.warning(f"Embedding dim {actual_len} > expected {self.dimensions}, truncating")
-        return embedding[:self.dimensions]
+        return embedding[: self.dimensions]
 
     def _get_cache_key(self, text: str) -> str:
         """Generate cache key from text + model_name + dimensions."""
@@ -109,7 +109,9 @@ class BaseEmbeddingModel(BaseComponent):
         for key, emb in zip(data["keys"], data["embeddings"]):
             emb_list = emb.tolist()
             if len(emb_list) != self.dimensions:
-                self.logger.warning(f"Cache dimension mismatch for {key}: expected {self.dimensions}, got {len(emb_list)}")
+                self.logger.warning(
+                    f"Cache dimension mismatch for {key}: expected {self.dimensions}, got {len(emb_list)}",
+                )
                 continue
             if len(self._embedding_cache) >= self.max_cache_size:
                 self.logger.info(f"Cache limit reached ({self.max_cache_size}), loaded {loaded_count}")
@@ -188,7 +190,7 @@ class BaseEmbeddingModel(BaseComponent):
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]:
         """Get embeddings for multiple texts with cache and batching."""
         # TODO change to bytes instead of str
-        truncated_texts = [t[:self.max_input_length] for t in input_text]
+        truncated_texts = [t[: self.max_input_length] for t in input_text]
         results: list[list[float] | None] = [None] * len(truncated_texts)
         texts_to_compute: list[tuple[int, str]] = []
 
@@ -202,7 +204,7 @@ class BaseEmbeddingModel(BaseComponent):
         if texts_to_compute:
             uncached_texts = [text for _, text in texts_to_compute]
             for i in range(0, len(uncached_texts), self.max_batch_size):
-                batch = texts_to_compute[i:i + self.max_batch_size]
+                batch = texts_to_compute[i : i + self.max_batch_size]
                 batch_indices = [idx for idx, _ in batch]
                 batch_texts = [text for _, text in batch]
 

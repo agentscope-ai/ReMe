@@ -8,12 +8,11 @@ from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
 
 from .base_component import BaseComponent
-from .chunk_store import BaseChunkStore
+from .file_store import BaseFileStore
 from .embedding import BaseEmbeddingModel
 from .prompt_handler import PromptHandler
 from .runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
-from ..schema.file_graph import FileGraph
 
 
 class BaseStep(BaseComponent):
@@ -28,12 +27,12 @@ class BaseStep(BaseComponent):
         return instance
 
     def __init__(
-            self,
-            language: str = "",
-            prompt_dict: dict[str, str] | None = None,
-            input_mapping: dict[str, str] | None = None,
-            output_mapping: dict[str, str] | None = None,
-            **kwargs,
+        self,
+        language: str = "",
+        prompt_dict: dict[str, str] | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.language = language
@@ -66,6 +65,17 @@ class BaseStep(BaseComponent):
         comp = self.app_context.components[key][name]
         return getattr(comp, attr) if attr else comp
 
+    def _get_component_optional(self, key: ComponentEnum, name: str = "default", attr: str | None = None):
+        """Like `_get_component` but returns None instead of raising when
+        the component / attribute is missing. For features that should
+        gracefully degrade when an LLM (etc.) isn't configured."""
+        if self.app_context is None:
+            return None
+        comp = self.app_context.components.get(key, {}).get(name)
+        if comp is None:
+            return None
+        return getattr(comp, attr, None) if attr else comp
+
     @property
     def as_llm(self) -> ChatModelBase:
         name = self.kwargs.get("as_llm", "default")
@@ -74,31 +84,45 @@ class BaseStep(BaseComponent):
     @property
     def as_llm_formatter(self) -> FormatterBase:
         name = self.kwargs.get("as_llm_formatter", "default")
-        return name if isinstance(name, FormatterBase) else self._get_component(ComponentEnum.AS_LLM_FORMATTER, name,
-                                                                                "formatter")
+        return (
+            name
+            if isinstance(name, FormatterBase)
+            else self._get_component(
+                ComponentEnum.AS_LLM_FORMATTER,
+                name,
+                "formatter",
+            )
+        )
 
     @property
     def as_token_counter(self) -> TokenCounterBase:
         name = self.kwargs.get("as_token_counter", "default")
-        return name if isinstance(name, TokenCounterBase) else self._get_component(ComponentEnum.AS_TOKEN_COUNTER, name,
-                                                                                   "token_counter")
+        return (
+            name
+            if isinstance(name, TokenCounterBase)
+            else self._get_component(
+                ComponentEnum.AS_TOKEN_COUNTER,
+                name,
+                "token_counter",
+            )
+        )
 
     @property
-    def chunk_store(self) -> BaseChunkStore:
-        name = self.kwargs.get("chunk_store", "default")
-        return name if isinstance(name, BaseChunkStore) else self._get_component(ComponentEnum.CHUNK_STORE, name)
-
-    @property
-    def file_graph(self) -> FileGraph:
-        name = self.kwargs.get("file_watcher", "default")
-        watcher = self._get_component(ComponentEnum.FILE_WATCHER, name)
-        return watcher.file_graph
+    def file_store(self) -> BaseFileStore:
+        name = self.kwargs.get("file_store", "default")
+        return name if isinstance(name, BaseFileStore) else self._get_component(ComponentEnum.FILE_STORE, name)
 
     @property
     def embedding(self) -> BaseEmbeddingModel:
         name = self.kwargs.get("embedding", "default")
-        return name if isinstance(name, BaseEmbeddingModel) else self._get_component(ComponentEnum.EMBEDDING_MODEL,
-                                                                                     name)
+        return (
+            name
+            if isinstance(name, BaseEmbeddingModel)
+            else self._get_component(
+                ComponentEnum.EMBEDDING_MODEL,
+                name,
+            )
+        )
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         return self.prompt.prompt_format(prompt_name=prompt_name, **kwargs)

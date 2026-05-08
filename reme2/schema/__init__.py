@@ -5,7 +5,9 @@ from .as_msg_stat import AsBlockStat, AsMsgStat
 from .base_node import BaseNode
 from .chunk_filter import ChunkFilter
 from .file_chunk import FileChunk
+from .file_edge import FileEdge
 from .file_metadata import FileMetadata
+from .parsed_file import ParsedFile
 from .request import Request
 from .response import Response
 from .stream_chunk import StreamChunk
@@ -19,7 +21,9 @@ __all__ = [
     "BaseNode",
     "ChunkFilter",
     "FileChunk",
+    "FileEdge",
     "FileMetadata",
+    "ParsedFile",
     "Request",
     "Response",
     "StreamChunk",

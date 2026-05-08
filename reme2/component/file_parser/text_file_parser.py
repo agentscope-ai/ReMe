@@ -8,7 +8,7 @@ import aiofiles
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
 from ...enumeration import FileSuffixEnum
-from ...schema import FileChunk, FileMetadata
+from ...schema import FileChunk, ParsedFile
 
 
 @R.register("text")
@@ -23,9 +23,14 @@ class TextFileParser(BaseFileParser):
         self.chunk_size = max(32, chunk_tokens * 4)
         self.overlap_size = max(0, chunk_overlap * 4)
 
-    async def parse(self, path: str) -> tuple[FileMetadata, list[FileChunk]]:
+    async def parse(
+        self,
+        path: str,
+        existing_chunks: list[FileChunk] | None = None,
+    ) -> ParsedFile:
         file_path = Path(path)
         stat = file_path.stat()
+        absolute_path = str(file_path.absolute())
 
         try:
             async with aiofiles.open(file_path, encoding=self.encoding) as f:
@@ -34,16 +39,19 @@ class TextFileParser(BaseFileParser):
             async with aiofiles.open(file_path, encoding=self.encoding, errors="ignore") as f:
                 content = await f.read()
         except Exception:
-            content = None
+            content = ""
 
-        file_meta = FileMetadata(
+        chunks = self._chunk(content, absolute_path) if content else []
+        dirty = self._hash_diff_attach(chunks, existing_chunks)
+        if dirty:
+            await self._embed_chunks(dirty)
+
+        return ParsedFile(
             file=file_path.stem,
-            path=str(file_path.absolute()),
+            path=absolute_path,
             st_mtime=stat.st_mtime,
+            chunks=chunks,
         )
-
-        chunks = self._chunk(content, file_meta.path) if content else []
-        return file_meta, chunks
 
     def _chunk(self, text: str, path: str) -> list[FileChunk]:
         """Split text into chunks with overlap."""
@@ -58,7 +66,7 @@ class TextFileParser(BaseFileParser):
         for line_no, line in enumerate(lines, 1):
             # Split long lines into segments
             for start in range(0, max(1, len(line)), self.chunk_size):
-                seg = line[start:start + self.chunk_size]
+                seg = line[start : start + self.chunk_size]
                 seg_chars = len(seg) + 1  # +1 for newline
 
                 # Flush when buffer would exceed limit
@@ -82,14 +90,16 @@ class TextFileParser(BaseFileParser):
         h = hashlib.sha256(chunk_text.encode()).hexdigest()
         chunk_id = hashlib.sha256(f"{path}:{start_line}:{end_line}:{h}:{len(chunks)}".encode()).hexdigest()
 
-        chunks.append(FileChunk(
-            id=chunk_id,
-            path=path,
-            start_line=start_line,
-            end_line=end_line,
-            text=chunk_text,
-            hash=h,
-        ))
+        chunks.append(
+            FileChunk(
+                id=chunk_id,
+                path=path,
+                start_line=start_line,
+                end_line=end_line,
+                text=chunk_text,
+                hash=h,
+            ),
+        )
 
     def _carry_overlap(self, buf: list[tuple[str, int]]) -> tuple[list[tuple[str, int]], int]:
         """Keep overlapping lines from the end of buffer."""
