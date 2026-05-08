@@ -2,7 +2,9 @@
 
 from . import as_llm
 from . import as_llm_formatter
-from . import chunk_store
+from . import as_token_counter
+from . import edge_extractor
+from . import file_store
 from . import client
 from . import embedding
 from . import file_parser
@@ -27,7 +29,9 @@ __all__ = [
     # base components
     "as_llm",
     "as_llm_formatter",
-    "chunk_store",
+    "as_token_counter",
+    "edge_extractor",
+    "file_store",
     "client",
     "embedding",
     "file_parser",

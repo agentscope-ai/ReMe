@@ -1,4 +1,5 @@
 """Base job component for sequential step execution."""
+
 from typing import TYPE_CHECKING
 
 from ..base_component import BaseComponent
@@ -18,11 +19,11 @@ class BaseJob(BaseComponent):
     component_type = ComponentEnum.JOB
 
     def __init__(
-            self,
-            description: str = "",
-            parameters: dict | None = None,
-            steps: list[ComponentConfig] | None = None,
-            **kwargs,
+        self,
+        description: str = "",
+        parameters: dict | None = None,
+        steps: list[ComponentConfig] | None = None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.description = description
@@ -32,14 +33,14 @@ class BaseJob(BaseComponent):
 
     async def _start(self) -> None:
         assert self.app_context is not None, "app_context must be provided"
-        for config in self.step_configs:
+        for raw in self.step_configs:
+            config = raw if isinstance(raw, ComponentConfig) else ComponentConfig(**raw)
             if not config.backend:
                 raise ValueError(f"Step is missing the required 'backend' field")
             step_cls = R.get(ComponentEnum.STEP, config.backend)
             if not step_cls:
                 raise ValueError(
-                    f"Step references an unregistered backend '{config.backend}' "
-                    f"of type '{ComponentEnum.STEP}'",
+                    f"Step references an unregistered backend '{config.backend}' " f"of type '{ComponentEnum.STEP}'",
                 )
             params = config.model_dump()
             params["app_context"] = self.app_context

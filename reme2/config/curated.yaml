@@ -1,0 +1,220 @@
+app_name: reme-curated
+enable_logo: false
+log_to_console: true
+log_to_file: false
+
+# Curated profile: three MCP tools surfaced —
+#   `query`         — graph-aware hybrid retrieval
+#   `sync`          — hot-path event sync (idempotent upsert per (date, name))
+#   `ingest`        — LLM-driven distillation over existing files (cold path)
+#
+# The agent calls `sync` continuously through the task — picking a
+# stable `name` per logical thread so each call extends the same
+# event folder rather than fragmenting. At task completion (or
+# PreCompact / SessionEnd) it calls `ingest` once to distill the
+# active events into topic-level cognition.
+#
+# For full direct control over every memory_* primitive see ./full.yaml.
+
+service:
+  backend: mcp
+  transport: stdio
+  sidecar_http: true
+  sidecar_http_host: "127.0.0.1"
+  sidecar_http_port: 8765
+  sidecar_info_path: "./vault/.reme/sidecar.json"
+
+jobs:
+  - backend: base
+    name: query
+    description: |
+      Graph-aware hybrid retrieval: vector + keyword + 1-hop wikilink
+      BFS fusion. Use for "what do I know about X" / "did I work on Y" /
+      "what's connected to [[Z]]". Anchor mode: include `[[Target]]` in
+      the query to seed BFS at that file. Topic-rooted mode: pass `seeds`
+      explicitly. Returns chunks ranked by combined relevance + graph
+      proximity, each tagged with `graph_hop`.
+    parameters:
+      type: object
+      properties:
+        query: { type: string }
+        max_results: { type: integer, default: 5 }
+        min_score: { type: number, default: 0.0 }
+        graph_depth:
+          type: integer
+          default: 1
+          description: "BFS hops from seeds. 1 covers immediate neighbors."
+        seeds:
+          type: array
+          items: { type: string }
+          description: "Explicit seed paths (topic-rooted mode)."
+        paths: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        exclude_paths: { type: array, items: { type: string } }
+    steps:
+      - backend: memory_graph_search
+
+  - backend: base
+    name: sync
+    description: |
+      Hot-path event sync: idempotent upsert of an event FOLDER under
+      `events/{date}/{name}/`. The folder contains the index `{name}.md`
+      (Event schema, frontmatter + narrative + Materials footer) plus
+      any raw materials you pass — conversation snippets, tool outputs,
+      data dumps. The watcher indexes everything inside.
+
+      CONTINUITY MODEL: pick a stable `name` per logical thread and
+      call `sync` repeatedly through the task. Each call extends the
+      same folder:
+        * new `content` → appended under a `## Update — {iso}` section
+        * new `materials` → siblings (auto-suffix on filename collision)
+        * `topics` + `tags` merged (union) into frontmatter
+        * Materials footer regenerated to list every artifact in the folder
+
+      First call (folder doesn't exist) → CREATE; subsequent calls with
+      the same `name` while the event is `status: active` → APPEND.
+      If the event is `status: distilled` / `archived`, `sync` REFUSES
+      and returns a `suggested_name` so you start a fresh thread instead
+      of mutating prior cognition.
+
+      Zero LLM cost. Call CONTINUOUSLY through a task as facts land,
+      and especially at PreCompact to dump verbose raw text into
+      `materials` before context truncation loses it. The folder is
+      the unit `ingest` later reads from.
+    parameters:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: "kebab-case event identifier (folder + index stem). Reuse the same name across calls in one thread to keep extending the same folder."
+        description: { type: string, description: "one-line summary for index frontmatter (set on initial create only)" }
+        content: { type: string, description: "markdown body. Initial create: the body. Subsequent calls: appended as a `## Update — {iso}` section." }
+        topics:
+          type: array
+          items: { type: string }
+          description: "related topic wikilinks. Unioned into frontmatter on append."
+        tags: { type: array, items: { type: string }, description: "free-form tags; unioned on append." }
+        materials:
+          type: array
+          description: "Raw artifacts written as siblings of the index. Filenames must be safe (letters/digits/dot/underscore/dash). Filename collision with an existing artifact auto-suffixes (foo.txt → foo-2.txt)."
+          items:
+            type: object
+            required: [filename, content]
+            properties:
+              filename: { type: string, description: "e.g. 'raw-prompt.md', 'tool-output.txt'" }
+              content: { type: string }
+        on_date: { type: string, description: "ISO date for events/{date}/ bucket; defaults to today" }
+        origin_session_id: { type: string, description: "set on initial create only" }
+    steps:
+      - backend: sync
+
+  - backend: base
+    name: ingest
+    description: |
+      Cold-path LLM-driven distillation. Run on EXPLICIT HANDOFF only:
+      task completion / SessionEnd / when the agent decides the working
+      set is ready. Not a per-turn tool.
+
+      The agent hands off the working set in two interchangeable forms
+      (use both as appropriate):
+        * `content` — inline material to distill: a hint / summary, or
+          raw text the agent is feeding directly.
+        * `related_paths` — paths the agent points at: event folder
+          indexes (Ingestor follows `## Materials` to read each
+          artifact), individual material files, or candidate topics.
+
+      The Ingestor reads the working set + linked topics, decides which
+      existing topics to update / create, and flips each distilled
+      event's status to "distilled". Returns an audit trail.
+
+      NOT for raw event logging — that's `sync`'s job.
+    parameters:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          description: "Inline material the agent is feeding the Ingestor: distillation hint, session summary, or raw text. Combined with `related_paths` to form the working set."
+        hint:
+          type: string
+          description: "Caller guidance about target / intent."
+        target_path:
+          type: string
+          description: "Optional suggested path; required for the no-LLM degraded path."
+        metadata:
+          type: object
+          description: "Suggested frontmatter for any new topic."
+        related_paths:
+          type: array
+          items: { type: string }
+          description: "Pointers the agent is feeding the Ingestor: event folder indexes (Ingestor reads materials from `## Materials`), individual material files, or candidate topics."
+    steps:
+      - backend: ingestor
+
+components:
+  # Ingestor LLM (opt-in). Without this the Ingestor degrades to a
+  # direct create from explicit `target_path`; edits/renames/deletes
+  # require the LLM. Uncomment + provide LLM_API_KEY to enable.
+  #
+  # as_llm:
+  #   default:
+  #     backend: openai
+  #     model_name: ${LLM_MODEL_NAME:-gpt-4o-mini}
+  #     api_key: ${LLM_API_KEY}
+  #     client_kwargs:
+  #       base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
+  #     stream: false
+  #
+  # as_llm_formatter:
+  #   default:
+  #     backend: openai
+
+  as_token_counter:
+    default:
+      backend: estimated
+
+  # Embedding is opt-in: leave embedding_model="" on file_store to run
+  # keyword-only; uncomment + flip to "default" to enable hybrid search.
+  #
+  # embedding_model:
+  #   default:
+  #     backend: openai
+  #     model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-3-small}
+  #     dimensions: 1536
+  #     pass_dimensions: false
+  #     enable_cache: true
+  #     max_batch_size: 10
+  #     max_cache_size: 2000
+  #     max_input_length: 8192
+
+  edge_extractor:
+    default:
+      backend: regex
+
+  file_parser:
+    md:
+      backend: md
+      edge_extractor: default
+    default:
+      backend: text
+
+  file_store:
+    default:
+      backend: local
+      embedding_model: ""
+      store_name: "reme"
+      db_path: "./vault/.reme"
+      fts_enabled: true
+
+  file_watcher:
+    default:
+      backend: full
+      file_store: default
+      default_parser: md
+      watch_path: "./vault"
+      recursive: true
+
+  # Retriever (`hybrid`) is a Step, not a pre-instantiated component —
+  # the `query` shell builds it on demand. Tune defaults by attaching
+  # knobs to the `memory_graph_search` step under the `query` job above.

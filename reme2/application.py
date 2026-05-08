@@ -114,14 +114,14 @@ class Application(BaseComponent):
                 except Exception as e:
                     self.logger.exception(f"Failed to close component {component.__class__.__name__}: {e}")
 
-    async def run_job(self, name: str, **kwargs) -> Response:
+    async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a registered job by name."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         job = self.context.jobs[name]
         return await job(**kwargs)
 
-    async def run_stream_job(self, name: str, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job and yield chunks."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
@@ -129,10 +129,10 @@ class Application(BaseComponent):
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-                stream_queue=stream_queue,
-                task=task,
-                task_name=name,
-                output_format="chunk",
+            stream_queue=stream_queue,
+            task=task,
+            task_name=name,
+            output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk

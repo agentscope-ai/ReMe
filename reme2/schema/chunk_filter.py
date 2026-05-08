@@ -1,23 +1,23 @@
-"""Filter for chunk-store search.
+"""Filter for chunk search.
 
 User-facing fields (paths/tags/exclude_paths) describe metadata-level intent.
-FileGraph compiles them into `resolved_paths` (the concrete path set that
-ChunkStore actually consumes for filtering).
+file_store compiles them into `resolved_paths` (the concrete path set that
+the chunk search actually consumes for filtering).
 """
 
 from pydantic import BaseModel, Field
 
 
 class ChunkFilter(BaseModel):
-    """User-facing search filter, resolved by FileGraph into a path set.
+    """User-facing search filter, resolved by file_store into a path set.
 
     User input fields:
         paths: include only paths starting with any of these prefixes
         tags: include only files whose metadata contains ALL these tags
         exclude_paths: exclude paths starting with any of these prefixes
 
-    Compiled field (set by FileGraph.filter):
-        resolved_paths: concrete path set to restrict ChunkStore search.
+    Compiled field (set by file_store.filter):
+        resolved_paths: concrete path set to restrict chunk search.
             None = no restriction (all chunks).
             Empty set = no chunks match (search returns empty).
     """
@@ -43,7 +43,7 @@ class ChunkFilter(BaseModel):
         return True
 
     def match_path(self, path: str) -> bool:
-        """Match a path against the resolved path set (used by ChunkStore)."""
+        """Match a path against the resolved path set (used by FileStore)."""
         if self.resolved_paths is None:
             return True
         return path in self.resolved_paths

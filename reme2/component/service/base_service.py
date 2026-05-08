@@ -21,16 +21,13 @@ class BaseService(BaseComponent):
         self.service = None
 
     @abstractmethod
-    def build_service(self, app: "Application") -> None:
-        ...
+    def build_service(self, app: "Application") -> None: ...
 
     @abstractmethod
-    def add_job(self, job: BaseJob) -> None:
-        ...
+    def add_job(self, job: BaseJob) -> None: ...
 
     @abstractmethod
-    def start_service(self, app: "Application") -> None:
-        ...
+    def start_service(self, app: "Application") -> None: ...
 
     def add_jobs(self, app: "Application") -> None:
         for name, job in app.context.jobs.items():

@@ -1,6 +1,8 @@
 """Parser for YAML config with CLI argument overrides."""
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,32 @@ import yaml
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
 _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_env_vars(value: Any) -> Any:
+    """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings.
+
+    Lets vault.yaml reference secrets / per-host settings without baking
+    them into the file. Unset vars without a default raise ValueError so
+    typos don't silently produce empty connection strings.
+    """
+    if isinstance(value, str):
+        def repl(m: re.Match) -> str:
+            name = m.group(1)
+            default = m.group(2)
+            v = os.environ.get(name)
+            if v is None:
+                if default is not None:
+                    return default
+                raise ValueError(f"Config references undefined env var: {name}")
+            return v
+        return _ENV_VAR_RE.sub(repl, value)
+    if isinstance(value, dict):
+        return {k: _expand_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_vars(v) for v in value]
+    return value
 
 
 # Pre-scan config directory: maps basename(without ext) -> Path
@@ -91,14 +119,15 @@ def _load_yaml(name_or_path: str, encoding: str = "utf-8") -> dict:
 
 
 def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
-    """Read YAML or JSON file based on extension."""
+    """Read YAML or JSON file based on extension. Expands ${ENV_VAR}."""
     with path.open(encoding=encoding) as f:
         if path.suffix == ".json":
             result = json.load(f)
-            return result if result is not None else {}
         else:
             result = yaml.safe_load(f)
-            return result if result is not None else {}
+    if result is None:
+        return {}
+    return _expand_env_vars(result)
 
 
 def _deep_merge(base: dict, update: dict) -> dict:

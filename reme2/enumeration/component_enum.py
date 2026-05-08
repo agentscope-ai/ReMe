@@ -24,9 +24,11 @@ class ComponentEnum(str, Enum):
 
     EMBEDDING_MODEL = "embedding_model"
 
+    EDGE_EXTRACTOR = "edge_extractor"
+
     FILE_PARSER = "file_parser"
 
-    CHUNK_STORE = "chunk_store"
+    FILE_STORE = "file_store"
 
     FILE_WATCHER = "file_watcher"
 
