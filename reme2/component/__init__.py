@@ -2,10 +2,12 @@
 
 from . import as_llm
 from . import as_llm_formatter
+from . import as_token_counter
+from . import edge_extractor
+from . import file_store
 from . import client
 from . import embedding
 from . import file_parser
-from . import file_store
 from . import file_watcher
 from . import job
 from . import service
@@ -27,10 +29,12 @@ __all__ = [
     # base components
     "as_llm",
     "as_llm_formatter",
+    "as_token_counter",
+    "edge_extractor",
+    "file_store",
     "client",
     "embedding",
     "file_parser",
-    "file_store",
     "file_watcher",
     "job",
     "service",

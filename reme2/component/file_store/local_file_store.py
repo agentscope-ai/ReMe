@@ -1,36 +1,42 @@
-"""Pure-Python file storage with JSONL persistence."""
+"""Pure-Python in-memory store with on-close JSONL persistence.
+
+Design (per project clarification):
+  - During runtime, ALL state lives in memory — meta + edges + chunks.
+    Per-write disk I/O is suppressed; `_persist_upsert_meta` / `_persist_upsert_edges`
+    are no-ops so each upsert_* costs only a dict mutation.
+  - On `_start`, load the JSONL sidecars into memory.
+  - On `_close`, flush the full in-memory snapshot back to JSONL.
+
+Trade-off: lower write latency, but a hard crash drops anything since
+the last clean shutdown. For larger / write-critical workloads, use
+`SqliteFileStore` instead (per-write transaction).
+"""
 
 import json
 from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ...schema import FileChunk, FileMetadata, SearchFilter
+from ...schema import ChunkFilter, FileChunk, FileEdge, FileMetadata
 from ...utils import batch_cosine_similarity
 
 
 @R.register("local")
 class LocalFileStore(BaseFileStore):
-    """In-memory file storage with JSONL disk persistence.
-
-    No external database required. All data lives in Python dicts;
-    writes are flushed to JSONL files on disk and survive restarts.
-    """
+    """In-memory chunk + meta + edge store with deferred JSONL persistence."""
 
     def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
         self._encoding: str = encoding
         self._chunks: dict[str, FileChunk] = {}
-        self._files: dict[str, FileMetadata] = {}
         self._chunks_file: Path = self.db_path / f"{self.store_name}_chunks.jsonl"
-        self._metadata_file: Path = self.db_path / f"{self.store_name}_file_metadata.json"
 
     # -- Persistence helpers ------------------------------------------------
 
     async def _load_chunks(self) -> None:
-        """Load chunks from JSONL file into memory."""
         if not self._chunks_file.exists():
             return
         try:
@@ -45,7 +51,6 @@ class LocalFileStore(BaseFileStore):
             self.logger.warning(f"Failed to load chunks: {e}")
 
     async def _save_chunks(self) -> None:
-        """Persist chunks to JSONL file with atomic write."""
         lines = [json.dumps(c.model_dump(mode="json"), ensure_ascii=False) for c in self._chunks.values()]
         content = "\n".join(lines)
         temp_path = self._chunks_file.with_suffix(".tmp")
@@ -59,97 +64,82 @@ class LocalFileStore(BaseFileStore):
             if temp_path.exists():
                 temp_path.unlink()
 
-    async def _load_metadata(self) -> None:
-        """Load file metadata from JSON file into memory."""
-        if not self._metadata_file.exists():
-            return
-        try:
-            data = self._metadata_file.read_text(encoding=self._encoding)
-            raw: dict = json.loads(data)
-            self._files = {path: FileMetadata(**meta) for path, meta in raw.items()}
-        except Exception as e:
-            self.logger.warning(f"Failed to load metadata: {e}")
-
-    async def _save_metadata(self) -> None:
-        """Persist file metadata to JSON file with atomic write."""
-        raw = {path: meta.model_dump(mode="json") for path, meta in self._files.items()}
-        content = json.dumps(raw, indent=2, ensure_ascii=False)
-        temp_path = self._metadata_file.with_suffix(".tmp")
-        try:
-            temp_path.write_text(content, encoding=self._encoding)
-            temp_path.replace(self._metadata_file)
-        except Exception as e:
-            self.logger.error(f"Failed to save metadata: {e}")
-            raise
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
     # -- Lifecycle ----------------------------------------------------------
 
     async def _start(self) -> None:
-        """Load persisted data into memory."""
-        await self._load_metadata()
         await self._load_chunks()
+        # Base loads metas + edges from sidecar JSONL via the default
+        # _iter_persisted_metas / _iter_persisted_edges implementations.
+        await super()._start()
         self.logger.info(
             f"LocalFileStore '{self.store_name}' ready: "
-            f"{len(self._chunks)} chunks, metadata at {self._metadata_file}",
+            f"{len(self._nodes)} files, {sum(len(v) for v in self._edges.values())} edges, "
+            f"{len(self._chunks)} chunks",
         )
-        await super()._start()
 
     async def _close(self) -> None:
-        """Flush state to disk and clear memory."""
-        await self._save_metadata()
-        await self._save_chunks()
+        # Flush the full in-memory snapshot before tearing down state.
+        try:
+            await self._save_chunks()
+            self._write_metas_jsonl(self._nodes.values())
+            self._write_edges_jsonl(self._edges)
+        except Exception as e:
+            self.logger.error(f"Failed to flush LocalFileStore '{self.store_name}': {e}")
         self._chunks.clear()
-        self._files.clear()
         await super()._close()
+
+    # -- Persistence overrides: no-op (we flush on close) -------------------
+
+    async def _persist_upsert_meta(self, meta: FileMetadata) -> None:
+        pass
+
+    async def _persist_delete_meta(self, path: str) -> None:
+        pass
+
+    async def _persist_upsert_edges(self, path: str, edges: list[FileEdge]) -> None:
+        pass
+
+    async def _persist_delete_edges(self, path: str) -> None:
+        pass
 
     # -- Write operations ---------------------------------------------------
 
-    async def upsert_file(self, file_meta: FileMetadata, chunks: list[FileChunk]) -> None:
-        """Insert or update a file and its chunks."""
-        await self.delete_file(file_meta.path)
+    async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
+        """Insert or update a file's chunks. Chunks arrive embedded."""
+        await self.delete_chunks(path)
+        if not chunks:
+            return
+        for chunk in chunks:
+            self._chunks[chunk.id] = chunk
 
-        if chunks:
-            chunks = await self.get_chunk_embeddings(chunks)
-            for chunk in chunks:
-                self._chunks[chunk.id] = chunk
-
-        if file_meta.path:
-            self._files[file_meta.path] = FileMetadata(
-                modified_time=file_meta.modified_time,
-                path=file_meta.path,
-                metadata=file_meta.metadata,
-            )
-
-    async def delete_file(self, path: str) -> None:
-        """Delete a file and all its chunks."""
+    async def delete_chunks(self, path: str) -> None:
         to_delete = [cid for cid, chunk in self._chunks.items() if chunk.path == path]
         for cid in to_delete:
             del self._chunks[cid]
-        self._files.pop(path, None)
 
     # -- Read operations ----------------------------------------------------
 
-    async def list_files(self) -> list[str]:
-        """List all indexed file paths."""
-        return list(self._files.keys())
-
-    async def get_file_metadata(self, path: str) -> FileMetadata | None:
-        """Get metadata for a specific file."""
-        return self._files.get(path)
-
-    async def get_file_chunks(self, path: str) -> list[FileChunk]:
-        """Get all chunks for a file, sorted by start_line."""
+    async def get_chunks(self, path: str) -> list[FileChunk]:
         chunks = [chunk for chunk in self._chunks.values() if chunk.path == path]
         chunks.sort(key=lambda c: c.start_line)
         return chunks
 
+    async def get_chunks_by_paths(self, paths: Iterable[str]) -> list[FileChunk]:
+        wanted = set(paths)
+        if not wanted:
+            return []
+        chunks = [c for c in self._chunks.values() if c.path in wanted]
+        chunks.sort(key=lambda c: (c.path, c.start_line))
+        return chunks
+
     # -- Search operations --------------------------------------------------
 
-    async def vector_search(self, query: str, limit: int, search_filter: SearchFilter | None = None) -> list[FileChunk]:
-        """Cosine-similarity vector search over in-memory embeddings."""
+    async def vector_search(
+        self,
+        query: str,
+        limit: int,
+        chunk_filter: ChunkFilter | None = None,
+    ) -> list[FileChunk]:
         if not self.vector_enabled or not query:
             return []
 
@@ -159,14 +149,12 @@ class LocalFileStore(BaseFileStore):
 
         candidates = self._apply_filter(
             [c for c in self._chunks.values() if c.embedding],
-            search_filter,
+            chunk_filter,
         )
         if not candidates:
             return []
 
         expected_dim = self.embedding_dim
-
-        # Validate and align embedding dimensions
         valid_embeddings = []
         for chunk in candidates:
             emb = chunk.embedding
@@ -198,20 +186,18 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def keyword_search(
-            self,
-            query: str,
-            limit: int,
-            search_filter: SearchFilter | None = None,
+        self,
+        query: str,
+        limit: int,
+        chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
-        """Keyword search via substring matching."""
         if not self.fts_enabled or not query:
             return []
 
-        words = query.split()
-        if not words:
+        if not query.split():
             return []
 
-        filtered_chunks = self._apply_filter(list(self._chunks.values()), search_filter)
+        filtered_chunks = self._apply_filter(list(self._chunks.values()), chunk_filter)
 
         results = []
         for chunk in filtered_chunks:
@@ -234,9 +220,13 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def clear_all(self) -> None:
-        """Clear all indexed data from memory and disk."""
+        """Clear all in-memory state and on-disk JSONL sidecars."""
         self._chunks.clear()
-        self._files.clear()
+        self._nodes.clear()
+        self._edges.clear()
+        self._stems.clear()
+        self._backlinks.clear()
         await self._save_chunks()
-        await self._save_metadata()
+        self._write_metas_jsonl([])
+        self._write_edges_jsonl({})
         self.logger.info(f"Cleared all data from LocalFileStore '{self.store_name}'")

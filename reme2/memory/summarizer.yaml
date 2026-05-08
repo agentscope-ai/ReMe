@@ -1,14 +1,14 @@
 user_message: |
   Memory Pre-compression Flush Cycle.
-  
+
   The current session is about to enter the automatic compression phase. Please capture persistent memory AND session reflections, then write them to disk.
-  
+
   Current date: {date}
   Working directory: {working_dir}
-  
+
   # Task
   Immediately store persistent memory and reflections to: {memory_dir}/YYYY-MM-DD.md
-  
+
   # Workflow
   1. Extract and synthesize content from the current session:
      - Persistent Memory: Facts, user profile updates, project states, and important events.
@@ -17,7 +17,7 @@ user_message: |
      - If the file doesn’t exist, use `write` tool directly.
      - If the file exists, intelligently merge new information with existing content, prefer using `edit` to update specific sections.
      - Use `write` to overwrite the entire file only if substantial restructuring is required.
-  
+
   # Principles
   - Intelligently merge new information with existing content:
      - Categorize clearly (e.g., separate "Factual Memory" from "Reflections & Logic").
@@ -32,15 +32,15 @@ user_message: |
 
 user_message_zh: |
   预压缩内存刷新轮次。
-  
+
   当前会话即将进入自动压缩阶段；请将持久化记忆与经验反思捕获并写入磁盘。
-  
+
   当前日期：{date}
   工作目录：{working_dir}
-  
+
   # 任务
   立即存储持久化记忆与反思（使用路径 {memory_dir}/YYYY-MM-DD.md）。
-  
+
   # 工作流程
   1. 从当前会话中提取并综合两类内容：
      - 持久化记忆：客观事实、用户信息更新、项目状态及重要事件。
@@ -48,7 +48,7 @@ user_message_zh: |
   2. `read` {memory_dir}/YYYY-MM-DD.md（如文件不存在，会返回错误提示）
      - 若文件不存在，直接使用 `write` 工具写入。
      - 若文件已存在，智能合并新信息与现有内容，尽可能使用 `edit` 更新特定部分，仅在需要大幅重构时使用 `write` 覆盖整个文件。
-  
+
   # 原则
   - 智能合并新信息与现有内容：
      - 将内容进行清晰的分类（例如明确区分“事实记忆”与“反思与逻辑”）。

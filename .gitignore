@@ -43,4 +43,6 @@ meta_memory/*
 *.db
 memories/*
 .reme/*
-/test_data
+/vault
+/reme-plugin
+/reme2/vault
