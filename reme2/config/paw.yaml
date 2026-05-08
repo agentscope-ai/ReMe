@@ -42,13 +42,28 @@ components:
       max_cache_size: 2000
       max_input_length: 8192
 
+  edge_extractor:
+    default:
+      backend: regex
+    llm:
+      backend: llm
+      as_llm: default
+      as_llm_formatter: default
+      file_store: default
+      max_input_chars: 8000
+      min_confidence: 0.5
+      max_iters: 8
+
   file_parser:
     md:
       backend: md
+      edge_extractor: default
+      embedding_model: default
     default:
-      backend: default
+      backend: text
+      embedding_model: default
 
-  chunk_store:
+  file_store:
     default:
       backend: local
       embedding_model: default
@@ -58,7 +73,7 @@ components:
   file_watcher:
     default:
       backend: full
-      chunk_store: default
+      file_store: default
       default_parser: default
       watch_paths: [ "./test_data" ]
       recursive: true

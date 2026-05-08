@@ -21,9 +21,9 @@ class PromptHandler:
         self.language: str = language.strip()
 
     def load_prompt_by_file(
-            self,
-            prompt_file_path: str | Path | None = None,
-            overwrite: bool = True,
+        self,
+        prompt_file_path: str | Path | None = None,
+        overwrite: bool = True,
     ) -> "PromptHandler":
         """Load prompts from a YAML or JSON file."""
         if prompt_file_path is None:

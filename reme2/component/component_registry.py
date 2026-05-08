@@ -38,9 +38,9 @@ class ComponentRegistry:
         return cls
 
     def register(
-            self,
-            cls_or_name: type[T] | str,
-            name: str | None = None,
+        self,
+        cls_or_name: type[T] | str,
+        name: str | None = None,
     ) -> Callable[[type[T]], type[T]] | type[T]:
         """Register a component class. Supports direct and decorator modes."""
         # Direct registration: R.register(MyClass, "name")
