@@ -1,8 +1,7 @@
-"""Read user profile tool"""
+"""Read user profile tool."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -44,8 +43,8 @@ class ReadAllProfiles(BaseMemoryTool):
         else:
             target = self.memory_target
 
-        profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=target)
-        profiles_str = profile_handler.read_all(add_profile_id=True)
+        profile_handler = self.get_profile_handler(target)
+        profiles_str = await profile_handler.aread_all(add_profile_id=True)
         if not profiles_str:
             output = "No profiles found."
             logger.info(output)

@@ -1,8 +1,7 @@
-"""Update user profile tool"""
+"""Update user profile tool."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -82,8 +81,8 @@ class UpdateProfile(BaseMemoryTool):
 
         # Delete profiles (using self.memory_target)
         if profile_ids_to_delete:
-            profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=self.memory_target)
-            removed_count = profile_handler.delete(profile_ids_to_delete)
+            profile_handler = self.get_profile_handler(self.memory_target)
+            removed_count = await profile_handler.adelete(profile_ids_to_delete)
 
         # Add new profiles
         if profiles_to_add:
@@ -98,14 +97,17 @@ class UpdateProfile(BaseMemoryTool):
 
                 # Add profiles for each target
                 for target, target_profiles in profiles_by_target.items():
-                    profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=target)
-                    new_nodes = profile_handler.add_batch(profiles=target_profiles, ref_memory_id=self.history_id)
+                    profile_handler = self.get_profile_handler(target)
+                    new_nodes = await profile_handler.aadd_batch(
+                        profiles=target_profiles,
+                        ref_memory_id=self.history_id,
+                    )
                     self.memory_nodes.extend(new_nodes)
                     added_count += len(new_nodes)
             else:
                 # Use self.memory_target for all profiles
-                profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=self.memory_target)
-                new_nodes = profile_handler.add_batch(profiles=profiles_to_add, ref_memory_id=self.history_id)
+                profile_handler = self.get_profile_handler(self.memory_target)
+                new_nodes = await profile_handler.aadd_batch(profiles=profiles_to_add, ref_memory_id=self.history_id)
                 self.memory_nodes.extend(new_nodes)
                 added_count = len(new_nodes)
 

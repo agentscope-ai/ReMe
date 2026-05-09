@@ -2,8 +2,8 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore, and HologresVectorStore
-implementations. Tests can be run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore, HologresVectorStore, and
+ZvecVectorStore implementations. Tests can be run for specific vector stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -13,6 +13,7 @@ Usage:
     python test_vector_store.py --chroma     # Test ChromaVectorStore only
     python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
     python test_vector_store.py --hologres   # Test HologresVectorStore only
+    python test_vector_store.py --zvec       # Test ZvecVectorStore only
     python test_vector_store.py --all        # Test all vector stores
 """
 
@@ -38,6 +39,7 @@ from reme.core.vector_store import (
     ObVecVectorStore,
     PGVectorStore,
     QdrantVectorStore,
+    ZvecVectorStore,
 )
 
 load_env()
@@ -105,6 +107,8 @@ class TestConfig:
     HOLOGRES_SCHEMA = os.environ.get("HOLOGRES_SCHEMA", "public")
     HOLOGRES_MIN_SIZE = 1
     HOLOGRES_MAX_SIZE = 5
+    # ZvecVectorStore settings
+    ZVEC_PATH = "./test_vector_store_zvec"  # For local persistent mode
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -208,17 +212,7 @@ class SampleDataGenerator:
 # ==================== Vector Store Factory ====================
 
 
-_STORE_TYPE_MAP = {
-    LocalVectorStore: "local",
-    QdrantVectorStore: "qdrant",
-    ESVectorStore: "es",
-    PGVectorStore: "pgvector",
-    ChromaVectorStore: "chroma",
-    ObVecVectorStore: "obvec",
-    HologresVectorStore: "hologres",
-}
-
-
+# pylint: disable=too-many-return-statements
 def get_store_type(store: BaseVectorStore) -> str:
     """Get the type identifier of a vector store instance.
 
@@ -226,102 +220,29 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", "obvec", or "hologres")
+        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", "obvec", "zvec", or "hologres")
     """
-    for cls, name in _STORE_TYPE_MAP.items():
-        if isinstance(store, cls):
-            return name
-    raise ValueError(f"Unknown vector store type: {type(store)}")
+    if isinstance(store, LocalVectorStore):
+        return "local"
+    elif isinstance(store, QdrantVectorStore):
+        return "qdrant"
+    elif isinstance(store, ESVectorStore):
+        return "es"
+    elif isinstance(store, PGVectorStore):
+        return "pgvector"
+    elif isinstance(store, ChromaVectorStore):
+        return "chroma"
+    elif isinstance(store, ObVecVectorStore):
+        return "obvec"
+    elif isinstance(store, ZvecVectorStore):
+        return "zvec"
+    elif isinstance(store, HologresVectorStore):
+        return "hologres"
+    else:
+        raise ValueError(f"Unknown vector store type: {type(store)}")
 
 
-def _build_store_kwargs(store_type, config, collection_name, embedding_model):
-    """Build keyword arguments for creating a vector store instance."""
-    store_kwargs_map = {
-        "local": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": config.LOCAL_ROOT_PATH,
-        },
-        "es": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": tempfile.mkdtemp(prefix="test_es_"),
-            "hosts": config.ES_HOSTS,
-            "basic_auth": config.ES_BASIC_AUTH,
-        },
-        "qdrant": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": config.QDRANT_PATH or tempfile.mkdtemp(prefix="test_qdrant_"),
-            "host": config.QDRANT_HOST,
-            "port": config.QDRANT_PORT,
-            "url": config.QDRANT_URL,
-            "api_key": config.QDRANT_API_KEY,
-            "distance": "cosine",
-            "on_disk": False,
-        },
-        "pgvector": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": tempfile.mkdtemp(prefix="test_pgvector_"),
-            "dsn": config.PG_DSN,
-            "min_size": config.PG_MIN_SIZE,
-            "max_size": config.PG_MAX_SIZE,
-            "use_hnsw": config.PG_USE_HNSW,
-            "use_diskann": config.PG_USE_DISKANN,
-        },
-        "chroma": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": config.CHROMA_PATH,
-            "host": config.CHROMA_HOST,
-            "port": config.CHROMA_PORT,
-            "api_key": config.CHROMA_API_KEY,
-            "tenant": config.CHROMA_TENANT,
-            "database": config.CHROMA_DATABASE,
-        },
-        "obvec": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": tempfile.mkdtemp(prefix="test_obvec_"),
-            "uri": config.OBVEC_URI,
-            "user": config.OBVEC_USER,
-            "password": config.OBVEC_PASSWORD,
-            "database": config.OBVEC_DATABASE,
-            "index_metric": "cosine",
-            "index_ef_search": 100,
-        },
-        "hologres": lambda: {
-            "collection_name": collection_name,
-            "embedding_model": embedding_model,
-            "db_path": tempfile.mkdtemp(prefix="test_hologres_"),
-            "host": config.HOLOGRES_HOST,
-            "port": config.HOLOGRES_PORT,
-            "database": config.HOLOGRES_DATABASE,
-            "user": config.HOLOGRES_USER,
-            "password": config.HOLOGRES_PASSWORD,
-            "schema": config.HOLOGRES_SCHEMA,
-            "min_size": config.HOLOGRES_MIN_SIZE,
-            "max_size": config.HOLOGRES_MAX_SIZE,
-            **({"dsn": config.HOLOGRES_DSN} if config.HOLOGRES_DSN else {}),
-        },
-    }
-    if store_type not in store_kwargs_map:
-        raise ValueError(f"Unknown store type: {store_type}")
-    return store_kwargs_map[store_type]()
-
-
-_STORE_CLASS_MAP = {
-    "local": LocalVectorStore,
-    "es": ESVectorStore,
-    "qdrant": QdrantVectorStore,
-    "pgvector": PGVectorStore,
-    "chroma": ChromaVectorStore,
-    "obvec": ObVecVectorStore,
-    "hologres": HologresVectorStore,
-}
-
-
+# pylint: disable=too-many-return-statements
 def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStore:
     """Create a vector store instance based on type.
 
@@ -340,9 +261,93 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         dimensions=config.EMBEDDING_DIMENSIONS,
     )
 
-    kwargs = _build_store_kwargs(store_type, config, collection_name, embedding_model)
-    store_cls = _STORE_CLASS_MAP[store_type]
-    return store_cls(**kwargs)
+    if store_type == "local":
+        return LocalVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.LOCAL_ROOT_PATH,
+        )
+    elif store_type == "es":
+        return ESVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=tempfile.mkdtemp(prefix="test_es_"),
+            hosts=config.ES_HOSTS,
+            basic_auth=config.ES_BASIC_AUTH,
+        )
+    elif store_type == "qdrant":
+        return QdrantVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.QDRANT_PATH or tempfile.mkdtemp(prefix="test_qdrant_"),
+            host=config.QDRANT_HOST,
+            port=config.QDRANT_PORT,
+            url=config.QDRANT_URL,
+            api_key=config.QDRANT_API_KEY,
+            distance="cosine",
+            on_disk=False,
+        )
+    elif store_type == "pgvector":
+        return PGVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=tempfile.mkdtemp(prefix="test_pgvector_"),
+            dsn=config.PG_DSN,
+            min_size=config.PG_MIN_SIZE,
+            max_size=config.PG_MAX_SIZE,
+            use_hnsw=config.PG_USE_HNSW,
+            use_diskann=config.PG_USE_DISKANN,
+        )
+    elif store_type == "chroma":
+        return ChromaVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.CHROMA_PATH,
+            host=config.CHROMA_HOST,
+            port=config.CHROMA_PORT,
+            api_key=config.CHROMA_API_KEY,
+            tenant=config.CHROMA_TENANT,
+            database=config.CHROMA_DATABASE,
+        )
+    elif store_type == "obvec":
+        return ObVecVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=tempfile.mkdtemp(prefix="test_obvec_"),
+            uri=config.OBVEC_URI,
+            user=config.OBVEC_USER,
+            password=config.OBVEC_PASSWORD,
+            database=config.OBVEC_DATABASE,
+            index_metric="cosine",
+            index_ef_search=100,
+        )
+    elif store_type == "zvec":
+        return ZvecVectorStore(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            db_path=config.ZVEC_PATH or tempfile.mkdtemp(prefix="test_zvec_"),
+            dimension=config.EMBEDDING_DIMENSIONS,
+            distance="cosine",
+        )
+    elif store_type == "hologres":
+        kwargs = {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": tempfile.mkdtemp(prefix="test_hologres_"),
+            "host": config.HOLOGRES_HOST,
+            "port": config.HOLOGRES_PORT,
+            "database": config.HOLOGRES_DATABASE,
+            "user": config.HOLOGRES_USER,
+            "password": config.HOLOGRES_PASSWORD,
+            "schema": config.HOLOGRES_SCHEMA,
+            "min_size": config.HOLOGRES_MIN_SIZE,
+            "max_size": config.HOLOGRES_MAX_SIZE,
+        }
+        if config.HOLOGRES_DSN:
+            kwargs["dsn"] = config.HOLOGRES_DSN
+        return HologresVectorStore(**kwargs)
+    else:
+        raise ValueError(f"Unknown store type: {store_type}")
 
 
 # ==================== Test Functions ====================
@@ -1836,6 +1841,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(obvec_dir, ignore_errors=True)
                 logger.info(f"Cleaned up obvec temp directory: {obvec_dir}")
 
+        # Clean up local directory if ZvecVectorStore
+        if store_type == "zvec" and config.ZVEC_PATH:
+            test_dir = Path(config.ZVEC_PATH)
+            if test_dir.exists():
+                shutil.rmtree(test_dir)
+                logger.info(f"Cleaned up zvec directory: {config.ZVEC_PATH}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1897,6 +1909,11 @@ Examples:
         help="Test HologresVectorStore",
     )
     parser.add_argument(
+        "--zvec",
+        action="store_true",
+        help="Test ZvecVectorStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1916,6 +1933,7 @@ Examples:
             ("chroma", "ChromaVectorStore"),
             ("obvec", "ObVecVectorStore"),
             ("hologres", "HologresVectorStore"),
+            ("zvec", "ZvecVectorStore"),
         ]
     else:
         # Build list based on individual flags
@@ -1933,6 +1951,8 @@ Examples:
             stores_to_test.append(("obvec", "ObVecVectorStore"))
         if args.hologres:
             stores_to_test.append(("hologres", "HologresVectorStore"))
+        if args.zvec:
+            stores_to_test.append(("zvec", "ZvecVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1944,10 +1964,11 @@ Examples:
                 ("chroma", "ChromaVectorStore"),
                 ("obvec", "ObVecVectorStore"),
                 ("hologres", "HologresVectorStore"),
+                ("zvec", "ZvecVectorStore"),
             ]
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--hologres to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--zvec/--hologres to test specific ones\n",
             )
 
     # Run tests for each vector store

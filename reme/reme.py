@@ -14,6 +14,7 @@ from .memory.vector_tools import (
     DelegateTask,
     ReadAllProfiles,
     ReadHistory,
+    RetrieveProfile,
     RetrieveMemory,
     UpdateProfilesV1,
 )
@@ -55,6 +56,10 @@ class ReMe(Application):
         target_task_names: list[str] | None = None,
         target_tool_names: list[str] | None = None,
         enable_profile: bool = True,
+        profile_backend: str = "filesystem",
+        profile_store_name: str = "profile",
+        profile_collection_name: str | None = None,
+        profile_max_capacity: int = 50,
         **kwargs,
     ):
         """Initialize ReMe with config.
@@ -69,8 +74,37 @@ class ReMe(Application):
             ```
 
         Args:
+            *args: Positional arguments forwarded to the base `Application`.
+            llm_api_key: API key used by the default LLM backend when provided.
+            llm_base_url: Base URL used by the default LLM backend when provided.
+            embedding_api_key: API key used by the default embedding backend when provided.
+            embedding_base_url: Base URL used by the default embedding backend when provided.
+            working_dir: Directory for generated config, logs, caches, and local stores.
+            config_path: Built-in config name or config file path used to initialize services.
+            enable_logo: Whether to print the ReMe logo during startup.
+            log_to_console: Whether to emit logs to the console.
+            log_to_file: Whether to write logs under `working_dir`.
+            default_llm_config: Overrides for the default LLM configuration.
+            default_embedding_model_config: Overrides for the default embedding model configuration.
+            default_vector_store_config: Configuration for the default memory vector store.
+                Its `collection_name` is used for normal memory storage.
+            default_token_counter_config: Overrides for the default token counter configuration.
+            target_user_names: Personal memory targets to register at initialization.
+            target_task_names: Procedural memory targets to register at initialization.
+            target_tool_names: Tool memory targets to register at initialization.
             enable_profile: Whether to enable profile functionality. Set to False when using
-                cloud-based vector stores to avoid local file operations. Default is True.
+                profile-free memory flows.
+            profile_backend: Profile storage backend. Use "filesystem" for local JSONL profile
+                files or "vector" for a dedicated profile vector collection.
+            profile_store_name: Internal vector store key used to register and look up the
+                profile vector store in `service_context.vector_stores`. This is not the
+                database collection name.
+            profile_collection_name: Dedicated database collection/table name for vector
+                profiles. When unset, vector profiles use the default memory collection name
+                with a "_profile" suffix.
+            profile_max_capacity: Maximum number of profile rows to keep per memory target.
+                When the limit is exceeded, the oldest profile rows are removed.
+            **kwargs: Additional keyword arguments forwarded to the base `Application`.
         """
         super().__init__(
             *args,
@@ -92,6 +126,10 @@ class ReMe(Application):
         )
 
         self.enable_profile = enable_profile
+        self.profile_backend = profile_backend
+        self.profile_store_name = profile_store_name
+        self.profile_collection_name = profile_collection_name
+        self.profile_max_capacity = profile_max_capacity
 
         memory_target_type_mapping: dict[str, MemoryType] = {}
         if target_user_names:
@@ -111,12 +149,15 @@ class ReMe(Application):
 
         self.service_context.memory_target_type_mapping = memory_target_type_mapping
 
-        if self.enable_profile:
+        if self.enable_profile and self.profile_backend == "filesystem":
             profile_path = Path(self.service_context.service_config.working_dir) / "profile"
             profile_path.mkdir(parents=True, exist_ok=True)
             self.profile_dir: str = str(profile_path)
         else:
             self.profile_dir: str = ""
+
+        if self.enable_profile and self.profile_backend == "vector":
+            self._ensure_profile_vector_store_config()
 
     def _add_meta_memory(self, memory_type: str | MemoryType, memory_target: str):
         """Register or validate a memory target with the given memory type."""
@@ -186,6 +227,38 @@ class ReMe(Application):
             return result
         return result["answer"]
 
+    def _ensure_profile_vector_store_config(self) -> None:
+        """Ensure the dedicated profile vector store exists in service config."""
+        vector_store_configs = self.service_context.service_config.vector_stores
+        if "default" not in vector_store_configs:
+            raise RuntimeError("Vector profile backend requires a default vector store configuration")
+
+        default_config = vector_store_configs["default"]
+        profile_collection_name = self.profile_collection_name or f"{default_config.collection_name}_profile"
+
+        if self.profile_store_name in vector_store_configs:
+            if self.profile_collection_name:
+                vector_store_configs[self.profile_store_name] = vector_store_configs[
+                    self.profile_store_name
+                ].model_copy(
+                    update={"collection_name": profile_collection_name},
+                )
+            return
+
+        vector_store_configs[self.profile_store_name] = default_config.model_copy(
+            update={"collection_name": profile_collection_name},
+        )
+
+    def _get_profile_tool_kwargs(self, raise_exception: bool) -> dict:
+        """Shared profile tool configuration."""
+        return {
+            "profile_dir": self.profile_dir,
+            "profile_backend": self.profile_backend,
+            "profile_store_name": self.profile_store_name,
+            "profile_max_capacity": self.profile_max_capacity,
+            "raise_exception": raise_exception,
+        }
+
     async def summarize_memory(
         self,
         messages: list[Message | dict],
@@ -211,6 +284,7 @@ class ReMe(Application):
             format_messages.append(message)
 
         if version == "default":
+            profile_tool_kwargs = self._get_profile_tool_kwargs(raise_exception)
             personal_summarizer_tools: list = [
                 AddDraftAndRetrieveSimilarMemory(
                     enable_thinking_params=enable_thinking_params,
@@ -229,20 +303,28 @@ class ReMe(Application):
                 ),
             ]
             if self.enable_profile:
+                if self.profile_backend == "vector":
+                    profile_context_tool = RetrieveProfile(
+                        top_k=min(5, retrieve_top_k),
+                        enable_thinking_params=False,
+                        enable_memory_target=False,
+                        enable_multiple=False,
+                        **profile_tool_kwargs,
+                    )
+                else:
+                    profile_context_tool = ReadAllProfiles(
+                        enable_thinking_params=False,
+                        enable_memory_target=False,
+                        **profile_tool_kwargs,
+                    )
                 personal_summarizer_tools.extend(
                     [
-                        ReadAllProfiles(
-                            enable_thinking_params=False,
-                            enable_memory_target=False,
-                            profile_dir=self.profile_dir,
-                            raise_exception=raise_exception,
-                        ),
+                        profile_context_tool,
                         UpdateProfilesV1(
                             enable_thinking_params=enable_thinking_params,
                             enable_memory_target=False,
                             enable_multiple=True,
-                            profile_dir=self.profile_dir,
-                            raise_exception=raise_exception,
+                            **profile_tool_kwargs,
                         ),
                     ],
                 )
@@ -381,16 +463,24 @@ class ReMe(Application):
         self._ensure_started()
 
         if version == "default":
+            profile_tool_kwargs = self._get_profile_tool_kwargs(raise_exception)
             personal_retriever_tools = []
             if self.enable_profile:
-                personal_retriever_tools.append(
-                    ReadAllProfiles(
+                if self.profile_backend == "vector":
+                    profile_context_tool = RetrieveProfile(
+                        top_k=min(5, retrieve_top_k),
                         enable_thinking_params=False,
                         enable_memory_target=False,
-                        profile_dir=self.profile_dir,
-                        raise_exception=raise_exception,
-                    ),
-                )
+                        enable_multiple=False,
+                        **profile_tool_kwargs,
+                    )
+                else:
+                    profile_context_tool = ReadAllProfiles(
+                        enable_thinking_params=False,
+                        enable_memory_target=False,
+                        **profile_tool_kwargs,
+                    )
+                personal_retriever_tools.append(profile_context_tool)
             personal_retriever_tools.extend(
                 [
                     RetrieveMemory(
@@ -508,6 +598,34 @@ class ReMe(Application):
         )
 
         return self._unwrap_memory_result(result, "retrieve_memory", return_dict)
+
+    async def retrieve_profile(
+        self,
+        query: str | list[str],
+        user_name: str,
+        top_k: int = 5,
+        return_dict: bool = False,
+    ) -> str | dict:
+        """Retrieve relevant profile rows for a user."""
+        self._ensure_started()
+        if not self.enable_profile:
+            raise RuntimeError("Profile functionality is disabled.")
+
+        profile_handler = self.get_profile_handler(user_name)
+        if profile_handler is None:
+            raise RuntimeError("Profile functionality is disabled.")
+
+        retrieved_nodes, output = await profile_handler.aretrieve(
+            query=query,
+            limit=top_k,
+            add_profile_id=True,
+            add_history_id=True,
+        )
+        result = {
+            "answer": output or "No matching profiles found.",
+            "retrieved_nodes": retrieved_nodes,
+        }
+        return self._unwrap_memory_result(result, "retrieve_profile", return_dict)
 
     async def add_memory(
         self,
@@ -675,15 +793,23 @@ class ReMe(Application):
     @property
     def profile_path(self) -> Path | None:
         """Get the path to the profile directory. Returns None if profile is disabled."""
-        if not self.enable_profile:
+        if not self.enable_profile or self.profile_backend != "filesystem":
             return None
-        return Path(self.profile_dir) / self.default_vector_store.collection_name
+        collection_name = self.service_context.service_config.vector_stores["default"].collection_name
+        return Path(self.profile_dir) / collection_name
 
     def get_profile_handler(self, user_name: str) -> ProfileHandler | None:
         """Get the profile handler for the specified user. Returns None if profile is disabled."""
         if not self.enable_profile:
             return None
-        return ProfileHandler(memory_target=user_name, profile_path=self.profile_path)
+        return ProfileHandler(
+            memory_target=user_name,
+            profile_path=self.profile_path,
+            service_context=self.service_context,
+            profile_backend=self.profile_backend,
+            profile_store_name=self.profile_store_name,
+            max_capacity=self.profile_max_capacity,
+        )
 
 
 def main():
