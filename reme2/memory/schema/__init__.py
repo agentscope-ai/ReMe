@@ -1,23 +1,23 @@
-"""Memory Schema — vault domain "constitution".
+"""MemoryFileNode Schema — vault domain "constitution".
 
 Per `structure.md` §"全局架构蓝图", the Schema layer sits between the
-domain-agnostic Core Engine and the three Memory Services. Engines store
+domain-agnostic Core Engine and the three MemoryFileNode Services. Engines store
 arbitrary markdown + open frontmatter dicts; Services read this Schema
 to know what a "well-formed memory" is and shape the vault accordingly.
 
 Public API:
 
-    Memory         — single typed class for every vault frontmatter
+    MemoryFileNode         — single typed class for every vault frontmatter
     Lifecycle / Scope / Source / Role  — the four behavioral axes (StrEnum)
     Status         — streaming-only state (active / distilled / archived)
     Confidence     — claim-only confidence (PENDING / VERIFIED / REJECTED)
 
-    parse_frontmatter(raw) → (Memory | None, errors)   tolerant parser
+    parse_frontmatter(raw) → (MemoryFileNode | None, errors)   tolerant parser
 
     *_PRESET dicts — common axis combos for hot-write paths
     preset_for_category(name) — legacy category → preset lookup
 
-    LEGACY_AXES_FROM_CATEGORY — back-fill table; auto-applied by Memory's
+    LEGACY_AXES_FROM_CATEGORY — back-fill table; auto-applied by MemoryFileNode's
                                 pre-validator so legacy vaults parse free.
 
 Lives in `reme2/memory/` (not `reme2/schema/` and not `reme2/component/`)
@@ -29,7 +29,7 @@ from .memory import (
     LEGACY_AXES_FROM_CATEGORY,
     Confidence,
     Lifecycle,
-    Memory,
+    MemoryFileNode,
     Role,
     Scope,
     Source,
@@ -53,7 +53,7 @@ from .presets import (
 
 __all__ = [
     # core
-    "Memory",
+    "MemoryFileNode",
     "Lifecycle",
     "Scope",
     "Source",

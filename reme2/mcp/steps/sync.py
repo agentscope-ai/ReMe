@@ -33,6 +33,7 @@ Zero LLM cost.
 import json
 import os
 import re
+from collections.abc import Iterable
 from datetime import date as date_type, datetime, timezone
 from pathlib import Path
 
@@ -41,13 +42,51 @@ from pydantic import ValidationError
 
 from reme2.component import R
 from reme2.component.base_step import BaseStep
-from reme2.memory.memory_io import create_file
-from reme2.memory.schema import EVENT_PRESET, Memory
-from reme2.utils.vault_paths import event_path, next_suffixed_stem
+from reme2.memory.memory_io import collisions_after_create, create_file
+from reme2.memory.schema import EVENT_PRESET, MemoryFileNode
 
 
 _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
 _MATERIALS_HEADER = "## Materials"
+
+
+def _event_path(
+    working_dir: str | Path,
+    name: str,
+    on_date: date_type | str | None = None,
+    events_dir: str = "events",
+) -> Path:
+    """events/{YYYY-MM-DD}/{name}/{name}.md under the given vault root."""
+    if on_date is None:
+        on_date = date_type.today()
+    if isinstance(on_date, date_type):
+        on_date = on_date.isoformat()
+    return Path(working_dir) / events_dir / on_date / name / f"{name}.md"
+
+
+def _next_suffixed_stem(taken: Iterable[str], base: str) -> str:
+    """Lowest unused `<base>-N` (N≥2). Returns `base` itself if not taken.
+
+    Why advisory: when a same-name-on-same-day collision is detected, the
+    suggested suffix nudges the agent to pick a domain-specific qualifier
+    (e.g. `Apple-Inc` vs `Apple-Fruit`) over a numeric one.
+    """
+    taken_set = set(taken)
+    if base not in taken_set:
+        return base
+    pattern = re.compile(rf"^{re.escape(base)}-(\d+)$")
+    used: set[int] = set()
+    for s in taken_set:
+        m = pattern.match(s)
+        if m:
+            try:
+                used.add(int(m.group(1)))
+            except ValueError:
+                continue
+    n = 2
+    while n in used:
+        n += 1
+    return f"{base}-{n}"
 
 
 @R.register("sync")
@@ -84,16 +123,15 @@ class Sync(BaseStep):
         has status != "active").
     """
 
-    def __init__(self, vault_root: str = "", events_dir: str = "events", **kwargs):
+    def __init__(self, events_dir: str = "events", **kwargs):
         super().__init__(**kwargs)
-        self.vault_root = vault_root
         self.events_dir = events_dir
 
     def _root(self) -> Path:
-        if self.vault_root:
-            return Path(self.vault_root)
-        watcher = self.app_context.components["file_watcher"]["default"]  # type: ignore[union-attr]
-        return Path(watcher.watch_path)
+        vr = getattr(self.file_store, "working_dir", None)
+        if vr is not None:
+            return Path(vr)
+        raise RuntimeError("sync requires file_store.working_dir to be configured")
 
     @staticmethod
     def _validate_materials(materials: list, index_filename: str) -> tuple[list[dict], str | None]:
@@ -214,7 +252,7 @@ class Sync(BaseStep):
 
         assert name, "name is required"
 
-        target = event_path(self._root(), name, on_date, self.events_dir)
+        target = _event_path(self._root(), name, on_date, self.events_dir)
         materials, mat_err = self._validate_materials(materials_in, target.name)
         if mat_err is not None:
             self._set_error({"error": mat_err})
@@ -253,19 +291,23 @@ class Sync(BaseStep):
             metadata["originSessionId"] = origin_session_id
 
         try:
-            Memory.model_validate(metadata)
+            MemoryFileNode.model_validate({
+                "path": str(target.resolve()),
+                "st_mtime": 0.0,
+                **metadata,
+            })
         except ValidationError as e:
             self._set_error({
-                "error": "Memory schema validation failed",
+                "error": "MemoryFileNode schema validation failed",
                 "details": e.errors(include_context=False, include_url=False),
             })
             return
 
         graph = self.file_store
-        conflicts = graph.collisions_after_create(target)
+        conflicts = collisions_after_create(graph, target)
         if conflicts:
             taken = {Path(p).stem for p in graph.nodes}
-            suggested_name = next_suffixed_stem(taken, name)
+            suggested_name = _next_suffixed_stem(taken, name)
             self._set_error({
                 "error": (
                     f"stem `[[{name}]]` would resolve ambiguously "
@@ -336,7 +378,7 @@ class Sync(BaseStep):
             graph = self.file_store
             taken = {Path(p).stem for p in graph.nodes}
             base = target.stem
-            suggested = next_suffixed_stem(taken, base)
+            suggested = _next_suffixed_stem(taken, base)
             self._set_error({
                 "path": str(target.resolve()),
                 "error": (
@@ -392,11 +434,15 @@ class Sync(BaseStep):
         meta["updated"] = date_type.today().isoformat()
 
         try:
-            Memory.model_validate(meta)
+            MemoryFileNode.model_validate({
+                "path": str(target.resolve()),
+                "st_mtime": 0.0,
+                **meta,
+            })
         except ValidationError as e:
             self._set_error({
                 "path": str(target.resolve()),
-                "error": "Memory schema validation failed on append",
+                "error": "MemoryFileNode schema validation failed on append",
                 "details": e.errors(include_context=False, include_url=False),
             })
             return

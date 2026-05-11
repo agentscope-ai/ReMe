@@ -4,15 +4,15 @@ Unified storage for file metadata (frontmatter + mtime), the wikilink
 graph (edges per path), and chunks (text + embeddings) with vector /
 keyword / hybrid search.
 
-The store accepts a `ParsedFile` from the watcher's parsing pass via
-`upsert_parsed(...)`, dispatching meta + edges + chunks into the
-appropriate persistence pipelines.
+The store accepts `(node, chunks)` from the watcher's parsing pass via
+`upsert(node, chunks)`, dispatching node + chunks into the appropriate
+persistence pipelines (and attaching embeddings via hash-diff).
 
 Two backends:
     LocalFileStore   — pure-Python with JSONL persistence (default,
                        zero deps, fine for small vaults).
     SqliteFileStore  — SQLite + FTS5 + sqlite-vec for keyword/vector
-                       at scale; meta + edges live in relational tables.
+                       at scale; nodes live in a relational table.
 """
 
 from .base_file_store import BaseFileStore

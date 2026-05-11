@@ -1,4 +1,10 @@
-"""Base file parser interface."""
+"""Abstract base class for file parsers.
+
+Single-pass parser: `parse(path)` returns `(FileNode, list[FileChunk])`.
+Embeddings are NOT attached here — the file_store owns the embedding
+pipeline (it has the cached chunks needed for hash-diff and the
+embedding model handle).
+"""
 
 from abc import abstractmethod
 from pathlib import Path

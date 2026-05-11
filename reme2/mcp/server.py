@@ -54,7 +54,7 @@ def main() -> None:
 
     vault_path = os.environ.get("VAULT_PATH")
     if vault_path:
-        argv.append(f"components.file_watcher.default.watch_path={vault_path}")
+        argv.append(f"components.file_store.default.working_dir={vault_path}")
         argv.append(f"components.file_store.default.db_path={vault_path}/.reme")
         argv.append(f"service.sidecar_info_path={vault_path}/.reme/sidecar.json")
 

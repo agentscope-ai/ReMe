@@ -1,14 +1,15 @@
 """Base file watcher with watchfiles integration.
 
 Per change → single-step pipeline:
-  added/modified → existing = file_store.get_chunks(path)
-                   parsed   = parser.parse(path, existing_chunks=existing)
-                   file_store.upsert_parsed(parsed)
-  deleted        → file_store.delete_chunks + delete_file_meta
+  added/modified → node, chunks = parser.parse(path)
+                   file_store.upsert(node, chunks)
+  deleted        → file_store.delete_chunks + delete_node
 
-The parser owns: chunking, edge extraction, and embedding (with hash-diff
-cache via the `existing_chunks` argument). The file_store owns: persistence
-of meta + edges + chunks (atomic-from-the-caller's-POV via `upsert_parsed`).
+The parser owns: chunking and edge extraction (text-only, no embedding).
+The file_store owns: persistence of node + chunks AND the embedding
+pipeline — `upsert` hash-diffs incoming chunks against its persisted
+ones, reuses cached embeddings for unchanged blocks, and calls the
+embedding API only for new-hash blocks.
 The watcher owns: scheduling, cancel-on-modify, retry/timeout, and
 startup recovery (re-parsing files whose mtime drifted while offline).
 """
@@ -35,7 +36,6 @@ class BaseFileWatcher(BaseComponent):
 
     def __init__(
         self,
-        watch_path: str,
         recursive: bool = False,
         debounce: int = 2000,
         file_store: str = "default",
@@ -53,7 +53,6 @@ class BaseFileWatcher(BaseComponent):
         self.file_store: BaseFileStore | None = None
         self._suffix_to_parser: dict[str, BaseFileParser] = {}
         self._default_parser: BaseFileParser | None = None
-        self.watch_path: str = watch_path
         self.recursive: bool = recursive
         self.debounce: int = debounce
         self.rebuild_index_on_start: bool = rebuild_index_on_start
@@ -72,6 +71,19 @@ class BaseFileWatcher(BaseComponent):
         self._last_failure: dict[str, float] = {}
 
     @property
+    def watch_path(self) -> str:
+        """Vault root the watcher is bound to (== file_store.working_dir).
+
+        Available after _start. Reads the live value from the bound
+        store so config has a single source of truth.
+        """
+        if self.file_store is None or self.file_store.working_dir is None:
+            raise RuntimeError(
+                "watch_path requires a started file_store with working_dir set",
+            )
+        return str(self.file_store.working_dir)
+
+    @property
     def _meta_path(self) -> Path:
         return (Path(self.watch_path) / self._META_DIR).resolve()
 
@@ -88,9 +100,12 @@ class BaseFileWatcher(BaseComponent):
             store = stores[self._file_store_name]
             if not isinstance(store, BaseFileStore):
                 raise TypeError(f"Expected BaseFileStore, got {type(store).__name__}")
+            if store.working_dir is None:
+                raise ValueError(
+                    f"File store '{self._file_store_name}' has no working_dir; "
+                    f"set components.file_store.{self._file_store_name}.working_dir in config",
+                )
             self.file_store = store
-            # Vault root drives explicit-path wikilink resolution.
-            self.file_store.set_vault_root(self.watch_path)
 
             parsers = self.app_context.components.get(ComponentEnum.FILE_PARSER, {})
             for parser in parsers.values():
@@ -189,8 +204,8 @@ class BaseFileWatcher(BaseComponent):
         deleted = cached_paths - disk_paths
         modified: set[str] = set()
         for p in disk_paths & cached_paths:
-            cached_meta = self.file_store.get_file_meta(p)
-            if cached_meta is None or cached_meta.st_mtime != on_disk[p]:
+            cached_node = self.file_store.get_node(p)
+            if cached_node is None or cached_node.st_mtime != on_disk[p]:
                 modified.add(p)
 
         unchanged = len(disk_paths & cached_paths) - len(modified)
@@ -298,7 +313,7 @@ class BaseFileWatcher(BaseComponent):
         for p in targets:
             await self._cancel_parse_task(p)
             await self.file_store.delete_chunks(p)
-            await self.file_store.delete_file_meta(p)
+            await self.file_store.delete_node(p)
         if len(targets) == 1:
             self.logger.info(f"Deleted {path}")
         else:
@@ -358,33 +373,32 @@ class BaseFileWatcher(BaseComponent):
         return dict(self._last_failure)
 
     async def _run_parse_task(self, path: str, parser: BaseFileParser) -> None:
-        """One per-path parse task: get prior chunks → parse → upsert_parsed.
+        """One per-path parse task: parse → upsert.
 
-        Hash diff happens inside the parser via `existing_chunks`: chunks
-        whose hash matches a stored chunk reuse the prior embedding; only
-        new-hash blocks hit the embedding API. The whole upsert is one
-        call to the file_store.
+        The store owns hash-diff + embedding: it inspects its own
+        existing chunks for `path`, reuses cached embeddings for
+        unchanged blocks, and only calls the embedding API for new-hash
+        blocks. The whole upsert is one call from this side.
         """
         try:
             for attempt in range(1, self._parse_max_attempts + 1):
                 try:
                     assert self.file_store is not None
-                    existing = await self.file_store.get_chunks(path)
-                    parsed = await asyncio.wait_for(
-                        parser.parse(path, existing_chunks=existing),
+                    node, chunks = await asyncio.wait_for(
+                        parser.parse(path),
                         timeout=self._parse_task_timeout,
                     )
 
                     assert self._run_lock is not None
                     async with self._run_lock:
                         await asyncio.wait_for(
-                            self.file_store.upsert_parsed(parsed),
+                            self.file_store.upsert(node, chunks),
                             timeout=self._parse_task_timeout,
                         )
                         self._last_failure.pop(path, None)
 
                     self.logger.info(
-                        f"indexed {path}: chunks={len(parsed.chunks)} edges={len(parsed.edges)}",
+                        f"indexed {path}: chunks={len(chunks)} edges={len(node.edges)}",
                     )
                     return
                 except asyncio.CancelledError:

@@ -1,4 +1,10 @@
-"""SQLite file store backend (chunks + file metadata)."""
+"""SQLite file store backend (chunks + nodes).
+
+File nodes live in `nodes_{store_name}` (path PK, st_mtime, data JSON
+where `data` carries everything else — frontmatter extras + edges).
+Chunks live in `chunks_{store_name}` with companion `vec0` and `fts5`
+virtual tables for vector and trigram search.
+"""
 
 import json
 import sqlite3
@@ -8,7 +14,8 @@ from typing import Iterable
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ...schema import ChunkFilter, FileChunk, FileEdge, FileMetadata
+from ...schema import ChunkFilter, FileChunk, FileNode
+from ...utils.chunk_search import filter_chunks, keyword_score
 
 
 @R.register("sqlite")
@@ -16,8 +23,8 @@ class SqliteFileStore(BaseFileStore):
     """SQLite file store with vector + full-text search.
 
     Uses sqlite-vec for vector similarity search and FTS5 with trigram
-    tokenizer for keyword search. File metadata lives in a relational
-    table (`files_{store_name}`) with native UPSERT — overrides the
+    tokenizer for keyword search. Nodes (frontmatter + edges + mtime)
+    live in a relational table with native UPSERT — overrides the
     base class's default JSONL sidecar.
     """
 
@@ -41,12 +48,8 @@ class SqliteFileStore(BaseFileStore):
         return f"chunks_fts_{self.store_name}"
 
     @property
-    def files_table(self) -> str:
-        return f"files_{self.store_name}"
-
-    @property
-    def edges_table(self) -> str:
-        return f"edges_{self.store_name}"
+    def nodes_table(self) -> str:
+        return f"nodes_{self.store_name}"
 
     @staticmethod
     def vector_to_blob(embedding: list[float]) -> bytes:
@@ -97,6 +100,10 @@ class SqliteFileStore(BaseFileStore):
         self.logger.info(f"SqliteFileStore '{self.store_name}' ready: db={self.db_path / 'reme.db'}")
         await super()._start()
 
+    @property
+    def _embedding_dim(self) -> int:
+        return self.embedding_model.dimensions if self.embedding_model else 1024
+
     async def _create_tables(self) -> None:
         cursor = self.conn.cursor()
         try:
@@ -123,11 +130,11 @@ class SqliteFileStore(BaseFileStore):
                     f"""
                     CREATE VIRTUAL TABLE IF NOT EXISTS {self.vector_table} USING vec0(
                         id TEXT PRIMARY KEY,
-                        embedding FLOAT[{self.embedding_dim}]
+                        embedding FLOAT[{self._embedding_dim}]
                     )
                 """,
                 )
-                self.logger.info(f"Created vector table (dims={self.embedding_dim})")
+                self.logger.info(f"Created vector table (dims={self._embedding_dim})")
 
             if self.fts_enabled:
                 cursor.execute(
@@ -146,20 +153,10 @@ class SqliteFileStore(BaseFileStore):
 
             cursor.execute(
                 f"""
-                CREATE TABLE IF NOT EXISTS {self.files_table} (
+                CREATE TABLE IF NOT EXISTS {self.nodes_table} (
                     path TEXT PRIMARY KEY,
-                    file TEXT,
                     st_mtime REAL,
-                    metadata TEXT
-                )
-            """,
-            )
-
-            cursor.execute(
-                f"""
-                CREATE TABLE IF NOT EXISTS {self.edges_table} (
-                    path TEXT PRIMARY KEY,
-                    edges TEXT
+                    data TEXT
                 )
             """,
             )
@@ -370,17 +367,6 @@ class SqliteFileStore(BaseFileStore):
             cleaned = cleaned.replace(ch, " ")
         return " ".join(cleaned.split())
 
-    @staticmethod
-    def _path_filter_clause(chunk_filter: ChunkFilter | None, column: str = "path") -> tuple[str, list]:
-        """Build a WHERE clause fragment for ChunkFilter; returns (sql_fragment, params)."""
-        if chunk_filter is None or chunk_filter.resolved_paths is None:
-            return "", []
-        paths = chunk_filter.resolved_paths
-        if not paths:
-            return "0", []  # filter excludes everything
-        placeholders = ",".join("?" * len(paths))
-        return f"{column} IN ({placeholders})", list(paths)
-
     # -- Search operations --------------------------------------------------
 
     async def vector_search(
@@ -392,7 +378,8 @@ class SqliteFileStore(BaseFileStore):
         if not self.vector_enabled or not query:
             return []
 
-        query_embedding = await self.get_embedding(query)
+        embeddings = await self.embed([query])
+        query_embedding = embeddings[0] if embeddings else None
         if not query_embedding:
             return []
 
@@ -425,7 +412,7 @@ class SqliteFileStore(BaseFileStore):
                     ),
                 )
 
-            chunks = self._apply_filter(chunks, chunk_filter)
+            chunks = filter_chunks(chunks, chunk_filter)
             chunks.sort(key=lambda c: c.score, reverse=True)
             return chunks[:limit]
         except Exception as e:
@@ -454,9 +441,9 @@ class SqliteFileStore(BaseFileStore):
         if all(len(w) >= 3 for w in words):
             results = await self._fts_trigram_search(words, limit)
             if results:
-                return self._apply_filter(results, chunk_filter)[:limit]
+                return filter_chunks(results, chunk_filter)[:limit]
 
-        return self._apply_filter(
+        return filter_chunks(
             await self._like_search(cleaned, words, limit),
             chunk_filter,
         )[:limit]
@@ -525,7 +512,7 @@ class SqliteFileStore(BaseFileStore):
 
             chunks = []
             for cid, path, start, end, text in cursor.fetchall():
-                score = self._score_keyword_match(phrase, text)
+                score = keyword_score(phrase, text)
                 if score == 0.0:
                     continue
 
@@ -560,8 +547,7 @@ class SqliteFileStore(BaseFileStore):
                 cursor.execute(f"DELETE FROM {self.vector_table}")
             if self.fts_enabled:
                 cursor.execute(f"DELETE FROM {self.fts_table}")
-            cursor.execute(f"DELETE FROM {self.files_table}")
-            cursor.execute(f"DELETE FROM {self.edges_table}")
+            cursor.execute(f"DELETE FROM {self.nodes_table}")
             cursor.execute("COMMIT")
         except Exception as e:
             cursor.execute("ROLLBACK")
@@ -571,122 +557,54 @@ class SqliteFileStore(BaseFileStore):
             cursor.close()
         self.logger.info(f"Cleared all data from SqliteFileStore '{self.store_name}'")
 
-    # -- File-meta persistence (overrides default JSONL sidecar) ------------
+    # -- Node persistence (overrides default JSONL sidecar) -----------------
 
-    async def _persist_upsert_meta(self, meta: FileMetadata) -> None:
+    async def _persist_upsert_node(self, node: FileNode) -> None:
         cursor = self.conn.cursor()
         try:
             cursor.execute(
-                f"""INSERT INTO {self.files_table}
-                    (path, file, st_mtime, metadata)
-                    VALUES (?, ?, ?, ?)
+                f"""INSERT INTO {self.nodes_table}
+                    (path, st_mtime, data)
+                    VALUES (?, ?, ?)
                     ON CONFLICT(path) DO UPDATE SET
-                        file = excluded.file,
                         st_mtime = excluded.st_mtime,
-                        metadata = excluded.metadata""",
-                (
-                    meta.path,
-                    meta.file,
-                    meta.st_mtime,
-                    json.dumps(meta.metadata, ensure_ascii=False, default=str),
-                ),
+                        data = excluded.data""",
+                (node.path, node.st_mtime, node.model_dump_json()),
             )
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
-            self.logger.error(f"Failed to upsert file meta {meta.path}: {e}")
+            self.logger.error(f"Failed to upsert node {node.path}: {e}")
             raise
         finally:
             cursor.close()
 
-    async def _persist_delete_meta(self, path: str) -> None:
+    async def _persist_delete_node(self, path: str) -> None:
         cursor = self.conn.cursor()
         try:
-            cursor.execute(f"DELETE FROM {self.files_table} WHERE path = ?", (path,))
+            cursor.execute(f"DELETE FROM {self.nodes_table} WHERE path = ?", (path,))
             self.conn.commit()
         except Exception as e:
             self.conn.rollback()
-            self.logger.error(f"Failed to delete file meta {path}: {e}")
+            self.logger.error(f"Failed to delete node {path}: {e}")
             raise
         finally:
             cursor.close()
 
-    def _iter_persisted_metas(self) -> Iterable[FileMetadata]:
+    def _iter_persisted_nodes(self) -> Iterable[FileNode]:
         if self.conn is None:
             return []
         cursor = self.conn.cursor()
         try:
-            cursor.execute(
-                f"SELECT path, file, st_mtime, metadata "
-                f"FROM {self.files_table}",
-            )
-            out: list[FileMetadata] = []
-            for path, file, st_mtime, metadata_json in cursor.fetchall():
+            cursor.execute(f"SELECT data FROM {self.nodes_table}")
+            out: list[FileNode] = []
+            for (data_json,) in cursor.fetchall():
+                if not data_json:
+                    continue
                 try:
-                    out.append(
-                        FileMetadata(
-                            path=path,
-                            file=file or "",
-                            st_mtime=st_mtime or 0.0,
-                            metadata=json.loads(metadata_json) if metadata_json else {},
-                        ),
-                    )
+                    out.append(FileNode.model_validate_json(data_json))
                 except Exception as e:
-                    self.logger.warning(f"Bad file meta row for {path}: {e}")
-            return out
-        finally:
-            cursor.close()
-
-    # -- Edge persistence (overrides default JSONL sidecar) -----------------
-
-    async def _persist_upsert_edges(self, path: str, edges: list[FileEdge]) -> None:
-        cursor = self.conn.cursor()
-        try:
-            if edges:
-                cursor.execute(
-                    f"""INSERT INTO {self.edges_table} (path, edges)
-                        VALUES (?, ?)
-                        ON CONFLICT(path) DO UPDATE SET edges = excluded.edges""",
-                    (path, json.dumps(
-                        [e.model_dump(exclude_none=True) for e in edges],
-                        ensure_ascii=False,
-                    )),
-                )
-            else:
-                cursor.execute(f"DELETE FROM {self.edges_table} WHERE path = ?", (path,))
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            self.logger.error(f"Failed to upsert edges for {path}: {e}")
-            raise
-        finally:
-            cursor.close()
-
-    async def _persist_delete_edges(self, path: str) -> None:
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(f"DELETE FROM {self.edges_table} WHERE path = ?", (path,))
-            self.conn.commit()
-        except Exception as e:
-            self.conn.rollback()
-            self.logger.error(f"Failed to delete edges for {path}: {e}")
-            raise
-        finally:
-            cursor.close()
-
-    def _iter_persisted_edges(self) -> Iterable[tuple[str, list[FileEdge]]]:
-        if self.conn is None:
-            return []
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(f"SELECT path, edges FROM {self.edges_table}")
-            out: list[tuple[str, list[FileEdge]]] = []
-            for path, edges_json in cursor.fetchall():
-                try:
-                    raws = json.loads(edges_json) if edges_json else []
-                    out.append((path, [FileEdge.model_validate(e) for e in raws]))
-                except Exception as e:
-                    self.logger.warning(f"Bad edge row for {path}: {e}")
+                    self.logger.warning(f"Bad node row: {e}")
             return out
         finally:
             cursor.close()

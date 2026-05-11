@@ -4,7 +4,7 @@ Used by:
     - Maintainer.lint  : surfaces schema violations on existing files
     - any read path    : turn raw frontmatter into a typed view when possible
 
-For *write* paths (`sync`, Ingestor) call `Memory.model_validate`
+For *write* paths (`sync`, Ingestor) call `MemoryFileNode.model_validate`
 directly so validation errors propagate as exceptions and stop the write.
 """
 
@@ -12,23 +12,23 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from .memory import Memory
+from .memory import MemoryFileNode
 
 
-def parse_frontmatter(raw: dict) -> tuple[Memory | None, list[str]]:
+def parse_frontmatter(raw: dict) -> tuple[MemoryFileNode | None, list[str]]:
     """Tolerant parse. Returns (parsed, errors).
 
-    Success → (Memory(...), [])
+    Success → (MemoryFileNode(...), [])
     Failure → (None, ["loc: msg", ...])
 
-    Migration is automatic via Memory's `model_validator(mode='before')`,
+    Migration is automatic via MemoryFileNode's `model_validator(mode='before')`,
     so frontmatter that only carries the legacy `category` field still
     parses successfully.
     """
     if not isinstance(raw, dict):
         return None, [f"frontmatter must be a dict, got {type(raw).__name__}"]
     try:
-        return Memory.model_validate(raw), []
+        return MemoryFileNode.model_validate(raw), []
     except ValidationError as e:
         msgs: list[str] = []
         for err in e.errors(include_context=False, include_url=False):

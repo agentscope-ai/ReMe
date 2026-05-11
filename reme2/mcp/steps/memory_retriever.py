@@ -84,10 +84,10 @@ def _serialize_chunk(chunk, file_store, extras: dict | None = None) -> dict:
     `extras` lets the caller attach step-specific fields (e.g. `graph_hop`).
     """
     item = chunk.model_dump(exclude_none=True, exclude={"embedding"})
-    meta = file_store.get_file_meta(chunk.path)
-    if meta is not None:
-        item["file_metadata"] = meta.metadata
-        item["file_st_mtime"] = meta.st_mtime
+    node = file_store.get_node(chunk.path)
+    if node is not None:
+        item["file_metadata"] = node.metadata
+        item["file_st_mtime"] = node.st_mtime
     else:
         item["file_metadata"] = None
         item["file_st_mtime"] = None

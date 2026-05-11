@@ -60,6 +60,50 @@ should set the axes directly.
 - **Path form** `[[topics/X/X]]` or `[[topics/X/X.md]]` — anchored at
   the vault root.
 
+## Link protocol — typed edges in body text
+
+Edges live **only in body text**. YAML frontmatter is not walked for
+links; a `links:` block in frontmatter is silently ignored by the
+parser. Three legal inline forms:
+
+| Form | Example | Predicate |
+|---|---|---|
+| Bare wikilink | `[[X]]` | `None` |
+| Line-level Dataview | `extends:: [[X]]` | `extends` |
+| Inline-bracketed Dataview | `[extends:: [[X]]]` | `extends` |
+
+Multi-target on one field expands to multiple edges:
+
+    concerns:: [[Topic A]], [[Topic B]]
+
+Bullet markers are tolerated (`- extends:: [[X]]`, `* extends:: [[X]]`).
+
+### Predicate syntax
+
+A predicate is any **identifier-shaped token**: starts with a letter,
+followed by letters / digits / underscore (regex
+`[A-Za-z][A-Za-z0-9_]*`). The parser preserves whatever it sees — no
+closed vocabulary at the schema layer. Choose predicates that read
+well in prose (`extends`, `contradicts`, `derives_from`, `concerns`,
+`supersedes`, …); the maintainer's lint pass can later surface
+inconsistencies if a vocabulary policy is desired.
+
+### `## Relations` section (machine-managed)
+
+The maintainer's `discover` op appends newly discovered edges as
+Dataview line-level fields under a `## Relations` heading at the end
+of the file (creating the heading if absent). Example:
+
+    ## Relations
+
+    extends:: [[Source Topic]]
+    concerns:: [[Topic A]]
+
+`## Relations` is a **convention**, not a protocol — the parser treats
+edges anywhere in the body uniformly. The heading is just the default
+write location so machine-added edges stay separate from prose for
+human review.
+
 ## Status state machine
 
 `active → distilled → archived` (single direction, no skip). A reverse
@@ -99,7 +143,7 @@ payload + records to audit)
   key (`value=null` deletes). Use this to flip status.
 - `memory_create(path, metadata, content, overwrite=False, force=False)`
   — new file. Reserve for genuinely NEW topics. Do NOT use for events
-  (`sync` owns events). All paths must be ABSOLUTE under vault_root.
+  (`sync` owns events). All paths must be ABSOLUTE under working_dir.
 - `memory_rename(old_path, new_path)` — move file + rewrite cross-vault
   wikilinks. Refuses on destination conflict or stem ambiguity.
 - `memory_delete(path)` — remove a file.
