@@ -4,7 +4,7 @@ Usage:
     python -m reme2.mcp.server [config=path/to/yaml] [service.transport=stdio]
     python reme2/mcp/server.py [config=path/to/yaml] [service.transport=stdio]
 
-By default loads `reme2/config/full.yaml` and starts the
+By default loads `reme2/config/service.yaml` and starts the
 ReMe2 application with the MCP service registered.
 
 Env vars:
@@ -42,7 +42,7 @@ from reme2.application import Application  # noqa: E402
 from reme2.config import parse_args  # noqa: E402
 
 
-_DEFAULT_CONFIG = str(_REPO_ROOT / "reme2" / "config" / "full.yaml")
+_DEFAULT_CONFIG = str(_REPO_ROOT / "reme2" / "config" / "service.yaml")
 
 
 def main() -> None:

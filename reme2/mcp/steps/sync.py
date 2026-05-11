@@ -41,8 +41,8 @@ from pydantic import ValidationError
 
 from reme2.component import R
 from reme2.component.base_step import BaseStep
-from reme2.memory.memory_io import write_create
-from reme2.schema.vault import Event
+from reme2.memory.memory_io import create_file
+from reme2.memory.schema import EVENT_PRESET, Memory
 from reme2.utils.vault_paths import event_path, next_suffixed_stem
 
 
@@ -238,11 +238,12 @@ class Sync(BaseStep):
             on_date.isoformat() if isinstance(on_date, date_type)
             else (on_date or today)
         )
+        # Start from EVENT_PRESET (4 axes + status + legacy `category`),
+        # layer caller-supplied identity fields on top.
         metadata: dict = {
+            **EVENT_PRESET,
             "title": name,
             "description": description,
-            "category": "event",
-            "status": "active",
             "tags": tags,
             "topics": topics,
             "created": on_date_str,
@@ -252,10 +253,10 @@ class Sync(BaseStep):
             metadata["originSessionId"] = origin_session_id
 
         try:
-            Event.model_validate(metadata)
+            Memory.model_validate(metadata)
         except ValidationError as e:
             self._set_error({
-                "error": "Event schema validation failed",
+                "error": "Memory schema validation failed",
                 "details": e.errors(include_context=False, include_url=False),
             })
             return
@@ -281,7 +282,7 @@ class Sync(BaseStep):
 
         material_filenames = [m["filename"] for m in materials]
         index_body = self._emit_body(content, material_filenames)
-        ok, payload = write_create(
+        ok, payload = create_file(
             self.file_store, target,
             metadata=metadata, content=index_body,
         )
@@ -391,11 +392,11 @@ class Sync(BaseStep):
         meta["updated"] = date_type.today().isoformat()
 
         try:
-            Event.model_validate(meta)
+            Memory.model_validate(meta)
         except ValidationError as e:
             self._set_error({
                 "path": str(target.resolve()),
-                "error": "Event schema validation failed on append",
+                "error": "Memory schema validation failed on append",
                 "details": e.errors(include_context=False, include_url=False),
             })
             return

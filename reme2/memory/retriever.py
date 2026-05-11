@@ -95,7 +95,7 @@ class BaseRetriever(BaseStep):
         """
         assert self.context is not None
         ctx = self.context
-        chunk_filter = memory_io.make_chunk_filter(
+        chunk_filter = memory_io.make_filter(
             self.file_store,
             paths=ctx.get("paths") or None,
             tags=ctx.get("tags") or None,
@@ -116,9 +116,9 @@ class BaseRetriever(BaseStep):
 class HybridRetriever(BaseRetriever):
     """V + K (+ optional graph BFS) fusion retriever.
 
-    Composes the file_store's single-channel primitives (`vector_search`,
-    `keyword_search`, `expand_neighbors`, `extract_anchor_paths`,
-    `get_chunks_by_paths`). Knobs (`vector_weight`, `graph_weight`,
+    Composes the engine API's projection primitives (`search_vector`,
+    `search_keyword`, `expand_neighbors`, `extract_anchors`,
+    `get_chunks`). Knobs (`vector_weight`, `graph_weight`,
     `graph_depth`, `graph_decay`, `graph_direction`, `graph_mode`,
     `graph_per_path_cap`, `anchor_expand`, `candidate_multiplier`) are
     constructor defaults; `graph_search` accepts per-call overrides for
@@ -173,8 +173,8 @@ class HybridRetriever(BaseRetriever):
         text_weight = 1.0 - self.vector_weight
 
         if fs.vector_enabled and fs.fts_enabled:
-            v_task = memory_io.vector_search(fs, query, candidates, chunk_filter)
-            k_task = memory_io.keyword_search(fs, query, candidates, chunk_filter)
+            v_task = memory_io.search_vector(fs, query, limit=candidates, chunk_filter=chunk_filter)
+            k_task = memory_io.search_keyword(fs, query, limit=candidates, chunk_filter=chunk_filter)
             v_results, k_results = await asyncio.gather(v_task, k_task)
 
             if not k_results:
@@ -186,9 +186,9 @@ class HybridRetriever(BaseRetriever):
                     v_results, k_results, self.vector_weight, text_weight,
                 )[:max_results]
         elif fs.vector_enabled:
-            results = await memory_io.vector_search(fs, query, max_results, chunk_filter)
+            results = await memory_io.search_vector(fs, query, limit=max_results, chunk_filter=chunk_filter)
         elif fs.fts_enabled:
-            results = await memory_io.keyword_search(fs, query, max_results, chunk_filter)
+            results = await memory_io.search_keyword(fs, query, limit=max_results, chunk_filter=chunk_filter)
         else:
             results = []
 
@@ -264,8 +264,8 @@ class HybridRetriever(BaseRetriever):
 
         # 1. V + K in parallel (each is a no-op when its backend is disabled).
         if query:
-            v_task = memory_io.vector_search(fs, query, candidate_count, chunk_filter)
-            k_task = memory_io.keyword_search(fs, query, candidate_count, chunk_filter)
+            v_task = memory_io.search_vector(fs, query, limit=candidate_count, chunk_filter=chunk_filter)
+            k_task = memory_io.search_keyword(fs, query, limit=candidate_count, chunk_filter=chunk_filter)
             v_results, k_results = await asyncio.gather(v_task, k_task)
         else:
             v_results, k_results = [], []
@@ -296,7 +296,7 @@ class HybridRetriever(BaseRetriever):
             extra_paths = set(hops) - vk_paths
             if chunk_filter is not None and chunk_filter.resolved_paths is not None:
                 extra_paths &= chunk_filter.resolved_paths
-            extra_chunks = await memory_io.chunks_by_paths(fs, extra_paths)
+            extra_chunks = await memory_io.get_chunks(fs, extra_paths)
             # Per-path cap so a hub topic with N chunks doesn't flood results.
             by_path: dict[str, list] = defaultdict(list)
             for c in extra_chunks:

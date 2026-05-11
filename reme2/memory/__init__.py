@@ -12,7 +12,7 @@ Per the architecture blueprint:
                      Lint, woken by cron or thresholds.
     - summarizer.py  Auxiliary used by the services.
 
-Hot-write MCP step shells (sync, topic_create, memory_*) live in
+Hot-write MCP step shells (sync, memory_*) live in
 `reme2.mcp.steps`, NOT here — they bypass services and write MFS
 directly. Importing this package triggers @R.register on the three
 services so configs that name them resolve at boot.

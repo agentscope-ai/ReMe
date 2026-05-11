@@ -114,7 +114,7 @@ class MemorySearch(BaseStep):
             isinstance(max_results, int) and max_results > 0
         ), f"max_results must be a positive integer, got {max_results}"
 
-        chunk_filter = memory_io.make_chunk_filter(
+        chunk_filter = memory_io.make_filter(
             self.file_store,
             paths=self.context.get("paths") or None,
             tags=self.context.get("tags") or None,
@@ -168,7 +168,7 @@ class MemoryGraphSearch(BaseStep):
         assert query or explicit_seeds, "query or seeds must be provided"
         assert max_results > 0
 
-        chunk_filter = memory_io.make_chunk_filter(
+        chunk_filter = memory_io.make_filter(
             self.file_store,
             paths=ctx.get("paths") or None,
             tags=ctx.get("tags") or None,
