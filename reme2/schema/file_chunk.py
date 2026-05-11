@@ -1,16 +1,12 @@
 from pydantic import Field
 
-from .base_node import BaseNode
+from .emb_node import EmbNode
 
 
-class FileChunk(BaseNode):
-    """File content chunk with positional and scoring metadata."""
-
-    path: str = Field(...)
-    start_line: int = Field(...)
-    end_line: int = Field(...)
-
-    hash: str = Field(...)
+class FileChunk(EmbNode):
+    path: str = Field(default="")
+    start_line: int = Field(default=0)
+    end_line: int = Field(default=0)
     scores: dict[str, float] = Field(default_factory=dict)
 
     @property
@@ -18,5 +14,5 @@ class FileChunk(BaseNode):
         return self.scores.get("score", 0.0)
 
     @property
-    def unique_key(self) -> str:
-        return f"{self.path}:{self.start_line}:{self.end_line}"
+    def hash(self) -> str:
+        return "_".join([self.id, self.path, str(self.start_line), str(self.end_line)])

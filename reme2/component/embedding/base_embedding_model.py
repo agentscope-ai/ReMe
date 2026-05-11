@@ -11,7 +11,7 @@ import numpy as np
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
-from ...schema import BaseNode
+from ...schema import EmbNode
 
 
 class BaseEmbeddingModel(BaseComponent):
@@ -204,7 +204,7 @@ class BaseEmbeddingModel(BaseComponent):
         if texts_to_compute:
             uncached_texts = [text for _, text in texts_to_compute]
             for i in range(0, len(uncached_texts), self.max_batch_size):
-                batch = texts_to_compute[i : i + self.max_batch_size]
+                batch = texts_to_compute[i: i + self.max_batch_size]
                 batch_indices = [idx for idx, _ in batch]
                 batch_texts = [text for _, text in batch]
 
@@ -225,7 +225,7 @@ class BaseEmbeddingModel(BaseComponent):
 
         return results
 
-    async def get_node_embeddings(self, nodes: list[BaseNode], **kwargs) -> list[BaseNode]:
+    async def get_node_embeddings(self, nodes: list[EmbNode], **kwargs) -> list[EmbNode]:
         """Get embeddings for a list of nodes and assign to node.embedding."""
         texts = [node.text for node in nodes]
         embeddings = await self.get_embeddings(texts, **kwargs)
