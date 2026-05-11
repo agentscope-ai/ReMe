@@ -9,6 +9,7 @@ class FileChunk(BaseNode):
     path: str = Field(...)
     start_line: int = Field(...)
     end_line: int = Field(...)
+
     hash: str = Field(...)
     scores: dict[str, float] = Field(default_factory=dict)
 
