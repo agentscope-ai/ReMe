@@ -1,0 +1,20 @@
+{
+  "name": "reme-marketplace",
+  "owner": {
+    "name": "huangsen"
+  },
+  "plugins": [
+    {
+      "name": "reme-service",
+      "source": "./plugins/reme-service",
+      "description": "Service-tier markdown vault — three high-level MCP tools (retrieve / remember / maintain). reme2 internals own the R-M-W loop; the agent just hands off material.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "reme-expert",
+      "source": "./plugins/reme-expert",
+      "description": "Expert-tier markdown vault — Claude Code's agent runs the R-M-W loop directly using raw memory_* primitives, guided by the reme protocol skill + reme-distiller / reme-curator subagents.",
+      "version": "0.1.0"
+    }
+  ]
+}
