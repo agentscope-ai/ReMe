@@ -1,0 +1,10 @@
+{
+  "reme": {
+    "command": "python",
+    "args": ["-m", "reme2.mcp.server", "config=reme2/config/expert.yaml"],
+    "env": {
+      "PYTHONUNBUFFERED": "1",
+      "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/../../.."
+    }
+  }
+}
