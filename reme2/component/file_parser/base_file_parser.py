@@ -1,6 +1,7 @@
 """Base file parser interface."""
 
 from abc import abstractmethod
+from pathlib import Path
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
@@ -15,7 +16,31 @@ class BaseFileParser(BaseComponent):
 
     component_type = ComponentEnum.FILE_PARSER
 
-    async def parse(self, path: str, cache_chunks: list[FileChunk] | None = None) -> tuple[FileNode, list[FileChunk]]:
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.app_context is not None:
+            self.working_dir = self.app_context.app_config.working_dir
+        else:
+            self.working_dir = str(Path.cwd())
+
+    def _get_relative_path(self, path: str | Path) -> str:
+        """Get path relative to working_dir.
+
+        Args:
+            path: Absolute or relative path to the file.
+
+        Returns:
+            Path relative to working_dir.
+        """
+        file_path = Path(path).absolute()
+        working_path = Path(self.working_dir).absolute()
+        try:
+            return str(file_path.relative_to(working_path))
+        except ValueError:
+            return str(file_path)
+
+    async def parse(self, path: str | Path, cache_chunks: list[FileChunk] | None = None) -> tuple[
+        FileNode, list[FileChunk]]:
         """Parse a file and optionally reuse cached chunks by hash.
 
         Args:
@@ -35,7 +60,7 @@ class BaseFileParser(BaseComponent):
         return file_node, chunks
 
     @abstractmethod
-    async def _parse(self, path: str) -> tuple[FileNode, list[FileChunk]]:
+    async def _parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         """Parse a file into metadata and chunks. Subclasses must implement this.
 
         Args:
