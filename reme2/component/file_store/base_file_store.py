@@ -42,8 +42,7 @@ class BaseFileStore(BaseComponent):
     def __init__(
         self,
         store_name: str,
-        db_path: str | Path,
-        working_dir: str | Path | None = None,
+        store_path: str | Path,
         embedding_model: str = "default",
         fts_enabled: bool = True,
         **kwargs,
@@ -55,11 +54,11 @@ class BaseFileStore(BaseComponent):
                 f"Only alphanumeric characters and underscores are allowed.",
             )
         self.store_name: str = store_name
-        self.db_path: Path = Path(db_path)
-        self.db_path.mkdir(parents=True, exist_ok=True)
-        self.working_dir: Path | None = (
-            Path(working_dir).resolve() if working_dir is not None else None
-        )
+        self.store_path: Path = Path(store_path)
+        self.store_path.mkdir(parents=True, exist_ok=True)
+
+        self.working_dir = self.app_context.app_config.working_dir if self.app_context is not None else ""
+
 
         self._embedding_model_name: str = embedding_model
         self.embedding_model: BaseEmbeddingModel | None = None
@@ -70,7 +69,6 @@ class BaseFileStore(BaseComponent):
 
         # In-memory state (rebuilt from persistence on _start).
         self._nodes: dict[str, FileNode] = {}
-        self._stems: dict[str, set[str]] = defaultdict(set)
         self._backlinks: dict[str, set[str]] = defaultdict(set)
 
     # -- Lifecycle ---------------------------------------------------------
@@ -93,13 +91,11 @@ class BaseFileStore(BaseComponent):
     async def _close(self) -> None:
         self.embedding_model = None
         self._nodes.clear()
-        self._stems.clear()
         self._backlinks.clear()
 
     async def _reload_nodes(self) -> None:
         """Rebuild in-memory indices from persisted nodes. Called on _start."""
         self._nodes.clear()
-        self._stems.clear()
         self._backlinks.clear()
         node_count = 0
         edge_count = 0
@@ -140,18 +136,18 @@ class BaseFileStore(BaseComponent):
 
     async def upsert_node(self, node: FileNode) -> None:
         """Persist + reindex a node. Replaces any prior entry for `node.path`."""
-        await self._persist_upsert_node(node)
+        # await self._persist_upsert_node(node)
         self._unindex_node(node.path)
         self._index_node(node)
 
-    async def patch_node(self, path: str, **fields) -> FileNode | None:
-        """Convenience: `upsert_node(existing.model_copy(update=fields))`."""
-        existing = self._nodes.get(path)
-        if existing is None:
-            return None
-        updated = existing.model_copy(update=fields)
-        await self.upsert_node(updated)
-        return updated
+    # async def patch_node(self, path: str, **fields) -> FileNode | None:
+    #     """Convenience: `upsert_node(existing.model_copy(update=fields))`."""
+    #     existing = self._nodes.get(path)
+    #     if existing is None:
+    #         return None
+    #     updated = existing.model_copy(update=fields)
+    #     await self.upsert_node(updated)
+    #     return updated
 
     async def delete_node(self, path: str) -> FileNode | None:
         """Persist deletion + drop from indices. Returns prior node if any."""
@@ -159,31 +155,24 @@ class BaseFileStore(BaseComponent):
         prior = self._unindex_node(path)
         return prior
 
-    def get_node(self, path: str) -> FileNode | None:
+    async def read_node(self, path: str) -> FileNode | None:
         return self._nodes.get(path)
 
-    def get_edges(self, path: str) -> list[FileEdge]:
-        node = self._nodes.get(path)
-        return list(node.edges) if node is not None else []
-
-    @property
-    def nodes(self) -> Mapping[str, FileNode]:
-        return self._nodes
-
-    def __len__(self) -> int:
-        return len(self._nodes)
-
-    def __contains__(self, path: str) -> bool:
-        return path in self._nodes
-
-    def get_paths_by_stem(self, stem: str) -> list[str]:
-        return sorted(self._stems.get(stem, set()))
+    # def get_edges(self, path: str) -> list[FileEdge]:
+    #     node = self._nodes.get(path)
+    #     return list(node.edges) if node is not None else []
+    #
+    # @property
+    # def nodes(self) -> Mapping[str, FileNode]:
+    #     return self._nodes
+    #
+    # def get_paths_by_stem(self, stem: str) -> list[str]:
+    #     return sorted(self._stems.get(stem, set()))
 
     # -- Index maintenance (private) ---------------------------------------
 
     def _index_node(self, node: FileNode) -> None:
         self._nodes[node.path] = node
-        self._stems[Path(node.path).stem].add(node.path)
         for edge in node.edges:
             self._backlinks[_target_stem(edge.target)].add(node.path)
 
@@ -192,9 +181,6 @@ class BaseFileStore(BaseComponent):
         if prior is None:
             return None
         stem = Path(prior.path).stem
-        self._stems.get(stem, set()).discard(prior.path)
-        if not self._stems.get(stem):
-            self._stems.pop(stem, None)
         for edge in prior.edges:
             tgt = _target_stem(edge.target)
             self._backlinks.get(tgt, set()).discard(prior.path)
@@ -204,36 +190,36 @@ class BaseFileStore(BaseComponent):
 
     # -- Link queries (resolve via reme2.utils.wikilink_resolver) ----------
 
-    def get_links(self, path: str) -> list[tuple[FileNode, FileEdge]]:
-        """Files `path` links TO (resolved). One pair per edge, dedup by caller."""
-        from ...utils.wikilink_resolver import resolve_wikilink
+    # def get_links(self, path: str) -> list[tuple[FileNode, FileEdge]]:
+    #     """Files `path` links TO (resolved). One pair per edge, dedup by caller."""
+    #     from ...utils.wikilink_resolver import resolve_wikilink
+    #
+    #     node = self._nodes.get(path)
+    #     if node is None:
+    #         return []
+    #     out: list[tuple[FileNode, FileEdge]] = []
+    #     for edge in node.edges:
+    #         hit = resolve_wikilink(self, edge.target)
+    #         if hit is not None and hit in self._nodes:
+    #             out.append((self._nodes[hit], edge))
+    #     return out
 
-        node = self._nodes.get(path)
-        if node is None:
-            return []
-        out: list[tuple[FileNode, FileEdge]] = []
-        for edge in node.edges:
-            hit = resolve_wikilink(self, edge.target)
-            if hit is not None and hit in self._nodes:
-                out.append((self._nodes[hit], edge))
-        return out
-
-    def get_backlinks(self, path: str) -> list[tuple[FileNode, FileEdge]]:
-        """Files that link TO `path` (resolved). One pair per qualifying edge."""
-        from ...utils.wikilink_resolver import resolve_wikilink
-
-        if path not in self._nodes:
-            return []
-        stem = Path(path).stem
-        out: list[tuple[FileNode, FileEdge]] = []
-        for src in self._backlinks.get(stem, set()):
-            src_node = self._nodes.get(src)
-            if src_node is None:
-                continue
-            for edge in src_node.edges:
-                if resolve_wikilink(self, edge.target) == path:
-                    out.append((src_node, edge))
-        return out
+    # def get_backlinks(self, path: str) -> list[tuple[FileNode, FileEdge]]:
+    #     """Files that link TO `path` (resolved). One pair per qualifying edge."""
+    #     from ...utils.wikilink_resolver import resolve_wikilink
+    #
+    #     if path not in self._nodes:
+    #         return []
+    #     stem = Path(path).stem
+    #     out: list[tuple[FileNode, FileEdge]] = []
+    #     for src in self._backlinks.get(stem, set()):
+    #         src_node = self._nodes.get(src)
+    #         if src_node is None:
+    #             continue
+    #         for edge in src_node.edges:
+    #             if resolve_wikilink(self, edge.target) == path:
+    #                 out.append((src_node, edge))
+    #     return out
 
     # -- Hot write entry (called by watcher per file change) ---------------
 
@@ -293,7 +279,7 @@ class BaseFileStore(BaseComponent):
 
     @property
     def _nodes_path(self) -> Path:
-        return self.db_path / f"{self.store_name}_nodes.jsonl"
+        return self.store_path / f"{self.store_name}_nodes.jsonl"
 
     async def _persist_upsert_node(self, node: FileNode) -> None:
         """Default: full rewrite. Backends with relational storage override."""
@@ -351,12 +337,37 @@ class BaseFileStore(BaseComponent):
     async def get_chunks_by_paths(self, paths: Iterable[str]) -> list[FileChunk]:
         """Batch fetch chunks across many paths."""
 
+
+    async def upsert_node(self, node: FileNode):
+        ...
+
+    async def delete_node(self, path: str):
+        ...
+
+    async def get_node(self, path: str) -> FileNode:
+        ...
+
+    async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
+        ...
+
+    async def delete_chunks(self, path: str) -> None:
+        ...
+
+    async def get_chunks(self, path: str) -> list[FileChunk]:
+        ...
+
+    async def upsert(self, node: FileNode, chunks: list[FileChunk]) -> None:
+        ...
+
+    async def delete(self, path: str) -> None:
+        ...
+
     @abstractmethod
     async def vector_search(
         self,
         query: str,
         limit: int,
-        chunk_filter: ChunkFilter | None = None,
+        search_filter: dict,
     ) -> list[FileChunk]:
         """Vector similarity search."""
 
@@ -365,10 +376,6 @@ class BaseFileStore(BaseComponent):
         self,
         query: str,
         limit: int,
-        chunk_filter: ChunkFilter | None = None,
+        search_filter: dict,
     ) -> list[FileChunk]:
         """Full-text/keyword search."""
-
-    @abstractmethod
-    async def clear_all(self) -> None:
-        """Wipe all indexed state (chunks + nodes)."""
