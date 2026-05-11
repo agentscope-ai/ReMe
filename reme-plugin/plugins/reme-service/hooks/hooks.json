@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto|manual",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "上下文即将被压缩。两步保住关键状态：\n1. 调用 `remember(mode=log, name=..., content=..., materials=[...])` 把任何尚未落盘的事实写入当前线程的 event folder——一定要在 `materials` 字段里塞进**会丢失的原始素材**（用户原文 prompt、关键工具输出、决策时的中间数据）。**复用本任务一直在用的 `name`** 让 remember 在同一文件夹 upsert（连续性靠这个保证）；只有开启全新逻辑线程时才换名字。零 LLM 成本。\n2. 输出压缩指引：\n\n## 压缩指引\n\n### 当前工作\n[正在做什么，做到哪一步，下一步是什么]\n\n### 关键上下文\n[必须保留的推理链、未完成的分析、重要的中间结论]\n\n### 已持久化\n[本次落盘的 event folder 路径——压缩时可省略 raw 细节，需要时再 retrieve / memory_get 索引或 materials 重新读]\n\n### 活跃约束\n[当前需要持续遵守的规则或用户要求]"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "会话即将结束。两步收尾：\n\n1. 先调用 `remember(mode=log, name=..., materials=[...])` 把所有尚未落盘的事实写入对应线程的 event folder（`materials` 装原始素材，确定性、零 LLM、复用同名 upsert）。\n\n2. 然后调用 `remember(mode=distill, content=..., related_paths=[...])` —— **reme2 内部的 Ingestor 会跑 R-M-W 循环**：读本次会话的 active event folders + materials + 相关 topic，按 reme 协议（4 轴 schema、claim-role confidence、wikilink 唯一性、path templates、status 状态机）决定哪些 topic update / create，flip distilled events 的 status。在 `content` 里写一两行 session 摘要 + 提示，在 `related_paths` 里列本次 sync 过的 event folder 索引路径。\n\nDistill 是 cold-path，handoff 一次就够了，不要每轮调。"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${VAULT_PYTHON:-python} ${CLAUDE_PLUGIN_ROOT}/hooks/active_events_check.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
