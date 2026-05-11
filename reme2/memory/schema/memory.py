@@ -213,8 +213,6 @@ class Memory(BaseModel):
     title: str = Field(default="")
     description: str = Field(default="")
     tags: list[str] = Field(default_factory=list)
-    created: date | None = None
-    updated: date | None = None
 
     # -- The four behavioral axes ------------------------------------------
 
@@ -225,9 +223,6 @@ class Memory(BaseModel):
 
     # -- Cross-cutting graph fields ----------------------------------------
 
-    topics: list[str] = Field(default_factory=list, description="Outbound wikilinks to class memories.")
-    parent: str | None = Field(default=None, description="Wikilink to owning memory (e.g. material → event).")
-
     # -- Role / lifecycle / source-conditional fields ----------------------
 
     confidence: Confidence | None = Field(
@@ -237,11 +232,6 @@ class Memory(BaseModel):
     status: Status | None = Field(
         default=None,
         description="Lifecycle state. Meaningful only when lifecycle == streaming.",
-    )
-    origin_session_id: str | None = Field(
-        default=None,
-        alias="originSessionId",
-        description="Capture session id. Set when source == auto.",
     )
 
     # -- Migration: pre-validate hook --------------------------------------
