@@ -20,7 +20,7 @@ class DefaultFileParser(BaseFileParser):
         # overlap >= 4 ensures truncated multibyte UTF-8 chars decode correctly in next chunk
         self.overlap_byte_size = max(4, overlap_byte_size)
 
-    async def _parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+    async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         stat = file_path.stat()
         relative_path = self._get_relative_path(path)
