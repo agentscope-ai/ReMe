@@ -33,7 +33,10 @@ class LocalFileStore(BaseFileStore):
         super().__init__(**kwargs)
         self._encoding: str = encoding
         self._chunks: dict[str, FileChunk] = {}
-        self._chunks_file: Path = self.db_path / f"{self.store_name}_chunks.jsonl"
+        self._chunks_file: Path = self.store_path / f"{self.store_name}_chunks.jsonl"
+
+    async d
+
 
     # -- Persistence helpers ------------------------------------------------
 
