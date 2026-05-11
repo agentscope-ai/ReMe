@@ -36,7 +36,7 @@ from ...utils import hash_text
 
 
 @R.register("md")
-class MdFileParser(BaseFileParser):
+class LinkedFileParser(BaseFileParser):
     """Parser for Markdown files with YAML frontmatter and wikilink support."""
 
     suffixes = [FileSuffixEnum.MD, FileSuffixEnum.MARKDOWN]
