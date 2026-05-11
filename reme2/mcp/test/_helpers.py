@@ -134,7 +134,7 @@ async def build_app(profile_path: Path, vault: Path) -> Application:
     _, cfg = parse_args(
         "start",
         f"config={profile_path}",
-        f"components.file_watcher.default.watch_path={vault}",
+        f"components.file_store.default.working_dir={vault}",
         f"components.file_store.default.db_path={vault}/.reme",
     )
     cfg["service"] = {"backend": "http"}

@@ -3,7 +3,6 @@
 from . import as_llm
 from . import as_llm_formatter
 from . import as_token_counter
-from . import edge_extractor
 from . import file_store
 from . import client
 from . import embedding
@@ -30,7 +29,6 @@ __all__ = [
     "as_llm",
     "as_llm_formatter",
     "as_token_counter",
-    "edge_extractor",
     "file_store",
     "client",
     "embedding",

@@ -1,9 +1,9 @@
 """Pure-Python in-memory store with on-close JSONL persistence.
 
 Design (per project clarification):
-  - During runtime, ALL state lives in memory — meta + edges + chunks.
-    Per-write disk I/O is suppressed; `_persist_upsert_meta` / `_persist_upsert_edges`
-    are no-ops so each upsert_* costs only a dict mutation.
+  - During runtime, ALL state lives in memory — nodes + chunks.
+    Per-write disk I/O is suppressed; `_persist_upsert_node` is a no-op
+    so each upsert costs only a dict mutation.
   - On `_start`, load the JSONL sidecars into memory.
   - On `_close`, flush the full in-memory snapshot back to JSONL.
 
@@ -20,13 +20,14 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ...schema import ChunkFilter, FileChunk, FileEdge, FileMetadata
+from ...schema import ChunkFilter, FileChunk, FileNode
 from ...utils import batch_cosine_similarity
+from ...utils.chunk_search import filter_chunks, keyword_score
 
 
 @R.register("local")
 class LocalFileStore(BaseFileStore):
-    """In-memory chunk + meta + edge store with deferred JSONL persistence."""
+    """In-memory chunk + node store with deferred JSONL persistence."""
 
     def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
@@ -68,21 +69,19 @@ class LocalFileStore(BaseFileStore):
 
     async def _start(self) -> None:
         await self._load_chunks()
-        # Base loads metas + edges from sidecar JSONL via the default
-        # _iter_persisted_metas / _iter_persisted_edges implementations.
         await super()._start()
+        edge_count = sum(len(n.edges) for n in self._nodes.values())
         self.logger.info(
             f"LocalFileStore '{self.store_name}' ready: "
-            f"{len(self._nodes)} files, {sum(len(v) for v in self._edges.values())} edges, "
+            f"{len(self._nodes)} files, {edge_count} edges, "
             f"{len(self._chunks)} chunks",
         )
 
     async def _close(self) -> None:
-        # Flush the full in-memory snapshot before tearing down state.
+        # Flush full in-memory snapshot before tearing down state.
         try:
             await self._save_chunks()
-            self._write_metas_jsonl(self._nodes.values())
-            self._write_edges_jsonl(self._edges)
+            self._write_nodes_jsonl(self._nodes.values())
         except Exception as e:
             self.logger.error(f"Failed to flush LocalFileStore '{self.store_name}': {e}")
         self._chunks.clear()
@@ -90,16 +89,10 @@ class LocalFileStore(BaseFileStore):
 
     # -- Persistence overrides: no-op (we flush on close) -------------------
 
-    async def _persist_upsert_meta(self, meta: FileMetadata) -> None:
+    async def _persist_upsert_node(self, node: FileNode) -> None:
         pass
 
-    async def _persist_delete_meta(self, path: str) -> None:
-        pass
-
-    async def _persist_upsert_edges(self, path: str, edges: list[FileEdge]) -> None:
-        pass
-
-    async def _persist_delete_edges(self, path: str) -> None:
+    async def _persist_delete_node(self, path: str) -> None:
         pass
 
     # -- Write operations ---------------------------------------------------
@@ -143,21 +136,24 @@ class LocalFileStore(BaseFileStore):
         if not self.vector_enabled or not query:
             return []
 
-        query_embedding = await self.get_embedding(query)
+        embeddings = await self.embed([query])
+        query_embedding = embeddings[0] if embeddings else None
         if not query_embedding:
             return []
 
-        candidates = self._apply_filter(
+        candidates = filter_chunks(
             [c for c in self._chunks.values() if c.embedding],
             chunk_filter,
         )
         if not candidates:
             return []
 
-        expected_dim = self.embedding_dim
+        expected_dim = self.embedding_model.dimensions if self.embedding_model else len(query_embedding)
         valid_embeddings = []
         for chunk in candidates:
             emb = chunk.embedding
+            if emb is None:
+                continue
             emb_len = len(emb)
             if emb_len != expected_dim:
                 emb = (emb + [0.0] * (expected_dim - emb_len)) if emb_len < expected_dim else emb[:expected_dim]
@@ -191,17 +187,14 @@ class LocalFileStore(BaseFileStore):
         limit: int,
         chunk_filter: ChunkFilter | None = None,
     ) -> list[FileChunk]:
-        if not self.fts_enabled or not query:
+        if not self.fts_enabled or not query or not query.split():
             return []
 
-        if not query.split():
-            return []
-
-        filtered_chunks = self._apply_filter(list(self._chunks.values()), chunk_filter)
+        candidates = filter_chunks(list(self._chunks.values()), chunk_filter)
 
         results = []
-        for chunk in filtered_chunks:
-            score = self._score_keyword_match(query, chunk.text)
+        for chunk in candidates:
+            score = keyword_score(query, chunk.text)
             if score == 0.0:
                 continue
             results.append(
@@ -223,10 +216,8 @@ class LocalFileStore(BaseFileStore):
         """Clear all in-memory state and on-disk JSONL sidecars."""
         self._chunks.clear()
         self._nodes.clear()
-        self._edges.clear()
         self._stems.clear()
         self._backlinks.clear()
         await self._save_chunks()
-        self._write_metas_jsonl([])
-        self._write_edges_jsonl({})
+        self._write_nodes_jsonl([])
         self.logger.info(f"Cleared all data from LocalFileStore '{self.store_name}'")

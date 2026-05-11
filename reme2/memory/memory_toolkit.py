@@ -72,24 +72,24 @@ def validate_status_transition(prior, requested) -> str | None:
     return None
 
 
-def validate_path_template(path: Path, vault_root: Path | None) -> str | None:
+def validate_path_template(path: Path, working_dir: Path | None) -> str | None:
     """Return error string if `path` doesn't match a known agent-facing
-    template, else None. When `vault_root` is unknown, skip the check.
+    template, else None. When `working_dir` is unknown, skip the check.
 
-    Allowed templates (relative to vault_root):
+    Allowed templates (relative to working_dir):
         topics/{folder}/{name}.md         — topic file
         events/{date}/{name}/{filename}   — event index OR sibling material
         Archive/...                       — archive moves can land anywhere
     """
-    if vault_root is None:
+    if working_dir is None:
         return None
     try:
-        rel = path.resolve().relative_to(vault_root)
+        rel = path.resolve().relative_to(working_dir)
     except ValueError:
-        return f"path {path} is outside vault_root {vault_root}"
+        return f"path {path} is outside working_dir {working_dir}"
     parts = rel.parts
     if not parts:
-        return "path has no components relative to vault_root"
+        return "path has no components relative to working_dir"
     head = parts[0]
     if head == "Archive":
         return None
@@ -153,8 +153,8 @@ def create_file_with_schema(
     intentionally needs to step outside conventions.
     """
     if not force:
-        vault_root = getattr(file_store, "vault_root", None)
-        template_err = validate_path_template(path, vault_root)
+        working_dir = getattr(file_store, "working_dir", None)
+        template_err = validate_path_template(path, working_dir)
         if template_err is not None:
             return False, {
                 "path": str(path),
@@ -400,11 +400,10 @@ class MemoryRename(BaseStep):
         new_path: str = self.context.get("new_path", "") or ""
         assert old_path and new_path, "old_path and new_path are required"
 
-        watcher = self.app_context.components["file_watcher"]["default"]  # type: ignore[index,union-attr]
-        vault_root = Path(watcher.watch_path).resolve()  # type: ignore[union-attr]
+        working_dir = Path(self.file_store.working_dir or Path.cwd()).resolve()
 
         ok, payload = memory_io.rename_file(
-            self.file_store, vault_root,
+            self.file_store, working_dir,
             old_path=old_path, new_path=new_path,
         )
         self.context.response.success = ok
@@ -412,12 +411,10 @@ class MemoryRename(BaseStep):
 
     async def memory_rename(self, old_path: str, new_path: str) -> ToolResponse:
         """Rename a file and rewrite incoming wikilinks across the vault."""
-        watcher = self._get_component_optional(ComponentEnum.FILE_WATCHER, "default")
-        vault_root = (
-            Path(getattr(watcher, "watch_path", ".")).resolve() if watcher else Path.cwd()
-        )
+        vr = getattr(self.file_store, "working_dir", None)
+        working_dir = Path(vr).resolve() if vr else Path.cwd()
         ok, payload = memory_io.rename_file(
-            self.file_store, vault_root,
+            self.file_store, working_dir,
             old_path=old_path, new_path=new_path,
         )
         return _tool_response("memory_rename", ok, payload, audit=self.audit)
@@ -511,20 +508,18 @@ class MemoryArchive(BaseStep):
         archive_dir_name: str = self.context.get("archive_dir", "Archive") or "Archive"
         assert path, "path is required"
 
-        watcher = self._get_component_optional(ComponentEnum.FILE_WATCHER, "default")
-        vault_root = Path(getattr(watcher, "watch_path", ".")).resolve() if watcher else Path.cwd()
+        vr = getattr(self.file_store, "working_dir", None)
+        working_dir = Path(vr).resolve() if vr else Path.cwd()
 
-        ok, payload = memory_io.archive_file(vault_root, path, archive_dir=archive_dir_name)
+        ok, payload = memory_io.archive_file(working_dir, path, archive_dir=archive_dir_name)
         self.context.response.success = ok
         _set_answer(self.context, payload)
 
     async def memory_archive(self, path: str, archive_dir: str = "Archive") -> ToolResponse:
         """Archive a file: flip `status: archived` then move to `<vault>/<archive_dir>/`."""
-        watcher = self._get_component_optional(ComponentEnum.FILE_WATCHER, "default")
-        vault_root = (
-            Path(getattr(watcher, "watch_path", ".")).resolve() if watcher else Path.cwd()
-        )
-        ok, payload = memory_io.archive_file(vault_root, path, archive_dir=archive_dir)
+        vr = getattr(self.file_store, "working_dir", None)
+        working_dir = Path(vr).resolve() if vr else Path.cwd()
+        ok, payload = memory_io.archive_file(working_dir, path, archive_dir=archive_dir)
         return _tool_response("memory_archive", ok, payload, audit=self.audit)
 
 
