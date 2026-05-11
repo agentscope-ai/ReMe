@@ -63,8 +63,8 @@ from ..component import R
 from ..component.base_step import BaseStep
 from ..component.runtime_response import _set_answer
 from ..enumeration import ComponentEnum
-from ..schema.vault.registry import schema_for
 from . import memory_io
+from .schema import parse_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +122,19 @@ class FileSignal(BaseModel):
     from `file_store.nodes` + edge index — no body reads, no LLM calls.
     Heavier signals (token counts, embeddings) are pulled lazily inside
     the proposers that actually need them.
+
+    The 4 schema axes (`lifecycle / scope / source / role`) are the
+    primary drivers of decay / merge / split heuristics; legacy
+    `category` is preserved for back-compat reads only.
     """
 
     path: str
     relpath: str = ""           # path relative to vault_root, "" if outside
-    category: str = ""
+    lifecycle: str = ""         # streaming / evolving / frozen
+    scope: str = ""             # instance / class
+    source: str = ""            # auto / curated / derived
+    role: str = ""              # observation / claim / question / ...
+    category: str = ""          # legacy field, kept for migration windows
     status: str = ""
     age_days: int = 0
     metadata: dict = Field(default_factory=dict)
@@ -262,7 +270,14 @@ class Maintainer(BaseStep):
         return Path(getattr(watcher, "watch_path", ".")).resolve()
 
     def _scan_signals(self, *, target_prefix: str = "") -> list[FileSignal]:
-        """One walk over the indexed files. Cheap signals only."""
+        """One walk over the indexed files. Cheap signals only.
+
+        Each frontmatter is run through `parse_frontmatter` so the legacy
+        `category` field is auto-translated to the 4 axes (see
+        `LEGACY_AXES_FROM_CATEGORY` in `memory.schema.memory`). Files that
+        fail to parse still get a signal — proposers can use the empty
+        axes to decide whether to ignore or surface them.
+        """
         vault_root = self._vault_root()
         now = datetime.datetime.now().timestamp()
         signals: list[FileSignal] = []
@@ -277,9 +292,14 @@ class Maintainer(BaseStep):
                 continue
             fm = meta.metadata or {}
             age_seconds = max(0.0, now - (meta.st_mtime or now))
+            parsed, _ = parse_frontmatter(fm)
             signals.append(FileSignal(
                 path=path,
                 relpath=relpath,
+                lifecycle=str(parsed.lifecycle.value) if parsed else "",
+                scope=str(parsed.scope.value) if parsed else "",
+                source=str(parsed.source.value) if parsed else "",
+                role=str(parsed.role.value) if parsed else "",
                 category=str(fm.get("category") or ""),
                 status=str(fm.get("status") or ""),
                 age_days=int(age_seconds // 86400),
@@ -295,22 +315,21 @@ class Maintainer(BaseStep):
         out: list[LintFinding] = []
         for sig in signals:
             for link in sig.declared_topics:
-                if not memory_io.wikilink_lookup(self.file_store, link)["exists"]:
+                if not memory_io.resolve_wikilink(self.file_store, link)["exists"]:
                     out.append(LintFinding(
                         path=sig.path, kind="broken_wikilink",
                         detail=f"unresolved wikilink {link!r}",
                     ))
-            cls = schema_for(sig.category)
-            if cls is not None:
-                try:
-                    cls(**sig.metadata)
-                except Exception as e:
-                    out.append(LintFinding(
-                        path=sig.path, kind="schema_violation",
-                        detail=f"{cls.__name__}: {type(e).__name__}: {e}"[:240],
-                    ))
+            # Memory schema check: tolerant parse, surface every error
+            # the parser collected. Empty `errors` ↔ valid frontmatter.
+            _, errors = parse_frontmatter(sig.metadata)
+            for err in errors:
+                out.append(LintFinding(
+                    path=sig.path, kind="schema_violation",
+                    detail=f"Memory: {err}"[:240],
+                ))
         # Stem collisions: the engine API exposes the ambiguous-stem map.
-        ambig = memory_io.all_ambiguous_wikilinks(self.file_store)
+        ambig = memory_io.find_collisions(self.file_store)
         for stem, paths in ambig.items():
             for p in paths:
                 out.append(LintFinding(
@@ -322,10 +341,16 @@ class Maintainer(BaseStep):
     def _propose_decay(
         self, signals: list[FileSignal], decay_days: int,
     ) -> list[DecayOp]:
-        """Distilled events past the freshness window."""
+        """Distilled streaming memories past the freshness window.
+
+        Schema-driven: a memory decays when its `lifecycle` is `streaming`
+        (write-once, decays after a freshness window) AND its `status` has
+        already been flipped to the configured terminal target (default:
+        `distilled`). Evolving / frozen memories never decay.
+        """
         out: list[DecayOp] = []
         for sig in signals:
-            if sig.category != "event":
+            if sig.lifecycle != "streaming":
                 continue
             if sig.status != self.target_status:
                 continue
@@ -333,7 +358,7 @@ class Maintainer(BaseStep):
                 continue
             out.append(DecayOp(
                 path=sig.path, age_days=sig.age_days,
-                reason=f"event {sig.status!r} for {sig.age_days}d (≥{decay_days}d window)",
+                reason=f"streaming {sig.status!r} for {sig.age_days}d (≥{decay_days}d window)",
             ))
         return out
 

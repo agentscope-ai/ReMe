@@ -14,6 +14,7 @@ startup recovery (re-parsing files whose mtime drifted while offline).
 """
 
 import asyncio
+import os
 import time
 from pathlib import Path
 
@@ -293,10 +294,30 @@ class BaseFileWatcher(BaseComponent):
         # Cancel any in-flight parse task FIRST so a delayed cancellation
         # can't race the cleanup writes below.
         assert self.file_store is not None, "_on_deleted requires file_store"
-        await self._cancel_parse_task(path)
-        await self.file_store.delete_chunks(path)
-        await self.file_store.delete_file_meta(path)
-        self.logger.info(f"Deleted {path}")
+        targets = [path, *self._descendant_indexed_paths(path)]
+        for p in targets:
+            await self._cancel_parse_task(p)
+            await self.file_store.delete_chunks(p)
+            await self.file_store.delete_file_meta(p)
+        if len(targets) == 1:
+            self.logger.info(f"Deleted {path}")
+        else:
+            self.logger.info(f"Deleted directory {path} ({len(targets) - 1} indexed children)")
+
+    def _descendant_indexed_paths(self, path: str) -> list[str]:
+        """Indexed file paths that live beneath `path` as a directory.
+
+        watchfiles emits a single Change.deleted for a removed directory
+        (no per-file events), so we have to find the orphans ourselves.
+        Resolves both sides to handle symlinks and trailing-separator
+        drift between the watcher and the file_store keys.
+        """
+        assert self.file_store is not None
+        try:
+            prefix = str(Path(path).resolve()) + os.sep
+        except OSError:
+            prefix = path.rstrip(os.sep) + os.sep
+        return [p for p in self.file_store.nodes if p.startswith(prefix)]
 
     # -- Parse task pipeline ------------------------------------------------
 
