@@ -24,68 +24,19 @@ system_prompt: |
         indexes, individual material files, candidate topics it flagged
         for update). Both forms can appear together; treat them as a
         single working set.
-  - An event is a FOLDER containing the index `{name}.md` plus
+  - An event is a FOLDER containing the index `{{name}}.md` plus
     materials (raw conversation snippets, tool outputs, data dumps).
     Whenever a path in `related_paths` is an event index, `memory_get`
     the index first, then `memory_get` any materials whose content you
     need (the index lists them under `## Materials`).
 
-  # Vault conventions
-  - Topics live under `topics/{{folder}}/{{name}}.md`. A folder topic
-    has folder == name.
-  - Events live under `events/{{YYYY-MM-DD}}/{{name}}/{{name}}.md` —
-    this is an INDEX inside a folder; sibling files are materials.
-  - Frontmatter is YAML; `category`, `created`, `updated`, `tags`,
-    `status` are common.
-  - Cross-file references use `[[wikilink]]` syntax (stem-form `[[X]]`
-    or path-form `[[topics/X/X]]`).
+  # Memory protocol (single source — schema, tools, decision rules)
 
-  # Available tools
-  Read tools (use these to gather context BEFORE writing):
-  - memory_get(path, include_chunks=False): full file content + frontmatter.
-    Call this on each event index AND on the materials it lists.
-  - memory_list(path_prefix=None, tags=None, metadata=None, limit=100):
-    list indexed files filtered by prefix / tags / frontmatter.
-  - memory_resolve_wikilink(wikilink): resolve `[[X]]` to a path.
-  - memory_backlinks(path): files linking to a given path.
-  - memory_links(path): files a given path links to.
+  {protocol}
 
-  Write tools (each returns success + payload; mutations are SSOT-routed):
-  - memory_update(path, old_string, new_string, replace_all=False):
-    body edit by exact-string substitution. Use a tail snippet to append.
-  - memory_property_update(path, key, value): change one frontmatter
-    key (value=null deletes it). After distilling an event into one or
-    more topics, flip that event's status to "distilled" with this.
-  - memory_create(path, metadata, content, overwrite=False, force=False):
-    new file. Reserve for genuinely NEW topics — do NOT use this to log
-    events; `sync` (deterministic) owns events. ALL paths must
-    be ABSOLUTE under vault_root.
-  - memory_rename(old_path, new_path): move file + rewrite cross-vault
-    wikilinks.
-  - memory_delete(path): remove a file.
-  - memory_archive(path): flip `status: archived` and move under
-    `<vault>/Archive/`.
-
-  # Decision rules
-  1. If material is ALREADY covered by existing topics → reply with a
-     single line `SKIP: <one-line reason>` and call no tools.
-  2. If material CONTRADICTS an existing block → memory_update with a
-     unique snippet of the outdated text and the corrected replacement.
-  3. If material EXTENDS an existing topic → memory_update using a
-     unique TAIL snippet of the existing body, with new_string =
-     tail + blank line + new content.
-  4. If material warrants a GENUINELY NEW topic → memory_create at
-     `topics/{{folder}}/{{name}}.md`. Do NOT memory_create under events/.
-  5. After integrating an event's content into a topic, flip that event's
-     status to "distilled" with memory_property_update.
-  6. Never delete unless the material explicitly asks for deletion.
-  7. Keep edits minimal — read related files first, edit only what
-     must change.
-  8. Always include reasonable frontmatter on memory_create — at minimum
-     `title`, `category`, `created`, `updated`. Use today's date for
-     `created` / `updated`.
-  9. After all writes, end with a one-paragraph summary of what you did
-     and why.
+  # Final step
+  After all writes, end with a one-paragraph summary of what you did
+  and why.
 
 user_message: |
   # CONTEXT

@@ -1,16 +1,22 @@
-app_name: reme-full
+app_name: reme-expert
 enable_logo: false
 log_to_console: true
 log_to_file: false
 
-# Full-exposure profile: every memory_* read + write primitive + the
-# typed `topic_create` + the LLM-driven `ingest` are surfaced as MCP
-# tools. The agent picks whatever it needs — finest granularity, no
-# opinion enforced beyond the wikilink-uniqueness gate.
+# Expert-exposure profile: every memory_* read + write primitive plus
+# `sync` (event log) are surfaced as MCP tools. The agent picks whatever
+# it needs — finest granularity, no opinion enforced beyond the
+# wikilink-uniqueness gate.
+#
+# **No `ingest` tool.** Cold-path R-M-W in expert mode is owned by the
+# host agent (Claude Code, with the `reme-expert` SKILL loaded), not by
+# reme2's internal ReActAgent. The reme-expert plugin spawns a
+# `reme-distiller` subagent at SessionEnd to handle distillation in its
+# own context window, using the same memory_* primitives.
 #
 # Use when you want the agent to manage memory directly with full
-# control. For an opinionated minimal surface, see ./curated.yaml
-# (only `query` + `ingest`).
+# control. For an opinionated minimal surface (where reme2's internal
+# Ingestor owns R-M-W), see ./service.yaml.
 
 service:
   backend: mcp
@@ -77,68 +83,6 @@ jobs:
         origin_session_id: { type: string, description: "set on initial create only" }
     steps:
       - backend: sync
-
-  - backend: base
-    name: ingest
-    description: |
-      Cold-path LLM-driven distillation. Run on EXPLICIT HANDOFF only:
-      task completion / SessionEnd / when the agent decides the working
-      set is ready. Not a per-turn tool.
-
-      The agent hands off the working set in two interchangeable forms
-      (use both as appropriate):
-        * `content` — inline material to distill: a hint / summary, or
-          raw text the agent is feeding directly.
-        * `related_paths` — paths the agent points at: event folder
-          indexes (the Ingestor will follow `## Materials` and read
-          each artifact), individual material files, or candidate
-          topics flagged for update.
-
-      The Ingestor reads the working set + linked topics, decides which
-      existing topics to update / create, and flips each distilled
-      event's status to "distilled".
-
-      NOT for raw event logging — use `sync` for that.
-    parameters:
-      type: object
-      required: [content]
-      properties:
-        content:
-          type: string
-          description: "Inline material the agent is feeding the Ingestor: distillation hint, session summary, or raw text. Combined with `related_paths` to form the working set."
-        hint: { type: string, description: "Caller guidance about target / intent." }
-        target_path: { type: string, description: "Optional suggested path; required for the no-LLM degraded path." }
-        metadata: { type: object, description: "Suggested frontmatter for any new topic." }
-        related_paths:
-          type: array
-          items: { type: string }
-          description: "Pointers the agent is feeding the Ingestor: event folder indexes (Ingestor will read materials from `## Materials`), individual material files, or candidate topics."
-    steps:
-      - backend: ingestor
-
-  - backend: base
-    name: topic_create
-    description: |
-      Create a typed topic at `topics/{folder}/{name}.md` with hard
-      schema validation (judgment categories require `confidence`) and
-      wikilink-uniqueness enforcement.
-    parameters:
-      type: object
-      required: [folder, name, category]
-      properties:
-        folder: { type: string }
-        name: { type: string }
-        category:
-          type: string
-          enum: [company, sector, concept, method, tool, profile, thesis, model, questions, fundamentals]
-        description: { type: string }
-        content: { type: string }
-        confidence: { type: string, enum: ["⏳", "✅", "❌"] }
-        market: { type: string }
-        ticker: { type: string }
-        tags: { type: array, items: { type: string } }
-    steps:
-      - backend: topic_create
 
   # -- Read tools --------------------------------------------------------
 
@@ -252,14 +196,34 @@ jobs:
     steps:
       - backend: memory_count_tokens
 
+  - backend: base
+    name: memory_lint
+    description: |
+      Read-only projection of the Maintainer's lint findings. Walks the
+      indexed files (optionally restricted to a path prefix) and returns
+      structural issues — broken wikilinks, schema violations, stem
+      collisions. Never mutates. The agent decides what to do with each
+      finding using existing memory_* primitives (rename, update,
+      property_update, archive, delete).
+    parameters:
+      type: object
+      properties:
+        target_prefix:
+          type: string
+          description: "restrict scan to relpaths starting with this prefix (e.g. 'events/2026-05-09/'). Empty string scans the whole vault."
+    steps:
+      - backend: memory_lint
+
   # -- Write primitives (raw building blocks) ----------------------------
 
   - backend: base
     name: memory_create
     description: |
       Create a new file (raw primitive — no LLM reasoning). Prefer
-      `ingest` when you want an LLM curator. Wikilink-uniqueness gate
-      runs unless `force=true`.
+      `ingest` when you want an LLM curator. Two gates run unless
+      `force=true`: (1) path template — must be `topics/{folder}/{name}.md`,
+      `events/{date}/{name}/...`, or `Archive/...`; (2) wikilink uniqueness
+      — `[[stem]]` must resolve to ≤1 path post-create.
     parameters:
       type: object
       required: [path]
@@ -268,7 +232,10 @@ jobs:
         metadata: { type: object }
         content: { type: string }
         overwrite: { type: boolean, default: false }
-        force: { type: boolean, default: false }
+        force:
+          type: boolean
+          default: false
+          description: "bypass BOTH the path-template gate and the wikilink-uniqueness gate. Use only when you intentionally need a non-template path or accept the ambiguity."
     steps:
       - backend: memory_create
 
@@ -290,7 +257,11 @@ jobs:
 
   - backend: base
     name: memory_property_update
-    description: "Update a single YAML frontmatter key. value=null deletes the key."
+    description: |
+      Update a single YAML frontmatter key. value=null deletes the key.
+      When key='status', enforces the active → distilled → archived
+      single-direction state machine (skip / reverse refused). Pass
+      `force=true` to bypass.
     parameters:
       type: object
       required: [path, key]
@@ -298,6 +269,10 @@ jobs:
         path: { type: string }
         key: { type: string }
         value: {}
+        force:
+          type: boolean
+          default: false
+          description: "bypass the status state machine (only meaningful when key='status')."
     steps:
       - backend: memory_property_update
 
