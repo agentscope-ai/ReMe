@@ -1,6 +1,5 @@
 """Default file parser with byte-based chunking."""
 
-import hashlib
 from pathlib import Path
 
 import aiofiles
@@ -14,10 +13,10 @@ from ...schema import FileChunk, FileNode
 class DefaultFileParser(BaseFileParser):
     """Parser for files using byte-based chunking."""
 
-    def __init__(self, encoding: str = "utf-8", chunk_byte_sizes: int = 10000, overlap_byte_size: int = 100, **kwargs):
+    def __init__(self, encoding: str = "utf-8", chunk_byte_size: int = 10000, overlap_byte_size: int = 100, **kwargs):
         super().__init__(**kwargs)
         self.encoding = encoding
-        self.chunk_byte_size = max(100, chunk_byte_sizes)
+        self.chunk_byte_size = max(100, chunk_byte_size)
         # overlap >= 4 ensures truncated multibyte UTF-8 chars decode correctly in next chunk
         self.overlap_byte_size = max(4, overlap_byte_size)
 
@@ -48,7 +47,6 @@ class DefaultFileParser(BaseFileParser):
             start_line = sum(1 for p in newline_positions if p < start_byte) + 1
             end_line = sum(1 for p in newline_positions if p < end_byte) + 1
 
-            h = hashlib.sha256(text.encode()).hexdigest()
             chunks.append(FileChunk(
                 path=relative_path,
                 start_line=start_line,
