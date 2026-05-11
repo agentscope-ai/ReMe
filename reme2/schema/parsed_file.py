@@ -20,7 +20,7 @@ from pydantic import Field
 
 from .file_chunk import FileChunk
 from .file_edge import FileEdge
-from .file_metadata import FileMetadata
+from .file_node import FileMetadata
 
 
 class ParsedFile(FileMetadata):
