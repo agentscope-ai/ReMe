@@ -2,11 +2,11 @@
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .as_msg_stat import AsBlockStat, AsMsgStat
-from .base_node import BaseNode
+from .emb_node import EmbNode
 from .chunk_filter import ChunkFilter
 from .file_chunk import FileChunk
 from .file_edge import FileEdge
-from .file_metadata import FileMetadata
+from .file_node import FileNode
 from .parsed_file import ParsedFile
 from .request import Request
 from .response import Response
@@ -18,11 +18,11 @@ __all__ = [
     "JobConfig",
     "AsBlockStat",
     "AsMsgStat",
-    "BaseNode",
+    "EmbNode",
     "ChunkFilter",
     "FileChunk",
     "FileEdge",
-    "FileMetadata",
+    "FileNode",
     "ParsedFile",
     "Request",
     "Response",
