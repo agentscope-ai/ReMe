@@ -12,14 +12,14 @@ breadcrumb), so renaming a heading correctly invalidates child block
 embeddings.
 
 Hash-diff cache compatibility: blocks with identical (heading_path + body)
-across edits produce the same hash, so the watcher can reuse old embeddings
-and only call the embedding API for dirty blocks.
+across edits produce the same hash, so the file_store can reuse old
+embeddings and only call the embedding API for dirty blocks.
 
-Edge extraction is delegated to a `BaseEdgeExtractor` resolved from the
-app context (`edge_extractor` constructor arg, defaults to "default"). If
-the app context isn't bound or the named extractor isn't registered, the
-parser falls back to a local `RegexEdgeExtractor` so unit tests / simple
-scripts can still parse without YAML wiring.
+Edge extraction inlines `parse_wikilinks` directly: edges live in body
+text only (bare wikilinks + Dataview line-level + Dataview inline-bracketed)
+and the predicate vocabulary is closed at the `FileEdge` schema layer.
+The slow path (maintainer's `enrich_links` / `discover_links` ops) handles
+upgrading bare links and discovering new ones.
 """
 
 import re
@@ -29,9 +29,8 @@ import frontmatter
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
-from ..edge_extractor import BaseEdgeExtractor, RegexEdgeExtractor
-from ...enumeration import ComponentEnum, FileSuffixEnum
-from ...schema import FileChunk, ParsedFile
+from ...enumeration import FileSuffixEnum
+from ...schema import FileChunk, FileEdge, FileNode, parse_wikilinks
 from ...utils import hash_text
 
 
@@ -44,41 +43,11 @@ class LinkedFileParser(BaseFileParser):
     _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
     _FENCE_RE = re.compile(r"^(```|~~~)")
 
-    def __init__(
-        self,
-        encoding: str = "utf-8",
-        edge_extractor: str = "default",
-        **kwargs,
-    ):
+    def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
         self.encoding = encoding
-        self._edge_extractor_name: str = edge_extractor
-        self.edge_extractor: BaseEdgeExtractor | None = None
 
-    async def _start(self) -> None:
-        await super()._start()
-        # Try to resolve the configured extractor; fall back to a local
-        # regex extractor when no app_context / no matching component.
-        resolved: BaseEdgeExtractor | None = None
-        if self.app_context is not None and self._edge_extractor_name:
-            extractors = self.app_context.components.get(ComponentEnum.EDGE_EXTRACTOR, {})
-            candidate = extractors.get(self._edge_extractor_name)
-            if isinstance(candidate, BaseEdgeExtractor):
-                resolved = candidate
-        if resolved is None:
-            resolved = RegexEdgeExtractor()
-            await resolved.start()
-        self.edge_extractor = resolved
-
-    async def _close(self) -> None:
-        await super()._close()
-        self.edge_extractor = None
-
-    async def parse(
-        self,
-        path: str,
-        existing_chunks: list[FileChunk] | None = None,
-    ) -> ParsedFile:
+    async def parse(self, path: str) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         raw = file_path.read_text(encoding=self.encoding)
         post = frontmatter.loads(raw)
@@ -87,22 +56,31 @@ class LinkedFileParser(BaseFileParser):
         content = post.content
         absolute_path = str(file_path.absolute())
 
-        extractor = self.edge_extractor or RegexEdgeExtractor()
-        edges = await extractor.extract(content, metadata, path=absolute_path)
-
+        edges = self._extract_edges(content)
         chunks = self.chunk_markdown(content, absolute_path)
-        dirty = self._hash_diff_attach(chunks, existing_chunks)
-        if dirty:
-            await self._embed_chunks(dirty)
 
-        return ParsedFile(
-            file=file_path.stem,
+        node = FileNode(
             path=absolute_path,
             st_mtime=stat.st_mtime,
-            metadata=metadata,
             edges=edges,
-            chunks=chunks,
+            **metadata,
         )
+        return node, chunks
+
+    # -- Edge extraction --------------------------------------------------
+
+    @staticmethod
+    def _extract_edges(text: str) -> list[FileEdge]:
+        """Body-only wikilink extraction with structural dedup."""
+        seen: set[tuple] = set()
+        out: list[FileEdge] = []
+        for edge in parse_wikilinks(text or ""):
+            key = (edge.target, edge.predicate, edge.anchor, edge.alias, edge.embed)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(edge)
+        return out
 
     # -- Chunker ----------------------------------------------------------
 

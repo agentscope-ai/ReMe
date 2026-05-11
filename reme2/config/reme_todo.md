@@ -1,6 +1,6 @@
 ReMe重构
 1. 根目录
-  a. vault_root 改回 working dir @sen
+  a. ✅ vault_root → working_dir @sen
 2. file_parser
   a. 抽象基类 parse: @jinli
     ⅰ. 输入是path：相对路径 

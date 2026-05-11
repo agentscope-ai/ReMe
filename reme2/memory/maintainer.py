@@ -5,10 +5,10 @@ service alongside the Retriever (read) and the Ingestor (cold-write).
 It's woken by cron or thresholds, not by per-turn agent calls.
 
 DESIGN: single `Maintainer` Step, NOT four. Vault hygiene is one
-operation with four signal sources that contend for the same files —
+operation with multiple signal sources that contend for the same files —
 splitting them into independent Steps would let merge & split reverse
 each other, let decay archive a file that merge wanted to absorb, and
-force every cron tick to scan the vault four times. So the Maintainer
+force every cron tick to scan the vault N times. So the Maintainer
 follows a plan-then-apply pipeline:
 
     scan_signals()         # one walk, all signals shared
@@ -17,13 +17,17 @@ follows a plan-then-apply pipeline:
         ↓
     resolve_conflicts()    # data-driven matrix dedupes / orders ops
         ↓
-    apply()                # lint → decay → merge → split, dry-run aware
+    apply()                # lint → enrich → discover → decay → merge → split
         ↓
     audit                  # unified trail returned to caller
 
 OPERATIONS
 
     LintFinding   read-only diagnostic; never conflicts.
+    EnrichOp      upgrade a bare `[[X]]` in body to `[predicate:: [[X]]]`
+                  via memory_update with a unique context snippet.
+    DiscoverOp    append newly discovered `predicate:: [[Y]]` lines under
+                  the file's `## Relations` section (creating it if needed).
     DecayOp       move a stale event under <vault>/<archive_dir>/.
     MergeOp       absorb sources[] into canonical; rewrite incoming
                   wikilinks; archive sources.
@@ -32,22 +36,26 @@ OPERATIONS
 
 CONFLICT MATRIX (resolved before apply)
 
-    MergeOp(source=P)  ⊕ SplitOp(source=P)   → drop split
-    MergeOp(source=P)  ⊕ DecayOp(path=P)     → drop decay
-    SplitOp(source=P)  ⊕ DecayOp(path=P)     → drop split
-    MergeOp(canonical=A,…) × N (same A)      → union sources
-    SplitOp(source=P) × N                    → keep highest confidence
-    LintFinding ⊕ anything                   → coexist
+    MergeOp(source=P)   ⊕ SplitOp(source=P)    → drop split
+    MergeOp(source=P)   ⊕ DecayOp(path=P)      → drop decay
+    SplitOp(source=P)   ⊕ DecayOp(path=P)      → drop split
+    EnrichOp(path=P)    ⊕ DecayOp(path=P)      → drop enrich
+    EnrichOp(path=P)    ⊕ MergeOp(touches P)   → drop enrich
+    DiscoverOp(path=P)  ⊕ DecayOp(path=P)      → drop discover
+    DiscoverOp(path=P)  ⊕ MergeOp(touches P)   → drop discover
+    MergeOp(canonical=A,…) × N (same A)        → union sources
+    SplitOp(source=P) × N                      → keep highest confidence
+    LintFinding ⊕ anything                     → coexist
 
-APPLY ORDER is fixed: lint → decay → merge → split. This guarantees
-that by the time split runs, merge has already rewritten paths; if a
-split target was absorbed by a merge, apply skips it and records a
-`stale_target` audit entry instead of crashing.
+APPLY ORDER is fixed: lint → enrich → discover → decay → merge → split.
+Edits to bodies (enrich, discover) run before file-level rearrangements
+(decay/merge/split) so the parser's next pass sees the canonical edge
+form before the file moves or merges.
 
-LLM-DRIVEN PROPOSERS (merge/split) are scaffolded — the structure +
-op shape + conflict path are wired and verified, but the LLM-backed
-similarity / split heuristics are pending design and currently return
-empty proposal lists. Lint and decay are fully implemented.
+LLM-DRIVEN PROPOSERS (enrich, discover, merge, split) are scaffolded —
+the structure + op shape + conflict path are wired and verified, but
+the LLM-backed heuristics are pending implementation and currently
+return empty proposal lists. Lint and decay are fully implemented.
 """
 
 from __future__ import annotations
@@ -90,6 +98,40 @@ class DecayOp(BaseModel):
     reason: str = "past freshness window"
 
 
+class EnrichOp(BaseModel):
+    """Wrap a bare `[[X]]` body occurrence as `[predicate:: [[X]]]`.
+
+    Realised at apply-time as `memory_update(path, old_string, new_string)`
+    where `old_string` is a unique context window around the bare wikilink
+    and `new_string` is the same window with the wikilink wrapped.
+    """
+
+    op: Literal["enrich"] = "enrich"
+    path: str
+    target: str
+    predicate: str
+    old_string: str
+    new_string: str
+    confidence: float = 0.0
+    reason: str = ""
+
+
+class DiscoverOp(BaseModel):
+    """Append newly proposed `predicate:: [[Y]]` lines under `## Relations`.
+
+    Realised at apply-time by ensuring the file ends with a `## Relations`
+    section (creating it if absent) and adding one Dataview line-level
+    field per (target, predicate) pair. Idempotency is enforced against
+    the file's existing edges before emit.
+    """
+
+    op: Literal["discover"] = "discover"
+    path: str
+    edges: list[dict] = Field(default_factory=list)  # [{target, predicate}, ...]
+    confidence: float = 0.0
+    reason: str = ""
+
+
 class MergeOp(BaseModel):
     """Consolidate `sources` into `canonical`. Sources get archived."""
 
@@ -129,7 +171,7 @@ class FileSignal(BaseModel):
     """
 
     path: str
-    relpath: str = ""           # path relative to vault_root, "" if outside
+    relpath: str = ""           # path relative to working_dir, "" if outside
     lifecycle: str = ""         # streaming / evolving / frozen
     scope: str = ""             # instance / class
     source: str = ""            # auto / curated / derived
@@ -152,8 +194,9 @@ class Maintainer(BaseStep):
 
     Reads from RuntimeContext (all optional):
         ops          (list[str], default ["lint","decay"]):
-                     subset of {"lint","decay","merge","split"} to run.
-                     Merge/split require an LLM and are off by default.
+                     subset of {"lint","enrich","discover","decay","merge","split"}
+                     to run. enrich/discover/merge/split require an LLM
+                     and are off by default.
         dry_run      (bool, default True): if True, returns the plan
                      but doesn't mutate the vault.
         decay_days   (int, default constructor `decay_days`): freshness
@@ -178,7 +221,7 @@ class Maintainer(BaseStep):
     """
 
     # Fixed apply order — see module docstring CONFLICT MATRIX section.
-    _APPLY_ORDER = ("lint", "decay", "merge", "split")
+    _APPLY_ORDER = ("lint", "enrich", "discover", "decay", "merge", "split")
 
     def __init__(
         self,
@@ -207,6 +250,10 @@ class Maintainer(BaseStep):
         proposed: list[BaseModel] = []
         if "lint" in params["ops"]:
             proposed.extend(self._propose_lint(signals))
+        if "enrich" in params["ops"]:
+            proposed.extend(await self._propose_enrich(signals))
+        if "discover" in params["ops"]:
+            proposed.extend(await self._propose_discover(signals))
         if "decay" in params["ops"]:
             proposed.extend(self._propose_decay(signals, params["decay_days"]))
         if "merge" in params["ops"]:
@@ -263,11 +310,9 @@ class Maintainer(BaseStep):
 
     # -- scan ---------------------------------------------------------------
 
-    def _vault_root(self) -> Path | None:
-        watcher = self._get_component_optional(ComponentEnum.FILE_WATCHER, "default")
-        if watcher is None:
-            return None
-        return Path(getattr(watcher, "watch_path", ".")).resolve()
+    def _working_dir(self) -> Path | None:
+        vr = getattr(self.file_store, "working_dir", None)
+        return Path(vr).resolve() if vr else None
 
     def _scan_signals(self, *, target_prefix: str = "") -> list[FileSignal]:
         """One walk over the indexed files. Cheap signals only.
@@ -278,14 +323,14 @@ class Maintainer(BaseStep):
         fail to parse still get a signal — proposers can use the empty
         axes to decide whether to ignore or surface them.
         """
-        vault_root = self._vault_root()
+        working_dir = self._working_dir()
         now = datetime.datetime.now().timestamp()
         signals: list[FileSignal] = []
         for path, meta in memory_io.iter_files(self.file_store):
             relpath = ""
-            if vault_root is not None:
+            if working_dir is not None:
                 try:
-                    relpath = str(Path(path).resolve().relative_to(vault_root))
+                    relpath = str(Path(path).resolve().relative_to(working_dir))
                 except ValueError:
                     pass
             if target_prefix and not relpath.startswith(target_prefix):
@@ -362,6 +407,51 @@ class Maintainer(BaseStep):
             ))
         return out
 
+    async def _propose_enrich(
+        self, signals: list[FileSignal],
+    ) -> list[EnrichOp]:
+        """Bare wikilinks → typed via inline-bracketed Dataview wrap.
+
+        SCAFFOLD: returns []. When implemented:
+            1. For each FileSignal, fetch existing edges via
+               `file_store.get_edges(path)` and filter to `predicate is None`.
+            2. Read body, ask the LLM (one call per file) to assign one
+               of `ALLOWED_PREDICATES` to each bare target — or 'skip'.
+            3. For each accepted (target, predicate), locate each bare
+               occurrence span via `parse_wikilinks` and build a unique
+               context window snippet.
+            4. Emit EnrichOp(path, target, predicate, old_string, new_string,
+               confidence, reason). The apply step calls memory_update.
+
+        Idempotency: re-running won't re-enrich already-typed edges
+        (filter is `predicate is None`). The OOV-tolerant FileEdge
+        validator means a malformed LLM output collapses to None at the
+        next parse, surfacing it again next sweep — bounded retries
+        avoid infinite re-enrichment loops.
+        """
+        return []
+
+    async def _propose_discover(
+        self, signals: list[FileSignal],
+    ) -> list[DiscoverOp]:
+        """Discover edges absent from body — append to `## Relations`.
+
+        SCAFFOLD: returns []. When implemented:
+            1. For each FileSignal, gather body + existing edges +
+               `memory_search` neighborhood candidates (top-k by query =
+               file's title/description).
+            2. Ask the LLM to propose new (target, predicate) pairs that
+               aren't already present in the file's edges, drawing only
+               from candidate paths it can resolve.
+            3. Filter against the file's existing `(target, predicate)`
+               set so re-runs don't re-emit the same edge.
+            4. Emit DiscoverOp(path, edges=[{target,predicate}, ...],
+               confidence, reason). Apply appends them as Dataview
+               line-level fields under `## Relations` (creating the
+               heading if missing).
+        """
+        return []
+
     async def _propose_merge(
         self, signals: list[FileSignal], threshold: float,
     ) -> list[MergeOp]:
@@ -400,11 +490,14 @@ class Maintainer(BaseStep):
         Steps:
             1. Union MergeOps that share a canonical.
             2. Dedupe SplitOps by source (highest confidence wins).
-            3. For each path, resolve {merge-source, split-source, decay}
-               contention per the matrix in the module docstring.
+            3. For each path, resolve {merge-source, split-source, decay,
+               enrich, discover} contention per the matrix in the module
+               docstring.
             4. Lint findings are pass-through.
         """
         lints = [o for o in proposed if isinstance(o, LintFinding)]
+        enriches = [o for o in proposed if isinstance(o, EnrichOp)]
+        discovers = [o for o in proposed if isinstance(o, DiscoverOp)]
         merges = [o for o in proposed if isinstance(o, MergeOp)]
         splits = [o for o in proposed if isinstance(o, SplitOp)]
         decays = [o for o in proposed if isinstance(o, DecayOp)]
@@ -471,6 +564,22 @@ class Maintainer(BaseStep):
 
         plan: list[BaseModel] = []
         plan.extend(lints)
+        # (4) Body-edits drop if file is being decayed/merged.
+        decay_paths = {d.path for d in kept_decays}
+        kept_enriches: list[EnrichOp] = []
+        for e in enriches:
+            if e.path in merge_paths or e.path in decay_paths:
+                dropped.append(e)
+            else:
+                kept_enriches.append(e)
+        kept_discovers: list[DiscoverOp] = []
+        for d in discovers:
+            if d.path in merge_paths or d.path in decay_paths:
+                dropped.append(d)
+            else:
+                kept_discovers.append(d)
+        plan.extend(kept_enriches)
+        plan.extend(kept_discovers)
         plan.extend(kept_decays)
         plan.extend(merges)
         plan.extend(kept_splits)
@@ -515,6 +624,17 @@ class Maintainer(BaseStep):
         if isinstance(op, LintFinding):
             # Diagnostic-only: surfacing the finding IS the work.
             return {"path": op.path, "kind": op.kind, "noop": True}
+        if isinstance(op, EnrichOp):
+            # TODO: wire to memory_io.update_body once apply-side is enabled.
+            return {"path": op.path, "target": op.target, "predicate": op.predicate,
+                    "status": "pending_apply",
+                    "would": "memory_update wraps bare [[X]] as [predicate:: [[X]]]"}
+        if isinstance(op, DiscoverOp):
+            # TODO: append Dataview lines under ## Relations (create heading
+            # if absent), then call file_store invalidation.
+            return {"path": op.path, "edges_added": len(op.edges),
+                    "status": "pending_apply",
+                    "would": "append predicate:: [[Y]] under ## Relations heading"}
         if isinstance(op, DecayOp):
             # TODO: wire to MemoryArchive once we're ready to actually
             # move files from a cron context. For now, surface intent.

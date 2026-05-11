@@ -22,51 +22,33 @@ Naming convention:
       `archive_file`) don't take `file_store` — they hit the filesystem
       and the watcher picks them up. The asymmetry is honest.
 
-Three sections:
-
-    1. MFS Reads        — get_file / list_files / get_links / get_backlinks
-                          / resolve_wikilink / iter_files / count_tokens.
-                          Primary-key lookups against the file_store cache
-                          (with disk fallthrough for the file body).
-    2. MFS Writes       — create_file / update_body / update_meta
-                          / rename_file / delete_file / archive_file.
-                          The MFS write entry. All return (ok, payload).
-    3. Projection Queries — search_vector / search_keyword / expand_neighbors
-                            / extract_anchors / get_chunks / make_filter
-                            / find_collisions. Read-only — projections
-                            are derived by the Watcher; callers don't
-                            write them directly.
-
-Schema policy and the agent toolkit projection live one layer up in
-`reme2/memory/memory_toolkit.py` — this file is policy-free and remains
-the engine's outward API.
-
-Lives in `reme2/memory/` (not `reme2/mcp/`) so memory services and the
-MCP transport layer can both consume it without forming an import cycle
-through the transport layer.
+Vault-convention helpers — wikilink resolution, graph-walk ranking,
+chunk filtering, stem collisions — live here on top of the slim
+`BaseFileStore` (which only manages graph + chunks). The engine itself
+remains domain-agnostic.
 """
 
 from __future__ import annotations
 
 import re
 import shutil
+from collections import deque
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import frontmatter
 
-from ..schema import ChunkFilter, FileChunk, FileMetadata
-from ..utils.wikilink import WIKILINK_RE
+from ..schema import ChunkFilter, FileChunk, FileNode, extract_wikilinks
+from ..schema.file_edge import WIKILINK_RE
+from ..utils.wikilink_resolver import (
+    resolve_wikilink as _resolve_wikilink,
+    wikilink_candidates,
+)
 
 
 # ===========================================================================
 # Section 1 — MFS Reads
 # ===========================================================================
-#
-# Primary-key lookups against the file_store's in-memory cache (file
-# meta + edges + stem index). `get_file` falls through to disk for the
-# body so callers see the latest text even if the watcher hasn't picked
-# up a write yet.
 
 
 async def get_file(
@@ -80,14 +62,13 @@ async def get_file(
     On-disk frontmatter is the source of truth — the file_store cache may
     lag a write that hasn't been picked up by the watcher yet.
     """
-    meta = file_store.get_file_meta(path)
+    node = file_store.get_node(path)
     result: dict = {"path": path, "exists": False}
-    if meta is not None:
-        edges = file_store.get_edges(path)
+    if node is not None:
         result.update({
             "exists": True,
-            "metadata": meta.metadata,
-            "link": [e.model_dump(exclude_none=True) for e in edges],
+            "metadata": node.metadata,
+            "link": [e.model_dump(exclude_none=True) for e in node.edges],
         })
 
     file_path = Path(path)
@@ -112,17 +93,14 @@ def list_files(
     metadata: dict | None = None,
     limit: int = 100,
 ) -> dict:
-    """List indexed files filtered by frontmatter exact-match, tags, and prefix.
-
-    Returns {items: [{path, metadata}], count}.
-    """
+    """List indexed files filtered by frontmatter exact-match, tags, and prefix."""
     metadata_filter = metadata or {}
     tag_filter = tags or []
     items: list[dict] = []
-    for path, meta in file_store.nodes.items():
+    for path, node in file_store.nodes.items():
         if path_prefix and not path.startswith(path_prefix):
             continue
-        md = meta.metadata or {}
+        md = node.metadata or {}
         if metadata_filter and any(md.get(k) != v for k, v in metadata_filter.items()):
             continue
         if tag_filter:
@@ -135,16 +113,14 @@ def list_files(
     return {"items": items, "count": len(items)}
 
 
-def _edge_to_dict(file_meta, edge) -> dict:
+def _edge_to_dict(node, edge) -> dict:
     return {
-        "path": file_meta.path,
-        "metadata": file_meta.metadata,
+        "path": node.path,
+        "metadata": node.metadata,
         "predicate": edge.predicate,
         "anchor": edge.anchor,
         "alias": edge.alias,
         "embed": edge.embed,
-        "source": edge.source,
-        "confidence": edge.confidence,
     }
 
 
@@ -167,10 +143,7 @@ def get_backlinks(file_store, path: str) -> dict:
 def resolve_wikilink(file_store, wikilink: str) -> dict:
     """Resolve a `[[target]]` wikilink with full ambiguity context.
 
-    Distinct from `file_store.resolve_wikilink(target)` (which returns
-    just the path or None) — this surface returns the rich payload
-    callers need to disambiguate:
-
+    Returns:
         unique resolution → {wikilink, path, exists: True,
                              ambiguous: False, candidates: [path]}
         ambiguous         → {wikilink, path: None, exists: False,
@@ -178,10 +151,8 @@ def resolve_wikilink(file_store, wikilink: str) -> dict:
         dangling          → {wikilink, path: None, exists: False,
                              ambiguous: False, candidates: []}
     """
-    # Path-form (`a/b` or `a/b.md`): file_store already returns
-    # exactly the one path that exists, or None.
     if "/" in wikilink or wikilink.endswith(".md"):
-        hit = file_store.resolve_wikilink(wikilink)
+        hit = _resolve_wikilink(file_store, wikilink)
         return {
             "wikilink": wikilink,
             "path": hit,
@@ -190,8 +161,7 @@ def resolve_wikilink(file_store, wikilink: str) -> dict:
             "candidates": [hit] if hit else [],
         }
 
-    # Stem-form: candidates list reveals 0/1/N resolution.
-    candidates = file_store.wikilink_candidates(wikilink)
+    candidates = wikilink_candidates(file_store, wikilink)
     if len(candidates) == 1:
         return {
             "wikilink": wikilink,
@@ -209,12 +179,8 @@ def resolve_wikilink(file_store, wikilink: str) -> dict:
     }
 
 
-def iter_files(file_store) -> Iterator[tuple[str, FileMetadata]]:
-    """Walk every indexed (path, FileMetadata). Used by Maintainer scans.
-
-    Equivalent to `file_store.nodes.items()`, exposed here so consumers
-    don't have to know about the underlying cache attribute name.
-    """
+def iter_files(file_store) -> Iterator[tuple[str, FileNode]]:
+    """Walk every indexed (path, FileNode). Used by Maintainer scans."""
     return iter(file_store.nodes.items())
 
 
@@ -224,13 +190,7 @@ async def count_tokens(
     path: str | None = None,
     text: str | None = None,
 ) -> dict:
-    """Estimate tokens for a file body (frontmatter excluded) or raw text.
-
-    Powers the Maintainer's split-trigger. Exactly one of `path` / `text`
-    must be provided. Takes a `token_counter` rather than `file_store`
-    because the engine's tokenization is a separate component — this
-    function lives here to keep the engine's outward surface in one place.
-    """
+    """Estimate tokens for a file body (frontmatter excluded) or raw text."""
     if path:
         target = Path(path)
         if not target.is_file():
@@ -258,23 +218,10 @@ async def count_tokens(
 # ===========================================================================
 # Section 2 — MFS Writes
 # ===========================================================================
-#
-# Every mutation in the system funnels through these. Hot-write MCP shells
-# (sync, memory_*) call them directly; cold-write services
-# (Ingestor R-M-W, Maintainer decay) compose them.
-#
-# `create_file` and `rename_file` take `file_store` because they need the
-# wikilink-uniqueness gate / backlinks index. The other writes don't —
-# they just touch disk and let the Watcher catch up.
 
 
 def _replace_wikilink_targets(text: str, mapping: dict[str, str]) -> str:
-    """Rewrite wikilink targets in raw text.
-
-    Only the `target` portion of `[[target]]` / `[[target#anchor]]` /
-    `[[target|alias]]` / `![[target]]` is replaced; anchors, aliases,
-    and embed prefixes are preserved.
-    """
+    """Rewrite wikilink targets in raw text. Anchors / aliases / embed prefix kept."""
     if not mapping:
         return text
 
@@ -299,19 +246,15 @@ def create_file(
 ) -> tuple[bool, dict]:
     """Single L1 entry point for creating a markdown file.
 
-    All file creation in the project must funnel through this so the
-    wikilink uniqueness invariant is enforced in exactly one place.
-
-    Refuses (returns (False, payload)) when:
+    Refuses when:
         - file already exists (unless overwrite=True)
-        - creating it would make `[[stem]]` resolve ambiguously against
-          the current file_store (unless force=True)
+        - creating it would make `[[stem]]` ambiguous (unless force=True)
     """
     if path.exists() and not overwrite:
         return False, {"path": str(path), "error": "file already exists"}
 
     if not force:
-        conflicts = file_store.collisions_after_create(path)
+        conflicts = collisions_after_create(file_store, path)
         if conflicts:
             return False, {
                 "path": str(path),
@@ -388,24 +331,12 @@ def update_meta(path: Path | str, *, key: str, value) -> tuple[bool, dict]:
 
 def rename_file(
     file_store,
-    vault_root: Path | str,
+    working_dir: Path | str,
     *,
     old_path: Path | str,
     new_path: Path | str,
 ) -> tuple[bool, dict]:
-    """Rename a file and rewrite incoming wikilinks across the vault.
-
-    Atomically moves `old_path` to `new_path`, then rewrites short-form
-    `[[old_stem]]` and path-form `[[old_relative]]` wikilinks in every
-    file that already had a *resolved* link to old_path. Look-up uses
-    `file_store.get_backlinks(old_path)` so the work is O(K) where K is
-    the number of incoming references — not a full vault scan.
-
-    Refuses if:
-        - `old_path` doesn't exist
-        - `new_path` already exists
-        - the rename would make `[[new_stem]]` resolve ambiguously
-    """
+    """Rename a file and rewrite incoming wikilinks across the vault."""
     old_p = Path(old_path).resolve()
     new_p = Path(new_path).resolve()
 
@@ -416,7 +347,7 @@ def rename_file(
     if old_p == new_p:
         return False, {"error": "old_path and new_path are the same"}
 
-    conflicts = file_store.collisions_after_create(new_p)
+    conflicts = collisions_after_create(file_store, new_p)
     if conflicts:
         return False, {
             "error": (
@@ -431,20 +362,20 @@ def rename_file(
             ),
         }
 
-    vault_root_p = Path(vault_root).resolve()
+    working_dir_p = Path(working_dir).resolve()
     old_stem = old_p.stem
     new_stem = new_p.stem
     replacements: dict[str, str] = {}
     if old_stem != new_stem:
         replacements[old_stem] = new_stem
     try:
-        old_rel = str(old_p.relative_to(vault_root_p).with_suffix(""))
-        new_rel = str(new_p.relative_to(vault_root_p).with_suffix(""))
+        old_rel = str(old_p.relative_to(working_dir_p).with_suffix(""))
+        new_rel = str(new_p.relative_to(working_dir_p).with_suffix(""))
         if old_rel != new_rel:
             replacements[old_rel] = new_rel
             replacements[old_rel + ".md"] = new_rel + ".md"
     except ValueError:
-        pass  # paths outside vault root — skip path-form rewrite
+        pass
 
     referring_paths = [m.path for m, _ in file_store.get_backlinks(str(old_p))]
 
@@ -488,28 +419,23 @@ def delete_file(path: Path | str) -> tuple[bool, dict]:
 
 
 def archive_file(
-    vault_root: Path | str,
+    working_dir: Path | str,
     path: Path | str,
     *,
     archive_dir: str = "Archive",
 ) -> tuple[bool, dict]:
-    """Archive a file: flip `status: archived`, then move under `<vault>/<archive_dir>/`.
-
-    Composed by the Maintainer's decay pass when an event falls past its
-    freshness window. Backlinks are *not* rewritten — dangling links to
-    archived files are the intended audit trail.
-    """
+    """Archive a file: flip `status: archived`, then move under `<vault>/<archive_dir>/`."""
     src = Path(path).resolve()
     if not src.is_file():
         return False, {"path": str(src), "error": "file not found"}
 
-    vault = Path(vault_root).resolve()
+    vault = Path(working_dir).resolve()
     try:
         rel = src.relative_to(vault)
     except ValueError:
         return False, {
             "path": str(src),
-            "error": f"path is outside vault_root {vault}",
+            "error": f"path is outside working_dir {vault}",
         }
 
     dst = vault / archive_dir / rel
@@ -542,16 +468,6 @@ def archive_file(
 # ===========================================================================
 # Section 3 — Projection Queries
 # ===========================================================================
-#
-# Per `structure.md` §"核心引擎", the Vector index, FTS5 index, and File
-# Graph are downstream **projections** of the MFS — they can be wholly
-# rebuilt from disk. These functions are the read entry to those
-# projections; the Retriever composes them with policy (V+K weighting,
-# graph BFS, intent routing) for ranked retrieval.
-#
-# Projections are write-only-via-Watcher: the API surface deliberately
-# exposes no setters. To "update" a projection, write to the MFS (Section
-# 2) and let the Watcher rebuild.
 
 
 async def search_vector(
@@ -576,25 +492,120 @@ async def search_keyword(
     return await file_store.keyword_search(query, limit, chunk_filter)
 
 
+async def get_chunks(file_store, paths: Iterable[str]) -> list[FileChunk]:
+    """Batch fetch chunks across many paths."""
+    return await file_store.get_chunks_by_paths(paths)
+
+
+# ===========================================================================
+# Section 4 — Graph helpers (BFS / scoring / collisions)
+# ===========================================================================
+#
+# Layered on top of the slim `BaseFileStore` (which only owns the
+# graph + chunks). These are vault conventions: folder-note preference,
+# wikilink-uniqueness gates, BFS for memory_graph_search.
+
+
 def expand_neighbors(
     file_store,
     seeds: Iterable[str],
     *,
     depth: int = 1,
     direction: str = "both",
+    per_node_cap: int | None = 50,
 ) -> dict[str, int]:
-    """BFS over the File Graph projection. Returns {path: hop_distance}."""
-    return file_store.expand_neighbors(seeds, depth=depth, direction=direction)
+    """BFS over wikilink edges. Returns `{path: hop_distance}`."""
+    if direction not in ("out", "in", "both"):
+        raise ValueError(f"direction must be one of out/in/both, got {direction!r}")
+    if depth < 0:
+        raise ValueError(f"depth must be >= 0, got {depth}")
+
+    seen: dict[str, int] = {}
+    frontier: deque[tuple[str, int]] = deque()
+    for path in seeds:
+        if path in file_store and path not in seen:
+            seen[path] = 0
+            frontier.append((path, 0))
+
+    while frontier:
+        path, dist = frontier.popleft()
+        if dist >= depth:
+            continue
+
+        neighbors: list[str] = []
+        if direction in ("out", "both"):
+            neighbors.extend(m.path for m, _ in file_store.get_links(path))
+        if direction in ("in", "both"):
+            neighbors.extend(m.path for m, _ in file_store.get_backlinks(path))
+
+        if per_node_cap is not None and len(neighbors) > per_node_cap:
+            neighbors = neighbors[:per_node_cap]
+
+        for nb in neighbors:
+            if nb in seen:
+                continue
+            seen[nb] = dist + 1
+            frontier.append((nb, dist + 1))
+
+    return seen
+
+
+def subgraph_score(
+    file_store,
+    seeds: Iterable[str],
+    *,
+    decay: float = 0.5,
+    depth: int = 1,
+    direction: str = "both",
+    per_node_cap: int | None = 50,
+) -> dict[str, float]:
+    """Decayed score per path: seed=1.0, 1-hop=decay, 2-hop=decay²..."""
+    if not (0.0 <= decay <= 1.0):
+        raise ValueError(f"decay must be in [0, 1], got {decay}")
+    hops = expand_neighbors(
+        file_store, seeds, depth=depth, direction=direction, per_node_cap=per_node_cap,
+    )
+    return {path: decay ** hop for path, hop in hops.items()}
 
 
 def extract_anchors(file_store, text: str) -> list[str]:
-    """Pull anchor paths from `[[target]]` references inside `text`."""
-    return file_store.extract_anchor_paths(text)
+    """Pull `[[X]]` anchors from `text` and resolve each (deduped)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in extract_wikilinks(text):
+        hit = _resolve_wikilink(file_store, raw)
+        if hit is not None and hit not in seen:
+            seen.add(hit)
+            out.append(hit)
+    return out
 
 
-async def get_chunks(file_store, paths: Iterable[str]) -> list[FileChunk]:
-    """Batch fetch chunks across many paths (used by graph-walk retrieval)."""
-    return await file_store.get_chunks_by_paths(paths)
+def collisions_after_create(file_store, proposed_path: str | Path) -> list[str]:
+    """Existing paths that would conflict with adding `proposed_path`.
+
+    Folder-note rule: if `proposed_path`'s parent dir name == its stem,
+    only colliding folder-notes are returned (siblings with the same
+    stem don't ambiguate). Otherwise both folder-notes AND stem hits
+    are returned.
+    """
+    p = Path(proposed_path)
+    stem = p.stem
+    proposed_abs = str(p.resolve())
+    is_folder_note = p.parent.name == stem
+
+    folder_hits = [
+        path for path in file_store.nodes
+        if Path(path).stem == stem and Path(path).parent.name == stem
+        and path != proposed_abs
+    ]
+    stem_hits = [
+        path for path in file_store.get_paths_by_stem(stem)
+        if path != proposed_abs
+    ]
+
+    if is_folder_note:
+        return folder_hits
+    return folder_hits + [sp for sp in stem_hits if sp not in folder_hits]
 
 
 def make_filter(
@@ -604,11 +615,21 @@ def make_filter(
     tags: list[str] | None = None,
     exclude_paths: list[str] | None = None,
 ) -> ChunkFilter | None:
-    """Build a chunk-filter against the file_store's path/tag indexes."""
-    return file_store.filter(paths=paths, tags=tags, exclude_paths=exclude_paths)
+    """Compile a ChunkFilter against the file_store's path/tag indexes."""
+    cf = ChunkFilter(paths=paths, tags=tags, exclude_paths=exclude_paths)
+    if cf.is_empty():
+        return cf
+    cf.resolved_paths = {
+        p for p, n in file_store.nodes.items() if cf.match_metadata(p, n.metadata)
+    }
+    return cf
 
 
 def find_collisions(file_store) -> dict[str, list[str]]:
     """Every stem that resolves to >1 path. Used by Maintainer.lint."""
-    return file_store.all_ambiguous_wikilinks()
-
+    out: dict[str, list[str]] = {}
+    for stem in file_store._stems:
+        cands = wikilink_candidates(file_store, stem)
+        if len(cands) > 1:
+            out[stem] = cands
+    return out

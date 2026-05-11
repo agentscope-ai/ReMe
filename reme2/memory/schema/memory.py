@@ -20,10 +20,11 @@ imports this module.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+
+from reme2.schema.file_node import FileNode
 
 
 # ---------------------------------------------------------------------------
@@ -198,16 +199,13 @@ LEGACY_AXES_FROM_CATEGORY: dict[str, dict] = {
 # ---------------------------------------------------------------------------
 
 
-class Memory(BaseModel):
+class MemoryFileNode(FileNode):
     """The typed view of a vault frontmatter.
 
     `extra="allow"` keeps domain-specific fields (market, ticker, etc.) in
     the parsed object without polluting this base schema. `populate_by_name`
     lets `originSessionId` (legacy camelCase) populate `origin_session_id`.
     """
-
-    model_config = ConfigDict(extra="allow", populate_by_name=True)
-
     # -- Identity / common metadata ----------------------------------------
 
     title: str = Field(default="")
@@ -256,18 +254,7 @@ class Memory(BaseModel):
 
     # -- Field coercion / cleanup ------------------------------------------
 
-    @field_validator("created", "updated", mode="before")
-    @classmethod
-    def _coerce_date(cls, v):
-        if v is None or isinstance(v, date):
-            return v
-        if isinstance(v, datetime):
-            return v.date()
-        if isinstance(v, str):
-            return datetime.fromisoformat(v).date()
-        return v
-
-    @field_validator("tags", "topics", mode="before")
+    @field_validator("tags", mode="before")
     @classmethod
     def _strip_dedup(cls, v):
         """Strip whitespace + dedup string lists. Preserves order."""

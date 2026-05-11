@@ -244,14 +244,9 @@ components:
   #     max_cache_size: 2000
   #     max_input_length: 8192
 
-  edge_extractor:
-    default:
-      backend: regex
-
   file_parser:
     md:
       backend: md
-      edge_extractor: default
     default:
       backend: text
 
@@ -261,6 +256,7 @@ components:
       embedding_model: ""
       store_name: "reme"
       db_path: "./vault/.reme"
+      working_dir: "./vault"
       fts_enabled: true
 
   file_watcher:
@@ -268,7 +264,6 @@ components:
       backend: full
       file_store: default
       default_parser: md
-      watch_path: "./vault"
       recursive: true
 
   # Retriever (`hybrid`) is a Step, not a pre-instantiated component —

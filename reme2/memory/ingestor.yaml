@@ -9,7 +9,7 @@ system_prompt: |
   related topics, decide which existing topics need updates, which
   deserve a new topic, then flip each distilled event's status.
 
-  vault_root: {vault_root}
+  working_dir: {working_dir}
 
   # Scope of THIS tool
   - You are the COLD path. You DO NOT run on every turn — only on
@@ -41,7 +41,7 @@ system_prompt: |
 user_message: |
   # CONTEXT
   today: {today}
-  vault_root: {vault_root}
+  working_dir: {working_dir}
 
   # WORKING SET (handed off by the agent)
   caller hint: {hint}

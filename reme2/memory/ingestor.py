@@ -35,7 +35,7 @@ from .memory_toolkit import build_memory_toolkit
 from ..component import R
 from ..component.base_step import BaseStep
 from ..enumeration import ComponentEnum
-from ..utils.wikilink import extract_wikilinks
+from ..schema import extract_wikilinks
 
 
 class IngestResult(BaseModel):
@@ -95,12 +95,9 @@ class Ingestor(BaseStep):
                 self.logger.error(f"Invalid timezone: {self.timezone}, error={e}")
         return datetime.datetime.now()
 
-    def _vault_root(self) -> Path:
-        watcher = self._get_component_optional(ComponentEnum.FILE_WATCHER, "default")
-        if watcher is None:
-            vr = getattr(self.file_store, "vault_root", None)
-            return Path(vr).resolve() if vr else Path.cwd().resolve()
-        return Path(getattr(watcher, "watch_path", ".")).resolve()
+    def _working_dir(self) -> Path:
+        vr = getattr(self.file_store, "working_dir", None)
+        return Path(vr).resolve() if vr else Path.cwd().resolve()
 
     async def execute(self):
         assert self.context is not None
@@ -136,7 +133,7 @@ class Ingestor(BaseStep):
             _set_answer(self.context, result.model_dump())
             return
 
-        vault_root = self._vault_root()
+        working_dir = self._working_dir()
         audit: list[dict] = []
         toolkit = build_memory_toolkit(self.app_context, audit=audit, toolkit=self.toolkit)
 
@@ -145,7 +142,7 @@ class Ingestor(BaseStep):
             model=self.as_llm,
             sys_prompt=self.prompt_format(
                 "system_prompt",
-                vault_root=str(vault_root),
+                working_dir=str(working_dir),
                 protocol=self._protocol,
             ),
             formatter=self.as_llm_formatter,
@@ -156,7 +153,7 @@ class Ingestor(BaseStep):
         user_message: str = self.prompt_format(
             "user_message",
             today=self._now().strftime("%Y-%m-%d"),
-            vault_root=str(vault_root),
+            working_dir=str(working_dir),
             hint=hint or "(none)",
             target_path=target_path or "(none)",
             metadata=json.dumps(_to_jsonable(metadata), ensure_ascii=False),
@@ -193,7 +190,7 @@ class Ingestor(BaseStep):
             return result
         path = Path(target_path)
         if not path.is_absolute():
-            path = self._vault_root() / path
+            path = self._working_dir() / path
         ok, payload = create_file(
             self.file_store, path,
             metadata=metadata, content=content,
