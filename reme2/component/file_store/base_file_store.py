@@ -120,7 +120,7 @@ class BaseFileStore(BaseComponent):
         """Delete the node entry for `path`. Chunks are managed separately."""
 
     @abstractmethod
-    async def read_node(self, path: str) -> FileNode | None:
+    async def get_node(self, path: str) -> FileNode | None:
         """Fetch a single node by path. None if absent."""
 
     @abstractmethod

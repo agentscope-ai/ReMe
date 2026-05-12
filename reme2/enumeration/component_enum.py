@@ -37,3 +37,5 @@ class ComponentEnum(str, Enum):
     STEP = "step"
 
     JOB = "job"
+
+    TOKENIZER = "tokenizer"
