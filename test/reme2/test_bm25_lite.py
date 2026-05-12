@@ -2,11 +2,16 @@
 
 import asyncio
 import tempfile
+import warnings
 from pathlib import Path
 
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+# Filter jieba/pkg_resources deprecation warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
 
 from reme2.component.file_store.bm25_lite import BM25Lite
 
