@@ -1,7 +1,7 @@
 """Base class for components."""
 
 import asyncio
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import TYPE_CHECKING
 
 from ..enumeration import ComponentEnum
