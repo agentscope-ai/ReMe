@@ -120,7 +120,7 @@ def _edge_to_dict(node, edge) -> dict:
         "predicate": edge.predicate,
         "anchor": edge.anchor,
         "alias": edge.alias,
-        "embed": edge.embed,
+        "embed": edge.get_embeddings,
     }
 
 
