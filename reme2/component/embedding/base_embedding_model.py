@@ -36,6 +36,7 @@ class BaseEmbeddingModel(BaseComponent):
         max_input_length: int = 8192,
         max_cache_size: int = 2000,
         enable_cache: bool = True,
+        cache_name: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -54,7 +55,8 @@ class BaseEmbeddingModel(BaseComponent):
         self._cache_misses = 0
 
         self.working_dir = self.app_context.app_config.working_dir if self.app_context is not None else ""
-        self.cache_path: Path = Path(self.working_dir) / "embedding_cache" / f"{self.name}.npz"
+        self.cache_name: str = cache_name or self.name
+        self.cache_path: Path = Path(self.working_dir) / "embedding_cache" / f"{self.cache_name}.npz"
 
     def clear_cache(self) -> None:
         """Clear in-memory cache and reset statistics."""

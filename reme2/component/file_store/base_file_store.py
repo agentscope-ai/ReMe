@@ -18,7 +18,6 @@ class BaseFileStore(BaseComponent):
     def __init__(
             self,
             store_name: str,
-            store_path: str | Path,
             embedding_model: str = "default",
             fts_enabled: bool = True,
             **kwargs,
@@ -26,30 +25,29 @@ class BaseFileStore(BaseComponent):
         super().__init__(**kwargs)
         if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
             raise ValueError(f"Invalid store name '{store_name}'. Only alphanumeric and underscores allowed.")
-        self.store_name = store_name
-        self.store_path = Path(store_path)
-        self.store_path.mkdir(parents=True, exist_ok=True)
-        self.working_dir = self.app_context.app_config.working_dir if self.app_context else ""
+        self.store_name = store_name or self.name
         self._embedding_model_name = embedding_model
+        self.fts_enabled = fts_enabled
+
         self.embedding_model: BaseEmbeddingModel | None = None
         self.vector_enabled = bool(embedding_model)
-        self.fts_enabled = fts_enabled
+        self.working_dir = self.app_context.app_config.working_dir if self.app_context else ""
+        self.store_path = Path(self.working_dir) / "file_store" / store_name
+        self.store_path.mkdir(parents=True, exist_ok=True)
         if not self.vector_enabled and not self.fts_enabled:
             raise ValueError("At least one of embedding_model or fts_enabled must be set.")
 
     # Lifecycle
 
     async def _start(self) -> None:
-        if not self._embedding_model_name:
-            return
-        assert self.app_context is not None
-        models = self.app_context.components.get(ComponentEnum.EMBEDDING_MODEL, {})
-        if self._embedding_model_name not in models:
-            raise ValueError(f"Embedding model '{self._embedding_model_name}' not found.")
-        model = models[self._embedding_model_name]
-        if not isinstance(model, BaseEmbeddingModel):
-            raise TypeError(f"Expected BaseEmbeddingModel, got {type(model).__name__}")
-        self.embedding_model = model
+        if self.vector_enabled and self.app_context is not None:
+            model_dict = self.app_context.components.get(ComponentEnum.EMBEDDING_MODEL, {})
+            if self._embedding_model_name not in model_dict:
+                raise ValueError(f"Embedding model '{self._embedding_model_name}' not found.")
+            model = model_dict[self._embedding_model_name]
+            if not isinstance(model, BaseEmbeddingModel):
+                raise TypeError(f"Expected BaseEmbeddingModel, got {type(model).__name__}")
+            self.embedding_model = model
 
     async def _close(self) -> None:
         self.embedding_model = None

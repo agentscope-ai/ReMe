@@ -20,8 +20,8 @@ class LocalFileStore(BaseFileStore):
         self._encoding = encoding
         self._nodes: dict[str, FileNode] = {}
         self._chunks: dict[str, FileChunk] = {}
-        self._nodes_file = self.store_path / f"{self.store_name}_nodes.jsonl"
-        self._chunks_file = self.store_path / f"{self.store_name}_chunks.jsonl"
+        self._nodes_file = self.store_path / "nodes.jsonl"
+        self._chunks_file = self.store_path / "chunks.jsonl"
 
     # Lifecycle
 
