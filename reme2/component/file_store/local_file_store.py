@@ -1,7 +1,5 @@
 """In-memory file store with JSONL persistence on close."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -117,7 +115,7 @@ class LocalFileStore(BaseFileStore):
     # Search
 
     async def vector_search(
-        self, query: str, limit: int, search_filter: dict,
+            self, query: str, limit: int, search_filter: dict,
     ) -> list[FileChunk]:
         if not self.vector_enabled or not query:
             return []
@@ -140,7 +138,7 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def keyword_search(
-        self, query: str, limit: int, search_filter: dict,
+            self, query: str, limit: int, search_filter: dict,
     ) -> list[FileChunk]:
         if not self.fts_enabled or not query.split():
             return []
