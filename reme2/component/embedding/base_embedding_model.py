@@ -52,7 +52,9 @@ class BaseEmbeddingModel(BaseComponent):
         self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._cache_hits = 0
         self._cache_misses = 0
-        self.cache_path: Path = Path()
+
+        self.working_dir = self.app_context.app_config.working_dir if self.app_context is not None else ""
+        self.cache_path: Path = Path(self.working_dir) / "embedding_cache" / f"{self.name}.npz"
 
     def clear_cache(self) -> None:
         """Clear in-memory cache and reset statistics."""
@@ -62,10 +64,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     async def _start(self) -> None:
         """Load cache on start."""
-        assert self.app_context is not None, "app_context must be provided"
         self.clear_cache()
-        working_path = Path(self.app_context.app_config.working_dir)
-        self.cache_path = working_path / "embedding_cache" / f"{self.name}.npz"
         self._load_cache()
 
     async def _close(self) -> None:
