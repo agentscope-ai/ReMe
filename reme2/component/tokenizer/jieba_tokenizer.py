@@ -1,7 +1,5 @@
 """Jieba tokenizer implementation."""
 
-import jieba
-
 from .base_tokenizer import BaseTokenizer
 from ..component_registry import R
 
@@ -16,6 +14,8 @@ class JiebaTokenizer(BaseTokenizer):
 
     def tokenize(self, texts: list[str], lower: bool = True, **kwargs) -> list[list[str]]:
         """Tokenize texts using jieba."""
+        import jieba
+
         result = []
         for text in texts:
             tokens = [x.lower() for x in jieba.cut(text)]

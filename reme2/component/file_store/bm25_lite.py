@@ -109,13 +109,13 @@ class BM25Lite(BaseComponent):
             await self._tokenizer.start()
 
         if self.index_file.exists():
-            await self.load()
+            self.load()
             self.logger.info(f"Loaded index from {self.index_dir}")
 
     async def _close(self) -> None:
         """Save index and cleanup tokenizer on shutdown."""
         if self.inverted_index:
-            await self.dump()
+            self.dump()
             self.logger.info(f"Saved index to {self.index_dir}")
 
         if self._tokenizer is not None:
@@ -240,7 +240,7 @@ class BM25Lite(BaseComponent):
 
         return dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]) if scores else {}
 
-    async def dump(self):
+    def dump(self):
         """Persist index to disk via pickle."""
         with open(self.index_file, "wb") as f:
             pickle.dump(
@@ -255,7 +255,7 @@ class BM25Lite(BaseComponent):
                 f,
             )
 
-    async def load(self):
+    def load(self):
         """Load index from disk. Clears index on failure."""
         try:
             with open(self.index_file, "rb") as f:
