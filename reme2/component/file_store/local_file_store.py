@@ -1,16 +1,4 @@
-"""Pure-Python in-memory store with on-close JSONL persistence.
-
-Runtime model:
-  * All state lives in two dicts (`_nodes`, `_chunks`) — every read /
-    write is a dict op, no per-call I/O.
-  * `_start` rehydrates from `{store_name}_nodes.jsonl` and
-    `{store_name}_chunks.jsonl` under `store_path`.
-  * `_close` flushes the full in-memory snapshot back to the same
-    sidecar files (atomic via tmp + replace).
-
-Trade-off: lower write latency, but a hard crash drops anything since
-the last clean shutdown.
-"""
+"""In-memory file store with JSONL persistence on close."""
 
 from __future__ import annotations
 
@@ -31,21 +19,21 @@ class LocalFileStore(BaseFileStore):
 
     def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
-        self._encoding: str = encoding
+        self._encoding = encoding
         self._nodes: dict[str, FileNode] = {}
         self._chunks: dict[str, FileChunk] = {}
-        self._nodes_file: Path = self.store_path / f"{self.store_name}_nodes.jsonl"
-        self._chunks_file: Path = self.store_path / f"{self.store_name}_chunks.jsonl"
+        self._nodes_file = self.store_path / f"{self.store_name}_nodes.jsonl"
+        self._chunks_file = self.store_path / f"{self.store_name}_chunks.jsonl"
 
-    # -- Lifecycle ---------------------------------------------------------
+    # Lifecycle
 
     async def _start(self) -> None:
-        self._load(self._nodes_file, self._nodes, FileNode, key="path")
-        self._load(self._chunks_file, self._chunks, FileChunk, key="id")
+        self._load(self._nodes_file, self._nodes, FileNode, "path")
+        self._load(self._chunks_file, self._chunks, FileChunk, "id")
         await super()._start()
         self.logger.info(
             f"LocalFileStore '{self.store_name}' ready: "
-            f"{len(self._nodes)} nodes, {len(self._chunks)} chunks",
+            f"{len(self._nodes)} nodes, {len(self._chunks)} chunks"
         )
 
     async def _close(self) -> None:
@@ -55,18 +43,15 @@ class LocalFileStore(BaseFileStore):
         self._chunks.clear()
         await super()._close()
 
-    def _load(
-        self, file: Path, target: dict, model: type[BaseModel], key: str,
-    ) -> None:
+    def _load(self, file: Path, target: dict, model: type[BaseModel], key: str) -> None:
         if not file.exists():
             return
         target.clear()
         try:
             for line in file.read_text(encoding=self._encoding).splitlines():
-                if not line.strip():
-                    continue
-                obj = model.model_validate_json(line)
-                target[getattr(obj, key)] = obj
+                if line.strip():
+                    obj = model.model_validate_json(line)
+                    target[getattr(obj, key)] = obj
         except Exception as e:
             self.logger.warning(f"Failed to load {file}: {e}")
 
@@ -79,28 +64,22 @@ class LocalFileStore(BaseFileStore):
         except Exception as e:
             self.logger.error(f"Failed to write {file}: {e}")
 
-    # -- Node CRUD ---------------------------------------------------------
+    # Node operations
 
     async def upsert_node(self, node: FileNode) -> None:
         self._nodes[node.path] = node
 
-    async def delete_node(self, path: str) -> None:
-        self._nodes.pop(path, None)
-
     async def get_node(self, path: str) -> FileNode | None:
         return self._nodes.get(path)
 
-    # -- Chunk CRUD --------------------------------------------------------
+    async def delete_node(self, path: str) -> None:
+        self._nodes.pop(path, None)
+
+    # Chunk operations
 
     async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
-        """Replace all chunks for `path`.
-
-        Hash-diff: chunks whose `hash` matches a persisted one inherit
-        the cached embedding; only the new-hash subset hits the embedding
-        API.
-        """
         existing = await self.get_chunks(path)
-        cached = {c.hash: c.embedding for c in existing if c.embedding is not None}
+        cached = {c.hash: c.embedding for c in existing if c.embedding}
 
         await self.delete_chunks(path)
         if not chunks:
@@ -108,61 +87,55 @@ class LocalFileStore(BaseFileStore):
 
         needs_embed: list[FileChunk] = []
         for c in chunks:
-            if c.embedding is not None:
+            if c.embedding:
                 continue
-            cached_emb = cached.get(c.hash)
-            if cached_emb is not None:
-                c.embedding = cached_emb
+            if c.hash in cached:
+                c.embedding = cached[c.hash]
             elif c.text:
                 needs_embed.append(c)
 
         if needs_embed:
-            embeddings = await self.embed([c.text for c in needs_embed])
-            if embeddings is not None:
+            embeddings = await self.get_embeddings([c.text for c in needs_embed])
+            if embeddings:
                 for c, emb in zip(needs_embed, embeddings):
-                    if emb is not None:
+                    if emb:
                         c.embedding = emb
 
         for c in chunks:
             self._chunks[c.id] = c
-
-    async def delete_chunks(self, path: str) -> None:
-        stale = [cid for cid, c in self._chunks.items() if c.path == path]
-        for cid in stale:
-            del self._chunks[cid]
 
     async def get_chunks(self, path: str) -> list[FileChunk]:
         chunks = [c for c in self._chunks.values() if c.path == path]
         chunks.sort(key=lambda c: c.start_line)
         return chunks
 
-    # -- Search ------------------------------------------------------------
+    async def delete_chunks(self, path: str) -> None:
+        stale = [cid for cid, c in self._chunks.items() if c.path == path]
+        for cid in stale:
+            del self._chunks[cid]
+
+    # Search
 
     async def vector_search(
         self, query: str, limit: int, search_filter: dict,
     ) -> list[FileChunk]:
         if not self.vector_enabled or not query:
             return []
-        embeddings = await self.embed([query])
-        if not embeddings or embeddings[0] is None:
+        embeddings = await self.get_embeddings([query])
+        if not embeddings or not embeddings[0]:
             return []
-        query_emb = embeddings[0]
 
-        # TODO: honor `search_filter` (paths / exclude_paths / tags / ...).
         candidates = [c for c in self._chunks.values() if c.embedding]
         if not candidates:
             return []
 
         chunk_embs = np.array([c.embedding for c in candidates])
-        similarities = batch_cosine_similarity(
-            np.array([query_emb]), chunk_embs,
-        )[0]
+        similarities = batch_cosine_similarity(np.array([embeddings[0]]), chunk_embs)[0]
 
-        results: list[FileChunk] = []
-        for c, sim in zip(candidates, similarities):
-            results.append(c.model_copy(
-                update={"scores": {"vector": float(sim), "score": float(sim)}},
-            ))
+        results = [
+            c.model_copy(update={"scores": {"vector": float(s), "score": float(s)}})
+            for c, s in zip(candidates, similarities)
+        ]
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
@@ -172,18 +145,15 @@ class LocalFileStore(BaseFileStore):
         if not self.fts_enabled or not query.split():
             return []
 
-        # TODO: honor `search_filter` (paths / exclude_paths / tags / ...).
-        results: list[FileChunk] = []
-        for c in self._chunks.values():
-            score = self._keyword_score(query, c.text)
-            if score > 0:
-                results.append(c.model_copy(
-                    update={"scores": {"keyword": score, "score": score}},
-                ))
+        results = [
+            c.model_copy(update={"scores": {"keyword": s, "score": s}})
+            for c in self._chunks.values()
+            if (s := self._keyword_score(query, c.text)) > 0
+        ]
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
-    # -- Helpers -----------------------------------------------------------
+    # Helpers
 
     @staticmethod
     def _keyword_score(query: str, text: str) -> float:
