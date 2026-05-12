@@ -9,6 +9,7 @@ from .base_file_store import BaseFileStore
 from .chroma_file_store import ChromaFileStore
 from .local_file_store import LocalFileStore
 from .sqlite_file_store import SqliteFileStore
+from .zvec_file_store import ZvecFileStore
 from ..registry_factory import R
 
 __all__ = [
@@ -16,8 +17,10 @@ __all__ = [
     "ChromaFileStore",
     "LocalFileStore",
     "SqliteFileStore",
+    "ZvecFileStore",
 ]
 
 R.file_stores.register("sqlite")(SqliteFileStore)
 R.file_stores.register("chroma")(ChromaFileStore)
 R.file_stores.register("local")(LocalFileStore)
+R.file_stores.register("zvec")(ZvecFileStore)
