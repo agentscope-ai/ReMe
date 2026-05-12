@@ -12,7 +12,3 @@ class FileChunk(EmbNode):
     @property
     def score(self) -> float:
         return self.scores.get("score", 0.0)
-
-    @property
-    def hash(self) -> str:
-        return "_".join([self.id, self.path, str(self.start_line), str(self.end_line)])
