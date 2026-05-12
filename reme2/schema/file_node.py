@@ -1,51 +1,34 @@
-"""FileNode — engine-level file index entry.
-
-Structural fields only: `path`, `st_mtime`, `edges`. Frontmatter fields
-ride along as Pydantic extras (model_config has `extra="allow"`), so a
-markdown file's parsed frontmatter dict is flattened into the node:
-
-    FileNode(path=..., st_mtime=..., edges=[...], **frontmatter_dict)
-
-Two convenience properties:
-
-  * `file`     — `Path(self.path).stem`, the filename without extension.
-  * `metadata` — dict view of the extras (the original frontmatter).
-
-Domain-aware code that wants typed access to memory-schema fields
-(lifecycle / scope / source / role / status / confidence …) wraps with
-`reme2.memory.schema.MemoryFileNode.model_validate(node.model_dump())`.
-
-The engine layer (file_store, file_parser, file_watcher) never imports
-the memory schema — it stays domain-agnostic and just shuttles
-`FileNode` instances around with their extras intact.
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-
-from pydantic import BaseModel, ConfigDict, Field
-
-from reme2.schema.file_edge import FileEdge
+from pydantic import BaseModel, Field, ConfigDict
 
 
-class FileNode(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    path: str = Field(...)
-    st_mtime: float = Field(...)
-    edges: list["FileEdge"] = Field(default_factory=list)
+class FileEdge(BaseModel):
+    link: str = Field(default=...)
+    predicate: str | None = Field(default=None)
 
     @property
-    def file(self) -> str:
-        """Filename stem derived from `path` (no extension)."""
-        return Path(self.path).stem
+    def link_path(self) -> str:
+        return self.link.split("#", 1)[0]
+
+    @property
+    def link_anchor(self) -> str:
+        link_split = self.link.split("#", 1)
+        return link_split[1] if len(link_split) > 1 else ""
+
+
+class FileFrontMatter(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    title: str = Field(default="")
+    description: str = Field(default="")
+    tags: list[str] | None = Field(default=None)
 
     @property
     def metadata(self) -> dict:
-        """Frontmatter dict view — extras stored via `extra="allow"`.
-
-        Returns a fresh copy so callers can't mutate the node's internal
-        state by writing into the dict.
-        """
         return dict(self.__pydantic_extra__ or {})
+
+
+class FileNode(BaseModel):
+    path: str = Field(default=...)
+    st_mtime: float = Field(default=...)
+    edges: list[FileEdge] = Field(default_factory=list)
+    front_matter: FileFrontMatter = Field(default_factory=FileFrontMatter)
