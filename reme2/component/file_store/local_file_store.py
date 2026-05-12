@@ -87,7 +87,7 @@ class LocalFileStore(BaseFileStore):
     async def delete_node(self, path: str) -> None:
         self._nodes.pop(path, None)
 
-    async def read_node(self, path: str) -> FileNode | None:
+    async def get_node(self, path: str) -> FileNode | None:
         return self._nodes.get(path)
 
     # -- Chunk CRUD --------------------------------------------------------
