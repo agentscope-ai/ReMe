@@ -1,10 +1,4 @@
-"""Abstract base class for file parsers.
-
-Single-pass parser: `parse(path)` returns `(FileNode, list[FileChunk])`.
-Embeddings are NOT attached here — the file_store owns the embedding
-pipeline (it has the cached chunks needed for hash-diff and the
-embedding model handle).
-"""
+"""Abstract base class for file parsers."""
 
 from abc import abstractmethod
 from pathlib import Path
@@ -25,14 +19,7 @@ class BaseFileParser(BaseComponent):
 
 
     def _get_relative_path(self, path: str | Path) -> str:
-        """Get path relative to working_dir.
-
-        Args:
-            path: Absolute or relative path to the file.
-
-        Returns:
-            Path relative to working_dir.
-        """
+        """Get path relative to working_dir."""
         file_path = Path(path).absolute()
         working_path = Path(self.working_dir).absolute()
         try:

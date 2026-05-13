@@ -20,35 +20,30 @@ class LocalFileStore(BaseFileStore):
 
     def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
-        self._encoding = encoding
-        self._nodes: dict[str, FileNode] = {}
-        self._chunks: dict[str, FileChunk] = {}
-        self._nodes_file = self.store_path / "nodes.jsonl"
-        self._chunks_file = self.store_path / "chunks.jsonl"
+        self.encoding = encoding
+        self.file_chunks: dict[str, FileChunk] = {}
+        self.nodes_path = self.store_path / "file_nodes.jsonl"
+        self.chunks_path = self.store_path / "file_chunks.jsonl"
 
     # Lifecycle
 
     async def _start(self) -> None:
         await super()._start()
-        await self._load(self._nodes_file, self._nodes, FileNode, "path")
-        await self._load(self._chunks_file, self._chunks, FileChunk, "id")
+        await self._load_jsonl(self.chunks_path, self.file_chunks, FileChunk, "id")
         self.logger.info(f"LocalFileStore '{self.store_name}' ready: "
-                         f"{len(self._nodes)} nodes, {len(self._chunks)} chunks")
+                         f"{len(self.file_nodes)} nodes, {len(self.file_chunks)} chunks")
 
     async def _close(self) -> None:
-        await self._dump(self._nodes_file, list(self._nodes.values()))
-        await self._dump(self._chunks_file, list(self._chunks.values()))
-        self._nodes.clear()
-        self._chunks.clear()
+        await self._dump_jsonl(self.chunks_path, list(self.file_chunks.values()))
+        self.file_chunks.clear()
         await super()._close()
 
-    async def _load(self, file: Path, target: dict, model: type[BaseModel], key: str) -> None:
+    async def _load_jsonl(self, file: Path, target: dict, model: type[BaseModel], key: str) -> None:
         if not file.exists():
             return
-
         target.clear()
         try:
-            async with aiofiles.open(file, encoding=self._encoding) as f:
+            async with aiofiles.open(file, encoding=self.encoding) as f:
                 async for line in f:
                     line = line.strip()
                     if line:
@@ -57,65 +52,76 @@ class LocalFileStore(BaseFileStore):
         except Exception as e:
             self.logger.exception(f"Failed to load {file}: {e}")
 
-    async def _dump(self, file: Path, items: list[BaseModel]) -> None:
+    async def _dump_jsonl(self, file: Path, items: list[BaseModel]) -> None:
         try:
             content = "\n".join(o.model_dump_json() for o in items)
             tmp = file.with_suffix(".tmp")
-            async with aiofiles.open(tmp, "w", encoding=self._encoding) as f:
+            async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
                 await f.write(content)
             tmp.replace(file)
         except Exception as e:
             self.logger.exception(f"Failed to write {file}: {e}")
 
-    # Node operations
+    # Base class interface
 
-    async def upsert_node(self, node: FileNode) -> None:
-        self._nodes[node.path] = node
+    async def load_file_nodes(self) -> None:
+        await self._load_jsonl(self.nodes_path, self.file_nodes, FileNode, "path")
 
-    async def get_node_by_path(self, path: str) -> FileNode | None:
-        return self._nodes.get(path)
+    async def dump_file_nodes(self) -> None:
+        await self._dump_jsonl(self.nodes_path, list(self.file_nodes.values()))
 
-    async def delete_node_by_path(self, path: str) -> FileNode | None:
-        return self._nodes.pop(path, None)
+    async def upsert_file(
+            self,
+            file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
+    ) -> None:
+        if isinstance(file, tuple):
+            file = [file]
+        for node, chunks in file:
+            old_node = self.file_nodes.pop(node.path, None)
+            cached = {}
+            if old_node and self.vector_enabled:
+                for cid in old_node.chunk_ids:
+                    old = self.file_chunks.pop(cid, None)
+                    if old and old.embedding:
+                        cached[cid] = old.embedding
 
-    # Chunk operations
+            node.chunk_ids = []
+            needs_embed = []
+            for c in chunks:
+                if self.vector_enabled and not c.embedding:
+                    if c.id in cached:
+                        c.embedding = cached[c.id]
+                    elif c.text:
+                        needs_embed.append(c)
+                node.chunk_ids.append(c.id)
+                self.file_chunks[c.id] = c
+            self.file_nodes[node.path] = node
 
-    async def upsert_chunks_with_path(self, path: str, chunks: list[FileChunk]) -> None:
-        existing = await self.get_chunks_by_path(path)
-        cached = {c.id: c.embedding for c in existing if c.embedding}
+            if needs_embed and self.embedding_model:
+                await self.embedding_model.get_node_embeddings(needs_embed)
 
-        await self.delete_chunks_by_path(path)
-        if not chunks:
-            return
+            if self.fts_enabled and self.keyword_index:
+                await self.keyword_index.add_docs({c.id: c.text for c in chunks if c.text})
 
-        needs_embed: list[FileChunk] = []
-        for c in chunks:
-            if c.embedding:
-                continue
-            if c.id in cached:
-                c.embedding = cached[c.id]
-            elif c.text:
-                needs_embed.append(c)
+    async def delete_by_path(self, path: str | list[str]) -> None:
+        if isinstance(path, str):
+            path = [path]
+        deleted_chunk_ids: list[str] = []
+        for p in path:
+            node = self.file_nodes.pop(p, None)
+            if node:
+                for cid in node.chunk_ids:
+                    self.file_chunks.pop(cid, None)
+                    deleted_chunk_ids.append(cid)
 
-        if needs_embed:
-            embeddings = await self.get_embeddings([c.text for c in needs_embed])
-            if embeddings:
-                for c, emb in zip(needs_embed, embeddings):
-                    if emb:
-                        c.embedding = emb
+        if self.fts_enabled and self.keyword_index and deleted_chunk_ids:
+            await self.keyword_index.delete_docs(deleted_chunk_ids)
 
-        for c in chunks:
-            self._chunks[c.id] = c
-
-    async def get_chunks_by_path(self, path: str) -> list[FileChunk]:
-        chunks = [c for c in self._chunks.values() if c.path == path]
-        chunks.sort(key=lambda c: c.start_line)
-        return chunks
-
-    async def delete_chunks_by_path(self, path: str) -> None:
-        stale = [cid for cid, c in self._chunks.items() if c.path == path]
-        for cid in stale:
-            del self._chunks[cid]
+    async def clear(self) -> None:
+        self.file_nodes.clear()
+        self.file_chunks.clear()
+        if self.fts_enabled and self.keyword_index:
+            await self.keyword_index.clear()
 
     # Search
 
@@ -127,15 +133,12 @@ class LocalFileStore(BaseFileStore):
         if not query_embedding:
             return []
 
-        candidates = [c for c in self._chunks.values() if c.embedding]
-        emb_missing = [c for c in self._chunks.values() if not c.embedding]
-        if emb_missing:
-            logger.warning(f"Embedding missing for {len(emb_missing)} chunks")
+        candidates = [c for c in self.file_chunks.values() if c.embedding]
         if not candidates:
             return []
 
-        chunk_embs = np.array([c.embedding for c in candidates])
-        similarities = batch_cosine_similarity(np.array([query_embedding]), chunk_embs)[0]
+        candidate_embeddings = np.array([c.embedding for c in candidates])
+        similarities = batch_cosine_similarity(np.array([query_embedding]), candidate_embeddings)[0]
 
         results = [
             c.model_copy(update={"scores": {"vector": float(s), "score": float(s)}})
@@ -145,31 +148,18 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if not self.fts_enabled or self.bm25 is None:
+        if not self.fts_enabled or self.keyword_index is None:
             return []
 
         query = query.strip()
         if not query:
             return []
 
-        doc_id_score_dict = self.bm25.retrieve(query, limit=limit)
+        doc_id_score_dict = await self.keyword_index.retrieve(query, limit=limit)
         results = []
         for doc_id, score in doc_id_score_dict.items():
-            chunk = self._chunks.get(doc_id)
+            chunk = self.file_chunks.get(doc_id)
             if chunk:
                 results.append(chunk.model_copy(update={"scores": {"keyword": score, "score": score}}))
 
         return results
-
-    # Reindex
-
-    async def reindex_vector(self) -> None:
-        if not self.vector_enabled or self.embedding_model is None:
-            return
-
-        await self.embedding_model.get_node_embeddings(list(self._chunks.values()))
-
-    async def reindex_keyword(self) -> None:
-        if not self.fts_enabled or self.bm25 is None:
-            return
-
