@@ -1,4 +1,4 @@
-"""Tests for BM25Lite search engine."""
+"""Tests for BM25Index search engine."""
 
 import asyncio
 import tempfile
@@ -13,22 +13,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
 
-from reme2.component.file_store.bm25_lite import BM25Lite
+from reme2.component.keyword_index.bm25_index import BM25Index
 
 
-async def create_bm25(index_dir: Path, k1: float = 1.5, b: float = 0.75) -> BM25Lite:
-    """Create and start a BM25Lite instance."""
-    bm25 = BM25Lite(index_dir=index_dir, k1=k1, b=b)
+async def create_bm25(index_dir: Path, k1: float = 1.5, b: float = 0.75) -> BM25Index:
+    """Create and start a BM25Index instance."""
+    bm25 = BM25Index(index_dir=index_dir, k1=k1, b=b)
     await bm25.start()
     return bm25
 
 
 def test_basic_init():
-    """Test BM25Lite initialization."""
+    """Test BM25Index initialization."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir:
-            bm25 = BM25Lite(index_dir=tmpdir)
+            bm25 = BM25Index(index_dir=tmpdir)
             assert bm25.k1 == 1.5
             assert bm25.b == 0.75
             assert bm25.vocab == {}
@@ -42,12 +42,12 @@ def test_basic_init():
 
 
 def test_start_with_tokenizer():
-    """Test BM25Lite starts and initializes tokenizer."""
+    """Test BM25Index starts and initializes tokenizer."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
-            assert bm25._tokenizer is not None
+            assert bm25.tokenizer is not None
             assert bm25.is_started
 
             await bm25.close()
@@ -64,7 +64,7 @@ def test_add_single_doc():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({"doc1": "hello world"})
+            await bm25.add_docs({"doc1": "hello world"})
 
             assert bm25.n_docs == 1
             assert bm25.total_len > 0
@@ -88,7 +88,7 @@ def test_add_multiple_docs():
                 "doc2": "hello python",
                 "doc3": "world python",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
             assert bm25.n_docs == 3
             assert len(bm25.vocab) > 0
@@ -112,9 +112,9 @@ def test_retrieve_basic():
                 "doc2": "java programming language",
                 "doc3": "python data analysis",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", limit=3)
+            results = await bm25.retrieve("python", limit=3)
             assert len(results) <= 3
             assert "doc1" in results or "doc3" in results
 
@@ -134,12 +134,12 @@ def test_retrieve_with_limit():
             docs = {
                 f"doc{i}": f"python programming {i}" for i in range(10)
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", limit=3)
+            results = await bm25.retrieve("python", limit=3)
             assert len(results) == 3
 
-            results = bm25.retrieve("python", limit=5)
+            results = await bm25.retrieve("python", limit=5)
             assert len(results) == 5
 
             await bm25.close()
@@ -156,12 +156,12 @@ def test_retrieve_empty_query():
             bm25 = await create_bm25(Path(tmpdir))
 
             docs = {"doc1": "hello world"}
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("", limit=3)
+            results = await bm25.retrieve("", limit=3)
             assert results == {}
 
-            results = bm25.retrieve("unknownxyz", limit=3)
+            results = await bm25.retrieve("unknownxyz", limit=3)
             assert results == {}
 
             await bm25.close()
@@ -177,7 +177,7 @@ def test_retrieve_empty_index():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            results = bm25.retrieve("python", limit=3)
+            results = await bm25.retrieve("python", limit=3)
             assert results == {}
 
             await bm25.close()
@@ -193,14 +193,14 @@ def test_update_doc():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({"doc1": "hello world python"})
+            await bm25.add_docs({"doc1": "hello world python"})
             old_len = bm25.total_len
 
-            bm25.add_docs({"doc1": "java"})
+            await bm25.add_docs({"doc1": "java"})
             assert bm25.n_docs == 1
             assert bm25.total_len != old_len
 
-            results = bm25.retrieve("java", limit=1)
+            results = await bm25.retrieve("java", limit=1)
             assert "doc1" in results
 
             await bm25.close()
@@ -220,14 +220,14 @@ def test_remove_doc():
                 "doc1": "hello world",
                 "doc2": "hello python",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
             assert bm25.n_docs == 2
 
             bm25._remove_doc("doc1")
             assert bm25.n_docs == 1
             assert "doc1" not in bm25.doc_meta
 
-            results = bm25.retrieve("hello", limit=2)
+            results = await bm25.retrieve("hello", limit=2)
             assert "doc1" not in results
             assert "doc2" in results
 
@@ -244,7 +244,7 @@ def test_remove_nonexistent_doc():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({"doc1": "hello world"})
+            await bm25.add_docs({"doc1": "hello world"})
             bm25._remove_doc("nonexistent")
             assert bm25.n_docs == 1
 
@@ -261,13 +261,13 @@ def test_clear():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({
+            await bm25.add_docs({
                 "doc1": "hello world",
                 "doc2": "hello python",
             })
             assert bm25.n_docs == 2
 
-            bm25.clear()
+            await bm25.clear()
             assert bm25.n_docs == 0
             assert bm25.vocab == {}
             assert bm25.inverted_index == {}
@@ -281,37 +281,37 @@ def test_clear():
     asyncio.run(run())
 
 
-def test_reindex():
-    """Test reindex functionality to compact vocab."""
+def test_optimize_index():
+    """Test optimize_index functionality to compact vocab."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({"doc1": "hello world"})
+            await bm25.add_docs({"doc1": "hello world"})
             bm25._remove_doc("doc1")
 
             assert bm25.n_docs == 0
             assert len(bm25.vocab) > 0
 
-            bm25.reindex()
+            await bm25.optimize_index()
             assert bm25.vocab == {}
             assert bm25.inverted_index == {}
 
             await bm25.close()
-            print("✓ test_reindex passed")
+            print("✓ test_optimize_index passed")
 
     asyncio.run(run())
 
 
-def test_reindex_with_docs():
-    """Test reindex with remaining documents."""
+def test_optimize_index_with_docs():
+    """Test optimize_index with remaining documents."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({
+            await bm25.add_docs({
                 "doc1": "hello world",
                 "doc2": "hello python",
             })
@@ -319,17 +319,17 @@ def test_reindex_with_docs():
             old_vocab = bm25.vocab.copy()
             bm25._remove_doc("doc1")
 
-            bm25.reindex()
+            await bm25.optimize_index()
 
             assert bm25.n_docs == 1
             assert "doc2" in bm25.doc_meta
             assert len(bm25.vocab) < len(old_vocab)
 
-            results = bm25.retrieve("hello", limit=1)
+            results = await bm25.retrieve("hello", limit=1)
             assert "doc2" in results
 
             await bm25.close()
-            print("✓ test_reindex_with_docs passed")
+            print("✓ test_optimize_index_with_docs passed")
 
     asyncio.run(run())
 
@@ -347,7 +347,7 @@ def test_persistence():
                 "doc2": "hello python",
                 "doc3": "programming language",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
             old_vocab = bm25.vocab.copy()
             old_doc_meta = {k: dict(v) for k, v in bm25.doc_meta.items()}
@@ -362,7 +362,7 @@ def test_persistence():
             for doc_id, meta in old_doc_meta.items():
                 assert doc_id in bm25_new.doc_meta
 
-            results = bm25_new.retrieve("hello", limit=2)
+            results = await bm25_new.retrieve("hello", limit=2)
             assert "doc1" in results or "doc2" in results
 
             await bm25_new.close()
@@ -381,8 +381,8 @@ def test_custom_params():
             assert bm25.k1 == 2.0
             assert bm25.b == 0.5
 
-            bm25.add_docs({"doc1": "test document"})
-            results = bm25.retrieve("test", limit=1)
+            await bm25.add_docs({"doc1": "test document"})
+            results = await bm25.retrieve("test", limit=1)
             assert "doc1" in results
 
             await bm25.close()
@@ -403,9 +403,9 @@ def test_chinese_text():
                 "doc2": "北京是中国的首都",
                 "doc3": "上海的天气很好",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("北京", limit=2)
+            results = await bm25.retrieve("北京", limit=2)
             assert len(results) <= 2
             assert "doc1" in results or "doc2" in results
 
@@ -427,12 +427,12 @@ def test_mixed_chinese_english():
                 "doc2": "Java 编程语言",
                 "doc3": "Python 数据分析",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("Python", limit=3)
+            results = await bm25.retrieve("Python", limit=3)
             assert len(results) > 0
 
-            results = bm25.retrieve("编程", limit=2)
+            results = await bm25.retrieve("编程", limit=2)
             assert len(results) > 0
 
             await bm25.close()
@@ -448,7 +448,7 @@ def test_idf_cache():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({
+            await bm25.add_docs({
                 "doc1": "hello world",
                 "doc2": "hello python",
             })
@@ -476,10 +476,10 @@ def test_avg_len():
 
             assert bm25.avg_len == 0.0
 
-            bm25.add_docs({"doc1": "hello world python"})
+            await bm25.add_docs({"doc1": "hello world python"})
             assert bm25.avg_len > 0
 
-            bm25.add_docs({"doc2": "test"})
+            await bm25.add_docs({"doc2": "test"})
             new_avg = bm25.avg_len
             assert new_avg > 0
 
@@ -501,9 +501,9 @@ def test_score_ordering():
                 "doc2": "python python",
                 "doc3": "python",
             }
-            bm25.add_docs(docs)
+            await bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", limit=3)
+            results = await bm25.retrieve("python", limit=3)
             scores = list(results.values())
 
             for i in range(len(scores) - 1):
@@ -522,10 +522,10 @@ def test_empty_doc():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            bm25.add_docs({"doc1": ""})
+            await bm25.add_docs({"doc1": ""})
             assert bm25.n_docs == 0
 
-            bm25.add_docs({"doc2": "   "})
+            await bm25.add_docs({"doc2": "   "})
             assert bm25.n_docs == 0
 
             await bm25.close()
@@ -535,7 +535,7 @@ def test_empty_doc():
 
 
 if __name__ == "__main__":
-    print("\n=== BM25Lite Tests ===")
+    print("\n=== BM25Index Tests ===")
     test_basic_init()
     test_start_with_tokenizer()
     test_add_single_doc()
@@ -548,8 +548,8 @@ if __name__ == "__main__":
     test_remove_doc()
     test_remove_nonexistent_doc()
     test_clear()
-    test_reindex()
-    test_reindex_with_docs()
+    test_optimize_index()
+    test_optimize_index_with_docs()
     test_persistence()
     test_custom_params()
     test_chinese_text()

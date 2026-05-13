@@ -8,6 +8,7 @@ from . import client
 from . import embedding
 from . import file_parser
 from . import file_watcher
+from . import keyword_index
 from . import job
 from . import service
 from .application_context import ApplicationContext
@@ -34,6 +35,7 @@ __all__ = [
     "embedding",
     "file_parser",
     "file_watcher",
+    "keyword_index",
     "job",
     "service",
 ]

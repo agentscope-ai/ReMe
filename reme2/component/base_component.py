@@ -2,6 +2,7 @@
 
 import asyncio
 from abc import ABC
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..enumeration import ComponentEnum
@@ -20,11 +21,11 @@ class BaseComponent(ABC):
     component_type = ComponentEnum.BASE
 
     def __init__(
-        self,
-        name: str | None = None,
-        backend: str = "",
-        app_context: "ApplicationContext | None" = None,
-        **kwargs,
+            self,
+            name: str | None = None,
+            backend: str = "",
+            app_context: "ApplicationContext | None" = None,
+            **kwargs,
     ) -> None:
         self.name: str = name or self.__class__.__name__
         self.backend: str = backend
@@ -36,6 +37,25 @@ class BaseComponent(ABC):
 
         self._is_started: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
+
+    @property
+    def is_started(self) -> bool:
+        return self._is_started
+
+    def get_component(self, component_type: ComponentEnum, name: str):
+        """Get a component by type and name from app_context."""
+        if self.app_context is None:
+            raise ValueError("app_context is not set")
+        component_dict = self.app_context.components.get(component_type, {})
+        if name not in component_dict:
+            raise ValueError(f"{component_type.value} '{name}' not found.")
+        return component_dict[name]
+
+    @property
+    def working_path(self) -> Path:
+        if self.app_context is None:
+            return Path.cwd()
+        return Path(self.app_context.app_config.working_dir)
 
     async def _start(self) -> None:
         """Start the component."""
@@ -63,10 +83,6 @@ class BaseComponent(ABC):
         """Close then start."""
         await self.close()
         await self.start()
-
-    @property
-    def is_started(self) -> bool:
-        return self._is_started
 
     async def __call__(self, **kwargs):
         raise NotImplementedError

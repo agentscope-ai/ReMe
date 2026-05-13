@@ -45,8 +45,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     @property
     def cache_path(self) -> Path:
-        working_dir = self.app_context.app_config.working_dir if self.app_context else ""
-        return Path(working_dir) / "embedding_cache" / f"{self.name}.npz"
+        return self.working_path / "embedding_cache" / f"{self.name}.npz"
 
     async def _start(self) -> None:
         self._embedding_cache.clear()
