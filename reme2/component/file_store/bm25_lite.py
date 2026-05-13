@@ -212,12 +212,12 @@ class BM25Lite(BaseComponent):
         self._idf_cache[token_id] = math.log(1 + (self.n_docs - df + 0.5) / (df + 0.5)) if df else 0.0
         return self._idf_cache[token_id]
 
-    def retrieve(self, query: str, k: int = 3) -> dict[str, float]:
+    def retrieve(self, query: str, limit: int = 3) -> dict[str, float]:
         """Search for documents matching the query.
 
         Args:
             query: Search query string.
-            k: Maximum number of results to return.
+            limit: Maximum number of results to return.
 
         Returns:
             Dict mapping document IDs to BM25 scores, sorted by score descending.
@@ -238,7 +238,7 @@ class BM25Lite(BaseComponent):
                 tf_score = tf * (self.k1 + 1) / (tf + self.k1 * (1 - self.b + self.b * doc_len / avg_len))
                 scores[doc_id] = scores.get(doc_id, 0.0) + idf * tf_score
 
-        return dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]) if scores else {}
+        return dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]) if scores else {}
 
     def dump(self):
         """Persist index to disk via pickle."""

@@ -158,10 +158,7 @@ def print_usage_guidelines():
     print("   • ~420 MB per 50,000 entries")
     print("   • Scale linearly: ~8.4 MB per 1,000 entries\n")
 
-    print("3️⃣  Monitor cache statistics:")
-    print("   • Use model.get_cache_stats() to check hit rate")
-    print("   • If hit rate < 50%, consider reducing cache size")
-    print("   • If hit rate > 90%, you might benefit from larger cache\n")
+    print("3️⃣  Monitor cache size:\n")
 
     print("4️⃣  Configuration examples:\n")
 
@@ -193,10 +190,8 @@ def print_usage_guidelines():
     print("       max_cache_size=1000,  # ~8.4 MB")
     print("   )")
     print()
-    print("   # Monitor cache performance")
-    print("   stats = model.get_cache_stats()")
-    print("   print(f'Hit rate: {stats[\"hit_rate\"]:.1%}')")
-    print("   print(f'Memory used: ~{stats[\"cache_size\"] * 8.4:.1f} KB')")
+    print("   # Monitor cache")
+    print("   print(f'Cache entries: {len(model._embedding_cache)}')")
 
 
 if __name__ == "__main__":

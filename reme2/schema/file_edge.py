@@ -10,10 +10,7 @@ maintainer's job, not the schema's.
 
 ## Inline forms recognised by `parse_wikilinks`
 
-    [[X]]                           bare wikilink         → predicate=None
-    extends:: [[X]]                 line-level Dataview   → predicate="extends"
-    [extends:: [[X]]]               inline-bracketed      → predicate="extends"
-    extends:: [[A]], [[B]]          multi-target          → 2 edges
+
 """
 
 from __future__ import annotations
