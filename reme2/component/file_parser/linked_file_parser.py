@@ -16,8 +16,6 @@ Set ``embed_toc=False`` to drop the wrap. Chunk identity is
 re-parses of unchanged sections.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -37,10 +35,8 @@ from mistletoe.markdown_renderer import BlankLine, MarkdownRenderer
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
-from ...enumeration import FileSuffixEnum
 from ...schema import FileChunk, FileEdge, FileFrontMatter, FileNode
 from ...utils import hash_text
-
 
 _PART_RESERVE = 18  # worst-case "[Part NNN/NNN]\n\n" prefix
 
@@ -139,12 +135,13 @@ def _subtree_toc(n: MdNode) -> str:
 @R.register("md")
 class LinkedFileParser(BaseFileParser):
     """Markdown parser: frontmatter + wikilink edges + full-skeleton chunks."""
+
     def __init__(
-        self,
-        encoding: str = "utf-8",
-        chunk_chars: int = 2000,
-        embed_toc: bool = True,
-        **kwargs,
+            self,
+            encoding: str = "utf-8",
+            chunk_chars: int = 2000,
+            embed_toc: bool = True,
+            **kwargs,
     ):
         super().__init__(**kwargs)
         self.encoding = encoding
@@ -156,15 +153,16 @@ class LinkedFileParser(BaseFileParser):
         post = frontmatter.loads(file_path.read_text(encoding=self.encoding))
         absolute = str(file_path.absolute())
 
-        chunks = []
+        chunks: list[FileChunk] = []
         if post.content and post.content.strip():
             with MarkdownRenderer() as renderer:
                 tree = self._build_tree(Document(post.content), renderer)
                 chunks = self._chunk_node(tree, "", "", absolute, renderer)
-            
+
         node = FileNode(
             path=absolute,
             st_mtime=file_path.stat().st_mtime,
+            chunk_ids=[chunk.id for chunk in chunks],
             edges=_dedup_edges(FileEdge.from_text(post.content)),
             front_matter=FileFrontMatter(**dict(post.metadata)),
         )
@@ -206,8 +204,8 @@ class LinkedFileParser(BaseFileParser):
     # -- Recursive chunker ------------------------------------------------
 
     def _chunk_node(
-        self, node: MdNode, before: str, after: str,
-        path: str, renderer: MarkdownRenderer,
+            self, node: MdNode, before: str, after: str,
+            path: str, renderer: MarkdownRenderer,
     ) -> list[FileChunk]:
         """Try the whole subtree; on overflow split (leaf) or descend.
         ``before``/``after`` are TOC fragments that bracket each emitted
@@ -252,8 +250,8 @@ class LinkedFileParser(BaseFileParser):
         return chunks
 
     def _chunk_body_run(
-        self, run: list[MdNode], before: str, after: str,
-        path: str, renderer: MarkdownRenderer,
+            self, run: list[MdNode], before: str, after: str,
+            path: str, renderer: MarkdownRenderer,
     ) -> list[FileChunk]:
         """Greedy-pack consecutive body siblings under the same TOC slot.
         No ``[Part X/N]`` markers — distinct blocks, not a leaf split.
@@ -294,8 +292,8 @@ class LinkedFileParser(BaseFileParser):
     # -- Leaf splitters: build (text, start, end) units, hand off to packer
 
     def _split_leaf(
-        self, body: MdNode, before: str, after: str,
-        path: str, renderer: MarkdownRenderer,
+            self, body: MdNode, before: str, after: str,
+            path: str, renderer: MarkdownRenderer,
     ) -> list[FileChunk]:
         block = body.block
         if isinstance(block, Table):
@@ -307,7 +305,7 @@ class LinkedFileParser(BaseFileParser):
         return self._split_lines(body, before, after, path)
 
     def _split_table(
-        self, body: MdNode, before: str, after: str, path: str,
+            self, body: MdNode, before: str, after: str, path: str,
     ) -> list[FileChunk]:
         """Repeat header + separator on every chunk."""
         lines = body.text.split("\n")
@@ -323,7 +321,7 @@ class LinkedFileParser(BaseFileParser):
                                  joiner="\n", wrap=f"{header}\n{{inner}}")
 
     def _split_code(
-        self, body: MdNode, before: str, after: str, path: str,
+            self, body: MdNode, before: str, after: str, path: str,
     ) -> list[FileChunk]:
         """Repeat fence opener + closer on every chunk."""
         code = body.block
@@ -341,8 +339,8 @@ class LinkedFileParser(BaseFileParser):
                                  allow_empty=True)
 
     def _split_list(
-        self, body: MdNode, before: str, after: str,
-        path: str, renderer: MarkdownRenderer,
+            self, body: MdNode, before: str, after: str,
+            path: str, renderer: MarkdownRenderer,
     ) -> list[FileChunk]:
         """Pack list items; oversized items emit alone (overflow accepted)."""
         items = [c for c in (body.block.children or []) if isinstance(c, ListItem)]
@@ -359,7 +357,7 @@ class LinkedFileParser(BaseFileParser):
                                  joiner="\n", wrap="{inner}")
 
     def _split_lines(
-        self, body: MdNode, before: str, after: str, path: str,
+            self, body: MdNode, before: str, after: str, path: str,
     ) -> list[FileChunk]:
         """Last-resort line-greedy split for paragraphs / quotes / html."""
         start = body.start_line
@@ -369,14 +367,14 @@ class LinkedFileParser(BaseFileParser):
                                  joiner="\n", wrap="{inner}")
 
     def _emit_packed(
-        self,
-        units: list[tuple[str, int, int]],
-        before: str,
-        after: str,
-        path: str,
-        joiner: str,
-        wrap: str,
-        allow_empty: bool = False,
+            self,
+            units: list[tuple[str, int, int]],
+            before: str,
+            after: str,
+            path: str,
+            joiner: str,
+            wrap: str,
+            allow_empty: bool = False,
     ) -> list[FileChunk]:
         """Greedy-pack units into ``wrap`` envelopes; emit each piece.
 
@@ -427,13 +425,13 @@ class LinkedFileParser(BaseFileParser):
     # -- Emit -------------------------------------------------------------
 
     def _make_chunk(
-        self,
-        before: str,
-        content: str,
-        after: str,
-        start_line: int,
-        end_line: int,
-        path: str,
+            self,
+            before: str,
+            content: str,
+            after: str,
+            start_line: int,
+            end_line: int,
+            path: str,
     ) -> FileChunk:
         """Build one ``FileChunk`` — text is ``before + content + after``
         when ``embed_toc``, otherwise just ``content``."""
