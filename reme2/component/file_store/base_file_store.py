@@ -1,9 +1,10 @@
-"""Abstract base class for file stores — persistence + search for nodes & chunks."""
+"""Abstract base class for file stores."""
 
 import re
 from abc import abstractmethod
 from pathlib import Path
 
+from .bm25_lite import BM25Lite
 from ..base_component import BaseComponent
 from ..embedding import BaseEmbeddingModel
 from ...enumeration import ComponentEnum
@@ -11,7 +12,7 @@ from ...schema import FileChunk, FileNode
 
 
 class BaseFileStore(BaseComponent):
-    """Abstract file-store engine: persistence + search for nodes & chunks."""
+    """Abstract file-store engine."""
 
     component_type = ComponentEnum.FILE_STORE
 
@@ -19,14 +20,17 @@ class BaseFileStore(BaseComponent):
             self,
             store_name: str,
             embedding_model: str = "default",
+            tokenizer: str = "default",
             fts_enabled: bool = True,
             **kwargs,
     ):
+        """Initialize the file store."""
         super().__init__(**kwargs)
         if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
             raise ValueError(f"Invalid store name '{store_name}'. Only alphanumeric and underscores allowed.")
         self.store_name = store_name or self.name
         self._embedding_model_name = embedding_model
+        self.tokenizer = tokenizer
         self.fts_enabled = fts_enabled
 
         self.embedding_model: BaseEmbeddingModel | None = None
@@ -37,9 +41,10 @@ class BaseFileStore(BaseComponent):
         if not self.vector_enabled and not self.fts_enabled:
             raise ValueError("At least one of embedding_model or fts_enabled must be set.")
 
-    # Lifecycle
+        self.bm25: BM25Lite | None = None
 
     async def _start(self) -> None:
+        """Start the file store."""
         if self.vector_enabled and self.app_context is not None:
             model_dict = self.app_context.components.get(ComponentEnum.EMBEDDING_MODEL, {})
             if self._embedding_model_name not in model_dict:
@@ -49,66 +54,32 @@ class BaseFileStore(BaseComponent):
                 raise TypeError(f"Expected BaseEmbeddingModel, got {type(model).__name__}")
             self.embedding_model = model
 
+        if self.fts_enabled:
+            self.bm25 = BM25Lite(index_dir=self.store_path, tokenizer=self.tokenizer, app_context=self.app_context)
+            if self.bm25 is not None:
+                await self.bm25.start()
+
     async def _close(self) -> None:
+        """Close the file store and release resources."""
         self.embedding_model = None
+        if self.fts_enabled and self.bm25 is not None:
+            await self.bm25.close()
 
     # Composite operations
 
-    async def upsert(self, node: FileNode, chunks: list[FileChunk]) -> None:
-        await self.upsert_node(node)
-        await self.upsert_chunks(node.path, chunks)
+    async def upsert_file(self, node: FileNode, chunks: list[FileChunk]) -> None:
+        """Upsert a node and its associated chunks."""
 
     async def delete(self, path: str) -> None:
-        await self.delete_chunks(path)
-        await self.delete_node(path)
+        """Delete a node and all its associated chunks by path."""
 
-    # Abstract: node operations
-
-    @abstractmethod
-    async def upsert_node(self, node: FileNode) -> None:
-        """Persist a node, replacing any prior entry for `node.path`."""
-
-    @abstractmethod
-    async def get_node(self, path: str) -> FileNode | None:
-        """Fetch a node by path, or None if absent."""
-
-    @abstractmethod
-    async def delete_node(self, path: str) -> None:
-        """Delete the node entry for `path`."""
-
-    # Abstract: chunk operations
-
-    @abstractmethod
-    async def upsert_chunks(self, path: str, chunks: list[FileChunk]) -> None:
-        """Insert or replace all chunks for `path`. Handles embedding internally."""
-
-    @abstractmethod
-    async def get_chunks(self, path: str) -> list[FileChunk]:
-        """All chunks for `path`."""
-
-    @abstractmethod
-    async def delete_chunks(self, path: str) -> None:
-        """Delete all chunks for `path`."""
-
-    # Abstract: search
+    async def reindex(self) -> None:
+        """Re-index all nodes and chunks in the store."""
 
     @abstractmethod
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        """Vector similarity search."""
+        """Perform vector similarity search."""
 
     @abstractmethod
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        """Full-text / keyword search."""
-
-    # Internal helpers
-
-    async def get_embeddings(self, texts: list[str]) -> list[list[float] | None] | None:
-        """Embed texts. Returns None if vector search disabled or on API error."""
-        if not self.vector_enabled or not texts or not self.embedding_model:
-            return None
-        try:
-            return await self.embedding_model.get_embeddings(texts)
-        except Exception as e:
-            self.logger.warning(f"[{self.store_name}] Disabling vector search: {e}")
-            self.vector_enabled = False
-            return None
+        """Perform full-text keyword search."""

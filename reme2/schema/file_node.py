@@ -2,6 +2,12 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class FileEdge(BaseModel):
+    """ Format:
+    [[X]]                           bare wikilink         → predicate=None
+    extends:: [[X]]                 line-level Dataview   → predicate="extends"
+    [extends:: [[X]]]               inline-bracketed      → predicate="extends"
+    extends:: [[A]], [[B]]          multi-target          → 2 edges
+    """
     link: str = Field(default=...)
     predicate: str | None = Field(default=None)
 
@@ -31,4 +37,5 @@ class FileNode(BaseModel):
     path: str = Field(default=...)
     st_mtime: float = Field(default=...)
     edges: list[FileEdge] = Field(default_factory=list)
+    chunk_ids: list[str] = Field(default_factory=list)
     front_matter: FileFrontMatter = Field(default_factory=FileFrontMatter)

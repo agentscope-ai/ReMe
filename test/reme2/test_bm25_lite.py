@@ -114,7 +114,7 @@ def test_retrieve_basic():
             }
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", k=3)
+            results = bm25.retrieve("python", limit=3)
             assert len(results) <= 3
             assert "doc1" in results or "doc3" in results
 
@@ -136,10 +136,10 @@ def test_retrieve_with_limit():
             }
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", k=3)
+            results = bm25.retrieve("python", limit=3)
             assert len(results) == 3
 
-            results = bm25.retrieve("python", k=5)
+            results = bm25.retrieve("python", limit=5)
             assert len(results) == 5
 
             await bm25.close()
@@ -158,10 +158,10 @@ def test_retrieve_empty_query():
             docs = {"doc1": "hello world"}
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("", k=3)
+            results = bm25.retrieve("", limit=3)
             assert results == {}
 
-            results = bm25.retrieve("unknownxyz", k=3)
+            results = bm25.retrieve("unknownxyz", limit=3)
             assert results == {}
 
             await bm25.close()
@@ -177,7 +177,7 @@ def test_retrieve_empty_index():
         with tempfile.TemporaryDirectory() as tmpdir:
             bm25 = await create_bm25(Path(tmpdir))
 
-            results = bm25.retrieve("python", k=3)
+            results = bm25.retrieve("python", limit=3)
             assert results == {}
 
             await bm25.close()
@@ -200,7 +200,7 @@ def test_update_doc():
             assert bm25.n_docs == 1
             assert bm25.total_len != old_len
 
-            results = bm25.retrieve("java", k=1)
+            results = bm25.retrieve("java", limit=1)
             assert "doc1" in results
 
             await bm25.close()
@@ -227,7 +227,7 @@ def test_remove_doc():
             assert bm25.n_docs == 1
             assert "doc1" not in bm25.doc_meta
 
-            results = bm25.retrieve("hello", k=2)
+            results = bm25.retrieve("hello", limit=2)
             assert "doc1" not in results
             assert "doc2" in results
 
@@ -325,7 +325,7 @@ def test_reindex_with_docs():
             assert "doc2" in bm25.doc_meta
             assert len(bm25.vocab) < len(old_vocab)
 
-            results = bm25.retrieve("hello", k=1)
+            results = bm25.retrieve("hello", limit=1)
             assert "doc2" in results
 
             await bm25.close()
@@ -362,7 +362,7 @@ def test_persistence():
             for doc_id, meta in old_doc_meta.items():
                 assert doc_id in bm25_new.doc_meta
 
-            results = bm25_new.retrieve("hello", k=2)
+            results = bm25_new.retrieve("hello", limit=2)
             assert "doc1" in results or "doc2" in results
 
             await bm25_new.close()
@@ -382,7 +382,7 @@ def test_custom_params():
             assert bm25.b == 0.5
 
             bm25.add_docs({"doc1": "test document"})
-            results = bm25.retrieve("test", k=1)
+            results = bm25.retrieve("test", limit=1)
             assert "doc1" in results
 
             await bm25.close()
@@ -405,7 +405,7 @@ def test_chinese_text():
             }
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("北京", k=2)
+            results = bm25.retrieve("北京", limit=2)
             assert len(results) <= 2
             assert "doc1" in results or "doc2" in results
 
@@ -429,10 +429,10 @@ def test_mixed_chinese_english():
             }
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("Python", k=3)
+            results = bm25.retrieve("Python", limit=3)
             assert len(results) > 0
 
-            results = bm25.retrieve("编程", k=2)
+            results = bm25.retrieve("编程", limit=2)
             assert len(results) > 0
 
             await bm25.close()
@@ -503,7 +503,7 @@ def test_score_ordering():
             }
             bm25.add_docs(docs)
 
-            results = bm25.retrieve("python", k=3)
+            results = bm25.retrieve("python", limit=3)
             scores = list(results.values())
 
             for i in range(len(scores) - 1):
