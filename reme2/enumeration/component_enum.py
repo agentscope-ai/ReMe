@@ -30,6 +30,8 @@ class ComponentEnum(str, Enum):
 
     FILE_WATCHER = "file_watcher"
 
+    KEYWORD_INDEX = "keyword_index"
+
     SERVICE = "service"
 
     CLIENT = "client"

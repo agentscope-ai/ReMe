@@ -60,7 +60,7 @@ class BaseStep(BaseComponent):
 
         return result
 
-    def _get_component(self, key: ComponentEnum, name: str, attr: str | None = None):
+    def get_component(self, key: ComponentEnum, name: str, attr: str | None = None):
         assert self.app_context is not None
         comp = self.app_context.components[key][name]
         return getattr(comp, attr) if attr else comp
@@ -79,7 +79,7 @@ class BaseStep(BaseComponent):
     @property
     def as_llm(self) -> ChatModelBase:
         name = self.kwargs.get("as_llm", "default")
-        return name if isinstance(name, ChatModelBase) else self._get_component(ComponentEnum.AS_LLM, name, "model")
+        return name if isinstance(name, ChatModelBase) else self.get_component(ComponentEnum.AS_LLM, name, "model")
 
     @property
     def as_llm_formatter(self) -> FormatterBase:
@@ -87,7 +87,7 @@ class BaseStep(BaseComponent):
         return (
             name
             if isinstance(name, FormatterBase)
-            else self._get_component(
+            else self.get_component(
                 ComponentEnum.AS_LLM_FORMATTER,
                 name,
                 "formatter",
@@ -100,7 +100,7 @@ class BaseStep(BaseComponent):
         return (
             name
             if isinstance(name, TokenCounterBase)
-            else self._get_component(
+            else self.get_component(
                 ComponentEnum.AS_TOKEN_COUNTER,
                 name,
                 "token_counter",
@@ -110,7 +110,7 @@ class BaseStep(BaseComponent):
     @property
     def file_store(self) -> BaseFileStore:
         name = self.kwargs.get("file_store", "default")
-        return name if isinstance(name, BaseFileStore) else self._get_component(ComponentEnum.FILE_STORE, name)
+        return name if isinstance(name, BaseFileStore) else self.get_component(ComponentEnum.FILE_STORE, name)
 
     @property
     def embedding(self) -> BaseEmbeddingModel:
@@ -118,7 +118,7 @@ class BaseStep(BaseComponent):
         return (
             name
             if isinstance(name, BaseEmbeddingModel)
-            else self._get_component(
+            else self.get_component(
                 ComponentEnum.EMBEDDING_MODEL,
                 name,
             )
