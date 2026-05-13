@@ -16,6 +16,8 @@ class BaseEmbeddingModel(BaseComponent):
 
     component_type = ComponentEnum.EMBEDDING_MODEL
 
+    # ==================== Initialization ====================
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -53,69 +55,7 @@ class BaseEmbeddingModel(BaseComponent):
     async def _close(self) -> None:
         self._save_cache()
 
-    def _get_cache_key(self, text: str) -> str:
-        return hashlib.sha256(f"{text}|{self.model_name}|{self.dimensions}".encode()).hexdigest()
-
-    def _load_cache(self) -> None:
-        if not self.enable_cache:
-            return
-
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.cache_path.exists():
-            return
-
-        try:
-            data = np.load(self.cache_path)
-        except Exception:
-            self.cache_path.unlink(missing_ok=True)
-            return
-
-        for key, emb in zip(data["keys"], data["embeddings"]):
-            emb_list = emb.tolist()
-            if len(emb_list) != self.dimensions:
-                continue
-            if len(self._embedding_cache) >= self.max_cache_size:
-                break
-            self._embedding_cache[str(key)] = emb_list
-
-    def _save_cache(self) -> None:
-        if not self.enable_cache or not self._embedding_cache:
-            return
-
-        keys, embeddings = [], []
-        for k, v in self._embedding_cache.items():
-            keys.append(k)
-            embeddings.append(v)
-
-        try:
-            np.savez(self.cache_path, keys=np.array(keys, dtype=str), embeddings=np.array(embeddings, dtype=np.float32))
-        except Exception:
-            pass
-
-    def _get_from_cache(self, text: str) -> list[float] | None:
-        if not self.enable_cache:
-            return None
-
-        key = self._get_cache_key(text)
-        if key not in self._embedding_cache:
-            return None
-
-        self._embedding_cache.move_to_end(key)
-        return self._embedding_cache[key]
-
-    def _put_to_cache(self, text: str, embedding: list[float]) -> None:
-        if not self.enable_cache or self.max_cache_size <= 0 or len(embedding) != self.dimensions:
-            return
-
-        key = self._get_cache_key(text)
-        if len(self._embedding_cache) >= self.max_cache_size and key not in self._embedding_cache:
-            self._embedding_cache.popitem(last=False)
-
-        self._embedding_cache[key] = embedding
-        self._embedding_cache.move_to_end(key)
-
-    @abstractmethod
-    async def _get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]: ...
+    # ==================== Public API ====================
 
     async def get_embedding(self, input_text: str, **kwargs) -> list[float] | None:
         results = await self.get_embeddings([input_text], **kwargs)
@@ -164,3 +104,74 @@ class BaseEmbeddingModel(BaseComponent):
                 if vec is not None:
                     node.embedding = vec
         return nodes
+
+    # ==================== Abstract Method ====================
+
+    @abstractmethod
+    async def _get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]:
+        """Get embeddings for input text."""
+
+    # ==================== Cache Operations ====================
+
+    def _get_from_cache(self, text: str) -> list[float] | None:
+        if not self.enable_cache:
+            return None
+
+        key = self._get_cache_key(text)
+        if key not in self._embedding_cache:
+            return None
+
+        self._embedding_cache.move_to_end(key)
+        return self._embedding_cache[key]
+
+    def _put_to_cache(self, text: str, embedding: list[float]) -> None:
+        if not self.enable_cache or self.max_cache_size <= 0 or len(embedding) != self.dimensions:
+            return
+
+        key = self._get_cache_key(text)
+        if len(self._embedding_cache) >= self.max_cache_size and key not in self._embedding_cache:
+            self._embedding_cache.popitem(last=False)
+
+        self._embedding_cache[key] = embedding
+        self._embedding_cache.move_to_end(key)
+
+    def _get_cache_key(self, text: str) -> str:
+        return hashlib.sha256(f"{text}|{self.model_name}|{self.dimensions}".encode()).hexdigest()
+
+    # ==================== Cache Persistence ====================
+
+    def _load_cache(self) -> None:
+        if not self.enable_cache:
+            return
+
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.cache_path.exists():
+            return
+
+        try:
+            data = np.load(self.cache_path)
+        except Exception:
+            self.cache_path.unlink(missing_ok=True)
+            return
+
+        for key, emb in zip(data["keys"], data["embeddings"]):
+            emb_list = emb.tolist()
+            if len(emb_list) != self.dimensions:
+                continue
+            if len(self._embedding_cache) >= self.max_cache_size:
+                break
+            self._embedding_cache[str(key)] = emb_list
+
+    def _save_cache(self) -> None:
+        if not self.enable_cache or not self._embedding_cache:
+            return
+
+        keys, embeddings = [], []
+        for k, v in self._embedding_cache.items():
+            keys.append(k)
+            embeddings.append(v)
+
+        try:
+            np.savez(self.cache_path, keys=np.array(keys, dtype=str), embeddings=np.array(embeddings, dtype=np.float32))
+        except Exception:
+            pass
