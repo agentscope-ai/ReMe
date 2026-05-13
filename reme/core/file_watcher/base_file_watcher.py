@@ -76,12 +76,14 @@ class BaseFileWatcher:
         if self._running:
             return
 
+        self._stop_event = asyncio.Event()
         self._running = True
 
         async def _initialize_and_watch():
             if self.rebuild_index_on_start:
-                await self.file_store.clear_all()
-                logger.info("Cleared all indexed data on start")
+                if self.file_store is not None:
+                    await self.file_store.clear_all()
+                    logger.info("Cleared all indexed data on start")
                 await self._scan_existing_files()
             await self._watch_loop()
 

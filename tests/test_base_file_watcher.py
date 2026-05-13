@@ -79,6 +79,15 @@ def temp_nested_dir(temp_dir: Path):
     yield temp_dir
 
 
+def make_mock_file_store():
+    """Create an async-compatible mock file store."""
+    mock_file_store = MagicMock()
+    mock_file_store.clear_all = AsyncMock()
+    mock_file_store.list_files = AsyncMock(return_value=[])
+    mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+    return mock_file_store
+
+
 # ==================== Test Existing Paths ====================
 
 
@@ -144,6 +153,21 @@ class TestExistingPaths:
         # Restart
         await watcher.start()
         assert watcher.is_running() is True
+
+        await watcher.close()
+
+    @pytest.mark.asyncio
+    async def test_restart_resets_stop_event(self, temp_dir: Path):
+        """Test restarting watcher resets the previous stop signal."""
+        watcher = BaseFileWatcher(watch_paths=str(temp_dir))
+
+        await watcher.start()
+        await watcher.close()
+
+        assert watcher._stop_event.is_set() is True
+
+        await watcher.start()
+        assert watcher._stop_event.is_set() is False
 
         await watcher.close()
 
@@ -381,9 +405,7 @@ class TestRebuildIndexOnStart:
             callback_called.append(changes)
 
         # Create mock file_store
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
@@ -408,9 +430,7 @@ class TestRebuildIndexOnStart:
             callback_called.append(changes)
 
         # Create mock file_store
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
@@ -441,9 +461,7 @@ class TestRebuildIndexOnStart:
         async def callback(changes):
             callback_called.append(changes)
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_dir),
@@ -474,9 +492,7 @@ class TestRebuildIndexOnStart:
         async def callback(changes):
             callback_called.append(changes)
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_nested_dir),
@@ -510,9 +526,7 @@ class TestRebuildIndexOnStart:
         async def callback(changes):
             callback_called.append(changes)
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths=str(temp_nested_dir),
@@ -545,9 +559,7 @@ class TestRebuildIndexOnStart:
         async def callback(changes):
             callback_called.append(changes)
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         watcher = BaseFileWatcher(
             watch_paths="/nonexistent/path",
@@ -698,9 +710,7 @@ class TestEdgeCases:
         """Test watching a single file instead of directory."""
         file_path = temp_files["txt_0"]
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         callback_called = []
 
@@ -731,9 +741,7 @@ class TestEdgeCases:
         empty_dir = temp_dir / "empty"
         empty_dir.mkdir()
 
-        mock_file_store = MagicMock()
-        mock_file_store.list_files = AsyncMock(return_value=[])
-        mock_file_store.get_file_chunks = AsyncMock(return_value=[])
+        mock_file_store = make_mock_file_store()
 
         callback_called = []
 
@@ -774,7 +782,7 @@ class TestEdgeCases:
         unicode_dir.mkdir()
 
         file_path = unicode_dir / "文件.txt"
-        file_path.write_text("内容")
+        file_path.write_text("内容", encoding="utf-8")
 
         watcher = BaseFileWatcher(
             watch_paths=str(unicode_dir),
