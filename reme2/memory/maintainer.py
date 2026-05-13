@@ -418,7 +418,7 @@ class Maintainer(BaseStep):
             2. Read body, ask the LLM (one call per file) to assign one
                of `ALLOWED_PREDICATES` to each bare target — or 'skip'.
             3. For each accepted (target, predicate), locate each bare
-               occurrence span via `parse_wikilinks` and build a unique
+               occurrence span via `FileEdge.from_text` and build a unique
                context window snippet.
             4. Emit EnrichOp(path, target, predicate, old_string, new_string,
                confidence, reason). The apply step calls memory_update.
