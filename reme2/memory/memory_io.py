@@ -62,7 +62,7 @@ async def get_file(
     On-disk frontmatter is the source of truth — the file_store cache may
     lag a write that hasn't been picked up by the watcher yet.
     """
-    node = file_store.get_node(path)
+    node = file_store.get_node_by_path(path)
     result: dict = {"path": path, "exists": False}
     if node is not None:
         result.update({
@@ -80,7 +80,7 @@ async def get_file(
         result["metadata"] = dict(post.metadata)
 
     if include_chunks:
-        chunks = await file_store.get_chunks(path)
+        chunks = await file_store.get_chunks_by_path(path)
         result["chunks"] = [c.model_dump(exclude_none=True) for c in chunks]
     return result
 

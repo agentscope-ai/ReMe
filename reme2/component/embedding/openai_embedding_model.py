@@ -27,7 +27,11 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
         if self._client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
-        create_kwargs: dict = {"model": self.model_name, "input": input_text, **kwargs}
+        create_kwargs: dict = {
+            "model": self.model_name,
+            "input": input_text,
+            **kwargs,
+        }
         if self.pass_dimensions:
             create_kwargs["dimensions"] = self.dimensions
 
@@ -35,8 +39,8 @@ class OpenAIEmbeddingModel(BaseEmbeddingModel):
 
         result: list[list[float] | None] = [None] * len(input_text)
         for emb in completion.data:
-            vec = getattr(emb, "embedding", None) or getattr(emb, "dense_embedding", None)
             if 0 <= emb.index < len(input_text):
+                vec = emb.embedding or getattr(emb, "dense_embedding", None)
                 if vec is not None:
                     result[emb.index] = list(vec)
                 else:

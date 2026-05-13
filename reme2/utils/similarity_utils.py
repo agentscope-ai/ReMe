@@ -63,14 +63,6 @@ def batch_cosine_similarity(nd_array1: np.ndarray, nd_array2: np.ndarray) -> np.
 
     Raises:
         ValueError: If embedding dimensions don't match between arrays.
-
-    Examples:
-        >>> import numpy as np
-        >>> arr1 = np.array([[1.0, 0.0], [0.0, 1.0]])
-        >>> arr2 = np.array([[1.0, 0.0], [1.0, 1.0]])
-        >>> batch_cosine_similarity(arr1, arr2)
-        array([[1.        , 0.70710678],
-               [0.        , 0.70710678]])
     """
     if nd_array1.shape[1] != nd_array2.shape[1]:
         raise ValueError(
