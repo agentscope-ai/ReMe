@@ -469,34 +469,24 @@ def test_body_run_budget_excludes_toc():
     assert "klmnopqrst" in chunks[0].text
 
 
-def test_finalize_off_returns_content_unchanged():
-    """White-box: _finalize with embed_toc=False is the identity for content."""
-    from mistletoe.block_token import Document
-    from mistletoe.markdown_renderer import MarkdownRenderer
-
-    p = _parser(500, embed_toc=False)
+def test_render_with_toc_off_returns_content_unchanged():
+    """White-box: with embed_toc=False the chunk text is the raw content."""
     txt = "# A\n## B\nbody\n"
-    with MarkdownRenderer() as r:
-        tree = p._build_tree(Document(txt), r)
-    h1 = tree.children[0]
-    b = h1.children[0]  # ## B
-    out = p._finalize(tree, b, "RAW", owns_subtree=False)
-    assert out == "RAW"
+    chunks = _parser(500, embed_toc=False)._chunk(txt, "/x.md")
+    assert len(chunks) == 1
+    # Whole-doc chunk: content is the rendered markdown, no TOC wrap added.
+    assert "# A" in chunks[0].text and "## B" in chunks[0].text
+    assert chunks[0].text == "# A\n\n## B\n\nbody"
 
 
-def test_finalize_on_wraps_with_toc():
-    """White-box: _finalize with embed_toc=True wraps content with skeleton."""
-    from mistletoe.block_token import Document
-    from mistletoe.markdown_renderer import MarkdownRenderer
-
-    p = _parser(500, embed_toc=True)
+def test_render_with_toc_on_wraps_with_skeleton():
+    """Black-box: with embed_toc=True, every chunk includes the doc's
+    heading skeleton alongside the body content."""
     txt = "# A\n## B\nbody\n"
-    with MarkdownRenderer() as r:
-        tree = p._build_tree(Document(txt), r)
-    h1 = tree.children[0]
-    b = h1.children[0]
-    out = p._finalize(tree, b, "RAW", owns_subtree=False)
-    assert "# A" in out and "## B" in out and "RAW" in out
+    chunks = _parser(500, embed_toc=True)._chunk(txt, "/x.md")
+    assert len(chunks) == 1
+    text = chunks[0].text
+    assert "# A" in text and "## B" in text and "body" in text
 
 
 # --------------------------------------------------------------------------
@@ -678,40 +668,28 @@ def test_chunk_id_changes_with_content():
 
 
 def test_render_with_full_toc_inlines_at_owner():
-    """White-box: build a tree, call _render_with_full_toc directly and
-    verify the slot-fill behavior."""
-    from mistletoe.block_token import Document
-    from mistletoe.markdown_renderer import MarkdownRenderer
-
-    p = _parser(2000)
-    txt = "# A\n\n## B\nbody B\n\n## C\nbody C\n"
-    with MarkdownRenderer() as r:
-        tree = p._build_tree(Document(txt), r)
-    h1 = tree.children[0]
-    b = h1.children[0]  # ## B
-    rendered = p._render_with_full_toc(tree, b, "INSERTED", owns_subtree=False)
-    # Skeleton lists # A, ## B, ## C; INSERTED sits under ## B but BEFORE ## C
-    assert "# A" in rendered
-    assert "## B" in rendered
-    assert "## C" in rendered
-    b_idx = rendered.find("## B")
-    inserted_idx = rendered.find("INSERTED")
-    c_idx = rendered.find("## C")
-    assert b_idx < inserted_idx < c_idx
+    """Black-box: when ## B's content emits as its own chunk, the chunk's
+    TOC slot-fills B's content BEFORE the next sibling section ## C."""
+    body_b = "x" * 400
+    body_c = "y" * 400
+    txt = f"# A\n\n## B\n\n{body_b}\n\n## C\n\n{body_c}\n"
+    chunks = _parser(500, embed_toc=True)._chunk(txt, "/x.md")
+    b_chunks = [c for c in chunks if "xxxx" in c.text and "yyyy" not in c.text]
+    assert b_chunks, "expected a B-body chunk distinct from C's"
+    text = b_chunks[0].text
+    assert "## B" in text and "## C" in text
+    # B's content sits under ## B but BEFORE ## C
+    assert text.find("## B") < text.find("xxxx") < text.find("## C")
 
 
 def test_render_with_full_toc_root_owner():
-    """Root owner means content sits BEFORE the first heading."""
-    from mistletoe.block_token import Document
-    from mistletoe.markdown_renderer import MarkdownRenderer
-
-    p = _parser(2000)
-    txt = "# A\n\nbody A\n"
-    with MarkdownRenderer() as r:
-        tree = p._build_tree(Document(txt), r)
-    rendered = p._render_with_full_toc(tree, tree, "PRELUDE", owns_subtree=False)
-    assert rendered.startswith("PRELUDE")
-    assert "# A" in rendered
+    """Black-box: body before any heading attaches to the root slot,
+    so it appears BEFORE the first section heading in the chunk."""
+    txt = "PRELUDE body\n\n# A\n\nbody A\n"
+    chunks = _parser(500, embed_toc=True)._chunk(txt, "/x.md")
+    assert len(chunks) == 1
+    text = chunks[0].text
+    assert text.find("PRELUDE") < text.find("# A")
 
 
 # --------------------------------------------------------------------------

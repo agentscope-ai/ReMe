@@ -6,7 +6,7 @@ from .emb_node import EmbNode
 from .chunk_filter import ChunkFilter
 from .file_chunk import FileChunk
 from .file_edge import FileEdge, extract_wikilinks
-from .file_node import FileNode
+from .file_node import FileFrontMatter, FileNode
 from .request import Request
 from .response import Response
 from .stream_chunk import StreamChunk
@@ -21,6 +21,7 @@ __all__ = [
     "ChunkFilter",
     "FileChunk",
     "FileEdge",
+    "FileFrontMatter",
     "FileNode",
     "Request",
     "Response",

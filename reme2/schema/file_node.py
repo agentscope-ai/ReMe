@@ -1,24 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-
-class FileEdge(BaseModel):
-    """ Format:
-    [[X]]                           bare wikilink         → predicate=None
-    extends:: [[X]]                 line-level Dataview   → predicate="extends"
-    [extends:: [[X]]]               inline-bracketed      → predicate="extends"
-    extends:: [[A]], [[B]]          multi-target          → 2 edges
-    """
-    link: str = Field(default=...)
-    predicate: str | None = Field(default=None)
-
-    @property
-    def link_path(self) -> str:
-        return self.link.split("#", 1)[0]
-
-    @property
-    def link_anchor(self) -> str:
-        link_split = self.link.split("#", 1)
-        return link_split[1] if len(link_split) > 1 else ""
+from .file_edge import FileEdge
 
 
 class FileFrontMatter(BaseModel):
