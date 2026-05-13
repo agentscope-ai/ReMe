@@ -9,11 +9,6 @@ heading level) → recursive chunk (try whole subtree; on overflow walk
 children — body siblings pack as a run, subsections recurse). Leaf
 blocks (table / code / list / paragraph) split on internal boundaries
 and each piece is annotated ``[Part X/N]``.
-
-``chunk_chars`` constrains content only; the TOC skeleton is additive.
-Set ``embed_toc=False`` to drop the wrap. Chunk identity is
-``hash_text(path::start::end::text)`` for cache stability across
-re-parses of unchanged sections.
 """
 
 from dataclasses import dataclass, field
@@ -437,7 +432,7 @@ class LinkedFileParser(BaseFileParser):
         when ``embed_toc``, otherwise just ``content``."""
         text = _toc_join(before, content, after) if self.embed_toc else content
         return FileChunk(
-            id=hash_text(f"{path}::{start_line}::{end_line}::{text}"),
+            id=hash_text(text),
             path=path,
             start_line=start_line,
             end_line=end_line,
