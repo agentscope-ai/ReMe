@@ -39,7 +39,7 @@ from pathlib import Path
 import frontmatter
 
 from ..schema import ChunkFilter, FileChunk, FileNode, extract_wikilinks
-from ..schema.file_edge import WIKILINK_RE
+from ..schema.file_edge import _WIKILINK_RE
 from ..utils.wikilink_resolver import (
     resolve_wikilink as _resolve_wikilink,
     wikilink_candidates,
@@ -119,8 +119,6 @@ def _edge_to_dict(node, edge) -> dict:
         "metadata": node.metadata,
         "predicate": edge.predicate,
         "anchor": edge.anchor,
-        "alias": edge.alias,
-        "embed": edge.get_embeddings,
     }
 
 
@@ -232,7 +230,7 @@ def _replace_wikilink_targets(text: str, mapping: dict[str, str]) -> str:
             return m.group(0).replace(target_raw, mapping[target], 1)
         return m.group(0)
 
-    return WIKILINK_RE.sub(sub, text)
+    return _WIKILINK_RE.sub(sub, text)
 
 
 def create_file(
