@@ -208,13 +208,6 @@ class Neo4jFileGraph(BaseFileGraph):
             row = await rec.single()
         return self._row_to_node(row["f"]) if row else None
 
-    async def iter_nodes(self) -> AsyncIterator[tuple[str, FileNode]]:
-        async with self._session() as session:
-            rec = await session.run("MATCH (f:File) RETURN f")
-            async for row in rec:
-                node = self._row_to_node(row["f"])
-                yield node.path, node
-
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str) -> list[tuple[FileNode, FileLink]]:

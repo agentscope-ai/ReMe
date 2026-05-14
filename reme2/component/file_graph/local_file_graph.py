@@ -121,12 +121,6 @@ class LocalFileGraph(BaseFileGraph):
             return None
         return self._graph.nodes[path].get("node")
 
-    async def iter_nodes(self) -> AsyncIterator[tuple[str, FileNode]]:
-        for path, data in self._graph.nodes(data=True):
-            node = data.get("node")
-            if node is not None:
-                yield path, node
-
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str) -> list[tuple[FileNode, FileLink]]:
