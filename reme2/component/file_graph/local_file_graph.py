@@ -1,25 +1,5 @@
-"""Local file-graph backend — networkx ``MultiDiGraph``.
+"""Pure-Python file-graph backend (no external deps)."""
 
-Each ``FileNode`` lives as ``data['node']`` on the graph; each
-``FileLink`` whose ``link.path`` exists in the graph lives as
-``data['link']`` on a directed graph edge between the two file nodes.
-
-file_graph trusts ``link.path`` directly — there is no internal
-wikilink resolution. The parser pipeline (with the external resolver)
-is responsible for producing safe ``FileLink`` records where
-``link.path`` is a real vault-relative target path. Stem ambiguity is
-already handled there by emitting one link per candidate.
-
-Late-arriving target: when ``upsert_node(B)`` runs, other nodes whose
-links have ``link.path == B.path`` get those in-edges restored
-(one O(N×L) sweep per upsert; cheap for vault sizes).
-
-Persistence: pickle to ``graph.pkl`` on close, restored on _start.
-"""
-
-from __future__ import annotations
-
-import pickle
 from pathlib import Path
 
 from .base_file_graph import BaseFileGraph
@@ -29,112 +9,120 @@ from ...schema import FileLink, FileNode
 
 @R.register("local")
 class LocalFileGraph(BaseFileGraph):
-    """Networkx-backed file graph. Trusts ``FileLink.path`` for adjacency."""
+    """Dict-backed file graph; trusts ``FileLink.path`` for adjacency."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._graph = None  # networkx.MultiDiGraph; set in _start
-        self._graph_file: Path = self.graph_path / f"{self.graph_name}.pkl"
+        self._nodes: dict[str, FileNode] = {}
+        self._inverse: dict[str, set[str]] = {}
+        # Virtual edges: src→target where target isn't in ``_nodes`` yet.
+        self._pending: dict[str, set[str]] = {}
+        self._graph_file: Path = self.graph_path / f"{self.graph_name}.jsonl"
 
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
         await super()._start()
-        import networkx as nx
-        self._graph = self._load_graph(nx) or nx.MultiDiGraph()
+        self._load()
+        await self.rebuild_links()
+        edges = sum(len(s) for s in self._inverse.values())
+        pending = sum(len(s) for s in self._pending.values())
         self.logger.info(
             f"LocalFileGraph '{self.graph_name}' ready: "
-            f"{self._graph.number_of_nodes()} nodes, "
-            f"{self._graph.number_of_edges()} edges",
+            f"{len(self._nodes)} nodes, {edges} edges, {pending} pending",
         )
 
     async def _close(self) -> None:
-        self._save_graph()
+        self._dump()
         await super()._close()
 
-    def _load_graph(self, nx):
+    def _load(self) -> None:
         if not self._graph_file.exists():
-            return None
-        try:
-            with open(self._graph_file, "rb") as f:
-                graph = pickle.load(f)
-            if not isinstance(graph, nx.MultiDiGraph):
-                self.logger.warning(
-                    f"{self._graph_file} is not a MultiDiGraph; ignoring",
-                )
-                return None
-            return graph
-        except Exception as e:
-            self.logger.exception(f"Failed to load {self._graph_file}: {e}")
-            return None
+            return
+        with open(self._graph_file, "r", encoding="utf-8") as f:
+            self._nodes.update(
+                (n.path, n)
+                for n in (FileNode.model_validate_json(line) for line in f if line.strip())
+            )
 
-    def _save_graph(self) -> None:
-        try:
-            tmp = self._graph_file.with_suffix(".tmp")
-            with open(tmp, "wb") as f:
-                pickle.dump(self._graph, f, protocol=pickle.HIGHEST_PROTOCOL)
-            tmp.replace(self._graph_file)
-        except Exception as e:
-            self.logger.exception(f"Failed to write {self._graph_file}: {e}")
+    def _dump(self) -> None:
+        tmp = self._graph_file.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(f"{n.model_dump_json()}\n" for n in self._nodes.values())
+        tmp.replace(self._graph_file)
+
+    # -- Edge bookkeeping --------------------------------------------------
+
+    def _add_edge(self, src: str, target: str) -> None:
+        bucket = self._inverse if target in self._nodes else self._pending
+        bucket.setdefault(target, set()).add(src)
+
+    def _remove_edge(self, src: str, target: str) -> None:
+        for bucket in (self._inverse, self._pending):
+            srcs = bucket.get(target)
+            if srcs is None or src not in srcs:
+                continue
+            srcs.discard(src)
+            if not srcs:
+                del bucket[target]
 
     # -- Node CRUD ---------------------------------------------------------
 
-    async def upsert_node(self, node: FileNode) -> None:
-        path = node.path
-        if self._graph.has_node(path):
-            self._graph.remove_node(path)
-        self._graph.add_node(path, node=node)
+    async def upsert_nodes(self, nodes: list[FileNode]) -> None:
+        for node in nodes:
+            path = node.path
+            old = self._nodes.get(path)
+            if old is not None:
+                for link in old.links:
+                    if link.path:
+                        self._remove_edge(path, link.path)
+            self._nodes[path] = node
+            for link in node.links:
+                if link.path:
+                    self._add_edge(path, link.path)
+            # Promote virtual edges aimed at this newly-arrived target.
+            promoted = self._pending.pop(path, None)
+            if promoted:
+                self._inverse.setdefault(path, set()).update(promoted)
 
-        # Out-links from this node — trust link.path.
-        for link in node.links:
-            if link.path and self._graph.has_node(link.path):
-                self._graph.add_edge(path, link.path, link=link)
-
-        # Late-arriving target: restore in-links from other nodes whose
-        # links resolve here. Scan all other nodes' links; cheap for
-        # vault sizes (O(N×L_avg) per upsert).
-        for src_path, src_data in self._graph.nodes(data=True):
-            if src_path == path:
+    async def delete_nodes(self, paths: list[str]) -> None:
+        for path in paths:
+            node = self._nodes.pop(path, None)
+            if node is None:
                 continue
-            src_node = src_data.get("node")
-            if src_node is None:
-                continue
-            for link in src_node.links:
-                if link.path == path:
-                    self._graph.add_edge(src_path, path, link=link)
+            for link in node.links:
+                if link.path:
+                    self._remove_edge(path, link.path)
+            # Demote inbound edges to virtual; sources still link here.
+            demoted = self._inverse.pop(path, None)
+            if demoted:
+                self._pending.setdefault(path, set()).update(demoted)
 
-    async def delete_node(self, path: str) -> FileNode | None:
-        if not self._graph.has_node(path):
-            return None
-        node = self._graph.nodes[path].get("node")
-        self._graph.remove_node(path)
-        return node
+    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
+        return [self._nodes[p] for p in paths if p in self._nodes]
 
-    async def get_node(self, path: str) -> FileNode | None:
-        if not self._graph.has_node(path):
-            return None
-        return self._graph.nodes[path].get("node")
+    async def rebuild_links(self) -> None:
+        self._inverse.clear()
+        self._pending.clear()
+        for src, node in self._nodes.items():
+            for link in node.links:
+                if link.path:
+                    self._add_edge(src, link.path)
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(self, path: str) -> list[tuple[FileNode, FileLink]]:
-        if not self._graph.has_node(path):
+    async def get_outlinks(self, path: str) -> list[FileLink]:
+        node = self._nodes.get(path)
+        if node is None:
             return []
-        out: list[tuple[FileNode, FileLink]] = []
-        for _src, dst, data in self._graph.out_edges(path, data=True):
-            target = self._graph.nodes[dst].get("node")
-            link = data.get("link")
-            if target is not None and isinstance(link, FileLink):
-                out.append((target, link))
-        return out
+        return [link for link in node.links if link.path and link.path in self._nodes]
 
-    async def get_inlinks(self, path: str) -> list[tuple[FileNode, FileLink]]:
-        if not self._graph.has_node(path):
+    async def get_inlinks(self, path: str) -> list[FileLink]:
+        if path not in self._nodes:
             return []
-        out: list[tuple[FileNode, FileLink]] = []
-        for src, _dst, data in self._graph.in_edges(path, data=True):
-            source = self._graph.nodes[src].get("node")
-            link = data.get("link")
-            if source is not None and isinstance(link, FileLink):
-                out.append((source, link))
-        return out
+        return [
+            link
+            for src in self._inverse.get(path, ())
+            for link in self._nodes[src].links
+            if link.path == path
+        ]
