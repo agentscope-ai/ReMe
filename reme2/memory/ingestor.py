@@ -5,7 +5,7 @@ write entry point** to the markdown vault. Every mutation (create, body
 edit, frontmatter flip, rename, delete, archive) flows through here.
 
 Mirrors `Summarizer`'s pattern — drives a `ReActAgent` whose toolkit is
-built by `memory_toolkit.build_memory_toolkit`. The agent runs its own
+built by `agent_toolkit.build_agent_toolkit`. The agent runs its own
 R-M-W loop: read related files via tools, decide which ones to mutate,
 call the right write tool. Every write tool records into an audit list,
 so the caller gets a deterministic mutation trail regardless of how the
@@ -28,14 +28,14 @@ from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
-from ..component.runtime_response import _set_answer, _to_jsonable
+from .runtime_response import _set_answer, _to_jsonable
 from . import memory_io
 from .memory_io import create_file
-from .memory_toolkit import build_memory_toolkit
+from .agent_toolkit import build_agent_toolkit
 from ..component import R
 from ..component.base_step import BaseStep
 from ..enumeration import ComponentEnum
-from ..schema import extract_wikilinks
+from ..utils.wikilink_resolver import extract_wikilinks
 
 
 class IngestResult(BaseModel):
@@ -138,7 +138,7 @@ class Ingestor(BaseStep):
 
         working_dir = self._working_dir()
         audit: list[dict] = []
-        toolkit = build_memory_toolkit(self.app_context, audit=audit, toolkit=self.toolkit)
+        toolkit = build_agent_toolkit(self.app_context, audit=audit, toolkit=self.toolkit)
 
         agent = ReActAgent(
             name="reme_ingestor",
