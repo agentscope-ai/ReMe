@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import os
 from abc import abstractmethod
@@ -29,6 +30,7 @@ class BaseEmbeddingModel(BaseComponent):
         max_input_length: int = 8192,
         max_cache_size: int = 5000,
         enable_cache: bool = True,
+        max_retries: int = 3,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -41,7 +43,8 @@ class BaseEmbeddingModel(BaseComponent):
         self.max_input_length = max_input_length
         self.max_cache_size = max_cache_size
         self.enable_cache = enable_cache
-        self._embedding_cache: OrderedDict[str, list[float]] = OrderedDict()
+        self.max_retries = max_retries
+        self._embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
 
     @property
     def cache_path(self) -> Path:
@@ -68,7 +71,7 @@ class BaseEmbeddingModel(BaseComponent):
         for idx, text in enumerate(truncated):
             cached = self._get_from_cache(text)
             if cached is not None:
-                results[idx] = cached
+                results[idx] = cached.tolist()
             else:
                 to_compute.append((idx, text))
 
@@ -78,21 +81,32 @@ class BaseEmbeddingModel(BaseComponent):
                 indices = [idx for idx, _ in batch]
                 texts = [text for _, text in batch]
 
-                try:
-                    embeddings = await self._get_embeddings(texts, **kwargs)
-                    if embeddings and len(embeddings) == len(texts):
-                        for orig_idx, text, emb in zip(indices, texts, embeddings):
-                            if emb is None:
-                                continue
-                            if len(emb) != self.dimensions:
-                                if len(emb) < self.dimensions:
-                                    emb = emb + [0.0] * (self.dimensions - len(emb))
-                                else:
-                                    emb = emb[: self.dimensions]
-                            results[orig_idx] = emb
-                            self._put_to_cache(text, emb)
-                except Exception:
-                    pass
+                embeddings = None
+                for attempt in range(self.max_retries):
+                    try:
+                        embeddings = await self._get_embeddings(texts, **kwargs)
+                        if embeddings and len(embeddings) == len(texts):
+                            break
+                    except (TimeoutError, ConnectionError, OSError):
+                        if attempt < self.max_retries - 1:
+                            await asyncio.sleep(2 ** attempt)
+                    except Exception:
+                        break
+
+                if not embeddings or len(embeddings) != len(texts):
+                    continue
+
+                for orig_idx, text, emb in zip(indices, texts, embeddings):
+                    if emb is None:
+                        continue
+                    emb_array = np.asarray(emb, dtype=np.float32)
+                    if len(emb_array) != self.dimensions:
+                        if len(emb_array) < self.dimensions:
+                            emb_array = np.pad(emb_array, (0, self.dimensions - len(emb_array)))
+                        else:
+                            emb_array = emb_array[: self.dimensions]
+                    results[orig_idx] = emb_array.tolist()
+                    self._put_to_cache(text, emb_array)
 
         return results
 
@@ -112,7 +126,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     # ==================== Cache Operations ====================
 
-    def _get_from_cache(self, text: str) -> list[float] | None:
+    def _get_from_cache(self, text: str) -> np.ndarray | None:
         if not self.enable_cache:
             return None
 
@@ -123,7 +137,7 @@ class BaseEmbeddingModel(BaseComponent):
         self._embedding_cache.move_to_end(key)
         return self._embedding_cache[key]
 
-    def _put_to_cache(self, text: str, embedding: list[float]) -> None:
+    def _put_to_cache(self, text: str, embedding: np.ndarray) -> None:
         if not self.enable_cache or self.max_cache_size <= 0 or len(embedding) != self.dimensions:
             return
 
@@ -154,23 +168,20 @@ class BaseEmbeddingModel(BaseComponent):
             return
 
         for key, emb in zip(data["keys"], data["embeddings"]):
-            emb_list = emb.tolist()
-            if len(emb_list) != self.dimensions:
+            if len(emb) != self.dimensions:
                 continue
             if len(self._embedding_cache) >= self.max_cache_size:
                 break
-            self._embedding_cache[str(key)] = emb_list
+            self._embedding_cache[str(key)] = emb.astype(np.float32)
 
     def _save_cache(self) -> None:
         if not self.enable_cache or not self._embedding_cache:
             return
 
-        keys, embeddings = [], []
-        for k, v in self._embedding_cache.items():
-            keys.append(k)
-            embeddings.append(v)
+        keys = list(self._embedding_cache.keys())
+        embeddings = np.stack(list(self._embedding_cache.values()))
 
         try:
-            np.savez(self.cache_path, keys=np.array(keys, dtype=str), embeddings=np.array(embeddings, dtype=np.float32))
+            np.savez(self.cache_path, keys=np.array(keys, dtype=str), embeddings=embeddings)
         except Exception:
             pass
