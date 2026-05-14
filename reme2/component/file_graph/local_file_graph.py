@@ -20,13 +20,12 @@ Persistence: pickle to ``graph.pkl`` on close, restored on _start.
 from __future__ import annotations
 
 import pickle
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
 from ...schema import FileLink, FileNode
-import networkx as nx
+
 
 @R.register("local")
 class LocalFileGraph(BaseFileGraph):
@@ -41,6 +40,7 @@ class LocalFileGraph(BaseFileGraph):
 
     async def _start(self) -> None:
         await super()._start()
+        import networkx as nx
         self._graph = self._load_graph(nx) or nx.MultiDiGraph()
         self.logger.info(
             f"LocalFileGraph '{self.graph_name}' ready: "
