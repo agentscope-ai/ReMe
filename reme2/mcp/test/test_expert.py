@@ -1,14 +1,16 @@
 """Expert-profile MCP tests.
 
-Covers all 16 jobs registered by `reme2/config/expert.yaml`:
+Covers the post-refactor 11-tool surface (5 memory + 5 file + 1 graph)
+plus the auxiliary services exposed by `reme2/config/expert.yaml`:
 
     Hot-write   sync
-    Read        memory_search, memory_graph_search,
-                memory_get, memory_list, memory_links,
-                memory_backlinks, memory_resolve_wikilink,
-                memory_count_tokens, memory_lint
-    Raw write   memory_create, memory_update, memory_property_update,
-                memory_rename, memory_delete, memory_archive
+    Read        memory_search, memory_graph_search, memory_get
+    Memory      memory_create, memory_update_body, memory_update_meta
+    File        file_download, file_upload, file_delete, file_list,
+                file_move
+    Graph       graph_traverse
+    Lint        check_dangling, check_orphans, check_collisions,
+                check_schema
 
 Each `check_*` is an `async def` that takes a populated `AppContext`,
 runs one MCP job (or a small sequence), asserts on the response, and
@@ -26,22 +28,28 @@ from ._helpers import AppContext, decode, wait_for_index
 # Manifest of every tool the expert profile must expose. Used by
 # `check_registry` and as the upper bound for `wait_for_index` budgets.
 EXPECTED_JOBS: tuple[str, ...] = (
+    # services
     "sync",
     "memory_search",
     "memory_graph_search",
+    # memory primitives (5 — search counted above)
     "memory_get",
-    "memory_list",
-    "memory_backlinks",
-    "memory_links",
-    "memory_resolve_wikilink",
-    "memory_count_tokens",
-    "memory_lint",
     "memory_create",
-    "memory_update",
-    "memory_property_update",
-    "memory_rename",
-    "memory_delete",
-    "memory_archive",
+    "memory_update_body",
+    "memory_update_meta",
+    # file primitives (5)
+    "file_download",
+    "file_upload",
+    "file_delete",
+    "file_list",
+    "file_move",
+    # graph (1)
+    "graph_traverse",
+    # lint (4 atomic checks)
+    "check_dangling",
+    "check_orphans",
+    "check_collisions",
+    "check_schema",
 )
 
 
@@ -64,14 +72,6 @@ async def check_memory_get(ctx: AppContext) -> str:
     assert isinstance(r, dict) and r.get("exists") is True, r
     assert "metadata" in r, "missing metadata block"
     return f"exists=True, edges={len(r.get('link', []))}"
-
-
-async def check_memory_list(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job("memory_list", tags=["person"]))
-    assert isinstance(r, dict) and r.get("count", 0) >= 2, r
-    paths = {item.get("path") for item in r.get("items", [])}
-    assert any("Alice.md" in p for p in paths), paths
-    return f"count={r['count']}"
 
 
 async def check_memory_search(ctx: AppContext) -> str:
@@ -100,55 +100,86 @@ async def check_memory_graph_search(ctx: AppContext) -> str:
     )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
-    # At least one result should carry a graph_hop annotation
     hops = {h.get("graph_hop") for h in hits if isinstance(h, dict)}
     return f"{len(hits)} hits, hops seen={sorted(h for h in hops if h is not None)}"
 
 
-async def check_memory_links(ctx: AppContext) -> str:
+async def check_lint_dangling(ctx: AppContext) -> str:
+    """Atomic lint primitive — list FileLinks pointing at non-existent nodes.
+    Seeded vault is healthy, so we just verify the envelope shape."""
+    r = decode(await ctx.app.run_job("check_dangling"))
+    assert isinstance(r, dict) and "count" in r and "findings" in r, r
+    assert isinstance(r["findings"], list), r
+    return f"dangling={r['count']}"
+
+
+async def check_lint_orphans(ctx: AppContext) -> str:
+    """Atomic lint primitive — list nodes with no inlinks AND no outlinks."""
+    r = decode(await ctx.app.run_job("check_orphans"))
+    assert isinstance(r, dict) and "count" in r and "paths" in r, r
+    assert isinstance(r["paths"], list), r
+    return f"orphans={r['count']}"
+
+
+async def check_lint_collisions(ctx: AppContext) -> str:
+    """Atomic lint primitive — basenames resolving to >1 path."""
+    r = decode(await ctx.app.run_job("check_collisions"))
+    assert isinstance(r, dict) and "count" in r and "groups" in r, r
+    assert isinstance(r["groups"], dict), r
+    return f"collisions={r['count']}"
+
+
+async def check_lint_schema(ctx: AppContext) -> str:
+    """Atomic lint primitive — frontmatter schema violations."""
+    r = decode(await ctx.app.run_job("check_schema"))
+    assert isinstance(r, dict) and "count" in r and "findings" in r, r
+    assert isinstance(r["findings"], list), r
+    return f"schema_violations={r['count']}"
+
+
+# ---------- file primitives -------------------------------------------
+
+
+async def check_file_list(ctx: AppContext) -> str:
+    """list_files projection: filter by tag returns indexed memories."""
+    r = decode(await ctx.app.run_job("file_list", tags=["person"]))
+    assert isinstance(r, dict) and r.get("count", 0) >= 2, r
+    paths = {item.get("path") for item in r.get("items", [])}
+    assert any("Alice.md" in p for p in paths), paths
+    return f"count={r['count']}"
+
+
+# ---------- graph -----------------------------------------------------
+
+
+async def check_graph_traverse_out(ctx: AppContext) -> str:
+    """Outgoing traversal from Alice — matches the prior `memory_links` check."""
     alice = ctx.abs_path("topics", "Alice", "Alice.md")
-    r = decode(await ctx.app.run_job("memory_links", path=alice))
-    assert isinstance(r, dict) and len(r.get("links", [])) >= 2, r
-    return f"{len(r['links'])} resolved outgoing links"
-
-
-async def check_memory_backlinks(ctx: AppContext) -> str:
-    alice = ctx.abs_path("topics", "Alice", "Alice.md")
-    r = decode(await ctx.app.run_job("memory_backlinks", path=alice))
-    # Bob.md and Project X.md both link to [[Alice]]
-    assert isinstance(r, dict) and len(r.get("backlinks", [])) >= 2, r
-    return f"{len(r['backlinks'])} incoming backlinks"
-
-
-async def check_memory_resolve_wikilink(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job("memory_resolve_wikilink", wikilink="Alice"))
-    assert isinstance(r, dict) and r.get("exists") is True, r
-    assert "Alice.md" in (r.get("path") or ""), r
-    return "stem 'Alice' → Alice.md"
-
-
-async def check_memory_count_tokens(ctx: AppContext) -> str:
     r = decode(
         await ctx.app.run_job(
-            "memory_count_tokens",
-            text="hello world from the smoke test",
+            "graph_traverse",
+            seeds=[alice],
+            max_depth=1,
+            direction="out",
         ),
     )
-    assert isinstance(r, dict) and isinstance(r.get("tokens"), int), r
-    assert r["tokens"] > 0, r
-    return f"text → {r['tokens']} tokens"
+    assert isinstance(r, list) and len(r) >= 2, r
+    return f"{len(r)} outgoing edges"
 
 
-async def check_memory_lint(ctx: AppContext) -> str:
-    """Maintainer lint pass — read-only. The seeded vault is healthy
-    (no broken wikilinks / schema violations), so we just verify the
-    shell wires through and returns the expected envelope."""
-    r = decode(await ctx.app.run_job("memory_lint"))
-    assert isinstance(r, dict), r
-    assert "scanned" in r and "findings" in r, r
-    assert isinstance(r["findings"], list), r
-    assert r["scanned"] >= len(ctx.file_store), r
-    return f"scanned={r['scanned']}, findings={len(r['findings'])}"
+async def check_graph_traverse_in(ctx: AppContext) -> str:
+    """Incoming traversal to Alice — matches the prior `memory_backlinks` check."""
+    alice = ctx.abs_path("topics", "Alice", "Alice.md")
+    r = decode(
+        await ctx.app.run_job(
+            "graph_traverse",
+            seeds=[alice],
+            max_depth=1,
+            direction="in",
+        ),
+    )
+    assert isinstance(r, list) and len(r) >= 2, r
+    return f"{len(r)} incoming edges"
 
 
 # ---------- hot-write: sync (create / append / refusal) ---------------
@@ -179,11 +210,8 @@ async def check_sync_create(ctx: AppContext) -> str:
     index_text = (event_dir / "suite-event.md").read_text(encoding="utf-8")
     assert "## Materials" in index_text, "Materials footer absent"
     assert "raw-prompt.md" in index_text, "Materials footer missing raw-prompt link"
-    # 4-axis schema must be on disk
     assert "lifecycle: streaming" in index_text, "schema axis 'lifecycle' missing"
     assert "role: observation" in index_text, "schema axis 'role' missing"
-    # Stash for downstream checks via the context (small mutation pattern).
-    ctx.abs_path("__suite_event_dir__")  # noop; readable side-effect below
     setattr(ctx, "_suite_event_dir", event_dir)
     setattr(ctx, "_suite_event_index", event_dir / "suite-event.md")
     await wait_for_index(ctx.watcher, expected_min=len(ctx.file_store))
@@ -196,10 +224,10 @@ async def check_sync_append(ctx: AppContext) -> str:
             "sync",
             name="suite-event",
             content="## follow-up\n- second pass\n",
-            topics=["[[Bob]]"],  # union with [[Alice]]
+            topics=["[[Bob]]"],
             tags=["follow-up"],
             materials=[
-                {"filename": "tool-output.txt", "content": "second run\n"},  # collision
+                {"filename": "tool-output.txt", "content": "second run\n"},
                 {"filename": "summary.md", "content": "# summary\n"},
             ],
         ),
@@ -219,12 +247,12 @@ async def check_sync_append(ctx: AppContext) -> str:
 
 
 async def check_sync_refuse_distilled(ctx: AppContext) -> str:
+    """Flip status via memory_update_meta (patch dict), then sync should refuse."""
     index_path = str(getattr(ctx, "_suite_event_index"))
     await ctx.app.run_job(
-        "memory_property_update",
+        "memory_update_meta",
         path=index_path,
-        key="status",
-        value="distilled",
+        patch={"status": "distilled"},
     )
     r = decode(
         await ctx.app.run_job(
@@ -267,11 +295,11 @@ async def check_memory_create(ctx: AppContext) -> str:
     return f"created {Path(target).name}"
 
 
-async def check_memory_update(ctx: AppContext) -> str:
+async def check_memory_update_body(ctx: AppContext) -> str:
     carol = ctx.abs_path("topics", "Carol", "Carol.md")
     r = decode(
         await ctx.app.run_job(
-            "memory_update",
+            "memory_update_body",
             path=carol,
             old_string="Knows [[Alice]].",
             new_string="Knows [[Alice]] and [[Bob]].",
@@ -282,56 +310,78 @@ async def check_memory_update(ctx: AppContext) -> str:
     return f"body edit applied (replaced={r['replaced']})"
 
 
-async def check_memory_property_update(ctx: AppContext) -> str:
+async def check_memory_update_meta(ctx: AppContext) -> str:
     carol = ctx.abs_path("topics", "Carol", "Carol.md")
     r = decode(
         await ctx.app.run_job(
-            "memory_property_update",
+            "memory_update_meta",
             path=carol,
-            key="confidence",
-            value="✅",
+            patch={"confidence": "✅"},
         ),
     )
     assert isinstance(r, dict) and "error" not in r, r
-    assert r.get("key") == "confidence" and r.get("value") == "✅", r
+    applied = r.get("applied") or {}
+    assert applied.get("confidence", {}).get("value") == "✅", r
     assert "confidence: ✅" in Path(carol).read_text(encoding="utf-8"), "property write not on disk"
     return "set confidence=✅"
 
 
-async def check_memory_rename(ctx: AppContext) -> str:
+# ---------- file_move / file_delete -----------------------------------
+
+
+async def check_file_move(ctx: AppContext) -> str:
+    """Move (rename) Carol.md inside its folder. Default update_refs=False."""
     src = ctx.abs_path("topics", "Carol", "Carol.md")
     dst = ctx.abs_path("topics", "Carol", "Carol-renamed.md")
     r = decode(
         await ctx.app.run_job(
-            "memory_rename",
-            old_path=src,
-            new_path=dst,
+            "file_move",
+            src=src,
+            dst=dst,
         ),
     )
-    assert isinstance(r, dict) and "error" not in r, r
-    assert r.get("new_path") and Path(r["new_path"]).is_file(), r
+    assert isinstance(r, dict) and r.get("ok") is True, r
+    assert Path(dst).is_file(), dst
     assert not Path(src).exists(), f"old path still on disk: {src}"
-    setattr(ctx, "_carol_path", r["new_path"])
+    setattr(ctx, "_carol_path", dst)
     return "Carol.md → Carol-renamed.md"
 
 
-async def check_memory_archive(ctx: AppContext) -> str:
-    carol = getattr(ctx, "_carol_path", ctx.abs_path("topics", "Carol", "Carol-renamed.md"))
-    r = decode(await ctx.app.run_job("memory_archive", path=carol))
-    assert isinstance(r, dict) and r.get("archived") is True, r
-    archived_path = r.get("new_path")
-    assert archived_path and "Archive" in archived_path, r
-    assert Path(archived_path).is_file(), archived_path
-    setattr(ctx, "_carol_archived", archived_path)
-    return f"→ {Path(archived_path).resolve().relative_to(ctx.vault.resolve())}"
-
-
-async def check_memory_delete(ctx: AppContext) -> str:
-    target = getattr(ctx, "_carol_archived", None) or ctx.abs_path("topics", "Carol", "Carol-renamed.md")
-    r = decode(await ctx.app.run_job("memory_delete", path=target))
+async def check_file_delete(ctx: AppContext) -> str:
+    target = getattr(ctx, "_carol_path", None) or ctx.abs_path("topics", "Carol", "Carol-renamed.md")
+    r = decode(await ctx.app.run_job("file_delete", vault_path=target))
     assert isinstance(r, dict) and r.get("deleted") is True, r
     assert not Path(target).exists(), target
     return "removed"
+
+
+# ---------- file_download / file_upload -------------------------------
+
+
+async def check_file_upload_then_download(ctx: AppContext) -> str:
+    """Upload a non-md attachment under topics/Alice/, then download it back."""
+    import tempfile
+    payload = b"ATTACHMENT-BYTES-FROM-SUITE"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
+        tmp.write(payload)
+        local_src = tmp.name
+    vault_path = ctx.abs_path("topics", "Alice", "alice-attachment.bin")
+    up = decode(
+        await ctx.app.run_job(
+            "file_upload",
+            local_path=local_src,
+            vault_path=vault_path,
+        ),
+    )
+    assert isinstance(up, dict) and up.get("size") == len(payload), up
+    assert Path(vault_path).is_file(), vault_path
+
+    down = decode(
+        await ctx.app.run_job("file_download", vault_path=vault_path),
+    )
+    assert isinstance(down, dict) and down.get("local_path"), down
+    assert Path(down["local_path"]).read_bytes() == payload, "round-trip bytes mismatch"
+    return f"upload+download {len(payload)}B"
 
 
 # ---------- schema gates (P4) -----------------------------------------
@@ -340,7 +390,7 @@ async def check_memory_delete(ctx: AppContext) -> str:
 async def check_schema_path_template_refuses(ctx: AppContext) -> str:
     """memory_create rejects paths outside topics/{X}/{Y}.md,
     events/{date}/{name}/..., or Archive/..."""
-    target = ctx.abs_path("notes", "freeform.md")  # outside any template
+    target = ctx.abs_path("notes", "freeform.md")
     r = decode(
         await ctx.app.run_job(
             "memory_create",
@@ -391,16 +441,16 @@ async def check_schema_status_skip_refused(ctx: AppContext) -> str:
     assert event_index is not None, "suite-event index not staged"
     r = decode(
         await ctx.app.run_job(
-            "memory_property_update",
+            "memory_update_meta",
             path=str(event_index),
-            key="status",
-            value="active",
+            patch={"status": "active"},
         ),
     )
     assert isinstance(r, dict), r
-    assert "error" in r and "transition" in r["error"].lower(), r
-    assert r.get("prior") == "distilled", r
-    return f"refused {r.get('prior')!r} → {r.get('requested')!r}"
+    applied = r.get("applied") or {}
+    err = (applied.get("status") or {}).get("error", "")
+    assert "transition" in err.lower(), r
+    return f"refused {applied['status'].get('prior')!r} → {applied['status'].get('requested')!r}"
 
 
 async def check_schema_status_invalid_value(ctx: AppContext) -> str:
@@ -409,40 +459,37 @@ async def check_schema_status_invalid_value(ctx: AppContext) -> str:
     assert event_index is not None, "suite-event index not staged"
     r = decode(
         await ctx.app.run_job(
-            "memory_property_update",
+            "memory_update_meta",
             path=str(event_index),
-            key="status",
-            value="bogus",
+            patch={"status": "bogus"},
         ),
     )
     assert isinstance(r, dict), r
-    assert "error" in r and "invalid" in r["error"].lower(), r
+    applied = r.get("applied") or {}
+    err = (applied.get("status") or {}).get("error", "")
+    assert "invalid" in err.lower(), r
     return "refused status='bogus'"
 
 
 async def check_schema_status_force_bypass(ctx: AppContext) -> str:
-    """force=True bypasses the state machine — useful when the agent
-    intentionally needs to step outside conventions."""
+    """force=True bypasses the state machine."""
     event_index = getattr(ctx, "_suite_event_index", None)
     assert event_index is not None, "suite-event index not staged"
     r = decode(
         await ctx.app.run_job(
-            "memory_property_update",
+            "memory_update_meta",
             path=str(event_index),
-            key="status",
-            value="active",
+            patch={"status": "active"},
             force=True,
         ),
     )
     assert isinstance(r, dict), r
     assert "error" not in r, r
-    # restore for any downstream checks
     decode(
         await ctx.app.run_job(
-            "memory_property_update",
+            "memory_update_meta",
             path=str(event_index),
-            key="status",
-            value="distilled",
+            patch={"status": "distilled"},
             force=True,
         ),
     )
@@ -453,28 +500,28 @@ async def check_schema_status_force_bypass(ctx: AppContext) -> str:
 
 
 # (label, async fn) — runner executes top-to-bottom; later checks may
-# rely on side effects from earlier ones (e.g. sync.append needs
-# sync.create to have run).
+# rely on side effects from earlier ones.
 CHECKS: list[tuple[str, callable]] = [
     ("registry", check_registry),
     ("memory_get", check_memory_get),
-    ("memory_list", check_memory_list),
+    ("file_list", check_file_list),
     ("memory_search", check_memory_search),
     ("memory_graph_search", check_memory_graph_search),
-    ("memory_links", check_memory_links),
-    ("memory_backlinks", check_memory_backlinks),
-    ("memory_resolve_wikilink", check_memory_resolve_wikilink),
-    ("memory_count_tokens", check_memory_count_tokens),
-    ("memory_lint", check_memory_lint),
+    ("graph_traverse.out", check_graph_traverse_out),
+    ("graph_traverse.in", check_graph_traverse_in),
+    ("lint.dangling", check_lint_dangling),
+    ("lint.orphans", check_lint_orphans),
+    ("lint.collisions", check_lint_collisions),
+    ("lint.schema", check_lint_schema),
     ("sync.create", check_sync_create),
     ("sync.append", check_sync_append),
     ("sync.refuse_distilled", check_sync_refuse_distilled),
     ("memory_create", check_memory_create),
-    ("memory_update", check_memory_update),
-    ("memory_property_update", check_memory_property_update),
-    ("memory_rename", check_memory_rename),
-    ("memory_archive", check_memory_archive),
-    ("memory_delete", check_memory_delete),
+    ("memory_update_body", check_memory_update_body),
+    ("memory_update_meta", check_memory_update_meta),
+    ("file_upload+download", check_file_upload_then_download),
+    ("file_move", check_file_move),
+    ("file_delete", check_file_delete),
     ("schema.path_template_refuses", check_schema_path_template_refuses),
     ("schema.path_template_force", check_schema_path_template_force_bypass),
     ("schema.status_skip_refused", check_schema_status_skip_refused),
