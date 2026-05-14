@@ -119,15 +119,6 @@ class BaseComponent(ABC):
 
     # ----- Lookup --------------------------------------------------------
 
-    def get_component(self, component_type: ComponentEnum, name: str):
-        """Get a component by type and name from app_context."""
-        if self.app_context is None:
-            raise ValueError("app_context is not set")
-        component_dict = self.app_context.components.get(component_type, {})
-        if name not in component_dict:
-            raise ValueError(f"{component_type.value} '{name}' not found.")
-        return component_dict[name]
-
     @property
     def working_path(self) -> Path:
         if self.app_context is None:
