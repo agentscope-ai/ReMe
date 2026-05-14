@@ -26,7 +26,7 @@ from pathlib import Path
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
 from ...schema import FileLink, FileNode
-
+import networkx as nx
 
 @R.register("local")
 class LocalFileGraph(BaseFileGraph):
@@ -35,21 +35,15 @@ class LocalFileGraph(BaseFileGraph):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._graph = None  # networkx.MultiDiGraph; set in _start
-        self._graph_file: Path = self.store_path / "graph.pkl"
+        self._graph_file: Path = self.graph_path / f"{self.graph_name}.pkl"
 
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
         await super()._start()
-        try:
-            import networkx as nx
-        except ImportError as e:
-            raise ImportError(
-                "LocalFileGraph requires networkx. Install with `pip install networkx`.",
-            ) from e
         self._graph = self._load_graph(nx) or nx.MultiDiGraph()
         self.logger.info(
-            f"LocalFileGraph '{self.store_name}' ready: "
+            f"LocalFileGraph '{self.graph_name}' ready: "
             f"{self._graph.number_of_nodes()} nodes, "
             f"{self._graph.number_of_edges()} edges",
         )
