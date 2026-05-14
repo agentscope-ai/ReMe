@@ -48,13 +48,11 @@ class DefaultFileParser(BaseFileParser):
         stat = file_path.stat()
         rel_path = self._get_relative_path(path)
 
-        async with aiofiles.open(file_path, "rb") as f:
-            data = await f.read()
+        async with aiofiles.open(file_path, encoding=self.encoding) as f:
+            text = await f.read()
 
-        if not data:
+        if not text:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []
-
-        text = data.decode(self.encoding, errors="ignore")
         front_matter, content = self._parse_front_matter(text)
 
         if not content:
