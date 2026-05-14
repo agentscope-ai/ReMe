@@ -98,7 +98,7 @@ class Application(BaseComponent):
         in_degree: dict[tuple[ComponentEnum, str], int] = dict.fromkeys(nodes, 0)
         dependents: dict[tuple[ComponentEnum, str], list[tuple[ComponentEnum, str]]] = {k: [] for k in nodes}
         for key, comp in nodes.items():
-            for dep in comp.dependencies():
+            for dep in comp.dependencies:
                 dep_key = (dep.ctype, dep.name)
                 if dep_key in nodes:
                     dependents[dep_key].append(key)

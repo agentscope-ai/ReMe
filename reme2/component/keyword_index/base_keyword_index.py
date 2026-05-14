@@ -15,23 +15,18 @@ class BaseKeywordIndex(BaseComponent):
 
     def __init__(self, tokenizer: str = "default", **kwargs):
         super().__init__(**kwargs)
-        self.tokenizer_name = tokenizer
-        self.tokenizer: BaseTokenizer | None = None
+        from ..tokenizer import RegexTokenizer
+
+        self.tokenizer = self.bind(
+            tokenizer,
+            BaseTokenizer,
+            default_factory=lambda: RegexTokenizer(filter_stopwords=False),
+        )
         self.index_path = self.working_path / self.component_type.value
         self.index_path.mkdir(parents=True, exist_ok=True)
 
     async def _start(self) -> None:
-        """Initialize tokenizer and load existing index if available."""
-        if self.app_context is None:
-            from ..tokenizer import RegexTokenizer
-
-            self.tokenizer = RegexTokenizer(filter_stopwords=False)
-        else:
-            self.tokenizer = self.get_component(ComponentEnum.TOKENIZER, self.tokenizer_name)
-
-        if self.tokenizer is not None:
-            await self.tokenizer.start()
-
+        """Load existing index if available. Tokenizer is injected and started by the owner lifecycle."""
         if self.index_file.exists():
             await self.load()
             self.logger.info(f"Loaded index from {self.index_path}")
@@ -40,9 +35,6 @@ class BaseKeywordIndex(BaseComponent):
         """Save index and cleanup tokenizer on shutdown."""
         await self.dump()
         self.logger.info(f"Saved index to {self.index_path}")
-
-        if self.tokenizer is not None:
-            await self.tokenizer.close()
 
     @property
     def index_file(self) -> Path:
