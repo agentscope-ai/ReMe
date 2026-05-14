@@ -12,11 +12,10 @@ agent doesn't need to know about decay/merge/split knobs.
 
 from __future__ import annotations
 
-from ...component import R
-from ...component.base_step import BaseStep
-from ...component.runtime_response import _set_answer
-from ...enumeration import ComponentEnum
-from ...memory.maintainer import Maintainer
+from ..component import R
+from ..component.base_step import BaseStep
+from ..component.runtime_response import _set_answer
+from ..enumeration import ComponentEnum
 
 
 @R.register("memory_lint")
@@ -57,14 +56,18 @@ class MemoryLint(BaseStep):
         # action lives in `proposed` (LintFindings never get applied or
         # dropped). Reshape into a focused response.
         import json
+
         raw = self.context.response.answer
         audit = json.loads(raw) if isinstance(raw, str) else (raw or {})
         findings = audit.get("proposed") or []
 
-        _set_answer(self.context, {
-            "scanned": audit.get("scanned", 0),
-            "findings": findings,
-            "target_prefix": target_prefix,
-            "ran_at": audit.get("ran_at", ""),
-        })
+        _set_answer(
+            self.context,
+            {
+                "scanned": audit.get("scanned", 0),
+                "findings": findings,
+                "target_prefix": target_prefix,
+                "ran_at": audit.get("ran_at", ""),
+            },
+        )
         self.context.response.success = True

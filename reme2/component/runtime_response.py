@@ -4,10 +4,6 @@ Lives next to `runtime_context.py` because both are about the BaseStep
 interface — the response side, specifically. Used by every Step that
 returns a JSON-shaped payload (memory_*, sync, the three memory
 services).
-
-Was previously at `reme2/mcp/steps/_common.py`, which leaked an MCP
-dependency into `reme2/memory/` services that legitimately need to
-serialize their results — the moved location breaks that cycle.
 """
 
 from __future__ import annotations

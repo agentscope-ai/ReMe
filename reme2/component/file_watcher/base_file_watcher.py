@@ -17,16 +17,16 @@ class BaseFileWatcher(BaseComponent):
     component_type = ComponentEnum.FILE_WATCHER
 
     def __init__(
-            self,
-            watch_paths: list[str] | str,
-            suffix_filters: list[str] | None = None,
-            recursive: bool = True,
-            force_polling: bool = True,
-            debounce: int = 2000,
-            poll_delay_ms: int = 2000,
-            file_store: str = "default",
-            file_parser: str = "default",
-            **kwargs,
+        self,
+        watch_paths: list[str] | str,
+        suffix_filters: list[str] | None = None,
+        recursive: bool = True,
+        force_polling: bool = True,
+        debounce: int = 2000,
+        poll_delay_ms: int = 2000,
+        file_store: str = "default",
+        file_parser: str = "default",
+        **kwargs,
     ):
         super().__init__(**kwargs)
         watch_paths = [watch_paths] if isinstance(watch_paths, str) else watch_paths

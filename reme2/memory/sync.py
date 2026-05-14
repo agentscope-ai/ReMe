@@ -31,7 +31,6 @@ Zero LLM cost.
 """
 
 import json
-import os
 import re
 from collections.abc import Iterable
 from datetime import date as date_type, datetime, timezone
@@ -42,8 +41,8 @@ from pydantic import ValidationError
 
 from reme2.component import R
 from reme2.component.base_step import BaseStep
-from reme2.memory.memory_io import collisions_after_create, create_file
-from reme2.memory.schema import EVENT_PRESET, MemoryFileNode
+from .memory_io import collisions_after_create, create_file
+from .schema import EVENT_PRESET, MemoryFileNode
 
 
 _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -213,10 +212,7 @@ class Sync(BaseStep):
         """Filenames in `folder` excluding the index, sorted for stability."""
         if not folder.is_dir():
             return []
-        return sorted(
-            entry.name for entry in folder.iterdir()
-            if entry.is_file() and entry.name != index_filename
-        )
+        return sorted(entry.name for entry in folder.iterdir() if entry.is_file() and entry.name != index_filename)
 
     @staticmethod
     def _union(prior: list, incoming: list) -> list:
@@ -262,20 +258,31 @@ class Sync(BaseStep):
             await self._append(target, content, materials, topics, tags)
         else:
             await self._create(
-                target, name, description, content, materials, topics, tags,
-                on_date, origin_session_id,
+                target,
+                name,
+                description,
+                content,
+                materials,
+                topics,
+                tags,
+                on_date,
+                origin_session_id,
             )
 
     async def _create(
-        self, target: Path, name: str, description: str, content: str,
-        materials: list[dict], topics: list[str], tags: list[str],
-        on_date, origin_session_id,
+        self,
+        target: Path,
+        name: str,
+        description: str,
+        content: str,
+        materials: list[dict],
+        topics: list[str],
+        tags: list[str],
+        on_date,
+        origin_session_id,
     ) -> None:
         today = date_type.today().isoformat()
-        on_date_str = (
-            on_date.isoformat() if isinstance(on_date, date_type)
-            else (on_date or today)
-        )
+        on_date_str = on_date.isoformat() if isinstance(on_date, date_type) else (on_date or today)
         # Start from EVENT_PRESET (4 axes + status + legacy `category`),
         # layer caller-supplied identity fields on top.
         metadata: dict = {
@@ -291,16 +298,20 @@ class Sync(BaseStep):
             metadata["originSessionId"] = origin_session_id
 
         try:
-            MemoryFileNode.model_validate({
-                "path": str(target.resolve()),
-                "st_mtime": 0.0,
-                **metadata,
-            })
+            MemoryFileNode.model_validate(
+                {
+                    "path": str(target.resolve()),
+                    "st_mtime": 0.0,
+                    **metadata,
+                }
+            )
         except ValidationError as e:
-            self._set_error({
-                "error": "MemoryFileNode schema validation failed",
-                "details": e.errors(include_context=False, include_url=False),
-            })
+            self._set_error(
+                {
+                    "error": "MemoryFileNode schema validation failed",
+                    "details": e.errors(include_context=False, include_url=False),
+                }
+            )
             return
 
         graph = self.file_store
@@ -308,32 +319,38 @@ class Sync(BaseStep):
         if conflicts:
             taken = {Path(p).stem for p in graph.nodes}
             suggested_name = _next_suffixed_stem(taken, name)
-            self._set_error({
-                "error": (
-                    f"stem `[[{name}]]` would resolve ambiguously "
-                    f"to {len(conflicts) + 1} paths after this create"
-                ),
-                "conflicts": conflicts,
-                "suggested_name": suggested_name,
-                "hint": (
-                    f"retry with name='{suggested_name}', or pick a "
-                    f"semantic qualifier (e.g. '{name}-followup')."
-                ),
-            })
+            self._set_error(
+                {
+                    "error": (
+                        f"stem `[[{name}]]` would resolve ambiguously "
+                        f"to {len(conflicts) + 1} paths after this create"
+                    ),
+                    "conflicts": conflicts,
+                    "suggested_name": suggested_name,
+                    "hint": (
+                        f"retry with name='{suggested_name}', or pick a "
+                        f"semantic qualifier (e.g. '{name}-followup')."
+                    ),
+                }
+            )
             return
 
         material_filenames = [m["filename"] for m in materials]
         index_body = self._emit_body(content, material_filenames)
         ok, payload = create_file(
-            self.file_store, target,
-            metadata=metadata, content=index_body,
+            self.file_store,
+            target,
+            metadata=metadata,
+            content=index_body,
         )
         if not ok:
-            self._set_error({
-                "path": str(target.resolve()),
-                "error": payload.get("error", "create failed"),
-                "details": payload,
-            })
+            self._set_error(
+                {
+                    "path": str(target.resolve()),
+                    "error": payload.get("error", "create failed"),
+                    "details": payload,
+                }
+            )
             return
 
         material_paths: list[str] = []
@@ -348,19 +365,25 @@ class Sync(BaseStep):
                 continue
             material_paths.append(str(material_path.resolve()))
 
-        self._set_ok({
-            "path": str(target.resolve()),
-            "category": "event",
-            "status": "active",
-            "topics": topics,
-            "materials": material_paths,
-            "created": True,
-            "action": "created",
-        })
+        self._set_ok(
+            {
+                "path": str(target.resolve()),
+                "category": "event",
+                "status": "active",
+                "topics": topics,
+                "materials": material_paths,
+                "created": True,
+                "action": "created",
+            }
+        )
 
     async def _append(
-        self, target: Path, content: str, materials: list[dict],
-        topics: list[str], tags: list[str],
+        self,
+        target: Path,
+        content: str,
+        materials: list[dict],
+        topics: list[str],
+        tags: list[str],
     ) -> None:
         # Read current frontmatter + body.
         try:
@@ -379,15 +402,17 @@ class Sync(BaseStep):
             taken = {Path(p).stem for p in graph.nodes}
             base = target.stem
             suggested = _next_suffixed_stem(taken, base)
-            self._set_error({
-                "path": str(target.resolve()),
-                "error": (
-                    f"event `{base}` already exists with status={status!r}; "
-                    f"pick a new name to start a fresh thread"
-                ),
-                "status": status,
-                "suggested_name": suggested,
-            })
+            self._set_error(
+                {
+                    "path": str(target.resolve()),
+                    "error": (
+                        f"event `{base}` already exists with status={status!r}; "
+                        f"pick a new name to start a fresh thread"
+                    ),
+                    "status": status,
+                    "suggested_name": suggested,
+                }
+            )
             return
 
         folder = target.parent
@@ -420,10 +445,7 @@ class Sync(BaseStep):
         if content.strip():
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             update_section = f"## Update — {ts}\n\n{content.rstrip()}\n"
-            narrative = (
-                f"{narrative.rstrip()}\n\n{update_section}"
-                if narrative else update_section
-            )
+            narrative = f"{narrative.rstrip()}\n\n{update_section}" if narrative else update_section
 
         all_filenames_sorted = sorted(set(existing_filenames))
         new_body = self._emit_body(narrative, all_filenames_sorted)
@@ -434,17 +456,21 @@ class Sync(BaseStep):
         meta["updated"] = date_type.today().isoformat()
 
         try:
-            MemoryFileNode.model_validate({
-                "path": str(target.resolve()),
-                "st_mtime": 0.0,
-                **meta,
-            })
+            MemoryFileNode.model_validate(
+                {
+                    "path": str(target.resolve()),
+                    "st_mtime": 0.0,
+                    **meta,
+                }
+            )
         except ValidationError as e:
-            self._set_error({
-                "path": str(target.resolve()),
-                "error": "MemoryFileNode schema validation failed on append",
-                "details": e.errors(include_context=False, include_url=False),
-            })
+            self._set_error(
+                {
+                    "path": str(target.resolve()),
+                    "error": "MemoryFileNode schema validation failed on append",
+                    "details": e.errors(include_context=False, include_url=False),
+                }
+            )
             return
 
         new_post = frontmatter.Post(new_body, **meta)
@@ -454,12 +480,14 @@ class Sync(BaseStep):
             self._set_error({"path": str(target.resolve()), "error": f"write failed: {e}"})
             return
 
-        self._set_ok({
-            "path": str(target.resolve()),
-            "category": "event",
-            "status": "active",
-            "topics": meta["topics"],
-            "materials": new_material_paths,
-            "created": False,
-            "action": "appended",
-        })
+        self._set_ok(
+            {
+                "path": str(target.resolve()),
+                "category": "event",
+                "status": "active",
+                "topics": meta["topics"],
+                "materials": new_material_paths,
+                "created": False,
+                "action": "appended",
+            }
+        )

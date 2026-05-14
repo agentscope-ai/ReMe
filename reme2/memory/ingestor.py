@@ -107,9 +107,12 @@ class Ingestor(BaseStep):
             return
         if mode != "distill":
             self.context.response.success = False
-            _set_answer(self.context, {
-                "error": f"unknown mode {mode!r}; expected 'log' or 'distill'",
-            })
+            _set_answer(
+                self.context,
+                {
+                    "error": f"unknown mode {mode!r}; expected 'log' or 'distill'",
+                },
+            )
             return
 
         content: str = self.context.get("content", "") or ""
@@ -182,18 +185,22 @@ class Ingestor(BaseStep):
         supported. Useful for tests and bootstrap scripts."""
         result = IngestResult(used_llm=False)
         if not target_path:
-            result.failed.append({
-                "op": "create",
-                "ok": False,
-                "error": "degraded path: target_path is required when no LLM is configured",
-            })
+            result.failed.append(
+                {
+                    "op": "create",
+                    "ok": False,
+                    "error": "degraded path: target_path is required when no LLM is configured",
+                }
+            )
             return result
         path = Path(target_path)
         if not path.is_absolute():
             path = self._working_dir() / path
         ok, payload = create_file(
-            self.file_store, path,
-            metadata=metadata, content=content,
+            self.file_store,
+            path,
+            metadata=metadata,
+            content=content,
         )
         bucket = result.applied if ok else result.failed
         bucket.append({"op": "create", "ok": ok, "path": str(path), "result": payload})
@@ -203,9 +210,8 @@ class Ingestor(BaseStep):
         """Hot-path event-folder upsert — same code path as the standalone
         `sync` step. Lazy-instantiated so we don't pay the construction
         cost on every distill call."""
-        from ..mcp.steps.sync import Sync
+        from .sync import Sync
 
         if getattr(self, "_sync_step", None) is None:
             self._sync_step = Sync(app_context=self.app_context)
         await self._sync_step(self.context)
-

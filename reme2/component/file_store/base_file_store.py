@@ -12,11 +12,11 @@ class BaseFileStore(BaseComponent):
     component_type = ComponentEnum.FILE_STORE
 
     def __init__(
-            self,
-            store_name: str,
-            embedding_model: str = "default",
-            keyword_index: str = "default",
-            **kwargs,
+        self,
+        store_name: str,
+        embedding_model: str = "default",
+        keyword_index: str = "default",
+        **kwargs,
     ):
         super().__init__(**kwargs)
         if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
@@ -46,15 +46,13 @@ class BaseFileStore(BaseComponent):
         self.keyword_index = None
         await self.dump_file_nodes()
 
-    async def load_file_nodes(self):
-        ...
+    async def load_file_nodes(self): ...
 
-    async def dump_file_nodes(self):
-        ...
+    async def dump_file_nodes(self): ...
 
     async def upsert_file(
-            self,
-            file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
+        self,
+        file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
     ) -> None:
         """Upsert a file and its chunks into the store."""
 

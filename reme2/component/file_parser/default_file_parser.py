@@ -40,7 +40,7 @@ class DefaultFileParser(BaseFileParser):
             data = {}
 
         front_matter = FileFrontMatter(**data)
-        remaining = text[end_idx + 4:].lstrip("\n")
+        remaining = text[end_idx + 4 :].lstrip("\n")
         return front_matter, remaining
 
     async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
@@ -72,18 +72,25 @@ class DefaultFileParser(BaseFileParser):
             if content_bytes[end - 1] == ord(b"\n"):
                 end_line -= 1
 
-            chunks.append(FileChunk(
-                path=rel_path,
-                start_line=start_line,
-                end_line=end_line,
-                text=chunk_text,
-            ).set_hash_id())
+            chunks.append(
+                FileChunk(
+                    path=rel_path,
+                    start_line=start_line,
+                    end_line=end_line,
+                    text=chunk_text,
+                ).set_hash_id(),
+            )
 
             if end >= len(content_bytes):
                 break
             start += step
 
-        return FileNode(path=rel_path,
-                        st_mtime=stat.st_mtime,
-                        front_matter=front_matter,
-                        chunk_ids=[c.id for c in chunks]), chunks
+        return (
+            FileNode(
+                path=rel_path,
+                st_mtime=stat.st_mtime,
+                front_matter=front_matter,
+                chunk_ids=[c.id for c in chunks],
+            ),
+            chunks,
+        )

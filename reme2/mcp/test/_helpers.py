@@ -24,10 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
 # Eager-import side-effect modules so all @R.register() decorators run
 # before Application introspects the registry.
 import reme2  # noqa: E402,F401
-import reme2.mcp.steps  # noqa: E402,F401
-import reme2.memory  # noqa: E402,F401  -- registers retriever + maintainer
-import reme2.memory.ingestor  # noqa: E402,F401
-import reme2.memory.summarizer  # noqa: E402,F401
+import reme2.memory  # noqa: E402,F401  -- registers every agent-facing tool
 
 from reme2.application import Application  # noqa: E402
 from reme2.config import parse_args  # noqa: E402
@@ -35,7 +32,7 @@ from reme2.config import parse_args  # noqa: E402
 
 CONFIG_DIR = _REPO_ROOT / "reme2" / "config"
 PROFILES = {
-    "expert":  CONFIG_DIR / "expert.yaml",
+    "expert": CONFIG_DIR / "expert.yaml",
     "service": CONFIG_DIR / "service.yaml",
 }
 
@@ -106,8 +103,7 @@ async def wait_for_index(watcher, expected_min: int, timeout_s: float = 15.0) ->
             last = now
         await asyncio.sleep(0.25)
     raise RuntimeError(
-        f"watcher did not reach >= {expected_min} files within {timeout_s}s "
-        f"(last seen: {last})"
+        f"watcher did not reach >= {expected_min} files within {timeout_s}s " f"(last seen: {last})",
     )
 
 
@@ -156,7 +152,9 @@ async def make_context(profile: str) -> tuple[AppContext, Path]:
     vault.mkdir()
     seed_vault(vault)
     app = await build_app(PROFILES[profile], vault)
-    await wait_for_index(app.context.components["file_watcher"]["default"],
-                         expected_min=SEED_FILE_COUNT)
+    await wait_for_index(
+        app.context.components["file_watcher"]["default"],
+        expected_min=SEED_FILE_COUNT,
+    )
     jobs = sorted(app.context.jobs.keys())
     return AppContext(app=app, vault=vault, jobs=jobs), tmp

@@ -22,6 +22,7 @@ def _expand_env_vars(value: Any) -> Any:
     typos don't silently produce empty connection strings.
     """
     if isinstance(value, str):
+
         def repl(m: re.Match) -> str:
             name = m.group(1)
             default = m.group(2)
@@ -31,6 +32,7 @@ def _expand_env_vars(value: Any) -> Any:
                     return default
                 raise ValueError(f"Config references undefined env var: {name}")
             return v
+
         return _ENV_VAR_RE.sub(repl, value)
     if isinstance(value, dict):
         return {k: _expand_env_vars(v) for k, v in value.items()}

@@ -28,6 +28,8 @@ class ComponentEnum(str, Enum):
 
     FILE_STORE = "file_store"
 
+    FILE_GRAPH = "file_graph"
+
     FILE_WATCHER = "file_watcher"
 
     KEYWORD_INDEX = "keyword_index"

@@ -1,39 +1,31 @@
 # reme2.mcp
 
-Agent-facing MCP interface layer. Exposes the markdown vault under
-`reme2/` (file_store + watcher + memory services) as MCP tools for
-`claude-code` and other MCP clients.
+MCP transport layer. Exposes the agent-facing tools registered in
+`reme2.memory` over MCP for `claude-code` and other MCP clients.
 
 ## Layout
 
 ```
 reme2/mcp/
 ├── __init__.py
-├── server.py          MCP server bootstrap; defaults to ../config/service.yaml
-└── steps/             @R.register MCP step shells
-    ├── memory_retriever.py memory_search + memory_graph_search
-    ├── memory_lint.py      read-only Maintainer projection (lint findings)
-    └── sync.py             hot-path event-folder upsert
+├── server.py    MCP server bootstrap; defaults to ../config/service.yaml
+└── test/        end-to-end profile smoke tests
 ```
 
-The 12 `memory_*` primitives (create/update/property_update/rename/
-delete/archive/get/list/links/backlinks/resolve_wikilink/count_tokens)
-live one layer down in `reme2/memory/memory_toolkit.py` — each is a
-single `BaseStep` subclass with two class methods: `execute()` for the
-MCP path (this layer) and a same-named method for the agent toolkit
-path that the Ingestor's ReActAgent consumes. Importing
-`reme2.mcp.steps` triggers all `@R.register` registrations.
-
-The MCP layer's job is to **project** existing primitives as MCP tools
-— it owns no business logic. Everything else lives outside the
-transport boundary so memory services don't form an import cycle:
+That's it. Every `@R.register` step the agent invokes lives one layer
+down in `reme2/memory/` — there are no MCP-specific shells, because
+none of the steps depend on MCP transport details. Importing
+`reme2.memory` triggers all `@R.register` registrations.
 
 | Concern | Location |
 |---|---|
 | Memory File System primitives | `reme2/component/file_store/`, `file_watcher/`, `file_parser/` |
-| Three memory services | `reme2/memory/` — Retriever / Ingestor / Maintainer |
+| Three memory services | `reme2/memory/{retriever,ingestor,maintainer}.py` |
 | Engine API (pure, schema-free) | `reme2/memory/memory_io.py` |
-| Schema-bound tools (BaseStep + agent toolkit) | `reme2/memory/memory_toolkit.py` |
+| Schema-bound write/read tools | `reme2/memory/memory_toolkit.py` |
+| Search step shells | `reme2/memory/memory_search.py` |
+| Lint step shell | `reme2/memory/memory_lint.py` |
+| Hot-path event upsert | `reme2/memory/sync.py` |
 | Memory schema (4 axes + presets + parser) | `reme2/memory/schema/` |
 | Path templates + name disambiguation | `reme2/utils/vault_paths.py` |
 | Step response serialization | `reme2/component/runtime_response.py` |
@@ -44,9 +36,8 @@ reme2.mcp  →  reme2.memory (incl. memory.schema)  →  reme2.component / reme2
 ```
 
 The Ingestor (`reme2/memory/ingestor.py`) self-registers its `ingest`
-MCP face — there's no shell for it under `steps/`. Topic creation lives
-inside the Ingestor's R-M-W loop; there is no separate `topic_create`
-tool.
+MCP face. Topic creation lives inside the Ingestor's R-M-W loop; there
+is no separate `topic_create` tool.
 
 ## Run
 
@@ -91,12 +82,12 @@ Configs live in `reme2/config/`:
 
 ### Tools exposed (expert profile)
 
-| Tool | Path | Purpose |
+| Tool | Source | Purpose |
 |---|---|---|
-| `sync` | steps/sync.py | Hot-path event-folder upsert (idempotent per `(date, name)`). |
+| `sync` | reme2/memory/sync.py | Hot-path event-folder upsert (idempotent per `(date, name)`). |
 | `ingest` | reme2/memory/ingestor.py | Cold-path LLM-driven distillation; owns topic creation. |
-| `memory_search` / `memory_graph_search` | steps/memory_retriever.py | V+K hybrid + optional graph BFS. |
-| `memory_lint` | steps/memory_lint.py | Read-only projection of Maintainer's lint findings. |
+| `memory_search` / `memory_graph_search` | reme2/memory/memory_search.py | V+K hybrid + optional graph BFS. |
+| `memory_lint` | reme2/memory/memory_lint.py | Read-only projection of Maintainer's lint findings. |
 | `memory_get` / `memory_list` / `memory_links` / `memory_backlinks` / `memory_resolve_wikilink` | reme2/memory/memory_toolkit.py | Read primitives. |
 | `memory_create` / `memory_update` / `memory_property_update` / `memory_rename` / `memory_delete` / `memory_archive` | reme2/memory/memory_toolkit.py | Raw write primitives (prefer `ingest` / `sync`). |
 | `memory_count_tokens` | reme2/memory/memory_toolkit.py | Token estimation. |
