@@ -22,7 +22,7 @@ from ._helpers import AppContext, make_context
 
 
 SUITES = {
-    "expert":  test_expert.CHECKS,
+    "expert": test_expert.CHECKS,
     "service": test_service.CHECKS,
 }
 
@@ -35,8 +35,7 @@ async def _run_suite(profile: str, checks: list[tuple[str, callable]]) -> tuple[
     passed = 0
     try:
         ctx, tmp = await make_context(profile)
-        print(f"  bootstrapped: vault={ctx.vault}, jobs={len(ctx.jobs)}, "
-              f"file_store={len(ctx.file_store)}")
+        print(f"  bootstrapped: vault={ctx.vault}, jobs={len(ctx.jobs)}, " f"file_store={len(ctx.file_store)}")
         for label, fn in checks:
             try:
                 summary = await fn(ctx)
@@ -69,7 +68,7 @@ async def _main() -> int:
     for profile, (passed, total) in summary.items():
         marker = "✓" if passed == total else "✗"
         print(f"  {marker} {profile}: {passed}/{total}")
-        failed += (total - passed)
+        failed += total - passed
     return 0 if failed == 0 else failed
 
 

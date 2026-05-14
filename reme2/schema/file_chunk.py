@@ -15,5 +15,6 @@ class FileChunk(EmbNode):
 
     def set_hash_id(self):
         from ..utils import hash_text
+
         self.id = hash_text(" ".join([self.path, str(self.start_line), str(self.end_line), self.text]))
         return self

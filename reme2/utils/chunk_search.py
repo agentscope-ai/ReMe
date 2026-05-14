@@ -34,7 +34,8 @@ def keyword_score(query: str, text: str) -> float:
 
 
 def filter_chunks(
-    chunks: list[FileChunk], chunk_filter: ChunkFilter | None,
+    chunks: list[FileChunk],
+    chunk_filter: ChunkFilter | None,
 ) -> list[FileChunk]:
     """Restrict `chunks` to those whose path passes the (compiled) filter."""
     if chunk_filter is None or chunk_filter.resolved_paths is None:

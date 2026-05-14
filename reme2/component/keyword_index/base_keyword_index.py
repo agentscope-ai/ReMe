@@ -24,6 +24,7 @@ class BaseKeywordIndex(BaseComponent):
         """Initialize tokenizer and load existing index if available."""
         if self.app_context is None:
             from ..tokenizer import RegexTokenizer
+
             self.tokenizer = RegexTokenizer(filter_stopwords=False)
         else:
             self.tokenizer = self.get_component(ComponentEnum.TOKENIZER, self.tokenizer_name)

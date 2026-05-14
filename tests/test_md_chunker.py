@@ -45,19 +45,7 @@ def _all_headings(text: str) -> list[str]:
 
 
 def test_tree_groups_under_headings():
-    txt = (
-        "# Top\n"
-        "para1\n"
-        "\n"
-        "## Sub A\n"
-        "para2\n"
-        "\n"
-        "### Deeper\n"
-        "para3\n"
-        "\n"
-        "## Sub B\n"
-        "para4\n"
-    )
+    txt = "# Top\n" "para1\n" "\n" "## Sub A\n" "para2\n" "\n" "### Deeper\n" "para3\n" "\n" "## Sub B\n" "para4\n"
     from mistletoe.block_token import Document
     from mistletoe.markdown_renderer import MarkdownRenderer
 
@@ -142,23 +130,13 @@ def test_every_chunk_lists_every_doc_heading():
     expected_headings = {"# Doc", "## Section A", "### Subsection", "## Section B"}
     for c in chunks:
         present = set(_all_headings(c.text))
-        assert expected_headings <= present, (
-            f"chunk missing headings {expected_headings - present}: {c.text!r}"
-        )
+        assert expected_headings <= present, f"chunk missing headings {expected_headings - present}: {c.text!r}"
 
 
 def test_owner_section_holds_chunk_content():
     """The chunk's content sits directly under its owner heading — not
     under any other section's heading."""
-    txt = (
-        "# Doc\n"
-        "\n"
-        "## A\n"
-        "alpha alpha alpha alpha here\n"
-        "\n"
-        "## B\n"
-        "bravo bravo bravo bravo here\n"
-    )
+    txt = "# Doc\n" "\n" "## A\n" "alpha alpha alpha alpha here\n" "\n" "## B\n" "bravo bravo bravo bravo here\n"
     chunks = _parser(60)._chunk(txt, "/x.md")
     a_chunk = next(c for c in chunks if "alpha" in c.text)
     b_chunk = next(c for c in chunks if "bravo" in c.text)
@@ -383,15 +361,7 @@ def test_paragraph_line_split_keeps_skeleton():
 def test_embed_toc_off_strips_skeleton():
     """With embed_toc=False, chunks contain only their own content —
     no full-doc heading skeleton wrapping them."""
-    txt = (
-        "# Doc\n"
-        "\n"
-        "## A\n"
-        "para A long content here\n"
-        "\n"
-        "## B\n"
-        "para B long content here\n"
-    )
+    txt = "# Doc\n" "\n" "## A\n" "para A long content here\n" "\n" "## B\n" "para B long content here\n"
     chunks = _parser(60, embed_toc=False)._chunk(txt, "/x.md")
     a = next(c for c in chunks if "para A" in c.text)
     b = next(c for c in chunks if "para B" in c.text)
@@ -456,9 +426,9 @@ def test_body_run_budget_excludes_toc():
     txt = (
         "# Top\n"
         "## Sub long heading title here\n"
-        "abcdefghij abcdefghij abcdefghij\n"   # 32 chars body
+        "abcdefghij abcdefghij abcdefghij\n"  # 32 chars body
         "\n"
-        "klmnopqrst klmnopqrst klmnopqrst\n"   # 32 chars body
+        "klmnopqrst klmnopqrst klmnopqrst\n"  # 32 chars body
     )
     # 80 chars budget covers the joined body (32+2+32=66) but is
     # smaller than body+TOC under old (counting) semantics (~120).
@@ -590,10 +560,7 @@ def test_paragraph_split_marks_parts():
         "delta line four with extra padding text here\n"
     )
     chunks = _parser(100)._chunk(txt, "/x.md")
-    para_chunks = [
-        c for c in chunks
-        if any(t in c.text for t in ("alpha", "beta", "gamma", "delta"))
-    ]
+    para_chunks = [c for c in chunks if any(t in c.text for t in ("alpha", "beta", "gamma", "delta"))]
     assert len(para_chunks) >= 2
     n = len(para_chunks)
     for i, c in enumerate(para_chunks, 1):
@@ -602,15 +569,7 @@ def test_paragraph_split_marks_parts():
 
 def test_single_piece_leaf_has_no_part_marker():
     """When a leaf block fits in one piece, no [Part] prefix is added."""
-    txt = (
-        "# Doc\n"
-        "\n"
-        "## T\n"
-        "\n"
-        "| a | b |\n"
-        "|---|---|\n"
-        "| 1 | 2 |\n"
-    )
+    txt = "# Doc\n" "\n" "## T\n" "\n" "| a | b |\n" "|---|---|\n" "| 1 | 2 |\n"
     chunks = _parser(500)._chunk(txt, "/x.md")
     assert len(chunks) == 1
     assert "[Part" not in chunks[0].text
@@ -642,11 +601,11 @@ def test_part_marker_absent_for_body_run_packing():
 
 def test_chunk_line_ranges_track_source():
     txt = (
-        "# Top\n"      # line 1
-        "intro\n"      # line 2
+        "# Top\n"  # line 1
+        "intro\n"  # line 2
         "\n"
-        "## Sub\n"    # line 4
-        "body\n"       # line 5
+        "## Sub\n"  # line 4
+        "body\n"  # line 5
     )
     chunks = _parser(500)._chunk(txt, "/x.md")
     assert len(chunks) == 1

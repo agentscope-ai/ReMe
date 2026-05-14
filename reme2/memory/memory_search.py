@@ -1,26 +1,26 @@
-"""Memory retriever steps — thin MCP-facing wrappers over `BaseRetriever`.
+"""Memory search step shells — thin wrappers over the Retriever service.
 
 Per the architecture blueprint, retrieval policy (V+K hybrid + graph
-BFS fusion + ranking + intent routing) is the **Retriever service**
-(`reme2.memory.retriever`), registered as `ComponentEnum.RETRIEVER`.
-These steps are the MCP projection: they translate `RuntimeContext`
-(paths/tags/exclude_paths filter, per-call knob overrides) into the
-retriever's call surface, then serialize results for the API response
-(joining file metadata onto each chunk so callers don't have to fire a
-`memory_get` per hit).
+BFS fusion + ranking + intent routing) lives in the **Retriever
+service** (`reme2.memory.retriever`), registered as
+``ComponentEnum.RETRIEVER``. The two steps here are the agent-facing
+projection: they translate ``RuntimeContext`` (paths/tags/exclude_paths
+filter, per-call knob overrides) into the retriever's call surface,
+then serialize results for the response (joining file metadata onto
+each chunk so callers don't have to fire a ``memory_get`` per hit).
 
 Direct primary-key file ops (read/list/links/backlinks) live in
-`memory_io` — those aren't retrieval.
+``memory_io`` — those aren't retrieval.
 """
 
 from __future__ import annotations
 
-from ...component import R
-from ...component.base_step import BaseStep
-from ...component.runtime_response import _set_answer
-from ...enumeration import ComponentEnum
-from ...memory import memory_io
-from ...memory.retriever import BaseRetriever, HybridRetriever
+from ..component import R
+from ..component.base_step import BaseStep
+from ..component.runtime_response import _set_answer
+from ..enumeration import ComponentEnum
+from . import memory_io
+from .retriever import BaseRetriever, HybridRetriever
 
 
 # Per-shell singleton cache: instantiating the retriever is cheap (it
@@ -61,9 +61,16 @@ def _resolve_retriever(step: BaseStep) -> BaseRetriever:
         cls = HybridRetriever
 
     knob_keys = (
-        "vector_weight", "graph_weight", "graph_depth", "graph_decay",
-        "graph_direction", "graph_mode", "graph_per_path_cap",
-        "candidate_multiplier", "anchor_expand", "file_store",
+        "vector_weight",
+        "graph_weight",
+        "graph_depth",
+        "graph_decay",
+        "graph_direction",
+        "graph_mode",
+        "graph_per_path_cap",
+        "candidate_multiplier",
+        "anchor_expand",
+        "file_store",
     )
     init_kwargs = {k: step.kwargs[k] for k in knob_keys if k in step.kwargs}
     init_kwargs["app_context"] = step.app_context
@@ -84,9 +91,9 @@ def _serialize_chunk(chunk, file_store, extras: dict | None = None) -> dict:
     `extras` lets the caller attach step-specific fields (e.g. `graph_hop`).
     """
     item = chunk.model_dump(exclude_none=True, exclude={"embedding"})
-    node = file_store.get_node_by_path(chunk.path)
+    node = file_store._nodes.get(chunk.path)  # engine-layer peer access
     if node is not None:
-        item["file_metadata"] = node.metadata
+        item["file_metadata"] = node.front_matter.model_dump()
         item["file_st_mtime"] = node.st_mtime
     else:
         item["file_metadata"] = None

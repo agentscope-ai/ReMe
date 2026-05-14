@@ -76,14 +76,14 @@ class Role(StrEnum):
     Adding a new role is a one-line change here plus (optionally) a preset.
     """
 
-    OBSERVATION = "observation"   # what happened (events live here)
-    CLAIM = "claim"               # an assertion needing confidence (thesis, model)
-    QUESTION = "question"         # an open inquiry needing an answer
-    PROFILE = "profile"           # entity description (person, org, system)
-    CONCEPT = "concept"           # abstract idea / definition (company, sector, concept)
-    METHOD = "method"             # procedure / how-to
-    REFERENCE = "reference"       # pointer to external thing (tool, paper, code)
-    FUNDAMENTALS = "fundamentals" # foundational data / baseline facts
+    OBSERVATION = "observation"  # what happened (events live here)
+    CLAIM = "claim"  # an assertion needing confidence (thesis, model)
+    QUESTION = "question"  # an open inquiry needing an answer
+    PROFILE = "profile"  # entity description (person, org, system)
+    CONCEPT = "concept"  # abstract idea / definition (company, sector, concept)
+    METHOD = "method"  # procedure / how-to
+    REFERENCE = "reference"  # pointer to external thing (tool, paper, code)
+    FUNDAMENTALS = "fundamentals"  # foundational data / baseline facts
 
 
 class Status(StrEnum):
@@ -206,6 +206,7 @@ class MemoryFileNode(FileNode):
     the parsed object without polluting this base schema. `populate_by_name`
     lets `originSessionId` (legacy camelCase) populate `origin_session_id`.
     """
+
     # -- Identity / common metadata ----------------------------------------
 
     title: str = Field(default="")
@@ -274,8 +275,7 @@ class MemoryFileNode(FileNode):
     def _enforce_role_conditionals(self):
         if self.role is Role.CLAIM and self.confidence is None:
             raise ValueError(
-                "role='claim' requires explicit confidence "
-                "(one of ⏳ / ✅ / ❌)"
+                "role='claim' requires explicit confidence " "(one of ⏳ / ✅ / ❌)",
             )
         return self
 

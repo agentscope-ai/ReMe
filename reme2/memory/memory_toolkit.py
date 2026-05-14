@@ -46,9 +46,9 @@ from ..enumeration import ComponentEnum
 
 _STATUS_STATES = ("active", "distilled", "archived")
 _STATUS_TRANSITIONS: dict[str, set[str]] = {
-    "active":    {"active", "distilled"},
+    "active": {"active", "distilled"},
     "distilled": {"distilled", "archived"},
-    "archived":  {"archived"},
+    "archived": {"archived"},
 }
 
 
@@ -59,10 +59,7 @@ def validate_status_transition(prior, requested) -> str | None:
     if requested is None:
         return None  # delete operation
     if requested not in _STATUS_STATES:
-        return (
-            f"invalid status {requested!r}; must be one of "
-            f"{list(_STATUS_STATES)}"
-        )
+        return f"invalid status {requested!r}; must be one of " f"{list(_STATUS_STATES)}"
     if prior in _STATUS_STATES and requested not in _STATUS_TRANSITIONS[prior]:
         return (
             f"status transition {prior!r} → {requested!r} not allowed; "
@@ -167,9 +164,12 @@ def create_file_with_schema(
                 ),
             }
     return memory_io.create_file(
-        file_store, path,
-        metadata=metadata, content=content,
-        overwrite=overwrite, force=force,
+        file_store,
+        path,
+        metadata=metadata,
+        content=content,
+        overwrite=overwrite,
+        force=force,
     )
 
 
@@ -336,9 +336,12 @@ class MemoryCreate(BaseStep):
 
         target = Path(path)
         ok, payload = create_file_with_schema(
-            self.file_store, target,
-            metadata=metadata, content=content,
-            overwrite=overwrite, force=force,
+            self.file_store,
+            target,
+            metadata=metadata,
+            content=content,
+            overwrite=overwrite,
+            force=force,
         )
         self.context.response.success = ok
         if ok:
@@ -357,7 +360,8 @@ class MemoryCreate(BaseStep):
         gate both fire unless `force=True`."""
         target = Path(path)
         ok, payload = create_file_with_schema(
-            self.file_store, target,
+            self.file_store,
+            target,
             metadata=dict(metadata or {}),
             content=content,
             overwrite=overwrite,
@@ -403,8 +407,10 @@ class MemoryRename(BaseStep):
         working_dir = Path(self.file_store.working_dir or Path.cwd()).resolve()
 
         ok, payload = memory_io.rename_file(
-            self.file_store, working_dir,
-            old_path=old_path, new_path=new_path,
+            self.file_store,
+            working_dir,
+            old_path=old_path,
+            new_path=new_path,
         )
         self.context.response.success = ok
         _set_answer(self.context, payload)
@@ -414,8 +420,10 @@ class MemoryRename(BaseStep):
         vr = getattr(self.file_store, "working_dir", None)
         working_dir = Path(vr).resolve() if vr else Path.cwd()
         ok, payload = memory_io.rename_file(
-            self.file_store, working_dir,
-            old_path=old_path, new_path=new_path,
+            self.file_store,
+            working_dir,
+            old_path=old_path,
+            new_path=new_path,
         )
         return _tool_response("memory_rename", ok, payload, audit=self.audit)
 
@@ -477,7 +485,10 @@ class MemoryUpdate(BaseStep):
         replace_all: bool = bool(self.context.get("replace_all", False))
         assert path, "path is required"
         ok, payload = memory_io.update_body(
-            path, old_string=old_string, new_string=new_string, replace_all=replace_all,
+            path,
+            old_string=old_string,
+            new_string=new_string,
+            replace_all=replace_all,
         )
         self.context.response.success = ok
         _set_answer(self.context, payload)
@@ -491,7 +502,10 @@ class MemoryUpdate(BaseStep):
     ) -> ToolResponse:
         """Edit-style content update: replace `old_string` with `new_string`."""
         ok, payload = memory_io.update_body(
-            path, old_string=old_string, new_string=new_string, replace_all=replace_all,
+            path,
+            old_string=old_string,
+            new_string=new_string,
+            replace_all=replace_all,
         )
         return _tool_response("memory_update", ok, payload, audit=self.audit)
 

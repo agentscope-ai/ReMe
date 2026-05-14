@@ -16,8 +16,8 @@ Two surfaces:
 standard Step lifecycle + `self.file_store` property + per-instance
 configuration via constructor kwargs. The default `execute()` dispatch
 just runs `graph_search` so the retriever can also be used directly as
-a step inside a job pipeline; the MCP step shells in
-`reme2.mcp.steps.memory_retriever` instead bypass `execute` and call
+a step inside a job pipeline; the search step shells in
+`reme2.memory.memory_search` instead bypass `execute` and call
 `search` / `graph_search` directly so they own the result-serialization
 shape.
 """
@@ -183,7 +183,10 @@ class HybridRetriever(BaseRetriever):
                 results = k_results[:max_results]
             else:
                 results = self._merge_vk(
-                    v_results, k_results, self.vector_weight, text_weight,
+                    v_results,
+                    k_results,
+                    self.vector_weight,
+                    text_weight,
                 )[:max_results]
         elif fs.embedding_model:
             results = await memory_io.search_vector(fs, query, limit=max_results, chunk_filter=chunk_filter)
@@ -287,7 +290,7 @@ class HybridRetriever(BaseRetriever):
             hops = memory_io.expand_neighbors(fs, seed_paths, depth=gd, direction=gdr)
         else:
             hops = {}
-        graph_scores: dict[str, float] = {p: gdc ** h for p, h in hops.items()}
+        graph_scores: dict[str, float] = {p: gdc**h for p, h in hops.items()}
 
         # 4. Pull graph-only chunks (paths in expansion but not in V∪K).
         # Skip in 'boost' mode — boost only re-ranks V∪K, never adds candidates.

@@ -17,8 +17,8 @@ from pathlib import Path
 
 # Make this work whether invoked as `python -m reme2.mcp.server` (repo
 # root already on sys.path) or `python reme2/mcp/server.py` (only this
-# file's dir is on sys.path — without this, `import reme2.mcp.steps`
-# would fail with ModuleNotFoundError).
+# file's dir is on sys.path — without this, `import reme2.memory` would
+# fail with ModuleNotFoundError).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -32,10 +32,7 @@ load_dotenv(_REPO_ROOT / ".env")
 # Eagerly import side-effect modules so all @R.register() decorators run
 # before Application introspects the registry.
 import reme2  # noqa: E402,F401
-import reme2.mcp.steps  # noqa: E402,F401
-import reme2.memory  # noqa: E402,F401  -- registers retriever + maintainer
-import reme2.memory.ingestor  # noqa: E402,F401
-import reme2.memory.summarizer  # noqa: E402,F401
+import reme2.memory  # noqa: E402,F401  -- registers every agent-facing tool
 import reme2.component.service.mcp_service  # noqa: E402,F401
 
 from reme2.application import Application  # noqa: E402

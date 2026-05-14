@@ -70,7 +70,6 @@ from pydantic import BaseModel, Field
 from ..component import R
 from ..component.base_step import BaseStep
 from ..component.runtime_response import _set_answer
-from ..enumeration import ComponentEnum
 from . import memory_io
 from .schema import parse_frontmatter
 
@@ -171,12 +170,12 @@ class FileSignal(BaseModel):
     """
 
     path: str
-    relpath: str = ""           # path relative to working_dir, "" if outside
-    lifecycle: str = ""         # streaming / evolving / frozen
-    scope: str = ""             # instance / class
-    source: str = ""            # auto / curated / derived
-    role: str = ""              # observation / claim / question / ...
-    category: str = ""          # legacy field, kept for migration windows
+    relpath: str = ""  # path relative to working_dir, "" if outside
+    lifecycle: str = ""  # streaming / evolving / frozen
+    scope: str = ""  # instance / class
+    source: str = ""  # auto / curated / derived
+    role: str = ""  # observation / claim / question / ...
+    category: str = ""  # legacy field, kept for migration windows
     status: str = ""
     age_days: int = 0
     metadata: dict = Field(default_factory=dict)
@@ -335,22 +334,24 @@ class Maintainer(BaseStep):
                     pass
             if target_prefix and not relpath.startswith(target_prefix):
                 continue
-            fm = meta.metadata or {}
+            fm = meta.front_matter.model_dump()
             age_seconds = max(0.0, now - (meta.st_mtime or now))
             parsed, _ = parse_frontmatter(fm)
-            signals.append(FileSignal(
-                path=path,
-                relpath=relpath,
-                lifecycle=str(parsed.lifecycle.value) if parsed else "",
-                scope=str(parsed.scope.value) if parsed else "",
-                source=str(parsed.source.value) if parsed else "",
-                role=str(parsed.role.value) if parsed else "",
-                category=str(fm.get("category") or ""),
-                status=str(fm.get("status") or ""),
-                age_days=int(age_seconds // 86400),
-                metadata=fm,
-                declared_topics=list(fm.get("topics") or []),
-            ))
+            signals.append(
+                FileSignal(
+                    path=path,
+                    relpath=relpath,
+                    lifecycle=str(parsed.lifecycle.value) if parsed else "",
+                    scope=str(parsed.scope.value) if parsed else "",
+                    source=str(parsed.source.value) if parsed else "",
+                    role=str(parsed.role.value) if parsed else "",
+                    category=str(fm.get("category") or ""),
+                    status=str(fm.get("status") or ""),
+                    age_days=int(age_seconds // 86400),
+                    metadata=fm,
+                    declared_topics=list(fm.get("topics") or []),
+                ),
+            )
         return signals
 
     # -- proposers ----------------------------------------------------------
@@ -361,30 +362,41 @@ class Maintainer(BaseStep):
         for sig in signals:
             for link in sig.declared_topics:
                 if not memory_io.resolve_wikilink(self.file_store, link)["exists"]:
-                    out.append(LintFinding(
-                        path=sig.path, kind="broken_wikilink",
-                        detail=f"unresolved wikilink {link!r}",
-                    ))
+                    out.append(
+                        LintFinding(
+                            path=sig.path,
+                            kind="broken_wikilink",
+                            detail=f"unresolved wikilink {link!r}",
+                        ),
+                    )
             # Memory schema check: tolerant parse, surface every error
             # the parser collected. Empty `errors` ↔ valid frontmatter.
             _, errors = parse_frontmatter(sig.metadata)
             for err in errors:
-                out.append(LintFinding(
-                    path=sig.path, kind="schema_violation",
-                    detail=f"Memory: {err}"[:240],
-                ))
+                out.append(
+                    LintFinding(
+                        path=sig.path,
+                        kind="schema_violation",
+                        detail=f"Memory: {err}"[:240],
+                    ),
+                )
         # Stem collisions: the engine API exposes the ambiguous-stem map.
         ambig = memory_io.find_collisions(self.file_store)
         for stem, paths in ambig.items():
             for p in paths:
-                out.append(LintFinding(
-                    path=p, kind="stem_collision",
-                    detail=f"stem {stem!r} also claimed by {[x for x in paths if x != p]}",
-                ))
+                out.append(
+                    LintFinding(
+                        path=p,
+                        kind="stem_collision",
+                        detail=f"stem {stem!r} also claimed by {[x for x in paths if x != p]}",
+                    ),
+                )
         return out
 
     def _propose_decay(
-        self, signals: list[FileSignal], decay_days: int,
+        self,
+        signals: list[FileSignal],
+        decay_days: int,
     ) -> list[DecayOp]:
         """Distilled streaming memories past the freshness window.
 
@@ -401,14 +413,18 @@ class Maintainer(BaseStep):
                 continue
             if sig.age_days < decay_days:
                 continue
-            out.append(DecayOp(
-                path=sig.path, age_days=sig.age_days,
-                reason=f"streaming {sig.status!r} for {sig.age_days}d (≥{decay_days}d window)",
-            ))
+            out.append(
+                DecayOp(
+                    path=sig.path,
+                    age_days=sig.age_days,
+                    reason=f"streaming {sig.status!r} for {sig.age_days}d (≥{decay_days}d window)",
+                ),
+            )
         return out
 
     async def _propose_enrich(
-        self, signals: list[FileSignal],
+        self,
+        signals: list[FileSignal],
     ) -> list[EnrichOp]:
         """Bare wikilinks → typed via inline-bracketed Dataview wrap.
 
@@ -418,13 +434,13 @@ class Maintainer(BaseStep):
             2. Read body, ask the LLM (one call per file) to assign one
                of `ALLOWED_PREDICATES` to each bare target — or 'skip'.
             3. For each accepted (target, predicate), locate each bare
-               occurrence span via `FileEdge.from_text` and build a unique
+               occurrence span via `iter_links` and build a unique
                context window snippet.
             4. Emit EnrichOp(path, target, predicate, old_string, new_string,
                confidence, reason). The apply step calls memory_update.
 
-        Idempotency: re-running won't re-enrich already-typed edges
-        (filter is `predicate is None`). The OOV-tolerant FileEdge
+        Idempotency: re-running won't re-enrich already-typed links
+        (filter is `predicate is None`). The OOV-tolerant FileLink
         validator means a malformed LLM output collapses to None at the
         next parse, surfacing it again next sweep — bounded retries
         avoid infinite re-enrichment loops.
@@ -432,7 +448,8 @@ class Maintainer(BaseStep):
         return []
 
     async def _propose_discover(
-        self, signals: list[FileSignal],
+        self,
+        signals: list[FileSignal],
     ) -> list[DiscoverOp]:
         """Discover edges absent from body — append to `## Relations`.
 
@@ -453,7 +470,9 @@ class Maintainer(BaseStep):
         return []
 
     async def _propose_merge(
-        self, signals: list[FileSignal], threshold: float,
+        self,
+        signals: list[FileSignal],
+        threshold: float,
     ) -> list[MergeOp]:
         """Cluster near-duplicate topics → MergeOps (LLM-assisted).
 
@@ -468,7 +487,9 @@ class Maintainer(BaseStep):
         return []
 
     async def _propose_split(
-        self, signals: list[FileSignal], token_threshold: int,
+        self,
+        signals: list[FileSignal],
+        token_threshold: int,
     ) -> list[SplitOp]:
         """Topics over the token threshold → SplitOps (LLM-assisted).
 
@@ -483,7 +504,8 @@ class Maintainer(BaseStep):
     # -- conflict resolution ------------------------------------------------
 
     def _resolve_conflicts(
-        self, proposed: list[BaseModel],
+        self,
+        proposed: list[BaseModel],
     ) -> tuple[list[BaseModel], list[BaseModel]]:
         """Apply the conflict matrix; return (kept_plan, dropped).
 
@@ -588,7 +610,8 @@ class Maintainer(BaseStep):
     # -- apply --------------------------------------------------------------
 
     async def _apply(
-        self, plan: list[BaseModel],
+        self,
+        plan: list[BaseModel],
     ) -> tuple[list[dict], list[dict]]:
         """Execute the plan in fixed order. Each phase yields audit dicts.
 
@@ -613,11 +636,13 @@ class Maintainer(BaseStep):
                     result = await self._apply_one(op)
                     applied.append({"op": op.op, **result})  # type: ignore[attr-defined]
                 except Exception as e:
-                    failed.append({
-                        "op": op.op,  # type: ignore[attr-defined]
-                        "payload": _dump(op),
-                        "error": f"{type(e).__name__}: {e}",
-                    })
+                    failed.append(
+                        {
+                            "op": op.op,  # type: ignore[attr-defined]
+                            "payload": _dump(op),
+                            "error": f"{type(e).__name__}: {e}",
+                        }
+                    )
         return applied, failed
 
     async def _apply_one(self, op: BaseModel) -> dict:
@@ -626,28 +651,44 @@ class Maintainer(BaseStep):
             return {"path": op.path, "kind": op.kind, "noop": True}
         if isinstance(op, EnrichOp):
             # TODO: wire to memory_io.update_body once apply-side is enabled.
-            return {"path": op.path, "target": op.target, "predicate": op.predicate,
-                    "status": "pending_apply",
-                    "would": "memory_update wraps bare [[X]] as [predicate:: [[X]]]"}
+            return {
+                "path": op.path,
+                "target": op.target,
+                "predicate": op.predicate,
+                "status": "pending_apply",
+                "would": "memory_update wraps bare [[X]] as [predicate:: [[X]]]",
+            }
         if isinstance(op, DiscoverOp):
             # TODO: append Dataview lines under ## Relations (create heading
             # if absent), then call file_store invalidation.
-            return {"path": op.path, "edges_added": len(op.edges),
-                    "status": "pending_apply",
-                    "would": "append predicate:: [[Y]] under ## Relations heading"}
+            return {
+                "path": op.path,
+                "edges_added": len(op.edges),
+                "status": "pending_apply",
+                "would": "append predicate:: [[Y]] under ## Relations heading",
+            }
         if isinstance(op, DecayOp):
             # TODO: wire to MemoryArchive once we're ready to actually
             # move files from a cron context. For now, surface intent.
-            return {"path": op.path, "status": "pending_apply",
-                    "would": "flip status=archived + move to archive_dir"}
+            return {
+                "path": op.path,
+                "status": "pending_apply",
+                "would": "flip status=archived + move to archive_dir",
+            }
         if isinstance(op, MergeOp):
-            return {"canonical": op.canonical, "sources": op.sources,
-                    "status": "pending_apply",
-                    "would": "merge bodies + rewrite incoming wikilinks + archive sources"}
+            return {
+                "canonical": op.canonical,
+                "sources": op.sources,
+                "status": "pending_apply",
+                "would": "merge bodies + rewrite incoming wikilinks + archive sources",
+            }
         if isinstance(op, SplitOp):
-            return {"source": op.source, "sections": len(op.sections),
-                    "status": "pending_apply",
-                    "would": "extract sections + replace with [[…]] stubs"}
+            return {
+                "source": op.source,
+                "sections": len(op.sections),
+                "status": "pending_apply",
+                "would": "extract sections + replace with [[…]] stubs",
+            }
         raise TypeError(f"unknown op type: {type(op).__name__}")
 
 

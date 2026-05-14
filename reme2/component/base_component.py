@@ -21,11 +21,11 @@ class BaseComponent(ABC):
     component_type = ComponentEnum.BASE
 
     def __init__(
-            self,
-            name: str | None = None,
-            backend: str = "",
-            app_context: "ApplicationContext | None" = None,
-            **kwargs,
+        self,
+        name: str | None = None,
+        backend: str = "",
+        app_context: "ApplicationContext | None" = None,
+        **kwargs,
     ) -> None:
         self.name: str = name or self.__class__.__name__
         self.backend: str = backend

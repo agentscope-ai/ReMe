@@ -26,20 +26,25 @@ def main() -> None:
     )
     ap.add_argument("path", help="Path to a markdown file.")
     ap.add_argument(
-        "--chunk-chars", type=int, default=2000,
-        help="Max characters per chunk content (default: 2000). "
-             "Excludes TOC skeleton when embed_toc is on.",
+        "--chunk-chars",
+        type=int,
+        default=2000,
+        help="Max characters per chunk content (default: 2000). " "Excludes TOC skeleton when embed_toc is on.",
     )
     ap.add_argument(
-        "--no-toc", action="store_true",
+        "--no-toc",
+        action="store_true",
         help="Disable the full-doc TOC skeleton wrap; chunks become plain content.",
     )
     ap.add_argument(
-        "--show-edges", action="store_true",
-        help="Print extracted FileEdges before chunks.",
+        "--show-edges",
+        action="store_true",
+        help="Print extracted FileLinks before chunks.",
     )
     ap.add_argument(
-        "--preview", type=int, default=0,
+        "--preview",
+        type=int,
+        default=0,
         help="Truncate each chunk to N chars in output (0 = full text).",
     )
     args = ap.parse_args()
@@ -59,12 +64,12 @@ def main() -> None:
         sizes = [len(c.text) for c in chunks]
         print(f"chars min/avg/max: {min(sizes)} / {sum(sizes)//len(sizes)} / {max(sizes)}")
     if args.show_edges:
-        print(f"\nedges ({len(node.edges)}):")
-        for e in node.edges:
+        print(f"\nlinks ({len(node.links)}):")
+        for link in node.links:
             print(
-                f"  → {e.link}"
-                + (f"  predicate={e.predicate}" if e.predicate else "")
-                + (f"  anchor={e.anchor}" if e.anchor else "")
+                f"  → {link.path}"
+                + (f"  predicate={link.predicate}" if link.predicate else "")
+                + (f"  anchor={link.anchor}" if link.anchor else ""),
             )
 
     for i, c in enumerate(chunks):

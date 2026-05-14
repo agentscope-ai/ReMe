@@ -77,7 +77,7 @@ class BaseEmbeddingModel(BaseComponent):
 
         if to_compute:
             for i in range(0, len(to_compute), self.max_batch_size):
-                batch = to_compute[i: i + self.max_batch_size]
+                batch = to_compute[i : i + self.max_batch_size]
                 indices = [idx for idx, _ in batch]
                 texts = [text for _, text in batch]
 
@@ -89,7 +89,7 @@ class BaseEmbeddingModel(BaseComponent):
                             break
                     except (TimeoutError, ConnectionError, OSError):
                         if attempt < self.max_retries - 1:
-                            await asyncio.sleep(2 ** attempt)
+                            await asyncio.sleep(2**attempt)
                     except Exception:
                         break
 
