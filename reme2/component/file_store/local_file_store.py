@@ -133,12 +133,12 @@ class LocalFileStore(BaseFileStore):
         if not query_embedding:
             return []
 
-        candidates = [c for c in self.file_chunks.values() if c.embedding]
+        candidates = [c for c in self.file_chunks.values() if c.embedding is not None]
         if not candidates:
             return []
 
-        candidate_embeddings = np.array([c.embedding for c in candidates])
-        similarities = batch_cosine_similarity(np.array([query_embedding]), candidate_embeddings)[0]
+        candidate_embeddings = np.stack([c.embedding for c in candidates])
+        similarities = batch_cosine_similarity(query_embedding.reshape(1, -1), candidate_embeddings)[0]
 
         results = [
             c.model_copy(update={"scores": {"vector": float(s), "score": float(s)}})
