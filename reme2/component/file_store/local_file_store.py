@@ -79,7 +79,7 @@ class LocalFileStore(BaseFileStore):
         for node, chunks in file:
             old_node = self.file_nodes.pop(node.path, None)
             cached = {}
-            if old_node and self.vector_enabled:
+            if old_node and self.embedding_model:
                 for cid in old_node.chunk_ids:
                     old = self.file_chunks.pop(cid, None)
                     if old and old.embedding:
@@ -88,7 +88,7 @@ class LocalFileStore(BaseFileStore):
             node.chunk_ids = []
             needs_embed = []
             for c in chunks:
-                if self.vector_enabled and not c.embedding:
+                if self.embedding_model and not c.embedding:
                     if c.id in cached:
                         c.embedding = cached[c.id]
                     elif c.text:
@@ -100,7 +100,7 @@ class LocalFileStore(BaseFileStore):
             if needs_embed and self.embedding_model:
                 await self.embedding_model.get_node_embeddings(needs_embed)
 
-            if self.fts_enabled and self.keyword_index:
+            if self.keyword_index:
                 await self.keyword_index.add_docs({c.id: c.text for c in chunks if c.text})
 
     async def delete_by_path(self, path: str | list[str]) -> None:
@@ -114,13 +114,13 @@ class LocalFileStore(BaseFileStore):
                     self.file_chunks.pop(cid, None)
                     deleted_chunk_ids.append(cid)
 
-        if self.fts_enabled and self.keyword_index and deleted_chunk_ids:
+        if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
 
     async def clear(self) -> None:
         self.file_nodes.clear()
         self.file_chunks.clear()
-        if self.fts_enabled and self.keyword_index:
+        if self.keyword_index:
             await self.keyword_index.clear()
 
     # Search
@@ -148,7 +148,7 @@ class LocalFileStore(BaseFileStore):
         return results[:limit]
 
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if not self.fts_enabled or self.keyword_index is None:
+        if not self.keyword_index:
             return []
 
         query = query.strip()
