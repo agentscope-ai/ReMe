@@ -3,7 +3,6 @@
 import aiofiles
 import numpy as np
 
-from schema import FileLink
 from .base_file_store import BaseFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
@@ -156,18 +155,3 @@ class LocalFileStore(BaseFileStore):
                 results.append(chunk.model_copy(update={"scores": {"keyword": score, "score": score}}))
 
         return results
-
-    async def rebuild_links(self) -> None:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for delete_by_path")
-        return await self.file_graph.rebuild_links()
-
-    async def get_outlinks(self, path: str) -> list[FileLink]:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for delete_by_path")
-        return await self.file_graph.get_outlinks(path)
-
-    async def get_inlinks(self, path: str) -> list[FileLink]:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for delete_by_path")
-        return await self.file_graph.get_inlinks(path)
