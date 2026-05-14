@@ -257,7 +257,6 @@ components:
       store_name: "reme"
       db_path: "./vault/.reme"
       working_dir: "./vault"
-      fts_enabled: true
 
   file_watcher:
     default:
