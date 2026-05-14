@@ -36,18 +36,14 @@ class BaseFileWatcher(BaseComponent):
         self.force_polling: bool = force_polling
         self.debounce: int = debounce
         self.poll_delay_ms: int = poll_delay_ms
-        self.file_store_name: str = file_store
-        self.file_parser_name: str = file_parser
+        self.file_store = self.bind(file_store, BaseFileStore)
+        self.file_parser = self.bind(file_parser, BaseFileParser)
         self._stop_event: asyncio.Event = asyncio.Event()
         self._background_task: asyncio.Task | None = None
-        self.file_store: BaseFileStore | None = None
-        self.file_parser: BaseFileParser | None = None
         self._retry_interval: float = 10
 
     async def _start(self):
         self._stop_event = asyncio.Event()
-        self.file_store = self.get_component(ComponentEnum.FILE_STORE, self.file_store_name)
-        self.file_parser = self.get_component(ComponentEnum.FILE_PARSER, self.file_parser_name)
 
         async def background_task():
             await self.update_store()
