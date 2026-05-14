@@ -55,10 +55,6 @@ class BaseFileGraph(BaseComponent):
     async def get_node(self, path: str) -> FileNode | None:
         """Single-node lookup."""
 
-    @abstractmethod
-    def iter_nodes(self) -> AsyncIterator[tuple[str, FileNode]]:
-        """Walk every (path, FileNode) in the graph."""
-
     # -- Link access -------------------------------------------------------
 
     @abstractmethod
