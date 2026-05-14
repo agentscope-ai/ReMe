@@ -20,9 +20,9 @@ class BaseJob(BaseComponent):
 
     def __init__(
         self,
-        description: str = "",
-        parameters: dict | None = None,
-        steps: list[ComponentConfig] | None = None,
+        description: str,
+        parameters: dict,
+        steps: list[ComponentConfig | dict],
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -39,9 +39,7 @@ class BaseJob(BaseComponent):
                 raise ValueError("Step is missing the required 'backend' field")
             step_cls = R.get(ComponentEnum.STEP, config.backend)
             if not step_cls:
-                raise ValueError(
-                    f"Step references an unregistered backend '{config.backend}' " f"of type '{ComponentEnum.STEP}'",
-                )
+                raise ValueError(f"Unregistered backend '{config.backend}' of type '{ComponentEnum.STEP}'")
             params = config.model_dump()
             params["app_context"] = self.app_context
             self.step_components.append(step_cls(**params))
