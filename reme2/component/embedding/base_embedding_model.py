@@ -28,7 +28,7 @@ class BaseEmbeddingModel(BaseComponent):
         pass_dimensions: bool = False,
         max_batch_size: int = 10,
         max_input_length: int = 8192,
-        max_cache_size: int = 5000,
+        max_cache_size: int = 10000,
         enable_cache: bool = True,
         max_retries: int = 3,
         **kwargs,
@@ -99,7 +99,7 @@ class BaseEmbeddingModel(BaseComponent):
                 for orig_idx, text, emb in zip(indices, texts, embeddings):
                     if emb is None:
                         continue
-                    emb_array = np.asarray(emb, dtype=np.float32)
+                    emb_array = np.asarray(emb, dtype=np.float16)
                     if len(emb_array) != self.dimensions:
                         if len(emb_array) < self.dimensions:
                             emb_array = np.pad(emb_array, (0, self.dimensions - len(emb_array)))
@@ -172,7 +172,7 @@ class BaseEmbeddingModel(BaseComponent):
                 continue
             if len(self._embedding_cache) >= self.max_cache_size:
                 break
-            self._embedding_cache[str(key)] = emb.astype(np.float32)
+            self._embedding_cache[str(key)] = emb.astype(np.float16)
 
     def _save_cache(self) -> None:
         if not self.enable_cache or not self._embedding_cache:
