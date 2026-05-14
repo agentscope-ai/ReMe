@@ -45,6 +45,7 @@ class BaseFileWatcher(BaseComponent):
         self._retry_interval: float = 10
 
     async def _start(self):
+        self._stop_event = asyncio.Event()
         self.file_store = self.get_component(ComponentEnum.FILE_STORE, self.file_store_name)
         self.file_parser = self.get_component(ComponentEnum.FILE_PARSER, self.file_parser_name)
 
