@@ -3,6 +3,7 @@ from abc import abstractmethod
 from ..base_component import BaseComponent
 from ..embedding import BaseEmbeddingModel
 from ..keyword_index import BaseKeywordIndex
+from ..file_graph import BaseFileGraph
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 
@@ -15,6 +16,7 @@ class BaseFileStore(BaseComponent):
             store_name: str,
             embedding_model: str = "default",
             keyword_index: str = "default",
+            file_graph: str = "default",
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -24,22 +26,9 @@ class BaseFileStore(BaseComponent):
 
         self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel)
         self.keyword_index = self.bind(keyword_index, BaseKeywordIndex)
+        self.file_graph = self.bind(file_graph, BaseFileGraph)
         self.store_path = self.working_path / self.component_type.value / store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
-
-        self.file_nodes: dict[str, FileNode] = {}
-
-    async def _start(self) -> None:
-        await self.load_file_nodes()
-
-    async def _close(self) -> None:
-        await self.dump_file_nodes()
-
-    async def load_file_nodes(self):
-        ...
-
-    async def dump_file_nodes(self):
-        ...
 
     async def upsert_file(
             self,

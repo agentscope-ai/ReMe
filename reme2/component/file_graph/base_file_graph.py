@@ -33,6 +33,10 @@ class BaseFileGraph(BaseComponent):
     async def rebuild_links(self) -> None:
         """Rebuild all links in the graph from each node's payload."""
 
+    @abstractmethod
+    async def clear(self):
+        """Clear the graph."""
+
     # -- Link access -------------------------------------------------------
 
     @abstractmethod
