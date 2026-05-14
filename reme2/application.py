@@ -1,6 +1,7 @@
 """Application module for managing the main application lifecycle."""
 
 import asyncio
+import heapq
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -84,14 +85,57 @@ class Application(BaseComponent):
         """Get application configuration."""
         return self.context.app_config
 
+    # ----- Dependency-aware startup --------------------------------------
+
+    def _topological_order(self) -> list[BaseComponent]:
+        """Kahn's algorithm. Raises on missing required dep or cycle."""
+        nodes: dict[tuple[ComponentEnum, str], BaseComponent] = {
+            (ctype, name): comp
+            for ctype, group in self.context.components.items()
+            for name, comp in group.items()
+        }
+
+        in_degree: dict[tuple[ComponentEnum, str], int] = dict.fromkeys(nodes, 0)
+        dependents: dict[tuple[ComponentEnum, str], list[tuple[ComponentEnum, str]]] = {k: [] for k in nodes}
+        for key, comp in nodes.items():
+            for dep in comp.dependencies():
+                dep_key = (dep.ctype, dep.name)
+                if dep_key in nodes:
+                    dependents[dep_key].append(key)
+                    in_degree[key] += 1
+                elif not dep.optional:
+                    raise ValueError(
+                        f"Component {key[0].value}:{key[1]} depends on "
+                        f"{dep.ctype.value}:{dep.name}, which is not registered",
+                    )
+
+        ready = [k for k, d in in_degree.items() if d == 0]
+        heapq.heapify(ready)
+        ordered: list[BaseComponent] = []
+        while ready:
+            key = heapq.heappop(ready)
+            ordered.append(nodes[key])
+            for downstream in dependents[key]:
+                in_degree[downstream] -= 1
+                if in_degree[downstream] == 0:
+                    heapq.heappush(ready, downstream)
+
+        if len(ordered) != len(nodes):
+            unresolved = [f"{k[0].value}:{k[1]}" for k, d in in_degree.items() if d > 0]
+            raise ValueError(f"Circular dependency detected among: {unresolved}")
+        return ordered
+
     async def _start(self) -> None:
-        """Start the application."""
-        for components in self.context.components.values():
-            for component in components.values():
-                try:
-                    await component.start()
-                except Exception as e:
-                    self.logger.exception(f"Failed to start component {component.__class__.__name__}: {e}")
+        """Start all components in topological order, then jobs."""
+        start_order = self._topological_order()
+        order_str = " -> ".join(f"{c.component_type.value}:{c.name}" for c in start_order)
+        self.logger.info(f"Component start order: {order_str}")
+
+        for component in start_order:
+            try:
+                await component.start()
+            except Exception as e:
+                self.logger.exception(f"Failed to start {component.component_type.value}:{component.name}: {e}")
 
         for name, job in self.context.jobs.items():
             try:
@@ -100,19 +144,19 @@ class Application(BaseComponent):
                 self.logger.exception(f"Failed to start job '{name}': {e}")
 
     async def _close(self) -> None:
-        """Close the application."""
+        """Close all components and jobs."""
         for name, job in self.context.jobs.items():
             try:
                 await job.close()
             except Exception as e:
                 self.logger.exception(f"Failed to close job '{name}': {e}")
 
-        for components in reversed(list(self.context.components.values())):
-            for component in reversed(list(components.values())):
+        for components in self.context.components.values():
+            for component in components.values():
                 try:
                     await component.close()
                 except Exception as e:
-                    self.logger.exception(f"Failed to close component {component.__class__.__name__}: {e}")
+                    self.logger.exception(f"Failed to close {component.component_type.value}:{component.name}: {e}")
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a registered job by name."""
