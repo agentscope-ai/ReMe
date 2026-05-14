@@ -15,9 +15,7 @@ Contract — six abstract methods, two blocks:
 
 from __future__ import annotations
 
-import re
 from abc import abstractmethod
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 from ..base_component import BaseComponent
@@ -30,16 +28,11 @@ class BaseFileGraph(BaseComponent):
 
     component_type = ComponentEnum.FILE_GRAPH
 
-    def __init__(self, store_name: str = "default", **kwargs):
+    def __init__(self, graph_name: str = "default", **kwargs):
         super().__init__(**kwargs)
-        if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
-            raise ValueError(
-                f"Invalid store name '{store_name}'. " f"Only alphanumeric and underscores allowed.",
-            )
-        self.store_name: str = store_name
-        self.working_dir: str = self.app_context.app_config.working_dir if self.app_context else ""
-        self.store_path: Path = Path(self.working_dir) / "file_graph" / store_name
-        self.store_path.mkdir(parents=True, exist_ok=True)
+        self.graph_name: str = graph_name or self.name
+        self.graph_path: Path = self.working_path / self.component_type.value / graph_name
+        self.graph_path.mkdir(parents=True, exist_ok=True)
 
     # -- Node CRUD ---------------------------------------------------------
 
@@ -58,15 +51,9 @@ class BaseFileGraph(BaseComponent):
     # -- Link access -------------------------------------------------------
 
     @abstractmethod
-    async def get_outlinks(
-        self,
-        path: str,
-    ) -> list[tuple[FileNode, FileLink]]:
+    async def get_outlinks(self, path: str) -> list[FileLink]:
         """Resolved outgoing links from ``path``."""
 
     @abstractmethod
-    async def get_inlinks(
-        self,
-        path: str,
-    ) -> list[tuple[FileNode, FileLink]]:
+    async def get_inlinks(self, path: str) -> list[FileLink]:
         """Resolved incoming links to ``path``."""

@@ -83,7 +83,7 @@ class Neo4jFileGraph(BaseFileGraph):
                 "CREATE CONSTRAINT file_path_unique IF NOT EXISTS " "FOR (f:File) REQUIRE f.path IS UNIQUE",
             )
         self.logger.info(
-            f"Neo4jFileGraph '{self.store_name}' connected at " f"{self._uri}/{self._database}",
+            f"Neo4jFileGraph '{self.graph_name}' connected at " f"{self._uri}/{self._database}",
         )
 
     async def _close(self) -> None:
