@@ -2,10 +2,10 @@ from abc import abstractmethod
 
 from ..base_component import BaseComponent
 from ..embedding import BaseEmbeddingModel
-from ..keyword_index import BaseKeywordIndex
 from ..file_graph import BaseFileGraph
+from ..keyword_index import BaseKeywordIndex
 from ...enumeration import ComponentEnum
-from ...schema import FileChunk, FileNode
+from ...schema import FileChunk, FileNode, FileLink
 
 
 class BaseFileStore(BaseComponent):
@@ -49,3 +49,18 @@ class BaseFileStore(BaseComponent):
     @abstractmethod
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         """Perform full-text keyword search."""
+
+    async def rebuild_links(self) -> None:
+        if not self.file_graph:
+            raise RuntimeError("file_graph is required for delete_by_path")
+        return await self.file_graph.rebuild_links()
+
+    async def get_outlinks(self, path: str) -> list[FileLink]:
+        if not self.file_graph:
+            raise RuntimeError("file_graph is required for delete_by_path")
+        return await self.file_graph.get_outlinks(path)
+
+    async def get_inlinks(self, path: str) -> list[FileLink]:
+        if not self.file_graph:
+            raise RuntimeError("file_graph is required for delete_by_path")
+        return await self.file_graph.get_inlinks(path)
