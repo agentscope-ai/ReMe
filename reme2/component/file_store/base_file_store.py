@@ -1,4 +1,3 @@
-import re
 from abc import abstractmethod
 
 from ..base_component import BaseComponent
@@ -12,15 +11,13 @@ class BaseFileStore(BaseComponent):
     component_type = ComponentEnum.FILE_STORE
 
     def __init__(
-        self,
-        store_name: str,
-        embedding_model: str = "default",
-        keyword_index: str = "default",
-        **kwargs,
+            self,
+            store_name: str,
+            embedding_model: str = "default",
+            keyword_index: str = "default",
+            **kwargs,
     ):
         super().__init__(**kwargs)
-        if not re.match(r"^[a-zA-Z0-9_]+$", store_name):
-            raise ValueError(f"Invalid store name '{store_name}'. Only alphanumeric and underscores allowed.")
         self.store_name = store_name or self.name
         self._embedding_model_name = embedding_model
         self._keyword_index_name = keyword_index
@@ -46,13 +43,15 @@ class BaseFileStore(BaseComponent):
         self.keyword_index = None
         await self.dump_file_nodes()
 
-    async def load_file_nodes(self): ...
+    async def load_file_nodes(self):
+        ...
 
-    async def dump_file_nodes(self): ...
+    async def dump_file_nodes(self):
+        ...
 
     async def upsert_file(
-        self,
-        file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
+            self,
+            file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
     ) -> None:
         """Upsert a file and its chunks into the store."""
 
@@ -69,6 +68,3 @@ class BaseFileStore(BaseComponent):
     @abstractmethod
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         """Perform full-text keyword search."""
-
-    async def graph_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk] | None:
-        """Perform graph search."""

@@ -577,9 +577,8 @@ class LinkedFileParser(BaseFileParser):
         when ``embed_toc``, otherwise just ``content``."""
         text = _toc_join(before, content, after) if self.embed_toc else content
         return FileChunk(
-            id=hash_text(text),
             path=path,
             start_line=start_line,
             end_line=end_line,
             text=text,
-        )
+        ).set_hash_id()
