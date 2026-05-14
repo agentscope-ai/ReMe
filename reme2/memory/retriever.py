@@ -172,7 +172,7 @@ class HybridRetriever(BaseRetriever):
         candidates = min(200, max(1, int(max_results * self.candidate_multiplier)))
         text_weight = 1.0 - self.vector_weight
 
-        if fs.vector_enabled and fs.fts_enabled:
+        if fs.embedding_model and fs.keyword_index:
             v_task = memory_io.search_vector(fs, query, limit=candidates, chunk_filter=chunk_filter)
             k_task = memory_io.search_keyword(fs, query, limit=candidates, chunk_filter=chunk_filter)
             v_results, k_results = await asyncio.gather(v_task, k_task)
@@ -185,9 +185,9 @@ class HybridRetriever(BaseRetriever):
                 results = self._merge_vk(
                     v_results, k_results, self.vector_weight, text_weight,
                 )[:max_results]
-        elif fs.vector_enabled:
+        elif fs.embedding_model:
             results = await memory_io.search_vector(fs, query, limit=max_results, chunk_filter=chunk_filter)
-        elif fs.fts_enabled:
+        elif fs.keyword_index:
             results = await memory_io.search_keyword(fs, query, limit=max_results, chunk_filter=chunk_filter)
         else:
             results = []

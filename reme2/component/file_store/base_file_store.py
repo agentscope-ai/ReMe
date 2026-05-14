@@ -16,7 +16,6 @@ class BaseFileStore(BaseComponent):
             store_name: str,
             embedding_model: str = "default",
             keyword_index: str = "default",
-            fts_enabled: bool = True,
             **kwargs,
     ):
         super().__init__(**kwargs)
@@ -25,30 +24,26 @@ class BaseFileStore(BaseComponent):
         self.store_name = store_name or self.name
         self._embedding_model_name = embedding_model
         self._keyword_index_name = keyword_index
-        self.fts_enabled = fts_enabled
 
         self.embedding_model: BaseEmbeddingModel | None = None
         self.keyword_index: BaseKeywordIndex | None = None
-        self.vector_enabled = bool(embedding_model)
         self.store_path = self.working_path / self.component_type.value / store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
-        if not self.vector_enabled and not self.fts_enabled:
-            raise ValueError("At least one of embedding_model or fts_enabled must be set.")
+        if not embedding_model and not keyword_index:
+            raise ValueError("At least one of embedding_model or keyword_index must be set.")
 
         self.file_nodes: dict[str, FileNode] = {}
 
     async def _start(self) -> None:
-        if self.vector_enabled:
+        if self._embedding_model_name:
             self.embedding_model = self.get_component(ComponentEnum.EMBEDDING_MODEL, self._embedding_model_name)
-        if self.fts_enabled:
+        if self._keyword_index_name:
             self.keyword_index = self.get_component(ComponentEnum.KEYWORD_INDEX, self._keyword_index_name)
         await self.load_file_nodes()
 
     async def _close(self) -> None:
-        if self.vector_enabled:
-            self.embedding_model = None
-        if self.fts_enabled:
-            self.keyword_index = None
+        self.embedding_model = None
+        self.keyword_index = None
         await self.dump_file_nodes()
 
     async def load_file_nodes(self):
