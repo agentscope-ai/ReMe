@@ -109,6 +109,11 @@ class LocalFileGraph(BaseFileGraph):
                 if link.path:
                     self._add_edge(src, link.path)
 
+    async def clear(self):
+        self._nodes.clear()
+        self._inverse.clear()
+        self._pending.clear()
+
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str) -> list[FileLink]:
