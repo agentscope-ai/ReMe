@@ -31,9 +31,7 @@ async def check_registry(ctx: AppContext) -> str:
     missing = [j for j in EXPECTED_JOBS if j not in ctx.jobs]
     assert not missing, f"missing jobs: {missing}"
     extras = [j for j in ctx.jobs if j not in EXPECTED_JOBS]
-    assert not extras, (
-        f"curated profile leaked extra jobs: {extras} — keep the surface tight"
-    )
+    assert not extras, f"curated profile leaked extra jobs: {extras} — keep the surface tight"
     return f"{len(ctx.jobs)} jobs registered"
 
 
@@ -41,9 +39,14 @@ async def check_registry(ctx: AppContext) -> str:
 
 
 async def check_retrieve_basic(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "retrieve", query="Alice Bob", max_results=5, min_score=0.0,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "retrieve",
+            query="Alice Bob",
+            max_results=5,
+            min_score=0.0,
+        ),
+    )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
     return f"{len(hits)} hits"
@@ -51,13 +54,15 @@ async def check_retrieve_basic(ctx: AppContext) -> str:
 
 async def check_retrieve_anchored(ctx: AppContext) -> str:
     """Wikilink-anchored mode — `[[Project X]]` in the query seeds BFS."""
-    r = decode(await ctx.app.run_job(
-        "retrieve",
-        query="What touches [[Project X]]?",
-        max_results=5,
-        min_score=0.0,
-        graph_depth=1,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "retrieve",
+            query="What touches [[Project X]]?",
+            max_results=5,
+            min_score=0.0,
+            graph_depth=1,
+        ),
+    )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
     paths = {h.get("path") for h in hits if isinstance(h, dict)}
@@ -70,14 +75,16 @@ async def check_retrieve_anchored(ctx: AppContext) -> str:
 async def check_retrieve_topic_seeded(ctx: AppContext) -> str:
     """Topic-rooted mode — explicit `seeds=[...]` instead of inline wikilink."""
     project_x = ctx.abs_path("topics", "Project X", "Project X.md")
-    r = decode(await ctx.app.run_job(
-        "retrieve",
-        query="collaborates",
-        max_results=5,
-        min_score=0.0,
-        seeds=[project_x],
-        graph_depth=1,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "retrieve",
+            query="collaborates",
+            max_results=5,
+            min_score=0.0,
+            seeds=[project_x],
+            graph_depth=1,
+        ),
+    )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
     return f"{len(hits)} hits (seeded at Project X)"
@@ -87,19 +94,21 @@ async def check_retrieve_topic_seeded(ctx: AppContext) -> str:
 
 
 async def check_remember_log_create(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "remember",
-        mode="log",
-        name="curated-event",
-        description="curated-profile suite",
-        content="## ops\n- ran the curated suite\n",
-        topics=["[[Alice]]"],
-        tags=["curated"],
-        materials=[
-            {"filename": "raw-prompt.md", "content": "# user prompt\n\nrun curated suite\n"},
-            {"filename": "tool-output.txt", "content": "exit=0\n"},
-        ],
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "remember",
+            mode="log",
+            name="curated-event",
+            description="curated-profile suite",
+            content="## ops\n- ran the curated suite\n",
+            topics=["[[Alice]]"],
+            tags=["curated"],
+            materials=[
+                {"filename": "raw-prompt.md", "content": "# user prompt\n\nrun curated suite\n"},
+                {"filename": "tool-output.txt", "content": "exit=0\n"},
+            ],
+        ),
+    )
     assert isinstance(r, dict), r
     assert r.get("created") is True and r.get("action") == "created", r
     materials = r.get("materials", [])
@@ -118,17 +127,19 @@ async def check_remember_log_create(ctx: AppContext) -> str:
 
 
 async def check_remember_log_append(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "remember",
-        mode="log",
-        name="curated-event",
-        content="## follow-up\n- second pass\n",
-        topics=["[[Bob]]"],
-        tags=["follow-up"],
-        materials=[
-            {"filename": "tool-output.txt", "content": "second run\n"},  # collision
-        ],
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "remember",
+            mode="log",
+            name="curated-event",
+            content="## follow-up\n- second pass\n",
+            topics=["[[Bob]]"],
+            tags=["follow-up"],
+            materials=[
+                {"filename": "tool-output.txt", "content": "second run\n"},  # collision
+            ],
+        ),
+    )
     assert isinstance(r, dict), r
     assert r.get("created") is False and r.get("action") == "appended", r
     appended = r.get("materials", [])
@@ -150,9 +161,14 @@ async def check_remember_log_refuse_distilled(ctx: AppContext) -> str:
     # Give the watcher a moment to re-parse before sync re-reads frontmatter.
     await wait_for_index(ctx.watcher, expected_min=len(ctx.file_store))
 
-    r = decode(await ctx.app.run_job(
-        "remember", mode="log", name="curated-event", content="should be refused",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "remember",
+            mode="log",
+            name="curated-event",
+            content="should be refused",
+        ),
+    )
     assert isinstance(r, dict) and "error" in r, r
     assert r.get("status") == "distilled", r
     assert r.get("suggested_name"), r
@@ -164,26 +180,28 @@ async def check_remember_log_refuse_distilled(ctx: AppContext) -> str:
 
 async def check_remember_distill_degraded(ctx: AppContext) -> str:
     target = ctx.abs_path("topics", "curated-ingested", "curated-ingested.md")
-    r = decode(await ctx.app.run_job(
-        "remember",
-        # mode defaults to "distill"
-        content="# curated-ingested\n\nproduced by the curated test suite.\n",
-        target_path=target,
-        metadata={
-            "title": "curated-ingested",
-            "lifecycle": "evolving",
-            "scope": "class",
-            "source": "curated",
-            "role": "concept",
-            "category": "concept",
-        },
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "remember",
+            # mode defaults to "distill"
+            content="# curated-ingested\n\nproduced by the curated test suite.\n",
+            target_path=target,
+            metadata={
+                "title": "curated-ingested",
+                "lifecycle": "evolving",
+                "scope": "class",
+                "source": "curated",
+                "role": "concept",
+                "category": "concept",
+            },
+        ),
+    )
     assert isinstance(r, dict), r
     applied = r.get("applied") or []
     assert len(applied) == 1 and applied[0].get("ok") is True, r
     assert r.get("used_llm") is False, "expected degraded path (no LLM)"
     assert Path(target).is_file(), target
-    return f"applied=1, used_llm=False"
+    return "applied=1, used_llm=False"
 
 
 # ---------- maintain (lint + decay sweep) -----------------------------
@@ -206,9 +224,13 @@ async def check_maintain_dry_run(ctx: AppContext) -> str:
 async def check_maintain_targeted(ctx: AppContext) -> str:
     """target_prefix narrows scan; events/ subtree should yield the
     one event folder created earlier in this suite."""
-    r = decode(await ctx.app.run_job(
-        "maintain", target_prefix="events/", dry_run=True,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "maintain",
+            target_prefix="events/",
+            dry_run=True,
+        ),
+    )
     assert isinstance(r, dict), r
     assert r["scanned"] >= 1, r  # at least the suite's own event folder
     return f"scanned={r['scanned']} under events/"
@@ -218,14 +240,14 @@ async def check_maintain_targeted(ctx: AppContext) -> str:
 
 
 CHECKS: list[tuple[str, callable]] = [
-    ("registry",                       check_registry),
-    ("retrieve.basic",                 check_retrieve_basic),
-    ("retrieve.anchored",              check_retrieve_anchored),
-    ("retrieve.topic_seeded",          check_retrieve_topic_seeded),
-    ("remember.log_create",            check_remember_log_create),
-    ("remember.log_append",            check_remember_log_append),
-    ("remember.log_refuse_distilled",  check_remember_log_refuse_distilled),
-    ("remember.distill_degraded",      check_remember_distill_degraded),
-    ("maintain.dry_run",               check_maintain_dry_run),
-    ("maintain.targeted",              check_maintain_targeted),
+    ("registry", check_registry),
+    ("retrieve.basic", check_retrieve_basic),
+    ("retrieve.anchored", check_retrieve_anchored),
+    ("retrieve.topic_seeded", check_retrieve_topic_seeded),
+    ("remember.log_create", check_remember_log_create),
+    ("remember.log_append", check_remember_log_append),
+    ("remember.log_refuse_distilled", check_remember_log_refuse_distilled),
+    ("remember.distill_degraded", check_remember_distill_degraded),
+    ("maintain.dry_run", check_maintain_dry_run),
+    ("maintain.targeted", check_maintain_targeted),
 ]

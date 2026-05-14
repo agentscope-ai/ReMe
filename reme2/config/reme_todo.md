@@ -3,9 +3,9 @@ ReMe重构
   a. ✅ vault_root → working_dir @sen
 2. file_parser
   a. 抽象基类 parse: @jinli
-    ⅰ. 输入是path：相对路径 
+    ⅰ. 输入是path：相对路径
     ⅱ. 输出是FileMetadata & list[FileChunks] & list[FileEdge]
-  b. default parser 兼容老方案 @jinli 
+  b. default parser 兼容老方案 @jinli
     ⅰ. 带overlap的chunking策略 ，不输出FileEdge
   c. markdown parser @sen
     ⅰ. 根据markdown ast做chunk，不需要overlap
@@ -27,11 +27,11 @@ ReMe重构
     ⅳ. 【核心】检索机制 vector bm25 graph 如何进行融合
 4. file_watcher @jinli
   a. 抽象基类
-    ⅰ. on_start: 
+    ⅰ. on_start:
       1. file_store 的start 在前，加载graph，file_watcher在后，递归扫描目录
         a. 通过ms_time对比graph，on_change 进行改动
     ⅱ. on_change:
-      1. 更新/增加: 
+      1. 更新/增加:
         a. delete_chunks_by_path 更新数据库
         b. upate_chunks_by_path 更新数据库
         c. 更新graph
@@ -44,14 +44,14 @@ MemorySchema
     ⅰ. title
     ⅱ. desc
     ⅲ. tags
-    ⅳ. 
+    ⅳ.
 2. memory文件结构目录
   a. MEMORY.md
   b. msg/files -> daily/YYYYMMDD/YYYYMMDD.md + xxxx.md
     ⅰ. YYYYMMDD.md
       1. xxx -> xxxx.md
       2. xxx -> xxxd.md
-    ⅱ. 
+    ⅱ.
   c. daily -> topic/topic_l1/topic_l1.md + xxx.md + topic_l2
   d. proactive
 

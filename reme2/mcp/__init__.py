@@ -1,20 +1,19 @@
-"""reme2.mcp — MCP interface layer.
+"""reme2.mcp — MCP transport layer.
 
-The Agent-facing surface: server entrypoint + step shells that wrap
-the three services in `reme2.memory` (Retriever, Ingestor, Maintainer)
-plus the hot-write primitive (`sync`) and the raw `memory_*` write/read
-tools that bypass services and land directly on the Memory File System.
+Just the MCP server bootstrap (config loading, env-var overrides,
+sidecar HTTP). All agent-facing tools live in ``reme2.memory`` and
+register themselves there; this package only wires them into the MCP
+transport via the ``mcp`` service component.
 
-This package depends on `reme2.memory`, `reme2.utils`, `reme2.component`
-— never the reverse. The Memory schema (the typed shape of every
-frontmatter) lives under `reme2.memory.schema/` so the services that
-own validation can use it without an import cycle through this
-transport layer.
+Dependency direction is strict: ``reme2.mcp → reme2.memory`` (and
+through it ``reme2.component`` / ``reme2.utils``). Importing
+``reme2.memory`` triggers all ``@R.register`` decorators for
+``memory_*`` / ``sync`` / ``memory_search`` / ``memory_lint`` /
+``ingest`` / ``maintainer`` / ``hybrid``.
 
-Sub-packages:
-    steps/   - all @R.register MCP step shells (memory_toolkit,
-               memory_retriever, memory_lint, sync).
-    server.py - MCP server bootstrap (defaults to ../config/service.yaml).
+Files:
+    server.py — MCP server bootstrap (defaults to ../config/service.yaml).
+    test/     — end-to-end profile smoke tests.
 """
 
 __version__ = "0.1.0"

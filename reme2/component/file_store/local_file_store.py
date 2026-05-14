@@ -30,8 +30,10 @@ class LocalFileStore(BaseFileStore):
     async def _start(self) -> None:
         await super()._start()
         await self._load_jsonl(self.chunks_path, self.file_chunks, FileChunk, "id")
-        self.logger.info(f"LocalFileStore '{self.store_name}' ready: "
-                         f"{len(self.file_nodes)} nodes, {len(self.file_chunks)} chunks")
+        self.logger.info(
+            f"LocalFileStore '{self.store_name}' ready: "
+            f"{len(self.file_nodes)} nodes, {len(self.file_chunks)} chunks"
+        )
 
     async def _close(self) -> None:
         await self._dump_jsonl(self.chunks_path, list(self.file_chunks.values()))
@@ -71,8 +73,8 @@ class LocalFileStore(BaseFileStore):
         await self._dump_jsonl(self.nodes_path, list(self.file_nodes.values()))
 
     async def upsert_file(
-            self,
-            file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
+        self,
+        file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
     ) -> None:
         if isinstance(file, tuple):
             file = [file]

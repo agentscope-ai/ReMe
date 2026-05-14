@@ -36,7 +36,7 @@ class BaseJob(BaseComponent):
         for raw in self.step_configs:
             config = raw if isinstance(raw, ComponentConfig) else ComponentConfig(**raw)
             if not config.backend:
-                raise ValueError(f"Step is missing the required 'backend' field")
+                raise ValueError("Step is missing the required 'backend' field")
             step_cls = R.get(ComponentEnum.STEP, config.backend)
             if not step_cls:
                 raise ValueError(

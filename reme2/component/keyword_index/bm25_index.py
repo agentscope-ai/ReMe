@@ -20,6 +20,7 @@ class DocMeta(TypedDict):
         len: Number of tokens in the document.
         token_ids: Set of unique token IDs present in the document.
     """
+
     len: int
     token_ids: set[int]
 

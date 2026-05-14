@@ -5,7 +5,7 @@ from .as_msg_stat import AsBlockStat, AsMsgStat
 from .emb_node import EmbNode
 from .chunk_filter import ChunkFilter
 from .file_chunk import FileChunk
-from .file_edge import FileEdge, extract_wikilinks
+from .file_link import FileLink, extract_wikilinks, iter_links
 from .file_node import FileFrontMatter, FileNode
 from .request import Request
 from .response import Response
@@ -20,11 +20,12 @@ __all__ = [
     "EmbNode",
     "ChunkFilter",
     "FileChunk",
-    "FileEdge",
+    "FileLink",
     "FileFrontMatter",
     "FileNode",
     "Request",
     "Response",
     "StreamChunk",
     "extract_wikilinks",
+    "iter_links",
 ]

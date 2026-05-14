@@ -39,13 +39,13 @@ class LiteFileWatcher(BaseFileWatcher):
             try:
                 logger.info(f"Watching: {valid_paths}")
                 async for changes in awatch(
-                        *valid_paths,
-                        watch_filter=self.watch_filter,
-                        recursive=self.recursive,
-                        force_polling=self.force_polling,
-                        debounce=self.debounce,
-                        poll_delay_ms=self.poll_delay_ms,
-                        stop_event=self._stop_event,
+                    *valid_paths,
+                    watch_filter=self.watch_filter,
+                    recursive=self.recursive,
+                    force_polling=self.force_polling,
+                    debounce=self.debounce,
+                    poll_delay_ms=self.poll_delay_ms,
+                    stop_event=self._stop_event,
                 ):
                     if self._stop_event.is_set():
                         break

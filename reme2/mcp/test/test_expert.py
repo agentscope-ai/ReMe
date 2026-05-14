@@ -75,19 +75,29 @@ async def check_memory_list(ctx: AppContext) -> str:
 
 
 async def check_memory_search(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "memory_search", query="collaborates", max_results=3, min_score=0.0,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_search",
+            query="collaborates",
+            max_results=3,
+            min_score=0.0,
+        ),
+    )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
     return f"{len(hits)} hits"
 
 
 async def check_memory_graph_search(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "memory_graph_search", query="Alice", max_results=5, min_score=0.0,
-        graph_depth=1,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_graph_search",
+            query="Alice",
+            max_results=5,
+            min_score=0.0,
+            graph_depth=1,
+        ),
+    )
     hits = r if isinstance(r, list) else (r.get("chunks") if isinstance(r, dict) else [])
     assert len(hits) > 0, r
     # At least one result should carry a graph_hop annotation
@@ -118,9 +128,12 @@ async def check_memory_resolve_wikilink(ctx: AppContext) -> str:
 
 
 async def check_memory_count_tokens(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "memory_count_tokens", text="hello world from the smoke test",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_count_tokens",
+            text="hello world from the smoke test",
+        ),
+    )
     assert isinstance(r, dict) and isinstance(r.get("tokens"), int), r
     assert r["tokens"] > 0, r
     return f"text → {r['tokens']} tokens"
@@ -142,18 +155,20 @@ async def check_memory_lint(ctx: AppContext) -> str:
 
 
 async def check_sync_create(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "sync",
-        name="suite-event",
-        description="full-profile suite",
-        content="## ops\n- ran the suite\n",
-        topics=["[[Alice]]"],
-        tags=["suite"],
-        materials=[
-            {"filename": "raw-prompt.md", "content": "# user prompt\n\nrun suite\n"},
-            {"filename": "tool-output.txt", "content": "exit=0\n"},
-        ],
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "sync",
+            name="suite-event",
+            description="full-profile suite",
+            content="## ops\n- ran the suite\n",
+            topics=["[[Alice]]"],
+            tags=["suite"],
+            materials=[
+                {"filename": "raw-prompt.md", "content": "# user prompt\n\nrun suite\n"},
+                {"filename": "tool-output.txt", "content": "exit=0\n"},
+            ],
+        ),
+    )
     assert isinstance(r, dict), r
     assert r.get("created") is True and r.get("action") == "created", r
     materials = r.get("materials", [])
@@ -176,17 +191,19 @@ async def check_sync_create(ctx: AppContext) -> str:
 
 
 async def check_sync_append(ctx: AppContext) -> str:
-    r = decode(await ctx.app.run_job(
-        "sync",
-        name="suite-event",
-        content="## follow-up\n- second pass\n",
-        topics=["[[Bob]]"],   # union with [[Alice]]
-        tags=["follow-up"],
-        materials=[
-            {"filename": "tool-output.txt", "content": "second run\n"},  # collision
-            {"filename": "summary.md", "content": "# summary\n"},
-        ],
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "sync",
+            name="suite-event",
+            content="## follow-up\n- second pass\n",
+            topics=["[[Bob]]"],  # union with [[Alice]]
+            tags=["follow-up"],
+            materials=[
+                {"filename": "tool-output.txt", "content": "second run\n"},  # collision
+                {"filename": "summary.md", "content": "# summary\n"},
+            ],
+        ),
+    )
     assert isinstance(r, dict), r
     assert r.get("created") is False and r.get("action") == "appended", r
     appended = r.get("materials", [])
@@ -204,11 +221,18 @@ async def check_sync_append(ctx: AppContext) -> str:
 async def check_sync_refuse_distilled(ctx: AppContext) -> str:
     index_path = str(getattr(ctx, "_suite_event_index"))
     await ctx.app.run_job(
-        "memory_property_update", path=index_path, key="status", value="distilled",
+        "memory_property_update",
+        path=index_path,
+        key="status",
+        value="distilled",
     )
-    r = decode(await ctx.app.run_job(
-        "sync", name="suite-event", content="should be refused",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "sync",
+            name="suite-event",
+            content="should be refused",
+        ),
+    )
     assert isinstance(r, dict) and "error" in r, r
     assert r.get("status") == "distilled", r
     assert r.get("suggested_name"), r
@@ -220,20 +244,22 @@ async def check_sync_refuse_distilled(ctx: AppContext) -> str:
 
 async def check_memory_create(ctx: AppContext) -> str:
     target = ctx.abs_path("topics", "Carol", "Carol.md")
-    r = decode(await ctx.app.run_job(
-        "memory_create",
-        path=target,
-        metadata={
-            "title": "Carol",
-            "lifecycle": "evolving",
-            "scope": "class",
-            "source": "curated",
-            "role": "profile",
-            "category": "profile",
-            "tags": ["person"],
-        },
-        content="# Carol\n\nKnows [[Alice]].\n",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_create",
+            path=target,
+            metadata={
+                "title": "Carol",
+                "lifecycle": "evolving",
+                "scope": "class",
+                "source": "curated",
+                "role": "profile",
+                "category": "profile",
+                "tags": ["person"],
+            },
+            content="# Carol\n\nKnows [[Alice]].\n",
+        ),
+    )
     assert isinstance(r, dict) and r.get("created") is True, r
     assert "error" not in r, r
     assert Path(target).is_file(), target
@@ -243,12 +269,14 @@ async def check_memory_create(ctx: AppContext) -> str:
 
 async def check_memory_update(ctx: AppContext) -> str:
     carol = ctx.abs_path("topics", "Carol", "Carol.md")
-    r = decode(await ctx.app.run_job(
-        "memory_update",
-        path=carol,
-        old_string="Knows [[Alice]].",
-        new_string="Knows [[Alice]] and [[Bob]].",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_update",
+            path=carol,
+            old_string="Knows [[Alice]].",
+            new_string="Knows [[Alice]] and [[Bob]].",
+        ),
+    )
     assert isinstance(r, dict) and r.get("replaced", 0) >= 1, r
     assert "Bob" in Path(carol).read_text(encoding="utf-8"), "edit not on disk"
     return f"body edit applied (replaced={r['replaced']})"
@@ -256,22 +284,30 @@ async def check_memory_update(ctx: AppContext) -> str:
 
 async def check_memory_property_update(ctx: AppContext) -> str:
     carol = ctx.abs_path("topics", "Carol", "Carol.md")
-    r = decode(await ctx.app.run_job(
-        "memory_property_update", path=carol, key="confidence", value="✅",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_property_update",
+            path=carol,
+            key="confidence",
+            value="✅",
+        ),
+    )
     assert isinstance(r, dict) and "error" not in r, r
     assert r.get("key") == "confidence" and r.get("value") == "✅", r
-    assert "confidence: ✅" in Path(carol).read_text(encoding="utf-8"), \
-        "property write not on disk"
+    assert "confidence: ✅" in Path(carol).read_text(encoding="utf-8"), "property write not on disk"
     return "set confidence=✅"
 
 
 async def check_memory_rename(ctx: AppContext) -> str:
     src = ctx.abs_path("topics", "Carol", "Carol.md")
     dst = ctx.abs_path("topics", "Carol", "Carol-renamed.md")
-    r = decode(await ctx.app.run_job(
-        "memory_rename", old_path=src, new_path=dst,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_rename",
+            old_path=src,
+            new_path=dst,
+        ),
+    )
     assert isinstance(r, dict) and "error" not in r, r
     assert r.get("new_path") and Path(r["new_path"]).is_file(), r
     assert not Path(src).exists(), f"old path still on disk: {src}"
@@ -291,8 +327,7 @@ async def check_memory_archive(ctx: AppContext) -> str:
 
 
 async def check_memory_delete(ctx: AppContext) -> str:
-    target = getattr(ctx, "_carol_archived", None) \
-        or ctx.abs_path("topics", "Carol", "Carol-renamed.md")
+    target = getattr(ctx, "_carol_archived", None) or ctx.abs_path("topics", "Carol", "Carol-renamed.md")
     r = decode(await ctx.app.run_job("memory_delete", path=target))
     assert isinstance(r, dict) and r.get("deleted") is True, r
     assert not Path(target).exists(), target
@@ -306,14 +341,20 @@ async def check_schema_path_template_refuses(ctx: AppContext) -> str:
     """memory_create rejects paths outside topics/{X}/{Y}.md,
     events/{date}/{name}/..., or Archive/..."""
     target = ctx.abs_path("notes", "freeform.md")  # outside any template
-    r = decode(await ctx.app.run_job(
-        "memory_create",
-        path=target,
-        metadata={"title": "freeform",
-                  "lifecycle": "evolving", "scope": "class",
-                  "source": "curated", "role": "concept"},
-        content="should be refused",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_create",
+            path=target,
+            metadata={
+                "title": "freeform",
+                "lifecycle": "evolving",
+                "scope": "class",
+                "source": "curated",
+                "role": "concept",
+            },
+            content="should be refused",
+        ),
+    )
     assert isinstance(r, dict), r
     assert "error" in r and "template" in r["error"].lower(), r
     assert not Path(target).exists(), "file shouldn't have been written"
@@ -323,15 +364,21 @@ async def check_schema_path_template_refuses(ctx: AppContext) -> str:
 async def check_schema_path_template_force_bypass(ctx: AppContext) -> str:
     """force=True bypasses the template gate."""
     target = ctx.abs_path("notes", "forced.md")
-    r = decode(await ctx.app.run_job(
-        "memory_create",
-        path=target,
-        metadata={"title": "forced",
-                  "lifecycle": "evolving", "scope": "class",
-                  "source": "curated", "role": "concept"},
-        content="forced through",
-        force=True,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_create",
+            path=target,
+            metadata={
+                "title": "forced",
+                "lifecycle": "evolving",
+                "scope": "class",
+                "source": "curated",
+                "role": "concept",
+            },
+            content="forced through",
+            force=True,
+        ),
+    )
     assert isinstance(r, dict) and r.get("created") is True, r
     assert Path(target).is_file(), target
     return "force=True bypassed"
@@ -342,12 +389,14 @@ async def check_schema_status_skip_refused(ctx: AppContext) -> str:
     Trying distilled → active is reverse — must refuse."""
     event_index = getattr(ctx, "_suite_event_index", None)
     assert event_index is not None, "suite-event index not staged"
-    r = decode(await ctx.app.run_job(
-        "memory_property_update",
-        path=str(event_index),
-        key="status",
-        value="active",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_property_update",
+            path=str(event_index),
+            key="status",
+            value="active",
+        ),
+    )
     assert isinstance(r, dict), r
     assert "error" in r and "transition" in r["error"].lower(), r
     assert r.get("prior") == "distilled", r
@@ -358,12 +407,14 @@ async def check_schema_status_invalid_value(ctx: AppContext) -> str:
     """Random string for status is refused before any state-machine check."""
     event_index = getattr(ctx, "_suite_event_index", None)
     assert event_index is not None, "suite-event index not staged"
-    r = decode(await ctx.app.run_job(
-        "memory_property_update",
-        path=str(event_index),
-        key="status",
-        value="bogus",
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_property_update",
+            path=str(event_index),
+            key="status",
+            value="bogus",
+        ),
+    )
     assert isinstance(r, dict), r
     assert "error" in r and "invalid" in r["error"].lower(), r
     return "refused status='bogus'"
@@ -374,20 +425,27 @@ async def check_schema_status_force_bypass(ctx: AppContext) -> str:
     intentionally needs to step outside conventions."""
     event_index = getattr(ctx, "_suite_event_index", None)
     assert event_index is not None, "suite-event index not staged"
-    r = decode(await ctx.app.run_job(
-        "memory_property_update",
-        path=str(event_index),
-        key="status",
-        value="active",
-        force=True,
-    ))
+    r = decode(
+        await ctx.app.run_job(
+            "memory_property_update",
+            path=str(event_index),
+            key="status",
+            value="active",
+            force=True,
+        ),
+    )
     assert isinstance(r, dict), r
     assert "error" not in r, r
     # restore for any downstream checks
-    decode(await ctx.app.run_job(
-        "memory_property_update",
-        path=str(event_index), key="status", value="distilled", force=True,
-    ))
+    decode(
+        await ctx.app.run_job(
+            "memory_property_update",
+            path=str(event_index),
+            key="status",
+            value="distilled",
+            force=True,
+        ),
+    )
     return "force=True bypassed"
 
 
@@ -398,28 +456,28 @@ async def check_schema_status_force_bypass(ctx: AppContext) -> str:
 # rely on side effects from earlier ones (e.g. sync.append needs
 # sync.create to have run).
 CHECKS: list[tuple[str, callable]] = [
-    ("registry",                       check_registry),
-    ("memory_get",                     check_memory_get),
-    ("memory_list",                    check_memory_list),
-    ("memory_search",                  check_memory_search),
-    ("memory_graph_search",            check_memory_graph_search),
-    ("memory_links",                   check_memory_links),
-    ("memory_backlinks",               check_memory_backlinks),
-    ("memory_resolve_wikilink",        check_memory_resolve_wikilink),
-    ("memory_count_tokens",            check_memory_count_tokens),
-    ("memory_lint",                    check_memory_lint),
-    ("sync.create",                    check_sync_create),
-    ("sync.append",                    check_sync_append),
-    ("sync.refuse_distilled",          check_sync_refuse_distilled),
-    ("memory_create",                  check_memory_create),
-    ("memory_update",                  check_memory_update),
-    ("memory_property_update",         check_memory_property_update),
-    ("memory_rename",                  check_memory_rename),
-    ("memory_archive",                 check_memory_archive),
-    ("memory_delete",                  check_memory_delete),
-    ("schema.path_template_refuses",   check_schema_path_template_refuses),
-    ("schema.path_template_force",     check_schema_path_template_force_bypass),
-    ("schema.status_skip_refused",     check_schema_status_skip_refused),
-    ("schema.status_invalid_value",    check_schema_status_invalid_value),
-    ("schema.status_force",            check_schema_status_force_bypass),
+    ("registry", check_registry),
+    ("memory_get", check_memory_get),
+    ("memory_list", check_memory_list),
+    ("memory_search", check_memory_search),
+    ("memory_graph_search", check_memory_graph_search),
+    ("memory_links", check_memory_links),
+    ("memory_backlinks", check_memory_backlinks),
+    ("memory_resolve_wikilink", check_memory_resolve_wikilink),
+    ("memory_count_tokens", check_memory_count_tokens),
+    ("memory_lint", check_memory_lint),
+    ("sync.create", check_sync_create),
+    ("sync.append", check_sync_append),
+    ("sync.refuse_distilled", check_sync_refuse_distilled),
+    ("memory_create", check_memory_create),
+    ("memory_update", check_memory_update),
+    ("memory_property_update", check_memory_property_update),
+    ("memory_rename", check_memory_rename),
+    ("memory_archive", check_memory_archive),
+    ("memory_delete", check_memory_delete),
+    ("schema.path_template_refuses", check_schema_path_template_refuses),
+    ("schema.path_template_force", check_schema_path_template_force_bypass),
+    ("schema.status_skip_refused", check_schema_status_skip_refused),
+    ("schema.status_invalid_value", check_schema_status_invalid_value),
+    ("schema.status_force", check_schema_status_force_bypass),
 ]

@@ -17,7 +17,6 @@ class BaseFileParser(BaseComponent):
         super().__init__(**kwargs)
         self.working_dir = self.app_context.app_config.working_dir if self.app_context is not None else ""
 
-
     def _get_relative_path(self, path: str | Path) -> str:
         """Get path relative to working_dir."""
         file_path = Path(path).absolute()
