@@ -85,5 +85,7 @@ class DefaultFileParser(BaseFileParser):
                 break
             start += step
 
-        return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter,
+        return FileNode(path=rel_path,
+                        st_mtime=stat.st_mtime,
+                        front_matter=front_matter,
                         chunk_ids=[c.id for c in chunks]), chunks
