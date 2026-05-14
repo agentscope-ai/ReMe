@@ -62,6 +62,7 @@ dependencies = [
     "watchfiles>=1.1.1",
     "pyyaml>=6.0.3",
     "mistletoe",
+    "neo4j",
 ]
 
 [project.optional-dependencies]

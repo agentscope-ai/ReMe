@@ -39,11 +39,10 @@ from pathlib import Path
 import frontmatter
 
 from ..component.file_store.base_file_store import BaseFileStore
-from ..schema import ChunkFilter, FileChunk, FileLink, FileNode, extract_wikilinks
-from ..schema.file_link import _WIKILINK_RE
+from ..schema import ChunkFilter, FileChunk, FileNode
 from ..utils.wikilink_resolver import (
-    resolve_wikilink as _resolve_wikilink,
-    wikilink_candidates,
+    _WIKILINK_RE,
+    extract_wikilinks,
 )
 
 
@@ -59,49 +58,10 @@ from ..utils.wikilink_resolver import (
 # place to swap.
 
 
-def _nodes(file_store: BaseFileStore) -> dict[str, FileNode]:
-    """The concrete in-memory ``{path: FileNode}`` index."""
-    return file_store._nodes  # type: ignore[attr-defined]
-
-
 def _meta(node: FileNode) -> dict:
     """Full frontmatter dict for a node — typed fields (title/description/
     tags) merged with any ``extra=allow`` extras."""
     return node.front_matter.model_dump()
-
-
-def _get_outlinks(
-    file_store: BaseFileStore,
-    path: str,
-) -> list[tuple[FileNode, FileLink]]:
-    """Resolved outgoing links from ``path`` — ``[(target_node, link), ...]``."""
-    node = _nodes(file_store).get(path)
-    if node is None:
-        return []
-    out: list[tuple[FileNode, FileLink]] = []
-    for link in node.links:
-        target = _resolve_wikilink(file_store, link.path)
-        if target is None:
-            continue
-        target_node = _nodes(file_store).get(target)
-        if target_node is not None:
-            out.append((target_node, link))
-    return out
-
-
-def _get_inlinks(
-    file_store: BaseFileStore,
-    path: str,
-) -> list[tuple[FileNode, FileLink]]:
-    """Resolved incoming links to ``path`` — linear scan over all nodes."""
-    out: list[tuple[FileNode, FileLink]] = []
-    for src_node in _nodes(file_store).values():
-        for link in src_node.links:
-            target = _resolve_wikilink(file_store, link.path)
-            if target == path:
-                out.append((src_node, link))
-    return out
-
 
 def _filter_to_dict(chunk_filter: ChunkFilter | None) -> dict:
     """Serialize ``ChunkFilter`` for the search engine's ``search_filter`` arg."""
@@ -179,28 +139,19 @@ def list_files(
     return {"items": items, "count": len(items)}
 
 
-def _link_to_dict(node: FileNode, link: FileLink) -> dict:
-    return {
-        "path": node.path,
-        "metadata": _meta(node),
-        "predicate": link.predicate,
-        "anchor": link.anchor,
-    }
-
-
-def get_links(file_store: BaseFileStore, path: str) -> dict:
+def get_inlinks(file_store: BaseFileStore, path: str) -> dict:
     """Files that `path` links TO (resolved). Each entry carries the typed-link predicate."""
     return {
         "path": path,
-        "links": [_link_to_dict(m, link) for m, link in _get_outlinks(file_store, path)],
+        "inlinks": file_store.file_graph.get_inlinks(path),
     }
 
 
-def get_backlinks(file_store: BaseFileStore, path: str) -> dict:
+def get_outlinks(file_store: BaseFileStore, path: str) -> dict:
     """Files that link TO `path`. Each entry carries the typed-link predicate."""
     return {
         "path": path,
-        "backlinks": [_link_to_dict(m, link) for m, link in _get_inlinks(file_store, path)],
+        "outlinks": file_store.file_graph.get_outlinks(path),
     }
 
 

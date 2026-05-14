@@ -152,7 +152,7 @@ async def check_remember_log_append(ctx: AppContext) -> str:
 
 
 async def check_remember_log_refuse_distilled(ctx: AppContext) -> str:
-    """Curated profile lacks `memory_property_update`, so we flip status by
+    """Curated profile lacks `memory_update_meta`, so we flip status by
     rewriting the file directly — same observable effect on remember(mode=log)."""
     index_path = Path(getattr(ctx, "_event_index"))
     text = index_path.read_text(encoding="utf-8")
