@@ -19,28 +19,20 @@ class BaseFileStore(BaseComponent):
     ):
         super().__init__(**kwargs)
         self.store_name = store_name or self.name
-        self._embedding_model_name = embedding_model
-        self._keyword_index_name = keyword_index
-
-        self.embedding_model: BaseEmbeddingModel | None = None
-        self.keyword_index: BaseKeywordIndex | None = None
-        self.store_path = self.working_path / self.component_type.value / store_name
-        self.store_path.mkdir(parents=True, exist_ok=True)
         if not embedding_model and not keyword_index:
             raise ValueError("At least one of embedding_model or keyword_index must be set.")
+
+        self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel)
+        self.keyword_index = self.bind(keyword_index, BaseKeywordIndex)
+        self.store_path = self.working_path / self.component_type.value / store_name
+        self.store_path.mkdir(parents=True, exist_ok=True)
 
         self.file_nodes: dict[str, FileNode] = {}
 
     async def _start(self) -> None:
-        if self._embedding_model_name:
-            self.embedding_model = self.get_component(ComponentEnum.EMBEDDING_MODEL, self._embedding_model_name)
-        if self._keyword_index_name:
-            self.keyword_index = self.get_component(ComponentEnum.KEYWORD_INDEX, self._keyword_index_name)
         await self.load_file_nodes()
 
     async def _close(self) -> None:
-        self.embedding_model = None
-        self.keyword_index = None
         await self.dump_file_nodes()
 
     async def load_file_nodes(self):
