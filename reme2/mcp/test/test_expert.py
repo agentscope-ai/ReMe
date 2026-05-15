@@ -29,7 +29,6 @@ from ._helpers import AppContext, decode, wait_for_index
 # `check_registry` and as the upper bound for `wait_for_index` budgets.
 EXPECTED_JOBS: tuple[str, ...] = (
     # services
-    "sync",
     "memory_search",
     "memory_graph_search",
     # memory primitives (5 — search counted above)
@@ -45,6 +44,9 @@ EXPECTED_JOBS: tuple[str, ...] = (
     "file_move",
     # graph (1)
     "graph_traverse",
+    # event (2)
+    "event_open",
+    "event_complete",
     # lint (4 atomic checks)
     "check_dangling",
     "check_orphans",
