@@ -14,26 +14,21 @@ _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 
-def _expand_env_vars(value: Any) -> Any:
-    """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings.
+def _repl(m: re.Match) -> str:
+    name: str = m.group(1)
+    default: str = m.group(2)
+    v = os.environ.get(name)
+    if v is None:
+        if default is not None:
+            return default
+        raise ValueError(f"Config references undefined env var: {name}")
+    return v
 
-    Lets vault.yaml reference secrets / per-host settings without baking
-    them into the file. Unset vars without a default raise ValueError so
-    typos don't silently produce empty connection strings.
-    """
+
+def _expand_env_vars(value):
+    """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings."""
     if isinstance(value, str):
-
-        def repl(m: re.Match) -> str:
-            name = m.group(1)
-            default = m.group(2)
-            v = os.environ.get(name)
-            if v is None:
-                if default is not None:
-                    return default
-                raise ValueError(f"Config references undefined env var: {name}")
-            return v
-
-        return _ENV_VAR_RE.sub(repl, value)
+        return _ENV_VAR_RE.sub(_repl, value)
     if isinstance(value, dict):
         return {k: _expand_env_vars(v) for k, v in value.items()}
     if isinstance(value, list):

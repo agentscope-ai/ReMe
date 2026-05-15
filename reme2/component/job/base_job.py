@@ -42,7 +42,8 @@ class BaseJob(BaseComponent):
                 raise ValueError(f"Unregistered backend '{config.backend}' of type '{ComponentEnum.STEP}'")
             params = config.model_dump()
             params["app_context"] = self.app_context
-            self.step_components.append(step_cls(**params))
+            step = step_cls(**params)
+            self.step_components.append(step)
 
     async def _close(self) -> None:
         self.step_components.clear()
