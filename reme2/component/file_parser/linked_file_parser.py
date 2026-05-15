@@ -29,7 +29,7 @@ from ...schema import (
     FileNode,
 )
 from ...utils import hash_text
-from ...utils.wikilink_resolver import text_to_links
+from ...utils.link_parser import text_to_links
 
 # -- AST node + helpers ---------------------------------------------------
 

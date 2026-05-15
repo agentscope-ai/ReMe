@@ -21,6 +21,11 @@ data we already have.
 Direction vocabulary accepts both the obsidian convention
 (``forward`` / ``backward`` / ``both``) and the engine convention
 (``out`` / ``in`` / ``both``).
+
+Seeds accept short links / vault-relative paths and go through
+``path_resolver.resolve`` so the BFS keys match the graph's stored
+form. Short-link ambiguity surfaces as ``error="ambiguous"`` (with
+candidates) and the BFS is **not** executed in that case.
 """
 
 from __future__ import annotations
@@ -30,14 +35,13 @@ from pathlib import Path
 
 from agentscope.tool import ToolResponse
 
-from ..crud.download import resolve_path
-
 from ..base_step import BaseStep
 from ..runtime_response import _set_answer, _tool_response
 
 from ...component import R
 from ...enumeration import ComponentEnum
 from ...schema import FileLink
+from ...utils import path_resolver
 
 
 _FORWARD = {"out", "forward"}
@@ -123,13 +127,24 @@ def _bfs(
     return results
 
 
-def _normalize_seeds(file_store, raw) -> list[str]:
-    """Coerce a single path or list of paths into resolved absolute strings."""
+async def _normalize_seeds(file_store, raw) -> list[str]:
+    """Resolve seeds (short link / relative path) to vault-relative keys.
+
+    Raises ``PathAmbiguous`` / ``PathNotFound`` from ``path_resolver``;
+    callers wrap to convert into a structured response.
+    """
     if isinstance(raw, (str, Path)):
         items = [raw]
     else:
         items = list(raw or [])
-    return [str(resolve_path(file_store, str(p))) for p in items if p]
+    if file_store.file_graph is None:
+        raise path_resolver.PathNotFound("no file_graph configured")
+    out: list[str] = []
+    for p in items:
+        if not p:
+            continue
+        out.append(await path_resolver.resolve(file_store.file_graph, str(p)))
+    return out
 
 
 @R.register("graph:traverse")
@@ -151,14 +166,27 @@ class GraphTraverse(BaseStep):
         assert self.context is not None
         path = self.context.get("path")
         seeds_raw = self.context.get("seeds") if path is None else path
-        seeds = _normalize_seeds(self.file_store, seeds_raw)
         depth = int(self.context.get("depth") or self.context.get("max_depth") or 1)
         direction = (self.context.get("direction") or "forward").lower()
         predicate = self.context.get("predicate")
-        assert seeds, "path (or seeds) is required"
         assert direction in _VALID_DIRECTIONS, (
             f"direction must be one of {sorted(_VALID_DIRECTIONS)}, got {direction!r}"
         )
+        try:
+            seeds = await _normalize_seeds(self.file_store, seeds_raw)
+        except path_resolver.PathAmbiguous as e:
+            self.context.response.success = False
+            _set_answer(self.context, {
+                "error": "ambiguous",
+                "target": e.target,
+                "candidates": e.candidates,
+            })
+            return
+        except path_resolver.PathNotFound as e:
+            self.context.response.success = False
+            _set_answer(self.context, {"error": "not found", "target": e.target})
+            return
+        assert seeds, "path (or seeds) is required"
         outbound, inbound = await _build_indexes(self.file_store)
         results = _bfs(seeds, depth, direction, predicate, outbound, inbound)
         _set_answer(self.context, results)
@@ -183,7 +211,20 @@ class GraphTraverse(BaseStep):
         assert direction in _VALID_DIRECTIONS, (
             f"direction must be one of {sorted(_VALID_DIRECTIONS)}, got {direction!r}"
         )
-        seeds = _normalize_seeds(self.file_store, path)
+        try:
+            seeds = await _normalize_seeds(self.file_store, path)
+        except path_resolver.PathAmbiguous as e:
+            return _tool_response(
+                "graph:traverse", False,
+                {"error": "ambiguous", "target": e.target, "candidates": e.candidates},
+                audit=self.audit,
+            )
+        except path_resolver.PathNotFound as e:
+            return _tool_response(
+                "graph:traverse", False,
+                {"error": "not found", "target": e.target},
+                audit=self.audit,
+            )
         assert seeds, "path is required"
         outbound, inbound = await _build_indexes(self.file_store)
         results = _bfs(seeds, depth, direction, predicate, outbound, inbound)
