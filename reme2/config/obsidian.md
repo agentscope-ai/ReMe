@@ -8,14 +8,16 @@
 | 通用     | version |                                                           |
 | search | search  | query="search term" limit=10 tag="[]" score=0.1 copy=true |
 
-| 通用 | tags | |@sen
+@sen
+| tags | stat |  返回特定tag信息 |
+| tags | list |  返回所有tag列表 |
 | crud | upload/download | 其他文件                                                   |
-| stat/list | stat | path |
-| stat/list | list | path |
+| file | stat | path |
+| file | list | path |
 | property | property:read | |
 | property | property:update | path="My Note" status=done xx=xxx |
 | property | property:delete | keys="[xxxx, xxxx]"                                               |
-| link | walk | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |                                                   
+| graph | traverse | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |                                                   
 
 @wangce
 | crud | create | path="New Note" content="# Hello" title="xxx" tags="[]" status="" |

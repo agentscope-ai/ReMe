@@ -29,7 +29,7 @@ from ..component import R
 from ..component.base_step import BaseStep
 from ..enumeration import ComponentEnum
 from .retriever import BaseRetriever, HybridRetriever
-from .runtime_response import _set_answer, _tool_response
+from ..steps.runtime_response import _set_answer, _tool_response
 
 
 # ===========================================================================
