@@ -9,6 +9,7 @@ from agentscope.token import TokenCounterBase
 
 from .base_component import BaseComponent
 from .embedding import BaseEmbeddingModel
+from .file_parser import BaseFileParser
 from .file_store import BaseFileStore
 from .prompt_handler import PromptHandler
 from .runtime_context import RuntimeContext
@@ -84,6 +85,11 @@ class BaseStep(BaseComponent):
             return name
         else:
             return self.get_component(ComponentEnum.AS_TOKEN_COUNTER, name, "token_counter")
+
+    @property
+    def file_parser(self) -> BaseFileParser:
+        name = self.kwargs.get("file_parser", "default")
+        return name if isinstance(name, BaseFileParser) else self.get_component(ComponentEnum.FILE_PARSER, name)
 
     @property
     def file_store(self) -> BaseFileStore:
