@@ -1,9 +1,0 @@
-{
-  "name": "reme-service",
-  "version": "0.1.0",
-  "description": "Service-tier markdown vault MCP. Three high-level tools (retrieve / remember / maintain). reme2's internal Ingestor + Maintainer own the R-M-W loop; the agent just hands off material.",
-  "author": {
-    "name": "huangsen"
-  },
-  "keywords": ["reme", "vault", "memory", "knowledge-management", "mcp", "service-tier"]
-}

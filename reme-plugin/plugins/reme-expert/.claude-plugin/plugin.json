@@ -1,9 +1,0 @@
-{
-  "name": "reme-expert",
-  "version": "0.1.0",
-  "description": "Expert-tier markdown vault. Claude Code's agent runs the R-M-W loop directly using raw memory_* MCP primitives, guided by the reme-expert protocol skill. Bundles reme-distiller / reme-curator subagents (auto-spawned at SessionEnd / explicit slash commands), PreCompact + Stop hooks, and /reme-distill /reme-recall /reme-clean commands.",
-  "author": {
-    "name": "huangsen"
-  },
-  "keywords": ["reme", "vault", "memory", "knowledge-management", "obsidian", "mcp", "expert-tier", "agentic"]
-}
