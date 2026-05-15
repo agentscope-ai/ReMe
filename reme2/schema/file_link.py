@@ -7,11 +7,12 @@ One type, two states (the value of ``path`` distinguishes them):
     * **resolved**       — ``path`` holds the vault-relative path
       file_graph stores, e.g. ``"topics/Foo/Foo.md"``.
 
-The extractor (``utils.wikilink_resolver.iter_links``) produces the
-pre-resolution form from body text. The resolver
-(``utils.wikilink_resolver.resolve_links``, or one-shot
-``text_to_links``) rewrites ``path`` to the resolved form, expanding
-stem ambiguity into one ``FileLink`` per candidate.
+The extractor (``utils.link_parser.iter_links``) produces the
+pre-resolution form from body text. The batch resolver
+(``utils.link_parser.resolve_links``, or one-shot ``text_to_links``)
+delegates to ``utils.path_resolver.resolve`` to rewrite ``path`` to
+the resolved form, expanding short-path ambiguity into one
+``FileLink`` per candidate.
 
 file_graph trusts ``link.path`` directly for adjacency: it only ever
 stores resolved links. The pre-resolution form is internal pipeline
@@ -47,8 +48,8 @@ class FileLink(BaseModel):
         description=(
             "Wikilink target. Pre-resolution: the raw target as written "
             "(e.g. 'Foo'). Resolved: the vault-relative path file_graph "
-            "stores. Stem ambiguity is resolved BEFORE construction of "
-            "the resolved form by emitting one FileLink per candidate."
+            "stores. Short-path ambiguity is resolved BEFORE construction "
+            "of the resolved form by emitting one FileLink per candidate."
         ),
     )
     anchor: str | None = Field(

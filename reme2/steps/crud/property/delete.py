@@ -5,6 +5,10 @@ Returns both ``deleted`` (keys that were present and removed) and
 a no-op happened. The file is rewritten only when at least one key
 is actually removed — calling delete with all-missing keys is a
 zero-side-effect read.
+
+``path`` accepts a short link or vault-relative path. Short-link
+ambiguity is reported via ``error="ambiguous"`` with the candidate
+list — the delete is **not** executed in that case.
 """
 
 from __future__ import annotations
@@ -12,17 +16,21 @@ from __future__ import annotations
 import frontmatter
 from agentscope.tool import ToolResponse
 
-from ..download import resolve_path
-
 from ...base_step import BaseStep
 from ...runtime_response import _set_answer, _tool_response
 
 from ....component import R
 from ....enumeration import ComponentEnum
+from ....utils import path_resolver
 
 
-def _delete(file_store, path: str, keys: list[str]) -> dict:
-    target = resolve_path(file_store, path)
+async def _delete(file_store, path: str, keys: list[str]) -> dict:
+    try:
+        target = await path_resolver.resolve_to_absolute(file_store, path)
+    except path_resolver.PathAmbiguous as e:
+        return {"path": path, "error": "ambiguous", "candidates": e.candidates}
+    except path_resolver.PathNotFound:
+        return {"path": path, "error": "not found"}
     if not target.is_file():
         return {"path": path, "error": "not found"}
     if not keys:
@@ -57,12 +65,12 @@ class PropertyDelete(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        path: str = self.context.get("path") or self.context.get("path") or ""
+        path: str = self.context.get("path") or ""
         assert path, "path is required"
         keys = self.context.get("keys") or []
         if isinstance(keys, str):
             keys = [keys]
-        payload = _delete(self.file_store, path, list(keys))
+        payload = await _delete(self.file_store, path, list(keys))
         self.context.response.success = "error" not in payload
         _set_answer(self.context, payload)
 
@@ -74,6 +82,6 @@ class PropertyDelete(BaseStep):
         """Remove the listed ``keys`` from the frontmatter at ``path``."""
         if isinstance(keys, str):
             keys = [keys]
-        payload = _delete(self.file_store, path, list(keys))
+        payload = await _delete(self.file_store, path, list(keys))
         ok = "error" not in payload
         return _tool_response("property:delete", ok, payload, audit=self.audit)
