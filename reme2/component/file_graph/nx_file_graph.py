@@ -95,8 +95,14 @@ class NxFileGraph(BaseFileGraph):
             if self._graph.in_degree(path) == 0:
                 self._graph.remove_node(path)
 
-    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         nodes_view = self._graph.nodes
+        if paths is None:
+            return [
+                data["node"]
+                for _, data in nodes_view(data=True)
+                if "node" in data
+            ]
         return [
             nodes_view[path]["node"]
             for path in paths

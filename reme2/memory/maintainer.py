@@ -69,7 +69,7 @@ from pydantic import BaseModel, Field
 
 from ..component import R
 from ..component.base_step import BaseStep
-from .runtime_response import _set_answer
+from ..steps.runtime_response import _set_answer
 from . import memory_io
 from .schema import parse_frontmatter
 
