@@ -1,97 +1,47 @@
-# 通用
+# 基础Job
+@jinli
+| 分类     | 能力      | 参数                                                        |
+|--------|---------|-----------------------------------------------------------|
+| 通用     | help    |                                                           |
+| 通用     | start   |                                                           |
+| 通用     | restart |                                                           |
+| 通用     | version |                                                           |
+| search | search  | query="search term" limit=10 tag="[]" score=0.1 copy=true |
 
-| 能力      | 参数 |
-|---------|----|
-| help    |    |
-| start   |    |
-| restart |    |
-| version |    |
-| tags    |    |
+| 通用 | tags | |@sen
+| crud | upload/download | 其他文件                                                   |
+| stat/list | stat | path |
+| stat/list | list | path |
+| property | property:read | |
+| property | property:update | path="My Note" status=done xx=xxx |
+| property | property:delete | keys="[xxxx, xxxx]"                                               |
+| link | walk | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |                                                   
 
-# crud
-
-| 能力      | 参数                                                                |
-|---------|-------------------------------------------------------------------|
-| create  | path="New Note" content="# Hello" title="xxx" tags="[]" status="" |
-| read    | path="Templates/Recipe.md"                                        |
-| edit    | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
-| append  | path="My Note" content="New line"                                 |
-| prepend | path="My Note" content="New line"                                 |
-| delete  | path="My Note"                                                    |
-
-# daily:crud
-
-| 能力        | 参数            |
-|-----------|---------------|
-| daily:xxx | 与 crud 参数保持一致 |
-
-# stat / list
-
-| 能力   | 参数   |
-|------|------|
-| stat | path |
-| list | path |
-
-# search
-
-| 能力     | 参数                                                        |
-|--------|-----------------------------------------------------------|
-| search | query="search term" limit=10 tag="[]" score=0.1 copy=true |
-
-# property
-
-| 能力              | 参数                                |
-|-----------------|-----------------------------------|
-| property:read   |                                   |
-| property:update | path="My Note" status=done xx=xxx |
-| property:delete | keys="[xxxx, xxxx]"               |
-
-# link
-
-| 能力        | 参数             |
-|-----------|----------------|
-| backlinks | path="My Note" |
-| links     | path="My Note" |
+@wangce
+| crud | create | path="New Note" content="# Hello" title="xxx" tags="[]" status="" |
+| crud | read | path="Templates/Recipe.md"                                        |
+| crud | edit | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
+| crud | append | path="My Note" content="New line"                                 |
+| crud | prepend | path="My Note" content="New line"                                 |
+| crud | delete | path="My Note
+| daily:crud | daily:xxx | 与 crud 参数保持一致 |
 
 
+# 日记类型
 
+| 类型        | 路径                                            | 说明                          |
+|-----------|-----------------------------------------------|-----------------------------|
+| daily     | {daily}/xxxx-mm-dd.md + xxxx-mm-dd/{event}.md | 按日期归档的原始信息记录                |
+| topic     | topic/{topic:-personal(agent)}/{xxxx}.md      | 按主题聚类的二次加工内容                |
+| proactive | todo                                          | 基于 daily / topic 思考后主动推送的消息 |
 
-记忆的类型
+# 生成Job
 
-1. daily -> daily/xxxx-mm-dd/overview.md -> xxxx.md
-2. topic -> topic/personal(agent)/xxxx.md
-
-记忆的被动总结
-
-1. 是否需要：是需要，不会主动触发
-2. 什么时候调用：
-
-- freq (every_n_turn、compact) -> daily_summarizer
-- topic (/dream ) -> topic_summarizer(daily_xx -> topic_xx)
-- proactive -> proactive_summarizer(personal_xxx -> proactive_query)
-    - pre_query
-
-记忆的搜索
-file watch
-
-- start 全量扫描 -> 文件变化结果
-- 增量扫描 -> 文件变化结果
-
-如果有变化，检测 增加、删除、修改 cud：
-
-1. file -> metadata 存json
-
-- path
-- mtime
-- header: tags/kv/title/desc
-
-2. file -> link 存json
-
-- 读全量修改的文件的全量，识别link
-
-3. file -> chunk 存db/json
-
-- 切片 -> file+start+end: preview(100)
+| 任务                      | 输入            | 输出                                            | 触发时机                        | 说明                                                   |
+|-------------------------|---------------|-----------------------------------------------|-----------------------------|------------------------------------------------------|
+| 日记summary @sen @wangce  | msg           | {daily}/xxxx-mm-dd.md + xxxx-mm-dd/{event}.md | freq (every_n_turn、compact) | 把 msg 的信息写入 daily 目录                                 |
+| 主题dream  + 生成链接 @sen    | daily/xxx     | knowledge/xxx                                 | /dream                      | 把 daily 目录的内容按主题聚类合并到 topic 目录, 主动在文档中建立 [[link]] 关联 |
+| 主动proactive     @wangce | daily / topic | proactive_query                               | pre_query                   | 思考 daily / topic 信息，主动决定推送给用户的消息                     |
 
 
 
