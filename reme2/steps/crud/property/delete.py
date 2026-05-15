@@ -33,6 +33,8 @@ async def _delete(file_store, path: str, keys: list[str]) -> dict:
         return {"path": path, "error": "not found"}
     if not target.is_file():
         return {"path": path, "error": "not found"}
+    if target.suffix != ".md":
+        return {"path": path, "error": "not markdown"}
     if not keys:
         return {"path": path, "error": "keys is empty"}
     raw = target.read_text(encoding="utf-8")

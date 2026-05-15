@@ -77,7 +77,7 @@ async def _stat(file_store, path: str) -> dict:
     return out
 
 
-@R.register("file_stat")
+@R.register("stat")
 class FileStat(BaseStep):
     """Return metadata for a vault file or directory."""
 
