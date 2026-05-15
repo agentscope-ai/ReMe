@@ -98,7 +98,9 @@ class LocalFileGraph(BaseFileGraph):
             if demoted:
                 self._pending.setdefault(path, set()).update(demoted)
 
-    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        if paths is None:
+            return list(self._nodes.values())
         return [self._nodes[p] for p in paths if p in self._nodes]
 
     async def rebuild_links(self) -> None:

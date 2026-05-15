@@ -26,8 +26,15 @@ class BaseFileGraph(BaseComponent):
         """Delete nodes from the graph."""
 
     @abstractmethod
-    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
-        """Get nodes from the graph."""
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        """Get nodes from the graph.
+
+        ``paths=None`` (the default) returns every real node — the
+        graph's "scan everything" entry point. Pass an explicit list
+        for path-known lookups; ``[]`` returns ``[]`` (empty input,
+        empty output). Virtual placeholders (nodes that exist only
+        because something links to them) are filtered out either way.
+        """
 
     @abstractmethod
     async def rebuild_links(self) -> None:

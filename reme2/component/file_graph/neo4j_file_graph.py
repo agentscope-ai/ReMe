@@ -231,20 +231,34 @@ class Neo4jFileGraph(BaseFileGraph):
             paths=paths,
         )
 
-    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
-        """Return only real nodes (virtual placeholders are filtered)."""
-        if not paths:
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        """Return real nodes (virtual placeholders filtered).
+
+        ``paths=None`` streams every real node ordered by path. An
+        explicit ``[]`` returns ``[]`` without hitting the database.
+        """
+        if paths is not None and not paths:
             return []
         async with self._session() as session:
-            rec = await session.run(
-                """
-                UNWIND $paths AS p
-                MATCH (f:File {path: p})
-                WHERE f.links_json IS NOT NULL
-                RETURN f
-                """,
-                paths=list(paths),
-            )
+            if paths is None:
+                rec = await session.run(
+                    """
+                    MATCH (f:File)
+                    WHERE f.links_json IS NOT NULL
+                    RETURN f
+                    ORDER BY f.path ASC
+                    """,
+                )
+            else:
+                rec = await session.run(
+                    """
+                    UNWIND $paths AS p
+                    MATCH (f:File {path: p})
+                    WHERE f.links_json IS NOT NULL
+                    RETURN f
+                    """,
+                    paths=list(paths),
+                )
             rows = [row["f"] async for row in rec]
         return [self._row_to_node(row) for row in rows]
 

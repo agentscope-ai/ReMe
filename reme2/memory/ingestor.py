@@ -28,7 +28,7 @@ from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
-from .runtime_response import _set_answer, _to_jsonable
+from ..steps.runtime_response import _set_answer, _to_jsonable
 from . import memory_io
 from .memory_io import create_file
 from .agent_toolkit import build_agent_toolkit

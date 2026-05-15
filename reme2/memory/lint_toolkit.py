@@ -28,7 +28,7 @@ from agentscope.tool import Toolkit, ToolResponse
 
 from ..component import R
 from ..component.base_step import BaseStep
-from .runtime_response import _set_answer, _tool_response
+from ..steps.runtime_response import _set_answer, _tool_response
 from ..enumeration import ComponentEnum
 
 

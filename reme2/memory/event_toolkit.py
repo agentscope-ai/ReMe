@@ -39,7 +39,7 @@ from ..component import R
 from ..component.base_step import BaseStep
 from .file_toolkit import resolve_vault_path
 from .memory_toolkit import create_with_schema, update_status
-from .runtime_response import _set_answer, _tool_response
+from ..steps.runtime_response import _set_answer, _tool_response
 
 
 # ===========================================================================
