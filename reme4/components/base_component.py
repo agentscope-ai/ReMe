@@ -3,11 +3,13 @@
 import asyncio
 from abc import ABC
 from pathlib import Path
-from typing import Any, Callable, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, cast
 
-from .application_context import ApplicationContext
 from ..enumeration import ComponentEnum
 from ..utils import get_logger
+
+if TYPE_CHECKING:
+    from .application_context import ApplicationContext
 
 T = TypeVar("T", bound="BaseComponent")
 
@@ -67,6 +69,7 @@ class BaseComponent(ABC):
 
     @property
     def is_started(self) -> bool:
+        """Whether the component has been started."""
         return self._is_started
 
     # ----- Dependency declaration ----------------------------------------
@@ -119,6 +122,7 @@ class BaseComponent(ABC):
 
     @property
     def working_path(self) -> Path:
+        """Resolved working directory from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
         return Path(self.app_context.app_config.working_dir)

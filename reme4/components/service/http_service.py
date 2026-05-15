@@ -1,3 +1,5 @@
+"""HTTP service implementation for ReMe."""
+
 import asyncio
 import json
 import os

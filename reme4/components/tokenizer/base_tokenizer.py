@@ -1,8 +1,9 @@
 """Abstract base class for tokenizers."""
 
-import aiofiles
 from abc import abstractmethod
 from pathlib import Path
+
+import aiofiles
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum

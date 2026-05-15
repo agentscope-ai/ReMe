@@ -19,6 +19,7 @@ class EmbNode(BaseModel):
     @field_validator("embedding", mode="before")
     @classmethod
     def validate_embedding(cls, v):
+        """Coerce list/tuple to float16 ndarray."""
         # Coerce list/tuple inputs into a float16 ndarray for compact storage.
         if v is None:
             return v
@@ -26,6 +27,7 @@ class EmbNode(BaseModel):
 
     @field_serializer("embedding")
     def serialize_embedding(self, v: np.ndarray | None, _info):
+        """Serialize ndarray to a JSON-friendly list."""
         # ndarray is not JSON-serializable; emit a plain list.
         if v is None:
             return None

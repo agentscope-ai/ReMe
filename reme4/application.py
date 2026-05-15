@@ -1,3 +1,5 @@
+"""Main application entry point."""
+
 import asyncio
 import heapq
 from pathlib import Path
@@ -69,6 +71,7 @@ class Application(BaseComponent):
 
     @property
     def config(self):
+        """Application configuration."""
         return self.context.app_config
 
     def _topological_order(self) -> list[BaseComponent]:
@@ -162,4 +165,5 @@ class Application(BaseComponent):
             yield chunk
 
     def run_app(self):
+        """Start the service and serve the application."""
         self.context.service.run_app(app=self)

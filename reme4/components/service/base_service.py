@@ -1,3 +1,5 @@
+"""Base service class for exposing jobs via HTTP, MCP, etc."""
+
 from abc import abstractmethod
 from typing import TYPE_CHECKING
 
@@ -19,15 +21,19 @@ class BaseService(BaseComponent):
         self.service = None
 
     @abstractmethod
-    def build_service(self, app: "Application") -> None: ...
+    def build_service(self, app: "Application") -> None:
+        """Initialize the underlying service framework."""
 
     @abstractmethod
-    def add_job(self, job: BaseJob) -> None: ...
+    def add_job(self, job: BaseJob) -> None:
+        """Register a single job with the service."""
 
     @abstractmethod
-    def start_service(self, app: "Application") -> None: ...
+    def start_service(self, app: "Application") -> None:
+        """Start serving requests."""
 
     def add_jobs(self, app: "Application") -> None:
+        """Register all jobs from the application context."""
         for name, job in app.context.jobs.items():
             try:
                 self.add_job(job)
@@ -36,6 +42,7 @@ class BaseService(BaseComponent):
                 self.logger.error(f"Failed to add job {name}: {e}")
 
     def run_app(self, app: "Application") -> None:
+        """Build, populate, and start the service."""
         self.build_service(app)
         self.add_jobs(app)
         self.start_service(app)

@@ -1,3 +1,5 @@
+"""Default file parser with byte-based overlapping chunking."""
+
 from bisect import bisect_right
 from pathlib import Path
 
@@ -69,7 +71,7 @@ class DefaultFileParser(BaseFileParser):
             if content_bytes[end - 1] == ord("\n"):
                 end_line -= 1
             chunks.append(
-                FileChunk(path=rel_path, start_line=start_line, end_line=end_line, text=chunk_text).set_hash_id()
+                FileChunk(path=rel_path, start_line=start_line, end_line=end_line, text=chunk_text).set_hash_id(),
             )
             if end >= len(content_bytes):
                 break

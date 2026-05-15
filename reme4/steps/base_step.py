@@ -2,13 +2,12 @@
 
 import copy
 from abc import abstractmethod, ABC
-from typing import TypeVar
+from typing import TypeVar, TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
 
-from ..components import ApplicationContext
 from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
 from ..components.file_store import BaseFileStore
@@ -16,6 +15,9 @@ from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..utils import get_logger
+
+if TYPE_CHECKING:
+    from ..components import ApplicationContext
 
 T = TypeVar("T")
 
@@ -31,15 +33,15 @@ class BaseStep(ABC):
         return instance
 
     def __init__(
-            self,
-            name: str | None = None,
-            backend: str = "",
-            app_context: "ApplicationContext | None" = None,
-            language: str = "",
-            prompt_dict: dict[str, str] | None = None,
-            input_mapping: dict[str, str] | None = None,
-            output_mapping: dict[str, str] | None = None,
-            **kwargs,
+        self,
+        name: str | None = None,
+        backend: str = "",
+        app_context: "ApplicationContext | None" = None,
+        language: str = "",
+        prompt_dict: dict[str, str] | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        **kwargs,
     ):
         super().__init__()
         self.name: str = name or self.__class__.__name__
@@ -85,32 +87,40 @@ class BaseStep(ABC):
 
     @property
     def as_llm(self) -> ChatModelBase:
+        """Return the chat model component."""
         return self._resolve("as_llm", ChatModelBase, ComponentEnum.AS_LLM, "model")
 
     @property
     def as_llm_formatter(self) -> FormatterBase:
+        """Return the LLM formatter component."""
         return self._resolve("as_llm_formatter", FormatterBase, ComponentEnum.AS_LLM_FORMATTER, "formatter")
 
     @property
     def as_token_counter(self) -> TokenCounterBase:
+        """Return the token counter component."""
         return self._resolve("as_token_counter", TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
 
     @property
     def file_parser(self) -> BaseFileParser:
+        """Return the file parser component."""
         return self._resolve("file_parser", BaseFileParser, ComponentEnum.FILE_PARSER)
 
     @property
     def file_store(self) -> BaseFileStore:
+        """Return the file store component."""
         return self._resolve("file_store", BaseFileStore, ComponentEnum.FILE_STORE)
 
     @property
     def embedding(self) -> BaseEmbeddingModel:
+        """Return the embedding model component."""
         return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
+        """Format a named prompt template with the given kwargs."""
         return self.prompt.prompt_format(prompt_name=prompt_name, **kwargs)
 
     def get_prompt(self, prompt_name: str) -> str:
+        """Return a named prompt template as-is."""
         return self.prompt.get_prompt(prompt_name=prompt_name)
 
     def copy(self, **kwargs) -> "BaseStep":

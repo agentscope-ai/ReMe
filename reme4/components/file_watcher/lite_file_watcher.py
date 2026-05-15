@@ -1,3 +1,5 @@
+"""Polling-based file watcher using watchfiles."""
+
 import asyncio
 from pathlib import Path
 

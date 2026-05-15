@@ -1,3 +1,5 @@
+"""MCP (Model Context Protocol) service implementation."""
+
 import json
 import os
 from contextlib import asynccontextmanager

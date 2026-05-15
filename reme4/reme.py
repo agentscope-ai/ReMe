@@ -1,3 +1,5 @@
+"""ReMe memory management application entry point."""
+
 import asyncio
 import sys
 
@@ -12,6 +14,7 @@ class ReMe(Application):
 
 
 def main():
+    """Parse CLI arguments and launch the appropriate mode."""
     action, config = parse_args(sys.argv[1:])
     if action == "start":
         reme = ReMe(**config)

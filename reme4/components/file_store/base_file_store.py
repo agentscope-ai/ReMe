@@ -1,3 +1,5 @@
+"""Abstract base for file store backends."""
+
 from abc import abstractmethod
 
 from ..base_component import BaseComponent
@@ -9,6 +11,8 @@ from ...schema import FileChunk, FileNode, FileLink
 
 
 class BaseFileStore(BaseComponent):
+    """Abstract base for file store backends."""
+
     component_type = ComponentEnum.FILE_STORE
 
     def __init__(
@@ -51,16 +55,19 @@ class BaseFileStore(BaseComponent):
         """Perform full-text keyword search."""
 
     async def rebuild_links(self) -> None:
+        """Rebuild all edges from each node's link payload."""
         if not self.file_graph:
             raise RuntimeError("file_graph is required for delete_by_path")
         return await self.file_graph.rebuild_links()
 
     async def get_outlinks(self, path: str) -> list[FileLink]:
+        """Return outgoing links for *path*."""
         if not self.file_graph:
             raise RuntimeError("file_graph is required for delete_by_path")
         return await self.file_graph.get_outlinks(path)
 
     async def get_inlinks(self, path: str) -> list[FileLink]:
+        """Return incoming links for *path*."""
         if not self.file_graph:
             raise RuntimeError("file_graph is required for delete_by_path")
         return await self.file_graph.get_inlinks(path)

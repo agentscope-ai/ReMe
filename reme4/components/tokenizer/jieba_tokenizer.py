@@ -18,7 +18,9 @@ class JiebaTokenizer(BaseTokenizer):
 
         result = []
         for text in texts:
-            tokens = [x.lower() for x in jieba.cut(text)]
+            tokens = jieba.cut(text)
+            if lower:
+                tokens = [x.lower() for x in tokens]
             if self.filter_stopwords and self._stopwords:
                 tokens = [t for t in tokens if t not in self._stopwords]
             result.append(tokens)

@@ -1,3 +1,5 @@
+"""Abstract base for file-graph backends."""
+
 from abc import abstractmethod
 from pathlib import Path
 

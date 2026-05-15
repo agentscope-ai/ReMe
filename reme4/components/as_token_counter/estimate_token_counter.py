@@ -16,6 +16,6 @@ class EstimatedTokenCounter(TokenCounterBase):
         self.estimate_divisor: float = estimate_divisor
         self.encoding: str = encoding
 
-    async def count(self, text: str, **kwargs) -> int:
+    async def count(self, text: str, **_kwargs) -> int:
         """Estimated token count for ``text``."""
         return int(len(text.encode(self.encoding)) / self.estimate_divisor + 0.5)

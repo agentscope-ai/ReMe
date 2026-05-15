@@ -1,3 +1,5 @@
+"""Abstract base for file parsers."""
+
 from abc import abstractmethod
 from pathlib import Path
 

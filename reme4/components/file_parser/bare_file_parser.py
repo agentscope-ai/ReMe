@@ -1,3 +1,5 @@
+"""Stat-only parser for attachment/binary files."""
+
 from pathlib import Path
 
 from .base_file_parser import BaseFileParser

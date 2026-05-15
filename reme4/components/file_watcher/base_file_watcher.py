@@ -1,3 +1,5 @@
+"""Abstract base for file watchers."""
+
 import asyncio
 from abc import abstractmethod
 from pathlib import Path

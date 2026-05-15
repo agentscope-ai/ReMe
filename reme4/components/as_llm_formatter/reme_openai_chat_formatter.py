@@ -4,11 +4,13 @@ import json
 from typing import Any
 
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.formatter import _openai_formatter as _of
 
-_format_openai_image_block = getattr(_of, "_format_openai_image_block")
-_to_openai_audio_data = getattr(_of, "_to_openai_audio_data")
-from agentscope.message import ImageBlock, Msg, TextBlock, URLSource
+# noinspection PyProtectedMember
+from agentscope.formatter._openai_formatter import (
+    _format_openai_image_block,
+    _to_openai_audio_data,
+)
+from agentscope.message import Msg, TextBlock, ImageBlock, URLSource
 
 
 def _format_openai_video_block(video_block: dict) -> dict[str, Any]:

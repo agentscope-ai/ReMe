@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class FileLink(BaseModel):
+    """A parsed wikilink with optional anchor and predicate."""
+
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(
