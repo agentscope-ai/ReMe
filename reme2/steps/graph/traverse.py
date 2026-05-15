@@ -152,7 +152,7 @@ class GraphTraverse(BaseStep):
     """BFS from a seed file to explore wikilink relationships.
 
     Parameters (per obsidian convention):
-        path       — single seed (str). ``seeds`` accepted as alias for batch mode.
+        path       — single seed (str) or a list of seeds.
         direction  — ``forward`` / ``backward`` / ``both`` (or ``out`` / ``in`` / ``both``).
         depth      — hop limit (default 1 = immediate neighbors).
         predicate  — optional edge-type filter; ``None`` = no filter.
@@ -164,9 +164,8 @@ class GraphTraverse(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        path = self.context.get("path")
-        seeds_raw = self.context.get("seeds") if path is None else path
-        depth = int(self.context.get("depth") or self.context.get("max_depth") or 1)
+        seeds_raw = self.context.get("path")
+        depth = int(self.context.get("depth") or 1)
         direction = (self.context.get("direction") or "forward").lower()
         predicate = self.context.get("predicate")
         assert direction in _VALID_DIRECTIONS, (
@@ -186,7 +185,7 @@ class GraphTraverse(BaseStep):
             self.context.response.success = False
             _set_answer(self.context, {"error": "not found", "target": e.target})
             return
-        assert seeds, "path (or seeds) is required"
+        assert seeds, "path is required"
         outbound, inbound = await _build_indexes(self.file_store)
         results = _bfs(seeds, depth, direction, predicate, outbound, inbound)
         _set_answer(self.context, results)

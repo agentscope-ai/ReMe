@@ -32,7 +32,7 @@ from ...enumeration import ComponentEnum
 from ...utils import path_resolver
 
 
-@R.register("file_upload")
+@R.register("upload")
 class FileUpload(BaseStep):
     """Copy ``local_path`` into the vault at ``path``."""
 

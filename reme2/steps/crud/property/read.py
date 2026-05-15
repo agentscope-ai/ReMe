@@ -31,6 +31,8 @@ async def _read(file_store, path: str) -> dict:
         return {"path": path, "exists": False}
     if not target.is_file():
         return {"path": path, "exists": False}
+    if target.suffix != ".md":
+        return {"path": path, "error": "not markdown"}
     raw = target.read_text(encoding="utf-8")
     meta = dict(frontmatter.loads(raw).metadata)
     return {"path": path, "exists": True, "frontmatter": meta}
