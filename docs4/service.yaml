@@ -1,0 +1,270 @@
+app_name: reme-service
+enable_logo: false
+log_to_console: true
+log_to_file: false
+
+# Service profile: service-aligned MCP surface — three tools, one per
+# memory service:
+#   `retrieve`     — graph-aware hybrid retrieval (Retriever projection)
+#   `remember`     — single write entry point (Ingestor projection)
+#                    * mode=log     → zero-LLM event-folder upsert
+#                    * mode=distill → LLM R-M-W into topic graph
+#   `maintain`     — vault hygiene sweep (Maintainer projection)
+#                    runs lint + decay; merge/split require an LLM and
+#                    are off by default.
+#
+# The agent calls `remember(mode=log, name=…, content=…, materials=…)`
+# continuously through the task — picking a stable `name` per logical
+# thread so each call extends the same event folder rather than
+# fragmenting. At task completion (or PreCompact / SessionEnd) it
+# calls `remember(mode=distill, content=…, related_paths=…)` once to
+# distill the active events into topic-level cognition. `maintain` is
+# typically cron-driven, but the agent can invoke it explicitly when
+# it suspects vault drift.
+#
+# For full direct control over every memory_* primitive (raw writes,
+# fine-grained reads, separate sync/ingest tools, memory_lint) see
+# ./expert.yaml.
+
+service:
+  backend: mcp
+  transport: stdio
+  sidecar_http: true
+  sidecar_http_host: "127.0.0.1"
+  sidecar_http_port: 8765
+  sidecar_info_path: "./vault/.reme/sidecar.json"
+
+jobs:
+  - backend: base
+    name: retrieve
+    description: |
+      Graph-aware hybrid retrieval: vector + keyword + 1-hop wikilink
+      BFS fusion. Use for "what do I know about X" / "did I work on Y" /
+      "what's connected to [[Z]]". Anchor mode: include `[[Target]]` in
+      the query to seed BFS at that file. Topic-rooted mode: pass `seeds`
+      explicitly. Returns chunks ranked by combined relevance + graph
+      proximity, each tagged with `graph_hop`.
+    parameters:
+      type: object
+      properties:
+        query: { type: string }
+        max_results: { type: integer, default: 5 }
+        min_score: { type: number, default: 0.0 }
+        graph_depth:
+          type: integer
+          default: 1
+          description: "BFS hops from seeds. 1 covers immediate neighbors."
+        seeds:
+          type: array
+          items: { type: string }
+          description: "Explicit seed paths (topic-rooted mode)."
+        paths: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        exclude_paths: { type: array, items: { type: string } }
+    steps:
+      - backend: memory_graph_search
+
+  - backend: base
+    name: remember
+    description: |
+      Single write entry point — projects the Ingestor service. Two
+      modes via the `mode` parameter:
+
+      * `mode: log` (zero LLM, hot path) — idempotent upsert of an
+        event FOLDER under `events/{date}/{name}/`. The folder
+        contains the index `{name}.md` (Event schema, frontmatter +
+        narrative + Materials footer) plus any raw materials you
+        pass — conversation snippets, tool outputs, data dumps. The
+        watcher indexes everything inside.
+
+        CONTINUITY MODEL: pick a stable `name` per logical thread
+        and call `remember(mode=log, ...)` repeatedly through the
+        task. Each call extends the same folder:
+          - new `content` → appended under a `## Update — {iso}`
+            section
+          - new `materials` → siblings (auto-suffix on filename
+            collision)
+          - `topics` + `tags` merged (union) into frontmatter
+          - Materials footer regenerated to list every artifact
+
+        First call (folder doesn't exist) → CREATE; subsequent calls
+        with the same `name` while the event is `status: active` →
+        APPEND. If `status: distilled` / `archived`, REFUSES and
+        returns `suggested_name` so you start a fresh thread instead
+        of mutating prior cognition. Call CONTINUOUSLY through a task
+        as facts land, especially at PreCompact to dump verbose raw
+        text into `materials` before context truncation.
+
+      * `mode: distill` (LLM R-M-W loop, cold path) — DEFAULT. Run
+        on EXPLICIT HANDOFF only: task completion / SessionEnd / when
+        you decide the working set is ready. Not a per-turn tool.
+
+        Hand off the working set in two interchangeable forms:
+          - `content` — inline material to distill (hint, summary, or
+            raw text)
+          - `related_paths` — pointers (event folder indexes; the
+            Ingestor follows `## Materials` to read each artifact,
+            individual material files, candidate topics).
+
+        The Ingestor reads the working set + linked topics, decides
+        which existing topics to update / create, and flips each
+        distilled event's status to "distilled". Returns an audit
+        trail.
+    parameters:
+      type: object
+      required: [content]
+      properties:
+        mode:
+          type: string
+          enum: [log, distill]
+          default: distill
+          description: "log = zero-LLM event-folder upsert (requires `name`); distill = LLM R-M-W into topic graph (default)."
+        # mode=log params
+        name:
+          type: string
+          description: "(mode=log) kebab-case event identifier (folder + index stem). Reuse the same name across calls in one thread to keep extending the same folder."
+        description:
+          type: string
+          description: "(mode=log) one-line summary for index frontmatter (set on initial create only)."
+        topics:
+          type: array
+          items: { type: string }
+          description: "(mode=log) related topic wikilinks. Unioned into frontmatter on append."
+        tags:
+          type: array
+          items: { type: string }
+          description: "(mode=log) free-form tags; unioned on append."
+        materials:
+          type: array
+          description: "(mode=log) raw artifacts written as siblings of the index. Filenames must be safe (letters/digits/dot/underscore/dash). Filename collision auto-suffixes (foo.txt → foo-2.txt)."
+          items:
+            type: object
+            required: [filename, content]
+            properties:
+              filename: { type: string, description: "e.g. 'raw-prompt.md', 'tool-output.txt'" }
+              content: { type: string }
+        on_date:
+          type: string
+          description: "(mode=log) ISO date for events/{date}/ bucket; defaults to today."
+        origin_session_id:
+          type: string
+          description: "(mode=log) optional source session identifier (set on initial create only)."
+        # shared / mode=distill params
+        content:
+          type: string
+          description: "Required. mode=log: markdown body for the index (initial create) or appended `## Update — {iso}` section. mode=distill: inline material the Ingestor distills — hint, summary, or raw text."
+        hint:
+          type: string
+          description: "(mode=distill) caller guidance about target / intent."
+        target_path:
+          type: string
+          description: "(mode=distill) optional suggested path; required for the no-LLM degraded path."
+        metadata:
+          type: object
+          description: "(mode=distill) suggested frontmatter for any new topic."
+        related_paths:
+          type: array
+          items: { type: string }
+          description: "(mode=distill) pointers — event folder indexes (Ingestor reads materials from `## Materials`), individual material files, or candidate topics."
+    steps:
+      - backend: ingestor
+
+  - backend: base
+    name: maintain
+    description: |
+      Vault hygiene sweep — projects the Maintainer service. One pass:
+      scan signals → propose ops → resolve conflicts → apply. Returns
+      an audit trail of what ran and what changed.
+
+      Default behavior runs `lint` (broken wikilinks, schema violations,
+      stem collisions — read-only diagnostics) and `decay` (move stale
+      events past their freshness window under `<vault>/Archive/`).
+      Merge / split require an LLM and are off unless explicitly opted
+      into via `ops`.
+
+      Typically cron-driven; the agent invokes it on demand when it
+      suspects vault drift (after a heavy session of edits, after a
+      bulk rename, etc.). Dry-run by default — flip `dry_run=false` to
+      apply changes.
+    parameters:
+      type: object
+      properties:
+        target_prefix:
+          type: string
+          description: "restrict scan to relpaths starting with this prefix (e.g. 'events/2026-05-09/'). Empty string scans the whole vault."
+        dry_run:
+          type: boolean
+          default: true
+          description: "if true (default) returns the plan without mutating; flip to false to actually apply lint+decay (and merge/split if opted in)."
+        ops:
+          type: array
+          items:
+            type: string
+            enum: [lint, decay, merge, split]
+          description: "subset of ops to run. Defaults to ['lint','decay']. Merge/split are LLM-driven and currently scaffolded — enabling them without an LLM is a no-op."
+        decay_days:
+          type: integer
+          description: "freshness window for the decay proposer (default = Maintainer constructor `decay_days`, typically 90)."
+    steps:
+      - backend: maintainer
+
+components:
+  # Ingestor LLM (opt-in). Without this the Ingestor degrades to a
+  # direct create from explicit `target_path`; edits/renames/deletes
+  # require the LLM. Uncomment + provide LLM_API_KEY to enable.
+  #
+  # as_llm:
+  #   default:
+  #     backend: openai
+  #     model_name: ${LLM_MODEL_NAME:-gpt-4o-mini}
+  #     api_key: ${LLM_API_KEY}
+  #     client_kwargs:
+  #       base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
+  #     stream: false
+  #
+  # as_llm_formatter:
+  #   default:
+  #     backend: openai
+
+  as_token_counter:
+    default:
+      backend: estimated
+
+  # Embedding is opt-in: leave embedding_model="" on file_store to run
+  # keyword-only; uncomment + flip to "default" to enable hybrid search.
+  #
+  # embedding_model:
+  #   default:
+  #     backend: openai
+  #     model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-3-small}
+  #     dimensions: 1536
+  #     pass_dimensions: false
+  #     enable_cache: true
+  #     max_batch_size: 10
+  #     max_cache_size: 2000
+  #     max_input_length: 8192
+
+  file_parser:
+    md:
+      backend: md
+    default:
+      backend: text
+
+  file_store:
+    default:
+      backend: local
+      embedding_model: ""
+      store_name: "reme"
+      db_path: "./vault/.reme"
+      working_dir: "./vault"
+
+  file_watcher:
+    default:
+      backend: full
+      file_store: default
+      default_parser: md
+      recursive: true
+
+  # Retriever (`hybrid`) is a Step, not a pre-instantiated component —
+  # the `query` shell builds it on demand. Tune defaults by attaching
+  # knobs to the `memory_graph_search` step under the `query` job above.
