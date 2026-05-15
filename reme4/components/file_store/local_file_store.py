@@ -6,9 +6,7 @@ import numpy as np
 from .base_file_store import BaseFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
-from ...utils import batch_cosine_similarity, get_logger
-
-logger = get_logger()
+from ...utils import batch_cosine_similarity
 
 
 @R.register("local")

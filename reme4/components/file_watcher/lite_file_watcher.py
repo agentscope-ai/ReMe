@@ -8,9 +8,6 @@ from watchfiles import Change, awatch
 from .base_file_watcher import BaseFileWatcher
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
-from ...utils import get_logger
-
-logger = get_logger()
 
 
 @R.register("lite")
@@ -26,22 +23,22 @@ class LiteFileWatcher(BaseFileWatcher):
 
     async def watch_loop(self):
         if not self.watch_paths:
-            logger.warning("No watch paths specified")
+            self.logger.warning("No watch paths specified")
             return
 
         while not self._stop_event.is_set():
             valid_paths = [p for p in self.watch_paths if p.exists()]
             if not valid_paths:
-                logger.warning(f"No valid paths, retrying in {self._retry_interval}s...")
+                self.logger.warning(f"No valid paths, retrying in {self._retry_interval}s...")
                 await self._interruptible_sleep()
                 continue
 
             invalid = set(self.watch_paths) - set(valid_paths)
             if invalid:
-                logger.warning(f"Skipping invalid paths: {invalid}")
+                self.logger.warning(f"Skipping invalid paths: {invalid}")
 
             try:
-                logger.info(f"Watching: {valid_paths}")
+                self.logger.info(f"Watching: {valid_paths}")
                 async for changes in awatch(
                     *valid_paths,
                     watch_filter=self.watch_filter,
@@ -55,7 +52,7 @@ class LiteFileWatcher(BaseFileWatcher):
                         break
                     await self._dispatch_changes(changes)
             except Exception:
-                logger.exception(f"Watch error, retrying in {self._retry_interval}s...")
+                self.logger.exception(f"Watch error, retrying in {self._retry_interval}s...")
                 if not self._stop_event.is_set():
                     await self._interruptible_sleep()
 
@@ -65,13 +62,13 @@ class LiteFileWatcher(BaseFileWatcher):
         modified = [Path(p) for c, p in changes if c == Change.modified]
         deleted = [Path(p) for c, p in changes if c == Change.deleted]
         if added:
-            logger.info(f"Detected {len(added)} added file(s)")
+            self.logger.info(f"Detected {len(added)} added file(s)")
             await self.on_added(added)
         if modified:
-            logger.info(f"Detected {len(modified)} modified file(s)")
+            self.logger.info(f"Detected {len(modified)} modified file(s)")
             await self.on_modified(modified)
         if deleted:
-            logger.info(f"Detected {len(deleted)} deleted file(s)")
+            self.logger.info(f"Detected {len(deleted)} deleted file(s)")
             await self.on_deleted(deleted)
 
     async def update_store(self):
@@ -88,16 +85,16 @@ class LiteFileWatcher(BaseFileWatcher):
         to_modify = [p for p in existing_keys & indexed_keys if existing[p] != indexed[p]]
 
         if to_modify:
-            logger.info(f"Updating {len(to_modify)} modified file(s)")
+            self.logger.info(f"Updating {len(to_modify)} modified file(s)")
             await self.on_modified([Path(p) for p in to_modify])
         if to_delete:
-            logger.info(f"Removing {len(to_delete)} deleted file(s)")
+            self.logger.info(f"Removing {len(to_delete)} deleted file(s)")
             await self.on_deleted([Path(p) for p in to_delete])
         if to_add:
-            logger.info(f"Indexing {len(to_add)} new file(s)")
+            self.logger.info(f"Indexing {len(to_add)} new file(s)")
             await self.on_added([Path(p) for p in to_add])
         if not to_modify and not to_delete and not to_add:
-            logger.info("Store is up to date")
+            self.logger.info("Store is up to date")
 
     async def _parse_and_upsert(self, paths: list[Path], action: str):
         """Parse files and upsert into store. Shared by on_added / on_modified."""
@@ -107,7 +104,7 @@ class LiteFileWatcher(BaseFileWatcher):
         parsed: list[tuple[FileNode, list[FileChunk]]] = []
         for p in paths:
             if p.is_file():
-                logger.info(f"{action} file: {p}")
+                self.logger.info(f"{action} file: {p}")
                 parsed.append(await self.file_parser.parse(p))
         if parsed:
             file_paths = [str(p) for p in paths if p.is_file()]
@@ -126,5 +123,5 @@ class LiteFileWatcher(BaseFileWatcher):
         if self.file_store is None:
             raise RuntimeError("file_store is not initialized!")
         paths = [path] if isinstance(path, Path) else path
-        logger.info(f"Deleting {len(paths)} file(s)")
+        self.logger.info(f"Deleting {len(paths)} file(s)")
         await self.file_store.delete_by_path([str(p) for p in paths])

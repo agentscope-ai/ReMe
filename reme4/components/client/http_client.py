@@ -46,14 +46,17 @@ class HttpClient(BaseClient):
         if self.client is None:
             self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
-    async def __call__(self) -> dict:
+    async def __call__(self) -> str:
         """Send POST request to the configured action endpoint."""
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
         response = await self.client.post(f"/{self.action}", json=self.kwargs)
         response.raise_for_status()
-        return response.json()
+        result = response.json()
+        if "answer" in result:
+            return str(result["answer"])
+        return str(result)
 
     async def _close(self) -> None:
         """Close the HTTP client."""

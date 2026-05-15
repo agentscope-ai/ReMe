@@ -22,5 +22,5 @@ class BaseClient(BaseComponent):
         """Close the client and release resources."""
 
     @abstractmethod
-    async def __call__(self) -> dict:
-        """Execute the configured action and return the response."""
+    async def __call__(self) -> str:
+        """Execute the configured action"""

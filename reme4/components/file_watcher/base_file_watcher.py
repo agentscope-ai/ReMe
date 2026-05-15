@@ -10,9 +10,6 @@ from ..base_component import BaseComponent
 from ..file_parser import BaseFileParser
 from ..file_store import BaseFileStore
 from ...enumeration import ComponentEnum
-from ...utils import get_logger
-
-logger = get_logger()
 
 
 class BaseFileWatcher(BaseComponent):
@@ -50,7 +47,7 @@ class BaseFileWatcher(BaseComponent):
     async def _start(self):
         self._stop_event = asyncio.Event()
         self._background_task = asyncio.create_task(self._background_run())
-        logger.info(f"Started watching: {self.watch_paths}")
+        self.logger.info(f"Started watching: {self.watch_paths}")
 
     async def _background_run(self):
         """Sync store then enter watch loop."""
@@ -61,7 +58,7 @@ class BaseFileWatcher(BaseComponent):
         self._stop_event.set()
         if self._background_task:
             await self._background_task
-        logger.info("Stopped watching")
+        self.logger.info("Stopped watching")
 
     def watch_filter(self, _change: Change, path: str) -> bool:
         """Return True if the file suffix matches the filter list."""
