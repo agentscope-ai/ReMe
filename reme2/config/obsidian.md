@@ -1,50 +1,60 @@
-# all @jinli
+# 通用
 
-reme help
-reme start
-reme restart
-reme version
-reme vault="My Vault"
-
-# daily
-
-daily:path
-reme daily:xxx
+| 能力      | 参数 |
+|---------|----|
+| help    |    |
+| start   |    |
+| restart |    |
+| version |    |
+| tags    |    |
 
 # crud
 
-reme create file="New Note" content="# Hello" title="xxx" tags="[]" status=""
-reme read file=Recipe/path="Templates/Recipe.md"
-reme edit file=Recipe/path="Templates/Recipe.md" old="xxx" new="xxx"
-reme append file="My Note" content="New line"
-reme prepend file="My Note" content="New line"
-reme delete file="My Note"/path
+| 能力      | 参数                                                                |
+|---------|-------------------------------------------------------------------|
+| create  | path="New Note" content="# Hello" title="xxx" tags="[]" status="" |
+| read    | path="Templates/Recipe.md"                                        |
+| edit    | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
+| append  | path="My Note" content="New line"                                 |
+| prepend | path="My Note" content="New line"                                 |
+| delete  | path="My Note"                                                    |
 
-# reme
+# daily:crud
 
-reme stat file/path
-reme list file/path
+| 能力        | 参数            |
+|-----------|---------------|
+| daily:xxx | 与 crud 参数保持一致 |
+
+# stat / list
+
+| 能力   | 参数   |
+|------|------|
+| stat | path |
+| list | path |
 
 # search
 
-reme search query="search term" limit=10 tag="[]" score=0.1 copy=true
+| 能力     | 参数                                                        |
+|--------|-----------------------------------------------------------|
+| search | query="search term" limit=10 tag="[]" score=0.1 copy=true |
 
 # property
 
-reme property:read
-reme property:update file="My Note" status=done xx=xxx
-reme property:delete keys="[xxxx, xxxx]"
+| 能力              | 参数                                |
+|-----------------|-----------------------------------|
+| property:read   |                                   |
+| property:update | path="My Note" status=done xx=xxx |
+| property:delete | keys="[xxxx, xxxx]"               |
 
-# 全局所有标签
+# link
 
-reme tags
+| 能力        | 参数             |
+|-----------|----------------|
+| backlinks | path="My Note" |
+| links     | path="My Note" |
 
-# show link
 
-reme backlinks file="My Note"
-reme links file="My Note"
 
-[[Algorithm Notes#Sorting]]
 
 记忆的类型
 

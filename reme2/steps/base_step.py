@@ -1,25 +1,24 @@
 """Base step class for LLM workflow execution."""
 
 import copy
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 
 from agentscope.formatter import FormatterBase
 from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
 
-from .base_component import BaseComponent
-from .embedding import BaseEmbeddingModel
-from .file_parser import BaseFileParser
-from .file_store import BaseFileStore
-from .prompt_handler import PromptHandler
-from .runtime_context import RuntimeContext
+from ..component import ApplicationContext
+from ..component.embedding import BaseEmbeddingModel
+from ..component.file_parser import BaseFileParser
+from ..component.file_store import BaseFileStore
+from ..component.prompt_handler import PromptHandler
+from ..component.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
+from ..utils import get_logger
 
 
-class BaseStep(BaseComponent):
+class BaseStep(ABC):
     """Base step for LLM workflow execution and composition."""
-
-    component_type = ComponentEnum.STEP
 
     def __new__(cls, *args, **kwargs):
         instance = super().__new__(cls)
@@ -29,19 +28,31 @@ class BaseStep(BaseComponent):
 
     def __init__(
             self,
+            name: str | None = None,
+            backend: str = "",
+            app_context: "ApplicationContext | None" = None,
             language: str = "",
             prompt_dict: dict[str, str] | None = None,
             input_mapping: dict[str, str] | None = None,
             output_mapping: dict[str, str] | None = None,
             **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__()
+        self.name: str = name or self.__class__.__name__
+        self.backend: str = backend
+        self.app_context: "ApplicationContext | None" = app_context
+        self.kwargs: dict = dict(kwargs)
+        self.logger = get_logger()
+        if hasattr(self.logger, "bind"):
+            self.logger = self.logger.bind(component=self.name)
+
         self.language = language
         self.prompt = PromptHandler(language=self.language)
         self.prompt.load_prompt_by_class(self.__class__).load_prompt_dict(prompt_dict)
         self.input_mapping = input_mapping
         self.output_mapping = output_mapping
         self.context: RuntimeContext | None = None
+        self.kwargs: dict = kwargs
 
     @abstractmethod
     async def execute(self):
