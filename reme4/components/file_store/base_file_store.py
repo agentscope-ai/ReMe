@@ -24,13 +24,17 @@ class BaseFileStore(BaseComponent):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        from ..embedding import OpenAIEmbeddingModel
+        from ..file_graph import LocalFileGraph
+        from ..keyword_index import BM25Index
+
         self.store_name = store_name or self.name
         if not embedding_model and not keyword_index:
             raise ValueError("At least one of embedding_model or keyword_index must be set.")
 
-        self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel)
-        self.keyword_index = self.bind(keyword_index, BaseKeywordIndex)
-        self.file_graph = self.bind(file_graph, BaseFileGraph)
+        self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel, default_factory=OpenAIEmbeddingModel)
+        self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
+        self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
         self.store_path = self.working_path / self.component_type.value / store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
 

@@ -78,11 +78,15 @@ class BaseStep(ABC):
 
     def _resolve(self, key: str, base_cls: type[T], comp_enum: ComponentEnum, attr: str | None = None) -> T:
         """Return a kwargs-supplied instance, or look one up by name in the app registry."""
-        value = self.kwargs.get(key, "default")
-        if isinstance(value, base_cls):
-            return value
+        # 1. Step init kwargs, 2. Runtime context (run_job kwargs), 3. App registry by name.
+        for source in (self.kwargs, self.context or {}):
+            value = source.get(key)
+            if isinstance(value, base_cls):
+                return value
+
+        name = self.kwargs.get(key, "default")
         assert self.app_context is not None
-        comp = self.app_context.components[comp_enum][value]
+        comp = self.app_context.components[comp_enum][name]
         return getattr(comp, attr) if attr else comp
 
     @property

@@ -30,6 +30,9 @@ class BaseFileWatcher(BaseComponent):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        from ..file_parser import DefaultFileParser
+        from ..file_store import LocalFileStore
+
         watch_paths = [watch_paths] if isinstance(watch_paths, str) else watch_paths
         base = self.working_path
         self.watch_paths: list[Path] = [base / x for x in watch_paths if (base / x).exists()]
@@ -38,8 +41,8 @@ class BaseFileWatcher(BaseComponent):
         self.force_polling: bool = force_polling
         self.debounce: int = debounce
         self.poll_delay_ms: int = poll_delay_ms
-        self.file_store = self.bind(file_store, BaseFileStore)
-        self.file_parser = self.bind(file_parser, BaseFileParser)
+        self.file_store = self.bind(file_store, BaseFileStore, default_factory=LocalFileStore)
+        self.file_parser = self.bind(file_parser, BaseFileParser, default_factory=DefaultFileParser)
         self._stop_event: asyncio.Event = asyncio.Event()
         self._background_task: asyncio.Task | None = None
         self._retry_interval: float = 10
