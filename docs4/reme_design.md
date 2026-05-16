@@ -3,9 +3,10 @@
 | 分类     | 能力      | 参数                                                        |
 |--------|---------|-----------------------------------------------------------|
 | 通用     | help    |                                                           |
-| 通用     | start   |                                                           |
+| 通用     | start   |   支持后台 |
 | 通用     | restart |                                                           |
 | 通用     | version |                                                           |
+| 通用     | reindex |                                                           |
 | search | search  | query="search term" limit=10 tag="[]" score=0.1 copy=true |
 
 @sen

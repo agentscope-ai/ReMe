@@ -30,6 +30,8 @@ class ApplicationConfig(BaseModel):
     app_name: str = Field(default=os.getenv("APP_NAME", "ReMe"), description="Application display name")
     working_dir: str = Field(default=".reme", description="Working directory for runtime files")
     metadata_dir: str = Field(default="reme_metadata", description="Subdirectory for ReMe persistent state")
+    daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
+    knowledge_dir: str = Field(default="knowledge", description="Subdirectory for knowledge")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")

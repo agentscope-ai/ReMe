@@ -1,22 +1,10 @@
-name: Tests (reme)
+name: Tests ReMe
 
 on:
   push:
-    branches: [main, master, dev, develop, 'dev/**']
-    paths:
-      - 'reme4/**'
-      - 'reme/reme2/**'
-      - 'tests4/**'
-      - 'pyproject.toml'
-      - '.github/workflows/tests4.yml'
+    branches: [main, master, dev, develop]
   pull_request:
     branches: [main, master, dev, develop]
-    paths:
-      - 'reme4/**'
-      - 'reme/reme2/**'
-      - 'tests4/**'
-      - 'pyproject.toml'
-      - '.github/workflows/tests4.yml'
   workflow_dispatch:
 
 concurrency:

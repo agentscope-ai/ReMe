@@ -167,11 +167,11 @@ def _strip_arg_dashes(arg: str) -> str:
     return arg
 
 
-def parse_args(*args, **kwargs) -> tuple[str, dict]:
-    """Parse CLI args: first arg is action, rest are config overrides.
+def parse_args(*args) -> tuple[str, dict]:
+    """Parse CLI args: first arg is action, rest are key=value pairs.
 
     Usage: reme app config=paw.yaml service.name=test
-    Returns: (action, merged_config_dict)
+    Returns: (action, parsed_kv_dict)
     """
     if not args:
         raise ValueError("No arguments provided")
@@ -180,25 +180,35 @@ def parse_args(*args, **kwargs) -> tuple[str, dict]:
     if "=" in first:
         raise ValueError(f"First argument must be action, got: {args[0]}")
 
-    action = first
-    configs: list[dict] = []
-    explicit_config = False
-
+    kvs: list[str] = []
     for raw in args[1:]:
         arg = _strip_arg_dashes(raw)
-        if arg.startswith("config="):
-            path = arg.split("=", 1)[1].strip()
-            if path:
-                configs.append(_load_config(path))
-                explicit_config = True
-        elif "=" in arg:
-            configs.append(parse_dot_notation([arg]))
+        if "=" in arg:
+            kvs.append(arg)
 
-    if not explicit_config and "default" in _CONFIG_REGISTRY:
-        from ..utils import get_logger
+    parsed = parse_dot_notation(kvs) if kvs else {}
+    return first, parsed
 
-        get_logger().info("No config specified, using 'default'")
-        configs.insert(0, _load_config("default"))
+
+def resolve_app_config(**kwargs) -> dict:
+    """Resolve full app-start config: load `config=path` file, fall back to
+    `default`, then deep-merge with the remaining kwargs as overrides.
+    """
+    from ..utils import get_logger
+
+    logger = get_logger()
+    configs: list[dict] = []
+
+    # `config=path` arrives as a string here; `config.foo=bar` arrives as a
+    # nested dict and is left in `kwargs` to be merged as a normal override.
+    config_value = kwargs.get("config")
+    if isinstance(config_value, str):
+        kwargs.pop("config")
+        logger.info(f"Loading config: {config_value}")
+        configs.append(_load_config(config_value))
+    elif "default" in _CONFIG_REGISTRY:
+        logger.info("No config specified, loading 'default'")
+        configs.append(_load_config("default"))
 
     configs.append(kwargs)
 
@@ -206,4 +216,4 @@ def parse_args(*args, **kwargs) -> tuple[str, dict]:
     for cfg in configs:
         merged = _deep_merge(merged, cfg)
 
-    return action, merged
+    return merged
