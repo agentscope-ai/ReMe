@@ -32,8 +32,8 @@ components:
   embedding_model:
     default:
       backend: openai
-      model_name: text-embedding-3-small
-      dimensions: 1536
+      model_name: text-embedding-v4
+      dimensions: 1024
 
   # 3. file_graph — no dependencies
   file_graph:
@@ -65,6 +65,8 @@ components:
   file_watcher:
     default:
       backend: lite
-      watch_paths: "."
+      watch_paths:
+        - MEMORY.md
+        - memory
       file_store: default
       file_parser: default

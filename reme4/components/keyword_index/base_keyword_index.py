@@ -13,11 +13,12 @@ class BaseKeywordIndex(BaseComponent):
 
     component_type = ComponentEnum.KEYWORD_INDEX
 
-    def __init__(self, tokenizer: str = "default", **kwargs):
+    def __init__(self, tokenizer: str = "default", index_version: str = "v1", **kwargs):
         super().__init__(**kwargs)
         from ..tokenizer import RegexTokenizer
 
         self.tokenizer = self.bind(tokenizer, BaseTokenizer, default_factory=RegexTokenizer)
+        self.index_version = index_version
         self.index_path = self.working_metadata_path / self.component_type.value
         self.index_path.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +39,7 @@ class BaseKeywordIndex(BaseComponent):
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not initialized. Call start() first.")
         name = type(self.tokenizer).__name__.replace("Tokenizer", "").lower()
-        return self.index_path / f"bm25_{name}.pkl"
+        return self.index_path / f"bm25_{name}_{self.index_version}.pkl"
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize a text string into tokens."""

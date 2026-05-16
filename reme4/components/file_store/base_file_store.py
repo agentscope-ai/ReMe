@@ -21,6 +21,7 @@ class BaseFileStore(BaseComponent):
         embedding_model: str = "default",
         keyword_index: str = "default",
         file_graph: str = "default",
+        store_version: str = "v1",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -29,6 +30,7 @@ class BaseFileStore(BaseComponent):
         from ..keyword_index import BM25Index
 
         self.store_name = store_name or self.name
+        self.store_version = store_version
         if not embedding_model and not keyword_index:
             raise ValueError("At least one of embedding_model or keyword_index must be set.")
 
@@ -37,6 +39,21 @@ class BaseFileStore(BaseComponent):
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
         self.store_path = self.working_metadata_path / self.component_type.value / store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
+
+    async def _start(self) -> None:
+        """Probe embedding model; disable vector capability if it fails."""
+        if self.embedding_model is None:
+            return
+        if not await self.embedding_model.health_check():
+            self.logger.warning(f"{self.store_name}: embedding unhealthy, vector disabled")
+            self.embedding_model = None
+
+    def _disable_embedding(self, reason: str) -> None:
+        """Drop embedding after a runtime failure; keyword search still works."""
+        if self.embedding_model is None:
+            return
+        self.logger.error(f"{self.store_name}: embedding disabled, {reason}")
+        self.embedding_model = None
 
     async def upsert_file(
         self,

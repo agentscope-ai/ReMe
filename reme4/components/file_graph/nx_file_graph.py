@@ -22,7 +22,7 @@ class NxFileGraph(BaseFileGraph):
         if nx is None:
             raise ImportError("NxFileGraph requires networkx — pip install networkx")
         self._graph: nx.MultiDiGraph = nx.MultiDiGraph()
-        self._graph_file: Path = self.graph_path / f"{self.graph_name}.pkl"
+        self._graph_file: Path = self.graph_path / f"{self.graph_name}_{self.graph_version}.pkl"
 
     # -- Lifecycle ---------------------------------------------------------
 

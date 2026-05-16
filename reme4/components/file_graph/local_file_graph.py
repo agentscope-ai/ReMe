@@ -16,7 +16,7 @@ class LocalFileGraph(BaseFileGraph):
         self._nodes: dict[str, FileNode] = {}
         self._inverse: dict[str, set[str]] = {}  # target → {sources}
         self._pending: dict[str, set[str]] = {}  # virtual target → {sources}
-        self._graph_file: Path = self.graph_path / f"{self.graph_name}.jsonl"
+        self._graph_file: Path = self.graph_path / f"{self.graph_name}_{self.graph_version}.jsonl"
 
     # -- Lifecycle ---------------------------------------------------------
 

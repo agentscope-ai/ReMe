@@ -30,6 +30,7 @@ class BaseEmbeddingModel(BaseComponent):
         max_input_length: int = 8192,
         max_cache_size: int = 10000,
         enable_cache: bool = True,
+        cache_version: str = "v1",
         max_retries: int = 3,
         **kwargs,
     ):
@@ -43,18 +44,37 @@ class BaseEmbeddingModel(BaseComponent):
         self.max_input_length = max_input_length
         self.max_cache_size = max_cache_size
         self.enable_cache = enable_cache
+        self.cache_version = cache_version
         self.max_retries = max_retries
         self._embedding_cache: OrderedDict[str, np.ndarray] = OrderedDict()
+        self.is_healthy: bool = True
 
     @property
     def cache_path(self) -> Path:
         """Disk path for the embedding cache file."""
-        return self.working_metadata_path / "embedding_cache" / f"{self.name}.npz"
+        return self.working_metadata_path / "embedding_cache" / f"{self.name}_{self.cache_version}.npz"
 
     async def _start(self) -> None:
         """Load cache from disk on startup."""
         self._embedding_cache.clear()
         self._load_cache()
+
+    async def health_check(self, timeout: float = 2.0) -> bool:
+        """Probe the provider; sets and returns is_healthy."""
+        tag = f"[EMBEDDING HEALTH CHECK] name={self.name} model={self.model_name}"
+        try:
+            result = await asyncio.wait_for(self._get_embeddings(["ping"]), timeout=timeout)
+            if not result or result[0] is None:
+                raise RuntimeError("empty embedding")
+            self.is_healthy = True
+            self.logger.info(f"{tag} -> OK")
+        except asyncio.TimeoutError:
+            self.is_healthy = False
+            self.logger.error(f"{tag} -> FAIL timeout({timeout}s)")
+        except Exception as e:
+            self.is_healthy = False
+            self.logger.error(f"{tag} -> FAIL {type(e).__name__}: {e}")
+        return self.is_healthy
 
     async def _close(self) -> None:
         """Persist cache to disk on shutdown."""

@@ -17,7 +17,7 @@ class LocalFileStore(BaseFileStore):
         super().__init__(**kwargs)
         self.encoding = encoding
         self.file_chunks: dict[str, FileChunk] = {}
-        self.chunks_path = self.store_path / "file_chunks.jsonl"
+        self.chunks_path = self.store_path / f"file_chunks_{self.store_version}.jsonl"
 
     # Lifecycle
 
@@ -86,7 +86,10 @@ class LocalFileStore(BaseFileStore):
 
         await self.file_graph.upsert_nodes(new_nodes)
         if needs_embed and self.embedding_model:
-            await self.embedding_model.get_node_embeddings(needs_embed)
+            try:
+                await self.embedding_model.get_node_embeddings(needs_embed)
+            except Exception as e:
+                self._disable_embedding(f"upsert: {type(e).__name__}: {e}")
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
 
@@ -119,7 +122,11 @@ class LocalFileStore(BaseFileStore):
         if self.embedding_model is None or not query:
             return []
 
-        query_embedding = await self.embedding_model.get_embedding(query)
+        try:
+            query_embedding = await self.embedding_model.get_embedding(query)
+        except Exception as e:
+            self._disable_embedding(f"search: {type(e).__name__}: {e}")
+            return []
         if query_embedding is None:
             return []
 

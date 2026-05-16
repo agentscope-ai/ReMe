@@ -13,9 +13,10 @@ class BaseFileGraph(BaseComponent):
 
     component_type = ComponentEnum.FILE_GRAPH
 
-    def __init__(self, graph_name: str = "default", **kwargs):
+    def __init__(self, graph_name: str = "default", graph_version: str = "v1", **kwargs):
         super().__init__(**kwargs)
         self.graph_name: str = graph_name or self.name
+        self.graph_version: str = graph_version
         self.graph_path: Path = self.working_metadata_path / self.component_type.value
         self.graph_path.mkdir(parents=True, exist_ok=True)
 
