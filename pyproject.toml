@@ -78,6 +78,8 @@ dev = [
     "furo",
     "sphinxcontrib-mermaid",
     "pre-commit",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
 ]
 
 full = [
