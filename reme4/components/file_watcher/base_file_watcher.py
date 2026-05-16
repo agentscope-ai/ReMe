@@ -69,18 +69,29 @@ class BaseFileWatcher(BaseComponent):
             return True
         return any(path.endswith("." + s.strip(".")) for s in self.suffix_filters)
 
-    async def scan_existing_files(self) -> list[Path]:
-        """Collect all watchable files under watch_paths."""
-        files: list[Path] = []
+    def _get_relative_path(self, path: str | Path) -> str:
+        """Return path relative to working_dir, or absolute path if outside."""
+        file_path = Path(path).absolute()
+        try:
+            return str(file_path.relative_to(self.working_path.absolute()))
+        except ValueError:
+            return str(file_path)
+
+    def _get_absolute_path(self, path: str | Path) -> Path:
+        """Return absolute path; relative paths are resolved against working_dir."""
+        p = Path(path)
+        return p if p.is_absolute() else self.working_path / p
+
+    async def scan_existing_files(self) -> dict[str, Path]:
+        """Collect watchable files under watch_paths as {relative_path: absolute_path}."""
+        files: dict[str, Path] = {}
         for path in self.watch_paths:
             if not path.exists():
                 continue
-            if path.is_file():
-                if self.watch_filter(Change.added, str(path)):
-                    files.append(path)
-            else:
-                items = path.rglob("*") if self.recursive else path.iterdir()
-                files.extend(p for p in items if p.is_file() and self.watch_filter(Change.added, str(p)))
+            candidates = [path] if path.is_file() else (path.rglob("*") if self.recursive else path.iterdir())
+            for p in candidates:
+                if p.is_file() and self.watch_filter(Change.added, str(p)):
+                    files[self._get_relative_path(p)] = p.absolute()
         return files
 
     async def clear_store(self):
@@ -94,7 +105,7 @@ class BaseFileWatcher(BaseComponent):
         if self.file_store is None:
             raise ValueError("file_store is not initialized!")
         await self.file_store.clear()
-        await self.on_added(await self.scan_existing_files())
+        await self.on_added(list((await self.scan_existing_files()).keys()))
 
     @abstractmethod
     async def watch_loop(self):
@@ -105,13 +116,13 @@ class BaseFileWatcher(BaseComponent):
         """Sync the store with the current state of watch_paths."""
 
     @abstractmethod
-    async def on_added(self, path: Path | list[Path]):
-        """Handle file added event."""
+    async def on_added(self, path: str | list[str]):
+        """Handle file added event (relative paths)."""
 
     @abstractmethod
-    async def on_modified(self, path: Path | list[Path]):
-        """Handle file modified event."""
+    async def on_modified(self, path: str | list[str]):
+        """Handle file modified event (relative paths)."""
 
     @abstractmethod
-    async def on_deleted(self, path: Path | list[Path]):
-        """Handle file deleted event."""
+    async def on_deleted(self, path: str | list[str]):
+        """Handle file deleted event (relative paths)."""

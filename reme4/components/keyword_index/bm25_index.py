@@ -10,6 +10,7 @@ from collections import Counter
 from typing import TypedDict
 
 from .base_keyword_index import BaseKeywordIndex
+from ..component_registry import R
 
 
 class DocMeta(TypedDict):
@@ -19,6 +20,7 @@ class DocMeta(TypedDict):
     token_ids: set[int]
 
 
+@R.register("bm25")
 class BM25Index(BaseKeywordIndex):
     """BM25 search engine with file-based persistence.
 

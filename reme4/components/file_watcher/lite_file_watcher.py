@@ -1,7 +1,6 @@
 """Polling-based file watcher using watchfiles."""
 
 import asyncio
-from pathlib import Path
 
 from watchfiles import Change, awatch
 
@@ -58,70 +57,68 @@ class LiteFileWatcher(BaseFileWatcher):
 
     async def _dispatch_changes(self, changes: set[tuple[Change, str]]):
         """Classify raw changes and dispatch to event handlers."""
-        added = [Path(p) for c, p in changes if c == Change.added]
-        modified = [Path(p) for c, p in changes if c == Change.modified]
-        deleted = [Path(p) for c, p in changes if c == Change.deleted]
-        if added:
-            self.logger.info(f"Detected {len(added)} added file(s)")
-            await self.on_added(added)
-        if modified:
-            self.logger.info(f"Detected {len(modified)} modified file(s)")
-            await self.on_modified(modified)
-        if deleted:
-            self.logger.info(f"Detected {len(deleted)} deleted file(s)")
-            await self.on_deleted(deleted)
+        buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
+        for c, p in changes:
+            if c in buckets:
+                buckets[c].append(self._get_relative_path(p))
+        for change, handler, label in (
+            (Change.added, self.on_added, "added"),
+            (Change.modified, self.on_modified, "modified"),
+            (Change.deleted, self.on_deleted, "deleted"),
+        ):
+            if buckets[change]:
+                self.logger.info(f"Detected {len(buckets[change])} {label} file(s)")
+                await handler(buckets[change])
 
     async def update_store(self):
         if self.file_store is None:
             raise ValueError("file_store is not initialized!")
 
-        # Diff existing files against indexed entries by path and mtime.
-        existing = {str(p): p.stat().st_mtime for p in await self.scan_existing_files()}
-        indexed = {p: n.st_mtime for p, n in self.file_store.file_nodes.items()}
-        existing_keys, indexed_keys = set(existing), set(indexed)
+        existing: dict[str, float] = {
+            rel: abs_p.stat().st_mtime for rel, abs_p in (await self.scan_existing_files()).items()
+        }
+        indexed: dict[str, float] = {n.path: n.st_mtime for n in await self.file_store.file_graph.get_nodes()}
 
-        to_delete = indexed_keys - existing_keys
-        to_add = existing_keys - indexed_keys
-        to_modify = [p for p in existing_keys & indexed_keys if existing[p] != indexed[p]]
+        to_delete = list(indexed.keys() - existing.keys())
+        to_add = list(existing.keys() - indexed.keys())
+        to_modify = [p for p in existing.keys() & indexed.keys() if existing[p] != indexed[p]]
 
         if to_modify:
             self.logger.info(f"Updating {len(to_modify)} modified file(s)")
-            await self.on_modified([Path(p) for p in to_modify])
+            await self.on_modified(to_modify)
         if to_delete:
             self.logger.info(f"Removing {len(to_delete)} deleted file(s)")
-            await self.on_deleted([Path(p) for p in to_delete])
+            await self.on_deleted(to_delete)
         if to_add:
             self.logger.info(f"Indexing {len(to_add)} new file(s)")
-            await self.on_added([Path(p) for p in to_add])
+            await self.on_added(to_add)
         if not to_modify and not to_delete and not to_add:
             self.logger.info("Store is up to date")
 
-    async def _parse_and_upsert(self, paths: list[Path], action: str):
+    async def _parse_and_upsert(self, paths: list[str], action: str):
         """Parse files and upsert into store. Shared by on_added / on_modified."""
         if self.file_parser is None or self.file_store is None:
             raise RuntimeError("file_parser or file_store is not initialized!")
 
         parsed: list[tuple[FileNode, list[FileChunk]]] = []
-        for p in paths:
-            if p.is_file():
-                self.logger.info(f"{action} file: {p}")
-                parsed.append(await self.file_parser.parse(p))
+        for rel in paths:
+            abs_path = self._get_absolute_path(rel)
+            if abs_path.is_file():
+                self.logger.info(f"{action} file: {rel}")
+                parsed.append(await self.file_parser.parse(abs_path))
         if parsed:
-            file_paths = [str(p) for p in paths if p.is_file()]
-            await self.file_store.delete_by_path(file_paths)
+            await self.file_store.delete_by_path([n.path for n, _ in parsed])
             await self.file_store.upsert_file(parsed)
 
-    async def on_added(self, path: Path | list[Path]):
-        paths = [path] if isinstance(path, Path) else path
-        await self._parse_and_upsert(paths, "Adding")
+    async def on_added(self, path: str | list[str]):
+        await self._parse_and_upsert([path] if isinstance(path, str) else path, "Adding")
 
-    async def on_modified(self, path: Path | list[Path]):
-        paths = [path] if isinstance(path, Path) else path
-        await self._parse_and_upsert(paths, "Updating")
+    async def on_modified(self, path: str | list[str]):
+        await self._parse_and_upsert([path] if isinstance(path, str) else path, "Updating")
 
-    async def on_deleted(self, path: Path | list[Path]):
+    async def on_deleted(self, path: str | list[str]):
         if self.file_store is None:
             raise RuntimeError("file_store is not initialized!")
-        paths = [path] if isinstance(path, Path) else path
+        paths = [path] if isinstance(path, str) else path
         self.logger.info(f"Deleting {len(paths)} file(s)")
-        await self.file_store.delete_by_path([str(p) for p in paths])
+        await self.file_store.delete_by_path(paths)

@@ -1,12 +1,69 @@
 service:
   backend: http
-  host: 127.0.0.1
-  port: 2333
+#  backend: mcp
 
 jobs:
-  - name: demo
-    backend: base
-    description: "Echo back the incoming query (smoke test)."
+  - backend: base
+    name: demo_job
+    description: "demo job description"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query"
+        min_score:
+          type: number
+          description: "min score"
+          default: 0.5
+      required:
+        - query
     steps:
-      - backend: demo_echo
+      - backend: demo_echo_step1
+      - backend: demo_echo_step2
 
+components:
+  # 1. tokenizer — 无依赖
+  tokenizer:
+    default:
+      backend: regex
+
+  # 2. embedding_model — 无依赖
+  embedding_model:
+    default:
+      backend: openai
+      model_name: text-embedding-3-small
+      dimensions: 1536
+
+  # 3. file_graph — 无依赖
+  file_graph:
+    default:
+      backend: local
+
+  # 4. file_parser — 无依赖
+  file_parser:
+    default:
+      backend: default
+
+  # 5. keyword_index — 依赖 tokenizer
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  # 6. file_store — 依赖 embedding_model / keyword_index / file_graph
+  file_store:
+    default:
+      backend: local
+      store_name: default
+      embedding_model: default
+      keyword_index: default
+      file_graph: default
+
+  # 7. file_watcher — 依赖 file_store / file_parser
+  file_watcher:
+    default:
+      backend: lite
+      watch_paths: "."
+      file_store: default
+      file_parser: default

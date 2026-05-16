@@ -1,9 +1,10 @@
 """steps"""
 
-from . import demo
 from .base_step import BaseStep
+from .demo import DemoEchoStep1, DemoEchoStep2
 
 __all__ = [
     "BaseStep",
-    "demo",
+    "DemoEchoStep1",
+    "DemoEchoStep2",
 ]
