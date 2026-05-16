@@ -19,7 +19,9 @@ async def call_server(action: str, **kwargs):
     backend: str = kwargs.pop("backend", "http")
     client_cls = R.get(ComponentEnum.CLIENT, backend)
     async with client_cls(action=action, **kwargs) as client:
-        print(await client())
+        async for chunk in client():
+            print(chunk, end="", flush=True)
+        print()
 
 
 def main():

@@ -2,17 +2,20 @@
 
 import json
 import os
+from collections.abc import AsyncGenerator
 
 import httpx
 
 from .base_client import BaseClient
 from ..component_registry import R
 from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ...enumeration import ChunkEnum
+from ...schema import StreamChunk
 
 
 @R.register("http")
 class HttpClient(BaseClient):
-    """HTTP client that communicates with ReMe service via REST API."""
+    """HTTP client that auto-adapts to JSON or SSE endpoints via Content-Type."""
 
     def __init__(
         self,
@@ -46,15 +49,68 @@ class HttpClient(BaseClient):
         if self.client is None:
             self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
-    async def __call__(self) -> str:
-        """Send POST request to the configured action endpoint."""
+    async def _iter_stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
+        """Send request and yield StreamChunks; auto-detects JSON vs SSE via Content-Type."""
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
-        response = await self.client.post(f"/{self.action}", json=self.kwargs)
-        response.raise_for_status()
-        result = response.json()
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        async with self.client.stream("POST", f"/{self.action}", json=self.kwargs) as resp:
+            resp.raise_for_status()
+            ctype = resp.headers.get("content-type", "")
+
+            if ctype.startswith("text/event-stream"):
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    payload = line[len("data:") :]
+                    if payload.strip() == "[DONE]":
+                        return
+                    try:
+                        data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    chunk = StreamChunk(**data)
+                    if chunk.chunk_type == ChunkEnum.ERROR:
+                        # Surface server-side errors as exceptions so callers don't
+                        # mistake error chunks for valid content.
+                        raise RuntimeError(str(chunk.chunk))
+                    if chunk.done:
+                        return
+                    yield chunk
+            else:
+                body = await resp.aread()
+                text = body.decode()
+                try:
+                    data = json.loads(text)
+                    pretty = json.dumps(data, indent=2, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    pretty = text
+                yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=pretty)
+
+    async def stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
+        """HTTP-specific richer access: yield full StreamChunk objects with chunk_type/metadata."""
+        async for chunk in self._iter_stream_chunks():
+            yield chunk
+
+    async def list_actions(self) -> list[dict]:
+        """Return raw OpenAPI operations; each dict gets an `action` key (path without leading '/')."""
+        if self.client is None:
+            raise RuntimeError("Client not initialized. Call _start() first.")
+        resp = await self.client.get("/openapi.json")
+        resp.raise_for_status()
+        spec = resp.json()
+        actions: list[dict] = []
+        for path, methods in spec.get("paths", {}).items():
+            for method, op in methods.items():
+                actions.append({"action": path.lstrip("/"), "method": method.upper(), **op})
+        return actions
+
+    # pylint: disable=invalid-overridden-method
+    async def _execute(self) -> AsyncGenerator[str, None]:
+        """Yield text chunks; one yield for JSON endpoints, many for SSE."""
+        async for chunk in self._iter_stream_chunks():
+            payload = chunk.chunk
+            yield payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
 
     async def _close(self) -> None:
         """Close the HTTP client."""

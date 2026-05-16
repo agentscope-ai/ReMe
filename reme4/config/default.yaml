@@ -40,6 +40,29 @@ jobs:
     steps:
       - backend: health_check_step
 
+  - backend: stream
+    name: stream_demo
+    description: "stream demo job: repeat query 10x and stream char-by-char"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query to echo"
+        repeat:
+          type: integer
+          description: "number of times to repeat the query"
+          default: 10
+        interval:
+          type: number
+          description: "seconds between chunks"
+          default: 0.1
+      required:
+        - query
+    steps:
+      - backend: stream_demo_step1
+      - backend: stream_demo_step2
+
 components:
   # 1. tokenizer — no dependencies
   tokenizer:

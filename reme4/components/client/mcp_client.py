@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastmcp import Client
@@ -27,7 +28,8 @@ class MCPClient(BaseClient):
         # SSE (default)
         client = MCPClient(action="my_tool", host="localhost", port=8000, query="hello")
         async with client:
-            result = await client()
+            async for text in client():
+                print(text)
 
         # Streamable HTTP
         client = MCPClient(action="my_tool", transport="streamable-http", host="localhost", port=8000)
@@ -94,12 +96,20 @@ class MCPClient(BaseClient):
             self.client = Client(self._build_transport(), timeout=self.timeout)
             await self.client.__aenter__()
 
-    async def __call__(self) -> str:
+    # pylint: disable=invalid-overridden-method
+    async def _execute(self) -> AsyncGenerator[str, None]:
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
         result: CallToolResult = await self.client.call_tool(self.action, self.kwargs)
-        return self._extract_text(result)
+        yield self._extract_text(result)
+
+    async def list_actions(self) -> list[dict]:
+        """Return raw MCP Tool dumps; each dict gets an `action` key (the tool name)."""
+        if self.client is None:
+            raise RuntimeError("Client not initialized. Call _start() first.")
+        tools = await self.client.list_tools()
+        return [tool.model_dump() for tool in tools]
 
     # pylint: disable=unnecessary-dunder-call
     async def _close(self) -> None:

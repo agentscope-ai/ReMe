@@ -11,6 +11,7 @@ from agentscope.token import TokenCounterBase
 from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
 from ..components.file_store import BaseFileStore
+from ..components.file_watcher import BaseFileWatcher
 from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
@@ -120,6 +121,11 @@ class BaseStep(ABC):
     def embedding(self) -> BaseEmbeddingModel:
         """Return the embedding model component."""
         return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
+
+    @property
+    def file_watcher(self) -> BaseFileWatcher:
+        """Return the file watcher component."""
+        return self._resolve("file_watcher", BaseFileWatcher, ComponentEnum.FILE_WATCHER)
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""
