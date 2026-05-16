@@ -7,7 +7,7 @@ from .application import Application
 from .components import R
 from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
-from .utils import load_env
+from .utils import cli_find_reme, load_env, precheck_start
 
 
 class ReMe(Application):
@@ -19,7 +19,7 @@ async def call_server(action: str, **kwargs):
     backend: str = kwargs.pop("backend", "http")
     client_cls = R.get(ComponentEnum.CLIENT, backend)
     async with client_cls(action=action, **kwargs) as client:
-        await client()
+        print(await client())
 
 
 def main():
@@ -28,7 +28,11 @@ def main():
     if action == "start":
         load_env()
         kwargs = resolve_app_config(**kwargs)
+        if not precheck_start(kwargs.get("service")):
+            return
         ReMe(**kwargs).run_app()
+    elif action == "find_reme":
+        cli_find_reme()
     else:
         asyncio.run(call_server(action, **kwargs))
 

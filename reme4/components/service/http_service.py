@@ -82,7 +82,6 @@ class HttpService(BaseService):
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        self.service.post("/health")(lambda: {"status": "healthy"})
 
     def start_service(self, app: "Application") -> None:
         # uvicorn 0.41 still imports websockets.legacy / WebSocketServerProtocol

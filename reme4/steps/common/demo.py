@@ -1,7 +1,7 @@
 """Demo steps for smoke-testing the application stack."""
 
-from .base_step import BaseStep
-from ..components import R
+from ..base_step import BaseStep
+from ...components import R
 
 
 @R.register("demo_echo_step1")

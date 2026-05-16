@@ -4,7 +4,7 @@ service:
 
 jobs:
   - backend: base
-    name: demo_job
+    name: demo
     description: "demo job description"
     parameters:
       type: object
@@ -21,6 +21,24 @@ jobs:
     steps:
       - backend: demo_echo_step1
       - backend: demo_echo_step2
+
+  - backend: base
+    name: version
+    description: "return reme4 package version"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: version_step
+
+  - backend: base
+    name: health_check
+    description: "return a concise health-check snapshot of reme4 components"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: health_check_step
 
 components:
   # 1. tokenizer — no dependencies

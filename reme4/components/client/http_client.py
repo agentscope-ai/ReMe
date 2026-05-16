@@ -54,9 +54,7 @@ class HttpClient(BaseClient):
         response = await self.client.post(f"/{self.action}", json=self.kwargs)
         response.raise_for_status()
         result = response.json()
-        if "answer" in result:
-            return str(result["answer"])
-        return str(result)
+        return json.dumps(result, indent=2, ensure_ascii=False)
 
     async def _close(self) -> None:
         """Close the HTTP client."""
