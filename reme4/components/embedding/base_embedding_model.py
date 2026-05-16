@@ -62,22 +62,22 @@ class BaseEmbeddingModel(BaseComponent):
 
     # -- Public API --
 
-    async def get_embedding(self, input_text: str, **kwargs) -> list[float] | None:
+    async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray | None:
         """Get embedding for a single text."""
         results = await self.get_embeddings([input_text], **kwargs)
         return results[0] if results else None
 
-    async def get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]:
+    async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
         """Get embeddings for a list of texts, with caching and batching."""
         truncated = [t[: self.max_input_length] for t in input_text]
-        results: list[list[float] | None] = [None] * len(truncated)
+        results: list[np.ndarray | None] = [None] * len(truncated)
         to_compute: list[tuple[int, str]] = []
 
         # Split into cache hits and misses
         for idx, text in enumerate(truncated):
             cached = self._get_from_cache(text)
             if cached is not None:
-                results[idx] = cached.tolist()
+                results[idx] = cached
             else:
                 to_compute.append((idx, text))
 
@@ -114,7 +114,7 @@ class BaseEmbeddingModel(BaseComponent):
                             emb_array = np.pad(emb_array, (0, self.dimensions - len(emb_array)))
                         else:
                             emb_array = emb_array[: self.dimensions]
-                    results[orig_idx] = emb_array.tolist()
+                    results[orig_idx] = emb_array
                     self._put_to_cache(text, emb_array)
 
         return results

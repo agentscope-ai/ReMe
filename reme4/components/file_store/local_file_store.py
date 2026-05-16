@@ -68,12 +68,12 @@ class LocalFileStore(BaseFileStore):
             if old_node and self.embedding_model:
                 for cid in old_node.chunk_ids:
                     old = self.file_chunks.pop(cid, None)
-                    if old and old.embedding:
+                    if old and old.embedding is not None:
                         cached[cid] = old.embedding
 
             node.chunk_ids = []
             for c in chunks:
-                if self.embedding_model and not c.embedding:
+                if self.embedding_model and c.embedding is None:
                     if c.id in cached:
                         c.embedding = cached[c.id]
                     elif c.text:
@@ -120,7 +120,7 @@ class LocalFileStore(BaseFileStore):
             return []
 
         query_embedding = await self.embedding_model.get_embedding(query)
-        if not query_embedding:
+        if query_embedding is None:
             return []
 
         candidates = [c for c in self.file_chunks.values() if c.embedding is not None]

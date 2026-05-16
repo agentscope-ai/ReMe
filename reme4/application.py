@@ -166,4 +166,7 @@ class Application(BaseComponent):
 
     def run_app(self):
         """Start the service and serve the application."""
+        if self.context.service is None:
+            raise RuntimeError("Service not configured")
+
         self.context.service.run_app(app=self)
