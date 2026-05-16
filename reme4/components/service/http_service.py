@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import warnings
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -84,4 +85,16 @@ class HttpService(BaseService):
         self.service.post("/health")(lambda: {"status": "healthy"})
 
     def start_service(self, app: "Application") -> None:
+        # uvicorn 0.41 still imports websockets.legacy / WebSocketServerProtocol
+        # on startup; silence those specific lines since we don't use WebSocket.
+        warnings.filterwarnings(
+            "ignore",
+            category=DeprecationWarning,
+            message=r".*websockets\.legacy is deprecated.*",
+        )
+        warnings.filterwarnings(
+            "ignore",
+            category=DeprecationWarning,
+            message=r".*WebSocketServerProtocol is deprecated.*",
+        )
         uvicorn.run(self.service, host=self.host, port=self.port, **self.kwargs)

@@ -1,0 +1,12 @@
+service:
+  backend: http
+  host: 127.0.0.1
+  port: 2333
+
+jobs:
+  - name: demo
+    backend: base
+    description: "Echo back the incoming query (smoke test)."
+    steps:
+      - backend: demo_echo
+

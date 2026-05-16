@@ -25,6 +25,8 @@ T = TypeVar("T")
 class BaseStep(ABC):
     """Composable unit of an LLM workflow."""
 
+    component_type = ComponentEnum.STEP
+
     def __new__(cls, *args, **kwargs):
         # Snapshot init args so copy() can rebuild an equivalent instance later.
         instance = object.__new__(cls)
