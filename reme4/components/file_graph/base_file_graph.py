@@ -16,7 +16,7 @@ class BaseFileGraph(BaseComponent):
     def __init__(self, graph_name: str = "default", **kwargs):
         super().__init__(**kwargs)
         self.graph_name: str = graph_name or self.name
-        self.graph_path: Path = self.working_path / self.component_type.value
+        self.graph_path: Path = self.working_metadata_path / self.component_type.value
         self.graph_path.mkdir(parents=True, exist_ok=True)
 
     # -- Node CRUD ---------------------------------------------------------

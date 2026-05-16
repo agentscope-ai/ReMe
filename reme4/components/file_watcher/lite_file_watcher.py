@@ -34,10 +34,10 @@ class LiteFileWatcher(BaseFileWatcher):
 
             invalid = set(self.watch_paths) - set(valid_paths)
             if invalid:
-                self.logger.warning(f"Skipping invalid paths: {invalid}")
+                self.logger.warning(f"Skipping invalid paths: {[str(p) for p in invalid]}")
 
             try:
-                self.logger.info(f"Watching: {valid_paths}")
+                self.logger.info(f"Watching: {[str(p) for p in valid_paths]}")
                 async for changes in awatch(
                     *valid_paths,
                     watch_filter=self.watch_filter,

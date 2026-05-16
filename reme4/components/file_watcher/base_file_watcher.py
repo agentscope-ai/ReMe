@@ -50,7 +50,7 @@ class BaseFileWatcher(BaseComponent):
     async def _start(self):
         self._stop_event = asyncio.Event()
         self._background_task = asyncio.create_task(self._background_run())
-        self.logger.info(f"Started watching: {self.watch_paths}")
+        self.logger.info(f"Started watching: {[str(p) for p in self.watch_paths]}")
 
     async def _background_run(self):
         """Sync store then enter watch loop."""

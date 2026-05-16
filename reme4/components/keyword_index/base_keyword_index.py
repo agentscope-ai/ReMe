@@ -18,7 +18,7 @@ class BaseKeywordIndex(BaseComponent):
         from ..tokenizer import RegexTokenizer
 
         self.tokenizer = self.bind(tokenizer, BaseTokenizer, default_factory=RegexTokenizer)
-        self.index_path = self.working_path / self.component_type.value
+        self.index_path = self.working_metadata_path / self.component_type.value
         self.index_path.mkdir(parents=True, exist_ok=True)
 
     async def _start(self) -> None:

@@ -127,6 +127,13 @@ class BaseComponent(ABC):
             return Path.cwd()
         return Path(self.app_context.app_config.working_dir)
 
+    @property
+    def working_metadata_path(self) -> Path:
+        """Resolved metadata directory: working_path / metadata_dir, or absolute metadata_dir."""
+        if self.app_context is None:
+            return Path.cwd() / "metadata"
+        return self.working_path / self.app_context.app_config.metadata_dir
+
     # ----- Lifecycle -----------------------------------------------------
 
     async def _start(self) -> None:

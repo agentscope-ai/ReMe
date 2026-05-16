@@ -7,6 +7,9 @@ from .application import Application
 from .components import R
 from .config import parse_args
 from .enumeration import ComponentEnum
+from .utils import load_env
+
+load_env()
 
 
 class ReMe(Application):

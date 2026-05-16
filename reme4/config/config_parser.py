@@ -182,6 +182,7 @@ def parse_args(*args, **kwargs) -> tuple[str, dict]:
 
     action = first
     configs: list[dict] = []
+    explicit_config = False
 
     for raw in args[1:]:
         arg = _strip_arg_dashes(raw)
@@ -189,8 +190,15 @@ def parse_args(*args, **kwargs) -> tuple[str, dict]:
             path = arg.split("=", 1)[1].strip()
             if path:
                 configs.append(_load_config(path))
+                explicit_config = True
         elif "=" in arg:
             configs.append(parse_dot_notation([arg]))
+
+    if not explicit_config and "default" in _CONFIG_REGISTRY:
+        from ..utils import get_logger
+
+        get_logger().info("No config specified, using 'default'")
+        configs.insert(0, _load_config("default"))
 
     configs.append(kwargs)
 

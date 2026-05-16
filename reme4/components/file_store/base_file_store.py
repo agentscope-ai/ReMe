@@ -35,7 +35,7 @@ class BaseFileStore(BaseComponent):
         self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel, default_factory=OpenAIEmbeddingModel)
         self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
-        self.store_path = self.working_path / self.component_type.value / store_name
+        self.store_path = self.working_metadata_path / self.component_type.value / store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
 
     async def upsert_file(
