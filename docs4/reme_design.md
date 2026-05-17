@@ -9,6 +9,66 @@ reme4 version
 # 预期输出：✅ ReMe v{__version__}
 ```
 
+# CLI 指令
+
+入口：`reme4/reme.py::main()` → `parse_args(*sys.argv[1:])` 解析首个位置参数为 `action`，后续 `key=value` 解析为 kwargs（支持
+`service.port=8080` 的 dot notation；自动剥离 `--` / `-` 前缀；值会做 bool / int / float / JSON 转换）。
+
+调用模式：
+
+- `start`：本地启动 `ReMe(Application)` 服务（不经过 client）
+- `find_reme`：本地探测正在运行的 reme，不调用服务
+- 其他 action：通过 `call_server(action, **kwargs)` → `R.get(ComponentEnum.CLIENT, backend)` 实例化客户端并流式打印结果
+
+通用可选参数 `backend:str=http`（取值 `http` / `mcp`，对应 `reme4/components/client/{http_client,mcp_client}.py` 中
+`@R.register` 注册名）；服务端默认 host/port 见 `reme4/constants.py`，可由 `start` 端通过 `service.host=` / `service.port=`
+覆盖。
+
+| 分类        | 指令                                | 入口                                                  | 参数 & 行为                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|-----------|-----------------------------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 🚀 本地     | 🟢 `start`                        | `reme.py:30` → `ReMe(**kwargs).run_app()`           | 📥 可选 `config=<name\|path>`（默认加载 `reme4/config/default.yaml`，`.yaml/.yml/.json` 都支持，含 `${ENV:-default}` 占位符）｜ 可选 `service.host=` / `service.port=` 等任意 dot-notation 覆盖 ｜ 🛠️ 流程：`load_env()` → `resolve_app_config(**kwargs)` deep merge → `precheck_start(svc)`（`utils/service_utils.py:72`：目标 host:port 已有 reme → 打印 `reme already running ...` 直接返回；端口被其他进程占用 → stderr 提示 `port {port} occupied. Start on another port: reme4 start service.port=<other_port>` 并 `sys.exit(1)`）→ 启动服务 |
+| 🔎 本地     | 🧭 `find_reme`                    | `reme.py:36` → `utils/service_utils.py:89`          | 📥 无 ｜ 📤 发现服务则 stdout 打印 `HOST={host} PORT={port} PID={pid or 'unknown'}` ；未发现则 stderr 提示 `reme not started. Try: reme start` 并 `sys.exit(1)` ｜ 🛠️ 流程：先探 `REME_DEFAULT_HOST:REME_DEFAULT_PORT`（`health_check` 命中算 `reme`），再 `pgrep -af "reme.* start"` 扫描其他端口                                                                                                                                                                                                                          |
+| 🛰️ 客户端特化 | 📜 `list`                         | `components/client/base_client.py:36`               | 📥 无 ｜ 📤 服务端可用 action 目录（JSON，`indent=2 ensure_ascii=False`）｜ 🛠️ 在 `BaseClient.__call__` 中拦截，不进入 `_execute`，直接调用 `list_actions()`（HTTP/MCP backend 各自实现）                                                                                                                                                                                                                                                                                                                               |
+| 🌐 转发到服务端 | 🆘 `help`                         | `call_server("help")` → 服务端 `help_step`             | 📥 无 ｜ 📤 一行一个 job：`🛠️ \`{name}\` — {description} 📥 {params}` ｜ 详见下文「基础Job」                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 🌐 转发到服务端 | 🩺 `health_check`                 | `call_server("health_check")` → `health_check_step` | 📥 无 ｜ 📤 `answer = "✅/❌ ReMe v{version} - healthy/unhealthy"` ｜ 详见下文「基础Job」                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 🌐 转发到服务端 | 🏷️ `version`                     | `call_server("version")` → `version_step`           | 📥 无 ｜ 📤 `answer = reme4.__version__`                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 🌐 转发到服务端 | 🔄 `reindex`                      | `call_server("reindex")` → `reindex_step`           | 📥 无 ｜ 📤 `answer = "🔄 Reindexed {added} file(s)"`                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 🌐 转发到服务端 | 🔍 `search`                       | `call_server("search", query=…, …)` → `search_step` | 📥 `query=… limit=… min_score=… vector_weight=… …`（详见下文「基础Job」）                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🌐 转发到服务端 | 🪄 `demo_echo` / 🌊 `stream_demo` | `call_server(...)` → 对应 step                        | 📥 `query=… min_score=…` / `query=… repeat=… interval=…`，详见下文「基础Job」                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 🌐 转发到服务端 | `<any other action>`              | `call_server(<action>, **kwargs)`                   | 📥 任意 kwargs 透传 ｜ 📤 服务端注册的 step 流式输出（`print(chunk, end="", flush=True)` 直至完成）                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+使用示例：
+
+```bash
+# 启动（默认 default.yaml）
+reme4 start
+
+# 指定 config 与服务端口
+reme4 start config=paw.yaml service.port=8181
+
+# 查找在跑的 reme
+reme4 find_reme
+# HOST=127.0.0.1 PORT=8000 PID=12345
+
+# 列出所有可用 action（特殊：仅 client 处理，不转服务端）
+reme4 list
+
+# 列出所有 job 的简要说明（转发到服务端 help_step）
+reme4 help
+
+# 健康检查
+reme4 health_check
+
+# 全量重建索引
+reme4 reindex
+
+# 检索（query 必填，其它可选；任意 step 参数都可通过 key=value 注入）
+reme4 search query="latency 问题" limit=10 min_score=0.2 vector_weight=0.6
+
+# 通过 MCP backend 调用
+reme4 search query="..." backend=mcp
+```
+
 # 基础Job
 
 @jinli
