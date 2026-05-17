@@ -13,7 +13,7 @@ from .application import Application
 from .component import R, RuntimeContext
 from .config import parse_args
 from .enumeration import ComponentEnum
-from .memory.summarizer import Summarizer
+from .steps.jobs.summarizer import Summarizer
 from .utils import run_coro_safely
 
 
