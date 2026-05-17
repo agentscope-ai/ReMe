@@ -28,14 +28,14 @@ from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
-from ..steps.runtime_response import _set_answer, _to_jsonable
-from . import memory_io
-from .memory_io import create_file
+from ..runtime_response import _set_answer, _to_jsonable
+from ...memory import memory_io
+from ...memory.memory_io import create_file
 from .agent_toolkit import build_agent_toolkit
-from ..component import R
-from ..component.base_step import BaseStep
-from ..enumeration import ComponentEnum
-from ..utils.wikilink_resolver import extract_wikilinks
+from ...component import R
+from ...component import BaseStep
+from ...enumeration import ComponentEnum
+from ...utils import extract_wikilinks
 
 
 class IngestResult(BaseModel):

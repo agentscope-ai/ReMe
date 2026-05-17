@@ -60,7 +60,7 @@ name these tools resolve at boot.
 """
 
 from . import retriever  # noqa: F401  -- @R.register("hybrid")
-from . import ingestor  # noqa: F401  -- @R.register("ingestor")
+from ..steps.jobs import ingestor  # noqa: F401  -- @R.register("ingestor")
 from . import maintainer  # noqa: F401  -- @R.register("maintainer")
 
 # Tool surfaces — each module's @R.register decorators fire on import.
