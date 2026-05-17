@@ -127,22 +127,29 @@ class BM25Index(BaseKeywordIndex):
         return dict(sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]) if scores else {}
 
     async def dump(self) -> None:
-        """Persist index to disk via pickle."""
-        with open(self.index_file, "wb") as f:
-            pickle.dump(
-                {
-                    "vocab": self.vocab,
-                    "inverted_index": self.inverted_index,
-                    "doc_meta": self.doc_meta,
-                    "total_len": self.total_len,
-                    "k1": self.k1,
-                    "b": self.b,
-                },
-                f,
-            )
+        """Persist index to disk via pickle (atomic rename)."""
+        try:
+            tmp = self.index_file.with_suffix(".tmp")
+            with open(tmp, "wb") as f:
+                pickle.dump(
+                    {
+                        "vocab": self.vocab,
+                        "inverted_index": self.inverted_index,
+                        "doc_meta": self.doc_meta,
+                        "total_len": self.total_len,
+                        "k1": self.k1,
+                        "b": self.b,
+                    },
+                    f,
+                )
+            tmp.replace(self.index_file)
+        except Exception as e:
+            self.logger.exception(f"Failed to write {self.index_file}: {e}")
 
     async def load(self) -> None:
-        """Load index from disk. Clears index on failure."""
+        """Load index from disk. No-op if file missing; clears index on corruption."""
+        if not self.index_file.exists():
+            return
         try:
             with open(self.index_file, "rb") as f:
                 data = pickle.load(f)

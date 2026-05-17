@@ -23,19 +23,30 @@ class LocalFileStore(BaseFileStore):
 
     async def _start(self) -> None:
         await super()._start()
-        if self.chunks_path.exists():
-            try:
-                async with aiofiles.open(self.chunks_path, encoding=self.encoding) as f:
-                    async for line in f:
-                        line = line.strip()
-                        if line:
-                            chunk = FileChunk.model_validate_json(line)
-                            self.file_chunks[chunk.id] = chunk
-            except Exception as e:
-                self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+        await self.load()
         self.logger.info(f"LocalFileStore '{self.store_name}' ready: {len(self.file_chunks)} chunks")
 
     async def _close(self) -> None:
+        await self.dump()
+        self.file_chunks.clear()
+        await super()._close()
+
+    async def load(self) -> None:
+        """Load chunks from JSONL file into memory."""
+        if not self.chunks_path.exists():
+            return
+        try:
+            async with aiofiles.open(self.chunks_path, encoding=self.encoding) as f:
+                async for line in f:
+                    line = line.strip()
+                    if line:
+                        chunk = FileChunk.model_validate_json(line)
+                        self.file_chunks[chunk.id] = chunk
+        except Exception as e:
+            self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+
+    async def dump(self) -> None:
+        """Persist chunks to JSONL via atomic rename."""
         try:
             tmp = self.chunks_path.with_suffix(".tmp")
             async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
@@ -43,8 +54,6 @@ class LocalFileStore(BaseFileStore):
             tmp.replace(self.chunks_path)
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
-        self.file_chunks.clear()
-        await super()._close()
 
     # Base class interface
 

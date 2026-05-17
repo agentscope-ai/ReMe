@@ -24,9 +24,8 @@ class BaseKeywordIndex(BaseComponent):
 
     async def _start(self) -> None:
         """Load existing index from disk if available."""
-        if self.index_file.exists():
-            await self.load()
-            self.logger.info(f"Loaded index from {self.index_path}")
+        await self.load()
+        self.logger.info(f"Loaded index from {self.index_path}")
 
     async def _close(self) -> None:
         """Save index to disk on shutdown."""
@@ -58,14 +57,6 @@ class BaseKeywordIndex(BaseComponent):
     @abstractmethod
     async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]:
         """Search documents. Returns {doc_id: score} sorted descending."""
-
-    @abstractmethod
-    async def dump(self) -> None:
-        """Persist index to disk."""
-
-    @abstractmethod
-    async def load(self) -> None:
-        """Load index from disk."""
 
     @abstractmethod
     async def clear(self) -> None:

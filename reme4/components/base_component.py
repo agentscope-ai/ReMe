@@ -142,6 +142,12 @@ class BaseComponent(ABC):
     async def _close(self) -> None:
         """Subclass hook: close logic."""
 
+    async def dump(self) -> None:
+        """Persist in-memory state to disk. Override in subclasses that need persistence."""
+
+    async def load(self) -> None:
+        """Restore in-memory state from disk. Override in subclasses that need persistence."""
+
     async def start(self) -> None:
         """Resolve bindings → start owned fallbacks → _start(). No-op if already started."""
         async with self._lock:

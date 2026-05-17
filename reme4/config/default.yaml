@@ -40,6 +40,15 @@ jobs:
     steps:
       - backend: health_check_step
 
+  - backend: base
+    name: help
+    description: "list all registered jobs with their metadata"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: help_step
+
   - backend: stream
     name: stream_demo
     description: "stream demo job: repeat query 10x and stream char-by-char"

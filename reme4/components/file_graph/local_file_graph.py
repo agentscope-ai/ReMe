@@ -22,7 +22,7 @@ class LocalFileGraph(BaseFileGraph):
 
     async def _start(self) -> None:
         await super()._start()
-        self._load()
+        await self.load()
         await self.rebuild_links()
         self.logger.info(
             f"LocalFileGraph '{self.graph_name}' ready: "
@@ -31,22 +31,30 @@ class LocalFileGraph(BaseFileGraph):
         )
 
     async def _close(self) -> None:
-        self._dump()
+        await self.dump()
         await super()._close()
 
-    def _load(self) -> None:
-        """Load nodes from JSONL file into memory."""
+    async def load(self) -> None:
+        """Load nodes from JSONL file into memory; keep current state on failure."""
         if not self._graph_file.exists():
             return
-        with open(self._graph_file, "r", encoding="utf-8") as f:
-            self._nodes.update((n.path, n) for line in f if line.strip() for n in [FileNode.model_validate_json(line)])
+        try:
+            with open(self._graph_file, "r", encoding="utf-8") as f:
+                self._nodes.update(
+                    (n.path, n) for line in f if line.strip() for n in [FileNode.model_validate_json(line)]
+                )
+        except Exception as e:
+            self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
-    def _dump(self) -> None:
+    async def dump(self) -> None:
         """Persist all nodes to JSONL via atomic rename."""
-        tmp = self._graph_file.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.writelines(f"{n.model_dump_json()}\n" for n in self._nodes.values())
-        tmp.replace(self._graph_file)
+        try:
+            tmp = self._graph_file.with_suffix(".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(f"{n.model_dump_json()}\n" for n in self._nodes.values())
+            tmp.replace(self._graph_file)
+        except Exception as e:
+            self.logger.exception(f"Failed to write {self._graph_file}: {e}")
 
     # -- Edge bookkeeping --------------------------------------------------
 

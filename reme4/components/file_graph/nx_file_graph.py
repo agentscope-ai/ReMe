@@ -28,9 +28,7 @@ class NxFileGraph(BaseFileGraph):
 
     async def _start(self) -> None:
         await super()._start()
-        loaded = self._load()
-        if loaded is not None:
-            self._graph = loaded
+        await self.load()
         n_real = sum(1 for _, d in self._graph.nodes(data=True) if "node" in d)
         self.logger.info(
             f"NxFileGraph '{self.graph_name}' ready: "
@@ -39,21 +37,20 @@ class NxFileGraph(BaseFileGraph):
         )
 
     async def _close(self) -> None:
-        self._dump()
+        await self.dump()
         await super()._close()
 
-    def _load(self) -> nx.MultiDiGraph | None:
-        """Load graph from pickle file; return None on failure."""
+    async def load(self) -> None:
+        """Load graph from pickle file; keep current graph on failure."""
         if not self._graph_file.exists():
-            return None
+            return
         try:
             with open(self._graph_file, "rb") as f:
-                return pickle.load(f)
+                self._graph = pickle.load(f)
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
-            return None
 
-    def _dump(self) -> None:
+    async def dump(self) -> None:
         """Persist graph to pickle via atomic rename."""
         try:
             tmp = self._graph_file.with_suffix(".tmp")

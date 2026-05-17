@@ -56,8 +56,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     async def _start(self) -> None:
         """Load cache from disk on startup."""
-        self._embedding_cache.clear()
-        self._load_cache()
+        await self.load()
 
     async def health_check(self, timeout: float = 2.0) -> bool:
         """Probe the provider; sets and returns is_healthy."""
@@ -78,7 +77,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     async def _close(self) -> None:
         """Persist cache to disk on shutdown."""
-        self._save_cache()
+        await self.dump()
 
     # -- Public API --
 
@@ -180,12 +179,10 @@ class BaseEmbeddingModel(BaseComponent):
 
     # -- Cache Persistence --
 
-    def _load_cache(self) -> None:
-        """Load cached embeddings from disk (npz format)."""
-        if not self.enable_cache:
-            return
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.cache_path.exists():
+    async def load(self) -> None:
+        """Load cached embeddings from disk (npz format); replaces in-memory cache."""
+        self._embedding_cache.clear()
+        if not self.enable_cache or not self.cache_path.exists():
             return
 
         try:
@@ -202,10 +199,11 @@ class BaseEmbeddingModel(BaseComponent):
                 break
             self._embedding_cache[str(key)] = emb.astype(np.float16)
 
-    def _save_cache(self) -> None:
+    async def dump(self) -> None:
         """Persist in-memory cache to disk (npz format)."""
         if not self.enable_cache or not self._embedding_cache:
             return
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         keys = list(self._embedding_cache.keys())
         embeddings = np.stack(list(self._embedding_cache.values()))
         try:
