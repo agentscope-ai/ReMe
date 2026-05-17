@@ -153,7 +153,7 @@ def test_delete_by_path_list():
                     make_file("a.md", "alpha"),
                     make_file("b.md", "beta"),
                     make_file("c.md", "gamma"),
-                ]
+                ],
             )
             await store.delete_by_path(["a.md", "b.md"])
 
@@ -215,7 +215,7 @@ def test_keyword_search():
                     make_file("a.md", "python programming language"),
                     make_file("b.md", "java programming language"),
                     make_file("c.md", "python data analysis"),
-                ]
+                ],
             )
 
             results = await store.keyword_search("python", limit=5, search_filter={})

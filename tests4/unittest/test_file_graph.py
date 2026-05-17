@@ -84,7 +84,7 @@ def test_upsert_replaces_old_links(backend_cls):
                     make_node("a.md", [("b.md", None)]),
                     make_node("b.md"),
                     make_node("c.md"),
-                ]
+                ],
             )
             assert {lnk.target_path for lnk in await graph.get_outlinks("a.md")} == {"b.md"}
 
@@ -115,7 +115,7 @@ def test_outlinks_skip_virtual_targets(backend_cls):
                 [
                     make_node("a.md", [("b.md", None), ("ghost.md", None)]),
                     make_node("b.md"),
-                ]
+                ],
             )
 
             outs = await graph.get_outlinks("a.md")
@@ -165,7 +165,7 @@ def test_delete_node_demotes_inbound(backend_cls):
                 [
                     make_node("a.md", [("b.md", None)]),
                     make_node("b.md"),
-                ]
+                ],
             )
             assert {lnk.source_path for lnk in await graph.get_inlinks("b.md")} == {"a.md"}
 
@@ -200,7 +200,7 @@ def test_delete_outgoing_links_cleared(backend_cls):
                 [
                     make_node("a.md", [("b.md", None)]),
                     make_node("b.md"),
-                ]
+                ],
             )
             await graph.delete_nodes(["a.md"])
 
@@ -225,7 +225,7 @@ def test_clear(backend_cls):
                 [
                     make_node("a.md", [("b.md", None)]),
                     make_node("b.md"),
-                ]
+                ],
             )
             await graph.clear()
             assert await graph.get_nodes() == []
@@ -250,7 +250,7 @@ def test_rebuild_links_idempotent(backend_cls):
                     make_node("a.md", [("b.md", None), ("c.md", "h")]),
                     make_node("b.md"),
                     make_node("c.md"),
-                ]
+                ],
             )
 
             before_out = sorted((lnk.target_path, lnk.target_anchor) for lnk in await graph.get_outlinks("a.md"))
@@ -282,7 +282,7 @@ def test_persistence_roundtrip(backend_cls):
                 [
                     make_node("a.md", [("b.md", None)]),
                     make_node("b.md"),
-                ]
+                ],
             )
             await g1.close()  # triggers dump
 

@@ -1,3 +1,14 @@
+# 快速测试
+
+```bash
+# 终端 A：启动服务
+reme4 start
+
+# 终端 B：调用 version 验证服务可用
+reme4 version
+# 预期输出：✅ ReMe v{__version__}
+```
+
 # 基础Job
 
 @jinli
