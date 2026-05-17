@@ -29,12 +29,6 @@ class NxFileGraph(BaseFileGraph):
     async def _start(self) -> None:
         await super()._start()
         await self.load()
-        n_real = sum(1 for _, d in self._graph.nodes(data=True) if "node" in d)
-        self.logger.info(
-            f"NxFileGraph '{self.graph_name}' ready: "
-            f"{n_real} nodes, {self._graph.number_of_edges()} edges, "
-            f"{self._graph.number_of_nodes() - n_real} virtual",
-        )
 
     async def _close(self) -> None:
         await self.dump()
@@ -47,6 +41,8 @@ class NxFileGraph(BaseFileGraph):
         try:
             with open(self._graph_file, "rb") as f:
                 self._graph = pickle.load(f)
+            n_real = sum(1 for _, d in self._graph.nodes(data=True) if "node" in d)
+            self.logger.info(f"Loaded {n_real} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
@@ -57,6 +53,8 @@ class NxFileGraph(BaseFileGraph):
             with open(tmp, "wb") as f:
                 pickle.dump(self._graph, f, protocol=pickle.HIGHEST_PROTOCOL)
             tmp.replace(self._graph_file)
+            n_real = sum(1 for _, d in self._graph.nodes(data=True) if "node" in d)
+            self.logger.info(f"Saved {n_real} nodes to {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self._graph_file}: {e}")
 
@@ -101,8 +99,9 @@ class NxFileGraph(BaseFileGraph):
         )
 
     async def clear(self):
-        """Remove all nodes and edges."""
+        """Remove all nodes and edges, and remove persisted file."""
         self._graph.clear()
+        self._graph_file.unlink(missing_ok=True)
 
     # -- Link access -------------------------------------------------------
 

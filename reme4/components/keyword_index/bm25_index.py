@@ -143,6 +143,7 @@ class BM25Index(BaseKeywordIndex):
                     f,
                 )
             tmp.replace(self.index_file)
+            self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.index_file}: {e}")
 
@@ -160,18 +161,20 @@ class BM25Index(BaseKeywordIndex):
             self.k1 = data.get("k1", 1.5)
             self.b = data.get("b", 0.75)
             self._idf_cache = {}
+            self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load index: {e}")
             self.index_file.unlink(missing_ok=True)
             await self.clear()
 
     async def clear(self) -> None:
-        """Reset index to empty state."""
+        """Reset index to empty state and remove persisted file."""
         self.vocab = {}
         self.inverted_index = {}
         self.doc_meta = {}
         self.total_len = 0
         self._idf_cache = {}
+        self.index_file.unlink(missing_ok=True)
 
     async def optimize_index(self) -> None:
         """Rebuild vocab to remove unused tokens and compact token IDs."""

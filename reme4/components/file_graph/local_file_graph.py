@@ -24,11 +24,6 @@ class LocalFileGraph(BaseFileGraph):
         await super()._start()
         await self.load()
         await self.rebuild_links()
-        self.logger.info(
-            f"LocalFileGraph '{self.graph_name}' ready: "
-            f"{len(self._nodes)} nodes, {sum(len(s) for s in self._inverse.values())} edges, "
-            f"{sum(len(s) for s in self._pending.values())} pending",
-        )
 
     async def _close(self) -> None:
         await self.dump()
@@ -43,6 +38,7 @@ class LocalFileGraph(BaseFileGraph):
                 self._nodes.update(
                     (n.path, n) for line in f if line.strip() for n in [FileNode.model_validate_json(line)]
                 )
+            self.logger.info(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
@@ -53,6 +49,7 @@ class LocalFileGraph(BaseFileGraph):
             with open(tmp, "w", encoding="utf-8") as f:
                 f.writelines(f"{n.model_dump_json()}\n" for n in self._nodes.values())
             tmp.replace(self._graph_file)
+            self.logger.info(f"Saved {len(self._nodes)} nodes to {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self._graph_file}: {e}")
 
@@ -123,6 +120,7 @@ class LocalFileGraph(BaseFileGraph):
         self._nodes.clear()
         self._inverse.clear()
         self._pending.clear()
+        self._graph_file.unlink(missing_ok=True)
 
     # -- Link access -------------------------------------------------------
 

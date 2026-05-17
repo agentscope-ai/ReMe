@@ -25,12 +25,10 @@ class BaseKeywordIndex(BaseComponent):
     async def _start(self) -> None:
         """Load existing index from disk if available."""
         await self.load()
-        self.logger.info(f"Loaded index from {self.index_path}")
 
     async def _close(self) -> None:
         """Save index to disk on shutdown."""
         await self.dump()
-        self.logger.info(f"Saved index to {self.index_path}")
 
     @property
     def index_file(self) -> Path:

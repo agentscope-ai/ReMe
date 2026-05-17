@@ -24,7 +24,6 @@ class LocalFileStore(BaseFileStore):
     async def _start(self) -> None:
         await super()._start()
         await self.load()
-        self.logger.info(f"LocalFileStore '{self.store_name}' ready: {len(self.file_chunks)} chunks")
 
     async def _close(self) -> None:
         await self.dump()
@@ -42,6 +41,7 @@ class LocalFileStore(BaseFileStore):
                     if line:
                         chunk = FileChunk.model_validate_json(line)
                         self.file_chunks[chunk.id] = chunk
+            self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
 
@@ -52,6 +52,7 @@ class LocalFileStore(BaseFileStore):
             async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
                 await f.write("\n".join(c.model_dump_json() for c in self.file_chunks.values()))
             tmp.replace(self.chunks_path)
+            self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
         if self.keyword_index:
@@ -125,6 +126,7 @@ class LocalFileStore(BaseFileStore):
         if not self.file_graph:
             raise RuntimeError("file_graph is required for clear")
         self.file_chunks.clear()
+        self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
             await self.keyword_index.clear()
         await self.file_graph.clear()

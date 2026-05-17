@@ -58,6 +58,18 @@ def _embedding_status(comp) -> dict:
 
 
 def _file_graph_status(comp) -> dict:
+    # Nx backend: single _graph attribute holds nodes/edges, virtuals are nodes without "node" payload.
+    g = getattr(comp, "_graph", None)
+    if g is not None:
+        n_real = sum(1 for _, d in g.nodes(data=True) if "node" in d)
+        return {
+            "is_started": comp.is_started,
+            "n_nodes": n_real,
+            "n_edges": g.number_of_edges(),
+            "n_virtual": g.number_of_nodes() - n_real,
+            "memory": _mb_str(g),
+        }
+    # Local backend: separate dicts for nodes, resolved inverse edges, and pending edges.
     nodes = getattr(comp, "_nodes", {}) or {}
     inverse = getattr(comp, "_inverse", {}) or {}
     pending = getattr(comp, "_pending", {}) or {}
@@ -65,6 +77,7 @@ def _file_graph_status(comp) -> dict:
         "is_started": comp.is_started,
         "n_nodes": len(nodes),
         "n_edges": sum(len(s) for s in inverse.values()),
+        "n_pending": sum(len(s) for s in pending.values()),
         "memory": _mb_str(nodes, inverse, pending),
     }
 

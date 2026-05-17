@@ -198,6 +198,7 @@ class BaseEmbeddingModel(BaseComponent):
             if len(self._embedding_cache) >= self.max_cache_size:
                 break
             self._embedding_cache[str(key)] = emb.astype(np.float16)
+        self.logger.info(f"Loaded {len(self._embedding_cache)} embeddings from {self.cache_path}")
 
     async def dump(self) -> None:
         """Persist in-memory cache to disk (npz format)."""
@@ -208,5 +209,6 @@ class BaseEmbeddingModel(BaseComponent):
         embeddings = np.stack(list(self._embedding_cache.values()))
         try:
             np.savez(self.cache_path, keys=np.array(keys, dtype=str), embeddings=embeddings)
+            self.logger.info(f"Saved {len(self._embedding_cache)} embeddings to {self.cache_path}")
         except Exception:
             self.logger.exception("Failed to save embedding cache")

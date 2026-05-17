@@ -210,8 +210,9 @@ async def call_action(
 
     pieces: list[str] = []
     async with HttpClient(action=action, host=host, port=port, timeout=timeout, **kwargs) as client:
-        async for chunk in client():
-            pieces.append(chunk)
+        async for chunk in client.stream_chunks():
+            payload = chunk.chunk
+            pieces.append(payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False))
     raw = "".join(pieces)
     try:
         return json.loads(raw)

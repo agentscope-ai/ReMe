@@ -50,6 +50,15 @@ jobs:
       - backend: help_step
 
   - backend: base
+    name: reindex
+    description: "wipe the file store and rebuild it from the watcher's tracked files"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: reindex_step
+
+  - backend: base
     name: search
     description: "hybrid search over file_store: vector + keyword fused via RRF"
     parameters:
@@ -144,8 +153,8 @@ components:
     default:
       backend: local
       store_name: default
-      embedding_model: default
-#      embedding_model: ""
+#      embedding_model: default
+      embedding_model: ""
       keyword_index: default
       file_graph: default
 

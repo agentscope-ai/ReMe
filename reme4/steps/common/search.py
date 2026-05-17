@@ -208,12 +208,15 @@ class SearchStep(BaseStep):
         answer_lines: list[str] = []
         for c in fused:
             answer_lines.append(
-                f"{c.path}:{c.start_line}-{c.end_line} [{self._format_scores(c.scores, hybrid)}] {c.text}",
+                f"========== {c.path}:{c.start_line}-{c.end_line} "
+                f"[{self._format_scores(c.scores, hybrid)}] ==========\n{c.text}",
             )
             answer_lines.extend(self._render_expansion_lines(link_expansion.get(c.path, {})))
 
         self.context.response.answer = "\n".join(answer_lines)
-        self.context.response.metadata["results"] = [c.model_dump(exclude_none=True) for c in fused]
+        self.context.response.metadata["results"] = [
+            c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
+        ]
         self.context.response.metadata["link_expansion"] = link_expansion
         self.context.response.metadata["counts"] = {
             "vector": len(vector_results),

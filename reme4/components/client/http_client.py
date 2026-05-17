@@ -50,7 +50,11 @@ class HttpClient(BaseClient):
             self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
     async def _iter_stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
-        """Send request and yield StreamChunks; auto-detects JSON vs SSE via Content-Type."""
+        """Send request and yield raw StreamChunks; auto-detects JSON vs SSE via Content-Type.
+
+        For JSON responses: yields a single CONTENT chunk with the raw response body.
+        For SSE responses: yields each streaming chunk as it arrives.
+        """
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
@@ -79,16 +83,10 @@ class HttpClient(BaseClient):
                     yield chunk
             else:
                 body = await resp.aread()
-                text = body.decode()
-                try:
-                    data = json.loads(text)
-                    pretty = json.dumps(data, indent=2, ensure_ascii=False)
-                except json.JSONDecodeError:
-                    pretty = text
-                yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=pretty)
+                yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=body.decode())
 
     async def stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
-        """HTTP-specific richer access: yield full StreamChunk objects with chunk_type/metadata."""
+        """HTTP-specific richer access: yield raw StreamChunk objects (no display formatting)."""
         async for chunk in self._iter_stream_chunks():
             yield chunk
 
@@ -105,12 +103,38 @@ class HttpClient(BaseClient):
                 actions.append({"action": path.lstrip("/"), "method": method.upper(), **op})
         return actions
 
+    @staticmethod
+    def _format_for_display(text: str) -> str:
+        """Render a JSON response as human-friendly CLI text; pass through unrecognized payloads."""
+        try:
+            data = json.loads(text)
+        except (ValueError, json.JSONDecodeError):
+            return text
+        if not (isinstance(data, dict) and isinstance(data.get("answer"), str)):
+            return json.dumps(data, indent=2, ensure_ascii=False) if isinstance(data, (dict, list)) else text
+        d = dict(data)
+        answer = d.pop("answer")
+        success = d.pop("success", None)
+        metadata = d.pop("metadata", None)
+        parts = [answer]
+        status_pieces = []
+        if success is not None:
+            status_pieces.append("✅" if success else "❌")
+        if metadata:
+            status_pieces.append(json.dumps(metadata, ensure_ascii=False))
+        if status_pieces:
+            parts.append(" ".join(status_pieces))
+        if d:
+            parts.append(json.dumps(d, indent=2, ensure_ascii=False))
+        return "\n".join(parts)
+
     # pylint: disable=invalid-overridden-method
     async def _execute(self) -> AsyncGenerator[str, None]:
-        """Yield text chunks; one yield for JSON endpoints, many for SSE."""
+        """Yield text chunks for CLI display; JSON responses are pretty-formatted."""
         async for chunk in self._iter_stream_chunks():
             payload = chunk.chunk
-            yield payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+            text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+            yield self._format_for_display(text)
 
     async def _close(self) -> None:
         """Close the HTTP client."""

@@ -167,6 +167,28 @@ def test_search_job_missing_query():
     _run(run())
 
 
+def test_reindex_job():
+    """reindex job should wipe the file store and rebuild from tracked files."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "reindex",
+                    host=host,
+                    port=port,
+                    validator=lambda r: (
+                        isinstance(r, dict)
+                        and r.get("success") is True
+                        and isinstance(r.get("metadata", {}).get("counts"), dict)
+                        and "added" in r["metadata"]["counts"]
+                    ),
+                )
+        print("✓ test_reindex_job passed")
+
+    _run(run())
+
+
 def test_demo_job():
     """demo job should echo back the normalized query and adjusted min_score."""
 
@@ -235,6 +257,13 @@ def test_all_jobs_one_server():
                     query="anything",
                     validator=lambda r: isinstance(r, dict) and r.get("success") is True,
                 )
+                # reindex
+                await call_and_check(
+                    "reindex",
+                    host=host,
+                    port=port,
+                    validator=lambda r: isinstance(r, dict) and isinstance(r.get("metadata", {}).get("counts"), dict),
+                )
                 # demo
                 await call_and_check(
                     "demo",
@@ -255,6 +284,7 @@ if __name__ == "__main__":
     test_health_check_job()
     test_search_job_empty_store()
     test_search_job_missing_query()
+    test_reindex_job()
     test_demo_job()
     test_all_jobs_one_server()
     print("\n所有测试通过!")
