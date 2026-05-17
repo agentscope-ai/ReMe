@@ -124,7 +124,7 @@ def _is_status_healthy(ctype: ComponentEnum, status: dict) -> bool:
 
 @R.register("health_check_step")
 class HealthCheckStep(BaseStep):
-    """Collect a concise health-check snapshot of the relevant components."""
+    """Collect a concise health check snapshot of the relevant components."""
 
     async def execute(self):
         assert self.context is not None
@@ -145,6 +145,7 @@ class HealthCheckStep(BaseStep):
         health = {"version": __version__, "healthy": healthy, "components": components}
         self.logger.info(f"[{self.name}] health collected: {health}")
 
-        self.context.response.answer = f"ReMe v{__version__} - {'healthy' if healthy else 'unhealthy'}"
+        status_emoji = "✅" if healthy else "❌"
+        self.context.response.answer = f"{status_emoji} ReMe v{__version__} - {'healthy' if healthy else 'unhealthy'}"
         self.context.response.metadata["health"] = health
         return self.context.response

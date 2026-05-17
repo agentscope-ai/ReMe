@@ -2,10 +2,17 @@
 
 import asyncio
 import hashlib
-from collections.abc import AsyncGenerator
+import json
+import socket
+import subprocess
+import sys
+import time
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from .logger_utils import get_logger
+from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ..enumeration import ChunkEnum
 from ..schema import StreamChunk
 
@@ -103,3 +110,139 @@ async def execute_stream_task(
                 await task
             except asyncio.CancelledError:
                 pass
+
+
+def _pick_free_port(host: str = REME_DEFAULT_HOST) -> int:
+    """Bind to port 0 and return the OS-assigned free port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((host, 0))
+        return s.getsockname()[1]
+
+
+async def _wait_reme_ready(host: str, port: int, timeout: float) -> None:
+    """Poll find_reme until it reports 'reme' or timeout elapses."""
+    from .service_utils import find_reme
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = await find_reme(host, port)
+        if status == "reme":
+            return
+        await asyncio.sleep(0.2)
+    raise TimeoutError(f"ReMe service did not become ready at {host}:{port} within {timeout}s")
+
+
+@asynccontextmanager
+async def mock_reme_server(
+    host: str = REME_DEFAULT_HOST,
+    port: int | None = None,
+    config: str | None = None,
+    extra_args: list[str] | None = None,
+    startup_timeout: float = 30.0,
+    shutdown_timeout: float = 10.0,
+    log_to_file: bool = False,
+    enable_logo: bool = False,
+):
+    """Spawn `reme4 start` as a subprocess and yield (host, port) once ready.
+
+    Auto-picks a free port when port is None. Subprocess is terminated on exit.
+    """
+    logger = get_logger()
+    if port is None:
+        port = _pick_free_port(host)
+
+    cmd: list[str] = [
+        sys.executable,
+        "-m",
+        "reme4.reme",
+        "start",
+        f"service.host={host}",
+        f"service.port={port}",
+        f"log_to_file={'true' if log_to_file else 'false'}",
+        f"enable_logo={'true' if enable_logo else 'false'}",
+    ]
+    if config:
+        cmd.append(f"config={config}")
+    if extra_args:
+        cmd.extend(extra_args)
+
+    logger.info(f"Launching mock reme server: {' '.join(cmd)}")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        await _wait_reme_ready(host, port, startup_timeout)
+        yield host, port
+    except Exception:
+        # Capture early-exit output for diagnostics.
+        if proc.poll() is not None and proc.stdout is not None:
+            tail = proc.stdout.read()
+            logger.error(f"reme server exited early. output:\n{tail}")
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=shutdown_timeout)
+            except subprocess.TimeoutExpired:
+                logger.warning("reme server did not terminate gracefully, killing")
+                proc.kill()
+                proc.wait(timeout=shutdown_timeout)
+        if proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+
+
+async def call_action(
+    action: str,
+    host: str = REME_DEFAULT_HOST,
+    port: int = REME_DEFAULT_PORT,
+    timeout: float = 30.0,
+    **kwargs,
+) -> dict | str:
+    """POST to /{action}; return parsed JSON (dict) for JSON endpoints, raw text for SSE."""
+    from ..components.client.http_client import HttpClient
+
+    pieces: list[str] = []
+    async with HttpClient(action=action, host=host, port=port, timeout=timeout, **kwargs) as client:
+        async for chunk in client():
+            pieces.append(chunk)
+    raw = "".join(pieces)
+    try:
+        return json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return raw
+
+
+async def call_and_check(
+    action: str,
+    host: str = REME_DEFAULT_HOST,
+    port: int = REME_DEFAULT_PORT,
+    validator: Callable[[Any], bool] | None = None,
+    expected: Any = None,
+    timeout: float = 30.0,
+    **kwargs,
+) -> Any:
+    """Call action and verify response. Raises AssertionError on mismatch.
+
+    - validator(result) -> bool: custom predicate.
+    - expected: deep-equality target (compared to result, or to result[key] when expected is dict).
+    """
+    result = await call_action(action, host=host, port=port, timeout=timeout, **kwargs)
+    if validator is not None and not validator(result):
+        raise AssertionError(f"validator rejected response for action={action!r}: {result!r}")
+    if expected is not None:
+        if isinstance(expected, dict) and isinstance(result, dict):
+            for k, v in expected.items():
+                if result.get(k) != v:
+                    raise AssertionError(
+                        f"action={action!r} expected {k}={v!r}, got {result.get(k)!r} (full: {result!r})",
+                    )
+        elif result != expected:
+            raise AssertionError(f"action={action!r} expected {expected!r}, got {result!r}")
+    return result

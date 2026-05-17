@@ -1,5 +1,6 @@
 """Default file parser with byte-based overlapping chunking."""
 
+import re
 from bisect import bisect_right
 from pathlib import Path
 
@@ -8,7 +9,20 @@ import yaml
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
-from ...schema import FileChunk, FileNode, FileFrontMatter
+from ...schema import FileChunk, FileFrontMatter, FileLink, FileNode
+
+# Single-pass wikilink + optional Dataview predicate.
+# Covers: [[X]] / [[X#h]] / [[X|alias]] / pred:: [[X]] / [pred:: [[X]]]
+# - predicate group: optional leading '[' (Dataview inline-bracket form), an identifier,
+#   then '::' — the whole prefix is non-capturing-optional so bare wikilinks still match.
+# - target / anchor: target stops before '#', '|', '[', ']'; anchor stops before '|', '[', ']'.
+# - alias '|...': consumed but not captured (we don't need display text).
+_LINK_RE = re.compile(
+    r"(?:\[?\s*(?P<predicate>[A-Za-z][\w-]*)\s*::\s*)?"
+    r"\[\[\s*(?P<target>[^\[\]|#]+?)"
+    r"(?:#(?P<anchor>[^\[\]|]+?))?"
+    r"\s*(?:\|[^\[\]]*?)?\s*\]\]",
+)
 
 
 @R.register("default")
@@ -20,6 +34,25 @@ class DefaultFileParser(BaseFileParser):
         self.encoding = encoding
         self.chunk_byte_size = max(100, chunk_byte_size)
         self.overlap_byte_size = max(4, overlap_byte_size)
+
+    @staticmethod
+    def parse_links(content: str, source_path: str) -> list[FileLink]:
+        """Extract wikilinks with optional Dataview predicate as outgoing FileLinks."""
+        links: list[FileLink] = []
+        for m in _LINK_RE.finditer(content):
+            target = m["target"].strip()
+            if not target:
+                continue
+            anchor = m["anchor"]
+            links.append(
+                FileLink(
+                    source_path=source_path,
+                    target_path=target,
+                    target_anchor=anchor.strip() if anchor else None,
+                    predicate=m["predicate"],
+                ),
+            )
+        return links
 
     @staticmethod
     def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str]:
@@ -51,9 +84,19 @@ class DefaultFileParser(BaseFileParser):
         if not content:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter), []
 
+        links = self.parse_links(content, rel_path)
         chunks = self._chunk_content(content, rel_path)
         chunk_ids = [c.id for c in chunks]
-        return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter, chunk_ids=chunk_ids), chunks
+        return (
+            FileNode(
+                path=rel_path,
+                st_mtime=stat.st_mtime,
+                front_matter=front_matter,
+                links=links,
+                chunk_ids=chunk_ids,
+            ),
+            chunks,
+        )
 
     def _chunk_content(self, content: str, rel_path: str) -> list[FileChunk]:
         """Split content into overlapping byte-range chunks with line numbers."""

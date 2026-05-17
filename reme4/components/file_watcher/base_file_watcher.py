@@ -94,26 +94,16 @@ class BaseFileWatcher(BaseComponent):
                     files[self._get_relative_path(p)] = p.absolute()
         return files
 
-    async def clear_store(self):
-        """Remove all entries from the file store."""
-        if self.file_store is None:
-            raise ValueError("file_store is not initialized!")
-        await self.file_store.clear()
-
-    async def reset_store(self):
-        """Clear the store and re-index all existing files."""
-        if self.file_store is None:
-            raise ValueError("file_store is not initialized!")
-        await self.file_store.clear()
-        await self.on_added(list((await self.scan_existing_files()).keys()))
-
     @abstractmethod
     async def watch_loop(self):
         """Watch for file changes and dispatch events."""
 
     @abstractmethod
-    async def update_store(self):
-        """Sync the store with the current state of watch_paths."""
+    async def update_store(self, dump: bool = True) -> dict[str, int]:
+        """Sync the store with watch_paths; dump store if any changes and dump=True.
+
+        Returns counts {"added": int, "modified": int, "deleted": int}.
+        """
 
     @abstractmethod
     async def on_added(self, path: str | list[str]):

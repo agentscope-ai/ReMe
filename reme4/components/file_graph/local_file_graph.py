@@ -9,7 +9,7 @@ from ...schema import FileLink, FileNode
 
 @R.register("local")
 class LocalFileGraph(BaseFileGraph):
-    """Dict-backed file graph; uses FileLink.path for adjacency."""
+    """Dict-backed file graph; uses FileLink.target_path for adjacency."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -81,12 +81,12 @@ class LocalFileGraph(BaseFileGraph):
             old = self._nodes.get(path)
             if old is not None:
                 for link in old.links:
-                    if link.path:
-                        self._remove_edge(path, link.path)
+                    if link.target_path:
+                        self._remove_edge(path, link.target_path)
             self._nodes[path] = node
             for link in node.links:
-                if link.path:
-                    self._add_edge(path, link.path)
+                if link.target_path:
+                    self._add_edge(path, link.target_path)
             # Promote pending edges that now target a real node.
             promoted = self._pending.pop(path, None)
             if promoted:
@@ -98,8 +98,8 @@ class LocalFileGraph(BaseFileGraph):
             if node is None:
                 continue
             for link in node.links:
-                if link.path:
-                    self._remove_edge(path, link.path)
+                if link.target_path:
+                    self._remove_edge(path, link.target_path)
             # Demote inbound edges to pending (sources still reference this path).
             demoted = self._inverse.pop(path, None)
             if demoted:
@@ -116,8 +116,8 @@ class LocalFileGraph(BaseFileGraph):
         self._pending.clear()
         for src, node in self._nodes.items():
             for link in node.links:
-                if link.path:
-                    self._add_edge(src, link.path)
+                if link.target_path:
+                    self._add_edge(src, link.target_path)
 
     async def clear(self):
         self._nodes.clear()
@@ -130,9 +130,11 @@ class LocalFileGraph(BaseFileGraph):
         node = self._nodes.get(path)
         if node is None:
             return []
-        return [lnk for lnk in node.links if lnk.path and lnk.path in self._nodes]
+        return [lnk for lnk in node.links if lnk.target_path and lnk.target_path in self._nodes]
 
     async def get_inlinks(self, path: str) -> list[FileLink]:
         if path not in self._nodes:
             return []
-        return [link for src in self._inverse.get(path, ()) for link in self._nodes[src].links if link.path == path]
+        return [
+            link for src in self._inverse.get(path, ()) for link in self._nodes[src].links if link.target_path == path
+        ]

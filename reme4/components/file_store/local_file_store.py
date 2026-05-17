@@ -46,7 +46,7 @@ class LocalFileStore(BaseFileStore):
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
 
     async def dump(self) -> None:
-        """Persist chunks to JSONL via atomic rename."""
+        """Persist chunks to JSONL via atomic rename, then cascade to keyword_index and file_graph."""
         try:
             tmp = self.chunks_path.with_suffix(".tmp")
             async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
@@ -54,6 +54,10 @@ class LocalFileStore(BaseFileStore):
             tmp.replace(self.chunks_path)
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
+        if self.keyword_index:
+            await self.keyword_index.dump()
+        if self.file_graph:
+            await self.file_graph.dump()
 
     # Base class interface
 

@@ -49,6 +49,44 @@ jobs:
     steps:
       - backend: help_step
 
+  - backend: base
+    name: search
+    description: "hybrid search over file_store: vector + keyword fused via RRF"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results to return"
+          default: 5
+        min_score:
+          type: number
+          description: "minimum fused score threshold (RRF scores are small; default 0 disables filter)"
+          default: 0.0
+        vector_weight:
+          type: number
+          description: "weight for vector results in [0, 1]; keyword weight = 1 - vector_weight"
+          default: 0.7
+        candidate_multiplier:
+          type: number
+          description: "candidate pool multiplier per branch (capped at 200)"
+          default: 3.0
+        expand_links:
+          type: boolean
+          description: "attach outlinks/inlinks (with neighbor meta) to each result"
+          default: true
+        max_links_per_direction:
+          type: integer
+          description: "max neighbors shown per direction per result"
+          default: 10
+      required:
+        - query
+    steps:
+      - backend: search_step
+
   - backend: stream
     name: stream_demo
     description: "stream demo job: repeat query 10x and stream char-by-char"

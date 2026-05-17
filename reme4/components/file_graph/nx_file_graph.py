@@ -15,7 +15,7 @@ from ...schema import FileLink, FileNode
 
 @R.register("nx")
 class NxFileGraph(BaseFileGraph):
-    """Networkx-backed file graph; uses FileLink.path for adjacency."""
+    """Networkx-backed file graph; uses FileLink.target_path for adjacency."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -70,7 +70,7 @@ class NxFileGraph(BaseFileGraph):
                 self._graph.remove_edges_from(list(self._graph.out_edges(path, keys=True)))
             self._graph.add_node(path, node=node)  # promotes virtual node if present
             # Missing targets become attr-less virtual nodes.
-            self._graph.add_edges_from((path, lnk.path, {"link": lnk}) for lnk in node.links if lnk.path)
+            self._graph.add_edges_from((path, lnk.target_path, {"link": lnk}) for lnk in node.links if lnk.target_path)
 
     async def delete_nodes(self, paths: list[str]) -> None:
         for path in paths:
@@ -94,10 +94,10 @@ class NxFileGraph(BaseFileGraph):
         virtual = [n for n, d in self._graph.nodes(data=True) if "node" not in d]
         self._graph.remove_nodes_from(virtual)
         self._graph.add_edges_from(
-            (path, lnk.path, {"link": lnk})
+            (path, lnk.target_path, {"link": lnk})
             for path, data in self._graph.nodes(data=True)
             for lnk in data["node"].links
-            if lnk.path
+            if lnk.target_path
         )
 
     async def clear(self):

@@ -70,7 +70,7 @@ class LiteFileWatcher(BaseFileWatcher):
                 self.logger.info(f"Detected {len(buckets[change])} {label} file(s)")
                 await handler(buckets[change])
 
-    async def update_store(self):
+    async def update_store(self, dump: bool = True) -> dict[str, int]:
         if self.file_store is None:
             raise ValueError("file_store is not initialized!")
 
@@ -92,8 +92,13 @@ class LiteFileWatcher(BaseFileWatcher):
         if to_add:
             self.logger.info(f"Indexing {len(to_add)} new file(s)")
             await self.on_added(to_add)
-        if not to_modify and not to_delete and not to_add:
+
+        changed = bool(to_add or to_modify or to_delete)
+        if not changed:
             self.logger.info("Store is up to date")
+        if dump and changed:
+            await self.file_store.dump()
+        return {"added": len(to_add), "modified": len(to_modify), "deleted": len(to_delete)}
 
     async def _parse_and_upsert(self, paths: list[str], action: str):
         """Parse files and upsert into store. Shared by on_added / on_modified."""

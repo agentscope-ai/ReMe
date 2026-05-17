@@ -81,6 +81,12 @@ class BaseFileStore(BaseComponent):
             raise RuntimeError("file_graph is required for delete_by_path")
         return await self.file_graph.rebuild_links()
 
+    async def get_nodes(self, paths: list[str]) -> list[FileNode]:
+        """Return file nodes for the given paths (missing paths are skipped)."""
+        if not self.file_graph:
+            raise RuntimeError("file_graph is required for get_nodes")
+        return await self.file_graph.get_nodes(paths)
+
     async def get_outlinks(self, path: str) -> list[FileLink]:
         """Return outgoing links for *path*."""
         if not self.file_graph:
