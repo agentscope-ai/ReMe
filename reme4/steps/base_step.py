@@ -5,8 +5,10 @@ from abc import abstractmethod, ABC
 from typing import TypeVar, TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
+from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
+from agentscope.tool import Toolkit, ToolResponse
 
 from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
@@ -15,10 +17,12 @@ from ..components.file_watcher import BaseFileWatcher
 from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
+from ..schema import Response
 from ..utils import get_logger
 
 if TYPE_CHECKING:
     from ..components import ApplicationContext
+    from ..components.job import BaseJob
 
 T = TypeVar("T")
 
@@ -138,3 +142,32 @@ class BaseStep(ABC):
     def copy(self, **kwargs) -> "BaseStep":
         """Construct a new instance from the original init args, applying overrides."""
         return self.__class__(*self._init_args, **{**self._init_kwargs, **kwargs})
+
+    def get_job(self, name: str) -> "BaseJob | None":
+        """Return a job by name."""
+        if self.app_context is None:
+            raise RuntimeError("Cannot get job without an app context")
+        return self.app_context.jobs.get(name)
+
+    async def run_job(self, name: str, **kwargs) -> Response:
+        """Execute a job by name and kwargs, return the final response."""
+        job: "BaseJob | None" = self.get_job(name)
+        if job is None:
+            raise RuntimeError(f"Job {name} not found")
+        return await job(**kwargs)
+
+    def add_as_tool(self, toolkit: Toolkit, job_name: str) -> None:
+        job: "BaseJob | None" = self.get_job(job_name)
+        if job is None:
+            raise RuntimeError(f"Job {job_name} not found")
+
+        async def run_job(**kwargs) -> ToolResponse:
+            response = await job(**kwargs)
+            return ToolResponse(content=[TextBlock(type="text", text=response.answer)])
+
+        toolkit.register_tool_function(
+            tool_func=run_job,
+            func_name=job_name,
+            func_description=job.description,
+            json_schema=job.parameters,
+        )
