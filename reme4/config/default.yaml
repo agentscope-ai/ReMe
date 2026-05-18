@@ -98,23 +98,21 @@ jobs:
 
   - backend: base
     name: read
-    description: "read a markdown file (absolute path; relative path resolved under .reme)"
+    description: "read a markdown file (relative to working_dir, no .md suffix needed)"
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "absolute or relative path; relative is rooted at the reme working_dir (.reme); markdown only (.md auto-appended when no suffix)"
+          description: "relative path rooted at the working_dir; markdown only (.md auto-appended when no suffix)"
         start_line:
           type: integer
           description: "first line to read (1-based, inclusive)"
+          default: null
         end_line:
           type: integer
           description: "last line to read (1-based, inclusive)"
-        max_bytes:
-          type: integer
-          description: "max bytes returned before byte-level truncation"
-          default: 51200
+          default: null
       required:
         - path
     steps:

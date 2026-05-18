@@ -2,6 +2,7 @@
 
 import copy
 from abc import abstractmethod, ABC
+from pathlib import Path
 from typing import TypeVar, TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
@@ -79,7 +80,49 @@ class BaseStep(ABC):
             self.context.apply_mapping(self.output_mapping)
         return result
 
-    def _resolve(self, key: str, base_cls: type[T], comp_enum: ComponentEnum, attr: str | None = None) -> T:
+    @property
+    def working_path(self) -> Path:
+        """Resolved working directory from app context or cwd."""
+        if self.app_context is None:
+            return Path.cwd()
+        return Path(self.app_context.app_config.working_dir)
+
+    def resolve_path(
+        self,
+        raw: str,
+        *,
+        require_md: bool = True,
+    ) -> tuple[Path | None, str | None]:
+        """Resolve a relative `path=` argument under self.working_path.
+
+        Rules:
+          - relative path only; joined under ``self.working_path``.
+        Markdown gate (when ``require_md=True``):
+          - no suffix → auto-append ``.md``;
+          - any other non-``.md`` suffix → reject.
+        Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
+        """
+        if not raw or not str(raw).strip():
+            return None, "`path` is required"
+        s = str(raw).strip()
+        p = Path(s)
+        if p.is_absolute():
+            return None, (f"path {s!r} is absolute; only relative paths under the working_dir are accepted")
+        target = (self.working_path.resolve() / p).resolve()
+        if require_md:
+            if target.suffix == "":
+                target = target.with_suffix(".md")
+            elif target.suffix.lower() != ".md":
+                return None, (f"path {s!r} is not a markdown file; this command only supports .md files")
+        return target, None
+
+    def _resolve(
+        self,
+        key: str,
+        base_cls: type[T],
+        comp_enum: ComponentEnum,
+        attr: str | None = None,
+    ) -> T:
         """Return a kwargs-supplied instance, or look one up by name in the app registry."""
         # 1. Step init kwargs, 2. Runtime context (run_job kwargs), 3. App registry by name.
         for source in (self.kwargs, self.context or {}):
@@ -100,12 +143,22 @@ class BaseStep(ABC):
     @property
     def as_llm_formatter(self) -> FormatterBase:
         """Return the LLM formatter component."""
-        return self._resolve("as_llm_formatter", FormatterBase, ComponentEnum.AS_LLM_FORMATTER, "formatter")
+        return self._resolve(
+            "as_llm_formatter",
+            FormatterBase,
+            ComponentEnum.AS_LLM_FORMATTER,
+            "formatter",
+        )
 
     @property
     def as_token_counter(self) -> TokenCounterBase:
         """Return the token counter component."""
-        return self._resolve("as_token_counter", TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
+        return self._resolve(
+            "as_token_counter",
+            TokenCounterBase,
+            ComponentEnum.AS_TOKEN_COUNTER,
+            "token_counter",
+        )
 
     @property
     def file_parser(self) -> BaseFileParser:
@@ -120,12 +173,20 @@ class BaseStep(ABC):
     @property
     def embedding(self) -> BaseEmbeddingModel:
         """Return the embedding model component."""
-        return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
+        return self._resolve(
+            "embedding",
+            BaseEmbeddingModel,
+            ComponentEnum.EMBEDDING_MODEL,
+        )
 
     @property
     def file_watcher(self) -> BaseFileWatcher:
         """Return the file watcher component."""
-        return self._resolve("file_watcher", BaseFileWatcher, ComponentEnum.FILE_WATCHER)
+        return self._resolve(
+            "file_watcher",
+            BaseFileWatcher,
+            ComponentEnum.FILE_WATCHER,
+        )
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""
