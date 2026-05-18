@@ -45,9 +45,9 @@ def print_logo(app_config: "ApplicationConfig"):
         r" ╚═╝  ╚═╝ ╚══════╝ ╚═╝     ╚═╝ ╚══════╝ ",
     ]
 
-    hue_base = random.random()        # random starting hue per startup
-    horizontal_span = 0.5             # half the wheel left-to-right
-    vertical_shift = 0.08             # small per-line nudge for 2D rainbow
+    hue_base = random.random()  # random starting hue per startup
+    horizontal_span = 0.5  # half the wheel left-to-right
+    vertical_shift = 0.08  # small per-line nudge for 2D rainbow
 
     logo_text = Text()
     for line_idx, line in enumerate(ascii_art):

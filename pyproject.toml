@@ -131,7 +131,7 @@ Documentation = "https://reme.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]
-reme = "remecli.reme:main"
+reme = "reme_ai.reme:main"
 reme2 = "reme.reme:main"
 remecli = "reme.reme_cli:main"
 reme4 = "reme4.reme:main"

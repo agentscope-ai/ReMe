@@ -30,7 +30,8 @@ class temp_chdir:
 def _write_md(tmpdir: str, name: str, body: str) -> str:
     """Drop a markdown file under tmpdir, return its path."""
     path = os.path.join(tmpdir, name)
-    os.makedirs(os.path.dirname(path), exist_ok=True) if "/" in name else None
+    if "/" in name:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(body)
     return path
@@ -151,12 +152,12 @@ def test_parse_links_resolved_via_graph():
             parser = LinkedFileParser()
             parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
-            triples = {(l.target_path, l.target_anchor, l.predicate) for l in node.links}
+            triples = {(link.target_path, link.target_anchor, link.predicate) for link in node.links}
             assert ("topics/Alice.md", None, None) in triples
             assert ("topics/Bob.md", "sec", None) in triples
             # source_path always equals the node's own path
-            for l in node.links:
-                assert l.source_path == node.path
+            for link in node.links:
+                assert link.source_path == node.path
             await graph.close()
         print("✓ test_parse_links_resolved_via_graph passed")
 
@@ -172,16 +173,12 @@ def test_parse_links_predicate_inline_and_line():
                 FileNode(path="A.md", st_mtime=0.0),
                 FileNode(path="B.md", st_mtime=0.0),
             )
-            body = (
-                "extends:: [[A]]\n"
-                "\n"
-                "some [concerns:: [[B]]] inline\n"
-            )
+            body = "extends:: [[A]]\n\nsome [concerns:: [[B]]] inline\n"
             path = _write_md(tmp, "note.md", body)
             parser = LinkedFileParser()
             parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
-            pairs = {(l.target_path, l.predicate) for l in node.links}
+            pairs = {(link.target_path, link.predicate) for link in node.links}
             assert ("A.md", "extends") in pairs
             assert ("B.md", "concerns") in pairs
             await graph.close()
@@ -203,7 +200,7 @@ def test_parse_links_short_path_ambiguity_expands():
             parser = LinkedFileParser()
             parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
-            targets = sorted(l.target_path for l in node.links)
+            targets = sorted(link.target_path for link in node.links)
             assert targets == ["people/Bob.md", "topics/Bob.md"]
             await graph.close()
         print("✓ test_parse_links_short_path_ambiguity_expands passed")
@@ -221,7 +218,7 @@ def test_parse_links_dangling_dropped():
             parser = LinkedFileParser()
             parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
-            targets = {l.target_path for l in node.links}
+            targets = {link.target_path for link in node.links}
             assert targets == {"topics/Alice.md"}
             await graph.close()
         print("✓ test_parse_links_dangling_dropped passed")
@@ -239,7 +236,7 @@ def test_parse_links_deduped():
             parser = LinkedFileParser()
             parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
-            assert len([l for l in node.links if l.target_path == "A.md"]) == 1
+            assert len([link for link in node.links if link.target_path == "A.md"]) == 1
             await graph.close()
         print("✓ test_parse_links_deduped passed")
 

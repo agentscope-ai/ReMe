@@ -33,7 +33,53 @@ from ...schema import (
     FileFrontMatter,
     FileNode,
 )
-from ...utils import path_resolver
+
+
+# -- Wikilink resolution --------------------------------------------------
+#
+# Wikilinks are a markdown user-facing convention: ``[[Alice]]`` should
+# resolve to ``topics/Alice/Alice.md`` (or wherever the file lives).
+# This short-form / implicit-``.md`` / folder-note resolution lives here
+# at the markdown boundary rather than as a generic utility — file-IO
+# steps require full vault-relative paths and never use these helpers.
+
+
+def _complete_md(target: str) -> str:
+    """Apply implicit ``.md`` rule for wikilink targets."""
+    if not target:
+        return target
+    last = target.rsplit("/", 1)[-1]
+    return target if "." in last else target + ".md"
+
+
+def _filter_folder_note(target: str, paths: list[str]) -> list[str]:
+    """Apply folder-note rule: when both ``X.md`` and ``X/X.md`` exist,
+    prefer ``X/X.md``. Sorted for determinism.
+    """
+    if not paths:
+        return []
+    stem = Path(target).stem
+    folder_hits = sorted(p for p in paths if Path(p).parent.name == stem)
+    return folder_hits or sorted(paths)
+
+
+async def _resolve_wikilink(graph: BaseFileGraph, target: str) -> list[str]:
+    """Resolve a wikilink target to vault-relative path(s).
+
+    Returns:
+        ``[path]`` for an unambiguous match,
+        ``[path, path, ...]`` for short-form ambiguity (caller may
+        fan out one FileLink per candidate), or
+        ``[]`` when nothing matches (dangling — caller drops the link).
+    """
+    if not target:
+        return []
+    target = _complete_md(target)
+    if "/" in target:
+        nodes = await graph.get_nodes([target])
+        return [target] if nodes else []
+    matches = [n.path for n in await graph.get_nodes() if Path(n.path).name == target]
+    return _filter_folder_note(target, matches)
 
 
 # -- Wikilink extraction --------------------------------------------------
@@ -104,7 +150,9 @@ def _predicate_for(
 
 
 async def _extract_links(
-    graph: BaseFileGraph, text: str, source_path: str,
+    graph: BaseFileGraph,
+    text: str,
+    source_path: str,
 ) -> list[FileLink]:
     """Find every wikilink in ``text``, resolve targets, emit FileLinks.
 
@@ -125,23 +173,22 @@ async def _extract_links(
         anchor_raw = wm.group("anchor")
         anchor = anchor_raw.strip() if anchor_raw else None
         predicate = _predicate_for(text, wm.start(), inline_spans)
-        try:
-            resolved_paths = [await path_resolver.resolve(graph, target)]
-        except path_resolver.PathAmbiguous as e:
-            resolved_paths = list(e.candidates)
-        except path_resolver.PathNotFound:
+        resolved_paths = await _resolve_wikilink(graph, target)
+        if not resolved_paths:
             continue
         for resolved in resolved_paths:
             key = (resolved, predicate, anchor)
             if key in seen:
                 continue
             seen.add(key)
-            out.append(FileLink(
-                source_path=source_path,
-                target_path=resolved,
-                target_anchor=anchor,
-                predicate=predicate,
-            ))
+            out.append(
+                FileLink(
+                    source_path=source_path,
+                    target_path=resolved,
+                    target_anchor=anchor,
+                    predicate=predicate,
+                ),
+            )
     return out
 
 

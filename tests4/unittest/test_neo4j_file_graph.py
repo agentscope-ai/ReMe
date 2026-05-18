@@ -28,7 +28,7 @@ DATABASE = os.environ.get("NEO4J_DATABASE", "neo4j")
 
 
 try:
-    from reme4.components.file_graph import Neo4jFileGraph  # noqa: F401
+    from reme4.components.file_graph import Neo4jFileGraph
 
     _NEO4J_IMPORT_ERROR: Exception | None = None
 except Exception as e:  # pragma: no cover
@@ -53,13 +53,14 @@ async def _probe_neo4j() -> str | None:
         return f"connect failed: {e}"
 
 
-_PROBE_REASON: str | None | object = object()  # sentinel: "not probed"
+_PROBE_NOT_RUN = object()
+_PROBE_REASON: str | None | object = _PROBE_NOT_RUN  # sentinel: "not probed"
 
 
 def _probe_reason() -> str | None:
     """Probe Neo4j once per process; cache the outcome."""
     global _PROBE_REASON
-    if _PROBE_REASON is object():
+    if _PROBE_REASON is _PROBE_NOT_RUN:
         _PROBE_REASON = asyncio.run(_probe_neo4j())
     return _PROBE_REASON  # type: ignore[return-value]
 
@@ -97,8 +98,6 @@ def make_node(path: str, links: list[tuple[str, str | None]] | None = None) -> F
 
 async def _fresh_graph() -> "Neo4jFileGraph":  # type: ignore[name-defined]
     """Build a started Neo4jFileGraph wiped clean."""
-    from reme4.components.file_graph import Neo4jFileGraph
-
     graph = Neo4jFileGraph(uri=URI, user=USER, password=PASSWORD, database=DATABASE)
     await graph.start()
     await graph.clear()
@@ -143,9 +142,9 @@ def test_outlinks_skip_virtual_targets():
                     ],
                 )
                 outs = await graph.get_outlinks("a.md")
-                assert {l.target_path for l in outs} == {"b.md"}
-                for l in outs:
-                    assert l.source_path == "a.md"
+                assert {link.target_path for link in outs} == {"b.md"}
+                for link in outs:
+                    assert link.source_path == "a.md"
             finally:
                 await graph.clear()
                 await graph.close()
@@ -169,11 +168,11 @@ def test_inlinks_carry_source_path():
                     ],
                 )
                 ins = await graph.get_inlinks("b.md")
-                sources = {l.source_path for l in ins}
+                sources = {link.source_path for link in ins}
                 assert sources == {"a.md", "c.md"}
                 # Each link's target should be the queried path.
-                for l in ins:
-                    assert l.target_path == "b.md"
+                for link in ins:
+                    assert link.target_path == "b.md"
             finally:
                 await graph.clear()
                 await graph.close()
@@ -192,7 +191,7 @@ def test_delete_demotes_then_repromotes():
                 await graph.upsert_nodes(
                     [make_node("a.md", [("b.md", None)]), make_node("b.md")],
                 )
-                assert {l.source_path for l in await graph.get_inlinks("b.md")} == {"a.md"}
+                assert {link.source_path for link in await graph.get_inlinks("b.md")} == {"a.md"}
 
                 await graph.delete_nodes(["b.md"])
                 assert await graph.get_nodes(["b.md"]) == []
@@ -200,7 +199,7 @@ def test_delete_demotes_then_repromotes():
                 assert await graph.get_outlinks("a.md") == []
 
                 await graph.upsert_nodes([make_node("b.md")])
-                assert {l.source_path for l in await graph.get_inlinks("b.md")} == {"a.md"}
+                assert {link.source_path for link in await graph.get_inlinks("b.md")} == {"a.md"}
             finally:
                 await graph.clear()
                 await graph.close()
@@ -223,17 +222,13 @@ def test_rebuild_links_idempotent():
                         make_node("c.md"),
                     ],
                 )
-                before_out = sorted(
-                    (l.target_path, l.target_anchor) for l in await graph.get_outlinks("a.md")
-                )
-                before_in_b = sorted(l.source_path for l in await graph.get_inlinks("b.md"))
+                before_out = sorted((link.target_path, link.target_anchor) for link in await graph.get_outlinks("a.md"))
+                before_in_b = sorted(link.source_path for link in await graph.get_inlinks("b.md"))
 
                 await graph.rebuild_links()
 
-                after_out = sorted(
-                    (l.target_path, l.target_anchor) for l in await graph.get_outlinks("a.md")
-                )
-                after_in_b = sorted(l.source_path for l in await graph.get_inlinks("b.md"))
+                after_out = sorted((link.target_path, link.target_anchor) for link in await graph.get_outlinks("a.md"))
+                after_in_b = sorted(link.source_path for link in await graph.get_inlinks("b.md"))
                 assert before_out == after_out
                 assert before_in_b == after_in_b
             finally:
@@ -264,7 +259,7 @@ def test_clear_wipes_everything():
 
 
 def test_node_roundtrip_preserves_frontmatter_and_links():
-    """Upsert → get_nodes round-trip preserves frontmatter + links payload."""
+    """Upsert → get_nodes round-trip preserves frontmatter + links + chunk_ids."""
 
     async def run():
         from reme4.schema.file_node import FileFrontMatter
@@ -283,6 +278,7 @@ def test_node_roundtrip_preserves_frontmatter_and_links():
                             predicate="knows",
                         ),
                     ],
+                    chunk_ids=["chunk-a1", "chunk-a2", "chunk-a3"],
                     front_matter=FileFrontMatter(
                         title="Alice",
                         description="a person",
@@ -298,12 +294,27 @@ def test_node_roundtrip_preserves_frontmatter_and_links():
                 assert back.front_matter.title == "Alice"
                 assert back.front_matter.description == "a person"
                 assert sorted(back.front_matter.tags or []) == ["x", "y"]
+                assert back.chunk_ids == ["chunk-a1", "chunk-a2", "chunk-a3"]
                 assert len(back.links) == 1
-                l = back.links[0]
-                assert l.source_path == "topics/Alice.md"
-                assert l.target_path == "topics/Bob.md"
-                assert l.target_anchor == "intro"
-                assert l.predicate == "knows"
+                link = back.links[0]
+                assert link.source_path == "topics/Alice.md"
+                assert link.target_path == "topics/Bob.md"
+                assert link.target_anchor == "intro"
+                assert link.predicate == "knows"
+
+                # An upsert with empty chunk_ids should also round-trip cleanly
+                # (and overwrite the previous list).
+                await graph.upsert_nodes(
+                    [
+                        FileNode(
+                            path="topics/Alice.md",
+                            st_mtime=1234.5,
+                            chunk_ids=[],
+                        ),
+                    ],
+                )
+                got2 = await graph.get_nodes(["topics/Alice.md"])
+                assert got2 and got2[0].chunk_ids == []
             finally:
                 await graph.clear()
                 await graph.close()

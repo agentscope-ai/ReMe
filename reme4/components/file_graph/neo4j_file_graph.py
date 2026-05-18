@@ -3,7 +3,7 @@
 Property-graph mapping:
 
     Real node:    (:File {path, st_mtime, title, description, tags,
-                          links_json, extra_json})
+                          chunk_ids, links_json, extra_json})
     Virtual node: (:File {path})  — placeholder created when something
                   links to a path that hasn't been upserted yet.
 
@@ -49,7 +49,13 @@ _LINK_FIELDS = {"source_path", "target_path", "target_anchor", "predicate"}
 # Properties that distinguish a "real" node from a virtual placeholder.
 # Listed for the demote query (delete_nodes) so we can REMOVE them all.
 _REAL_PROPS = (
-    "st_mtime", "title", "description", "tags", "links_json", "extra_json",
+    "st_mtime",
+    "title",
+    "description",
+    "tags",
+    "chunk_ids",
+    "links_json",
+    "extra_json",
 )
 
 
@@ -87,8 +93,7 @@ class Neo4jFileGraph(BaseFileGraph):
             from neo4j import AsyncGraphDatabase
         except ImportError as e:
             raise ImportError(
-                "Neo4jFileGraph requires the neo4j driver. "
-                "Install with `pip install neo4j`.",
+                "Neo4jFileGraph requires the neo4j driver. Install with `pip install neo4j`.",
             ) from e
         self._driver = AsyncGraphDatabase.driver(
             self._uri,
@@ -96,8 +101,7 @@ class Neo4jFileGraph(BaseFileGraph):
         )
         async with self._session() as session:
             await session.run(
-                "CREATE CONSTRAINT file_path_unique IF NOT EXISTS "
-                "FOR (f:File) REQUIRE f.path IS UNIQUE",
+                "CREATE CONSTRAINT file_path_unique IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE",
             )
             real, virtual, edges = await self._counts(session)
         self.logger.info(
@@ -393,6 +397,7 @@ class Neo4jFileGraph(BaseFileGraph):
             "title": fm.title or "",
             "description": fm.description or "",
             "tags": list(fm.tags or []),
+            "chunk_ids": list(node.chunk_ids or []),
             "links_json": json.dumps(
                 [link.model_dump(exclude_none=True) for link in node.links],
                 ensure_ascii=False,
@@ -440,6 +445,6 @@ class Neo4jFileGraph(BaseFileGraph):
             path=d["path"],
             st_mtime=float(d.get("st_mtime", 0.0)),
             links=links,
-            chunk_ids=[],
+            chunk_ids=[str(c) for c in (d.get("chunk_ids") or [])],
             front_matter=FileFrontMatter(**fm_kwargs),
         )
