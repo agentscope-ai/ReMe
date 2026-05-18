@@ -63,6 +63,9 @@ dependencies = [
     "transformers>=4.57.3",
     "uvicorn>=0.40.0",
     "watchfiles>=1.1.1",
+    "pyyaml>=6.0.3",
+    "mistletoe",
+    "neo4j",
 ]
 
 [project.optional-dependencies]
@@ -128,7 +131,7 @@ Documentation = "https://reme.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]
-reme = "reme_ai.main:main"
+reme = "remecli.reme:main"
 reme2 = "reme.reme:main"
 remecli = "reme.reme_cli:main"
 reme4 = "reme4.reme:main"

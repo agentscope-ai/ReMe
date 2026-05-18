@@ -43,3 +43,5 @@ meta_memory/*
 *.db
 memories/*
 .reme/*
+/vault
+structure.md
