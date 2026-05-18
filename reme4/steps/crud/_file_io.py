@@ -1,7 +1,5 @@
 """Shared filesystem helpers for CRUD steps (safe read, truncation)."""
 
-import re
-
 import aiofiles
 import aiofiles.os
 
@@ -47,9 +45,6 @@ def truncate_text_output(
         return text
 
     try:
-        if TRUNCATION_NOTICE_MARKER in text:
-            return _retruncate(text, max_bytes=max_bytes, encoding=encoding)
-
         text_bytes = text.encode(encoding)
         if len(text_bytes) <= max_bytes:
             return text
@@ -77,37 +72,3 @@ def truncate_text_output(
     except Exception:
         logger.warning("truncate_text_output failed, returning original text", exc_info=True)
         return text
-
-
-def _retruncate(text: str, *, max_bytes: int, encoding: str) -> str:
-    parts = text.split(TRUNCATION_NOTICE_MARKER, 1)
-    original_content = parts[0]
-    old_notice = parts[1]
-
-    text_bytes = original_content.encode(encoding)
-    if len(text_bytes) <= max_bytes + 100:
-        return text
-
-    start_match = re.search(r"starts at line (\d+)", old_notice)
-    if not start_match:
-        return text
-    start_line_parsed = int(start_match.group(1))
-
-    truncated_bytes = text_bytes[:max_bytes]
-    result = truncated_bytes.decode(encoding, errors="ignore")
-    newline_count = result.count("\n")
-    next_line = start_line_parsed + max(1, newline_count)
-
-    if not re.search(r"covers the next \d+ bytes", old_notice):
-        return text
-    new_notice = re.sub(
-        r"covers the next \d+ bytes",
-        f"covers the next {max_bytes} bytes",
-        old_notice,
-    )
-    new_notice = re.sub(
-        r"start_line=\d+ to read more",
-        f"start_line={next_line} to read more",
-        new_notice,
-    )
-    return result + TRUNCATION_NOTICE_MARKER + new_notice

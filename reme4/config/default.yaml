@@ -98,21 +98,19 @@ jobs:
 
   - backend: base
     name: read
-    description: "read a markdown file (relative to working_dir, no .md suffix needed)"
+    description: "read a markdown file (relative path under working_dir)"
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path rooted at the working_dir; markdown only (.md auto-appended when no suffix)"
+          description: "relative path under the working_dir (no absolute paths); markdown only"
         start_line:
           type: integer
-          description: "first line to read (1-based, inclusive)"
-          default: null
+          description: "Optional, first line to read (1-based, inclusive)"
         end_line:
           type: integer
-          description: "last line to read (1-based, inclusive)"
-          default: null
+          description: "Optional, last line to read (1-based, inclusive)"
       required:
         - path
     steps:

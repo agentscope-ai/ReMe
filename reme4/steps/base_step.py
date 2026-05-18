@@ -91,15 +91,15 @@ class BaseStep(ABC):
         self,
         raw: str,
         *,
-        require_md: bool = True,
+        require_md: bool = False,
     ) -> tuple[Path | None, str | None]:
-        """Resolve a relative `path=` argument under self.working_path.
+        """Resolve relative `path=` argument under self.working_path.
 
         Rules:
-          - relative path only; joined under ``self.working_path``.
-        Markdown gate (when ``require_md=True``):
-          - no suffix → auto-append ``.md``;
-          - any other non-``.md`` suffix → reject.
+          - the caller supplies the full relative path under ``self.working_path``;
+            absolute paths are rejected.
+          - if the path has no suffix, auto-append ``.md`` (default vault extension).
+          - if ``require_md=True``, any present non-``.md`` suffix is rejected.
         Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
         """
         if not raw or not str(raw).strip():
@@ -107,13 +107,12 @@ class BaseStep(ABC):
         s = str(raw).strip()
         p = Path(s)
         if p.is_absolute():
-            return None, (f"path {s!r} is absolute; only relative paths under the working_dir are accepted")
+            return None, (f"path {s!r} is absolute; only relative paths accepted")
         target = (self.working_path.resolve() / p).resolve()
-        if require_md:
-            if target.suffix == "":
-                target = target.with_suffix(".md")
-            elif target.suffix.lower() != ".md":
-                return None, (f"path {s!r} is not a markdown file; this command only supports .md files")
+        if target.suffix == "":
+            target = target.with_suffix(".md")
+        elif require_md and target.suffix.lower() != ".md":
+            return None, (f"path {s!r} is not a markdown file; this command only supports .md files")
         return target, None
 
     def _resolve(
