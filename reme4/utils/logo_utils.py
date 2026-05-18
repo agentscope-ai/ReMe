@@ -1,6 +1,8 @@
 """Startup banner with ASCII logo and service metadata."""
 
+import colorsys
 import importlib.metadata
+import random
 from typing import TYPE_CHECKING
 
 from rich.console import Console, Group
@@ -20,8 +22,20 @@ def get_version(package_name: str) -> str:
         return ""
 
 
+def _hsv_rgb(h: float, s: float = 0.85, v: float = 0.98) -> tuple[int, int, int]:
+    """HSV → 0-255 RGB tuple. High saturation+value keeps colors vibrant."""
+    r, g, b = colorsys.hsv_to_rgb(h % 1.0, s, v)
+    return int(r * 255), int(g * 255), int(b * 255)
+
+
 def print_logo(app_config: "ApplicationConfig"):
-    """Print gradient ASCII logo and runtime config (backend, URL, versions)."""
+    """Print rainbow ASCII logo and runtime config (backend, URL, versions).
+
+    Color: each startup picks a random hue rotation; both horizontal
+    (across each line) and vertical (line-to-line) sweep ~half the
+    hue wheel, so the banner shows a fresh multi-color rainbow gradient
+    every run.
+    """
     ascii_art = [
         r" ██████╗  ███████╗ ███╗   ███╗ ███████╗ ",
         r" ██╔══██╗ ██╔════╝ ████╗ ████║ ██╔════╝ ",
@@ -31,16 +45,18 @@ def print_logo(app_config: "ApplicationConfig"):
         r" ╚═╝  ╚═╝ ╚══════╝ ╚═╝     ╚═╝ ╚══════╝ ",
     ]
 
-    start_color = (85, 239, 196)
-    end_color = (162, 155, 254)
+    hue_base = random.random()        # random starting hue per startup
+    horizontal_span = 0.5             # half the wheel left-to-right
+    vertical_shift = 0.08             # small per-line nudge for 2D rainbow
 
     logo_text = Text()
-    for line in ascii_art:
+    for line_idx, line in enumerate(ascii_art):
         line_len = max(1, len(line) - 1)
+        line_hue_start = hue_base + line_idx * vertical_shift
         for i, char in enumerate(line):
             ratio = i / line_len
-            rgb = tuple(int(s + (e - s) * ratio) for s, e in zip(start_color, end_color))
-            logo_text.append(char, style=f"bold rgb({rgb[0]},{rgb[1]},{rgb[2]})")
+            r, g, b = _hsv_rgb(line_hue_start + horizontal_span * ratio)
+            logo_text.append(char, style=f"bold rgb({r},{g},{b})")
         logo_text.append("\n")
 
     info_table = Table.grid(padding=(0, 1))
