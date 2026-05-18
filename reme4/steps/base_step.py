@@ -157,6 +157,7 @@ class BaseStep(ABC):
         return await job(**kwargs)
 
     def add_as_tool(self, toolkit: Toolkit, job_name: str) -> None:
+        """Add the step as a tool to the toolkit."""
         job: "BaseJob | None" = self.get_job(job_name)
         if job is None:
             raise RuntimeError(f"Job {job_name} not found")
