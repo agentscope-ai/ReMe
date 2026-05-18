@@ -15,7 +15,6 @@ Key Features:
 """
 
 import asyncio
-import os
 from pathlib import Path
 
 from agentscope.formatter import FormatterBase
@@ -136,22 +135,14 @@ class ReMeLight(Application):
         self.vector_weight: float = vector_weight
         self.candidate_multiplier: float = candidate_multiplier
 
-        # Build the file watcher config: use provided watch_paths if given, otherwise use defaults.
-        # Deduplicate paths that point to the same filesystem entry: on case-insensitive
-        # filesystems (e.g. Windows NTFS, macOS HFS+) ``MEMORY.md`` and ``memory.md`` resolve
-        # to the same file, so watching both would index the file twice.
-        _seen_keys: set[str] = set()
-        _default_watch_paths: list[str] = []
-        for _candidate in (
-            self.working_path / "MEMORY.md",
-            self.working_path / "memory.md",
-            self.memory_path,
-        ):
-            _key = os.path.normcase(str(_candidate))
-            if _key in _seen_keys:
-                continue
-            _seen_keys.add(_key)
-            _default_watch_paths.append(str(_candidate))
+        # Pick the existing memory markdown file. On case-insensitive filesystems
+        # (Windows NTFS, macOS APFS/HFS+) ``MEMORY.md`` and ``memory.md`` are the
+        # same file, so this also avoids watching it twice. Default to ``MEMORY.md``
+        # when neither exists yet.
+        _memory_md = self.working_path / "MEMORY.md"
+        if not _memory_md.exists() and (self.working_path / "memory.md").exists():
+            _memory_md = self.working_path / "memory.md"
+        _default_watch_paths = [str(_memory_md), str(self.memory_path)]
         if default_file_watcher_config and default_file_watcher_config.get("watch_paths"):
             _merged_file_watcher_config = default_file_watcher_config
         else:
