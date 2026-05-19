@@ -1,4 +1,6 @@
-"""Shared filesystem helpers for CRUD steps (safe read, truncation)."""
+"""Shared filesystem helpers for CRUD steps (path gating, safe read, truncation)."""
+
+from pathlib import Path
 
 import aiofiles
 import aiofiles.os
@@ -7,6 +9,19 @@ from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTI
 from ...utils import get_logger
 
 logger = get_logger()
+
+
+def gate_md(target: Path, raw: str) -> tuple[Path | None, str | None]:
+    """Markdown-only gate: auto-append `.md` when no suffix; reject any non-`.md` suffix.
+
+    Layered on top of ``BaseStep.resolve_path`` to keep filetype-specific rules
+    out of the generic path resolver.
+    """
+    if target.suffix == "":
+        return target.with_suffix(".md"), None
+    if target.suffix.lower() != ".md":
+        return None, (f"path {raw!r} is not a markdown file; this command only supports .md files")
+    return target, None
 
 
 async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> str:

@@ -87,20 +87,15 @@ class BaseStep(ABC):
             return Path.cwd()
         return Path(self.app_context.app_config.working_dir)
 
-    def resolve_path(
-        self,
-        raw: str,
-        *,
-        require_md: bool = False,
-    ) -> tuple[Path | None, str | None]:
-        """Resolve relative `path=` argument under self.working_path.
+    def resolve_path(self, raw: str) -> Path | None:
+        """Resolve a relative `path=` argument under self.working_path.
 
         Rules:
           - the caller supplies the full relative path under ``self.working_path``;
             absolute paths are rejected.
-          - if the path has no suffix, auto-append ``.md`` (default vault extension).
-          - if ``require_md=True``, any present non-``.md`` suffix is rejected.
         Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
+        Filetype-specific gating (e.g. markdown-only / suffix auto-append) is
+        layered on top by callers — see ``reme4/steps/crud/_file_io.py::gate_md``.
         """
         if not raw or not str(raw).strip():
             return None, "`path` is required"
@@ -108,12 +103,7 @@ class BaseStep(ABC):
         p = Path(s)
         if p.is_absolute():
             return None, (f"path {s!r} is absolute; only relative paths accepted")
-        target = (self.working_path.resolve() / p).resolve()
-        if target.suffix == "":
-            target = target.with_suffix(".md")
-        elif require_md and target.suffix.lower() != ".md":
-            return None, (f"path {s!r} is not a markdown file; this command only supports .md files")
-        return target, None
+        return self.working_path / p, None
 
     def _resolve(
         self,
@@ -142,22 +132,12 @@ class BaseStep(ABC):
     @property
     def as_llm_formatter(self) -> FormatterBase:
         """Return the LLM formatter component."""
-        return self._resolve(
-            "as_llm_formatter",
-            FormatterBase,
-            ComponentEnum.AS_LLM_FORMATTER,
-            "formatter",
-        )
+        return self._resolve("as_llm_formatter", FormatterBase, ComponentEnum.AS_LLM_FORMATTER, "formatter")
 
     @property
     def as_token_counter(self) -> TokenCounterBase:
         """Return the token counter component."""
-        return self._resolve(
-            "as_token_counter",
-            TokenCounterBase,
-            ComponentEnum.AS_TOKEN_COUNTER,
-            "token_counter",
-        )
+        return self._resolve("as_token_counter", TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
 
     @property
     def file_parser(self) -> BaseFileParser:
@@ -172,20 +152,12 @@ class BaseStep(ABC):
     @property
     def embedding(self) -> BaseEmbeddingModel:
         """Return the embedding model component."""
-        return self._resolve(
-            "embedding",
-            BaseEmbeddingModel,
-            ComponentEnum.EMBEDDING_MODEL,
-        )
+        return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
 
     @property
     def file_watcher(self) -> BaseFileWatcher:
         """Return the file watcher component."""
-        return self._resolve(
-            "file_watcher",
-            BaseFileWatcher,
-            ComponentEnum.FILE_WATCHER,
-        )
+        return self._resolve("file_watcher", BaseFileWatcher, ComponentEnum.FILE_WATCHER)
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""
