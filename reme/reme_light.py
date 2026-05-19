@@ -119,7 +119,7 @@ class ReMeLight(Application):
             The following directory structure will be created:
                 - {working_dir}/           - Root working directory
                 - {working_dir}/memory/    - Memory storage files
-                - {working_dir}/tool_result/ - Compacted tool result files
+                - {working_dir}/tool_results/ - Compacted tool result files
                 - {working_dir}/dialog/    - Raw conversation records
         """
         # Initialize working directory structure
@@ -127,7 +127,7 @@ class ReMeLight(Application):
         self.working_path.mkdir(parents=True, exist_ok=True)
         self.memory_path = self.working_path / "memory"
         self.memory_path.mkdir(parents=True, exist_ok=True)
-        self.tool_result_path = self.working_path / "tool_result"
+        self.tool_result_path = self.working_path / "tool_results"
         self.tool_result_path.mkdir(parents=True, exist_ok=True)
         self.dialog_path = self.working_path / "dialog"
         self.dialog_path.mkdir(parents=True, exist_ok=True)
@@ -135,12 +135,14 @@ class ReMeLight(Application):
         self.vector_weight: float = vector_weight
         self.candidate_multiplier: float = candidate_multiplier
 
-        # Build the file watcher config: use provided watch_paths if given, otherwise use defaults
-        _default_watch_paths = [
-            str(self.working_path / "MEMORY.md"),
-            str(self.working_path / "memory.md"),
-            str(self.memory_path),
-        ]
+        # Pick the existing memory markdown file. On case-insensitive filesystems
+        # (Windows NTFS, macOS APFS/HFS+) ``MEMORY.md`` and ``memory.md`` are the
+        # same file, so this also avoids watching it twice. Default to ``MEMORY.md``
+        # when neither exists yet.
+        _memory_md = self.working_path / "MEMORY.md"
+        if not _memory_md.exists() and (self.working_path / "memory.md").exists():
+            _memory_md = self.working_path / "memory.md"
+        _default_watch_paths = [str(_memory_md), str(self.memory_path)]
         if default_file_watcher_config and default_file_watcher_config.get("watch_paths"):
             _merged_file_watcher_config = default_file_watcher_config
         else:
