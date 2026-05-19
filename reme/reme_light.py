@@ -119,7 +119,7 @@ class ReMeLight(Application):
             The following directory structure will be created:
                 - {working_dir}/           - Root working directory
                 - {working_dir}/memory/    - Memory storage files
-                - {working_dir}/tool_result/ - Compacted tool result files
+                - {working_dir}/tool_results/ - Compacted tool result files
                 - {working_dir}/dialog/    - Raw conversation records
         """
         # Initialize working directory structure
@@ -127,7 +127,7 @@ class ReMeLight(Application):
         self.working_path.mkdir(parents=True, exist_ok=True)
         self.memory_path = self.working_path / "memory"
         self.memory_path.mkdir(parents=True, exist_ok=True)
-        self.tool_result_path = self.working_path / "tool_result"
+        self.tool_result_path = self.working_path / "tool_results"
         self.tool_result_path.mkdir(parents=True, exist_ok=True)
         self.dialog_path = self.working_path / "dialog"
         self.dialog_path.mkdir(parents=True, exist_ok=True)
