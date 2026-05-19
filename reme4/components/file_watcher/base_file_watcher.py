@@ -1,0 +1,118 @@
+"""Abstract base for file watchers."""
+
+import asyncio
+from abc import abstractmethod
+from pathlib import Path
+
+from watchfiles import Change
+
+from ..base_component import BaseComponent
+from ..file_parser import BaseFileParser
+from ..file_store import BaseFileStore
+from ...enumeration import ComponentEnum
+
+
+class BaseFileWatcher(BaseComponent):
+    """Abstract base for file watchers. Subclasses implement watch_loop and event handlers."""
+
+    component_type = ComponentEnum.FILE_WATCHER
+
+    def __init__(
+        self,
+        watch_paths: list[str] | str,
+        suffix_filters: list[str] | None = None,
+        recursive: bool = True,
+        force_polling: bool = True,
+        debounce: int = 2000,
+        poll_delay_ms: int = 2000,
+        file_store: str = "default",
+        file_parser: str = "default",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        from ..file_parser import DefaultFileParser
+        from ..file_store import LocalFileStore
+
+        watch_paths = [watch_paths] if isinstance(watch_paths, str) else watch_paths
+        base = self.working_path
+        self.watch_paths: list[Path] = [base / x for x in watch_paths if (base / x).exists()]
+        self.suffix_filters: list[str] = suffix_filters or ["md"]
+        self.recursive: bool = recursive
+        self.force_polling: bool = force_polling
+        self.debounce: int = debounce
+        self.poll_delay_ms: int = poll_delay_ms
+        self.file_store = self.bind(file_store, BaseFileStore, default_factory=LocalFileStore)
+        self.file_parser = self.bind(file_parser, BaseFileParser, default_factory=DefaultFileParser)
+        self._stop_event: asyncio.Event = asyncio.Event()
+        self._background_task: asyncio.Task | None = None
+        self._retry_interval: float = 10
+
+    async def _start(self):
+        self._stop_event = asyncio.Event()
+        self._background_task = asyncio.create_task(self._background_run())
+        self.logger.info(f"Started watching: {[str(p) for p in self.watch_paths]}")
+
+    async def _background_run(self):
+        """Sync store then enter watch loop."""
+        await self.update_store()
+        await self.watch_loop()
+
+    async def _close(self):
+        self._stop_event.set()
+        if self._background_task:
+            await self._background_task
+        self.logger.info("Stopped watching")
+
+    def watch_filter(self, _change: Change, path: str) -> bool:
+        """Return True if the file suffix matches the filter list."""
+        if not self.suffix_filters:
+            return True
+        return any(path.endswith("." + s.strip(".")) for s in self.suffix_filters)
+
+    def _get_relative_path(self, path: str | Path) -> str:
+        """Return path relative to working_dir, or absolute path if outside."""
+        file_path = Path(path).absolute()
+        try:
+            return str(file_path.relative_to(self.working_path.absolute()))
+        except ValueError:
+            return str(file_path)
+
+    def _get_absolute_path(self, path: str | Path) -> Path:
+        """Return absolute path; relative paths are resolved against working_dir."""
+        p = Path(path)
+        return p if p.is_absolute() else self.working_path / p
+
+    async def scan_existing_files(self) -> dict[str, Path]:
+        """Collect watchable files under watch_paths as {relative_path: absolute_path}."""
+        files: dict[str, Path] = {}
+        for path in self.watch_paths:
+            if not path.exists():
+                continue
+            candidates = [path] if path.is_file() else (path.rglob("*") if self.recursive else path.iterdir())
+            for p in candidates:
+                if p.is_file() and self.watch_filter(Change.added, str(p)):
+                    files[self._get_relative_path(p)] = p.absolute()
+        return files
+
+    @abstractmethod
+    async def watch_loop(self):
+        """Watch for file changes and dispatch events."""
+
+    @abstractmethod
+    async def update_store(self, dump: bool = True) -> dict[str, int]:
+        """Sync the store with watch_paths; dump store if any changes and dump=True.
+
+        Returns counts {"added": int, "modified": int, "deleted": int}.
+        """
+
+    @abstractmethod
+    async def on_added(self, path: str | list[str]):
+        """Handle file added event (relative paths)."""
+
+    @abstractmethod
+    async def on_modified(self, path: str | list[str]):
+        """Handle file modified event (relative paths)."""
+
+    @abstractmethod
+    async def on_deleted(self, path: str | list[str]):
+        """Handle file deleted event (relative paths)."""
