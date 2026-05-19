@@ -197,13 +197,16 @@ async def test_add_history_stores_parent_and_chunk_nodes():
             self.deleted_ids = None
             self.inserted_nodes = []
 
-        async def list(self, filters=None, limit=None, sort_key=None, reverse=True):
+        async def list(self, _filters=None, _limit=None, _sort_key=None, _reverse=True):
+            """Return no existing history nodes."""
             return []
 
         async def delete(self, vector_ids):
+            """Record deleted vector ids."""
             self.deleted_ids = vector_ids
 
         async def insert(self, nodes):
+            """Record inserted vector nodes."""
             self.inserted_nodes = nodes
 
     vector_store = FakeVectorStore()
@@ -244,6 +247,7 @@ async def test_retrieve_history_filters_by_optional_history_id():
             self.search_calls = []
 
         async def search(self, query, limit, filters):
+            """Return one matching history chunk."""
             self.search_calls.append({"query": query, "limit": limit, "filters": filters})
             return [
                 MemoryNode(
