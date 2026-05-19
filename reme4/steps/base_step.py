@@ -2,6 +2,7 @@
 
 import copy
 from abc import abstractmethod, ABC
+from pathlib import Path
 from typing import TypeVar, TYPE_CHECKING
 
 from agentscope.formatter import FormatterBase
@@ -83,7 +84,20 @@ class BaseStep(ABC):
             self.context.apply_mapping(self.output_mapping)
         return result
 
-    def _resolve(self, key: str, base_cls: type[T], comp_enum: ComponentEnum, attr: str | None = None) -> T:
+    @property
+    def working_path(self) -> Path:
+        """Resolved working directory from app context or cwd."""
+        if self.app_context is None:
+            return Path.cwd()
+        return Path(self.app_context.app_config.working_dir)
+
+    def _resolve(
+        self,
+        key: str,
+        base_cls: type[T],
+        comp_enum: ComponentEnum,
+        attr: str | None = None,
+    ) -> T:
         """Return a kwargs-supplied instance, or look one up by name in the app registry."""
         # 1. Step init kwargs, 2. Runtime context (run_job kwargs), 3. App registry by name.
         for source in (self.kwargs, self.context or {}):

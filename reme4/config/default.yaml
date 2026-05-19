@@ -96,6 +96,26 @@ jobs:
     steps:
       - backend: search_step
 
+  - backend: base
+    name: read
+    description: "read a markdown file (relative path under working_dir)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir (no absolute paths); markdown only"
+        start_line:
+          type: integer
+          description: "Optional, first line to read (1-based, inclusive)"
+        end_line:
+          type: integer
+          description: "Optional, last line to read (1-based, inclusive)"
+      required:
+        - path
+    steps:
+      - backend: read_step
+
   - backend: stream
     name: stream_demo
     description: "stream demo job: repeat query 10x and stream char-by-char"

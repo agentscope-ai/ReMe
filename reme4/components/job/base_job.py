@@ -49,5 +49,6 @@ class BaseJob(BaseComponent):
                 await step(context)
         except Exception as e:
             self.logger.exception(f"Failed to execute job: {e}")
+            context.response.success = False
             context.response.answer = str(e)
         return context.response
