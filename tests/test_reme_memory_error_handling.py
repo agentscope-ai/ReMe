@@ -7,7 +7,9 @@ import pytest
 import reme.reme as reme_module
 from reme.core.runtime_context import RuntimeContext
 from reme.core.schema import MemoryNode
+from reme.memory.vector_tools.history.add_history import AddHistory
 from reme.memory.vector_tools.history.read_history import ReadHistory
+from reme.memory.vector_tools.history.retrieve_history import RetrieveHistory
 from reme.reme import ReMe
 
 
@@ -83,6 +85,22 @@ async def test_summarize_memory_propagates_raise_exception(
     assert result == "ok"
     assert Recorder.instances
     assert all(instance.kwargs.get("raise_exception") is raise_exception for instance in Recorder.instances)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_memory_binds_top_level_retriever_prompt_path(monkeypatch: pytest.MonkeyPatch):
+    """Verify top-level ReMeRetriever does not accidentally inherit child retriever prompts."""
+    _patch_retrieve_dependencies(monkeypatch)
+    reme = _make_reme()
+
+    result = await reme.retrieve_memory(
+        query="hello",
+        user_name="alice",
+    )
+
+    assert result == "ok"
+    top_level = next(instance for instance in Recorder.instances if isinstance(instance, TopLevelAgent))
+    assert str(top_level.kwargs["prompt_path"]).endswith("reme/memory/vector_based/reme_retriever.yaml")
 
 
 @pytest.mark.asyncio
@@ -166,3 +184,99 @@ async def test_read_history_accepts_single_history_id_in_multiple_mode():
     result = await tool.execute()
 
     assert "Historical Dialogue[history_123]" in result
+
+
+@pytest.mark.asyncio
+async def test_add_history_stores_parent_and_chunk_nodes():
+    """Verify AddHistory stores a full parent node plus retrievable chunk nodes."""
+
+    class FakeVectorStore:
+        """Minimal vector store stub for AddHistory tests."""
+
+        def __init__(self):
+            self.deleted_ids = None
+            self.inserted_nodes = []
+
+        async def list(self, filters=None, limit=None, sort_key=None, reverse=True):
+            return []
+
+        async def delete(self, vector_ids):
+            self.deleted_ids = vector_ids
+
+        async def insert(self, nodes):
+            self.inserted_nodes = nodes
+
+    vector_store = FakeVectorStore()
+    tool = AddHistory(turn_block_size=1, max_chunk_tokens=1000)
+    tool._vector_store = vector_store  # pylint: disable=protected-access
+    tool.context = RuntimeContext(
+        description="A coffee chat.",
+        messages=[
+            {"role": "user", "content": "我想喝咖啡"},
+            {"role": "assistant", "content": "好的，您喜欢什么类型的咖啡？"},
+            {"role": "user", "content": "Latte with oat milk please."},
+            {"role": "assistant", "content": "没问题。"},
+        ],
+        author="tester",
+        service_context=SimpleNamespace(memory_target_type_mapping={"alice": "personal"}),
+    )
+
+    result = await tool.execute()
+
+    assert "Successfully added history:" in result
+    assert len(vector_store.inserted_nodes) == 3
+    parent_node = vector_store.inserted_nodes[0]
+    chunk_nodes = vector_store.inserted_nodes[1:]
+    assert parent_node.metadata["node_kind"] == "history"
+    assert parent_node.metadata["chunk_count"] == 2
+    assert all(node.metadata["node_kind"] == "history_chunk" for node in chunk_nodes)
+    assert all(node.metadata["history_id"] == parent_node.vector_id for node in chunk_nodes)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_history_filters_by_optional_history_id():
+    """Verify RetrieveHistory can search within a history group."""
+
+    class FakeVectorStore:
+        """Minimal vector store stub for RetrieveHistory tests."""
+
+        def __init__(self):
+            self.search_calls = []
+
+        async def search(self, query, limit, filters):
+            self.search_calls.append({"query": query, "limit": limit, "filters": filters})
+            return [
+                MemoryNode(
+                    memory_id="history_123:chunk:0000",
+                    memory_type="history",
+                    content="user: 我想喝咖啡\nassistant: 好的",
+                    ref_memory_id="history_123",
+                    metadata={
+                        "node_kind": "history_chunk",
+                        "history_id": "history_123",
+                        "chunk_index": 0,
+                    },
+                ).to_vector_node(),
+            ]
+
+    vector_store = FakeVectorStore()
+    tool = RetrieveHistory(top_k=2, enable_multiple=False)
+    tool._vector_store = vector_store  # pylint: disable=protected-access
+    tool.context = RuntimeContext(
+        query="咖啡",
+        history_id="history_123",
+        retrieved_nodes=[],
+        service_context=SimpleNamespace(memory_target_type_mapping={"alice": "personal"}),
+    )
+
+    result = await tool.execute()
+
+    assert vector_store.search_calls == [
+        {
+            "query": "咖啡",
+            "limit": 2,
+            "filters": {"node_kind": "history_chunk", "history_id": "history_123"},
+        },
+    ]
+    assert "Historical Dialogue Chunk[history_123:chunk:0000]" in result
+    assert "history_id=history_123" in result

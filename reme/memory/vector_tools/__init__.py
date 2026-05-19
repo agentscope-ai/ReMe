@@ -11,6 +11,7 @@ from .delegate_task import DelegateTask
 from .history.add_history import AddHistory
 from .history.read_history import ReadHistory
 from .history.read_history_v2 import ReadHistoryV2
+from .history.retrieve_history import RetrieveHistory
 
 # profiles tools
 from .profiles.add_draft_and_read_all_profiles import AddDraftAndReadAllProfiles
@@ -41,6 +42,7 @@ __all__ = [
     "AddHistory",
     "ReadHistory",
     "ReadHistoryV2",
+    "RetrieveHistory",
     # profiles tools
     "AddDraftAndReadAllProfiles",
     "AddProfile",
