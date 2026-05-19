@@ -133,8 +133,8 @@ def test_read_line_range():
     _run(run())
 
 
-def test_read_absolute_path_rejected():
-    """Absolute paths are rejected (relative-only after refactor)."""
+def test_read_absolute_path_accepted():
+    """Absolute paths are accepted (a log warning is emitted but the read proceeds)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -149,12 +149,10 @@ def test_read_absolute_path_rejected():
                     path=str(target.resolve()),
                 )
                 if not (
-                    isinstance(result, dict)
-                    and result.get("success") is False
-                    and "absolute" in str(result.get("answer", "")).lower()
+                    isinstance(result, dict) and result.get("success") is True and "x" in str(result.get("answer", ""))
                 ):
-                    raise AssertionError(f"expected absolute-path rejection, got {result!r}")
-        print("✓ test_read_absolute_path_rejected passed")
+                    raise AssertionError(f"expected absolute-path read to succeed, got {result!r}")
+        print("✓ test_read_absolute_path_accepted passed")
 
     _run(run())
 
@@ -265,13 +263,14 @@ def test_read_start_line_exceeds_total():
 
 
 def test_read_truncation():
-    """A small max_bytes triggers truncation with a continuation notice."""
+    """A file larger than DEFAULT_MAX_BYTES triggers truncation with a continuation notice."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             working = Path(tmp) / ".reme"
             working.mkdir(parents=True, exist_ok=True)
-            body = "\n".join(f"line {i}" for i in range(200)) + "\n"
+            # Seed > DEFAULT_MAX_BYTES (50 KiB) so the default truncation kicks in.
+            body = "\n".join(f"line {i}" for i in range(8000)) + "\n"
             _seed_md(working, "Big.md", body)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -279,7 +278,6 @@ def test_read_truncation():
                     host=host,
                     port=port,
                     path="Big.md",
-                    max_bytes=64,
                     validator=lambda r: (
                         isinstance(r, dict)
                         and r.get("success") is True
@@ -360,7 +358,6 @@ if __name__ == "__main__":
     test_read_relative_path()
     test_read_no_suffix_autoappends_md()
     test_read_line_range()
-    test_read_absolute_path_rejected()
     test_read_non_md_rejected()
     test_read_missing_file()
     test_read_start_after_end()
