@@ -34,6 +34,7 @@ class ServiceContext(BaseDict):
         config_path: str | None = None,
         enable_logo: bool = True,
         log_to_console: bool = True,
+        log_to_file: bool = True,
         default_as_llm_config: dict | None = None,
         default_as_llm_formatter_config: dict | None = None,
         default_as_token_counter_config: dict | None = None,
@@ -79,6 +80,7 @@ class ServiceContext(BaseDict):
                 {
                     "enable_logo": enable_logo,
                     "log_to_console": log_to_console,
+                    "log_to_file": log_to_file,
                     "working_dir": working_dir,
                 },
             )

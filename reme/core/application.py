@@ -44,6 +44,7 @@ class Application:
         config_path: str | None = None,
         enable_logo: bool = True,
         log_to_console: bool = True,
+        log_to_file: bool = True,
         enable_load_env: bool = True,
         parser: type[PydanticConfigParser] | None = None,
         default_as_llm_config: dict | None = None,
@@ -73,6 +74,7 @@ class Application:
             config_path=config_path,
             enable_logo=enable_logo,
             log_to_console=log_to_console,
+            log_to_file=log_to_file,
             default_as_llm_config=default_as_llm_config,
             default_as_llm_formatter_config=default_as_llm_formatter_config,
             default_llm_config=default_llm_config,
@@ -144,7 +146,10 @@ class Application:
             logger.warning("Application has already started.")
             return self
 
-        init_logger(log_to_console=self.service_config.log_to_console)
+        init_logger(
+            log_to_console=self.service_config.log_to_console,
+            log_to_file=self.service_config.log_to_file,
+        )
         logger.info(f"Init ReMe with config: {self.service_config.model_dump_json()}")
 
         working_path = Path(self.service_config.working_dir)

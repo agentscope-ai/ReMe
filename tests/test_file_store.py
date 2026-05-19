@@ -2,13 +2,14 @@
 """Unified test suite for file store implementations.
 
 This module provides comprehensive test coverage for SqliteFileStore, ChromaFileStore,
-LocalFileStore, SeekdbFileStore and future file store implementations. Tests can be
-run for specific stores or all implementations.
+LocalFileStore, ZvecFileStore, SeekdbFileStore and future file store implementations.
+Tests can be run for specific stores or all implementations.
 
 Usage:
     python test_file_store.py --sqlite     # Test SqliteFileStore only
     python test_file_store.py --chroma     # Test ChromaFileStore only
     python test_file_store.py --local      # Test LocalFileStore only
+    python test_file_store.py --zvec       # Test ZvecFileStore only
     python test_file_store.py --seekdb     # Test SeekdbFileStore only (requires pyseekdb)
     python test_file_store.py --all        # Test all file stores
 """
@@ -30,6 +31,7 @@ from reme.core.file_store.base_file_store import BaseFileStore
 from reme.core.file_store.chroma_file_store import ChromaFileStore
 from reme.core.file_store.local_file_store import LocalFileStore
 from reme.core.file_store.sqlite_file_store import SqliteFileStore
+from reme.core.file_store.zvec_file_store import ZvecFileStore
 
 try:
     from reme.core.file_store.seekdb_file_store import SeekdbFileStore
@@ -62,6 +64,10 @@ class TestConfig:
     # ChromaFileStore settings
     CHROMA_DB_PATH = "./test_file_store_chroma"
     CHROMA_FTS_ENABLED = True
+
+    # ZvecFileStore settings
+    ZVEC_DB_PATH = "./test_file_store_zvec"
+    ZVEC_FTS_ENABLED = True
 
     # LocalFileStore settings
     LOCAL_DB_PATH = "./test_file_store_local"
@@ -218,6 +224,8 @@ def get_store_type(store: BaseFileStore) -> str:
         return "chroma"
     elif isinstance(store, LocalFileStore):
         return "local"
+    elif isinstance(store, ZvecFileStore):
+        return "zvec"
     elif SEEKDB_AVAILABLE and isinstance(store, SeekdbFileStore):
         return "seekdb"
     else:
@@ -268,6 +276,14 @@ def create_file_store(store_type: str) -> BaseFileStore:
             db_path=config.LOCAL_DB_PATH,
             embedding_model=embedding_model,
             fts_enabled=config.LOCAL_FTS_ENABLED,
+        )
+    elif store_type == "zvec":
+        return ZvecFileStore(
+            store_name=config.NAME,
+            db_path=config.ZVEC_DB_PATH,
+            embedding_model=embedding_model,
+            fts_enabled=config.ZVEC_FTS_ENABLED,
+            dimension=config.EMBEDDING_DIMENSIONS,
         )
     elif store_type == "seekdb":
         if not SEEKDB_AVAILABLE:
@@ -332,6 +348,13 @@ async def test_start_store(store: BaseFileStore, _store_name: str):
         assert isinstance(store._chunks, dict), "Chunks index should be a dict"
         assert isinstance(store._files, dict), "Files index should be a dict"
         logger.info(f"✓ LocalFileStore ready (chunks file: {store._chunks_file})")
+
+    # Verify ZvecFileStore initialized
+    if isinstance(store, ZvecFileStore):
+        # pylint: disable=protected-access
+        assert store._collection is not None, "Zvec collection should be initialized"
+        assert store._initialized, "Zvec engine should be initialized"
+        logger.info(f"✓ ZvecFileStore ready (collection: {store.collection_name})")
 
     # Verify SeekdbFileStore initialized
     if SEEKDB_AVAILABLE and isinstance(store, SeekdbFileStore):
@@ -1068,6 +1091,18 @@ async def cleanup_store(store: BaseFileStore, store_type: str):
                     json_file.unlink()
                     logger.info(f"✓ Cleaned up file: {json_file}")
 
+        # Clean up zvec directory and metadata file
+        if store_type == "zvec":
+            config = TestConfig()
+            db_dir = Path(config.ZVEC_DB_PATH)
+            if db_dir.exists():
+                shutil.rmtree(db_dir)
+                logger.info(f"✓ Cleaned up directory: {db_dir}")
+            metadata_file = db_dir.parent / f"{config.NAME}_file_metadata.json"
+            if metadata_file.exists():
+                metadata_file.unlink()
+                logger.info(f"✓ Cleaned up metadata file: {metadata_file}")
+
         # Clean up SeekdbFileStore directory and metadata file
         if store_type == "seekdb":
             config = TestConfig()
@@ -1117,6 +1152,11 @@ Examples:
         help="Test LocalFileStore",
     )
     parser.add_argument(
+        "--zvec",
+        action="store_true",
+        help="Test ZvecFileStore",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available file stores",
@@ -1137,6 +1177,7 @@ Examples:
             ("sqlite", "SqliteFileStore"),
             ("chroma", "ChromaFileStore"),
             ("local", "LocalFileStore"),
+            ("zvec", "ZvecFileStore"),
         ]
         if SEEKDB_AVAILABLE:
             stores_to_test.append(("seekdb", "SeekdbFileStore"))
@@ -1150,6 +1191,8 @@ Examples:
             stores_to_test.append(("chroma", "ChromaFileStore"))
         if args.local:
             stores_to_test.append(("local", "LocalFileStore"))
+        if args.zvec:
+            stores_to_test.append(("zvec", "ZvecFileStore"))
         if args.seekdb:
             stores_to_test.append(("seekdb", "SeekdbFileStore"))
 
@@ -1159,11 +1202,12 @@ Examples:
                 ("sqlite", "SqliteFileStore"),
                 ("chroma", "ChromaFileStore"),
                 ("local", "LocalFileStore"),
+                ("zvec", "ZvecFileStore"),
             ]
             if SEEKDB_AVAILABLE:
                 stores_to_test.append(("seekdb", "SeekdbFileStore"))
             print("No file store specified, defaulting to test all file stores")
-            print("Use --sqlite, --chroma, --local, or --seekdb to test specific ones\n")
+            print("Use --sqlite, --chroma, --local, --zvec, or --seekdb to test specific ones\n")
 
     # Run tests for each file store
     for store_type, store_name in stores_to_test:

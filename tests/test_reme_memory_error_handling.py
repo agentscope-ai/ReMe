@@ -1,9 +1,14 @@
 """Tests for ReMe memory error handling and raise_exception propagation."""
 
+from types import SimpleNamespace
+
 import pytest
 
 import reme.reme as reme_module
-from reme import ReMe
+from reme.core.runtime_context import RuntimeContext
+from reme.core.schema import MemoryNode
+from reme.memory.vector_tools.history.read_history import ReadHistory
+from reme.reme import ReMe
 
 
 class Recorder:
@@ -130,3 +135,34 @@ async def test_summarize_memory_raises_runtime_error_for_unstructured_result(mon
             messages=[{"role": "user", "content": "hi", "time_created": "2026-03-20 10:00:00"}],
             task_name="demo-task",
         )
+
+
+@pytest.mark.asyncio
+async def test_read_history_accepts_single_history_id_in_multiple_mode():
+    """Verify multiple-mode history lookup accepts a single history_id string."""
+
+    class FakeVectorStore:
+        """Minimal vector store stub for ReadHistory tests."""
+
+        async def get(self, vector_ids):
+            """Return the requested history node."""
+            assert vector_ids == ["history_123"]
+            node = MemoryNode(
+                memory_id="history_123",
+                memory_type="history",
+                memory_target="alice",
+                content="Alice said hello.",
+            )
+            return [node.to_vector_node()]
+
+    tool = ReadHistory(enable_multiple=True)
+    tool._vector_store = FakeVectorStore()  # pylint: disable=protected-access
+    tool.context = RuntimeContext(
+        history_id="history_123",
+        retrieved_nodes=[],
+        service_context=SimpleNamespace(memory_target_type_mapping={"alice": "personal"}),
+    )
+
+    result = await tool.execute()
+
+    assert "Historical Dialogue[history_123]" in result

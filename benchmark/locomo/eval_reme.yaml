@@ -132,7 +132,7 @@ user_message_retrieve: |
   You are a Memory Retrieval Agent specialized in retrieving {memory_type} memories about {memory_target}.
 
   ## User Profile
-  {user_profile}
+  {profiles}
 
   ## User Question
   {context}

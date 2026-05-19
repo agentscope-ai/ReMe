@@ -1,8 +1,7 @@
-"""Add user profile tool"""
+"""Add user profile tool."""
 
 from loguru import logger
 
-from .profile_handler import ProfileHandler
 from ..base_memory_tool import BaseMemoryTool
 from ....core.schema import ToolCall
 
@@ -40,7 +39,7 @@ class AddProfile(BaseMemoryTool):
         )
 
     async def execute(self):
-        profile_handler = ProfileHandler(profile_path=self.profile_path, memory_target=self.memory_target)
+        profile_handler = self.get_profile_handler(self.memory_target)
 
         # Get parameters
         message_time = self.context.get("message_time", "")
@@ -58,7 +57,7 @@ class AddProfile(BaseMemoryTool):
         }
 
         # Add profile using ProfileHandler
-        new_nodes = profile_handler.add_batch(profiles=[profile], ref_memory_id=self.history_id)
+        new_nodes = await profile_handler.aadd_batch(profiles=[profile], ref_memory_id=self.history_id)
         self.memory_nodes.extend(new_nodes)
 
         if new_nodes:

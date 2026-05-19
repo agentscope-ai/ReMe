@@ -139,7 +139,7 @@ response = requests.post("http://localhost:8002/retrieve_task_memory", json={
 ## 📚 Resources
 
 - **[Installation Guide](installation.md)**, **[Quick Start](quick_start.md)**: Get started quickly with practical examples
-- **[Vector Storage Setup](vector_store_api_guide.md)**: Configure local, Elasticsearch, Qdrant, ChromaDB, or ObVec (OceanBase / seekdb via pyobvector) storage and usage
+- **[Vector Storage Setup](vector_store_api_guide.md)**: Configure local, Elasticsearch, Qdrant, ChromaDB, ObVec (OceanBase / seekdb via pyobvector) or Hologres storage and usage
 - **[MCP Guide](mcp_quick_start.md)**: Create MCP services
 - **[Personal Memory](personal_memory/personal_memory.md)**, **[Task Memory](task_memory/task_memory.md)** & **[Tool Memory](tool_memory/tool_memory.md)**: Operators used in personal memory, task memory and tool memory. You can modify the config to customize the pipelines.
 - **[Example Collection](./cookbook/appworld/quickstart.md)**: Real use cases and best practices

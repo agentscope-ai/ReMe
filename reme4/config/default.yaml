@@ -1,0 +1,189 @@
+service:
+  backend: http
+#  backend: mcp
+
+jobs:
+  - backend: base
+    name: demo
+    description: "demo job description"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query"
+        min_score:
+          type: number
+          description: "min score"
+          default: 0.5
+      required:
+        - query
+    steps:
+      - backend: demo_echo_step1
+      - backend: demo_echo_step2
+
+  - backend: base
+    name: version
+    description: "return reme4 package version"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: version_step
+
+  - backend: base
+    name: health_check
+    description: "return a concise health-check snapshot of reme4 components"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: health_check_step
+
+  - backend: base
+    name: help
+    description: "list all registered jobs with their metadata"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: help_step
+
+  - backend: base
+    name: reindex
+    description: "wipe the file store and rebuild it from the watcher's tracked files"
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: reindex_step
+
+  - backend: base
+    name: search
+    description: "hybrid search over file_store: vector + keyword fused via RRF"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results to return"
+          default: 5
+        min_score:
+          type: number
+          description: "minimum fused score threshold (RRF scores are small; default 0 disables filter)"
+          default: 0.0
+        vector_weight:
+          type: number
+          description: "weight for vector results in [0, 1]; keyword weight = 1 - vector_weight"
+          default: 0.7
+        candidate_multiplier:
+          type: number
+          description: "candidate pool multiplier per branch (capped at 200)"
+          default: 3.0
+        expand_links:
+          type: boolean
+          description: "attach outlinks/inlinks (with neighbor meta) to each result"
+          default: true
+        max_links_per_direction:
+          type: integer
+          description: "max neighbors shown per direction per result"
+          default: 10
+      required:
+        - query
+    steps:
+      - backend: search_step
+
+  - backend: base
+    name: read
+    description: "read a markdown file (relative path under working_dir)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir (no absolute paths); markdown only"
+        start_line:
+          type: integer
+          description: "Optional, first line to read (1-based, inclusive)"
+        end_line:
+          type: integer
+          description: "Optional, last line to read (1-based, inclusive)"
+      required:
+        - path
+    steps:
+      - backend: read_step
+
+  - backend: stream
+    name: stream_demo
+    description: "stream demo job: repeat query 10x and stream char-by-char"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query to echo"
+        repeat:
+          type: integer
+          description: "number of times to repeat the query"
+          default: 10
+        interval:
+          type: number
+          description: "seconds between chunks"
+          default: 0.1
+      required:
+        - query
+    steps:
+      - backend: stream_demo_step1
+      - backend: stream_demo_step2
+
+components:
+  # 1. tokenizer — no dependencies
+  tokenizer:
+    default:
+      backend: regex
+
+  # 2. embedding_model — no dependencies
+  embedding_model:
+    default:
+      backend: openai
+      model_name: text-embedding-v4
+      dimensions: 1024
+
+  # 3. file_graph — no dependencies
+  file_graph:
+    default:
+      backend: local
+
+  # 4. file_parser — no dependencies
+  file_parser:
+    default:
+      backend: default
+
+  # 5. keyword_index — depends on tokenizer
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  # 6. file_store — depends on embedding_model / keyword_index / file_graph
+  file_store:
+    default:
+      backend: local
+      store_name: default
+#      embedding_model: default
+      embedding_model: ""
+      keyword_index: default
+      file_graph: default
+
+  # 7. file_watcher — depends on file_store / file_parser
+  file_watcher:
+    default:
+      backend: lite
+      watch_paths:
+        - MEMORY.md
+        - memory
+      file_store: default
+      file_parser: default

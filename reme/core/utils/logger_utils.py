@@ -5,13 +5,19 @@ import sys
 from datetime import datetime
 
 
-def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool = True) -> None:
+def init_logger(
+    log_dir: str = "logs",
+    level: str = "INFO",
+    log_to_console: bool = True,
+    log_to_file: bool = True,
+) -> None:
     """Initialize the logger with both file and console handlers.
 
     Args:
         log_dir: Directory path for log files
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_to_console: Whether to print logs to console/screen
+        log_to_file: Whether to persist logs to files under log_dir
     """
     from loguru import logger
 
@@ -28,25 +34,26 @@ def init_logger(log_dir: str = "logs", level: str = "INFO", log_to_console: bool
         )
 
     # Try to configure file-based logging (skip if permission denied)
-    try:
-        # Ensure the logging directory exists
-        os.makedirs(log_dir, exist_ok=True)
+    if log_to_file:
+        try:
+            # Ensure the logging directory exists
+            os.makedirs(log_dir, exist_ok=True)
 
-        # Generate filename based on the current timestamp
-        # Use dashes instead of colons for Windows compatibility
-        current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        log_filename = f"{current_ts}.log"
-        log_filepath = os.path.join(log_dir, log_filename)
+            # Generate filename based on the current timestamp
+            # Use dashes instead of colons for Windows compatibility
+            current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            log_filename = f"{current_ts}.log"
+            log_filepath = os.path.join(log_dir, log_filename)
 
-        # Configure file-based logging with rotation and compression
-        logger.add(
-            log_filepath,
-            level=level,
-            rotation="00:00",
-            retention="7 days",
-            compression="zip",
-            encoding="utf-8",
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}",
-        )
-    except Exception as e:
-        logger.error(f"Error configuring file logging: {e}")
+            # Configure file-based logging with rotation and compression
+            logger.add(
+                log_filepath,
+                level=level,
+                rotation="00:00",
+                retention="7 days",
+                compression="zip",
+                encoding="utf-8",
+                format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}",
+            )
+        except Exception as e:
+            logger.error(f"Error configuring file logging: {e}")
