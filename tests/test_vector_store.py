@@ -15,7 +15,7 @@ Usage:
     python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
     python test_vector_store.py --hologres   # Test HologresVectorStore only
     python test_vector_store.py --zvec       # Test ZvecVectorStore only
-    python test_vector_store.py --seekdb     # Test SeekdbVectorStore only (requires pyseekdb)
+    python test_vector_store.py --seekdb     # Test SeekdbVectorStore (pyseekdb; Python >=3.11)
     python test_vector_store.py --all        # Test all vector stores
 """
 
@@ -376,7 +376,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         return HologresVectorStore(**kwargs)
     elif store_type == "seekdb":
         if SeekdbVectorStore is None:
-            raise ImportError("SeekdbVectorStore not available; install pyseekdb")
+            raise ImportError("SeekdbVectorStore not available; install pyseekdb (Python >=3.11)")
         remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
         db_path = config.SEEKDB_PATH or tempfile.mkdtemp(prefix="test_seekdb_")
         kw: dict = {
@@ -1974,7 +1974,7 @@ Examples:
     parser.add_argument(
         "--seekdb",
         action="store_true",
-        help="Test SeekdbVectorStore (requires pyseekdb)",
+        help="Test SeekdbVectorStore (requires pyseekdb on Python >=3.11)",
     )
     parser.add_argument(
         "--all",
@@ -2020,7 +2020,9 @@ Examples:
             stores_to_test.append(("zvec", "ZvecVectorStore"))
         if args.seekdb:
             if not SEEKDB_AVAILABLE:
-                raise ImportError("seekdb tests require pyseekdb; install with: pip install pyseekdb")
+                raise ImportError(
+                    "seekdb tests require pyseekdb (Python >=3.11); install: pip install 'pyseekdb>=1.2.0'",
+                )
             stores_to_test.append(("seekdb", "SeekdbVectorStore"))
 
         if not stores_to_test:

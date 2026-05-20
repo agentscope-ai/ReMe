@@ -10,7 +10,7 @@ Usage:
     python test_file_store.py --chroma     # Test ChromaFileStore only
     python test_file_store.py --local      # Test LocalFileStore only
     python test_file_store.py --zvec       # Test ZvecFileStore only
-    python test_file_store.py --seekdb     # Test SeekdbFileStore only (requires pyseekdb)
+    python test_file_store.py --seekdb     # Test SeekdbFileStore (pyseekdb; Python >=3.11)
     python test_file_store.py --all        # Test all file stores
 """
 
@@ -287,7 +287,7 @@ def create_file_store(store_type: str) -> BaseFileStore:
     elif store_type == "seekdb":
         if not SEEKDB_AVAILABLE:
             raise ImportError(
-                "SeekdbFileStore requires pyseekdb. Install with: pip install reme-ai (pyseekdb is included)",
+                "SeekdbFileStore requires pyseekdb (Python >=3.11). Install: pip install 'pyseekdb>=1.2.0'",
             )
         remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
         kw: dict = {
@@ -1162,7 +1162,7 @@ Examples:
     parser.add_argument(
         "--seekdb",
         action="store_true",
-        help="Test SeekdbFileStore (pyseekdb included with reme-ai)",
+        help="Test SeekdbFileStore (requires pyseekdb on Python >=3.11)",
     )
 
     args = parser.parse_args()
@@ -1180,7 +1180,7 @@ Examples:
         if SEEKDB_AVAILABLE:
             stores_to_test.append(("seekdb", "SeekdbFileStore"))
         else:
-            logger.warning("SeekdbFileStore skipped (pyseekdb not installed)")
+            logger.warning("SeekdbFileStore skipped (pyseekdb not installed or Python <3.11)")
     else:
         # Build list based on individual flags
         if args.sqlite:
