@@ -90,9 +90,8 @@ class TestConfig:
     SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
     SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
     SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
-    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "root")
-    SEEKDB_TENANT = os.environ.get("SEEKDB_TENANT", "sys")
-    SEEKDB_DATABASE = os.environ.get("SEEKDB_DATABASE", "reme_vector")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "")
+    SEEKDB_DATABASE = os.environ.get("SEEKDB_DATABASE", "test")
 
     # ChromaVectorStore settings
     CHROMA_PATH = "./test_vector_store_chroma"  # For local persistent mode
@@ -384,7 +383,7 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             "collection_name": collection_name,
             "embedding_model": embedding_model,
             "db_path": db_path,
-            "database": config.SEEKDB_DATABASE if remote else "reme_vector",
+            "database": config.SEEKDB_DATABASE,
             "distance": "cosine",
         }
         if remote:
@@ -392,7 +391,6 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
             kw["port"] = config.SEEKDB_PORT
             kw["user"] = config.SEEKDB_USER
             kw["password"] = config.SEEKDB_PASSWORD
-            kw["tenant"] = config.SEEKDB_TENANT
         else:
             kw["path"] = str(Path(db_path) / "seekdb.db")
         return SeekdbVectorStore(**kw)

@@ -79,8 +79,7 @@ class TestConfig:
     SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
     SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
     SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
-    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "root")
-    SEEKDB_TENANT = os.environ.get("SEEKDB_TENANT", "sys")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "")
 
     # Embedding model settings
     EMBEDDING_MODEL_NAME = "text-embedding-v4"
@@ -303,7 +302,6 @@ def create_file_store(store_type: str) -> BaseFileStore:
             kw["port"] = config.SEEKDB_PORT
             kw["user"] = config.SEEKDB_USER
             kw["password"] = config.SEEKDB_PASSWORD
-            kw["tenant"] = config.SEEKDB_TENANT
         else:
             kw["path"] = str(Path(config.SEEKDB_DB_PATH) / "seekdb.db")
         return SeekdbFileStore(**kw)

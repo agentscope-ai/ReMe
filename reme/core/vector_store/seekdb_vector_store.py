@@ -14,7 +14,7 @@ from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 from ..utils.pyseekdb_conn import (
-    DEFAULT_SEEKDB_TENANT,
+    DEFAULT_SEEKDB_DATABASE,
     admin_kwargs_from_client_kwargs,
     build_pyseekdb_client_kwargs,
 )
@@ -49,11 +49,10 @@ class SeekdbVectorStore(BaseVectorStore):
         collection_name: str,
         db_path: str | Path,
         embedding_model: BaseEmbeddingModel,
-        database: str = "reme_vector",
+        database: str = DEFAULT_SEEKDB_DATABASE,
         distance: str = "cosine",
         host: str | None = None,
         port: int | None = None,
-        tenant: str = DEFAULT_SEEKDB_TENANT,
         user: str | None = None,
         password: str = "",
         path: str | None = None,
@@ -70,7 +69,6 @@ class SeekdbVectorStore(BaseVectorStore):
             distance: Similarity metric: cosine, euclid, dot.
             host: Remote server host (embedded mode if unset or empty).
             port: Remote port (default ``2881`` when ``host`` is set).
-            tenant: OceanBase / seekdb tenant (remote).
             user: Remote user (``None`` uses library default ``root``).
             password: Remote password.
             path: Embedded data directory passed to ``pyseekdb.Client``; omit to use the
@@ -98,7 +96,6 @@ class SeekdbVectorStore(BaseVectorStore):
             database=self.database,
             host=host,
             port=port,
-            tenant=tenant,
             user=user,
             password=password,
         )

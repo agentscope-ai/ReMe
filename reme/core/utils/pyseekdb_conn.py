@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 DEFAULT_SEEKDB_PORT = 2881
-DEFAULT_SEEKDB_TENANT = "sys"
 DEFAULT_SEEKDB_USER = "root"
+DEFAULT_SEEKDB_DATABASE = "test"
 
 
 def parse_host_port(host: str | None, port: int | None) -> tuple[str | None, int | None]:
@@ -20,7 +20,6 @@ def build_pyseekdb_client_kwargs(
     database: str,
     host: str | None = None,
     port: int | None = None,
-    tenant: str = DEFAULT_SEEKDB_TENANT,
     user: str | None = None,
     password: str = "",
 ) -> tuple[bool, dict]:
@@ -34,7 +33,6 @@ def build_pyseekdb_client_kwargs(
         return True, {
             "host": h,
             "port": p,
-            "tenant": tenant,
             "database": database,
             "user": user if user is not None else DEFAULT_SEEKDB_USER,
             "password": password,
@@ -53,7 +51,6 @@ def admin_kwargs_from_client_kwargs(client_kw: dict) -> dict:
         return {
             "host": client_kw["host"],
             "port": client_kw["port"],
-            "tenant": client_kw["tenant"],
             "user": client_kw["user"],
             "password": client_kw["password"],
         }

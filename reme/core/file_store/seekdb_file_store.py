@@ -14,7 +14,6 @@ from .base_file_store import BaseFileStore
 from ..enumeration import MemorySource
 from ..schema import FileMetadata, MemoryChunk, MemorySearchResult
 from ..utils.pyseekdb_conn import (
-    DEFAULT_SEEKDB_TENANT,
     admin_kwargs_from_client_kwargs,
     build_pyseekdb_client_kwargs,
 )
@@ -50,7 +49,6 @@ class SeekdbFileStore(BaseFileStore):
         self,
         host: str | None = None,
         port: int | None = None,
-        tenant: str = DEFAULT_SEEKDB_TENANT,
         user: str | None = None,
         password: str = "",
         path: str | None = None,
@@ -71,7 +69,6 @@ class SeekdbFileStore(BaseFileStore):
             database=self.store_name,
             host=host,
             port=port,
-            tenant=tenant,
             user=user,
             password=password,
         )
