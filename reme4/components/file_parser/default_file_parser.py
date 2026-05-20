@@ -11,17 +11,18 @@ from .base_file_parser import BaseFileParser
 from ..component_registry import R
 from ...schema import FileChunk, FileFrontMatter, FileLink, FileNode
 
-# Single-pass wikilink + optional Dataview predicate.
-# Covers: [[X]] / [[X#h]] / [[X|alias]] / pred:: [[X]] / [pred:: [[X]]]
-# - predicate group: optional leading '[' (Dataview inline-bracket form), an identifier,
+# Single-pass wikilink + optional dataview predicate.
+# Covers: [[X]] / ![[X]] / [[X#h]] / [[X|alias]] / pred:: [[X]] / [pred:: [[X]]]
+# - predicate group: optional leading '[' (dataview inline-bracket form), an identifier,
 #   then '::' — the whole prefix is non-capturing-optional so bare wikilinks still match.
-# - target / anchor: target stops before '#', '|', '[', ']'; anchor stops before '|', '[', ']'.
+# - optional '!' prefix matches the embed form (![[X]]).
+# - target / anchor / alias all forbid '\n' so a wikilink cannot span lines.
 # - alias '|...': consumed but not captured (we don't need display text).
 _LINK_RE = re.compile(
     r"(?:\[?\s*(?P<predicate>[A-Za-z][\w-]*)\s*::\s*)?"
-    r"\[\[\s*(?P<target>[^\[\]|#]+?)"
-    r"(?:#(?P<anchor>[^\[\]|]+?))?"
-    r"\s*(?:\|[^\[\]]*?)?\s*\]\]",
+    r"(?:!)?\[\[\s*(?P<target>[^\[\]|#\n]+?)"
+    r"(?:#(?P<anchor>[^\[\]|\n]+?))?"
+    r"\s*(?:\|[^\[\]\n]*?)?\s*\]\]",
 )
 
 
