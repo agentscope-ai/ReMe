@@ -12,12 +12,14 @@ logger = get_logger()
 
 
 def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]:
-    """Resolve a relative `path=` argument under self.working_path.
+    """Resolve a `path=` argument against ``working_path``.
 
     Rules:
-        - the caller supplies the full relative path under ``self.working_path``;
-        absolute paths are rejected.
-    Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
+        - Relative paths are joined under ``working_path``.
+        - Absolute paths are accepted and returned as-is; a warning is logged
+          recommending relative paths, but the read still proceeds.
+    Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure
+    (currently only when ``raw`` is empty/blank).
     Filetype-specific gating (e.g. markdown-only / suffix auto-append) is
     layered on top by callers — see ``reme4/steps/crud/_file_io.py::gate_md``.
     """
