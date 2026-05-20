@@ -118,31 +118,28 @@ jobs:
 
   - backend: base
     name: create
-    description: "create a new markdown file with optional YAML front matter (title/tags/status)"
+    description: >-
+      Create or overwrite a markdown file. Any kwarg other than `path` and `content` is
+      written as a YAML front matter field — common examples: title, tags, status, author,
+      category, created, updated, description, version. Pass list/object literals as strings
+      (tags='["a","b"]', extra='{"k":"v"}') for nested structures.
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only. Refuses to overwrite existing files."
+          description: "relative path under the working_dir; markdown only. Existing files are overwritten with a system notice."
         content:
           type: string
           description: "Body content written after the front matter."
           default: ""
-        title:
-          type: string
-          description: "Optional front matter title."
-          default: ""
-        tags:
-          type: string
-          description: "Optional tags as a YAML/JSON list literal, e.g. '[\"foo\",\"bar\"]'. Empty list omits the key."
-          default: ""
-        status:
-          type: string
-          description: "Optional front matter status (free-form string)."
-          default: ""
       required:
         - path
+      additionalProperties:
+        description: >-
+          Any extra kwarg becomes a YAML front matter field of the same name. Values are
+          kept verbatim as strings unless they start with `[` or `{`, in which case they
+          are parsed as YAML/JSON literals (e.g. tags='["a","b"]' → list; extra='{"k":"v"}' → mapping).
     steps:
       - backend: create_step
 

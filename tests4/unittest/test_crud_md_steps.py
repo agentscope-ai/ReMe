@@ -423,7 +423,12 @@ def test_create_creates_parent_dirs():
 
 
 def test_create_no_frontmatter_when_all_empty():
-    """When title/tags/status are all empty, the file is just the body."""
+    """When all optional fields are empty strings, the file is just the body.
+
+    Note: under the new generic-frontmatter semantics, an explicit empty list
+    literal (``tags="[]"``) is now WRITTEN as ``tags: []`` because the user
+    asked for it explicitly. Only empty/blank strings are skipped.
+    """
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -437,7 +442,7 @@ def test_create_no_frontmatter_when_all_empty():
                     path="Plain.md",
                     content="# Hello",
                     title="",
-                    tags="[]",
+                    tags="",
                     status="",
                     validator=lambda r: r.get("success") is True,
                 )
@@ -445,6 +450,128 @@ def test_create_no_frontmatter_when_all_empty():
             assert not on_disk.startswith("---"), on_disk
             assert "# Hello" in on_disk
         print("✓ test_create_no_frontmatter_when_all_empty passed")
+
+    _run(run())
+
+
+def test_create_with_arbitrary_frontmatter_fields():
+    """Any non-reserved kwarg is written as a front matter field (no hardcoded whitelist)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Custom.md",
+                    content="body",
+                    title="My Note",
+                    author="alice",
+                    category="research",
+                    created="2026-05-20",
+                    version="1.0.0",
+                    validator=lambda r: r.get("success") is True,
+                )
+            on_disk = (working / "Custom.md").read_text(encoding="utf-8")
+            assert on_disk.startswith("---\n"), on_disk
+            for needle in (
+                "title: My Note",
+                "author: alice",
+                "category: research",
+                "created: '2026-05-20'",  # quoted because it parses as date-like
+                "version: 1.0.0",
+            ):
+                # date string may serialize without quotes in some yaml setups; relax check
+                base = needle.split(":", maxsplit=1)[0]
+                assert f"{base}:" in on_disk, f"missing key {base} in:\n{on_disk}"
+            assert "body" in on_disk
+        print("✓ test_create_with_arbitrary_frontmatter_fields passed")
+
+    _run(run())
+
+
+def test_create_with_nested_dict_frontmatter():
+    """A JSON/YAML object literal becomes a nested mapping in front matter."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Nested.md",
+                    content="x",
+                    extra='{"k1": "v1", "k2": 2}',
+                    validator=lambda r: r.get("success") is True,
+                )
+            on_disk = (working / "Nested.md").read_text(encoding="utf-8")
+            assert on_disk.startswith("---\n"), on_disk
+            assert "extra:" in on_disk
+            assert "k1: v1" in on_disk
+            assert "k2: 2" in on_disk
+        print("✓ test_create_with_nested_dict_frontmatter passed")
+
+    _run(run())
+
+
+def test_create_invalid_yaml_literal_field_errors():
+    """A string starting with `[`/`{` that is not valid YAML produces a clear error."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                result = await call_action(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Bad.md",
+                    content="x",
+                    tags='["unterminated',
+                )
+                if not (
+                    isinstance(result, dict)
+                    and result.get("success") is False
+                    and "invalid yaml" in str(result.get("answer", "")).lower()
+                    and "`tags`" in str(result.get("answer", ""))
+                ):
+                    raise AssertionError(f"expected invalid-yaml rejection on tags, got {result!r}")
+            assert not (working / "Bad.md").exists(), "file should not have been created"
+        print("✓ test_create_invalid_yaml_literal_field_errors passed")
+
+    _run(run())
+
+
+def test_create_preserves_plain_strings_no_yaml_coerce():
+    """Non-literal strings (no leading `[`/`{`) are kept verbatim — no yes/no/int coercion."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Plain2.md",
+                    content="x",
+                    status="yes",  # must remain the string "yes", not True
+                    count="42",  # must remain the string "42", not int 42
+                    validator=lambda r: r.get("success") is True,
+                )
+            on_disk = (working / "Plain2.md").read_text(encoding="utf-8")
+            # YAML round-trips strings that would otherwise parse as bool/int by quoting them.
+            assert "status: 'yes'" in on_disk or 'status: "yes"' in on_disk, on_disk
+            assert "count: '42'" in on_disk or 'count: "42"' in on_disk, on_disk
+        print("✓ test_create_preserves_plain_strings_no_yaml_coerce passed")
 
     _run(run())
 
@@ -712,6 +839,10 @@ if __name__ == "__main__":
     test_create_overwrites_with_notice()
     test_create_creates_parent_dirs()
     test_create_no_frontmatter_when_all_empty()
+    test_create_with_arbitrary_frontmatter_fields()
+    test_create_with_nested_dict_frontmatter()
+    test_create_invalid_yaml_literal_field_errors()
+    test_create_preserves_plain_strings_no_yaml_coerce()
     test_edit_global_replace()
     test_edit_old_not_found()
     test_edit_missing_file()

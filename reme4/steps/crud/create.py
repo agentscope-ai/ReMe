@@ -1,4 +1,4 @@
-"""Create a new markdown file with optional YAML front matter (title/tags/status)."""
+"""Create a new markdown file with optional YAML front matter (any fields)."""
 
 import frontmatter
 import yaml
@@ -7,34 +7,44 @@ from ._file_io import gate_md, resolve_path, write_file_safe
 from ..base_step import BaseStep
 from ...components import R
 
+_RESERVED_KEYS = {"path", "content", "metadata"}
 
-def _parse_tags(raw) -> tuple[list[str] | None, str | None]:  # pylint: disable=too-many-return-statements
-    """Accept a list, a YAML/JSON-ish string (e.g. "[]", '["a","b"]'), or empty.
 
-    Returns ``(tags, error)``. ``tags is None`` means no tags key should be emitted.
+def _coerce_frontmatter_value(raw):  # pylint: disable=too-many-return-statements
+    """Coerce a context value into a YAML-friendly frontmatter value.
+
+    Returns ``(value, error)``. ``value is None`` means "skip this key"
+    (empty / missing). Strings that look like YAML literals (start with
+    ``[`` or ``{``) are parsed so LLM tool calls can pass collections as
+    JSON/YAML strings, e.g. ``tags='["foo","bar"]'``. Other strings are
+    kept verbatim to avoid surprising coercions (``"yes"`` → ``True`` etc.).
     """
     if raw is None:
         return None, None
-    if isinstance(raw, list):
-        return [str(t) for t in raw] or None, None
+    if isinstance(raw, (list, dict, bool, int, float)):
+        return raw, None
     s = str(raw).strip()
     if not s:
         return None, None
-    try:
-        parsed = yaml.safe_load(s)
-    except yaml.YAMLError as e:
-        return None, f"`tags` must be a list (got invalid yaml: {e})"
-    if parsed is None:
-        return None, None
-    if not isinstance(parsed, list):
-        return None, f"`tags` must be a list, got {type(parsed).__name__}"
-    return [str(t) for t in parsed] or None, None
+    if s[0] in "[{":
+        try:
+            parsed = yaml.safe_load(s)
+        except yaml.YAMLError as e:
+            return None, f"invalid yaml literal: {e}"
+        if parsed is None:
+            return None, None
+        return parsed, None
+    return s, None
 
 
 @R.register("create_step")
 class CreateStep(BaseStep):
     """Create or overwrite a markdown file. When the target already exists,
-    its contents are replaced and a system notice is appended to the answer."""
+    its contents are replaced and a system notice is appended to the answer.
+
+    Front matter fields are taken from any context key other than ``path``,
+    ``content`` and ``metadata`` (Request system field). Keys starting with
+    ``_`` are skipped as internal."""
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -48,9 +58,6 @@ class CreateStep(BaseStep):
         raw = str(self.context.get("path") or "")
         content = self.context.get("content")
         content = "" if content is None else str(content)
-        title = self.context.get("title")
-        status = self.context.get("status")
-        tags_raw = self.context.get("tags")
 
         target, err = resolve_path(self.working_path, raw)
         if err:
@@ -64,18 +71,17 @@ class CreateStep(BaseStep):
 
         existed = target.exists()
 
-        tags, err = _parse_tags(tags_raw)
-        if err:
-            self._fail(err)
-            return None
-
         meta: dict = {}
-        if title not in (None, ""):
-            meta["title"] = str(title)
-        if tags:
-            meta["tags"] = tags
-        if status not in (None, ""):
-            meta["status"] = str(status)
+        for key, value in self.context.data.items():
+            if key in _RESERVED_KEYS or key.startswith("_"):
+                continue
+            coerced, err = _coerce_frontmatter_value(value)
+            if err:
+                self._fail(f"`{key}`: {err}")
+                return None
+            if coerced is None:
+                continue
+            meta[key] = coerced
 
         if meta:
             # Use python-frontmatter to serialize so the output round-trips
