@@ -99,16 +99,51 @@ class DefaultFileParser(BaseFileParser):
             chunks,
         )
 
+    def _link_byte_spans(self, content: str) -> list[tuple[int, int]]:
+        """Return [start, end) byte spans of every wikilink in content."""
+        spans: list[tuple[int, int]] = []
+        last_char, last_byte = 0, 0
+        for m in _LINK_RE.finditer(content):
+            last_byte += len(content[last_char : m.start()].encode(self.encoding))
+            match_bytes = len(m.group(0).encode(self.encoding))
+            spans.append((last_byte, last_byte + match_bytes))
+            last_byte += match_bytes
+            last_char = m.end()
+        return spans
+
+    @staticmethod
+    def _span_containing(
+        pos: int,
+        spans: list[tuple[int, int]],
+        starts: list[int],
+    ) -> tuple[int, int] | None:
+        """Return the span strictly containing pos (s < pos < e), or None."""
+        idx = bisect_right(starts, pos) - 1
+        if idx < 0:
+            return None
+        s, e = spans[idx]
+        return (s, e) if s < pos < e else None
+
     def _chunk_content(self, content: str, rel_path: str) -> list[FileChunk]:
-        """Split content into overlapping byte-range chunks with line numbers."""
+        """Split content into overlapping byte-range chunks, avoiding cuts inside wikilinks."""
         content_bytes = content.encode(self.encoding)
+        n = len(content_bytes)
         newline_positions = [i for i, b in enumerate(content_bytes) if b == ord("\n")]
+        link_spans = self._link_byte_spans(content)
+        link_starts = [s for s, _ in link_spans]
+        # Refuse to retreat past half of chunk_byte_size; falls back to hard cut
+        # for pathologically long links so we always make forward progress.
+        min_chunk = self.chunk_byte_size // 2
         chunks: list[FileChunk] = []
-        step = self.chunk_byte_size - self.overlap_byte_size
         start = 0
 
-        while start < len(content_bytes):
-            end = min(start + self.chunk_byte_size, len(content_bytes))
+        while start < n:
+            end = min(start + self.chunk_byte_size, n)
+            if end < n:
+                span = self._span_containing(end, link_spans, link_starts)
+                if span is not None and span[0] - start >= min_chunk:
+                    end = span[0]
+
             chunk_text = content_bytes[start:end].decode(self.encoding, errors="ignore")
             start_line = bisect_right(newline_positions, start - 1) + 1
             end_line = bisect_right(newline_positions, end - 1) + 1
@@ -117,8 +152,15 @@ class DefaultFileParser(BaseFileParser):
             chunks.append(
                 FileChunk(path=rel_path, start_line=start_line, end_line=end_line, text=chunk_text).set_hash_id(),
             )
-            if end >= len(content_bytes):
+            if end >= n:
                 break
-            start += step
+
+            next_start = end - self.overlap_byte_size
+            span = self._span_containing(next_start, link_spans, link_starts)
+            if span is not None:
+                next_start = span[1]
+            if next_start <= start:
+                next_start = end
+            start = next_start
 
         return chunks

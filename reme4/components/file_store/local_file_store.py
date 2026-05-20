@@ -5,16 +5,45 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ...schema import FileChunk, FileNode
+from ..embedding import BaseEmbeddingModel
+from ..file_graph import BaseFileGraph
+from ..keyword_index import BaseKeywordIndex
+from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
 
 
 @R.register("local")
 class LocalFileStore(BaseFileStore):
-    """In-memory file store with deferred JSONL persistence."""
+    """In-memory file store with deferred JSONL persistence.
 
-    def __init__(self, encoding: str = "utf-8", **kwargs):
+    Composes three sub-components: ``embedding_model`` for vector retrieval,
+    ``keyword_index`` for full-text retrieval, and ``file_graph`` for node / link
+    storage. ``file_graph`` is mandatory; at least one of embedding / keyword
+    must be present.
+    """
+
+    def __init__(
+        self,
+        embedding_model: str = "default",
+        keyword_index: str = "default",
+        file_graph: str = "default",
+        encoding: str = "utf-8",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        from ..embedding import OpenAIEmbeddingModel
+        from ..file_graph import LocalFileGraph
+        from ..keyword_index import BM25Index
+
+        if not embedding_model and not keyword_index:
+            raise ValueError("At least one of embedding_model or keyword_index must be set.")
+        if not file_graph:
+            raise ValueError("file_graph is required for LocalFileStore.")
+
+        self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel, default_factory=OpenAIEmbeddingModel)
+        self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
+        self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
+
         self.encoding = encoding
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.store_path / f"file_chunks_{self.store_version}.jsonl"
@@ -23,12 +52,22 @@ class LocalFileStore(BaseFileStore):
 
     async def _start(self) -> None:
         await super()._start()
+        if self.embedding_model is not None and not await self.embedding_model.health_check():
+            self.logger.warning(f"{self.store_name}: embedding unhealthy, vector disabled")
+            self.embedding_model = None
         await self.load()
 
     async def _close(self) -> None:
         await self.dump()
         self.file_chunks.clear()
         await super()._close()
+
+    def _disable_embedding(self, reason: str) -> None:
+        """Drop embedding after a runtime failure; keyword search still works."""
+        if self.embedding_model is None:
+            return
+        self.logger.error(f"{self.store_name}: embedding disabled, {reason}")
+        self.embedding_model = None
 
     async def load(self) -> None:
         """Load chunks from JSONL file into memory."""
@@ -57,28 +96,22 @@ class LocalFileStore(BaseFileStore):
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
         if self.keyword_index:
             await self.keyword_index.dump()
-        if self.file_graph:
-            await self.file_graph.dump()
+        await self.file_graph.dump()
 
-    # Base class interface
+    # Write
 
-    async def upsert_file(
-        self,
-        file: tuple[FileNode, list[FileChunk]] | list[tuple[FileNode, list[FileChunk]]],
-    ) -> None:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for upsert_file")
-        if isinstance(file, tuple):
-            file = [file]
+    async def upsert_file(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
+        if not files:
+            return
 
-        old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in file])}
+        old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
 
         new_nodes: list[FileNode] = []
         needs_embed: list[FileChunk] = []
         keyword_docs: dict[str, str] = {}
-        for node, chunks in file:
+        for node, chunks in files:
             old_node: FileNode | None = old_map.get(node.path)
-            cached = {}
+            cached: dict = {}
             if old_node and self.embedding_model:
                 for cid in old_node.chunk_ids:
                     old = self.file_chunks.pop(cid, None)
@@ -108,8 +141,6 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.add_docs(keyword_docs)
 
     async def delete_by_path(self, path: str | list[str]) -> None:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for delete_by_path")
         if isinstance(path, str):
             path = [path]
         nodes = await self.file_graph.get_nodes(path)
@@ -123,8 +154,6 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.delete_docs(deleted_chunk_ids)
 
     async def clear(self) -> None:
-        if not self.file_graph:
-            raise RuntimeError("file_graph is required for clear")
         self.file_chunks.clear()
         self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
@@ -175,3 +204,17 @@ class LocalFileStore(BaseFileStore):
                 results.append(chunk.model_copy(update={"scores": {"keyword": score, "score": score}}))
 
         return results
+
+    # Graph queries
+
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        return await self.file_graph.get_nodes(paths)
+
+    async def get_outlinks(self, path: str) -> list[FileLink]:
+        return await self.file_graph.get_outlinks(path)
+
+    async def get_inlinks(self, path: str) -> list[FileLink]:
+        return await self.file_graph.get_inlinks(path)
+
+    async def rebuild_links(self) -> None:
+        return await self.file_graph.rebuild_links()

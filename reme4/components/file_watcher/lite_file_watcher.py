@@ -77,7 +77,7 @@ class LiteFileWatcher(BaseFileWatcher):
         existing: dict[str, float] = {
             rel: abs_p.stat().st_mtime for rel, abs_p in (await self.scan_existing_files()).items()
         }
-        indexed: dict[str, float] = {n.path: n.st_mtime for n in await self.file_store.file_graph.get_nodes()}
+        indexed: dict[str, float] = {n.path: n.st_mtime for n in await self.file_store.get_nodes()}
 
         to_delete = list(indexed.keys() - existing.keys())
         to_add = list(existing.keys() - indexed.keys())
