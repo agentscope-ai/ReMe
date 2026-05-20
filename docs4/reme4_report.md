@@ -11,21 +11,11 @@
 
 > **ReMe 是一个把本地 Markdown 自进化成知识图谱的个人记忆引擎。**
 
-这句话的内在逻辑是**递进**而非并列——三个支柱按"载体 → 机制 → 结果"层层咬合：
-
-- **本地 Markdown（载体）** → 所有记忆都是 Obsidian 兼容的 .md 文件——YAML front matter、四种 wikilink（`[[X]]` /
-  `[[X#anchor]]`
-  / `[[X|alias]]` / `![[X]]`）、Dataview 风格 `predicate:: [[X]]` 语义关系全部沿用社区约定。用户可读、可备份、可迁移，对抗黑盒。
-- **自进化（机制）** → 不需要用户手工整理，Agent 在后台让笔记自己长出结构。这一点把 ReMe 同时与"手动建图的 Obsidian"和"扁平存储的
-  Mem0"拉开。【event/trace】
-- **知识图谱（结果）** → 自进化的产出物不是一堆扁平笔记，而是一张可被**多模 + 渐进式检索**消费的图：向量 + 关键词（中文
-  BM25）+
-  图谱三路 RRF 融合，返回时通过 1-hop 邻居 meta 让 Agent"先看目录、再决定要不要展开正文"，不像传统 RAG 那样一次性把 top-K
-  切片塞进上下文。
-- **记忆分层（形态的物化）** → 记忆按"原始 → 加工"两层组织：`resource/`（原始素材）、`daily/`（日记事件）是只增不删的流水帐；
-  `digest/` 是加工层，下分 `personal/`（个性化）、`knowledge/`（主题知识）、`procedural/`（Agent 任务经验）、`proactive/`（主动洞察）四个固定子目录，写入策略和检索权重各有差异。
-- **被集成而非内置（分发形态）** → ReMe 不做独立 Agent 产品，而是作为**能力**被任意 Harness 调用：SDK 深度集成（qwenpaw /
-  AgentScope）、MCP Tool（Claude Code / Cursor / Cherry Studio）、CLI + skill.md 三条路径并行，记忆跟着用户走，不绑定任何上层框架。
+- **本地 Markdown（载体）** → 所有记忆都是 Obsidian 兼容的 .md 文件——YAML front matter、四种 wikilink（`[[X]]` / `[[X#anchor]]` / `[[X|alias]]` / `![[X]]`）、Dataview 风格 `predicate:: [[X]]` 语义关系全部沿用社区约定。用户可读、可备份、可迁移，对抗黑盒。
+- **自进化（机制）** → 不需要用户手工整理，Agent 在后台让笔记自己长出结构。这一点把 ReMe 同时与"手动建图的 Obsidian"和"扁平存储的 Mem0"拉开。【event/trace】
+- **知识图谱（结果）** → 自进化的产出物不是一堆扁平笔记，而是一张可被**多模 + 渐进式检索**消费的图：向量 + 关键词（中文 BM25）+ 图谱三路 RRF 融合，返回时通过 1-hop 邻居 meta 让 Agent"先看目录、再决定要不要展开正文"，不像传统 RAG 那样一次性把 top-K 切片塞进上下文。
+- **记忆分层（形态的物化）** → 记忆按"原始 → 加工"两层组织：`resource/`（原始素材）、`daily/`（日记事件）是只增不删的流水帐；`digest/` 是加工层，下分 `personal/`（个性化）、`knowledge/`（主题知识）、`procedural/`（Agent 任务经验）、`proactive/`（主动洞察）四个固定子目录，写入策略和检索权重各有差异。
+- **被集成而非内置（分发形态）** → ReMe 不做独立 Agent 产品，而是作为**能力**被任意 Harness 调用：SDK 深度集成（qwenpaw / AgentScope）、MCP Tool（Claude Code / Cursor / Cherry Studio）、CLI + skill.md 三条路径并行，记忆跟着用户走，不绑定任何上层框架。
 
 支撑这一切的是**自研轻量索引内核**——纯 Python(后期可以使用rust重写索引内核) + 文件持久化，无 sqlite / chroma
 等原生扩展依赖，老旧 Linux/Win 也能稳跑，这是 ReMe 能"被部署到大量异构用户机器"的工程前提。
