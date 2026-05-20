@@ -1,6 +1,9 @@
 """Append content to the end of a markdown file (auto-creates if missing)."""
 
-from ._file_io import gate_md, read_file_safe, resolve_path, write_file_safe
+import aiofiles
+import aiofiles.os
+
+from ._file_io import gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -8,7 +11,12 @@ from ...components import R
 @R.register("append_step")
 class AppendStep(BaseStep):
     """Append `content` to the target file. If the file does not exist it is
-    created (a system notice is appended to the answer in that case)."""
+    created (a system notice is appended to the answer in that case).
+
+    Uses native append mode (``ab``) so we don't have to load the file body
+    just to add a few bytes. When the file already exists we peek its last
+    byte to decide whether a leading newline is needed — guarding against
+    fusing the new text into the previous line."""
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -38,20 +46,23 @@ class AppendStep(BaseStep):
             return None
 
         created = not target.exists()
-        if created:
-            new_content = content_str
-        else:
-            try:
-                existing = await read_file_safe(target)
-            except Exception as e:  # pylint: disable=broad-except
-                self._fail(f"read failed: {e}", path=str(target))
-                return None
-            # Ensure a newline boundary so we don't fuse the appended text into the previous line.
-            sep = "" if (not existing or existing.endswith("\n")) else "\n"
-            new_content = existing + sep + content_str
-
         try:
-            await write_file_safe(target, new_content)
+            if created:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                needs_newline = False
+            else:
+                size = (await aiofiles.os.stat(str(target))).st_size
+                if size == 0:
+                    needs_newline = False
+                else:
+                    async with aiofiles.open(str(target), "rb") as f:
+                        await f.seek(size - 1)
+                        needs_newline = (await f.read(1)) != b"\n"
+
+            async with aiofiles.open(str(target), "ab") as f:
+                if needs_newline:
+                    await f.write(b"\n")
+                await f.write(content_str.encode("utf-8"))
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None

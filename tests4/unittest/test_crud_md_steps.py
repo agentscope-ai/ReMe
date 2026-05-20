@@ -311,12 +311,12 @@ def test_read_empty_path_rejected():
 
 
 # ---------------------------------------------------------------------------
-# create / edit / append tests
+# write / edit / append tests
 # ---------------------------------------------------------------------------
 
 
-def test_create_basic_with_frontmatter():
-    """`reme4 create path=... title=... tags='[\"a\",\"b\"]' status=...` writes a YAML front matter block."""
+def test_write_basic_with_frontmatter():
+    """`reme4 write path=... name=... description=... content=...` writes a YAML front matter block."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -324,30 +324,28 @@ def test_create_basic_with_frontmatter():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="Notes/A.md",
+                    name="Greetings",
+                    description="a friendly hello note",
                     content="# Hello",
-                    title="Greetings",
-                    tags='["a","b"]',
-                    status="draft",
                     validator=lambda r: (
-                        isinstance(r, dict) and r.get("success") is True and "Created" in str(r.get("answer", ""))
+                        isinstance(r, dict) and r.get("success") is True and "Wrote" in str(r.get("answer", ""))
                     ),
                 )
             on_disk = (working / "Notes/A.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
-            assert "title: Greetings" in on_disk
-            assert "tags:" in on_disk and "- a" in on_disk and "- b" in on_disk
-            assert "status: draft" in on_disk
+            assert "name: Greetings" in on_disk
+            assert "description: a friendly hello note" in on_disk
             assert "# Hello" in on_disk
-        print("✓ test_create_basic_with_frontmatter passed")
+        print("✓ test_write_basic_with_frontmatter passed")
 
     _run(run())
 
 
-def test_create_no_suffix_autoappends_md():
+def test_write_no_suffix_autoappends_md():
     """`path` with no suffix gets `.md` appended."""
 
     async def run():
@@ -356,7 +354,7 @@ def test_create_no_suffix_autoappends_md():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="Notes/My",
@@ -364,13 +362,13 @@ def test_create_no_suffix_autoappends_md():
                     validator=lambda r: r.get("success") is True,
                 )
             assert (working / "Notes/My.md").exists()
-        print("✓ test_create_no_suffix_autoappends_md passed")
+        print("✓ test_write_no_suffix_autoappends_md passed")
 
     _run(run())
 
 
-def test_create_overwrites_with_notice():
-    """Creating into an existing path overwrites the file and surfaces a system notice."""
+def test_write_overwrites_with_notice():
+    """Writing into an existing path overwrites the file and surfaces a system notice."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -379,7 +377,7 @@ def test_create_overwrites_with_notice():
             _seed_md(working, "Existing.md", "old\n")
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="Existing.md",
@@ -387,7 +385,7 @@ def test_create_overwrites_with_notice():
                     validator=lambda r: (
                         isinstance(r, dict)
                         and r.get("success") is True
-                        and "Created" in str(r.get("answer", ""))
+                        and "Wrote" in str(r.get("answer", ""))
                         and "already existed" in str(r.get("answer", ""))
                         and "overwritten" in str(r.get("answer", ""))
                     ),
@@ -395,12 +393,12 @@ def test_create_overwrites_with_notice():
             # File body has been replaced.
             on_disk = (working / "Existing.md").read_text(encoding="utf-8")
             assert "new" in on_disk and "old" not in on_disk, on_disk
-        print("✓ test_create_overwrites_with_notice passed")
+        print("✓ test_write_overwrites_with_notice passed")
 
     _run(run())
 
 
-def test_create_creates_parent_dirs():
+def test_write_creates_parent_dirs():
     """Nested-non-existent parents are auto-created."""
 
     async def run():
@@ -409,7 +407,7 @@ def test_create_creates_parent_dirs():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="a/b/c/D.md",
@@ -417,18 +415,16 @@ def test_create_creates_parent_dirs():
                     validator=lambda r: r.get("success") is True,
                 )
             assert (working / "a/b/c/D.md").exists()
-        print("✓ test_create_creates_parent_dirs passed")
+        print("✓ test_write_creates_parent_dirs passed")
 
     _run(run())
 
 
-def test_create_no_frontmatter_when_all_empty():
-    """When all optional fields are empty strings, the file is just the body.
+def test_write_no_frontmatter_when_all_empty():
+    """When both `name` and `description` are empty strings, the file is body-only.
 
-    Note: under the new generic-frontmatter semantics, an explicit empty list
-    literal (``tags="[]"``) is now WRITTEN as ``tags: []`` because the user
-    asked for it explicitly. Only empty/blank strings are skipped.
-    """
+    The CLI schema declares them required, but the step is intentionally lenient
+    so manual calls without these fields don't fail catastrophically."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -436,26 +432,25 @@ def test_create_no_frontmatter_when_all_empty():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="Plain.md",
+                    name="",
+                    description="",
                     content="# Hello",
-                    title="",
-                    tags="",
-                    status="",
                     validator=lambda r: r.get("success") is True,
                 )
             on_disk = (working / "Plain.md").read_text(encoding="utf-8")
             assert not on_disk.startswith("---"), on_disk
             assert "# Hello" in on_disk
-        print("✓ test_create_no_frontmatter_when_all_empty passed")
+        print("✓ test_write_no_frontmatter_when_all_empty passed")
 
     _run(run())
 
 
-def test_create_with_arbitrary_frontmatter_fields():
-    """Any non-reserved kwarg is written as a front matter field (no hardcoded whitelist)."""
+def test_write_ignores_arbitrary_extra_fields():
+    """Extra kwargs beyond name/description are silently ignored (schema is strict)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -463,38 +458,35 @@ def test_create_with_arbitrary_frontmatter_fields():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
                     path="Custom.md",
+                    name="My Note",
+                    description="short summary",
                     content="body",
-                    title="My Note",
-                    author="alice",
-                    category="research",
-                    created="2026-05-20",
-                    version="1.0.0",
+                    # Extras below should NOT appear in front matter under the
+                    # hardcoded-fields schema.
+                    title="ignored",
+                    author="ignored",
+                    tags='["x","y"]',
                     validator=lambda r: r.get("success") is True,
                 )
             on_disk = (working / "Custom.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
-            for needle in (
-                "title: My Note",
-                "author: alice",
-                "category: research",
-                "created: '2026-05-20'",  # quoted because it parses as date-like
-                "version: 1.0.0",
-            ):
-                # date string may serialize without quotes in some yaml setups; relax check
-                base = needle.split(":", maxsplit=1)[0]
-                assert f"{base}:" in on_disk, f"missing key {base} in:\n{on_disk}"
+            assert "name: My Note" in on_disk
+            assert "description: short summary" in on_disk
+            assert "title:" not in on_disk
+            assert "author:" not in on_disk
+            assert "tags:" not in on_disk
             assert "body" in on_disk
-        print("✓ test_create_with_arbitrary_frontmatter_fields passed")
+        print("✓ test_write_ignores_arbitrary_extra_fields passed")
 
     _run(run())
 
 
-def test_create_with_nested_dict_frontmatter():
-    """A JSON/YAML object literal becomes a nested mapping in front matter."""
+def test_write_only_description_present():
+    """Step is lenient: providing only `description` works; missing `name` is skipped."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -502,76 +494,19 @@ def test_create_with_nested_dict_frontmatter():
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
-                    "create",
+                    "write",
                     host=host,
                     port=port,
-                    path="Nested.md",
-                    content="x",
-                    extra='{"k1": "v1", "k2": 2}',
+                    path="OnlyDesc.md",
+                    description="just a description",
+                    content="body",
                     validator=lambda r: r.get("success") is True,
                 )
-            on_disk = (working / "Nested.md").read_text(encoding="utf-8")
+            on_disk = (working / "OnlyDesc.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
-            assert "extra:" in on_disk
-            assert "k1: v1" in on_disk
-            assert "k2: 2" in on_disk
-        print("✓ test_create_with_nested_dict_frontmatter passed")
-
-    _run(run())
-
-
-def test_create_invalid_yaml_literal_field_errors():
-    """A string starting with `[`/`{` that is not valid YAML produces a clear error."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            async with mock_reme_server() as (host, port):
-                result = await call_action(
-                    "create",
-                    host=host,
-                    port=port,
-                    path="Bad.md",
-                    content="x",
-                    tags='["unterminated',
-                )
-                if not (
-                    isinstance(result, dict)
-                    and result.get("success") is False
-                    and "invalid yaml" in str(result.get("answer", "")).lower()
-                    and "`tags`" in str(result.get("answer", ""))
-                ):
-                    raise AssertionError(f"expected invalid-yaml rejection on tags, got {result!r}")
-            assert not (working / "Bad.md").exists(), "file should not have been created"
-        print("✓ test_create_invalid_yaml_literal_field_errors passed")
-
-    _run(run())
-
-
-def test_create_preserves_plain_strings_no_yaml_coerce():
-    """Non-literal strings (no leading `[`/`{`) are kept verbatim — no yes/no/int coercion."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "create",
-                    host=host,
-                    port=port,
-                    path="Plain2.md",
-                    content="x",
-                    status="yes",  # must remain the string "yes", not True
-                    count="42",  # must remain the string "42", not int 42
-                    validator=lambda r: r.get("success") is True,
-                )
-            on_disk = (working / "Plain2.md").read_text(encoding="utf-8")
-            # YAML round-trips strings that would otherwise parse as bool/int by quoting them.
-            assert "status: 'yes'" in on_disk or 'status: "yes"' in on_disk, on_disk
-            assert "count: '42'" in on_disk or 'count: "42"' in on_disk, on_disk
-        print("✓ test_create_preserves_plain_strings_no_yaml_coerce passed")
+            assert "description: just a description" in on_disk
+            assert "name:" not in on_disk
+        print("✓ test_write_only_description_present passed")
 
     _run(run())
 
@@ -655,6 +590,76 @@ def test_edit_missing_file():
                 ):
                     raise AssertionError(f"expected missing-file rejection, got {result!r}")
         print("✓ test_edit_missing_file passed")
+
+    _run(run())
+
+
+def test_edit_skips_frontmatter():
+    """A match present in both front matter and body is replaced only in the body."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            body = (
+                "---\n"
+                "name: alpha\n"
+                "description: alpha-doc\n"
+                "---\n"
+                "intro paragraph mentioning alpha and alpha again.\n"
+            )
+            _seed_md(working, "WithFM.md", body)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="WithFM.md",
+                    old="alpha",
+                    new="beta",
+                    validator=lambda r: (
+                        r.get("success") is True and "2" in str(r.get("answer", ""))  # 2 body occurrences only
+                    ),
+                )
+            on_disk = (working / "WithFM.md").read_text(encoding="utf-8")
+            # Front matter untouched.
+            assert "name: alpha" in on_disk, on_disk
+            assert "description: alpha-doc" in on_disk, on_disk
+            # Body fully rewritten.
+            assert "beta and beta" in on_disk, on_disk
+            assert "alpha and alpha" not in on_disk, on_disk
+        print("✓ test_edit_skips_frontmatter passed")
+
+    _run(run())
+
+
+def test_edit_match_only_in_frontmatter_fails():
+    """If `old` appears ONLY inside front matter, edit reports not-found and writes nothing."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            body = "---\nname: secret\ndescription: nope\n---\nplain body without the keyword.\n"
+            _seed_md(working, "FMOnly.md", body)
+            async with mock_reme_server() as (host, port):
+                result = await call_action(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="FMOnly.md",
+                    old="secret",
+                    new="leaked",
+                )
+                if not (
+                    isinstance(result, dict)
+                    and result.get("success") is False
+                    and "not found" in str(result.get("answer", "")).lower()
+                ):
+                    raise AssertionError(f"expected not-found rejection, got {result!r}")
+            # File untouched.
+            assert (working / "FMOnly.md").read_text(encoding="utf-8") == body
+        print("✓ test_edit_match_only_in_frontmatter_fails passed")
 
     _run(run())
 
@@ -833,19 +838,19 @@ if __name__ == "__main__":
     test_read_truncation()
     test_read_empty_path_rejected()
     test_all_read_cases_one_server()
-    print("\n=== reme4 crud_md (create/edit/append) E2E tests ===")
-    test_create_basic_with_frontmatter()
-    test_create_no_suffix_autoappends_md()
-    test_create_overwrites_with_notice()
-    test_create_creates_parent_dirs()
-    test_create_no_frontmatter_when_all_empty()
-    test_create_with_arbitrary_frontmatter_fields()
-    test_create_with_nested_dict_frontmatter()
-    test_create_invalid_yaml_literal_field_errors()
-    test_create_preserves_plain_strings_no_yaml_coerce()
+    print("\n=== reme4 crud_md (write/edit/append) E2E tests ===")
+    test_write_basic_with_frontmatter()
+    test_write_no_suffix_autoappends_md()
+    test_write_overwrites_with_notice()
+    test_write_creates_parent_dirs()
+    test_write_no_frontmatter_when_all_empty()
+    test_write_ignores_arbitrary_extra_fields()
+    test_write_only_description_present()
     test_edit_global_replace()
     test_edit_old_not_found()
     test_edit_missing_file()
+    test_edit_skips_frontmatter()
+    test_edit_match_only_in_frontmatter_fails()
     test_append_basic()
     test_append_inserts_newline_when_missing()
     test_append_auto_creates_missing_file()

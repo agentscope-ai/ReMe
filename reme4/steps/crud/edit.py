@@ -1,4 +1,6 @@
-"""Find-and-replace text in a markdown file (global replacement)."""
+"""Find-and-replace text in a markdown file body (front matter is preserved)."""
+
+import frontmatter
 
 from ._file_io import gate_md, read_file_safe, resolve_path, write_file_safe
 from ..base_step import BaseStep
@@ -7,7 +9,11 @@ from ...components import R
 
 @R.register("edit_step")
 class EditStep(BaseStep):
-    """Replace every occurrence of ``old`` with ``new`` in the target file."""
+    """Replace every occurrence of ``old`` with ``new`` inside the file body.
+
+    The YAML front matter block (if any) is parsed out, kept verbatim and
+    re-emitted unchanged — matches that fall inside front matter are ignored,
+    so a typo in `old` cannot corrupt structured metadata."""
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -46,23 +52,35 @@ class EditStep(BaseStep):
             return None
 
         try:
-            content = await read_file_safe(target)
+            raw_text = await read_file_safe(target)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"read failed: {e}", path=str(target))
             return None
 
-        if old_str not in content:
+        post = frontmatter.loads(raw_text)
+        body = post.content
+
+        if old_str not in body:
             self._fail(
-                f"text to replace was not found in {target}",
+                f"text to replace was not found in the body of {target} " f"(front matter is excluded from edit)",
                 path=str(target),
             )
             return None
 
-        count = content.count(old_str)
-        new_content = content.replace(old_str, new_str)
+        count = body.count(old_str)
+        post.content = body.replace(old_str, new_str)
+
+        # Re-serialize: keep front matter when present, otherwise emit body alone
+        # so we don't introduce an empty `---\n---\n` block.
+        if post.metadata:
+            new_text = frontmatter.dumps(post)
+        else:
+            new_text = post.content
+        if not new_text.endswith("\n"):
+            new_text += "\n"
 
         try:
-            await write_file_safe(target, new_content)
+            await write_file_safe(target, new_text)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None

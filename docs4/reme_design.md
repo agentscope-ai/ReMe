@@ -88,7 +88,7 @@ reme4 search query="..." backend=mcp
 | graph | traverse | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |
 
 @wangce
-| crud | create | path="New Note" content="# Hello" title="xxx" tags="[]" status="" |
+| crud | write | path="New Note" name="xxx" description="xxx" content="# Hello" (4 字段都必填，frontmatter 只写 name/description) |
 | crud | read | path="Templates/Recipe.md"                                        |
 | crud | edit | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
 | crud | append | path="My Note" content="New line"                                 |

@@ -117,31 +117,32 @@ jobs:
       - backend: read_step
 
   - backend: base
-    name: create
+    name: write
     description: >-
-      Create or overwrite a markdown file. Any kwarg other than `path` and `content` is
-      written as a YAML front matter field — common examples: title, tags, status, author,
-      category, created, updated, description, version. Pass list/object literals as strings
-      (tags='["a","b"]', extra='{"k":"v"}') for nested structures.
+      Write (create or overwrite) a markdown file. The front matter is fixed to two string
+      fields: `name` and `description`. Existing files are overwritten with a system notice.
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only. Existing files are overwritten with a system notice."
+          description: "relative path under the working_dir; markdown only."
+        name:
+          type: string
+          description: "front matter `name` field; short human-readable identifier."
+        description:
+          type: string
+          description: "front matter `description` field; one-line summary of the file."
         content:
           type: string
-          description: "Body content written after the front matter."
-          default: ""
+          description: "body content written after the front matter."
       required:
         - path
-      additionalProperties:
-        description: >-
-          Any extra kwarg becomes a YAML front matter field of the same name. Values are
-          kept verbatim as strings unless they start with `[` or `{`, in which case they
-          are parsed as YAML/JSON literals (e.g. tags='["a","b"]' → list; extra='{"k":"v"}' → mapping).
+        - name
+        - description
+        - content
     steps:
-      - backend: create_step
+      - backend: write_step
 
   - backend: base
     name: edit
