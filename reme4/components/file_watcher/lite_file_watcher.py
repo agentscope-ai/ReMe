@@ -112,8 +112,8 @@ class LiteFileWatcher(BaseFileWatcher):
                 self.logger.info(f"{action} file: {rel}")
                 parsed.append(await self.file_parser.parse(abs_path))
         if parsed:
-            await self.file_store.delete_by_path([n.path for n, _ in parsed])
-            await self.file_store.upsert_file(parsed)
+            await self.file_store.delete([n.path for n, _ in parsed])
+            await self.file_store.upsert(parsed)
 
     async def on_added(self, path: str | list[str]):
         await self._parse_and_upsert([path] if isinstance(path, str) else path, "Adding")
@@ -126,4 +126,4 @@ class LiteFileWatcher(BaseFileWatcher):
             raise RuntimeError("file_store is not initialized!")
         paths = [path] if isinstance(path, str) else path
         self.logger.info(f"Deleting {len(paths)} file(s)")
-        await self.file_store.delete_by_path(paths)
+        await self.file_store.delete(paths)

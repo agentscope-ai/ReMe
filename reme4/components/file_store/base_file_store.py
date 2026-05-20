@@ -25,31 +25,15 @@ class BaseFileStore(BaseComponent):
         self.store_path = self.working_metadata_path / self.component_type.value / self.store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
 
-    # -- Write ------------------------------------------------------------
+    # -- CRUD ------------------------------------------------------------
 
     @abstractmethod
-    async def upsert_file(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
+    async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         """Upsert files and their chunks into the store."""
 
     @abstractmethod
-    async def delete_by_path(self, path: str | list[str]) -> None:
+    async def delete(self, path: str | list[str]) -> None:
         """Delete files by path from the store."""
-
-    @abstractmethod
-    async def clear(self) -> None:
-        """Clear the store of all files and chunks."""
-
-    # -- Search -----------------------------------------------------------
-
-    @abstractmethod
-    async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        """Perform vector similarity search."""
-
-    @abstractmethod
-    async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        """Perform full-text keyword search."""
-
-    # -- Graph queries ----------------------------------------------------
 
     @abstractmethod
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
@@ -64,5 +48,15 @@ class BaseFileStore(BaseComponent):
         """Return incoming links for *path*."""
 
     @abstractmethod
-    async def rebuild_links(self) -> None:
-        """Rebuild all edges from each node's link payload."""
+    async def clear(self) -> None:
+        """Clear the store of all files and chunks."""
+
+    # -- Search -----------------------------------------------------------
+
+    @abstractmethod
+    async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        """Perform vector similarity search."""
+
+    @abstractmethod
+    async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        """Perform full-text keyword search."""

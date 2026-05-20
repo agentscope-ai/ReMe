@@ -16,7 +16,7 @@ from ...utils import batch_cosine_similarity
 class LocalFileStore(BaseFileStore):
     """In-memory file store with deferred JSONL persistence.
 
-    Composes three sub-components: ``embedding_model`` for vector retrieval,
+    Composes three subcomponents: ``embedding_model`` for vector retrieval,
     ``keyword_index`` for full-text retrieval, and ``file_graph`` for node / link
     storage. ``file_graph`` is mandatory; at least one of embedding / keyword
     must be present.
@@ -86,6 +86,7 @@ class LocalFileStore(BaseFileStore):
 
     async def dump(self) -> None:
         """Persist chunks to JSONL via atomic rename, then cascade to keyword_index and file_graph."""
+        assert self.file_graph is not None
         try:
             tmp = self.chunks_path.with_suffix(".tmp")
             async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
@@ -100,9 +101,10 @@ class LocalFileStore(BaseFileStore):
 
     # Write
 
-    async def upsert_file(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
+    async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
+        assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
 
@@ -140,20 +142,21 @@ class LocalFileStore(BaseFileStore):
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
 
-    async def delete_by_path(self, path: str | list[str]) -> None:
-        if isinstance(path, str):
-            path = [path]
-        nodes = await self.file_graph.get_nodes(path)
+    async def delete(self, path: str | list[str]) -> None:
+        assert self.file_graph is not None
+        paths = [path] if isinstance(path, str) else path
+        nodes: list[FileNode] = await self.file_graph.get_nodes(paths)
         if not nodes:
             return
         deleted_chunk_ids = [cid for n in nodes for cid in n.chunk_ids]
         for cid in deleted_chunk_ids:
             self.file_chunks.pop(cid, None)
-        await self.file_graph.delete_nodes([n.path for n in nodes])
+        await self.file_graph.delete_nodes([str(n.path) for n in nodes])
         if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
 
     async def clear(self) -> None:
+        assert self.file_graph is not None
         self.file_chunks.clear()
         self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
@@ -208,13 +211,17 @@ class LocalFileStore(BaseFileStore):
     # Graph queries
 
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        assert self.file_graph is not None
         return await self.file_graph.get_nodes(paths)
 
     async def get_outlinks(self, path: str) -> list[FileLink]:
+        assert self.file_graph is not None
         return await self.file_graph.get_outlinks(path)
 
     async def get_inlinks(self, path: str) -> list[FileLink]:
+        assert self.file_graph is not None
         return await self.file_graph.get_inlinks(path)
 
     async def rebuild_links(self) -> None:
+        assert self.file_graph is not None
         return await self.file_graph.rebuild_links()
