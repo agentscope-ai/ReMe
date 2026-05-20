@@ -116,6 +116,76 @@ jobs:
     steps:
       - backend: read_step
 
+  - backend: base
+    name: create
+    description: "create a new markdown file with optional YAML front matter (title/tags/status)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only. Refuses to overwrite existing files."
+        content:
+          type: string
+          description: "Body content written after the front matter."
+          default: ""
+        title:
+          type: string
+          description: "Optional front matter title."
+          default: ""
+        tags:
+          type: string
+          description: "Optional tags as a YAML/JSON list literal, e.g. '[\"foo\",\"bar\"]'. Empty list omits the key."
+          default: ""
+        status:
+          type: string
+          description: "Optional front matter status (free-form string)."
+          default: ""
+      required:
+        - path
+    steps:
+      - backend: create_step
+
+  - backend: base
+    name: edit
+    description: "find-and-replace text in a markdown file (replaces every occurrence)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only."
+        old:
+          type: string
+          description: "exact text to find."
+        new:
+          type: string
+          description: "replacement text."
+          default: ""
+      required:
+        - path
+        - old
+    steps:
+      - backend: edit_step
+
+  - backend: base
+    name: append
+    description: "append content to the end of an existing markdown file"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only."
+        content:
+          type: string
+          description: "content to append."
+      required:
+        - path
+        - content
+    steps:
+      - backend: append_step
+
   - backend: stream
     name: stream_demo
     description: "stream demo job: repeat query 10x and stream char-by-char"

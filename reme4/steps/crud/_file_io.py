@@ -63,6 +63,17 @@ async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> str
             return await f.read(read_size)
 
 
+async def write_file_safe(file_path: Path, content: str) -> None:
+    """Write `content` to `file_path` as utf-8 (no BOM); creates parent dirs.
+
+    Mirrors ``read_file_safe`` style — exceptions propagate; callers shape the
+    user-facing error message.
+    """
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    async with aiofiles.open(str(file_path), "w", encoding="utf-8") as f:
+        await f.write(content)
+
+
 def truncate_text_output(
     text: str,
     *,

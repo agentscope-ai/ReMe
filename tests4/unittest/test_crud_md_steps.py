@@ -311,6 +311,347 @@ def test_read_empty_path_rejected():
 
 
 # ---------------------------------------------------------------------------
+# create / edit / append tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_basic_with_frontmatter():
+    """`reme4 create path=... title=... tags='[\"a\",\"b\"]' status=...` writes a YAML front matter block."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Notes/A.md",
+                    content="# Hello",
+                    title="Greetings",
+                    tags='["a","b"]',
+                    status="draft",
+                    validator=lambda r: (
+                        isinstance(r, dict) and r.get("success") is True and "Created" in str(r.get("answer", ""))
+                    ),
+                )
+            on_disk = (working / "Notes/A.md").read_text(encoding="utf-8")
+            assert on_disk.startswith("---\n"), on_disk
+            assert "title: Greetings" in on_disk
+            assert "tags:" in on_disk and "- a" in on_disk and "- b" in on_disk
+            assert "status: draft" in on_disk
+            assert "# Hello" in on_disk
+        print("✓ test_create_basic_with_frontmatter passed")
+
+    _run(run())
+
+
+def test_create_no_suffix_autoappends_md():
+    """`path` with no suffix gets `.md` appended."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Notes/My",
+                    content="x",
+                    validator=lambda r: r.get("success") is True,
+                )
+            assert (working / "Notes/My.md").exists()
+        print("✓ test_create_no_suffix_autoappends_md passed")
+
+    _run(run())
+
+
+def test_create_overwrites_with_notice():
+    """Creating into an existing path overwrites the file and surfaces a system notice."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "Existing.md", "old\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Existing.md",
+                    content="new",
+                    validator=lambda r: (
+                        isinstance(r, dict)
+                        and r.get("success") is True
+                        and "Created" in str(r.get("answer", ""))
+                        and "already existed" in str(r.get("answer", ""))
+                        and "overwritten" in str(r.get("answer", ""))
+                    ),
+                )
+            # File body has been replaced.
+            on_disk = (working / "Existing.md").read_text(encoding="utf-8")
+            assert "new" in on_disk and "old" not in on_disk, on_disk
+        print("✓ test_create_overwrites_with_notice passed")
+
+    _run(run())
+
+
+def test_create_creates_parent_dirs():
+    """Nested-non-existent parents are auto-created."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="a/b/c/D.md",
+                    content="hi",
+                    validator=lambda r: r.get("success") is True,
+                )
+            assert (working / "a/b/c/D.md").exists()
+        print("✓ test_create_creates_parent_dirs passed")
+
+    _run(run())
+
+
+def test_create_no_frontmatter_when_all_empty():
+    """When title/tags/status are all empty, the file is just the body."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "create",
+                    host=host,
+                    port=port,
+                    path="Plain.md",
+                    content="# Hello",
+                    title="",
+                    tags="[]",
+                    status="",
+                    validator=lambda r: r.get("success") is True,
+                )
+            on_disk = (working / "Plain.md").read_text(encoding="utf-8")
+            assert not on_disk.startswith("---"), on_disk
+            assert "# Hello" in on_disk
+        print("✓ test_create_no_frontmatter_when_all_empty passed")
+
+    _run(run())
+
+
+def test_edit_global_replace():
+    """`reme4 edit` replaces every occurrence of `old` with `new`."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "E.md", "foo bar foo\nfoo\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="E.md",
+                    old="foo",
+                    new="qux",
+                    validator=lambda r: (
+                        r.get("success") is True and "3" in str(r.get("answer", ""))  # 3 replacements
+                    ),
+                )
+            assert (working / "E.md").read_text(encoding="utf-8") == "qux bar qux\nqux\n"
+        print("✓ test_edit_global_replace passed")
+
+    _run(run())
+
+
+def test_edit_old_not_found():
+    """`old` absent in the file → success=False."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "E.md", "hello world\n")
+            async with mock_reme_server() as (host, port):
+                result = await call_action(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="E.md",
+                    old="absent",
+                    new="x",
+                )
+                if not (
+                    isinstance(result, dict)
+                    and result.get("success") is False
+                    and "not found" in str(result.get("answer", "")).lower()
+                ):
+                    raise AssertionError(f"expected not-found rejection, got {result!r}")
+            # File unchanged.
+            assert (working / "E.md").read_text(encoding="utf-8") == "hello world\n"
+        print("✓ test_edit_old_not_found passed")
+
+    _run(run())
+
+
+def test_edit_missing_file():
+    """Editing a non-existent file should fail."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                result = await call_action(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="NotThere.md",
+                    old="x",
+                    new="y",
+                )
+                if not (
+                    isinstance(result, dict)
+                    and result.get("success") is False
+                    and "does not exist" in str(result.get("answer", "")).lower()
+                ):
+                    raise AssertionError(f"expected missing-file rejection, got {result!r}")
+        print("✓ test_edit_missing_file passed")
+
+    _run(run())
+
+
+def test_append_basic():
+    """Append adds content to the end of an existing file."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "A.md", "L1\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="A.md",
+                    content="L2\n",
+                    validator=lambda r: r.get("success") is True and "Appended" in r["answer"],
+                )
+            assert (working / "A.md").read_text(encoding="utf-8") == "L1\nL2\n"
+        print("✓ test_append_basic passed")
+
+    _run(run())
+
+
+def test_append_inserts_newline_when_missing():
+    """If file lacks a trailing newline, append inserts one before the new content."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "A.md", "abc")  # no trailing newline
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="A.md",
+                    content="def",
+                    validator=lambda r: r.get("success") is True,
+                )
+            assert (working / "A.md").read_text(encoding="utf-8") == "abc\ndef"
+        print("✓ test_append_inserts_newline_when_missing passed")
+
+    _run(run())
+
+
+def test_append_auto_creates_missing_file():
+    """Append on a non-existent path creates the file and surfaces a system notice."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="Fresh.md",
+                    content="hello\n",
+                    validator=lambda r: (
+                        isinstance(r, dict)
+                        and r.get("success") is True
+                        and "Appended" in str(r.get("answer", ""))
+                        and "auto-created" in str(r.get("answer", ""))
+                    ),
+                )
+            assert (working / "Fresh.md").read_text(encoding="utf-8") == "hello\n"
+        print("✓ test_append_auto_creates_missing_file passed")
+
+    _run(run())
+
+
+def test_append_empty_content_on_existing_file_is_noop():
+    """Appending empty content to an existing file leaves it unchanged."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "A.md", "L1\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="A.md",
+                    content="",
+                    validator=lambda r: r.get("success") is True and "0 bytes" in str(r.get("answer", "")),
+                )
+            assert (working / "A.md").read_text(encoding="utf-8") == "L1\n"
+        print("✓ test_append_empty_content_on_existing_file_is_noop passed")
+
+    _run(run())
+
+
+def test_append_empty_content_creates_empty_file():
+    """Appending empty content to a missing path creates an empty file (with notice)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="Empty.md",
+                    content="",
+                    validator=lambda r: (r.get("success") is True and "auto-created" in str(r.get("answer", ""))),
+                )
+            target = working / "Empty.md"
+            assert target.exists() and target.read_text(encoding="utf-8") == ""
+        print("✓ test_append_empty_content_creates_empty_file passed")
+
+    _run(run())
+
+
+# ---------------------------------------------------------------------------
 # Aggregate test: reuse one server instance for all read cases (faster).
 # ---------------------------------------------------------------------------
 
@@ -365,4 +706,18 @@ if __name__ == "__main__":
     test_read_truncation()
     test_read_empty_path_rejected()
     test_all_read_cases_one_server()
+    print("\n=== reme4 crud_md (create/edit/append) E2E tests ===")
+    test_create_basic_with_frontmatter()
+    test_create_no_suffix_autoappends_md()
+    test_create_overwrites_with_notice()
+    test_create_creates_parent_dirs()
+    test_create_no_frontmatter_when_all_empty()
+    test_edit_global_replace()
+    test_edit_old_not_found()
+    test_edit_missing_file()
+    test_append_basic()
+    test_append_inserts_newline_when_missing()
+    test_append_auto_creates_missing_file()
+    test_append_empty_content_on_existing_file_is_noop()
+    test_append_empty_content_creates_empty_file()
     print("\n所有测试通过!")
