@@ -243,7 +243,7 @@ def create_file_store(store_type: str) -> BaseFileStore:
     """
     config = TestConfig()
 
-    # Initialize embedding model (api_key/base_url from env: EMBEDDING_* or OPENAI_API_KEY)
+    # api_key/base_url from env (same as Application.embedding_api_key in application.py)
     embedding_api_key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY")
     embedding_base_url = os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
     # use_dimensions=True so API returns 64-dim, matching collection/table schema for all backends

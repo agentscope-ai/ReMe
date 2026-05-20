@@ -278,11 +278,16 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """
     config = TestConfig()
 
-    # Initialize embedding model (use_dimensions=True so API output matches HNSW dim / vector column)
+    # api_key/base_url from env (Application layer does the same via embedding_api_key in application.py)
+    embedding_api_key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    embedding_base_url = os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    # use_dimensions=True so API output matches HNSW dim / vector column
     embedding_model = OpenAIEmbeddingModel(
         model_name=config.EMBEDDING_MODEL_NAME,
         dimensions=config.EMBEDDING_DIMENSIONS,
         use_dimensions=True,
+        api_key=embedding_api_key or None,
+        base_url=embedding_base_url or None,
     )
 
     if store_type == "local":
