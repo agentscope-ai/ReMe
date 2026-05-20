@@ -99,7 +99,7 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.dump()
         await self.file_graph.dump()
 
-    # Write
+    # CRUD
 
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
@@ -155,6 +155,18 @@ class LocalFileStore(BaseFileStore):
         if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
 
+    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        assert self.file_graph is not None
+        return await self.file_graph.get_nodes(paths)
+
+    async def get_outlinks(self, path: str) -> list[FileLink]:
+        assert self.file_graph is not None
+        return await self.file_graph.get_outlinks(path)
+
+    async def get_inlinks(self, path: str) -> list[FileLink]:
+        assert self.file_graph is not None
+        return await self.file_graph.get_inlinks(path)
+
     async def clear(self) -> None:
         assert self.file_graph is not None
         self.file_chunks.clear()
@@ -208,19 +220,7 @@ class LocalFileStore(BaseFileStore):
 
         return results
 
-    # Graph queries
-
-    async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
-        assert self.file_graph is not None
-        return await self.file_graph.get_nodes(paths)
-
-    async def get_outlinks(self, path: str) -> list[FileLink]:
-        assert self.file_graph is not None
-        return await self.file_graph.get_outlinks(path)
-
-    async def get_inlinks(self, path: str) -> list[FileLink]:
-        assert self.file_graph is not None
-        return await self.file_graph.get_inlinks(path)
+    # Extensions
 
     async def rebuild_links(self) -> None:
         assert self.file_graph is not None
