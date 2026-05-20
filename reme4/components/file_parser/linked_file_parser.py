@@ -267,7 +267,7 @@ def _subtree_toc(n: MdNode) -> str:
 # -- Parser ---------------------------------------------------------------
 
 
-@R.register("md")
+@R.register("linked")
 class LinkedFileParser(BaseFileParser):
     """Markdown parser: frontmatter + wikilink edges + full-skeleton chunks."""
 
