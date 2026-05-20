@@ -21,16 +21,12 @@ class Application(BaseComponent):
         working_path.mkdir(parents=True, exist_ok=True)
         (working_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
         (working_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
-        (working_path / self.config.knowledge_dir).mkdir(parents=True, exist_ok=True)
+        (working_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
 
         if self.config.enable_logo:
             print_logo(self.config)
 
-        logger = get_logger(
-            log_to_console=self.config.log_to_console,
-            log_to_file=self.config.log_to_file,
-            force_init=True,
-        )
+        logger = get_logger(log_to_console=self.config.log_to_console, log_to_file=self.config.log_to_file)
         logger.info(f"Initializing {self.config.app_name} Application")
         super().__init__()
 
