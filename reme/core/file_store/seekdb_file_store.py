@@ -98,10 +98,11 @@ class SeekdbFileStore(BaseFileStore):
         client = self._sql_client()
         if client is None:
             raise RuntimeError("seekdb client not initialized")
-        execute_fn = getattr(client, "execute", None) or getattr(client, "_execute", None)
-        if execute_fn is None:
-            raise RuntimeError("seekdb client has no execute/_execute for raw SQL")
-        return execute_fn(sql)
+        for attr in ("execute", "_execute"):
+            run_sql = getattr(client, attr, None)
+            if run_sql is not None:
+                return run_sql(sql)
+        raise RuntimeError("seekdb client has no execute/_execute for raw SQL")
 
     def _create_files_table(self) -> None:
         """Create file metadata table (same schema as SQLite)."""
@@ -148,8 +149,7 @@ class SeekdbFileStore(BaseFileStore):
         self._create_files_table()
 
         logger.info(
-            f"seekdb initialized with collection: {self.collection_name}, "
-            f"files table: {self.files_table_name}",
+            f"seekdb initialized with collection: {self.collection_name}, " f"files table: {self.files_table_name}",
         )
 
     async def upsert_file(
@@ -271,7 +271,7 @@ class SeekdbFileStore(BaseFileStore):
         """Get file metadata from files table and chunk count from collection."""
         p, s = _escape_sql(path), _escape_sql(source.value)
         rows = self._execute_sql(
-            f"SELECT hash, mtime, size FROM `{self.files_table_name}` WHERE path = '{p}' AND source = '{s}'"
+            f"SELECT hash, mtime, size FROM `{self.files_table_name}` WHERE path = '{p}' AND source = '{s}'",
         )
         if not rows:
             return None
@@ -482,11 +482,19 @@ class SeekdbFileStore(BaseFileStore):
             except Exception as e:
                 logger.warning(f"seekdb hybrid_search failed, fallback to merge: {e}")
                 return await self._hybrid_search_merge(
-                    query, limit, sources, vector_weight, candidate_multiplier,
+                    query,
+                    limit,
+                    sources,
+                    vector_weight,
+                    candidate_multiplier,
                 )
         else:
             return await self._hybrid_search_merge(
-                query, limit, sources, vector_weight, candidate_multiplier,
+                query,
+                limit,
+                sources,
+                vector_weight,
+                candidate_multiplier,
             )
 
         search_results = []
@@ -500,7 +508,7 @@ class SeekdbFileStore(BaseFileStore):
         doc_list = (documents[0] if documents and isinstance(documents[0], list) else documents) or []
         meta_list = (metadatas[0] if metadatas and isinstance(metadatas[0], list) else metadatas) or []
         dist_list = (distances[0] if distances and isinstance(distances[0], list) else distances) or []
-        for i, chunk_id in enumerate(ids):
+        for i, _ in enumerate(ids):
             meta = meta_list[i] if i < len(meta_list) else {}
             doc = doc_list[i] if i < len(doc_list) else ""
             dist = dist_list[i] if i < len(dist_list) else 0.0

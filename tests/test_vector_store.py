@@ -43,8 +43,10 @@ from reme.core.vector_store import (
     QdrantVectorStore,
     ZvecVectorStore,
 )
+
 try:
     from reme.core.vector_store import SeekdbVectorStore
+
     SEEKDB_AVAILABLE = True
 except ImportError:
     SeekdbVectorStore = None

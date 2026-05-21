@@ -114,7 +114,17 @@ class SeekdbVectorStore(BaseVectorStore):
             raw = vec
         else:
             raw = list(vec)
-        return self.embedding_model._validate_and_adjust_embedding(raw)
+        dim = self.embedding_model.dimensions
+        actual_len = len(raw)
+        if actual_len == dim:
+            return raw
+        if actual_len < dim:
+            logger.warning(
+                f"Embedding dimensions {actual_len} < {dim}, padding with zeros",
+            )
+            return raw + [0.0] * (dim - actual_len)
+        logger.warning(f"Embedding dimensions {actual_len} > {dim}, truncating")
+        return raw[:dim]
 
     @staticmethod
     def _build_where(filters: dict | None) -> dict | None:
@@ -392,11 +402,13 @@ class SeekdbVectorStore(BaseVectorStore):
             embeddings=results.get("embeddings"),
         )
         if sort_key:
+
             def key_fn(n):
                 v = n.metadata.get(sort_key)
                 if v is None:
                     return float("-inf") if not reverse else float("inf")
                 return v
+
             nodes.sort(key=key_fn, reverse=reverse)
         if limit is not None:
             nodes = nodes[:limit]
