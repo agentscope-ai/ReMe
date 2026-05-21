@@ -125,7 +125,7 @@ class BaseComponent(ABC):
         """Resolved working directory from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir)
+        return Path(self.app_context.app_config.working_dir).absolute()
 
     @property
     def working_metadata_path(self) -> Path:
@@ -133,6 +133,14 @@ class BaseComponent(ABC):
         if self.app_context is None:
             return Path.cwd() / "metadata"
         return self.working_path / self.app_context.app_config.metadata_dir
+
+    def to_vault_relative(self, path: str | Path) -> str:
+        """Return path relative to working_path; absolute path string if outside."""
+        abs_path = Path(path).absolute()
+        try:
+            return str(abs_path.relative_to(self.working_path))
+        except ValueError:
+            return str(abs_path)
 
     # ----- Lifecycle -----------------------------------------------------
 

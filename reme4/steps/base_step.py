@@ -88,7 +88,7 @@ class BaseStep(ABC):
         """Resolved working directory from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir)
+        return Path(self.app_context.app_config.working_dir).absolute()
 
     def _resolve(
         self,

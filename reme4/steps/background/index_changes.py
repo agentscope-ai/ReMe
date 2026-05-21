@@ -62,12 +62,11 @@ class IndexChangesStep(BaseStep):
             if self.file_store is None:
                 raise RuntimeError("file_store is not initialized!")
             self.logger.info(f"Detected {len(deleted)} deleted file(s)")
-            base = self.working_path.absolute()
             rel_deleted: list[str] = []
             for path in deleted:
                 p = Path(path).absolute()
                 try:
-                    rel_deleted.append(str(p.relative_to(base)))
+                    rel_deleted.append(str(p.relative_to(self.working_path)))
                 except ValueError:
                     rel_deleted.append(str(p))
             try:
