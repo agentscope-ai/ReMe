@@ -10,9 +10,8 @@ class FileFrontMatter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    title: str = Field(default="", description="Document title")
+    name: str = Field(default="", description="Document title")
     description: str = Field(default="", description="Document description")
-    tags: list[str] | None = Field(default=None, description="Tags; None if absent")
 
     @property
     def model_extra(self) -> dict[str, Any] | None:

@@ -143,6 +143,75 @@ jobs:
     steps:
       - backend: read_step
 
+  - backend: base
+    name: write
+    description: >-
+      Write (create or overwrite) a markdown file. The front matter is fixed to two string
+      fields: `name` and `description`. Existing files are overwritten with a system notice.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only."
+        name:
+          type: string
+          description: "front matter `name` field; short human-readable title of the file."
+        description:
+          type: string
+          description: "front matter `description` field; one-line summary of the file."
+        content:
+          type: string
+          description: "body content written after the front matter."
+      required:
+        - path
+        - name
+        - description
+        - content
+    steps:
+      - backend: write_step
+
+  - backend: base
+    name: edit
+    description: "find-and-replace text in a markdown file (replaces every occurrence)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only."
+        old:
+          type: string
+          description: "exact text to find."
+        new:
+          type: string
+          description: "replacement text."
+          default: ""
+      required:
+        - path
+        - old
+        - new
+    steps:
+      - backend: edit_step
+
+  - backend: base
+    name: append
+    description: "append content to the end of an existing markdown file"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "relative path under the working_dir; markdown only."
+        content:
+          type: string
+          description: "content to append."
+      required:
+        - path
+        - content
+    steps:
+      - backend: append_step
+
   - backend: stream
     name: stream_demo
     description: "stream demo job: repeat query 10x and stream char-by-char"
