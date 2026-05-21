@@ -28,7 +28,7 @@ def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]
     s = str(raw).strip()
     p = Path(s)
     if p.is_absolute():
-        logger.info("absolute path detected, recommmending relative paths")
+        logger.info("absolute path detected, recommending relative paths")
         return p, None
     return working_path / p, None
 
@@ -42,7 +42,7 @@ def gate_md(target: Path, raw: str) -> tuple[Path | None, str | None]:
     if target.suffix == "":
         return target.with_suffix(".md"), None
     if target.suffix.lower() != ".md":
-        return None, (f"path {raw!r} is not a markdown file; this command only supports .md files")
+        return None, f"path {raw!r} is not a markdown file; this command only supports .md files"
     return target, None
 
 

@@ -17,7 +17,7 @@ from ..components.file_store import BaseFileStore
 from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
-from ..schema import Response
+from ..schema import FileChunk, FileNode, Response
 from ..utils import get_logger
 
 if TYPE_CHECKING:
@@ -40,15 +40,15 @@ class BaseStep(ABC):
         return instance
 
     def __init__(
-        self,
-        name: str | None = None,
-        backend: str = "",
-        app_context: "ApplicationContext | None" = None,
-        language: str = "",
-        prompt_dict: dict[str, str] | None = None,
-        input_mapping: dict[str, str] | None = None,
-        output_mapping: dict[str, str] | None = None,
-        **kwargs,
+            self,
+            name: str | None = None,
+            backend: str = "",
+            app_context: "ApplicationContext | None" = None,
+            language: str = "",
+            prompt_dict: dict[str, str] | None = None,
+            input_mapping: dict[str, str] | None = None,
+            output_mapping: dict[str, str] | None = None,
+            **kwargs,
     ):
         super().__init__()
         self.name: str = name or self.__class__.__name__
@@ -91,11 +91,11 @@ class BaseStep(ABC):
         return Path(self.app_context.app_config.working_dir)
 
     def _resolve(
-        self,
-        key: str,
-        base_cls: type[T],
-        comp_enum: ComponentEnum,
-        attr: str | None = None,
+            self,
+            key: str,
+            base_cls: type[T],
+            comp_enum: ComponentEnum,
+            attr: str | None = None,
     ) -> T:
         """Return a kwargs-supplied instance, or look one up by name in the app registry."""
         # 1. Step init kwargs, 2. Runtime context (run_job kwargs), 3. App registry by name.
@@ -125,11 +125,6 @@ class BaseStep(ABC):
         return self._resolve("as_token_counter", TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
 
     @property
-    def file_parser(self) -> BaseFileParser:
-        """Return the file parser component."""
-        return self._resolve("file_parser", BaseFileParser, ComponentEnum.FILE_PARSER)
-
-    @property
     def file_store(self) -> BaseFileStore:
         """Return the file store component."""
         return self._resolve("file_store", BaseFileStore, ComponentEnum.FILE_STORE)
@@ -138,6 +133,33 @@ class BaseStep(ABC):
     def embedding(self) -> BaseEmbeddingModel:
         """Return the embedding model component."""
         return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
+
+    async def parse_file(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+        """Parse ``path`` with the parser whose ``supported_extensions`` claims its suffix.
+
+        First registered match wins (config insertion order). Falls back to the
+        ``bare`` parser (stat-only) when no parser claims the suffix — that's
+        how attachments / binaries / unknown types still produce a FileNode.
+        """
+        assert self.app_context is not None
+        file_parser_dict: dict[str, BaseFileParser] = self.app_context.components[ComponentEnum.FILE_PARSER]
+
+        suffix = Path(path).suffix.lstrip(".").lower()
+
+        parser: BaseFileParser | None = None
+        if suffix:
+            for candidate in file_parser_dict.values():
+                if suffix in {ext.lower().lstrip(".") for ext in candidate.supported_extensions}:
+                    parser = candidate
+                    break
+
+        if parser is None:
+            parser = file_parser_dict.get("bare")
+
+        if parser is None:
+            raise RuntimeError(f"No file parser supports {path} (suffix={suffix!r}) and no 'bare' parser is configured")
+
+        return await parser.parse(path)
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""
