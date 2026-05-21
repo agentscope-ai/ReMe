@@ -14,6 +14,7 @@ from .memory.vector_tools import (
     DelegateTask,
     ReadAllProfiles,
     ReadHistory,
+    RetrieveHistory,
     RetrieveProfile,
     RetrieveMemory,
     UpdateProfilesV1,
@@ -495,6 +496,12 @@ class ReMe(Application):
                         enable_multiple=True,
                         raise_exception=raise_exception,
                     ),
+                    RetrieveHistory(
+                        top_k=retrieve_top_k,
+                        enable_thinking_params=enable_thinking_params,
+                        enable_multiple=True,
+                        raise_exception=raise_exception,
+                    ),
                 ],
             )
             personal_retriever: BaseMemoryAgent = PersonalRetriever(
@@ -520,6 +527,12 @@ class ReMe(Application):
                     enable_multiple=True,
                     raise_exception=raise_exception,
                 ),
+                RetrieveHistory(
+                    top_k=retrieve_top_k,
+                    enable_thinking_params=enable_thinking_params,
+                    enable_multiple=True,
+                    raise_exception=raise_exception,
+                ),
             ],
             raise_exception=raise_exception,
         )
@@ -534,6 +547,12 @@ class ReMe(Application):
                     raise_exception=raise_exception,
                 ),
                 ReadHistory(
+                    enable_thinking_params=enable_thinking_params,
+                    enable_multiple=True,
+                    raise_exception=raise_exception,
+                ),
+                RetrieveHistory(
+                    top_k=retrieve_top_k,
                     enable_thinking_params=enable_thinking_params,
                     enable_multiple=True,
                     raise_exception=raise_exception,
@@ -585,6 +604,7 @@ class ReMe(Application):
 
         reme_retriever: BaseMemoryAgent = ReMeRetriever(
             tools=[DelegateTask(memory_agents=memory_agents, raise_exception=raise_exception)],
+            prompt_path=Path(__file__).parent / "memory" / "vector_based" / "reme_retriever.yaml",
             raise_exception=raise_exception,
         )
 
