@@ -109,37 +109,31 @@ class Application(BaseComponent):
         return ordered
 
     async def _start(self) -> None:
-        """Start components in topological order, then jobs."""
-        start_order = self._topological_order()
-        order_str = " -> ".join(f"{c.component_type.value}:{c.name}" for c in start_order)
-        self.logger.info(f"Component start order: {order_str}")
+        """Start components, then regular jobs, then background jobs; record order for reverse close."""
+        components = self._topological_order()
+        jobs = list(self.context.jobs.values())
+        sequence = (
+            components
+            + [j for j in jobs if j.backend != "background"]
+            + [j for j in jobs if j.backend == "background"]
+        )
 
-        for component in start_order:
+        self._started_components: list[BaseComponent] = []
+        for c in sequence:
             try:
-                await component.start()
+                await c.start()
+                self._started_components.append(c)
             except Exception as e:
-                self.logger.exception(f"Failed to start {component.component_type.value}:{component.name}: {e}")
-
-        for name, job in self.context.jobs.items():
-            try:
-                await job.start()
-            except Exception as e:
-                self.logger.exception(f"Failed to start job '{name}': {e}")
+                self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
 
     async def _close(self) -> None:
-        """Close all jobs, then components in reverse."""
-        for name, job in self.context.jobs.items():
+        """Close in reverse order of successful start."""
+        for c in reversed(self._started_components):
             try:
-                await job.close()
+                await c.close()
             except Exception as e:
-                self.logger.exception(f"Failed to close job '{name}': {e}")
-
-        for components in self.context.components.values():
-            for component in components.values():
-                try:
-                    await component.close()
-                except Exception as e:
-                    self.logger.exception(f"Failed to close {component.component_type.value}:{component.name}: {e}")
+                self.logger.exception(f"Failed to close {c.component_type.value}:{c.name}: {e}")
+        self._started_components.clear()
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a registered job by name."""
@@ -155,16 +149,16 @@ class Application(BaseComponent):
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
+                stream_queue=stream_queue,
+                task=task,
+                task_name=name,
+                output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk
 
     def run_app(self):
         """Start the service and serve the application."""
-        if self.context.service is None:
-            raise RuntimeError("Service not configured")
+        from .components.service import BaseService
+        assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)

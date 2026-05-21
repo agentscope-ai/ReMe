@@ -13,7 +13,13 @@ class BaseJob(BaseComponent):
 
     component_type = ComponentEnum.JOB
 
-    def __init__(self, description: str, parameters: dict, steps: list[ComponentConfig | dict], **kwargs):
+    def __init__(
+        self,
+        description: str = "",
+        parameters: dict | None = None,
+        steps: list[ComponentConfig | dict] | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.description = description
         self.parameters = parameters or {}

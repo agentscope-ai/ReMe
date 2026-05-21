@@ -223,5 +223,6 @@ class LocalFileStore(BaseFileStore):
     # Extensions
 
     async def rebuild_links(self) -> None:
+        """Rebuild graph links via the underlying file graph."""
         assert self.file_graph is not None
         return await self.file_graph.rebuild_links()

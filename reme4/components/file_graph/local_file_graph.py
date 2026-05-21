@@ -21,7 +21,7 @@ class LocalFileGraph(BaseFileGraph):
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
-        await super()._start()           # base calls load()
+        await super()._start()  # base calls load()
         await self.rebuild_links()
 
     async def load(self) -> None:

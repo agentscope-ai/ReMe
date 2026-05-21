@@ -20,9 +20,9 @@ from ...schema import FileChunk, FileFrontMatter, FileLink, FileNode
 # - alias '|...': consumed but not captured (we don't need display text).
 _LINK_RE = re.compile(
     r"(?:\[?\s*(?P<predicate>[A-Za-z][\w-]*)\s*::\s*)?"
-    r"(?:!)?\[\[\s*(?P<target>[^\[\]|#\n]+?)"
+    r"!?\[\[\s*(?P<target>[^\[\]|#\n]+?)"
     r"(?:#(?P<anchor>[^\[\]|\n]+?))?"
-    r"\s*(?:\|[^\[\]\n]*?)?\s*\]\]",
+    r"\s*(?:\|[^\[\]\n]*?)?\s*]]",
 )
 
 
@@ -38,7 +38,7 @@ class DefaultFileParser(BaseFileParser):
 
     @staticmethod
     def parse_links(content: str, source_path: str) -> list[FileLink]:
-        """Extract wikilinks with optional Dataview predicate as outgoing FileLinks."""
+        """Extract wikilinks with optional dataview predicate as outgoing FileLinks."""
         links: list[FileLink] = []
         for m in _LINK_RE.finditer(content):
             target = m["target"].strip()
@@ -81,12 +81,18 @@ class DefaultFileParser(BaseFileParser):
         if not text:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []
 
-        front_matter, content = self._parse_front_matter(text)
-        if not content:
-            return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter), []
+        is_markdown = file_path.suffix.lower() == ".md"
+        if is_markdown:
+            front_matter, content = self._parse_front_matter(text)
+            if not content:
+                return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter), []
+            links = self.parse_links(content, rel_path)
+        else:
+            front_matter = FileFrontMatter()
+            content = text
+            links = []
 
-        links = self.parse_links(content, rel_path)
-        chunks = self._chunk_content(content, rel_path)
+        chunks = self._chunk_content(content, rel_path, parse_links=is_markdown)
         chunk_ids = [c.id for c in chunks]
         return (
             FileNode(
@@ -124,13 +130,21 @@ class DefaultFileParser(BaseFileParser):
         s, e = spans[idx]
         return (s, e) if s < pos < e else None
 
-    def _chunk_content(self, content: str, rel_path: str) -> list[FileChunk]:
-        """Split content into overlapping byte-range chunks, avoiding cuts inside wikilinks."""
+    def _chunk_content(self, content: str, rel_path: str, parse_links: bool = True) -> list[FileChunk]:
+        """Split content into overlapping byte-range chunks, avoiding cuts inside wikilinks.
+
+        When ``parse_links`` is False, skip wikilink span computation and boundary checks
+        — used for non-markdown files where wikilink semantics don't apply.
+        """
         content_bytes = content.encode(self.encoding)
         n = len(content_bytes)
         newline_positions = [i for i, b in enumerate(content_bytes) if b == ord("\n")]
-        link_spans = self._link_byte_spans(content)
-        link_starts = [s for s, _ in link_spans]
+        if parse_links:
+            link_spans = self._link_byte_spans(content)
+            link_starts = [s for s, _ in link_spans]
+        else:
+            link_spans: list[tuple[int, int]] = []
+            link_starts: list[int] = []
         # Refuse to retreat past half of chunk_byte_size; falls back to hard cut
         # for pathologically long links so we always make forward progress.
         min_chunk = self.chunk_byte_size // 2
