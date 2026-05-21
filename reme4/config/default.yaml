@@ -129,7 +129,7 @@ jobs:
           description: "relative path under the working_dir; markdown only."
         name:
           type: string
-          description: "front matter `name` field; short human-readable identifier."
+          description: "front matter `name` field; short human-readable title of the file."
         description:
           type: string
           description: "front matter `description` field; one-line summary of the file."
@@ -163,6 +163,7 @@ jobs:
       required:
         - path
         - old
+        - new
     steps:
       - backend: edit_step
 

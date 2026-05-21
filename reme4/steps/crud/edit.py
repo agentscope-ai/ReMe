@@ -2,7 +2,7 @@
 
 import frontmatter
 
-from ._file_io import gate_md, read_file_safe, resolve_path, write_file_safe
+from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, read_file_safe, resolve_path, write_file_safe
 from ..base_step import BaseStep
 from ...components import R
 
@@ -31,18 +31,18 @@ class EditStep(BaseStep):
         if old is None or str(old) == "":
             self._fail("`old` is required and must be non-empty")
             return None
+        if new is None:
+            self.fail("`new` is required")
+            return None
         old_str = str(old)
-        new_str = "" if new is None else str(new)
+        new_str = str(new)
 
         target, err = resolve_path(self.working_path, raw)
         if err:
             self._fail(err)
             return None
 
-        target, err = gate_md(target, raw)
-        if err:
-            self._fail(err)
-            return None
+        target, is_md = gate_md(target)
 
         if not target.exists():
             self._fail(f"file {target} does not exist", path=str(target))
@@ -57,35 +57,49 @@ class EditStep(BaseStep):
             self._fail(f"read failed: {e}", path=str(target))
             return None
 
-        post = frontmatter.loads(raw_text)
-        body = post.content
+        # Markdown: parse frontmatter and operate on body only. Non-markdown:
+        # there's no frontmatter convention, so operate on the full text.
+        if is_md:
+            post = frontmatter.loads(raw_text)
+            body = post.content
+            not_found_msg = (
+                f"text to replace was not found in the body of {target} (front matter is excluded from edit)"
+            )
+        else:
+            post = None
+            body = raw_text
+            not_found_msg = f"text to replace was not found in {target}"
 
         if old_str not in body:
-            self._fail(
-                f"text to replace was not found in the body of {target} " f"(front matter is excluded from edit)",
-                path=str(target),
-            )
+            self._fail(not_found_msg, path=str(target))
             return None
 
         count = body.count(old_str)
-        post.content = body.replace(old_str, new_str)
+        new_body = body.replace(old_str, new_str)
 
-        # Re-serialize: keep front matter when present, otherwise emit body alone
-        # so we don't introduce an empty `---\n---\n` block.
-        if post.metadata:
-            new_text = frontmatter.dumps(post)
+        if is_md and post is not None:
+            post.content = new_body
+            # Re-serialize: keep front matter when present, otherwise emit body alone
+            # so we don't introduce an empty `---\n---\n` block.
+            new_text = frontmatter.dumps(post) if post.metadata else post.content
+            if not new_text.endswith("\n"):
+                new_text += "\n"
         else:
-            new_text = post.content
-        if not new_text.endswith("\n"):
-            new_text += "\n"
+            new_text = new_body
 
+        # Preserve the file's original encoding so edits don't silently re-encode
+        # non-UTF-8 files (e.g. GBK CSV) to UTF-8.
+        encoding = await detect_file_encoding(target)
         try:
-            await write_file_safe(target, new_text)
+            await write_file_safe(target, new_text, encoding=encoding)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None
 
         self.context.response.success = True
-        self.context.response.answer = f"Replaced {count} occurrence(s) in {target}"
-        self.logger.info(f"[{self.name}] edited path={target} count={count}")
+        answer = f"Replaced {count} occurrence(s) in {target}"
+        if not is_md:
+            answer = f"{answer} [system notice: {NON_MD_WARNING}]"
+        self.context.response.answer = answer
+        self.logger.info(f"[{self.name}] edited path={target} count={count} is_md={is_md}")
         return self.context.response

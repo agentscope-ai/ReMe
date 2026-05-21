@@ -1,6 +1,7 @@
 """Shared filesystem helpers for CRUD steps (path gating, safe read, truncation)."""
 
 from pathlib import Path
+from typing import Iterable
 
 import aiofiles
 import aiofiles.os
@@ -9,6 +10,32 @@ from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTI
 from ...utils import get_logger
 
 logger = get_logger()
+
+NON_MD_WARNING = (
+    "non-markdown file detected; CRUD operations are recommended on markdown files. "
+    "Operating in compatibility mode may carry risks of errors."
+)
+
+# Modern text formats — assume UTF-8 by convention.
+_STANDARD_TEXT_EXTS = {
+    ".md",
+    ".py",
+    ".js",
+    ".ts",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".css",
+    ".xml",
+    ".log",
+    ".conf",
+    ".ini",
+    ".txt",
+    ".sh",
+}
+# Legacy formats that may use ANSI/GBK on Chinese Windows systems.
+_NON_STANDARD_EXTS = {".csv", ".bat", ".cmd", ".reg"}
 
 
 def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]:
@@ -33,45 +60,117 @@ def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]
     return working_path / p, None
 
 
-def gate_md(target: Path, raw: str) -> tuple[Path | None, str | None]:
-    """Markdown-only gate: auto-append `.md` when no suffix; reject any non-`.md` suffix.
+def gate_md(target: Path) -> tuple[Path, bool]:
+    """Markdown gate with compatibility fallback.
 
-    Layered on top of ``BaseStep.resolve_path`` to keep filetype-specific rules
-    out of the generic path resolver.
+    Returns ``(path, is_md)``:
+        - No suffix → auto-append `.md`, ``is_md=True``.
+        - `.md` suffix → ``is_md=True``.
+        - Any other suffix → ``is_md=False`` (caller handles degraded mode).
     """
     if target.suffix == "":
-        return target.with_suffix(".md"), None
+        return target.with_suffix(".md"), True
     if target.suffix.lower() != ".md":
-        return None, (f"path {raw!r} is not a markdown file; this command only supports .md files")
-    return target, None
+        return target, False
+    return target, True
+
+
+def _try_decode(data: bytes, encodings: Iterable[str]) -> tuple[str, str] | None:
+    """Return ``(text, encoding)`` for the first encoding that decodes ``data`` cleanly."""
+    for enc in encodings:
+        try:
+            return data.decode(enc), enc
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return None
+
+
+def decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
+    """Decode file bytes using the extension as a hint. Returns ``(text, encoding)``.
+
+    Strategy:
+        1. BOM-based detection.
+        2. Extension-driven defaults:
+        3. Last resort → UTF-8 with ``errors='replace'`` so the function never raises.
+    """
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data.decode("utf-8-sig"), "utf-8-sig"
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            return data.decode("utf-16"), "utf-16"
+        except UnicodeDecodeError:
+            pass
+
+    ext = (file_extension or "").lower()
+
+    if ext in _STANDARD_TEXT_EXTS:
+        try:
+            return data.decode("utf-8-sig"), "utf-8"
+        except UnicodeDecodeError:
+            pass  # fall through
+
+    if ext in _NON_STANDARD_EXTS:
+        result = _try_decode(data, ("utf-8-sig", "gbk"))
+        if result is not None:
+            text, enc = result
+            return text, "utf-8" if enc == "utf-8-sig" else enc
+
+    # Unknown extension or earlier strategies failed.
+
+    return data.decode("utf-8", errors="replace"), "utf-8"
 
 
 async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> str:
-    """Read file with utf-8-sig (BOM-tolerant), fallback to errors='ignore'."""
+    """Read file in byte mode and decode to string using extension-aware strategy."""
     stat = await aiofiles.os.stat(str(file_path))
     read_size = min(stat.st_size, max_bytes)
+    async with aiofiles.open(str(file_path), "rb") as f:
+        data = await f.read(read_size)
+    text, _ = decode_known_file(data, Path(file_path).suffix)
+    return text
+
+
+async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
+    """Detect the encoding of an existing file so writes can preserve it.
+
+    Reads up to ``sniff_bytes`` from the head of the file (enough for BOM
+    detection and statistical analysis). Falls back to ``utf-8`` if the file
+    is unreadable.
+    """
     try:
-        async with aiofiles.open(str(file_path), "r", encoding="utf-8-sig") as f:
-            return await f.read(read_size)
-    except UnicodeDecodeError:
-        async with aiofiles.open(
-            str(file_path),
-            "r",
-            encoding="utf-8-sig",
-            errors="ignore",
-        ) as f:
-            return await f.read(read_size)
+        async with aiofiles.open(str(file_path), "rb") as f:
+            data = await f.read(sniff_bytes)
+    except Exception:  # pylint: disable=broad-except
+        return "utf-8"
+    _, enc = decode_known_file(data, Path(file_path).suffix)
+    return enc
 
 
-async def write_file_safe(file_path: Path, content: str) -> None:
-    """Write `content` to `file_path` as utf-8 (no BOM); creates parent dirs.
+async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
+    """Write ``content`` to ``file_path`` in binary mode; creates parent dirs.
 
-    Mirrors ``read_file_safe`` style — exceptions propagate; callers shape the
-    user-facing error message.
+    ``str`` input is encoded with ``encoding`` (default UTF-8); callers wanting
+    to preserve a file's original encoding should pass the result of
+    :func:`detect_file_encoding`. If the requested ``encoding`` can't represent
+    some characters, falls back to UTF-8 to avoid data loss.
+
+    ``bytes`` input is written verbatim — callers managing their own encoding
+    can pass raw bytes directly.
     """
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    async with aiofiles.open(str(file_path), "w", encoding="utf-8") as f:
-        await f.write(content)
+    if isinstance(content, str):
+        try:
+            payload = content.encode(encoding)
+        except (UnicodeEncodeError, LookupError):
+            logger.warning(
+                "write_file_safe: %r cannot encode all chars, falling back to utf-8",
+                encoding,
+            )
+            payload = content.encode("utf-8")
+    else:
+        payload = content
+    async with aiofiles.open(str(file_path), "wb") as f:
+        await f.write(payload)
 
 
 def truncate_text_output(

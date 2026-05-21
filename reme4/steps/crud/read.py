@@ -1,6 +1,7 @@
 """Read a markdown file from the vault, with line-range slicing and byte-truncation."""
 
 from ._file_io import (
+    NON_MD_WARNING,
     gate_md,
     resolve_path,
     read_file_safe,
@@ -32,10 +33,9 @@ class ReadStep(BaseStep):
             self._fail(err)
             return None
 
-        target, err = gate_md(target, raw)
-        if err:
-            self._fail(err)
-            return None
+        target, is_md = gate_md(target)
+        if not is_md:
+            self.logger.info(f"[{self.name}] {NON_MD_WARNING} path={target}")
 
         for label, value in (("start_line", start_line), ("end_line", end_line)):
             if value is None:

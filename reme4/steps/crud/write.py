@@ -2,7 +2,7 @@
 
 import frontmatter
 
-from ._file_io import gate_md, resolve_path, write_file_safe
+from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, resolve_path, write_file_safe
 from ..base_step import BaseStep
 from ...components import R
 
@@ -35,46 +35,56 @@ class WriteStep(BaseStep):
             self._fail(err)
             return None
 
-        target, err = gate_md(target, raw)
-        if err:
-            self._fail(err)
-            return None
+        target, is_md = gate_md(target)
 
         existed = target.exists()
 
-        meta: dict = {}
-        for key in ("name", "description"):
-            value = self.context.get(key)
-            if value is None:
-                continue
-            s = str(value).strip()
-            if not s:
-                continue
-            meta[key] = s
+        # Non-markdown files have no frontmatter convention: name/description
+        # are silently dropped and the body is written verbatim.
+        if is_md:
+            meta: dict = {}
+            for key in ("name", "description"):
+                value = self.context.get(key)
+                if value is None:
+                    continue
+                s = str(value).strip()
+                if not s:
+                    continue
+                meta[key] = s
 
-        if meta:
-            post = frontmatter.Post(content, **meta)
-            body = frontmatter.dumps(post)
+            if meta:
+                post = frontmatter.Post(content, **meta)
+                body = frontmatter.dumps(post)
+            else:
+                body = content
+            if not body.endswith("\n"):
+                body += "\n"
         else:
             body = content
-        if not body.endswith("\n"):
-            body += "\n"
 
+        # Preserve the existing file's encoding when overwriting (e.g. GBK CSV
+        # stays GBK). New files are written as UTF-8.
+        encoding = await detect_file_encoding(target) if existed else "utf-8"
         try:
-            await write_file_safe(target, body)
+            await write_file_safe(target, body, encoding=encoding)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None
 
-        nbytes = len(body.encode("utf-8"))
+        try:
+            nbytes = len(body.encode(encoding))
+        except (UnicodeEncodeError, LookupError):
+            nbytes = len(body.encode("utf-8"))
         self.context.response.success = True
         if existed:
-            self.context.response.answer = (
-                f"Wrote {target} ({nbytes} bytes) " f"[system notice: target already existed and was overwritten]"
-            )
+            answer = f"Wrote {target} ({nbytes} bytes) " f"[system notice: target already existed and was overwritten]"
         else:
-            self.context.response.answer = f"Wrote {target} ({nbytes} bytes)"
+            answer = f"Wrote {target} ({nbytes} bytes)"
+        if not is_md:
+            answer = f"{answer} [system notice: {NON_MD_WARNING}]"
+        self.context.response.answer = answer
         self.logger.info(
-            f"[{self.name}] wrote path={target} bytes={nbytes} overwritten={existed}",
+            f"[{self.name}] wrote path={target} bytes={nbytes} encoding={encoding} "
+            f"overwritten={existed} is_md={is_md}",
         )
         return self.context.response

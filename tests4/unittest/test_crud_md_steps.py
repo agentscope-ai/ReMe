@@ -157,27 +157,27 @@ def test_read_absolute_path_accepted():
     _run(run())
 
 
-def test_read_non_md_rejected():
-    """Paths whose suffix is not `.md` are rejected."""
+def test_read_non_md_degraded():
+    """Paths whose suffix is not `.md` are read in compatibility mode."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             working = Path(tmp) / ".reme"
             working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "data/foo.txt", "plain-text body\n")
             async with mock_reme_server() as (host, port):
-                result = await call_action(
+                await call_and_check(
                     "read",
                     host=host,
                     port=port,
                     path="data/foo.txt",
+                    validator=lambda r: (
+                        isinstance(r, dict)
+                        and r.get("success") is True
+                        and "plain-text body" in str(r.get("answer", ""))
+                    ),
                 )
-                if not (
-                    isinstance(result, dict)
-                    and result.get("success") is False
-                    and "markdown" in str(result.get("answer", "")).lower()
-                ):
-                    raise AssertionError(f"expected markdown-only rejection, got {result!r}")
-        print("✓ test_read_non_md_rejected passed")
+        print("✓ test_read_non_md_degraded passed")
 
     _run(run())
 
@@ -687,8 +687,8 @@ def test_append_basic():
     _run(run())
 
 
-def test_append_inserts_newline_when_missing():
-    """If file lacks a trailing newline, append inserts one before the new content."""
+def test_append_concatenates_verbatim():
+    """Append concatenates content verbatim — no implicit newline insertion."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -704,8 +704,8 @@ def test_append_inserts_newline_when_missing():
                     content="def",
                     validator=lambda r: r.get("success") is True,
                 )
-            assert (working / "A.md").read_text(encoding="utf-8") == "abc\ndef"
-        print("✓ test_append_inserts_newline_when_missing passed")
+            assert (working / "A.md").read_text(encoding="utf-8") == "abcdef"
+        print("✓ test_append_concatenates_verbatim passed")
 
     _run(run())
 
@@ -784,6 +784,210 @@ def test_append_empty_content_creates_empty_file():
 
 
 # ---------------------------------------------------------------------------
+# Non-markdown degraded-mode tests
+# ---------------------------------------------------------------------------
+
+
+def test_write_non_md_skips_frontmatter():
+    """Writing to a non-md path skips name/description and emits a recommendation notice."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "write",
+                    host=host,
+                    port=port,
+                    path="data/notes.txt",
+                    name="Greetings",
+                    description="should be ignored",
+                    content="# Hello",
+                    validator=lambda r: (
+                        r.get("success") is True
+                        and "Wrote" in str(r.get("answer", ""))
+                        and "non-markdown" in str(r.get("answer", "")).lower()
+                    ),
+                )
+            on_disk = (working / "data/notes.txt").read_text(encoding="utf-8")
+            assert not on_disk.startswith("---"), on_disk
+            assert "name: Greetings" not in on_disk
+            assert on_disk == "# Hello"
+        print("✓ test_write_non_md_skips_frontmatter passed")
+
+    _run(run())
+
+
+def test_edit_non_md_full_text():
+    """Editing a non-md path operates on the full file body (no frontmatter parsing)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            # A YAML-looking header that would otherwise be stripped as frontmatter.
+            body = "---\nname: keep-me\n---\nfoo bar foo\n"
+            _seed_md(working, "data/code.txt", body)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="data/code.txt",
+                    old="keep-me",
+                    new="replaced",
+                    validator=lambda r: (
+                        r.get("success") is True
+                        and "1" in str(r.get("answer", ""))
+                        and "non-markdown" in str(r.get("answer", "")).lower()
+                    ),
+                )
+            on_disk = (working / "data/code.txt").read_text(encoding="utf-8")
+            assert "name: replaced" in on_disk, on_disk
+            assert "foo bar foo" in on_disk, on_disk
+        print("✓ test_edit_non_md_full_text passed")
+
+    _run(run())
+
+
+def test_append_non_md_warns():
+    """Appending to a non-md file succeeds and surfaces the compatibility notice."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            _seed_md(working, "data/log.txt", "line1\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="data/log.txt",
+                    content="line2\n",
+                    validator=lambda r: (
+                        r.get("success") is True and "non-markdown" in str(r.get("answer", "")).lower()
+                    ),
+                )
+            assert (working / "data/log.txt").read_text(encoding="utf-8") == "line1\nline2\n"
+        print("✓ test_append_non_md_warns passed")
+
+    _run(run())
+
+
+def test_read_non_utf8_encoding():
+    """A GBK-encoded legacy file (e.g. CN-Windows CSV) is decoded via the GBK fallback."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            target = working / "data.csv"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            text = "姓名,职业\n你好世界,工程师\n"
+            target.write_bytes(text.encode("gbk"))
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "read",
+                    host=host,
+                    port=port,
+                    path="data.csv",
+                    validator=lambda r: (r.get("success") is True and "你好世界" in str(r.get("answer", ""))),
+                )
+        print("✓ test_read_non_utf8_encoding passed")
+
+    _run(run())
+
+
+def test_append_preserves_gbk_encoding():
+    """Appending to a GBK file re-encodes new content in GBK (no UTF-8 corruption)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            target = working / "data.csv"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            existing = ("姓名,年龄\n张三,30\n" * 20).encode("gbk")
+            target.write_bytes(existing)
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "append",
+                    host=host,
+                    port=port,
+                    path="data.csv",
+                    content="李四,25\n",
+                    validator=lambda r: r.get("success") is True,
+                )
+            # File must round-trip as GBK; UTF-8 decoding would fail or yield mojibake.
+            raw = target.read_bytes()
+            assert raw.endswith("李四,25\n".encode("gbk")), raw[-20:]
+            decoded = raw.decode("gbk")
+            assert "张三" in decoded and "李四" in decoded
+        print("✓ test_append_preserves_gbk_encoding passed")
+
+    _run(run())
+
+
+def test_edit_preserves_gbk_encoding():
+    """Editing a GBK file keeps the file encoded in GBK after the rewrite."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            target = working / "notes.csv"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            text = "原始内容,占位\n" * 20
+            target.write_bytes(text.encode("gbk"))
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "edit",
+                    host=host,
+                    port=port,
+                    path="notes.csv",
+                    old="原始内容",
+                    new="替换后",
+                    validator=lambda r: r.get("success") is True,
+                )
+            raw = target.read_bytes()
+            # File still decodes as GBK (would raise if we'd silently converted to UTF-8).
+            decoded = raw.decode("gbk")
+            assert "替换后" in decoded and "原始内容" not in decoded
+        print("✓ test_edit_preserves_gbk_encoding passed")
+
+    _run(run())
+
+
+def test_read_utf8_bom():
+    """Reading a UTF-8 file with BOM strips the BOM transparently."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            working = Path(tmp) / ".reme"
+            working.mkdir(parents=True, exist_ok=True)
+            target = working / "bom.txt"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"\xef\xbb\xbfhello world\n")
+            async with mock_reme_server() as (host, port):
+                await call_and_check(
+                    "read",
+                    host=host,
+                    port=port,
+                    path="bom.txt",
+                    validator=lambda r: (
+                        r.get("success") is True
+                        and "hello world" in str(r.get("answer", ""))
+                        and "﻿" not in str(r.get("answer", ""))
+                    ),
+                )
+        print("✓ test_read_utf8_bom passed")
+
+    _run(run())
+
+
+# ---------------------------------------------------------------------------
 # Aggregate test: reuse one server instance for all read cases (faster).
 # ---------------------------------------------------------------------------
 
@@ -831,7 +1035,7 @@ if __name__ == "__main__":
     test_read_relative_path()
     test_read_no_suffix_autoappends_md()
     test_read_line_range()
-    test_read_non_md_rejected()
+    test_read_non_md_degraded()
     test_read_missing_file()
     test_read_start_after_end()
     test_read_start_line_exceeds_total()
@@ -852,8 +1056,16 @@ if __name__ == "__main__":
     test_edit_skips_frontmatter()
     test_edit_match_only_in_frontmatter_fails()
     test_append_basic()
-    test_append_inserts_newline_when_missing()
+    test_append_concatenates_verbatim()
     test_append_auto_creates_missing_file()
     test_append_empty_content_on_existing_file_is_noop()
     test_append_empty_content_creates_empty_file()
+    print("\n=== reme4 crud_md (non-md degraded mode) E2E tests ===")
+    test_write_non_md_skips_frontmatter()
+    test_edit_non_md_full_text()
+    test_append_non_md_warns()
+    test_read_non_utf8_encoding()
+    test_append_preserves_gbk_encoding()
+    test_edit_preserves_gbk_encoding()
+    test_read_utf8_bom()
     print("\n所有测试通过!")

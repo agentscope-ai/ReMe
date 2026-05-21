@@ -1,9 +1,8 @@
-"""Append content to the end of a markdown file (auto-creates if missing)."""
+"""Append content to the end of a file (auto-creates if missing)."""
 
 import aiofiles
-import aiofiles.os
 
-from ._file_io import gate_md, resolve_path
+from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -13,10 +12,8 @@ class AppendStep(BaseStep):
     """Append `content` to the target file. If the file does not exist it is
     created (a system notice is appended to the answer in that case).
 
-    Uses native append mode (``ab``) so we don't have to load the file body
-    just to add a few bytes. When the file already exists we peek its last
-    byte to decide whether a leading newline is needed — guarding against
-    fusing the new text into the previous line."""
+    Content is appended verbatim — callers control whether a separator newline
+    is included in the input."""
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -36,46 +33,43 @@ class AppendStep(BaseStep):
             self._fail(err)
             return None
 
-        target, err = gate_md(target, raw)
-        if err:
-            self._fail(err)
-            return None
+        target, is_md = gate_md(target)
 
         if target.exists() and not target.is_file():
             self._fail(f"path {target} is not a file", path=str(target))
             return None
 
         created = not target.exists()
+        # Preserve the existing file's encoding so appended bytes don't corrupt
+        # a non-UTF-8 file (e.g. GBK CSV). New files default to UTF-8.
+        encoding = "utf-8" if created else await detect_file_encoding(target)
         try:
             if created:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                needs_newline = False
-            else:
-                size = (await aiofiles.os.stat(str(target))).st_size
-                if size == 0:
-                    needs_newline = False
-                else:
-                    async with aiofiles.open(str(target), "rb") as f:
-                        await f.seek(size - 1)
-                        needs_newline = (await f.read(1)) != b"\n"
-
+            try:
+                payload = content_str.encode(encoding)
+            except (UnicodeEncodeError, LookupError):
+                self.logger.warning(
+                    f"[{self.name}] cannot encode appended content as {encoding!r}, falling back to utf-8",
+                )
+                payload = content_str.encode("utf-8")
             async with aiofiles.open(str(target), "ab") as f:
-                if needs_newline:
-                    await f.write(b"\n")
-                await f.write(content_str.encode("utf-8"))
+                await f.write(payload)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None
 
-        nbytes = len(content_str.encode("utf-8"))
+        nbytes = len(payload)
         self.context.response.success = True
         if created:
-            self.context.response.answer = (
-                f"Appended {nbytes} bytes to {target} " f"[system notice: file did not exist and was auto-created]"
-            )
+            answer = f"Appended {nbytes} bytes to {target} [system notice: file did not exist and was auto-created]"
         else:
-            self.context.response.answer = f"Appended {nbytes} bytes to {target}"
+            answer = f"Appended {nbytes} bytes to {target}"
+        if not is_md:
+            answer = f"{answer} [system notice: {NON_MD_WARNING}]"
+        self.context.response.answer = answer
         self.logger.info(
-            f"[{self.name}] appended path={target} bytes={nbytes} created={created}",
+            f"[{self.name}] appended path={target} bytes={nbytes} encoding={encoding} "
+            f"created={created} is_md={is_md}",
         )
         return self.context.response
