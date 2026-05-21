@@ -1,3 +1,5 @@
+daily_dir: memory
+
 service:
   backend: http
 #  backend: mcp

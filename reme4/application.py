@@ -119,6 +119,8 @@ class Application(BaseComponent):
 
         for c in sequence:
             try:
+                if c.backend == "background":
+                    self.logger.info(f"Starting background job: {c.name}")
                 await c.start()
                 self._started_components.append(c)
             except Exception as e:
