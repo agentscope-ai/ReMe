@@ -16,21 +16,18 @@ class Application(BaseComponent):
 
     def __init__(self, **kwargs) -> None:
         self.context = ApplicationContext(**kwargs)
+        self._started_components: list[BaseComponent] = []
 
         working_path = Path(self.config.working_dir).absolute()
         working_path.mkdir(parents=True, exist_ok=True)
         (working_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
         (working_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
-        (working_path / self.config.knowledge_dir).mkdir(parents=True, exist_ok=True)
+        (working_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
 
         if self.config.enable_logo:
             print_logo(self.config)
 
-        logger = get_logger(
-            log_to_console=self.config.log_to_console,
-            log_to_file=self.config.log_to_file,
-            force_init=True,
-        )
+        logger = get_logger(log_to_console=self.config.log_to_console, log_to_file=self.config.log_to_file)
         logger.info(f"Initializing {self.config.app_name} Application")
         super().__init__()
 
@@ -113,37 +110,28 @@ class Application(BaseComponent):
         return ordered
 
     async def _start(self) -> None:
-        """Start components in topological order, then jobs."""
-        start_order = self._topological_order()
-        order_str = " -> ".join(f"{c.component_type.value}:{c.name}" for c in start_order)
-        self.logger.info(f"Component start order: {order_str}")
+        """Start components, then regular jobs, then background jobs; record order for reverse close."""
+        components = self._topological_order()
+        jobs = list(self.context.jobs.values())
+        sequence = (
+            components + [j for j in jobs if j.backend != "background"] + [j for j in jobs if j.backend == "background"]
+        )
 
-        for component in start_order:
+        for c in sequence:
             try:
-                await component.start()
+                await c.start()
+                self._started_components.append(c)
             except Exception as e:
-                self.logger.exception(f"Failed to start {component.component_type.value}:{component.name}: {e}")
-
-        for name, job in self.context.jobs.items():
-            try:
-                await job.start()
-            except Exception as e:
-                self.logger.exception(f"Failed to start job '{name}': {e}")
+                self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
 
     async def _close(self) -> None:
-        """Close all jobs, then components in reverse."""
-        for name, job in self.context.jobs.items():
+        """Close in reverse order of successful start."""
+        for c in reversed(self._started_components):
             try:
-                await job.close()
+                await c.close()
             except Exception as e:
-                self.logger.exception(f"Failed to close job '{name}': {e}")
-
-        for components in self.context.components.values():
-            for component in components.values():
-                try:
-                    await component.close()
-                except Exception as e:
-                    self.logger.exception(f"Failed to close {component.component_type.value}:{component.name}: {e}")
+                self.logger.exception(f"Failed to close {c.component_type.value}:{c.name}: {e}")
+        self._started_components.clear()
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a registered job by name."""
@@ -169,6 +157,7 @@ class Application(BaseComponent):
 
     def run_app(self):
         """Start the service and serve the application."""
-        if self.context.service is None:
-            raise RuntimeError("Service not configured")
+        from .components.service import BaseService
+
+        assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)

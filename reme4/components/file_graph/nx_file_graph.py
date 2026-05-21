@@ -26,14 +26,6 @@ class NxFileGraph(BaseFileGraph):
 
     # -- Lifecycle ---------------------------------------------------------
 
-    async def _start(self) -> None:
-        await super()._start()
-        await self.load()
-
-    async def _close(self) -> None:
-        await self.dump()
-        await super()._close()
-
     async def load(self) -> None:
         """Load graph from pickle file; keep current graph on failure."""
         if not self._graph_file.exists():

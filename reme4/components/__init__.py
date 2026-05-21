@@ -8,7 +8,6 @@ from . import embedding
 from . import file_graph
 from . import file_parser
 from . import file_store
-from . import file_watcher
 from . import job
 from . import keyword_index
 from . import service
@@ -35,7 +34,6 @@ __all__ = [
     "file_graph",
     "file_parser",
     "file_store",
-    "file_watcher",
     "job",
     "keyword_index",
     "service",

@@ -33,8 +33,10 @@ class BaseService(BaseComponent):
         """Start serving requests."""
 
     def add_jobs(self, app: "Application") -> None:
-        """Register all jobs from the application context."""
+        """Register all non-background jobs from the application context."""
         for name, job in app.context.jobs.items():
+            if job.backend == "background":
+                continue
             try:
                 self.add_job(job)
                 self.logger.info(f"Added job: {name}")

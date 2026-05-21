@@ -428,11 +428,11 @@ jobs:
 
 ### 8.1 三种集成路径
 
-| 路径                 | 适用对象                                                | 体验                                                                 |
-|--------------------|-----------------------------------------------------|--------------------------------------------------------------------|
-| **SDK 集成**         | qwenpaw / AgentScope 等深度合作框架                        | 直接调用 `AgentscopeTools`，无感拥有 auto-memory / auto-dream / auto-search |
-| **MCP Tool**       | 任何支持 MCP 的客户端（Claude Code / Cursor / Cherry Studio） | 配 skill.md，开箱即用                                                    |
-| **CLI + skill.md** | 通用方案，兜底所有 Harness                                   | 一条命令调用，shell 友好                                                    |
+| 路径                      | 适用对象                                                | 体验                                                                 |
+|-------------------------|-----------------------------------------------------|--------------------------------------------------------------------|
+| **SDK 集成**              | qwenpaw / AgentScope 等深度合作框架                        | 直接调用 `AgentscopeTools`，无感拥有 auto-memory / auto-dream / auto-search |
+| **MCP Tool + skill.md** | 任何支持 MCP 的客户端（Claude Code / Cursor / Cherry Studio） | 配 skill.md，开箱即用                                                    |
+| **CLI + skill.md**      | 通用方案，兜底所有 Harness                                   | 一条命令调用，shell 友好                                                    |
 
 三条路径的设计哲学是：**不强迫任何 Agent 框架做 ReMe-specific 的改造**。
 

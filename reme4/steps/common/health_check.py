@@ -92,15 +92,6 @@ def _file_store_status(comp) -> dict:
     }
 
 
-def _file_watcher_status(comp) -> dict:
-    bg = getattr(comp, "_background_task", None)
-    return {
-        "is_started": comp.is_started,
-        "background_running": bool(bg and not bg.done()),
-        "watch_paths": [str(p) for p in (getattr(comp, "watch_paths", []) or [])],
-    }
-
-
 def _keyword_index_status(comp) -> dict:
     return {
         "is_started": comp.is_started,
@@ -119,7 +110,6 @@ _HANDLERS = {
     ComponentEnum.EMBEDDING_MODEL: _embedding_status,
     ComponentEnum.FILE_GRAPH: _file_graph_status,
     ComponentEnum.FILE_STORE: _file_store_status,
-    ComponentEnum.FILE_WATCHER: _file_watcher_status,
     ComponentEnum.KEYWORD_INDEX: _keyword_index_status,
 }
 
@@ -129,8 +119,6 @@ def _is_status_healthy(ctype: ComponentEnum, status: dict) -> bool:
     if not status.get("is_started"):
         return False
     if ctype is ComponentEnum.EMBEDDING_MODEL and status.get("is_healthy") is False:
-        return False
-    if ctype is ComponentEnum.FILE_WATCHER and not status.get("background_running"):
         return False
     return True
 

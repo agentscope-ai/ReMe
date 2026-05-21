@@ -1,6 +1,11 @@
 """Job components for executing workflows."""
 
+from .background_job import BackgroundJob
 from .base_job import BaseJob
 from .stream_job import StreamJob
 
-__all__ = ["BaseJob", "StreamJob"]
+__all__ = [
+    "BackgroundJob",
+    "BaseJob",
+    "StreamJob",
+]

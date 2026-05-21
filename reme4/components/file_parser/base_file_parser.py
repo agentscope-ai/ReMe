@@ -13,9 +13,10 @@ class BaseFileParser(BaseComponent):
 
     component_type = ComponentEnum.FILE_PARSER
 
-    def __init__(self, **kwargs):
+    def __init__(self, supported_extensions: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
         self.working_dir = self.app_context.app_config.working_dir if self.app_context else ""
+        self.supported_extensions: list[str] = supported_extensions or []
 
     def _get_relative_path(self, path: str | Path) -> str:
         """Return path relative to working_dir, or absolute path if outside."""

@@ -338,6 +338,91 @@ def test_parse_links_empty_when_no_content():
     asyncio.run(run())
 
 
+def test_chunk_does_not_split_wikilink_at_boundary():
+    """A wikilink straddling the chunk_byte_size boundary should be retreated to its start."""
+
+    async def run():
+        # Pre-link filler is 90 bytes, link itself is 19 bytes ("[[a-very-long-target]]"=22).
+        # With chunk_byte_size=100, the boundary lands inside the link.
+        prefix = "x" * 90
+        link = "[[a-very-long-target]]"  # 22 bytes
+        suffix = "y" * 90
+        content = f"{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            _, chunks = await parser.parse(temp_path)
+            # The first chunk must NOT contain a partial link.
+            first = chunks[0].text
+            assert "[[" not in first or "]]" in first, f"first chunk has dangling '[[': {first!r}"
+            # And the link should appear intact in some chunk.
+            assert any(link in c.text for c in chunks), "link was split across all chunks"
+            print("✓ test_chunk_does_not_split_wikilink_at_boundary passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_chunk_does_not_split_wikilink_in_overlap():
+    """A wikilink landing inside the overlap region should be advanced past."""
+
+    async def run():
+        # 200-byte content, chunk=100, overlap=20. First chunk ends near byte 100,
+        # next start = 80. Place a link straddling byte 80 to land in the overlap.
+        prefix = "a" * 75
+        link = "[[overlap-target]]"  # 18 bytes; spans bytes 75..93
+        suffix = "b" * 110
+        content = f"{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=20)
+            _, chunks = await parser.parse(temp_path)
+            # No chunk should start mid-link.
+            for c in chunks:
+                t = c.text
+                if "]]" in t and "[[" not in t.split("]]", 1)[0]:
+                    raise AssertionError(f"chunk starts mid-link: {t[:40]!r}")
+            assert any(link in c.text for c in chunks)
+            print("✓ test_chunk_does_not_split_wikilink_in_overlap passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_chunk_falls_back_for_oversize_link():
+    """If a single link exceeds half the chunk size, the parser hard-cuts to make progress."""
+
+    async def run():
+        # chunk=100, link is 80 bytes, surrounded by short filler.
+        # Retreating would leave a tiny chunk (< 50), so the fallback kicks in.
+        prefix = "x" * 30
+        link = "[[" + ("L" * 76) + "]]"  # 80 bytes total
+        suffix = "y" * 200
+        content = f"{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            _, chunks = await parser.parse(temp_path)
+            # Must terminate (not hang) and cover the whole file.
+            assert len(chunks) >= 2
+            print("✓ test_chunk_falls_back_for_oversize_link passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
 def test_min_chunk_and_overlap_size():
     """Test that minimum chunk and overlap sizes are enforced."""
 
@@ -383,5 +468,8 @@ if __name__ == "__main__":
     test_parse_links_predicate_with_dash_and_digits()
     test_parse_links_in_file()
     test_parse_links_empty_when_no_content()
+    test_chunk_does_not_split_wikilink_at_boundary()
+    test_chunk_does_not_split_wikilink_in_overlap()
+    test_chunk_falls_back_for_oversize_link()
     test_min_chunk_and_overlap_size()
     print("\n所有测试通过!")

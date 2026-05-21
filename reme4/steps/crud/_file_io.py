@@ -55,7 +55,7 @@ def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]
     s = str(raw).strip()
     p = Path(s)
     if p.is_absolute():
-        logger.info("absolute path detected, recommmending relative paths")
+        logger.info("absolute path detected, recommending relative paths")
         return p, None
     return working_path / p, None
 
