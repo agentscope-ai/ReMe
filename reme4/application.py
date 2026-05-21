@@ -16,6 +16,7 @@ class Application(BaseComponent):
 
     def __init__(self, **kwargs) -> None:
         self.context = ApplicationContext(**kwargs)
+        self._started_components: list[BaseComponent] = []
 
         working_path = Path(self.config.working_dir).absolute()
         working_path.mkdir(parents=True, exist_ok=True)
@@ -113,12 +114,9 @@ class Application(BaseComponent):
         components = self._topological_order()
         jobs = list(self.context.jobs.values())
         sequence = (
-            components
-            + [j for j in jobs if j.backend != "background"]
-            + [j for j in jobs if j.backend == "background"]
+            components + [j for j in jobs if j.backend != "background"] + [j for j in jobs if j.backend == "background"]
         )
 
-        self._started_components: list[BaseComponent] = []
         for c in sequence:
             try:
                 await c.start()
@@ -149,10 +147,10 @@ class Application(BaseComponent):
         stream_queue = asyncio.Queue()
         task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-                stream_queue=stream_queue,
-                task=task,
-                task_name=name,
-                output_format="chunk",
+            stream_queue=stream_queue,
+            task=task,
+            task_name=name,
+            output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk
@@ -160,5 +158,6 @@ class Application(BaseComponent):
     def run_app(self):
         """Start the service and serve the application."""
         from .components.service import BaseService
+
         assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)

@@ -40,15 +40,15 @@ class BaseStep(ABC):
         return instance
 
     def __init__(
-            self,
-            name: str | None = None,
-            backend: str = "",
-            app_context: "ApplicationContext | None" = None,
-            language: str = "",
-            prompt_dict: dict[str, str] | None = None,
-            input_mapping: dict[str, str] | None = None,
-            output_mapping: dict[str, str] | None = None,
-            **kwargs,
+        self,
+        name: str | None = None,
+        backend: str = "",
+        app_context: "ApplicationContext | None" = None,
+        language: str = "",
+        prompt_dict: dict[str, str] | None = None,
+        input_mapping: dict[str, str] | None = None,
+        output_mapping: dict[str, str] | None = None,
+        **kwargs,
     ):
         super().__init__()
         self.name: str = name or self.__class__.__name__
@@ -91,11 +91,11 @@ class BaseStep(ABC):
         return Path(self.app_context.app_config.working_dir)
 
     def _resolve(
-            self,
-            key: str,
-            base_cls: type[T],
-            comp_enum: ComponentEnum,
-            attr: str | None = None,
+        self,
+        key: str,
+        base_cls: type[T],
+        comp_enum: ComponentEnum,
+        attr: str | None = None,
     ) -> T:
         """Return a kwargs-supplied instance, or look one up by name in the app registry."""
         # 1. Step init kwargs, 2. Runtime context (run_job kwargs), 3. App registry by name.
