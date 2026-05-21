@@ -13,8 +13,8 @@ async def find_reme(host: str, port: int) -> str:
     from ..components.client.http_client import HttpClient
 
     try:
-        async with HttpClient(action="health_check", host=host, port=port, timeout=2.0) as client:
-            async for _ in client():
+        async with HttpClient(host=host, port=port, timeout=2.0) as client:
+            async for _ in client(action="health_check"):
                 break
         return "reme"
     except Exception:

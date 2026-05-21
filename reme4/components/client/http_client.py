@@ -19,7 +19,6 @@ class HttpClient(BaseClient):
 
     def __init__(
         self,
-        action: str,
         host: str | None = None,
         port: int | None = None,
         timeout: float = 30.0,
@@ -40,7 +39,6 @@ class HttpClient(BaseClient):
             else:
                 host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
-        self.action = action
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
 
@@ -49,7 +47,7 @@ class HttpClient(BaseClient):
         if self.client is None:
             self.client = httpx.AsyncClient(base_url=self.base_url, timeout=self.timeout)
 
-    async def _iter_stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
+    async def _iter_stream_chunks(self, action: str, payload: dict) -> AsyncGenerator[StreamChunk, None]:
         """Send request and yield raw StreamChunks; auto-detects JSON vs SSE via Content-Type.
 
         For JSON responses: yields a single CONTENT chunk with the raw response body.
@@ -58,7 +56,7 @@ class HttpClient(BaseClient):
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
-        async with self.client.stream("POST", f"/{self.action}", json=self.kwargs) as resp:
+        async with self.client.stream("POST", f"/{action}", json=payload) as resp:
             resp.raise_for_status()
             ctype = resp.headers.get("content-type", "")
 
@@ -66,11 +64,11 @@ class HttpClient(BaseClient):
                 async for line in resp.aiter_lines():
                     if not line.startswith("data:"):
                         continue
-                    payload = line[len("data:") :]
-                    if payload.strip() == "[DONE]":
+                    data_str = line[len("data:") :]
+                    if data_str.strip() == "[DONE]":
                         return
                     try:
-                        data = json.loads(payload)
+                        data = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
                     chunk = StreamChunk(**data)
@@ -85,9 +83,9 @@ class HttpClient(BaseClient):
                 body = await resp.aread()
                 yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=body.decode())
 
-    async def stream_chunks(self) -> AsyncGenerator[StreamChunk, None]:
+    async def stream_chunks(self, action: str, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """HTTP-specific richer access: yield raw StreamChunk objects (no display formatting)."""
-        async for chunk in self._iter_stream_chunks():
+        async for chunk in self._iter_stream_chunks(action, kwargs):
             yield chunk
 
     async def list_actions(self) -> list[dict]:
@@ -129,11 +127,11 @@ class HttpClient(BaseClient):
         return "\n".join(parts)
 
     # pylint: disable=invalid-overridden-method
-    async def _execute(self) -> AsyncGenerator[str, None]:
+    async def _execute(self, action: str, payload: dict) -> AsyncGenerator[str, None]:
         """Yield text chunks for CLI display; JSON responses are pretty-formatted."""
-        async for chunk in self._iter_stream_chunks():
-            payload = chunk.chunk
-            text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+        async for chunk in self._iter_stream_chunks(action, payload):
+            chunk_payload = chunk.chunk
+            text = chunk_payload if isinstance(chunk_payload, str) else json.dumps(chunk_payload, ensure_ascii=False)
             yield self._format_for_display(text)
 
     async def _close(self) -> None:

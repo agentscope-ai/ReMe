@@ -24,18 +24,18 @@ class BaseClient(BaseComponent):
         """Close the client and release resources."""
 
     @abstractmethod
-    def _execute(self) -> AsyncGenerator[str, None]:
+    def _execute(self, action: str, payload: dict) -> AsyncGenerator[str, None]:
         """Backend-specific execution; yield text chunks (single yield for non-streaming backends)."""
 
     @abstractmethod
     async def list_actions(self) -> list[dict]:
         """Discover available actions on the server; each dict is the raw backend descriptor."""
 
-    async def __call__(self) -> AsyncGenerator[str, None]:
+    async def __call__(self, action: str, **kwargs) -> AsyncGenerator[str, None]:
         """Dispatch: action='list' returns the action catalog; otherwise delegate to _execute()."""
-        if getattr(self, "action", None) == "list":
+        if action == "list":
             actions = await self.list_actions()
             yield json.dumps(actions, indent=2, ensure_ascii=False)
             return
-        async for chunk in self._execute():
+        async for chunk in self._execute(action, kwargs):
             yield chunk

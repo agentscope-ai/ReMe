@@ -26,25 +26,24 @@ class MCPClient(BaseClient):
 
     Usage:
         # SSE (default)
-        client = MCPClient(action="my_tool", host="localhost", port=8000, query="hello")
+        client = MCPClient(host="localhost", port=8000)
         async with client:
-            async for text in client():
+            async for text in client(action="my_tool", query="hello"):
                 print(text)
 
         # Streamable HTTP
-        client = MCPClient(action="my_tool", transport="streamable-http", host="localhost", port=8000)
+        client = MCPClient(transport="streamable-http", host="localhost", port=8000)
 
         # Stdio
-        client = MCPClient(action="my_tool", transport="stdio", command="python", args=["server.py"])
+        client = MCPClient(transport="stdio", command="python", args=["server.py"])
 
         # Custom transport object
         from fastmcp.client import SSETransport
-        client = MCPClient(action="my_tool", transport=SSETransport(url="http://host:port/sse"))
+        client = MCPClient(transport=SSETransport(url="http://host:port/sse"))
     """
 
     def __init__(
         self,
-        action: str,
         transport: str | Any = "sse",
         host: str | None = None,
         port: int | None = None,
@@ -71,7 +70,6 @@ class MCPClient(BaseClient):
             self.host = host
             self.port = port
 
-        self.action = action
         self.transport = transport
         self.timeout = timeout
 
@@ -97,11 +95,11 @@ class MCPClient(BaseClient):
             await self.client.__aenter__()
 
     # pylint: disable=invalid-overridden-method
-    async def _execute(self) -> AsyncGenerator[str, None]:
+    async def _execute(self, action: str, payload: dict) -> AsyncGenerator[str, None]:
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
-        result: CallToolResult = await self.client.call_tool(self.action, self.kwargs)
+        result: CallToolResult = await self.client.call_tool(action, payload)
         yield self._extract_text(result)
 
     async def list_actions(self) -> list[dict]:
