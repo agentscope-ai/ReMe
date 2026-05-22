@@ -115,7 +115,7 @@ def test_update_store_initial_all_added():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            # Use Path.cwd() as the basis so we match BaseStep.working_path on macOS
+            # Use Path.cwd() as the basis so we match BaseStep.vault_path on macOS
             # (where /var resolves to /private/var via a symlink).
             cwd = Path.cwd()
             vault = cwd / "vault"

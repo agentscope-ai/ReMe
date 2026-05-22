@@ -285,7 +285,7 @@ def test_parse_links_in_file():
     async def run():
         content = (
             "---\n"
-            "title: demo\n"
+            "name: demo\n"
             "---\n"
             "\n"
             "Intro paragraph with [[alpha]] and [[beta#h2]].\n"
@@ -321,7 +321,7 @@ def test_parse_links_empty_when_no_content():
             empty_path = f.name
         # Front-matter-only file
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
-            f.write("---\ntitle: x\n---\n")
+            f.write("---\nname: x\n---\n")
             fm_only_path = f.name
 
         try:

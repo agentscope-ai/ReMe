@@ -1,4 +1,4 @@
-"""Read a markdown file from the vault, with line-range slicing and byte-truncation."""
+"""Read a markdown file from vault_dir, with line-range slicing and byte-truncation."""
 
 from ._file_io import (
     NON_MD_WARNING,
@@ -28,7 +28,7 @@ class ReadStep(BaseStep):
         start_line = self.context.get("start_line")
         end_line = self.context.get("end_line")
 
-        target, err = resolve_path(self.working_path, raw)
+        target, err = resolve_path(self.vault_path, raw)
         if err:
             self._fail(err)
             return None

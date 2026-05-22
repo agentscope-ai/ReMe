@@ -37,7 +37,7 @@ class EditStep(BaseStep):
         old_str = str(old)
         new_str = str(new)
 
-        target, err = resolve_path(self.working_path, raw)
+        target, err = resolve_path(self.vault_path, raw)
         if err:
             self._fail(err)
             return None

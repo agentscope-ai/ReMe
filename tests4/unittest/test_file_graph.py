@@ -102,8 +102,13 @@ def test_upsert_replaces_old_links(backend_cls):
 
 
 @pytest.mark.parametrize("backend_cls", BACKENDS)
-def test_outlinks_skip_virtual_targets(backend_cls):
-    """get_outlinks only returns links pointing to real (existing) nodes."""
+def test_outlinks_include_virtual_targets(backend_cls):
+    """get_outlinks surfaces all outgoing edges, including ones into virtual targets.
+
+    A wikilink to a not-yet-indexed file is still real data the source
+    contains — callers like the day-index aggregator and lint:dangling
+    need to see it.
+    """
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -120,41 +125,50 @@ def test_outlinks_skip_virtual_targets(backend_cls):
 
             outs = await graph.get_outlinks("a.md")
             targets = {lnk.target_path for lnk in outs}
-            assert targets == {"b.md"}
+            assert targets == {"b.md", "ghost.md"}
 
             await graph.close()
-            print(f"✓ test_outlinks_skip_virtual_targets[{backend_cls.__name__}] passed")
+            print(f"✓ test_outlinks_include_virtual_targets[{backend_cls.__name__}] passed")
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize("backend_cls", BACKENDS)
-def test_inlinks_promotion_after_upsert(backend_cls):
-    """Edges to virtual targets become real inlinks once the target is upserted."""
+def test_inlinks_visible_for_virtual_target(backend_cls):
+    """Edges to a virtual target are queryable via get_inlinks — no node-must-be-real gate.
+
+    The data model stores ``target → {sources}`` regardless of whether the
+    target is a real node or a placeholder; get_inlinks surfaces both so
+    callers like graph_retarget_step can fix dangling references.
+    """
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             graph = backend_cls()
             await graph.start()
 
-            # b doesn't exist yet — link is pending
+            # b doesn't exist yet — edge lives against a virtual placeholder.
             await graph.upsert_nodes([make_node("a.md", [("b.md", None)])])
-            assert await graph.get_inlinks("b.md") == []  # b not real yet
+            inlinks = await graph.get_inlinks("b.md")
+            assert {lnk.source_path for lnk in inlinks} == {"a.md"}
 
-            # Now create b — pending edge promotes
+            # Promoting b to real should not change the inlink list.
             await graph.upsert_nodes([make_node("b.md")])
             inlinks = await graph.get_inlinks("b.md")
             assert {lnk.source_path for lnk in inlinks} == {"a.md"}
 
             await graph.close()
-            print(f"✓ test_inlinks_promotion_after_upsert[{backend_cls.__name__}] passed")
+            print(f"✓ test_inlinks_visible_for_virtual_target[{backend_cls.__name__}] passed")
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize("backend_cls", BACKENDS)
-def test_delete_node_demotes_inbound(backend_cls):
-    """Deleting a node makes it virtual; sources still hold the link, but get_inlinks([deleted]) is []."""
+def test_delete_keeps_inbound_view(backend_cls):
+    """Deleting a node demotes it to virtual; sources still hold the link
+    and both ``get_inlinks`` and ``get_outlinks`` keep surfacing the edge —
+    the link payload is what matters, virtuality is just an indexing
+    artifact."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -172,17 +186,17 @@ def test_delete_node_demotes_inbound(backend_cls):
             await graph.delete_nodes(["b.md"])
             # b is no longer a real node
             assert await graph.get_nodes(["b.md"]) == []
-            # inlinks query for a non-real node returns []
-            assert await graph.get_inlinks("b.md") == []
-            # a's outlink to b is hidden because b is virtual
-            assert await graph.get_outlinks("a.md") == []
+            # but the inbound view is preserved (sources still reference b)
+            assert {lnk.source_path for lnk in await graph.get_inlinks("b.md")} == {"a.md"}
+            # and a's outlink to b is still surfaced (virtual targets count).
+            assert {lnk.target_path for lnk in await graph.get_outlinks("a.md")} == {"b.md"}
 
-            # Re-upsert b — pending should re-promote
+            # Re-upsert b — inlinks unchanged from the caller's perspective.
             await graph.upsert_nodes([make_node("b.md")])
             assert {lnk.source_path for lnk in await graph.get_inlinks("b.md")} == {"a.md"}
 
             await graph.close()
-            print(f"✓ test_delete_node_demotes_inbound[{backend_cls.__name__}] passed")
+            print(f"✓ test_delete_keeps_inbound_view[{backend_cls.__name__}] passed")
 
     asyncio.run(run())
 
@@ -322,9 +336,9 @@ if __name__ == "__main__":
     for backend in BACKENDS:
         test_upsert_and_get_nodes(backend)
         test_upsert_replaces_old_links(backend)
-        test_outlinks_skip_virtual_targets(backend)
-        test_inlinks_promotion_after_upsert(backend)
-        test_delete_node_demotes_inbound(backend)
+        test_outlinks_include_virtual_targets(backend)
+        test_inlinks_visible_for_virtual_target(backend)
+        test_delete_keeps_inbound_view(backend)
         test_delete_outgoing_links_cleared(backend)
         test_clear(backend)
         test_rebuild_links_idempotent(backend)
