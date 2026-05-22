@@ -104,26 +104,14 @@ jobs:
           type: number
           description: "minimum fused score threshold (RRF scores are small; default 0 disables filter)"
           default: 0.0
-        vector_weight:
-          type: number
-          description: "weight for vector results in [0, 1]; keyword weight = 1 - vector_weight"
-          default: 0.7
-        candidate_multiplier:
-          type: number
-          description: "candidate pool multiplier per branch (capped at 200)"
-          default: 3.0
-        expand_links:
-          type: boolean
-          description: "attach outlinks/inlinks (with neighbor meta) to each result"
-          default: true
-        max_links_per_direction:
-          type: integer
-          description: "max neighbors shown per direction per result"
-          default: 10
       required:
         - query
     steps:
       - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 3.0
+        expand_links: true
+        max_links_per_direction: 10
 
   - backend: base
     name: read

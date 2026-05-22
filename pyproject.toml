@@ -75,6 +75,10 @@ ray = [
     "ray",
 ]
 
+faiss = [
+    "faiss-cpu>=1.7.4",
+]
+
 dev = [
     "jupyter-book",
     "ghp-import",
