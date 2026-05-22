@@ -7,7 +7,6 @@ from .file_front_matter import FileFrontMatter
 from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
-from .resource_meta import ResourceEntry
 from .response import Response
 from .stream_chunk import StreamChunk
 
@@ -21,7 +20,6 @@ __all__ = [
     "FileLink",
     "FileNode",
     "Request",
-    "ResourceEntry",
     "Response",
     "StreamChunk",
 ]
