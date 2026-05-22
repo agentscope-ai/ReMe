@@ -19,4 +19,4 @@ class BareFileParser(BaseFileParser):
     async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         stat = file_path.stat()
-        return FileNode(path=self._get_relative_path(path), st_mtime=stat.st_mtime, links=[], chunk_ids=[]), []
+        return FileNode(path=self.to_vault_relative(path), st_mtime=stat.st_mtime, links=[], chunk_ids=[]), []

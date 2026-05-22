@@ -2,8 +2,9 @@
 """Unified test suite for vector store implementations.
 
 This module provides comprehensive test coverage for LocalVectorStore, ESVectorStore,
-PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore, HologresVectorStore, and
-ZvecVectorStore implementations. Tests can be run for specific vector stores or all implementations.
+PGVectorStore, QdrantVectorStore, ChromaVectorStore, ObVecVectorStore, HologresVectorStore,
+ZvecVectorStore, and SeekdbVectorStore implementations. Tests can be run for specific vector
+stores or all implementations.
 
 Usage:
     python test_vector_store.py --local      # Test LocalVectorStore only
@@ -14,6 +15,7 @@ Usage:
     python test_vector_store.py --obvec      # Test ObVecVectorStore only (needs seekdb / OceanBase)
     python test_vector_store.py --hologres   # Test HologresVectorStore only
     python test_vector_store.py --zvec       # Test ZvecVectorStore only
+    python test_vector_store.py --seekdb     # Test SeekdbVectorStore (pyseekdb; Python >=3.11)
     python test_vector_store.py --all        # Test all vector stores
 """
 
@@ -41,6 +43,14 @@ from reme.core.vector_store import (
     QdrantVectorStore,
     ZvecVectorStore,
 )
+
+try:
+    from reme.core.vector_store import SeekdbVectorStore
+
+    SEEKDB_AVAILABLE = True
+except ImportError:
+    SeekdbVectorStore = None
+    SEEKDB_AVAILABLE = False
 
 load_env()
 
@@ -76,6 +86,14 @@ class TestConfig:
     PG_MAX_SIZE = 5  # Maximum connections in pool
     PG_USE_HNSW = True  # Use HNSW index for faster search
     PG_USE_DISKANN = False  # Use DiskANN index (requires vectorscale extension)
+
+    # SeekdbVectorStore: embedded by default; set SEEKDB_HOST (and optional SEEKDB_PORT) for remote
+    SEEKDB_PATH = None  # e.g. "./test_vector_store_seekdb"; None => temp dir
+    SEEKDB_HOST = os.environ.get("SEEKDB_HOST")
+    SEEKDB_PORT = int(os.environ["SEEKDB_PORT"]) if os.environ.get("SEEKDB_PORT") else None
+    SEEKDB_USER = os.environ.get("SEEKDB_USER", "root")
+    SEEKDB_PASSWORD = os.environ.get("SEEKDB_PASSWORD", "")
+    SEEKDB_DATABASE = os.environ.get("SEEKDB_DATABASE", "test")
 
     # ChromaVectorStore settings
     CHROMA_PATH = "./test_vector_store_chroma"  # For local persistent mode
@@ -220,7 +238,9 @@ def get_store_type(store: BaseVectorStore) -> str:
         store: Vector store instance
 
     Returns:
-        str: Type identifier ("local", "es", "pgvector", "qdrant", "chroma", "obvec", "zvec", or "hologres")
+        str: Type identifier (
+            "local", "es", "pgvector", "qdrant", "chroma", "obvec", "zvec", "hologres", or "seekdb"
+        )
     """
     if isinstance(store, LocalVectorStore):
         return "local"
@@ -238,6 +258,8 @@ def get_store_type(store: BaseVectorStore) -> str:
         return "zvec"
     elif isinstance(store, HologresVectorStore):
         return "hologres"
+    elif SeekdbVectorStore is not None and isinstance(store, SeekdbVectorStore):
+        return "seekdb"
     else:
         raise ValueError(f"Unknown vector store type: {type(store)}")
 
@@ -247,7 +269,9 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """Create a vector store instance based on type.
 
     Args:
-        store_type: Type of vector store ("local", "es", "pgvector", "qdrant", "chroma", "obvec", or "hologres")
+        store_type: Type of vector store (
+            "local", "es", "pgvector", "qdrant", "chroma", "obvec", "zvec", "hologres", or "seekdb"
+        )
         collection_name: Name of the collection
 
     Returns:
@@ -255,10 +279,16 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
     """
     config = TestConfig()
 
-    # Initialize embedding model
+    # api_key/base_url from env (Application layer does the same via embedding_api_key in application.py)
+    embedding_api_key = os.environ.get("EMBEDDING_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    embedding_base_url = os.environ.get("EMBEDDING_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    # use_dimensions=True so API output matches HNSW dim / vector column
     embedding_model = OpenAIEmbeddingModel(
         model_name=config.EMBEDDING_MODEL_NAME,
         dimensions=config.EMBEDDING_DIMENSIONS,
+        use_dimensions=True,
+        api_key=embedding_api_key or None,
+        base_url=embedding_base_url or None,
     )
 
     if store_type == "local":
@@ -346,6 +376,26 @@ def create_vector_store(store_type: str, collection_name: str) -> BaseVectorStor
         if config.HOLOGRES_DSN:
             kwargs["dsn"] = config.HOLOGRES_DSN
         return HologresVectorStore(**kwargs)
+    elif store_type == "seekdb":
+        if SeekdbVectorStore is None:
+            raise ImportError("SeekdbVectorStore not available; install pyseekdb (Python >=3.11)")
+        remote = bool(config.SEEKDB_HOST and config.SEEKDB_HOST.strip())
+        db_path = config.SEEKDB_PATH or tempfile.mkdtemp(prefix="test_seekdb_")
+        kw: dict = {
+            "collection_name": collection_name,
+            "embedding_model": embedding_model,
+            "db_path": db_path,
+            "database": config.SEEKDB_DATABASE,
+            "distance": "cosine",
+        }
+        if remote:
+            kw["host"] = config.SEEKDB_HOST.strip()
+            kw["port"] = config.SEEKDB_PORT
+            kw["user"] = config.SEEKDB_USER
+            kw["password"] = config.SEEKDB_PASSWORD
+        else:
+            kw["path"] = str(Path(db_path) / "seekdb.db")
+        return SeekdbVectorStore(**kw)
     else:
         raise ValueError(f"Unknown store type: {store_type}")
 
@@ -667,6 +717,7 @@ async def test_copy_collection(store: BaseVectorStore, store_name: str):
     store_type = get_store_type(store)
     if store_type in ("es", "pgvector", "obvec", "hologres"):
         copy_collection_name = copy_collection_name.lower()
+    # seekdb uses collection names as-is
 
     # Clean up if exists
     collections = await store.list_collections()
@@ -1848,6 +1899,13 @@ async def cleanup_store(store: BaseVectorStore, store_type: str):
                 shutil.rmtree(test_dir)
                 logger.info(f"Cleaned up zvec directory: {config.ZVEC_PATH}")
 
+        # Clean up temp directory if SeekdbVectorStore used temp dir
+        if store_type == "seekdb" and config.SEEKDB_PATH is None and getattr(store, "db_path", None):
+            test_dir = Path(store.db_path)
+            if test_dir.exists() and "test_seekdb_" in str(test_dir):
+                shutil.rmtree(test_dir, ignore_errors=True)
+                logger.info(f"Cleaned up seekdb temp directory: {test_dir}")
+
         logger.info("✓ Cleanup completed")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
@@ -1870,6 +1928,8 @@ Examples:
   python test_vector_store.py --chroma     # Test ChromaVectorStore only
   python test_vector_store.py --obvec      # Test ObVecVectorStore (seekdb / OceanBase)
   python test_vector_store.py --hologres   # Test HologresVectorStore
+  python test_vector_store.py --zvec       # Test ZvecVectorStore
+  python test_vector_store.py --seekdb     # Test SeekdbVectorStore only
   python test_vector_store.py --all        # Test all vector stores
         """,
     )
@@ -1914,6 +1974,11 @@ Examples:
         help="Test ZvecVectorStore",
     )
     parser.add_argument(
+        "--seekdb",
+        action="store_true",
+        help="Test SeekdbVectorStore (requires pyseekdb on Python >=3.11)",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         help="Run tests for all available vector stores",
@@ -1935,6 +2000,8 @@ Examples:
             ("hologres", "HologresVectorStore"),
             ("zvec", "ZvecVectorStore"),
         ]
+        if SEEKDB_AVAILABLE:
+            stores_to_test.append(("seekdb", "SeekdbVectorStore"))
     else:
         # Build list based on individual flags
         if args.local:
@@ -1953,6 +2020,12 @@ Examples:
             stores_to_test.append(("hologres", "HologresVectorStore"))
         if args.zvec:
             stores_to_test.append(("zvec", "ZvecVectorStore"))
+        if args.seekdb:
+            if not SEEKDB_AVAILABLE:
+                raise ImportError(
+                    "seekdb tests require pyseekdb (Python >=3.11); install: pip install 'pyseekdb>=1.2.0'",
+                )
+            stores_to_test.append(("seekdb", "SeekdbVectorStore"))
 
         if not stores_to_test:
             # Default to all vector stores if no argument provided
@@ -1966,9 +2039,12 @@ Examples:
                 ("hologres", "HologresVectorStore"),
                 ("zvec", "ZvecVectorStore"),
             ]
+            if SEEKDB_AVAILABLE:
+                stores_to_test.append(("seekdb", "SeekdbVectorStore"))
             print("No vector store specified, defaulting to test all vector stores")
             print(
-                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--zvec/--hologres to test specific ones\n",
+                "Use --local/--es/--pgvector/--qdrant/--chroma/--obvec/--zvec/--hologres/--seekdb "
+                "to test specific ones\n",
             )
 
     # Run tests for each vector store

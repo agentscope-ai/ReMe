@@ -52,20 +52,20 @@ def make_file(
 
 
 def test_upsert_single_file():
-    """upsert_file with a single (node, chunks) tuple stores chunks and node."""
+    """upsert_file with a one-element list stores chunks and node."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
             node, chunks = make_file("a.md", "hello world", chunk_count=2)
-            await store.upsert_file((node, chunks))
+            await store.upsert([(node, chunks)])
 
             # Chunks landed in memory
             assert len(store.file_chunks) == 2
             assert {c.path for c in store.file_chunks.values()} == {"a.md"}
             # Node landed in graph
-            nodes = await store.file_graph.get_nodes(["a.md"])
+            nodes = await store.get_nodes(["a.md"])
             assert len(nodes) == 1
             assert sorted(nodes[0].chunk_ids) == sorted([c.id for c in chunks])
 
@@ -83,10 +83,10 @@ def test_upsert_multiple_files():
             store = await make_store()
 
             files = [make_file("a.md", "alpha"), make_file("b.md", "beta")]
-            await store.upsert_file(files)
+            await store.upsert(files)
 
             assert len(store.file_chunks) == 2
-            paths = {n.path for n in await store.file_graph.get_nodes()}
+            paths = {n.path for n in await store.get_nodes()}
             assert paths == {"a.md", "b.md"}
 
             await store.close()
@@ -103,16 +103,16 @@ def test_upsert_replaces_old_chunks():
             store = await make_store()
 
             n1, c1 = make_file("a.md", "v1", chunk_count=2)
-            await store.upsert_file((n1, c1))
+            await store.upsert([(n1, c1)])
 
             # Different chunks for the same path
             n2 = FileNode(path="a.md", st_mtime=2.0)
             c2 = [FileChunk(id="a.md::new", path="a.md", text="v2 only", start_line=0, end_line=1)]
             n2.chunk_ids = [c.id for c in c2]
-            await store.upsert_file((n2, c2))
+            await store.upsert([(n2, c2)])
 
             # The node now references the new chunk set, not the old one.
-            nodes = await store.file_graph.get_nodes(["a.md"])
+            nodes = await store.get_nodes(["a.md"])
             assert nodes[0].chunk_ids == ["a.md::new"]
             assert "a.md::new" in store.file_chunks
 
@@ -129,11 +129,11 @@ def test_delete_by_path_single():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
-            await store.upsert_file([make_file("a.md", "alpha"), make_file("b.md", "beta")])
-            await store.delete_by_path("a.md")
+            await store.upsert([make_file("a.md", "alpha"), make_file("b.md", "beta")])
+            await store.delete("a.md")
 
             assert all(c.path != "a.md" for c in store.file_chunks.values())
-            assert {n.path for n in await store.file_graph.get_nodes()} == {"b.md"}
+            assert {n.path for n in await store.get_nodes()} == {"b.md"}
 
             await store.close()
             print("✓ test_delete_by_path_single passed")
@@ -148,16 +148,16 @@ def test_delete_by_path_list():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
-            await store.upsert_file(
+            await store.upsert(
                 [
                     make_file("a.md", "alpha"),
                     make_file("b.md", "beta"),
                     make_file("c.md", "gamma"),
                 ],
             )
-            await store.delete_by_path(["a.md", "b.md"])
+            await store.delete(["a.md", "b.md"])
 
-            assert {n.path for n in await store.file_graph.get_nodes()} == {"c.md"}
+            assert {n.path for n in await store.get_nodes()} == {"c.md"}
             assert all(c.path == "c.md" for c in store.file_chunks.values())
 
             await store.close()
@@ -173,9 +173,9 @@ def test_delete_by_path_missing_is_noop():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
-            await store.upsert_file(make_file("a.md", "alpha"))
+            await store.upsert([make_file("a.md", "alpha")])
             before = len(store.file_chunks)
-            await store.delete_by_path("ghost.md")
+            await store.delete("ghost.md")
             assert len(store.file_chunks) == before
 
             await store.close()
@@ -191,11 +191,11 @@ def test_clear():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
-            await store.upsert_file([make_file("a.md", "alpha"), make_file("b.md", "beta")])
+            await store.upsert([make_file("a.md", "alpha"), make_file("b.md", "beta")])
             await store.clear()
 
             assert store.file_chunks == {}
-            assert await store.file_graph.get_nodes() == []
+            assert await store.get_nodes() == []
 
             await store.close()
             print("✓ test_clear passed")
@@ -210,7 +210,7 @@ def test_keyword_search():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
 
-            await store.upsert_file(
+            await store.upsert(
                 [
                     make_file("a.md", "python programming language"),
                     make_file("b.md", "java programming language"),
@@ -237,7 +237,7 @@ def test_keyword_search_empty_query():
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
-            await store.upsert_file(make_file("a.md", "hello"))
+            await store.upsert([make_file("a.md", "hello")])
 
             assert await store.keyword_search("", limit=5, search_filter={}) == []
             assert await store.keyword_search("   ", limit=5, search_filter={}) == []
@@ -254,7 +254,7 @@ def test_vector_search_disabled_returns_empty():
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             store = await make_store()
-            await store.upsert_file(make_file("a.md", "hello"))
+            await store.upsert([make_file("a.md", "hello")])
 
             assert store.embedding_model is None
             assert await store.vector_search("hello", limit=5, search_filter={}) == []
@@ -271,13 +271,13 @@ def test_persistence_roundtrip():
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             s1 = await make_store()
-            await s1.upsert_file([make_file("a.md", "alpha"), make_file("b.md", "beta")])
+            await s1.upsert([make_file("a.md", "alpha"), make_file("b.md", "beta")])
             await s1.close()
 
             s2 = await make_store()
             assert {c.path for c in s2.file_chunks.values()} == {"a.md", "b.md"}
             # Graph should also be persisted independently via its own dump.
-            assert {n.path for n in await s2.file_graph.get_nodes()} == {"a.md", "b.md"}
+            assert {n.path for n in await s2.get_nodes()} == {"a.md", "b.md"}
             await s2.close()
             print("✓ test_persistence_roundtrip passed")
 
@@ -300,8 +300,7 @@ def test_rebuild_links_delegates_to_graph():
             )
             chunks = [FileChunk(id="a::1", path="a.md", text="x", start_line=0, end_line=1)]
             node.chunk_ids = [c.id for c in chunks]
-            await store.upsert_file((node, chunks))
-            await store.upsert_file(make_file("b.md", "beta"))
+            await store.upsert([(node, chunks), make_file("b.md", "beta")])
 
             await store.rebuild_links()
             inlinks = await store.get_inlinks("b.md")

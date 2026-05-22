@@ -267,7 +267,7 @@ def _subtree_toc(n: MdNode) -> str:
 # -- Parser ---------------------------------------------------------------
 
 
-@R.register("md")
+@R.register("linked")
 class LinkedFileParser(BaseFileParser):
     """Markdown parser: frontmatter + wikilink edges + full-skeleton chunks."""
 
@@ -309,7 +309,7 @@ class LinkedFileParser(BaseFileParser):
         from mistletoe.block_token import Document
 
         file_path = Path(path)
-        rel_path = self._get_relative_path(path)
+        rel_path = self.to_vault_relative(path)
         post = frontmatter.loads(file_path.read_text(encoding=self.encoding))
 
         chunks: list[FileChunk] = []

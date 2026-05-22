@@ -1,3 +1,5 @@
+daily_dir: memory
+
 service:
   backend: http
 #  backend: mcp
@@ -57,6 +59,33 @@ jobs:
       properties: {}
     steps:
       - backend: reindex_step
+
+  - backend: base
+    name: index_changes
+    description: "apply a batch of file changes (added/modified/deleted) into file_store"
+    parameters:
+      type: object
+      properties:
+        changes:
+          type: array
+          description: "list of change items"
+          items:
+            type: object
+            properties:
+              change:
+                type: string
+                enum: [added, modified, deleted]
+                description: "type of file change"
+              path:
+                type: string
+                description: "absolute file path"
+            required:
+              - change
+              - path
+      required:
+        - changes
+    steps:
+      - backend: index_changes_step
 
   - backend: base
     name: search
@@ -208,36 +237,53 @@ jobs:
       - backend: stream_demo_step1
       - backend: stream_demo_step2
 
+  - backend: background
+    name: watch_file
+    watch_paths:
+      - MEMORY.md
+      - memory
+    suffix_filters:
+      - md
+    steps:
+      - backend: update_store_step
+      - backend: watch_changes_step
+
 components:
-  # 1. tokenizer — no dependencies
   tokenizer:
     default:
       backend: regex
 
-  # 2. embedding_model — no dependencies
   embedding_model:
     default:
       backend: openai
       model_name: text-embedding-v4
       dimensions: 1024
 
-  # 3. file_graph — no dependencies
   file_graph:
     default:
       backend: local
 
-  # 4. file_parser — no dependencies
   file_parser:
     default:
       backend: default
+      supported_extensions:
+        - txt
+        - html
+        - json
+        - yaml
+        - py
+    bare:
+      backend: bare
+    linked:
+      backend: linked
+      supported_extensions:
+        - md
 
-  # 5. keyword_index — depends on tokenizer
   keyword_index:
     default:
       backend: bm25
       tokenizer: default
 
-  # 6. file_store — depends on embedding_model / keyword_index / file_graph
   file_store:
     default:
       backend: local
@@ -246,13 +292,3 @@ components:
       embedding_model: ""
       keyword_index: default
       file_graph: default
-
-  # 7. file_watcher — depends on file_store / file_parser
-  file_watcher:
-    default:
-      backend: lite
-      watch_paths:
-        - MEMORY.md
-        - memory
-      file_store: default
-      file_parser: default

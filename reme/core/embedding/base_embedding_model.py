@@ -55,8 +55,8 @@ class BaseEmbeddingModel(ABC):
             enable_cache: Whether to enable embedding cache
             **kwargs: Additional model-specific parameters
         """
-        self.api_key: str = api_key
-        self.base_url: str = base_url
+        self.api_key: str | None = api_key
+        self.base_url: str | None = base_url
         self.model_name = model_name
         self.dimensions = dimensions
         self.use_dimensions = use_dimensions

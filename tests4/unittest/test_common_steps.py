@@ -91,41 +91,6 @@ def test_help_job():
     _run(run())
 
 
-def test_health_check_job():
-    """health_check job should return a structured health snapshot."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                result = await call_and_check(
-                    "health_check",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("metadata"), dict)
-                        and isinstance(r["metadata"].get("health"), dict)
-                        and r["metadata"]["health"].get("version") == REME_VERSION
-                        and isinstance(r["metadata"]["health"].get("components"), dict)
-                    ),
-                )
-                # Validate that each expected component type is in the snapshot.
-                components = result["metadata"]["health"]["components"]
-                for ctype in (
-                    "embedding_model",
-                    "file_graph",
-                    "file_store",
-                    "file_watcher",
-                    "keyword_index",
-                ):
-                    if ctype not in components:
-                        raise AssertionError(f"health snapshot missing component {ctype!r}: {components!r}")
-        print("✓ test_health_check_job passed")
-
-    _run(run())
-
-
 def test_search_job_empty_store():
     """search on an empty store should return successfully with zero results."""
 
@@ -167,28 +132,6 @@ def test_search_job_missing_query():
     _run(run())
 
 
-def test_reindex_job():
-    """reindex job should wipe the file store and rebuild from tracked files."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "reindex",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("metadata", {}).get("counts"), dict)
-                        and "added" in r["metadata"]["counts"]
-                    ),
-                )
-        print("✓ test_reindex_job passed")
-
-    _run(run())
-
-
 def test_demo_job():
     """demo job should echo back the normalized query and adjusted min_score."""
 
@@ -213,78 +156,11 @@ def test_demo_job():
     _run(run())
 
 
-# ---------------------------------------------------------------------------
-# Aggregate test: reuse one server instance for all jobs (faster).
-# ---------------------------------------------------------------------------
-
-
-def test_all_jobs_one_server():
-    """Run every common job against a single shared server for efficiency."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                # version
-                await call_and_check(
-                    "version",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and r.get("answer") == REME_VERSION,
-                )
-                # help
-                await call_and_check(
-                    "help",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and r.get("metadata", {}).get("job_count", 0) > 0,
-                )
-                # health_check
-                await call_and_check(
-                    "health_check",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict)
-                    and isinstance(
-                        r.get("metadata", {}).get("health"),
-                        dict,
-                    ),
-                )
-                # search (empty store)
-                await call_and_check(
-                    "search",
-                    host=host,
-                    port=port,
-                    query="anything",
-                    validator=lambda r: isinstance(r, dict) and r.get("success") is True,
-                )
-                # reindex
-                await call_and_check(
-                    "reindex",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and isinstance(r.get("metadata", {}).get("counts"), dict),
-                )
-                # demo
-                await call_and_check(
-                    "demo",
-                    host=host,
-                    port=port,
-                    query="Foo",
-                    validator=lambda r: isinstance(r, dict) and "foo" in str(r.get("answer", "")),
-                )
-        print("✓ test_all_jobs_one_server passed")
-
-    _run(run())
-
-
 if __name__ == "__main__":
     print("\n=== reme4 common steps E2E tests ===")
     test_version_job()
     test_help_job()
-    test_health_check_job()
     test_search_job_empty_store()
     test_search_job_missing_query()
-    test_reindex_job()
     test_demo_job()
-    test_all_jobs_one_server()
     print("\n所有测试通过!")

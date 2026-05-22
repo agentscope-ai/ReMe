@@ -21,13 +21,8 @@ class LocalFileGraph(BaseFileGraph):
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
-        await super()._start()
-        await self.load()
+        await super()._start()  # base calls load()
         await self.rebuild_links()
-
-    async def _close(self) -> None:
-        await self.dump()
-        await super()._close()
 
     async def load(self) -> None:
         """Load nodes from JSONL file into memory; keep current state on failure."""

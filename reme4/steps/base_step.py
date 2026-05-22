@@ -14,11 +14,10 @@ from agentscope.tool import Toolkit, ToolResponse
 from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
 from ..components.file_store import BaseFileStore
-from ..components.file_watcher import BaseFileWatcher
 from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
-from ..schema import Response
+from ..schema import FileChunk, FileNode, Response
 from ..utils import get_logger
 
 if TYPE_CHECKING:
@@ -89,7 +88,7 @@ class BaseStep(ABC):
         """Resolved working directory from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir)
+        return Path(self.app_context.app_config.working_dir).absolute()
 
     def _resolve(
         self,
@@ -126,11 +125,6 @@ class BaseStep(ABC):
         return self._resolve("as_token_counter", TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
 
     @property
-    def file_parser(self) -> BaseFileParser:
-        """Return the file parser component."""
-        return self._resolve("file_parser", BaseFileParser, ComponentEnum.FILE_PARSER)
-
-    @property
     def file_store(self) -> BaseFileStore:
         """Return the file store component."""
         return self._resolve("file_store", BaseFileStore, ComponentEnum.FILE_STORE)
@@ -140,10 +134,32 @@ class BaseStep(ABC):
         """Return the embedding model component."""
         return self._resolve("embedding", BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
 
-    @property
-    def file_watcher(self) -> BaseFileWatcher:
-        """Return the file watcher component."""
-        return self._resolve("file_watcher", BaseFileWatcher, ComponentEnum.FILE_WATCHER)
+    async def parse_file(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+        """Parse ``path`` with the parser whose ``supported_extensions`` claims its suffix.
+
+        First registered match wins (config insertion order). Falls back to the
+        ``bare`` parser (stat-only) when no parser claims the suffix — that's
+        how attachments / binaries / unknown types still produce a FileNode.
+        """
+        assert self.app_context is not None
+        file_parser_dict: dict[str, BaseFileParser] = self.app_context.components[ComponentEnum.FILE_PARSER]
+
+        suffix = Path(path).suffix.lstrip(".").lower()
+
+        parser: BaseFileParser | None = None
+        if suffix:
+            for candidate in file_parser_dict.values():
+                if suffix in {ext.lower().lstrip(".") for ext in candidate.supported_extensions}:
+                    parser = candidate
+                    break
+
+        if parser is None:
+            parser = file_parser_dict.get("bare")
+
+        if parser is None:
+            raise RuntimeError(f"No file parser supports {path} (suffix={suffix!r}) and no 'bare' parser is configured")
+
+        return await parser.parse(path)
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""

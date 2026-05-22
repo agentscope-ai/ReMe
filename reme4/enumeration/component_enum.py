@@ -22,8 +22,6 @@ class ComponentEnum(str, Enum):
 
     FILE_GRAPH = "file_graph"
 
-    FILE_WATCHER = "file_watcher"
-
     KEYWORD_INDEX = "keyword_index"
 
     SERVICE = "service"

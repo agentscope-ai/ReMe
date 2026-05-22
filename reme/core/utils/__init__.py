@@ -19,6 +19,7 @@ from .pydantic_utils import create_pydantic_model
 from .singleton import singleton
 from .time import timer, get_now_time
 from .hf_token_counter_utils import get_hf_token_counter
+from .pyseekdb_conn import admin_kwargs_from_client_kwargs, build_pyseekdb_client_kwargs, parse_host_port
 
 __all__ = [
     "convert_dashscope_to_agentscope",
@@ -50,4 +51,7 @@ __all__ = [
     "timer",
     "get_now_time",
     "get_hf_token_counter",
+    "admin_kwargs_from_client_kwargs",
+    "build_pyseekdb_client_kwargs",
+    "parse_host_port",
 ]

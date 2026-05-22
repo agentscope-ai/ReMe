@@ -20,6 +20,28 @@ class BaseFileGraph(BaseComponent):
         self.graph_path: Path = self.working_metadata_path / self.component_type.value
         self.graph_path.mkdir(parents=True, exist_ok=True)
 
+    # -- Lifecycle ---------------------------------------------------------
+
+    async def _start(self) -> None:
+        await super()._start()
+        await self.load()
+
+    async def _close(self) -> None:
+        await self.dump()
+        await super()._close()
+
+    async def load(self) -> None:
+        """Load persisted state. No-op for backends without local files.
+
+        Called at the end of ``_start()`` after base resources are ready
+        but before subclass-specific resources are initialised. Backends
+        that need their own resources for loading should override
+        ``_start()`` instead of this hook.
+        """
+
+    async def dump(self) -> None:
+        """Persist state. No-op for backends without local files."""
+
     # -- Node CRUD ---------------------------------------------------------
 
     @abstractmethod
