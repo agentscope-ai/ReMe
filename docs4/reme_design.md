@@ -82,19 +82,34 @@ reme4 search query="..." backend=mcp
 | crud | upload/download | 其他文件 |
 | file | stat | path |
 | file | list | path |
-| property | property:read | |
-| property | property:update | path="My Note" status=done xx=xxx |
-| property | property:delete | keys="[xxxx, xxxx]"                                               |
+                                            |
 | graph | traverse | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |
 
 @wangce
-| crud | write | path="New Note" name="xxx" description="xxx" content="# Hello" (4 字段都必填，frontmatter 只写 name/description) |
+| crud | write | path="New Note" name="xxx" description="xxx" metadata={}, content="# Hello" (4 字段都必填，frontmatter 只写 name/description) |
 | crud | read | path="Templates/Recipe.md"                                        |
 | crud | edit | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
 | crud | append | path="My Note" content="New line"                                 |
-| crud | prepend | path="My Note" content="New line"                                 |
+
 | crud | delete | path="My Note
 | daily:crud | daily:xxx | 与 crud 参数保持一致 |
+
+- daily:resolve name=xxxx (符合一定规范 win下要求)
+- daily:list date=xxxx 返回path
+- daily:index
+
+frontmatter read path
+frontmatter update path metadata={}
+frontmatter delete path keys=[]
+
+delete path
+download path=xxx（内部相对路径）download_path=(外部绝对路径，可选)
+upload path=xxx（外部绝对路径）description="xxx" metadata=xxx 返回内部相对路径 加metadata
+stat path
+list path
+mv path=xxx new_path=xxx
+
+traverse path=xxx direction=xxx depth=xxx
 
 # 日记类型
 

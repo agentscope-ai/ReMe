@@ -86,9 +86,9 @@
 | 类 | 文件 | 说明 |
 | --- | --- | --- |
 | `BaseFileParser` | `base_file_parser.py` | 抽象接口：`parse(path) -> (FileNode, list[FileChunk])`，提供 `_get_relative_path`。 |
-| `BareFileParser` (`@R "bare"`) | `bare_file_parser.py` | 仅 stat：附件/二进制不读内容、不切块、不抽链接。 |
-| `DefaultFileParser` (`@R "default"`) | `default_file_parser.py` | 字节级带 overlap 切片 + YAML front matter + wikilink 抽取（含 Dataview `predicate::`）。 |
-| `LinkedFileParser` (`@R "md"`) | `linked_file_parser.py` | Markdown 专用：mistletoe AST → MdNode 树 → 章节递归分块；每个 chunk 携带完整 heading skeleton（TOC）；wikilink 解析支持隐式 `.md`、folder-note、短路径歧义扇出，需注入 `file_graph` 解析目标。 |
+| `DefaultFileParser` (`@R "default"`) | `default_file_parser.py` | 仅 stat：附件/二进制不读内容、不切块、不抽链接；作为无 `supported_extensions` 命中时的兜底 parser。 |
+| `ChunkedFileParser` (`@R "chunked"`) | `chunked_file_parser.py` | 字节级带 overlap 切片 + YAML front matter + wikilink 抽取（含 Dataview `predicate::`）。 |
+| `LinkedFileParser` (`@R "linked"`) | `linked_file_parser.py` | Markdown 专用：mistletoe AST → MdNode 树 → 章节递归分块；每个 chunk 携带完整 heading skeleton（TOC）；wikilink 解析支持隐式 `.md`、folder-note、短路径歧义扇出，需注入 `file_graph` 解析目标。 |
 
 ### 4.6 File Store — `reme4/components/file_store/`
 

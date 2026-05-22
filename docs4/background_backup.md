@@ -120,7 +120,7 @@ V4更加高效的底层记忆索引
   - 不支持关键词检索，这里需要Keyword倒排索引，对中文的支持较差
   - [📌 历史] 描述 V3 痛点，不需要代码。
 - V4版本我们重写了file parser，file store，file graph，file watcher，手写了支持增量更新倒排索引
-  - file parser → [✅ `reme4/components/file_parser/`（base/bare/default/linked 四种）]
+  - file parser → [✅ `reme4/components/file_parser/`（base/default/chunked/linked 四种）]
   - file store → [✅ `reme4/components/file_store/local_file_store.py`]
   - file graph → [✅ `reme4/components/file_graph/`（local/nx/neo4j）]
   - file watcher → [✅ `reme4/components/file_watcher/lite_file_watcher.py` 基于 watchfiles awatch；`base_file_watcher.py` 抽象接口]

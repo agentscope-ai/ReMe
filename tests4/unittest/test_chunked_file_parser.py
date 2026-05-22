@@ -1,10 +1,10 @@
-"""Tests for DefaultFileParser."""
+"""Tests for ChunkedFileParser."""
 
 import asyncio
 import os
 import tempfile
 
-from reme4.components.file_parser import DefaultFileParser
+from reme4.components.file_parser import ChunkedFileParser
 
 
 # Add parent path for import
@@ -18,7 +18,7 @@ def test_parse_empty_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser()
+            parser = ChunkedFileParser()
             file_node, chunks = await parser.parse(temp_path)
             assert file_node.path == temp_path
             assert len(chunks) == 0
@@ -39,7 +39,7 @@ def test_parse_small_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=10000)
+            parser = ChunkedFileParser(chunk_byte_size=10000)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
@@ -63,7 +63,7 @@ def test_parse_multiline_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=10000)
+            parser = ChunkedFileParser(chunk_byte_size=10000)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
@@ -87,7 +87,7 @@ def test_parse_chunked_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=5000, overlap_byte_size=100)
+            parser = ChunkedFileParser(chunk_byte_size=5000, overlap_byte_size=100)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
             # Verify overlap by checking that consecutive chunks share some content
@@ -109,7 +109,7 @@ def test_parse_with_custom_encoding():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(encoding="utf-8")
+            parser = ChunkedFileParser(encoding="utf-8")
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) >= 1
             assert "你好世界" in chunks[0].text
@@ -130,7 +130,7 @@ def test_file_node_properties():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser()
+            parser = ChunkedFileParser()
             file_node, _ = await parser.parse(temp_path)
             assert hasattr(file_node, "path")
             assert hasattr(file_node, "st_mtime")
@@ -152,7 +152,7 @@ def test_file_chunk_properties():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser()
+            parser = ChunkedFileParser()
             _, chunks = await parser.parse(temp_path)
             chunk = chunks[0]
             assert hasattr(chunk, "path")
@@ -171,7 +171,7 @@ def test_file_chunk_properties():
 
 def test_parse_links_bare():
     """Bare wikilink: [[target]]."""
-    links = DefaultFileParser.parse_links("see [[note]]", "src.md")
+    links = ChunkedFileParser.parse_links("see [[note]]", "src.md")
     assert len(links) == 1
     link = links[0]
     assert link.source_path == "src.md"
@@ -183,7 +183,7 @@ def test_parse_links_bare():
 
 def test_parse_links_with_anchor():
     """Wikilink with anchor: [[target#anchor]]."""
-    links = DefaultFileParser.parse_links("see [[note#section A]]", "src.md")
+    links = ChunkedFileParser.parse_links("see [[note#section A]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "section A"
@@ -193,7 +193,7 @@ def test_parse_links_with_anchor():
 
 def test_parse_links_alias_dropped():
     """Alias after '|' is consumed but not captured as anchor."""
-    links = DefaultFileParser.parse_links("see [[note|display text]]", "src.md")
+    links = ChunkedFileParser.parse_links("see [[note|display text]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor is None
@@ -202,7 +202,7 @@ def test_parse_links_alias_dropped():
 
 def test_parse_links_anchor_and_alias():
     """[[target#anchor|alias]] — anchor captured, alias dropped."""
-    links = DefaultFileParser.parse_links("see [[note#sec|disp]]", "src.md")
+    links = ChunkedFileParser.parse_links("see [[note#sec|disp]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "sec"
@@ -211,7 +211,7 @@ def test_parse_links_anchor_and_alias():
 
 def test_parse_links_predicate_simple():
     """Dataview inline: predicate:: [[target]]."""
-    links = DefaultFileParser.parse_links("author:: [[Alice]]", "src.md")
+    links = ChunkedFileParser.parse_links("author:: [[Alice]]", "src.md")
     assert len(links) == 1
     assert links[0].predicate == "author"
     assert links[0].target_path == "Alice"
@@ -221,7 +221,7 @@ def test_parse_links_predicate_simple():
 
 def test_parse_links_predicate_bracketed():
     """Dataview inline-bracket: [predicate:: [[target]]]."""
-    links = DefaultFileParser.parse_links("text [author:: [[Alice]]] more", "src.md")
+    links = ChunkedFileParser.parse_links("text [author:: [[Alice]]] more", "src.md")
     assert len(links) == 1
     assert links[0].predicate == "author"
     assert links[0].target_path == "Alice"
@@ -230,7 +230,7 @@ def test_parse_links_predicate_bracketed():
 
 def test_parse_links_predicate_bracketed_with_anchor():
     """[predicate:: [[target_path#target_anchor]]] — combined form."""
-    links = DefaultFileParser.parse_links(
+    links = ChunkedFileParser.parse_links(
         "[predicate:: [[target_path#target_anchor]]]",
         "src.md",
     )
@@ -245,7 +245,7 @@ def test_parse_links_predicate_bracketed_with_anchor():
 
 def test_parse_links_predicate_sticks_to_first():
     """Predicate attaches only to the immediately following wikilink."""
-    links = DefaultFileParser.parse_links("pred:: [[a]] and bare [[b]]", "src.md")
+    links = ChunkedFileParser.parse_links("pred:: [[a]] and bare [[b]]", "src.md")
     assert len(links) == 2
     assert links[0].predicate == "pred" and links[0].target_path == "a"
     assert links[1].predicate is None and links[1].target_path == "b"
@@ -254,7 +254,7 @@ def test_parse_links_predicate_sticks_to_first():
 
 def test_parse_links_multiple_on_one_line():
     """Multiple bare wikilinks on the same line are all captured."""
-    links = DefaultFileParser.parse_links("see [[x]] and [[y#h]]", "src.md")
+    links = ChunkedFileParser.parse_links("see [[x]] and [[y#h]]", "src.md")
     assert [(link.target_path, link.target_anchor) for link in links] == [
         ("x", None),
         ("y", "h"),
@@ -264,15 +264,15 @@ def test_parse_links_multiple_on_one_line():
 
 def test_parse_links_no_match():
     """Strings without [[]] yield no links, even if '::' appears."""
-    assert len(DefaultFileParser.parse_links("no link here :: foo", "src.md")) == 0
-    assert len(DefaultFileParser.parse_links("plain text without brackets", "src.md")) == 0
-    assert len(DefaultFileParser.parse_links("", "src.md")) == 0
+    assert len(ChunkedFileParser.parse_links("no link here :: foo", "src.md")) == 0
+    assert len(ChunkedFileParser.parse_links("plain text without brackets", "src.md")) == 0
+    assert len(ChunkedFileParser.parse_links("", "src.md")) == 0
     print("✓ test_parse_links_no_match passed")
 
 
 def test_parse_links_predicate_with_dash_and_digits():
     """Predicate identifier accepts letters, digits, underscore, dash."""
-    links = DefaultFileParser.parse_links("see-also-2:: [[target]]", "src.md")
+    links = ChunkedFileParser.parse_links("see-also-2:: [[target]]", "src.md")
     assert len(links) == 1
     assert links[0].predicate == "see-also-2"
     assert links[0].target_path == "target"
@@ -297,7 +297,7 @@ def test_parse_links_in_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser()
+            parser = ChunkedFileParser()
             file_node, _ = await parser.parse(temp_path)
             triples = {(link.predicate, link.target_path, link.target_anchor) for link in file_node.links}
             assert (None, "alpha", None) in triples
@@ -325,7 +325,7 @@ def test_parse_links_empty_when_no_content():
             fm_only_path = f.name
 
         try:
-            parser = DefaultFileParser()
+            parser = ChunkedFileParser()
             node1, _ = await parser.parse(empty_path)
             node2, _ = await parser.parse(fm_only_path)
             assert node1.links == []
@@ -353,7 +353,7 @@ def test_chunk_does_not_split_wikilink_at_boundary():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=10)
             _, chunks = await parser.parse(temp_path)
             # The first chunk must NOT contain a partial link.
             first = chunks[0].text
@@ -382,7 +382,7 @@ def test_chunk_does_not_split_wikilink_in_overlap():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=20)
+            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=20)
             _, chunks = await parser.parse(temp_path)
             # No chunk should start mid-link.
             for c in chunks:
@@ -412,7 +412,7 @@ def test_chunk_falls_back_for_oversize_link():
             temp_path = f.name
 
         try:
-            parser = DefaultFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=10)
             _, chunks = await parser.parse(temp_path)
             # Must terminate (not hang) and cover the whole file.
             assert len(chunks) >= 2
@@ -428,7 +428,7 @@ def test_min_chunk_and_overlap_size():
 
     async def run():
         # These values should be clamped to minimums
-        parser = DefaultFileParser(chunk_byte_size=1, overlap_byte_size=0)
+        parser = ChunkedFileParser(chunk_byte_size=1, overlap_byte_size=0)
         assert parser.chunk_byte_size == 100  # minimum
         assert parser.overlap_byte_size == 4  # minimum
 

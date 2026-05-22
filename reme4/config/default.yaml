@@ -264,20 +264,20 @@ components:
       backend: local
 
   file_parser:
-    default:
-      backend: default
+    linked:
+      backend: linked
+      supported_extensions:
+        - md
+    chunked:
+      backend: chunked
       supported_extensions:
         - txt
         - html
         - json
         - yaml
         - py
-    bare:
-      backend: bare
-    linked:
-      backend: linked
-      supported_extensions:
-        - md
+    default:
+      backend: default
 
   keyword_index:
     default:
