@@ -17,7 +17,7 @@ class BaseFileGraph(BaseComponent):
         super().__init__(**kwargs)
         self.graph_name: str = graph_name or self.name
         self.graph_version: str = graph_version
-        self.graph_path: Path = self.working_metadata_path / self.component_type.value
+        self.graph_path: Path = self.vault_metadata_path / self.component_type.value
         self.graph_path.mkdir(parents=True, exist_ok=True)
 
     # -- Lifecycle ---------------------------------------------------------

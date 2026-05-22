@@ -28,10 +28,14 @@ class ApplicationConfig(BaseModel):
     """Root config for the ReMe application."""
 
     app_name: str = Field(default=os.getenv("APP_NAME", "ReMe"), description="Application display name")
-    working_dir: str = Field(default=".reme", description="Working directory for runtime files")
+    vault_dir: str = Field(default=".reme", description="Vault root directory (knowledge base) for runtime files")
     metadata_dir: str = Field(default="reme_metadata", description="Subdirectory for ReMe persistent state")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest")
+    resource_dir: str = Field(
+        default="resource",
+        description="Subdirectory for passively-received external assets (upload bucket)",
+    )
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")

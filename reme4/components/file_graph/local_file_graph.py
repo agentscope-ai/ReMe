@@ -120,14 +120,20 @@ class LocalFileGraph(BaseFileGraph):
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str) -> list[FileLink]:
+        # Source must be real (only real nodes carry a ``links`` payload).
+        # Targets may be virtual — the link payload is the data; whether
+        # the target is indexed is an orthogonal concern.
         node = self._nodes.get(path)
         if node is None:
             return []
-        return [lnk for lnk in node.links if lnk.target_path and lnk.target_path in self._nodes]
+        return [lnk for lnk in node.links if lnk.target_path]
 
     async def get_inlinks(self, path: str) -> list[FileLink]:
-        if path not in self._nodes:
-            return []
+        # Sources may come from either bucket: ``_inverse`` (target is a
+        # real node) or ``_pending`` (target is virtual). Both maps share
+        # the ``target → {sources}`` shape; merging covers the case where
+        # the target was deleted/never-indexed but still has live refs.
+        sources = self._inverse.get(path, set()) | self._pending.get(path, set())
         return [
-            link for src in self._inverse.get(path, ()) for link in self._nodes[src].links if link.target_path == path
+            link for src in sources if src in self._nodes for link in self._nodes[src].links if link.target_path == path
         ]

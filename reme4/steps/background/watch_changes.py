@@ -39,9 +39,9 @@ class WatchChangesStep(BaseStep):
 
         raw = self.context.get("watch_paths", [])
         paths = [raw] if isinstance(raw, str) else raw
-        valid_paths = [self.working_path / x for x in paths if (self.working_path / x).exists()]
+        valid_paths = [self.vault_path / x for x in paths if (self.vault_path / x).exists()]
         if not valid_paths:
-            raise RuntimeError(f"No valid watch paths under {self.working_path}: {paths}")
+            raise RuntimeError(f"No valid watch paths under {self.vault_path}: {paths}")
 
         self.logger.info(f"Watching: {[str(p) for p in valid_paths]}")
         async for raw_changes in awatch(

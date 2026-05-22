@@ -22,10 +22,10 @@ class UpdateStoreStep(BaseStep):
 
         raw: list[str] = self.context.get("watch_paths", [])
         suffixes: list[str] = self.context.get("suffix_filters", ["md"])
-        working_path = self.working_path
+        vault_path = self.vault_path
 
         paths = [raw] if isinstance(raw, str) else raw
-        watch_paths = [working_path / x for x in paths if (working_path / x).exists()]
+        watch_paths = [vault_path / x for x in paths if (vault_path / x).exists()]
 
         existing: dict[str, float] = {}
         for path in watch_paths:
@@ -39,7 +39,7 @@ class UpdateStoreStep(BaseStep):
                 existing[str(abs_p)] = abs_p.stat().st_mtime
 
         indexed: dict[str, float] = {
-            str(Path(n.path) if Path(n.path).is_absolute() else working_path / n.path): n.st_mtime
+            str(Path(n.path) if Path(n.path).is_absolute() else vault_path / n.path): n.st_mtime
             for n in await self.file_store.get_nodes()
         }
 

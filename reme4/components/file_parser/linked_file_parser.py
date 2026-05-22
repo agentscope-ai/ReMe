@@ -11,6 +11,15 @@ blocks (table / code / list / paragraph) split on internal boundaries
 and each piece is annotated ``[Part X/N]``. Wikilinks in the body are
 extracted as graph edges, with optional Dataview-style typed predicates
 (line-level ``predicate:: [[X]]`` or inline-bracketed ``[predicate:: [[X]]]``).
+
+Wikilink convention. Targets are taken **literally** — ``[[X]]``
+becomes ``target_path="X"`` with no implicit ``.md``, no short-form
+basename search, no folder-note expansion. The recommended form is a
+full path relative to the vault with extension, e.g.
+``[[digest/alice/alice.md]]``. Anything else (``[[Alice]]``,
+``[[digest/alice/alice]]``) is also stored verbatim and will be
+flagged by ``lint:dangling`` because no node lives at that literal
+path — the parser does no validation, lint is the contract enforcer.
 """
 
 from __future__ import annotations
@@ -25,61 +34,12 @@ import frontmatter
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
-from ..file_graph import BaseFileGraph
-from ...enumeration import ComponentEnum
 from ...schema import (
     FileChunk,
     FileLink,
     FileFrontMatter,
     FileNode,
 )
-
-
-# -- Wikilink resolution --------------------------------------------------
-#
-# Wikilinks are a markdown user-facing convention: ``[[Alice]]`` should
-# resolve to ``topics/Alice/Alice.md`` (or wherever the file lives).
-# This short-form / implicit-``.md`` / folder-note resolution lives here
-# at the markdown boundary rather than as a generic utility — file-IO
-# steps require full vault-relative paths and never use these helpers.
-
-
-def _complete_md(target: str) -> str:
-    """Apply implicit ``.md`` rule for wikilink targets."""
-    if not target:
-        return target
-    last = target.rsplit("/", 1)[-1]
-    return target if "." in last else target + ".md"
-
-
-def _filter_folder_note(target: str, paths: list[str]) -> list[str]:
-    """Apply folder-note rule: when both ``X.md`` and ``X/X.md`` exist,
-    prefer ``X/X.md``. Sorted for determinism.
-    """
-    if not paths:
-        return []
-    stem = Path(target).stem
-    folder_hits = sorted(p for p in paths if Path(p).parent.name == stem)
-    return folder_hits or sorted(paths)
-
-
-async def _resolve_wikilink(graph: BaseFileGraph, target: str) -> list[str]:
-    """Resolve a wikilink target to vault-relative path(s).
-
-    Returns:
-        ``[path]`` for an unambiguous match,
-        ``[path, path, ...]`` for short-form ambiguity (caller may
-        fan out one FileLink per candidate), or
-        ``[]`` when nothing matches (dangling — caller drops the link).
-    """
-    if not target:
-        return []
-    target = _complete_md(target)
-    if "/" in target:
-        nodes = await graph.get_nodes([target])
-        return [target] if nodes else []
-    matches = [n.path for n in await graph.get_nodes() if Path(n.path).name == target]
-    return _filter_folder_note(target, matches)
 
 
 # -- Wikilink extraction --------------------------------------------------
@@ -149,16 +109,12 @@ def _predicate_for(
     return None
 
 
-async def _extract_links(
-    graph: BaseFileGraph,
-    text: str,
-    source_path: str,
-) -> list[FileLink]:
-    """Find every wikilink in ``text``, resolve targets, emit FileLinks.
+def _extract_links(text: str, source_path: str) -> list[FileLink]:
+    """Find every wikilink in ``text`` and emit FileLinks with literal targets.
 
-    Short-path ambiguity **expands** into one FileLink per candidate so
-    the body's wikilink is recorded against every plausible target.
-    Dangling targets are dropped. Results are deduped by
+    No resolution is performed: ``target_path`` is the bracket contents
+    verbatim. ``lint:dangling`` checks whether the literal target exists
+    in the graph. Results are deduped by
     ``(target_path, predicate, target_anchor)`` preserving order.
     """
     if not text:
@@ -173,22 +129,18 @@ async def _extract_links(
         anchor_raw = wm.group("anchor")
         anchor = anchor_raw.strip() if anchor_raw else None
         predicate = _predicate_for(text, wm.start(), inline_spans)
-        resolved_paths = await _resolve_wikilink(graph, target)
-        if not resolved_paths:
+        key = (target, predicate, anchor)
+        if key in seen:
             continue
-        for resolved in resolved_paths:
-            key = (resolved, predicate, anchor)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(
-                FileLink(
-                    source_path=source_path,
-                    target_path=resolved,
-                    target_anchor=anchor,
-                    predicate=predicate,
-                ),
-            )
+        seen.add(key)
+        out.append(
+            FileLink(
+                source_path=source_path,
+                target_path=target,
+                target_anchor=anchor,
+                predicate=predicate,
+            ),
+        )
     return out
 
 
@@ -276,33 +228,12 @@ class LinkedFileParser(BaseFileParser):
         encoding: str = "utf-8",
         chunk_chars: int = 2000,
         embed_toc: bool = True,
-        file_graph: str = "default",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.encoding = encoding
         self.chunk_chars = max(100, chunk_chars)
         self.embed_toc = embed_toc
-        self._file_graph_name: str = file_graph
-
-    def _resolve_file_graph(self) -> BaseFileGraph | None:
-        """Lazily fetch the configured file_graph from app_context.
-
-        Lazy (rather than ``_start``) so the parser doesn't impose a
-        component start-order constraint, and so tests can construct
-        the parser without a graph wired up.
-        """
-        if self.app_context is None:
-            return None
-        graphs = self.app_context.components.get(ComponentEnum.FILE_GRAPH, {})
-        graph = graphs.get(self._file_graph_name)
-        if graph is None:
-            return None
-        if not isinstance(graph, BaseFileGraph):
-            raise TypeError(
-                f"Expected BaseFileGraph, got {type(graph).__name__}",
-            )
-        return graph
 
     async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         from mistletoe.markdown_renderer import MarkdownRenderer
@@ -318,10 +249,7 @@ class LinkedFileParser(BaseFileParser):
                 tree = self._build_tree(Document(post.content), renderer)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
 
-        links: list[FileLink] = []
-        graph = self._resolve_file_graph()
-        if graph is not None:
-            links = await _extract_links(graph, post.content, rel_path)
+        links = _extract_links(post.content, rel_path) if post.content else []
 
         node = FileNode(
             path=rel_path,

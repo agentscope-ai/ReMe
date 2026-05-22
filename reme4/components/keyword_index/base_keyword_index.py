@@ -19,7 +19,7 @@ class BaseKeywordIndex(BaseComponent):
 
         self.tokenizer = self.bind(tokenizer, BaseTokenizer, default_factory=RegexTokenizer)
         self.index_version = index_version
-        self.index_path = self.working_metadata_path / self.component_type.value
+        self.index_path = self.vault_metadata_path / self.component_type.value
         self.index_path.mkdir(parents=True, exist_ok=True)
 
     async def _start(self) -> None:

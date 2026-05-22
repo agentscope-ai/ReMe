@@ -18,11 +18,12 @@ class Application(BaseComponent):
         self.context = ApplicationContext(**kwargs)
         self._started_components: list[BaseComponent] = []
 
-        working_path = Path(self.config.working_dir).absolute()
-        working_path.mkdir(parents=True, exist_ok=True)
-        (working_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
-        (working_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
-        (working_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
+        vault_path = Path(self.config.vault_dir).absolute()
+        vault_path.mkdir(parents=True, exist_ok=True)
+        (vault_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
+        (vault_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
+        (vault_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
+        (vault_path / self.config.resource_dir).mkdir(parents=True, exist_ok=True)
 
         if self.config.enable_logo:
             print_logo(self.config)

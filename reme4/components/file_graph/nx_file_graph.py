@@ -98,17 +98,17 @@ class NxFileGraph(BaseFileGraph):
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str) -> list[FileLink]:
+        # Source must be real; target nodes may be virtual placeholders —
+        # the edge payload is still meaningful (the wikilink in the source
+        # references that path regardless of whether it's been indexed).
         nodes_view = self._graph.nodes
         if path not in nodes_view or "node" not in nodes_view[path]:
             return []
-        return [
-            d["link"]
-            for _, target, d in self._graph.out_edges(path, data=True)
-            if "link" in d and "node" in nodes_view[target]
-        ]
+        return [d["link"] for _, _, d in self._graph.out_edges(path, data=True) if "link" in d]
 
     async def get_inlinks(self, path: str) -> list[FileLink]:
-        nodes_view = self._graph.nodes
-        if path not in nodes_view or "node" not in nodes_view[path]:
+        # Drop the real-target check: edges into virtual placeholders are
+        # still meaningful (some source's ``.links`` still names this path).
+        if path not in self._graph.nodes:
             return []
         return [d["link"] for _, _, d in self._graph.in_edges(path, data=True) if "link" in d]

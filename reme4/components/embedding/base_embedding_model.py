@@ -52,7 +52,7 @@ class BaseEmbeddingModel(BaseComponent):
     @property
     def cache_path(self) -> Path:
         """Disk path for the embedding cache file."""
-        return self.working_metadata_path / "embedding_cache" / f"{self.name}_{self.cache_version}.npz"
+        return self.vault_metadata_path / "embedding_cache" / f"{self.name}_{self.cache_version}.npz"
 
     async def _start(self) -> None:
         """Load cache from disk on startup."""

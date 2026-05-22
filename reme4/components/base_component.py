@@ -121,24 +121,24 @@ class BaseComponent(ABC):
     # ----- Lookup --------------------------------------------------------
 
     @property
-    def working_path(self) -> Path:
-        """Resolved working directory from app context or cwd."""
+    def vault_path(self) -> Path:
+        """Resolved vault root path from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir).absolute()
+        return Path(self.app_context.app_config.vault_dir).absolute()
 
     @property
-    def working_metadata_path(self) -> Path:
-        """Resolved metadata directory: working_path / metadata_dir, or absolute metadata_dir."""
+    def vault_metadata_path(self) -> Path:
+        """Resolved metadata directory: vault_path / metadata_dir, or absolute metadata_dir."""
         if self.app_context is None:
             return Path.cwd() / "metadata"
-        return self.working_path / self.app_context.app_config.metadata_dir
+        return self.vault_path / self.app_context.app_config.metadata_dir
 
     def to_vault_relative(self, path: str | Path) -> str:
-        """Return path relative to working_path; absolute path string if outside."""
+        """Return path relative to vault_path; absolute path string if outside."""
         abs_path = Path(path).absolute()
         try:
-            return str(abs_path.relative_to(self.working_path))
+            return str(abs_path.relative_to(self.vault_path))
         except ValueError:
             return str(abs_path)
 

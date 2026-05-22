@@ -84,11 +84,11 @@ class BaseStep(ABC):
         return result
 
     @property
-    def working_path(self) -> Path:
-        """Resolved working directory from app context or cwd."""
+    def vault_path(self) -> Path:
+        """Resolved vault root path from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir).absolute()
+        return Path(self.app_context.app_config.vault_dir).absolute()
 
     def _resolve(
         self,
