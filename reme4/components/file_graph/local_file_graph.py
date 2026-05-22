@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
+from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
 
 
@@ -119,21 +120,39 @@ class LocalFileGraph(BaseFileGraph):
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(self, path: str) -> list[FileLink]:
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
         # Source must be real (only real nodes carry a ``links`` payload).
-        # Targets may be virtual — the link payload is the data; whether
-        # the target is indexed is an orthogonal concern.
+        # Targets may be real or virtual; ``scope`` selects which to surface.
         node = self._nodes.get(path)
         if node is None:
             return []
-        return [lnk for lnk in node.links if lnk.target_path]
+        return [lnk for lnk in node.links if lnk.target_path and _match_target(lnk.target_path, self._nodes, scope)]
 
-    async def get_inlinks(self, path: str) -> list[FileLink]:
-        # Sources may come from either bucket: ``_inverse`` (target is a
-        # real node) or ``_pending`` (target is virtual). Both maps share
-        # the ``target → {sources}`` shape; merging covers the case where
-        # the target was deleted/never-indexed but still has live refs.
-        sources = self._inverse.get(path, set()) | self._pending.get(path, set())
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        # ``_inverse`` keys real targets; ``_pending`` keys virtual ones.
+        # The queried ``path`` lives in at most one bucket, so ``scope``
+        # is satisfied by selecting which bucket to read.
+        sources: set[str] = set()
+        if scope in (LinkScopeEnum.REAL, LinkScopeEnum.ALL):
+            sources |= self._inverse.get(path, set())
+        if scope in (LinkScopeEnum.VIRTUAL, LinkScopeEnum.ALL):
+            sources |= self._pending.get(path, set())
         return [
             link for src in sources if src in self._nodes for link in self._nodes[src].links if link.target_path == path
         ]
+
+
+def _match_target(target_path: str, nodes: dict, scope: LinkScopeEnum) -> bool:
+    """Whether an edge into ``target_path`` should be surfaced under ``scope``."""
+    if scope is LinkScopeEnum.ALL:
+        return True
+    is_real = target_path in nodes
+    return is_real if scope is LinkScopeEnum.REAL else not is_real

@@ -39,6 +39,7 @@ from typing import Any
 
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
+from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
 from ...schema.file_node import FileFrontMatter
 
@@ -331,17 +332,22 @@ class Neo4jFileGraph(BaseFileGraph):
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(self, path: str) -> list[FileLink]:
-        """Outgoing links from ``path``. Source must be real; target nodes
-        may be virtual placeholders (a dangling wikilink is still data
-        the caller may want to surface — e.g. for index aggregation or
-        lint analysis)."""
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        """Outgoing links from ``path``. Source must be real; ``scope``
+        selects which targets to surface (REAL / VIRTUAL / ALL).
+        """
+        target_filter = _neo4j_scope_filter("t", scope)
         async with self._session() as session:
             rec = await session.run(
-                """
-                MATCH (s:File {path: $path})
+                f"""
+                MATCH (s:File {{path: $path}})
                 WHERE s.links_json IS NOT NULL
                 MATCH (s)-[r:LINKS]->(t:File)
+                WHERE 1=1 {target_filter}
                 RETURN t.path AS target, r.anchor AS anchor,
                        r.predicate AS predicate, r.idx AS idx
                 ORDER BY r.idx ASC
@@ -359,18 +365,23 @@ class Neo4jFileGraph(BaseFileGraph):
             for row in rows
         ]
 
-    async def get_inlinks(self, path: str) -> list[FileLink]:
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
         """Incoming links to ``path`` from real sources.
 
-        Target may be virtual (deleted / never indexed) — what matters
-        is that some real source still names this ``path`` in its
-        outgoing edges. Sources are filtered to real nodes because
-        virtual placeholders never have outgoing edges anyway.
+        ``scope`` selects whether ``path`` itself must be real / virtual /
+        either; sources are always real (virtual nodes have no outgoing
+        edges to begin with).
         """
+        target_filter = _neo4j_scope_filter("t", scope)
         async with self._session() as session:
             rec = await session.run(
-                """
-                MATCH (t:File {path: $path})
+                f"""
+                MATCH (t:File {{path: $path}})
+                WHERE 1=1 {target_filter}
                 MATCH (s:File)-[r:LINKS]->(t)
                 WHERE s.links_json IS NOT NULL
                 RETURN r.anchor AS anchor, r.predicate AS predicate,
@@ -451,3 +462,18 @@ class Neo4jFileGraph(BaseFileGraph):
             chunk_ids=[str(c) for c in (d.get("chunk_ids") or [])],
             front_matter=FileFrontMatter(**fm_kwargs),
         )
+
+
+def _neo4j_scope_filter(node_var: str, scope: LinkScopeEnum) -> str:
+    """Cypher predicate that restricts ``node_var`` to the requested scope.
+
+    Encodes the same convention used everywhere in this backend:
+    ``links_json IS NOT NULL`` ⇔ real node; ``IS NULL`` ⇔ virtual
+    placeholder. ``ALL`` returns an empty fragment so callers can
+    splice it after ``WHERE 1=1``.
+    """
+    if scope is LinkScopeEnum.REAL:
+        return f"AND {node_var}.links_json IS NOT NULL"
+    if scope is LinkScopeEnum.VIRTUAL:
+        return f"AND {node_var}.links_json IS NULL"
+    return ""
