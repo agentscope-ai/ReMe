@@ -27,7 +27,8 @@ from . import common  # noqa: F401  -- registers common steps (search, version, 
 from . import crud  # noqa: F401  -- registers list/stat/upload/download/move/delete/read/write/append/edit
 from . import frontmatter  # noqa: F401  -- registers frontmatter_read_step/update/delete
 from . import daily  # noqa: F401  -- registers daily_resolve_step / daily_list_step / daily_reindex_step
-from . import jobs  # noqa: F401  -- registers synchronizer / digester
+
+# from . import jobs  # noqa: F401  -- registers synchronizer / digester
 from .base_step import BaseStep
 
 __all__ = [

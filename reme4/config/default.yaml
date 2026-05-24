@@ -5,8 +5,8 @@ service:
 # Default dev config points vault_dir at ./vault so `python -m reme4.reme start`
 # can be run from the repo root and exercise the full atomic-tool surface
 # against the seeded test data. Override the `vault_dir=` CLI arg.
-vault_dir: vaultd
-aily_dir: memory
+vault_dir: vault
+daily_dir: memory
 
 jobs:
   # ════════════════════════════════════════════════════════════════════
@@ -138,37 +138,6 @@ jobs:
       - backend: list_step
 
   - backend: base
-    name: traverse
-    description: "Traverse the file graph from one or more seed paths up to N hops, in the chosen direction. Use to chase wikilink neighborhoods after a search hit."
-    parameters:
-      type: object
-      properties:
-        path:
-          oneOf:
-            - {type: string}
-            - {type: array, items: {type: string}}
-          description: "Seed path or list of paths (relative to the vault)."
-        depth:     {type: integer, description: "Hop limit (default 1 = immediate neighbors).", default: 1}
-        direction: {type: string,  description: "Edge direction filter: forward / backward / both.", default: forward}
-      required:
-        - path
-    steps:
-      - backend: traverse_step
-
-  # ── Read ───────────────────────────────────────────────────────────
-  - backend: base
-    name: list
-    description: "List files under a path; optionally recursive, with a result cap. Plain directory walker — no frontmatter parsing. Callers that need frontmatter-based filtering should iterate the result and call `frontmatter_read` per candidate."
-    parameters:
-      type: object
-      properties:
-        path:      {type: string,  description: "Directory path (relative to the vault). Empty = vault root.", default: ""}
-        recursive: {type: boolean, description: "Recurse into subdirectories.", default: false}
-        limit:     {type: integer, description: "Max results.", default: 100}
-    steps:
-      - backend: list_step
-
-  - backend: base
     name: read
     description: "read a markdown file (relative path under the vault)"
     parameters:
@@ -209,10 +178,6 @@ jobs:
       required: [path]
     steps:
       - backend: frontmatter_read_step
-
-  # ── Tags ───────────────────────────────────────────────────────────
-  # (tag tooling intentionally removed — frontmatter only reserves
-  #  `name` / `description`; agents can layer their own taxonomy)
 
   # ── Write ──────────────────────────────────────────────────────────
   - backend: base
@@ -400,17 +365,6 @@ jobs:
         date: {type: string, description: "ISO date (YYYY-MM-DD). Empty = today.", default: ""}
     steps:
       - backend: daily_reindex_step
-
-  - backend: background
-    name: watch_file
-    watch_paths:
-      - MEMORY.md
-      - memory
-    suffix_filters:
-      - md
-    steps:
-      - backend: update_store_step
-      - backend: watch_changes_step
 
   - backend: background
     name: watch_file

@@ -23,7 +23,7 @@ import warnings
 from pathlib import Path
 
 from reme4.components.file_store import LocalFileStore
-from reme4.schema import ResourceEntry
+from reme4.schema.resource_meta import ResourceEntry
 from reme4.steps.crud import upload as crud_upload
 from reme4.utils.resource_utils import assemble_day_md
 
@@ -252,7 +252,7 @@ def test_upload_errors_on_duplicate_same_second(monkeypatch):
 
             class _FrozenDT(datetime.datetime):
                 @classmethod
-                def now(cls, tz=None):
+                def now(cls, tz=None):  # pylint: disable=unused-argument
                     return fixed
 
             monkeypatch.setattr(crud_upload.datetime, "datetime", _FrozenDT)
@@ -291,7 +291,7 @@ def test_upload_errors_on_duplicate_against_on_disk_stray(monkeypatch):
 
             class _FrozenDT(datetime.datetime):
                 @classmethod
-                def now(cls, tz=None):
+                def now(cls, tz=None):  # pylint: disable=unused-argument
                     return fixed
 
             monkeypatch.setattr(crud_upload.datetime, "datetime", _FrozenDT)
