@@ -32,11 +32,9 @@ from . import daily  # noqa: F401  -- registers daily_resolve_step / daily_list_
 from .base_step import BaseStep
 
 __all__ = [
-    "background",
     "common",
     "crud",
     "frontmatter",
     "daily",
-    "jobs",
     "BaseStep",
 ]
