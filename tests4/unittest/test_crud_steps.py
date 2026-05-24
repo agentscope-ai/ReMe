@@ -524,11 +524,11 @@ def test_delete_folder_empty_has_no_inbound():
 
 
 def test_read_relative_path():
-    """`reme4 read path=Templates/Recipe.md` returns the file body from .reme/."""
+    """`reme4 read path=Templates/Recipe.md` returns the file body from vault/."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             body = "# Recipe\n\nMix flour and water.\n"
             _seed_md(working, "Templates/Recipe.md", body)
@@ -555,7 +555,7 @@ def test_read_no_suffix_autoappends_md():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Templates/Recipe.md", "auto-md\n")
             async with mock_reme_server() as (host, port):
@@ -578,7 +578,7 @@ def test_read_line_range():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
             async with mock_reme_server() as (host, port):
@@ -609,7 +609,7 @@ def test_read_absolute_path_accepted():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             target = _seed_md(working, "Abs.md", "x\n")
             async with mock_reme_server() as (host, port):
@@ -633,7 +633,7 @@ def test_read_non_md_degraded():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "data/foo.txt", "plain-text body\n")
             async with mock_reme_server() as (host, port):
@@ -658,7 +658,7 @@ def test_read_missing_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 result = await call_action(
@@ -683,7 +683,7 @@ def test_read_start_after_end():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Range.md", "a\nb\nc\n")
             async with mock_reme_server() as (host, port):
@@ -711,7 +711,7 @@ def test_read_start_line_exceeds_total():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Short.md", "only-one-line\n")
             async with mock_reme_server() as (host, port):
@@ -738,7 +738,7 @@ def test_read_truncation():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             # Seed > DEFAULT_MAX_BYTES (50 KiB) so the default truncation kicks in.
             body = "\n".join(f"line {i}" for i in range(8000)) + "\n"
@@ -766,7 +766,7 @@ def test_read_empty_path_rejected():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 result = await call_action("read", host=host, port=port, path="")
@@ -789,7 +789,7 @@ def test_write_basic_with_frontmatter():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -819,7 +819,7 @@ def test_write_no_suffix_autoappends_md():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -841,7 +841,7 @@ def test_write_overwrites_with_notice():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Existing.md", "old\n")
             async with mock_reme_server() as (host, port):
@@ -872,7 +872,7 @@ def test_write_creates_parent_dirs():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -897,7 +897,7 @@ def test_write_no_frontmatter_when_all_empty():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -923,7 +923,7 @@ def test_write_ignores_arbitrary_extra_fields():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -959,7 +959,7 @@ def test_write_only_description_present():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -985,7 +985,7 @@ def test_edit_global_replace():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "E.md", "foo bar foo\nfoo\n")
             async with mock_reme_server() as (host, port):
@@ -1011,7 +1011,7 @@ def test_edit_old_not_found():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "E.md", "hello world\n")
             async with mock_reme_server() as (host, port):
@@ -1041,7 +1041,7 @@ def test_edit_missing_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 result = await call_action(
@@ -1068,7 +1068,7 @@ def test_edit_skips_frontmatter():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             body = (
                 "---\n"
@@ -1107,7 +1107,7 @@ def test_edit_match_only_in_frontmatter_fails():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             body = "---\nname: secret\ndescription: nope\n---\nplain body without the keyword.\n"
             _seed_md(working, "FMOnly.md", body)
@@ -1138,7 +1138,7 @@ def test_append_basic():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "A.md", "L1\n")
             async with mock_reme_server() as (host, port):
@@ -1161,7 +1161,7 @@ def test_append_concatenates_verbatim():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "A.md", "abc")  # no trailing newline
             async with mock_reme_server() as (host, port):
@@ -1184,7 +1184,7 @@ def test_append_auto_creates_missing_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -1211,7 +1211,7 @@ def test_append_empty_content_on_existing_file_is_noop():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "A.md", "L1\n")
             async with mock_reme_server() as (host, port):
@@ -1234,7 +1234,7 @@ def test_append_empty_content_creates_empty_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -1260,7 +1260,7 @@ def test_write_non_md_skips_frontmatter():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             async with mock_reme_server() as (host, port):
                 await call_and_check(
@@ -1291,7 +1291,7 @@ def test_edit_non_md_full_text():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             # A YAML-looking header that would otherwise be stripped as frontmatter.
             body = "---\nname: keep-me\n---\nfoo bar foo\n"
@@ -1323,7 +1323,7 @@ def test_append_non_md_warns():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "data/log.txt", "line1\n")
             async with mock_reme_server() as (host, port):
@@ -1348,7 +1348,7 @@ def test_read_non_utf8_encoding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             target = working / "data.csv"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1372,7 +1372,7 @@ def test_append_preserves_gbk_encoding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             target = working / "data.csv"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1402,7 +1402,7 @@ def test_edit_preserves_gbk_encoding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             target = working / "notes.csv"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1432,7 +1432,7 @@ def test_read_utf8_bom():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             target = working / "bom.txt"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1462,7 +1462,7 @@ def test_all_read_cases_one_server():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
+            working = Path(tmp) / "vault"
             working.mkdir(parents=True, exist_ok=True)
             _seed_md(working, "Templates/Recipe.md", "# Recipe\nbody\n")
             _seed_md(working, "Notes.md", "L1\nL2\nL3\n")

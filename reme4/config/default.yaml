@@ -2,11 +2,13 @@ service:
   backend: http
 #  backend: mcp
 
-# Default dev config points vault_dir at ./vault so `python -m reme4.reme start`
+# Default dev config points vault_dir at ./vault so `python -m reme4vault start`
 # can be run from the repo root and exercise the full atomic-tool surface
 # against the seeded test data. Override the `vault_dir=` CLI arg.
 vault_dir: vault
-daily_dir: memory
+daily_dir: daily
+digest_dir: digest
+resource_dir: resource
 
 jobs:
   # ════════════════════════════════════════════════════════════════════
@@ -422,15 +424,6 @@ components:
       embedding_model: default
       keyword_index: default
       file_graph: default
-
-  file_watcher:
-    default:
-      backend: lite
-      watch_paths:
-        - daily
-        - digest
-      file_store: default
-      file_parser: default
 
 # as_llm / formatter aren't required for atomic primitives; configure
 # only if you'll invoke digester/synchronizer or other LLM-driven

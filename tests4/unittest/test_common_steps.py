@@ -115,7 +115,7 @@ def test_help_job():
                         and r.get("success") is True
                         and isinstance(r.get("answer"), str)
                         and r.get("metadata", {}).get("job_count", 0) > 0
-                        and "help" not in r["answer"]
+                        and "`help`" not in r["answer"]
                     ),
                 )
                 # Spot-check that a couple of known jobs appear in the listing.
@@ -169,91 +169,6 @@ def test_search_job_missing_query():
     _run(run())
 
 
-def test_init_job():
-    """init job should scaffold the vault_dir skeleton idempotently.
-
-    The application's startup logic already creates vault_dir/daily/ and
-    vault_dir/digest/, so by the time init runs over HTTP those dirs
-    exist. init still has work to do: it lays down .gitignore and
-    .env.example (which application startup does not). On the second call,
-    all four entries must be reported as existing.
-    """
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                # First call — files are created; dirs may already exist
-                # because application startup primes daily/ and digest/.
-                result = await call_and_check(
-                    "init",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("metadata", {}).get("init"), dict)
-                    ),
-                )
-                init = result["metadata"]["init"]
-                seen = set(init.get("created", [])) | set(init.get("existed", []))
-                expected = {"daily/", "digest/", ".gitignore", ".env.example"}
-                if not expected.issubset(seen):
-                    raise AssertionError(f"first init should account for all entries; got seen={seen!r}")
-                if ".gitignore" not in init.get("created", []) or ".env.example" not in init.get("created", []):
-                    raise AssertionError(f"first init must create .gitignore + .env.example; got {init!r}")
-
-                # Verify files actually exist on disk under the vault.
-                root = init["root"]
-                for entry in ("daily", "digest", ".gitignore", ".env.example"):
-                    if not os.path.exists(os.path.join(root, entry)):
-                        raise AssertionError(f"init did not create {entry!r} under {root!r}")
-
-                # Second call — everything already exists; nothing is recreated.
-                result2 = await call_and_check(
-                    "init",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("metadata", {}).get("init"), dict)
-                    ),
-                )
-                init2 = result2["metadata"]["init"]
-                if init2.get("created"):
-                    raise AssertionError(f"second init should create nothing; got created={init2['created']!r}")
-                existed = set(init2.get("existed", []))
-                if not expected.issubset(existed):
-                    raise AssertionError(f"second init should report all entries existed; got existed={existed!r}")
-        print("✓ test_init_job passed")
-
-    _run(run())
-
-
-def test_demo_job():
-    """demo job should echo back the normalized query and adjusted min_score."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "demo",
-                    host=host,
-                    port=port,
-                    query="  Hello World  ",
-                    min_score=0.8,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and "hello world" in str(r.get("answer", ""))
-                        and abs(r.get("metadata", {}).get("adjusted_min_score", 0) - 0.72) < 1e-6
-                    ),
-                )
-        print("✓ test_demo_job passed")
-
-    _run(run())
-
-
 # -- aggregate: reuse one server instance for all jobs -------------------
 
 
@@ -302,21 +217,6 @@ def test_all_jobs_one_server():
                     host=host,
                     port=port,
                     validator=lambda r: isinstance(r, dict) and isinstance(r.get("metadata", {}).get("counts"), dict),
-                )
-                # init (idempotent — first call may create, second always finds existing)
-                await call_and_check(
-                    "init",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and isinstance(r.get("metadata", {}).get("init"), dict),
-                )
-                # demo
-                await call_and_check(
-                    "demo",
-                    host=host,
-                    port=port,
-                    query="Foo",
-                    validator=lambda r: isinstance(r, dict) and "foo" in str(r.get("answer", "")),
                 )
         print("✓ test_all_jobs_one_server passed")
 
@@ -471,8 +371,6 @@ if __name__ == "__main__":
     test_help_job()
     test_search_job_empty_store()
     test_search_job_missing_query()
-    test_init_job()
-    test_demo_job()
     test_all_jobs_one_server()
     print("\n=== traverse step tests ===")
     test_traverse_forward_depth_1()

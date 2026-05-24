@@ -33,6 +33,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ..enumeration import LinkScopeEnum
+
 
 # Captures: optional image marker (``!``), the bare target, an optional
 # ``#anchor`` slice, and an optional ``|alias`` slice. The anchor /
@@ -111,16 +113,18 @@ def _scan_text(text: str, old: str, new: str | None) -> tuple[str, int]:
 async def _inbound_sources(file_store, target: str) -> list[str]:
     """Source paths the file_graph reports as referencing ``target``.
 
-    Reverse-index lookup via ``file_graph.get_inlinks(target)`` — each
-    returned ``FileLink`` carries the linking node's ``source_path``,
-    and we dedupe to a sorted list since one source can host multiple
-    edges (different anchor/predicate) to the same target. Returns
-    ``[]`` when there is no file_graph attached or no source references
-    the target.
+    Reverse-index lookup via ``file_graph.get_inlinks(target, scope=ALL)`` —
+    ``target`` is typically virtual here (the move/delete callers query for
+    references to a path that has just been removed), so ``scope=ALL`` is
+    required to surface sources whose edges sit in the pending bucket.
+    Each returned ``FileLink`` carries the linking node's ``source_path``;
+    we dedupe to a sorted list since one source can host multiple edges
+    (different anchor/predicate) to the same target. Returns ``[]`` when
+    there is no file_graph attached or no source references the target.
     """
     if not file_store.file_graph:
         return []
-    inlinks = await file_store.file_graph.get_inlinks(target)
+    inlinks = await file_store.file_graph.get_inlinks(target, scope=LinkScopeEnum.ALL)
     return sorted({link.source_path for link in inlinks if link.source_path})
 
 
