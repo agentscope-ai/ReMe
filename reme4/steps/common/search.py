@@ -73,27 +73,25 @@ class SearchStep(BaseStep):
 
     @staticmethod
     def _node_meta(node: FileNode | None) -> dict:
-        """Extract a compact meta dict (title/description/tags) from a FileNode."""
+        """Extract a compact meta dict (name/description) from a FileNode."""
         if node is None:
             return {}
         fm = node.front_matter
         meta: dict = {}
-        if fm.title:
-            meta["title"] = fm.title
+        if fm.name:
+            meta["name"] = fm.name
         if fm.description:
             meta["description"] = fm.description
-        if fm.tags:
-            meta["tags"] = list(fm.tags)
         return meta
 
     @staticmethod
     def _format_meta_inline(meta: dict) -> str:
         """One-line render of node meta for the answer; '(no meta)' when empty."""
         parts = []
-        if "title" in meta:
-            parts.append(f'title="{meta["title"]}"')
-        if "tags" in meta:
-            parts.append(f"tags={meta['tags']}")
+        if "name" in meta:
+            parts.append(f'name="{meta["name"]}"')
+        if "description" in meta:
+            parts.append(f'description="{meta["description"]}"')
         return "  ".join(parts) if parts else "(no meta)"
 
     @staticmethod

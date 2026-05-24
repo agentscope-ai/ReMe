@@ -1,4 +1,4 @@
-"""Common utilities: hashing and async stream task execution."""
+"""Common utilities: hashing, JSON serialization, async stream task execution."""
 
 import asyncio
 import hashlib
@@ -9,6 +9,7 @@ import sys
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Any, Literal
 
 from .logger_utils import get_logger
@@ -20,6 +21,31 @@ from ..schema import StreamChunk
 def hash_text(text: str, encoding: str = "utf-8") -> str:
     """Return SHA-256 hex digest of text."""
     return hashlib.sha256(text.encode(encoding)).hexdigest()
+
+
+def to_jsonable(value: Any) -> Any:
+    """Coerce a value into something ``json.dumps`` can handle.
+
+    Recursively walks dicts / lists / tuples / sets; dates and
+    datetimes become ISO 8601 strings; everything else passes through.
+    """
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [to_jsonable(v) for v in value]
+    return value
+
+
+def set_answer(context, payload: Any) -> None:
+    """Serialize ``payload`` and write it onto ``context.response.answer``.
+
+    Used by every BaseStep that produces a JSON-shaped result; the
+    L2 ``add_as_tool`` wrapper then forwards ``response.answer`` as
+    the agent-visible ToolResponse text.
+    """
+    context.response.answer = json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2)
 
 
 def _format_chunk(

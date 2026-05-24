@@ -1,29 +1,17 @@
-daily_dir: memory
-
 service:
   backend: http
 #  backend: mcp
 
-jobs:
-  - backend: base
-    name: demo
-    description: "demo job description"
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "query"
-        min_score:
-          type: number
-          description: "min score"
-          default: 0.5
-      required:
-        - query
-    steps:
-      - backend: demo_echo_step1
-      - backend: demo_echo_step2
+# Default dev config points vault_dir at ./vault so `python -m reme4.reme start`
+# can be run from the repo root and exercise the full atomic-tool surface
+# against the seeded test data. Override the `vault_dir=` CLI arg.
+vault_dir: vaultd
+aily_dir: memory
 
+jobs:
+  # ════════════════════════════════════════════════════════════════════
+  # UTILITY — service introspection
+  # ════════════════════════════════════════════════════════════════════
   - backend: base
     name: version
     description: "return reme4 package version"
@@ -87,9 +75,14 @@ jobs:
     steps:
       - backend: index_changes_step
 
+  # ════════════════════════════════════════════════════════════════════
+  # ATOMIC TOOLS — same surface plugins/reme-{service,expert} expose
+  # ════════════════════════════════════════════════════════════════════
+
+  # ── Retrieve ───────────────────────────────────────────────────────
   - backend: base
     name: search
-    description: "hybrid search over file_store: vector + keyword fused via RRF"
+    description: "Hybrid search over the vault (vector + BM25 fused via RRF). Returns ranked chunks with optional wikilink expansion."
     parameters:
       type: object
       properties:
@@ -114,14 +107,76 @@ jobs:
         max_links_per_direction: 10
 
   - backend: base
+    name: traverse
+    description: "Traverse the file graph from one or more seed paths up to N hops, in the chosen direction. Use to chase wikilink neighborhoods after a search hit."
+    parameters:
+      type: object
+      properties:
+        path:
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}}
+          description: "Seed path or list of paths (relative to the vault)."
+        depth:     {type: integer, description: "Hop limit (default 1 = immediate neighbors).", default: 1}
+        direction: {type: string,  description: "Edge direction filter: forward / backward / both.", default: forward}
+      required:
+        - path
+    steps:
+      - backend: traverse_step
+
+  # ── Read ───────────────────────────────────────────────────────────
+  - backend: base
+    name: list
+    description: "List files under a path; optionally recursive, with a result cap. Plain directory walker — no frontmatter parsing. Callers that need frontmatter-based filtering should iterate the result and call `frontmatter_read` per candidate."
+    parameters:
+      type: object
+      properties:
+        path:      {type: string,  description: "Directory path (relative to the vault). Empty = vault root.", default: ""}
+        recursive: {type: boolean, description: "Recurse into subdirectories.", default: false}
+        limit:     {type: integer, description: "Max results.", default: 100}
+    steps:
+      - backend: list_step
+
+  - backend: base
+    name: traverse
+    description: "Traverse the file graph from one or more seed paths up to N hops, in the chosen direction. Use to chase wikilink neighborhoods after a search hit."
+    parameters:
+      type: object
+      properties:
+        path:
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}}
+          description: "Seed path or list of paths (relative to the vault)."
+        depth:     {type: integer, description: "Hop limit (default 1 = immediate neighbors).", default: 1}
+        direction: {type: string,  description: "Edge direction filter: forward / backward / both.", default: forward}
+      required:
+        - path
+    steps:
+      - backend: traverse_step
+
+  # ── Read ───────────────────────────────────────────────────────────
+  - backend: base
+    name: list
+    description: "List files under a path; optionally recursive, with a result cap. Plain directory walker — no frontmatter parsing. Callers that need frontmatter-based filtering should iterate the result and call `frontmatter_read` per candidate."
+    parameters:
+      type: object
+      properties:
+        path:      {type: string,  description: "Directory path (relative to the vault). Empty = vault root.", default: ""}
+        recursive: {type: boolean, description: "Recurse into subdirectories.", default: false}
+        limit:     {type: integer, description: "Max results.", default: 100}
+    steps:
+      - backend: list_step
+
+  - backend: base
     name: read
-    description: "read a markdown file (relative path under working_dir)"
+    description: "read a markdown file (relative path under the vault)"
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir (no absolute paths); markdown only"
+          description: "relative path under the vault (no absolute paths); markdown only"
         start_line:
           type: integer
           description: "Optional, first line to read (1-based, inclusive)"
@@ -134,6 +189,33 @@ jobs:
       - backend: read_step
 
   - backend: base
+    name: stat
+    description: "Stat a file under the vault (size, mtime, exists, is_dir, is_file)."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "Path relative to the vault."}
+      required: [path]
+    steps:
+      - backend: stat_step
+
+  - backend: base
+    name: frontmatter_read
+    description: "Read a markdown file's parsed YAML frontmatter as a dict (body excluded)."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "Path relative to the vault."}
+      required: [path]
+    steps:
+      - backend: frontmatter_read_step
+
+  # ── Tags ───────────────────────────────────────────────────────────
+  # (tag tooling intentionally removed — frontmatter only reserves
+  #  `name` / `description`; agents can layer their own taxonomy)
+
+  # ── Write ──────────────────────────────────────────────────────────
+  - backend: base
     name: write
     description: >-
       Write (create or overwrite) a markdown file. The front matter is fixed to two string
@@ -143,7 +225,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "relative path under the vault; markdown only."
         name:
           type: string
           description: "front matter `name` field; short human-readable title of the file."
@@ -169,7 +251,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "relative path under the vault; markdown only."
         old:
           type: string
           description: "exact text to find."
@@ -192,7 +274,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "relative path under the vault; markdown only."
         content:
           type: string
           description: "content to append."
@@ -202,28 +284,133 @@ jobs:
     steps:
       - backend: append_step
 
-  - backend: stream
-    name: stream_demo
-    description: "stream demo job: repeat query 10x and stream char-by-char"
+  - backend: base
+    name: frontmatter_update
+    description: "Update YAML frontmatter on an existing markdown file (merge semantics — each entry in `metadata` becomes one frontmatter key; missing keys are inserted, existing keys overwritten). Use for surgical edits to the reserved keys (`name` / `description`) or any caller-defined keys without rewriting the body."
     parameters:
       type: object
       properties:
-        query:
-          type: string
-          description: "query to echo"
-        repeat:
-          type: integer
-          description: "number of times to repeat the query"
-          default: 10
-        interval:
-          type: number
-          description: "seconds between chunks"
-          default: 0.1
-      required:
-        - query
+        path: {type: string, description: "Path relative to the vault."}
+        metadata:
+          type: object
+          description: "Frontmatter keys to merge — every key/value becomes one frontmatter entry."
+          additionalProperties: true
+      required: [path, metadata]
     steps:
-      - backend: stream_demo_step1
-      - backend: stream_demo_step2
+      - backend: frontmatter_update_step
+
+  - backend: base
+    name: frontmatter_delete
+    description: "Delete one or more YAML frontmatter keys on an existing file."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "Path relative to the vault."}
+        keys:
+          type: array
+          description: "Frontmatter keys to remove."
+          items: {type: string}
+      required: [path, keys]
+    steps:
+      - backend: frontmatter_delete_step
+
+  # ── File ops (relocate / cross-realm) ──────────────────────────────
+  - backend: base
+    name: move
+    description: "Relocate / rename a file within the vault and (by default) fix every inbound wikilink. Use for promoting a draft (daily/ → digest/) or renaming a slug. retarget=true (default) rewrites [[path]] references across the vault to [[new_path]] after the rename — keeping the knowledge graph consistent without a second tool call. Set retarget=false only when intentionally leaving inbound links dangling (e.g. moving a file aside to delete next). For cross-realm transfer use upload / download."
+    parameters:
+      type: object
+      properties:
+        path:      {type: string,  description: "Source path (relative to the vault)."}
+        new_path:  {type: string,  description: "Destination path (relative to the vault) with a directory component."}
+        overwrite: {type: boolean, description: "Overwrite if new_path exists.", default: false}
+        retarget:  {type: boolean, description: "Rewrite inbound wikilinks [[path]] → [[new_path]] after the move (across the vault). Set to false to leave links dangling.", default: true}
+      required: [path, new_path]
+    steps:
+      - backend: move_step
+
+  - backend: base
+    name: delete
+    description: "Hard-delete a file or folder under the vault and report every inbound wikilink that pointed at the doomed targets. The delete itself is unconditional — the inbound list (path + count, literal full-path matching only; sources inside the doomed folder are filtered out) is returned so the agent can decide what to do about each surviving reference (edit the citing prose, point it at a replacement, or accept it as dangling)."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "Path relative to the vault. File or directory."}
+      required: [path]
+    steps:
+      - backend: delete_step
+
+  - backend: base
+    name: upload
+    description: "Land an externally-received asset into resource/<today>/ (today = local date at call time), alongside a meta.json row capturing provenance and a regenerated <date>.md index view. This is the passive-ingest entry point for external channels (wechat / email / browser / api / ...). Do NOT use it for materials the agent actively fetches or generates inside a daily task — those belong as sibling files inside daily/<date>/<slug>/. The bucket file name is derived as `<channel>__<HHMMSS>__<source-basename>` (callers cannot override); source basenames with path separators, dot segments, or a leading '.' are rejected. Returns {date, name, path}. A duplicate (same channel + same second + same source basename) returns an error — the step never silently dedupes."
+    parameters:
+      type: object
+      properties:
+        path:        {type: string, description: "Source path on the local filesystem; its basename becomes the trailing component of the bucket file name."}
+        channel:     {type: string, description: "Inbound channel identifier (wechat / email / browser / api / ...). Lowercase letters / digits / dashes only; must start with a letter or digit."}
+        description: {type: string, description: "Analysis hint for downstream agents: where the asset came from, what kind of content it carries, and how it should be interpreted (skim vs. deep parse, structured extraction vs. summarization, ...). The digester reads this verbatim from meta.json to decide how to process the asset, so write enough detail to drive that decision — not just a title. Multi-line is fine; the <date>.md bullet view flattens for display while meta.json preserves the original."}
+        metadata:    {type: object, description: "Optional extras persisted on the meta.json row. `source` (free-form origin within the channel — group name, sender, URL, ...) is conventional; any other keys pass through verbatim. Keys `name`, `channel`, `received_at`, `description` are reserved.", default: {}}
+      required: [path, channel, description]
+    steps:
+      - backend: upload_step
+
+  - backend: base
+    name: download
+    description: "Copy a file OUT of the vault to the local filesystem. Use to hand materials from the vault to local tools (browser, viewer). `download_path` empty → land in a session-scoped temp file and return the realized path."
+    parameters:
+      type: object
+      properties:
+        path:          {type: string,  description: "File inside the vault (vault-relative)."}
+        download_path: {type: string,  description: "Absolute host filesystem path to write to. Empty = session-scoped temp file (the realized path is returned).", default: ""}
+        overwrite:     {type: boolean, description: "Overwrite if download_path already exists.", default: true}
+      required: [path]
+    steps:
+      - backend: download_step
+
+  # ── Daily (workspace genesis + day-index rollup) ───────────────────
+  # Workspace body edits use generic file + frontmatter primitives once
+  # the workspace exists.
+  - backend: base
+    name: daily_list
+    description: "List the workspaces under a single day AND rebuild `daily/<date>.md` as a side effect (idempotent — the freshly-rendered workspace inventory is exactly what callers want to read). Returns {date, workspaces: [{path, name, description}, ...]} — one row per `daily/<date>/<slug>/<slug>.md` summary with vault-relative path / name / description (frontmatter-parsed). Read view of the same rebuild that `daily_reindex` exposes from the write side."
+    parameters:
+      type: object
+      properties:
+        date: {type: string, description: "ISO date (YYYY-MM-DD). Empty = today.", default: ""}
+    steps:
+      - backend: daily_list_step
+
+  - backend: base
+    name: daily_resolve
+    description: "Ensure a daily workspace folder exists at daily/<today>/<name>/ and return its vault-relative path. Pure path-shape helper — no body / frontmatter / index writes (use file_write + frontmatter_update for content, daily_reindex to rebuild the day index). Name must be valid as a folder name on Windows (no reserved chars < > : \" / \\ | ? *, no reserved device names CON / PRN / AUX / NUL / COM1-9 / LPT1-9, no trailing '.' or whitespace). Idempotent: when the folder already exists returns {created: false, message: ...} so the caller knows to read-modify rather than overwrite."
+    parameters:
+      type: object
+      properties:
+        name: {type: string, description: "Workspace folder name (also used as the conventional <name>.md summary stem). Must satisfy Windows folder-name rules."}
+      required: [name]
+    steps:
+      - backend: daily_resolve_step
+
+  - backend: base
+    name: daily_reindex
+    description: "Rebuild the day-index page daily/<date>.md from the current set of workspaces under that date. The day index is a derived artifact; this is the standalone writer — call it once after a batch of workspace mutations (resolve / write / frontmatter_update), or for historical backfill and drift recovery. Idempotent and safe to re-run. Returns {date, path, created, workspaces_count} — the write view (was the index page just created? how many workspaces were swept in?). For the per-workspace inventory use `daily_list` (which also triggers this rebuild)."
+    parameters:
+      type: object
+      properties:
+        date: {type: string, description: "ISO date (YYYY-MM-DD). Empty = today.", default: ""}
+    steps:
+      - backend: daily_reindex_step
+
+  - backend: background
+    name: watch_file
+    watch_paths:
+      - MEMORY.md
+      - memory
+    suffix_filters:
+      - md
+    steps:
+      - backend: update_store_step
+      - backend: watch_changes_step
 
   - backend: background
     name: watch_file
@@ -243,8 +430,10 @@ components:
 
   embedding_model:
     default:
-      backend: openai
-      model_name: text-embedding-v4
+      backend: ${EMBEDDING_BACKEND:-openai}
+      api_key: ${EMBEDDING_API_KEY:-}
+      base_url: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
 
   file_graph:
@@ -275,8 +464,31 @@ components:
   file_store:
     default:
       backend: local
-      store_name: default
-#      embedding_model: default
-      embedding_model: ""
+      store_name: local
+      embedding_model: default
       keyword_index: default
       file_graph: default
+
+  file_watcher:
+    default:
+      backend: lite
+      watch_paths:
+        - daily
+        - digest
+      file_store: default
+      file_parser: default
+
+# as_llm / formatter aren't required for atomic primitives; configure
+# only if you'll invoke digester/synchronizer or other LLM-driven
+# paths from the dev server.
+#  as_llm:
+#    default:
+#      backend: ${LLM_BACKEND:-openai}
+#      api_key: ${LLM_API_KEY:-}
+#      model_name: ${LLM_MODEL_NAME:-gpt-4o-mini}
+#      client_kwargs:
+#        base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
+#
+#  as_llm_formatter:
+#    default:
+#      backend: ${LLM_BACKEND:-openai}
