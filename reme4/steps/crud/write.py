@@ -2,20 +2,33 @@
 
 import frontmatter
 
-from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, resolve_path, write_file_safe
+from ._file_io import (
+    NON_MD_WARNING,
+    ConflictError,
+    decode_known_file,
+    gate_md,
+    occ_write,
+    resolve_path,
+)
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("write_step")
 class WriteStep(BaseStep):
-    """Write (create or overwrite) a markdown file. When the target already exists,
-    its contents are replaced and a system notice is appended to the answer.
+    """Write (create or overwrite) a markdown file.
 
-    Front matter is restricted to two string fields: ``name`` and ``description``.
-    The CLI schema declares them as required, but the step itself is lenient —
-    missing or empty values are silently skipped so manual invocations don't
-    fail catastrophically."""
+    Frontmatter accepts two reserved string fields (``name`` / ``description``)
+    plus a free-form ``metadata`` dict whose entries are expanded into the
+    frontmatter as-is. On key collision, the explicit ``name`` / ``description``
+    parameters take precedence over the same keys inside ``metadata``.
+
+    Concurrency: writes go through OCC + atomic replace. When the file already
+    exists at the start of the call, a (mtime_ns, size) stamp is taken and
+    re-checked just before replace; on mismatch the loop retries (up to 10x
+    with exponential backoff). Greenfield creates skip the recheck — last
+    writer wins for the create race only.
+    """
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -29,6 +42,7 @@ class WriteStep(BaseStep):
         raw = str(self.context.get("path") or "")
         content = self.context.get("content")
         content = "" if content is None else str(content)
+        metadata_raw = self.context.get("metadata")
 
         target, err = resolve_path(self.working_path, raw)
         if err:
@@ -37,12 +51,18 @@ class WriteStep(BaseStep):
 
         target, is_md = gate_md(target)
 
-        existed = target.exists()
-
-        # Non-markdown files have no frontmatter convention: name/description
-        # are silently dropped and the body is written verbatim.
+        # Body is independent of file state — compose once outside the OCC loop.
         if is_md:
             meta: dict = {}
+            # expand `metadata` dict (skip name/description; explicit params win).
+            if isinstance(metadata_raw, dict):
+                for k, v in metadata_raw.items():
+                    if k in ("name", "description"):
+                        continue
+                    if v is None:
+                        continue
+                    meta[str(k)] = v
+            # Pass 2: layer explicit name/description on top.
             for key in ("name", "description"):
                 value = self.context.get(key)
                 if value is None:
@@ -62,29 +82,51 @@ class WriteStep(BaseStep):
         else:
             body = content
 
-        # Preserve the existing file's encoding when overwriting (e.g. GBK CSV
-        # stays GBK). New files are written as UTF-8.
-        encoding = await detect_file_encoding(target) if existed else "utf-8"
+        existed_at_start = target.exists()
+        encoding_used = {"enc": "utf-8"}
+
+        async def compute(old_bytes, _v0):
+            # Preserve the file's original encoding when overwriting; default
+            # UTF-8 for greenfield creates. Re-derived each attempt so a
+            # concurrent rewrite (e.g. utf-8 → gbk) is honored on retry.
+            if old_bytes is not None:
+                _, enc = decode_known_file(old_bytes, target.suffix)
+            else:
+                enc = "utf-8"
+            try:
+                payload = body.encode(enc)
+            except (UnicodeEncodeError, LookupError):
+                enc = "utf-8"
+                payload = body.encode(enc)
+            encoding_used["enc"] = enc
+            return payload
+
         try:
-            await write_file_safe(target, body, encoding=encoding)
+            nbytes, _v_final, attempts = await occ_write(target, compute, occ_on_create=False)
+        except ConflictError as e:
+            self._fail(
+                f"write conflict on {target}: file was modified concurrently after {e.attempts} attempts",
+                path=str(target),
+                conflict=True,
+                attempts=e.attempts,
+            )
+            return None
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"write failed: {e}", path=str(target))
             return None
 
-        try:
-            nbytes = len(body.encode(encoding))
-        except (UnicodeEncodeError, LookupError):
-            nbytes = len(body.encode("utf-8"))
+        encoding = encoding_used["enc"]
         self.context.response.success = True
-        if existed:
-            answer = f"Wrote {target} ({nbytes} bytes) " f"[system notice: target already existed and was overwritten]"
+        if existed_at_start:
+            answer = f"Wrote {target} ({nbytes} bytes) [system notice: target already existed and was overwritten]"
         else:
             answer = f"Wrote {target} ({nbytes} bytes)"
         if not is_md:
             answer = f"{answer} [system notice: {NON_MD_WARNING}]"
         self.context.response.answer = answer
+        self.context.response.metadata.update({"path": str(target), "attempts": attempts})
         self.logger.info(
             f"[{self.name}] wrote path={target} bytes={nbytes} encoding={encoding} "
-            f"overwritten={existed} is_md={is_md}",
+            f"overwritten={existed_at_start} is_md={is_md} attempts={attempts}",
         )
         return self.context.response
