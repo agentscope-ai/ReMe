@@ -31,10 +31,14 @@ The day-index is rebuilt explicitly via ``daily_reindex`` after a
 batch of mutations.
 """
 
-# Module name 'list' mirrors its tool name.
-# pylint: disable=redefined-builtin
+from .read import DailyReadStep
+from .write import DailyWriteStep
+from .list import DailyListStep
+from .reindex import DailyReindexStep
 
-from . import read  # noqa: F401 -- @R.register("daily_read_step")
-from . import write  # noqa: F401 -- @R.register("daily_write_step")
-from . import list  # noqa: F401 -- @R.register("daily_list_step")
-from . import reindex  # noqa: F401 -- @R.register("daily_reindex_step")
+__all__ = [
+    "DailyReadStep",
+    "DailyWriteStep",
+    "DailyListStep",
+    "DailyReindexStep",
+]
