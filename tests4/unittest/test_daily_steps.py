@@ -1,22 +1,24 @@
-"""Tests for daily-aware steps: daily_resolve / daily_create / daily_list / daily_reindex.
+"""Tests for daily-aware steps: daily_read / daily_write / daily_list / daily_reindex.
 
 Sets up a small ``daily/`` tree with mixed dates and exercises note
-genesis + list + index-rebuild operations. Body reads / writes are
-generic CRUD (covered in test_crud_steps); arbitrary frontmatter
-mutation is covered in test_property_steps.
+read / write / list / index-rebuild operations. Arbitrary body
+mid-edits, plain appends, and frontmatter mutations are generic CRUD
+(covered in test_crud_steps and test_property_steps).
 
-A daily note is the single file ``daily/<YYYY-MM-DD>/<slug>.md``
-(no folder, no sibling materials). ``daily_resolve`` ensures the day
-folder ``daily/<today>/`` exists and returns the vault-relative path
-to the note file, reporting whether it already ``exists`` — it
-does **not** create the file itself. ``daily_create`` writes the
-note stub with minimal ``name`` frontmatter and refreshes the day
-index.
+A daily note is the single file ``daily/<YYYY-MM-DD>/<slug>.md`` (no
+folder, no sibling materials). ``daily_read`` returns body in answer
+and parsed frontmatter as a dict in metadata; ``daily_write`` writes
+body + frontmatter in one shot — ``overwrite=False`` (default) is an
+idempotent skip-if-exists, ``overwrite=True`` is unconditional. Both
+validate the slug up-front (Windows-safe filename rules) so the
+path-shape contract is enforced at the daily boundary, not inside
+generic CRUD.
 
-``daily_list`` and ``daily_reindex`` both call ``refresh_day_index``
-(daily_list as a side effect; daily_reindex as its primary act). They
-differ in payload shape: daily_list returns the per-note inventory
-(read view), daily_reindex returns the write-result fields (write view).
+``daily_list`` is now a **pure read** — it no longer triggers index
+refresh. Use ``daily_reindex`` explicitly when the index page needs
+to be rebuilt. ``daily_write`` auto-refreshes the index by default;
+``frontmatter_update`` / ``file_append`` flows leave it stale and
+require an explicit ``daily_reindex``.
 
 Note: status / lifecycle / scope / role / source are no longer
 core-reserved fields — the reme schema reserves only name /
@@ -36,8 +38,8 @@ import warnings
 
 from reme4.components.file_store import LocalFileStore
 from reme4.steps.daily import (
-    resolve as daily_resolve_step,
-    create as daily_create_step,
+    read as daily_read_step,
+    write as daily_write_step,
     list as daily_list_step,
     reindex as daily_reindex_step,
 )
@@ -151,8 +153,8 @@ def test_daily_list_filters_by_date():
     asyncio.run(run())
 
 
-def test_daily_list_returns_path_name_description():
-    """Each note row exposes path / name / description (and nothing else)."""
+def test_daily_list_returns_path_slug_name_description():
+    """Each note row exposes path / slug / name / description (and nothing else)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -170,12 +172,13 @@ def test_daily_list_returns_path_name_description():
             assert payload["notes"] == [
                 {
                     "path": "daily/2026-05-18/alpha.md",
+                    "slug": "alpha",
                     "name": "Alpha Project",
                     "description": "JWT auth migration",
                 },
             ]
             await store.close()
-        print("✓ test_daily_list_returns_path_name_description passed")
+        print("✓ test_daily_list_returns_path_slug_name_description passed")
 
     asyncio.run(run())
 
@@ -190,8 +193,6 @@ def test_daily_list_ignores_subdirectories():
                     ("2026-05-18", "main", "main body"),
                 ],
             )
-            # Stray subdir (e.g. left over from an old folder-shaped layout)
-            # should not be picked up as a note.
             stray = Path(tmp) / "daily" / "2026-05-18" / "old-folder"
             stray.mkdir(parents=True, exist_ok=True)
             (stray / "old-folder.md").write_text(
@@ -227,8 +228,8 @@ def test_daily_list_empty_when_no_daily_dir():
     asyncio.run(run())
 
 
-def test_daily_list_triggers_index_refresh_as_side_effect():
-    """Calling daily_list also rebuilds daily/<date>.md (the index page)."""
+def test_daily_list_does_not_refresh_index():
+    """daily_list is a pure read — it must NOT touch daily/<date>.md."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -244,18 +245,15 @@ def test_daily_list_triggers_index_refresh_as_side_effect():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
 
-            assert index_path.is_file()
-            text = index_path.read_text(encoding="utf-8")
-            assert "[[daily/2026-05-18/alpha.md]]" in text
-            assert "[[daily/2026-05-18/beta.md]]" in text
+            assert not index_path.exists(), "daily_list must not refresh the day index — use daily_reindex"
             await store.close()
-        print("✓ test_daily_list_triggers_index_refresh_as_side_effect passed")
+        print("✓ test_daily_list_does_not_refresh_index passed")
 
     asyncio.run(run())
 
 
-def test_daily_list_response_excludes_index_page_fields():
-    """daily_list is the read view — no `path` / `created` fields leak through."""
+def test_daily_list_response_shape():
+    """daily_list returns only {date, notes}."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -269,191 +267,170 @@ def test_daily_list_response_excludes_index_page_fields():
             payload = _metadata(step)
             assert set(payload.keys()) == {"date", "notes"}
             await store.close()
-        print("✓ test_daily_list_response_excludes_index_page_fields passed")
+        print("✓ test_daily_list_response_shape passed")
 
     asyncio.run(run())
 
 
-# -- daily_resolve_step -------------------------------------------------------
+# -- daily_read_step ----------------------------------------------------------
 
 
-def test_daily_resolve_ensures_day_folder_and_reports_missing_file():
-    """daily_resolve on a fresh name creates the day folder, leaves the note
-    file unwritten, and reports ``exists=False``."""
+def test_daily_read_returns_body_and_frontmatter_dict():
+    """daily_read on an existing note returns body in answer and parsed frontmatter dict."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store_with_dailies([])
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            await step(name="kickoff")
+            store = LocalFileStore(store_name="t", embedding_model="")
+            await store.start()
+            day_dir = Path(tmp) / "daily" / "2026-05-18"
+            day_dir.mkdir(parents=True, exist_ok=True)
+            (day_dir / "alpha.md").write_text(
+                "---\nname: Alpha Project\ndescription: JWT migration\n---\n## Objective\nfoo\n",
+                encoding="utf-8",
+            )
+
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="alpha", date="2026-05-18")
             payload = _metadata(step)
 
-            assert payload["exists"] is False
-            assert payload["name"] == "kickoff"
-            assert payload["date"] == _today()
-            assert payload["path"] == f"daily/{_today()}/kickoff.md"
-            assert "message" not in payload
-
-            day_dir = Path(tmp) / "daily" / _today()
-            assert day_dir.is_dir()
-            # The note file itself is NOT created by resolve.
-            assert not (day_dir / "kickoff.md").exists()
-            # No index page either.
-            assert not (Path(tmp) / "daily" / f"{_today()}.md").exists()
+            assert step.context.response.success is True
+            assert "## Objective\nfoo" in step.context.response.answer
+            assert "---" not in step.context.response.answer  # frontmatter stripped
+            assert payload["date"] == "2026-05-18"
+            assert payload["slug"] == "alpha"
+            assert payload["path"] == "daily/2026-05-18/alpha.md"
+            assert payload["exists"] is True
+            assert payload["frontmatter"] == {
+                "name": "Alpha Project",
+                "description": "JWT migration",
+            }
             await store.close()
-        print("✓ test_daily_resolve_ensures_day_folder_and_reports_missing_file passed")
+        print("✓ test_daily_read_returns_body_and_frontmatter_dict passed")
 
     asyncio.run(run())
 
 
-def test_daily_resolve_idempotent_when_file_exists():
-    """Existing note file ⇒ ``exists=True`` + message; file contents untouched."""
+def test_daily_read_default_date_is_today():
+    """Omitted ``date`` ⇒ today's folder."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies(
-                [(_today(), "ongoing", "morning thoughts")],
+                [(_today(), "live", "current body")],
             )
-            file_path = Path(tmp) / "daily" / _today() / "ongoing.md"
-            before = file_path.read_text(encoding="utf-8")
-
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            await step(name="ongoing")
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="live")
             payload = _metadata(step)
-
+            assert payload["date"] == _today()
+            assert payload["path"] == f"daily/{_today()}/live.md"
             assert payload["exists"] is True
-            assert payload["name"] == "ongoing"
-            assert payload["path"] == f"daily/{_today()}/ongoing.md"
-            assert "already exists" in payload["message"]
-
-            # Contents unchanged.
-            assert file_path.read_text(encoding="utf-8") == before
+            assert "current body" in step.context.response.answer
             await store.close()
-        print("✓ test_daily_resolve_idempotent_when_file_exists passed")
+        print("✓ test_daily_read_default_date_is_today passed")
 
     asyncio.run(run())
 
 
-def test_daily_resolve_rejects_empty_name():
-    """Empty name ⇒ error payload, success=False, no day folder created."""
+def test_daily_read_missing_file_reports_exists_false():
+    """Note absent ⇒ success=False, payload carries exists=False + path."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            await step(name="")
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="nothing-here", date="2026-05-18")
             payload = _metadata(step)
 
-            assert "error" in payload
-            assert "required" in payload["error"]
             assert step.context.response.success is False
-            assert not (Path(tmp) / "daily" / _today()).exists()
+            assert payload["exists"] is False
+            assert payload["date"] == "2026-05-18"
+            assert payload["slug"] == "nothing-here"
+            assert payload["path"] == "daily/2026-05-18/nothing-here.md"
             await store.close()
-        print("✓ test_daily_resolve_rejects_empty_name passed")
+        print("✓ test_daily_read_missing_file_reports_exists_false passed")
 
     asyncio.run(run())
 
 
-def test_daily_resolve_rejects_windows_invalid_chars():
-    """Windows-reserved characters in name ⇒ error, no day folder created."""
+def test_daily_read_rejects_invalid_slug():
+    """Slug validation (Windows-safe filename rules) runs up-front."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            for bad in (
-                "foo/bar",
-                "foo:bar",
-                "foo*bar",
-                "foo?bar",
-                "foo|bar",
-                "foo<bar",
-                "foo>bar",
-                'foo"bar',
-                "foo\\bar",
-            ):
-                await step(name=bad)
-                payload = _metadata(step)
-                assert "error" in payload, f"expected error for {bad!r}, got {payload!r}"
-                assert "invalid characters" in payload["error"]
-                assert step.context.response.success is False
+            step = daily_read_step.DailyReadStep(file_store=store)
+            for bad in ("foo/bar", "foo:bar", "foo*bar", "CON", "lpt9", "foo.", " bar"):
+                await step(slug=bad)
+                assert step.context.response.success is False, f"expected reject for {bad!r}"
             await store.close()
-        print("✓ test_daily_resolve_rejects_windows_invalid_chars passed")
+        print("✓ test_daily_read_rejects_invalid_slug passed")
 
     asyncio.run(run())
 
 
-def test_daily_resolve_rejects_windows_reserved_names():
-    """Windows device-name stems (CON / PRN / AUX / NUL / COM1-9 / LPT1-9) are rejected."""
+def test_daily_read_empty_frontmatter_dict():
+    """No frontmatter ⇒ ``frontmatter`` key is the empty dict."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store_with_dailies([])
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            for bad in ("CON", "prn", "Aux", "NUL", "COM1", "lpt9", "CON.notes", "com5.txt"):
-                await step(name=bad)
-                payload = _metadata(step)
-                assert "error" in payload, f"expected error for {bad!r}, got {payload!r}"
-                assert "reserved" in payload["error"]
+            store = LocalFileStore(store_name="t", embedding_model="")
+            await store.start()
+            day_dir = Path(tmp) / "daily" / "2026-05-18"
+            day_dir.mkdir(parents=True, exist_ok=True)
+            (day_dir / "plain.md").write_text("just body\n", encoding="utf-8")
+
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="plain", date="2026-05-18")
+            payload = _metadata(step)
+            assert payload["frontmatter"] == {}
+            assert step.context.response.answer.strip() == "just body"
             await store.close()
-        print("✓ test_daily_resolve_rejects_windows_reserved_names passed")
+        print("✓ test_daily_read_empty_frontmatter_dict passed")
 
     asyncio.run(run())
 
 
-def test_daily_resolve_rejects_trailing_dot_or_whitespace():
-    """Trailing '.' / leading-or-trailing whitespace are rejected."""
+# -- daily_write_step ---------------------------------------------------------
+
+
+def test_daily_write_creates_note_and_refreshes_index():
+    """Fresh slug ⇒ note file written + day index refreshed by default."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step = daily_resolve_step.DailyResolveStep(file_store=store)
-            for bad in ("foo.", "foo ", " foo", "  bar  "):
-                await step(name=bad)
-                payload = _metadata(step)
-                assert "error" in payload, f"expected error for {bad!r}, got {payload!r}"
-            await store.close()
-        print("✓ test_daily_resolve_rejects_trailing_dot_or_whitespace passed")
-
-    asyncio.run(run())
-
-
-# -- daily_create_step --------------------------------------------------------
-
-
-def test_daily_create_writes_file_and_refreshes_index():
-    """Fresh slug ⇒ note file created with `name` frontmatter + index refreshed."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store_with_dailies([])
-            step = daily_create_step.DailyCreateStep(file_store=store)
-            await step(slug="kickoff", date="2026-05-18", name="Kickoff Task", body="hello body")
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(
+                slug="kickoff",
+                date="2026-05-18",
+                body="## Plan\nfirst pass\n",
+                frontmatter={"name": "Kickoff Task", "description": "Day-one plan"},
+            )
             payload = _metadata(step)
 
             assert payload["created"] is True
+            assert payload["overwritten"] is False
             assert payload["date"] == "2026-05-18"
             assert payload["slug"] == "kickoff"
             assert payload["path"] == "daily/2026-05-18/kickoff.md"
 
             note = Path(tmp) / "daily" / "2026-05-18" / "kickoff.md"
-            assert note.is_file()
             text = note.read_text(encoding="utf-8")
             assert "name: Kickoff Task" in text
-            assert "hello body" in text
+            assert "description: Day-one plan" in text
+            assert "## Plan\nfirst pass" in text
 
-            # Index page refreshed.
             index = Path(tmp) / "daily" / "2026-05-18.md"
             assert index.is_file()
             assert "[[daily/2026-05-18/kickoff.md]]" in index.read_text(encoding="utf-8")
             await store.close()
-        print("✓ test_daily_create_writes_file_and_refreshes_index passed")
+        print("✓ test_daily_write_creates_note_and_refreshes_index passed")
 
     asyncio.run(run())
 
 
-def test_daily_create_is_idempotent():
-    """Existing note ⇒ `created=False`, file untouched, index still refreshes."""
+def test_daily_write_create_mode_is_idempotent():
+    """``overwrite=False`` + file exists ⇒ created=False, file untouched, index still refreshed."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -463,35 +440,228 @@ def test_daily_create_is_idempotent():
             file_path = Path(tmp) / "daily" / "2026-05-18" / "ongoing.md"
             before = file_path.read_text(encoding="utf-8")
 
-            step = daily_create_step.DailyCreateStep(file_store=store)
+            step = daily_write_step.DailyWriteStep(file_store=store)
             await step(slug="ongoing", date="2026-05-18", body="ignored new body")
             payload = _metadata(step)
 
             assert payload["created"] is False
+            assert payload["overwritten"] is False
             assert payload["path"] == "daily/2026-05-18/ongoing.md"
-            # File contents unchanged.
             assert file_path.read_text(encoding="utf-8") == before
-            # But the index was still rebuilt.
             assert payload["index"]["path"] == "daily/2026-05-18.md"
             await store.close()
-        print("✓ test_daily_create_is_idempotent passed")
+        print("✓ test_daily_write_create_mode_is_idempotent passed")
 
     asyncio.run(run())
 
 
-def test_daily_create_name_falls_back_to_slug():
-    """Omitted ``name`` arg ⇒ frontmatter ``name`` defaults to slug."""
+def test_daily_write_overwrite_mode_replaces_existing():
+    """``overwrite=True`` ⇒ unconditional rewrite; overwritten=True."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies(
+                [("2026-05-18", "live", "stale text")],
+            )
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(
+                slug="live",
+                date="2026-05-18",
+                body="## Updated\nfresh body\n",
+                frontmatter={"name": "Live", "description": "post-merge"},
+                overwrite=True,
+            )
+            payload = _metadata(step)
+
+            assert payload["created"] is False
+            assert payload["overwritten"] is True
+
+            note = Path(tmp) / "daily" / "2026-05-18" / "live.md"
+            text = note.read_text(encoding="utf-8")
+            assert "stale text" not in text
+            assert "## Updated\nfresh body" in text
+            assert "description: post-merge" in text
+            await store.close()
+        print("✓ test_daily_write_overwrite_mode_replaces_existing passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_default_frontmatter_uses_slug_as_name():
+    """Omitted ``frontmatter`` ⇒ defaults to ``{name: slug}``."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step = daily_create_step.DailyCreateStep(file_store=store)
+            step = daily_write_step.DailyWriteStep(file_store=store)
             await step(slug="auth-refactor", date="2026-05-18")
 
             note = Path(tmp) / "daily" / "2026-05-18" / "auth-refactor.md"
             assert "name: auth-refactor" in note.read_text(encoding="utf-8")
             await store.close()
-        print("✓ test_daily_create_name_falls_back_to_slug passed")
+        print("✓ test_daily_write_default_frontmatter_uses_slug_as_name passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_default_body_is_empty():
+    """Omitted ``body`` ⇒ empty body, frontmatter-only note."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(slug="stub", date="2026-05-18")
+
+            note = Path(tmp) / "daily" / "2026-05-18" / "stub.md"
+            text = note.read_text(encoding="utf-8")
+            # Just frontmatter + a single newline after the closing ---.
+            assert text.startswith("---\n")
+            assert "name: stub" in text
+            # Body section is empty: the post body resolves to "".
+            assert text.rstrip().endswith("---")
+            await store.close()
+        print("✓ test_daily_write_default_body_is_empty passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_drops_empty_frontmatter_values():
+    """Empty / None frontmatter values are dropped (write_step idiom)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(
+                slug="trim",
+                date="2026-05-18",
+                frontmatter={
+                    "name": "Trim",
+                    "description": "   ",  # whitespace-only → drop
+                    "extra": None,  # None → drop
+                    "kept": "value",
+                },
+            )
+            note = Path(tmp) / "daily" / "2026-05-18" / "trim.md"
+            text = note.read_text(encoding="utf-8")
+            assert "name: Trim" in text
+            assert "kept: value" in text
+            assert "description:" not in text
+            assert "extra:" not in text
+            await store.close()
+        print("✓ test_daily_write_drops_empty_frontmatter_values passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_rejects_invalid_slug():
+    """Slug validation runs before any IO."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            for bad in ("foo/bar", "foo:bar", "CON", "lpt9", "foo.", " bar"):
+                await step(slug=bad, date="2026-05-18", body="x")
+                assert step.context.response.success is False, f"expected reject for {bad!r}"
+            # No day folder should be created on rejection.
+            assert not (Path(tmp) / "daily" / "2026-05-18").exists()
+            await store.close()
+        print("✓ test_daily_write_rejects_invalid_slug passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_overwrite_default_is_false_create_then_skip():
+    """First call (file absent) creates; second call without overwrite skips — proves the
+    overwrite=False default mirrors the old daily_resolve idempotent probe."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+
+            await step(slug="probe", date="2026-05-18", body="original")
+            first = _metadata(step)
+            assert first["created"] is True
+            assert first["overwritten"] is False
+
+            await step(slug="probe", date="2026-05-18", body="ignored")
+            second = _metadata(step)
+            assert second["created"] is False
+            assert second["overwritten"] is False
+
+            note = Path(tmp) / "daily" / "2026-05-18" / "probe.md"
+            assert "original" in note.read_text(encoding="utf-8")
+            assert "ignored" not in note.read_text(encoding="utf-8")
+            await store.close()
+        print("✓ test_daily_write_overwrite_default_is_false_create_then_skip passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_rejects_non_dict_frontmatter():
+    """``frontmatter`` must be a dict when supplied."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(slug="ok", date="2026-05-18", frontmatter="not a dict")
+            assert step.context.response.success is False
+            assert "dict" in (step.context.response.answer or "")
+            await store.close()
+        print("✓ test_daily_write_rejects_non_dict_frontmatter passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_refresh_index_can_be_disabled():
+    """``refresh_index=False`` ⇒ note written but day index untouched."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = daily_write_step.DailyWriteStep(file_store=store)
+            await step(
+                slug="solo",
+                date="2026-05-18",
+                body="x",
+                refresh_index=False,
+            )
+            note = Path(tmp) / "daily" / "2026-05-18" / "solo.md"
+            assert note.is_file()
+            assert "index" not in _metadata(step)
+            assert not (Path(tmp) / "daily" / "2026-05-18.md").exists()
+            await store.close()
+        print("✓ test_daily_write_refresh_index_can_be_disabled passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_round_trips_with_daily_read():
+    """A note written via daily_write must be retrievable via daily_read with the same data."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            body = "## Plan\nstep one\nstep two\n"
+            fm = {"name": "Round-trip", "description": "CRUD smoke"}
+
+            await daily_write_step.DailyWriteStep(file_store=store)(
+                slug="round-trip",
+                date="2026-05-18",
+                body=body,
+                frontmatter=fm,
+            )
+            read_step = daily_read_step.DailyReadStep(file_store=store)
+            await read_step(slug="round-trip", date="2026-05-18")
+
+            assert read_step.context.response.answer.strip() == body.strip()
+            assert _metadata(read_step)["frontmatter"] == fm
+            await store.close()
+        print("✓ test_daily_write_round_trips_with_daily_read passed")
 
     asyncio.run(run())
 
@@ -517,7 +687,6 @@ def test_day_index_lists_each_note():
             text = _day_index_text(tmp, "2026-05-18")
             assert "[[daily/2026-05-18/alpha.md]]" in text
             assert "[[daily/2026-05-18/beta.md]]" in text
-            # Note names show on the indented sub-line.
             assert "Alpha Project" in text
             assert "Beta Project" in text
             await store.close()
@@ -537,19 +706,16 @@ def test_day_index_includes_note_descriptions():
             await store.start()
             cases = [
                 ("alpha", "Alpha Project", "实现 JWT auth 中间件，迁移 session middleware"),
-                ("beta", "beta", "调研增值税新政对 SaaS 的影响"),  # name == slug
-                ("gamma", "Gamma", ""),  # no description
+                ("beta", "beta", "调研增值税新政对 SaaS 的影响"),
+                ("gamma", "Gamma", ""),
             ]
             for slug, name, description in cases:
                 await _seed_note("2026-05-18", slug, name=name, description=description)
 
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
-            # name + description rendered together
             assert "Alpha Project — 实现 JWT auth 中间件" in text
-            # name == slug → only description shown (no redundant "beta")
             assert "调研增值税新政对 SaaS 的影响" in text
-            # no description → only name shown, no trailing em-dash
             assert "  Gamma\n" in text or text.rstrip().endswith("Gamma")
             await store.close()
         print("✓ test_day_index_includes_note_descriptions passed")
@@ -591,7 +757,6 @@ def test_day_index_preserves_manual_segment():
             reindex = daily_reindex_step.DailyReindexStep(file_store=store)
             await reindex(date="2026-05-18")
 
-            # Inject a manual annotation into the index file's body.
             index_path = Path(tmp) / "daily" / "2026-05-18.md"
             text = index_path.read_text(encoding="utf-8")
             patched = text.replace(
@@ -600,13 +765,11 @@ def test_day_index_preserves_manual_segment():
             )
             index_path.write_text(patched, encoding="utf-8")
 
-            # Adding a sibling note + refresh — manual segment must survive.
             await _seed_note("2026-05-18", "beta")
             await reindex(date="2026-05-18")
             after = index_path.read_text(encoding="utf-8")
             assert "MY HAND-WRITTEN NOTE" in after
             assert "这是我手写的备忘" in after
-            # Auto block was updated with the new note.
             assert "[[daily/2026-05-18/beta.md]]" in after
             await store.close()
         print("✓ test_day_index_preserves_manual_segment passed")
@@ -628,7 +791,6 @@ def test_daily_reindex_returns_write_view():
                     ("2026-05-18", "beta", "b body"),
                 ],
             )
-            # Index doesn't exist yet.
             assert not (Path(tmp) / "daily" / "2026-05-18.md").exists()
 
             step = daily_reindex_step.DailyReindexStep(file_store=store)
@@ -678,20 +840,27 @@ if __name__ == "__main__":
     print("\n=== Daily step tests ===")
     test_daily_list_default_date_is_today()
     test_daily_list_filters_by_date()
-    test_daily_list_returns_path_name_description()
+    test_daily_list_returns_path_slug_name_description()
     test_daily_list_ignores_subdirectories()
     test_daily_list_empty_when_no_daily_dir()
-    test_daily_list_triggers_index_refresh_as_side_effect()
-    test_daily_list_response_excludes_index_page_fields()
-    test_daily_resolve_ensures_day_folder_and_reports_missing_file()
-    test_daily_resolve_idempotent_when_file_exists()
-    test_daily_resolve_rejects_empty_name()
-    test_daily_resolve_rejects_windows_invalid_chars()
-    test_daily_resolve_rejects_windows_reserved_names()
-    test_daily_resolve_rejects_trailing_dot_or_whitespace()
-    test_daily_create_writes_file_and_refreshes_index()
-    test_daily_create_is_idempotent()
-    test_daily_create_name_falls_back_to_slug()
+    test_daily_list_does_not_refresh_index()
+    test_daily_list_response_shape()
+    test_daily_read_returns_body_and_frontmatter_dict()
+    test_daily_read_default_date_is_today()
+    test_daily_read_missing_file_reports_exists_false()
+    test_daily_read_rejects_invalid_slug()
+    test_daily_read_empty_frontmatter_dict()
+    test_daily_write_creates_note_and_refreshes_index()
+    test_daily_write_create_mode_is_idempotent()
+    test_daily_write_overwrite_mode_replaces_existing()
+    test_daily_write_default_frontmatter_uses_slug_as_name()
+    test_daily_write_default_body_is_empty()
+    test_daily_write_drops_empty_frontmatter_values()
+    test_daily_write_rejects_invalid_slug()
+    test_daily_write_overwrite_default_is_false_create_then_skip()
+    test_daily_write_rejects_non_dict_frontmatter()
+    test_daily_write_refresh_index_can_be_disabled()
+    test_daily_write_round_trips_with_daily_read()
     test_day_index_lists_each_note()
     test_day_index_includes_note_descriptions()
     test_day_index_description_is_note_count()

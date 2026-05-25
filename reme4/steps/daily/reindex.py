@@ -1,18 +1,17 @@
 """``daily_reindex_step`` — rebuild ``daily/<date>.md`` from its notes.
 
 The day index ``daily/<date>.md`` is a derived artifact whose job is to
-list and describe every note file under ``daily/<date>/``. It is **not**
-auto-refreshed — ``daily_resolve`` (path resolver), ``file_write`` and
-``frontmatter_update`` all leave it stale. This step is the standalone
-writer that rebuilds it for batch flows (historical backfill, drift
-recovery, end-of-batch consolidation).
+list and describe every note file under ``daily/<date>/``. It is auto-
+refreshed by ``daily_write`` after every body write. Generic ops like
+``file_write`` / ``file_append`` / ``frontmatter_update`` leave it
+stale — this step is the standalone writer to call after batch flows
+(historical backfill, drift recovery, end-of-batch consolidation, or
+a ``frontmatter_update`` that touched ``name`` / ``description``).
 
-The same rebuild also runs as a side effect of :mod:`daily_list`. The
-two steps differ in their response: this one is the **write view** —
-it reports the index-page path and a ``created`` flag (true when the
-file was just emitted for the first time), which is what a caller
-running a rebuild wants to confirm. ``daily_list`` is the **read view**
-and returns the per-note inventory instead.
+This is the **write view**: it reports the index-page path and a
+``created`` flag (true when the file was just emitted for the first
+time), which is what a caller running a rebuild wants to confirm. For
+the per-note inventory use ``daily_list``.
 
 Input is a single optional ``date`` (ISO ``YYYY-MM-DD``); falls back to
 today.
@@ -22,7 +21,7 @@ Always idempotent and safe to re-run.
 
 from datetime import date as _date
 
-from ._day_index import refresh_day_index
+from ._daily_io import refresh_day_index
 from ..base_step import BaseStep
 
 from ...components import R

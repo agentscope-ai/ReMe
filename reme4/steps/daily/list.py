@@ -1,25 +1,21 @@
-"""``daily_list`` — list the notes under a single day.
+"""``daily_list`` — list the notes under a single day (pure read, no side effects).
 
-Always rebuilds the day index ``daily/<date>.md`` as a side effect (the
-freshly-rendered note inventory is exactly what the caller is asking
-to see), then returns one row per ``daily/<date>/<slug>.md`` note
-file with its vault-relative ``path`` plus ``name`` / ``description``
-from frontmatter.
+Returns one row per ``daily/<date>/<slug>.md`` note file with its
+vault-relative ``path`` plus ``slug`` / ``name`` / ``description``
+from frontmatter. Sorted by slug for stable output.
 
-Distinct from :mod:`daily_reindex` even though both call
-``refresh_day_index``: this one is the read view (consumers want the
-note inventory), so the index-page bookkeeping fields (``path`` of
-``daily/<date>.md``, ``created``) are stripped from the response;
-``daily_reindex`` is the write view (consumers want to know what was
-rebuilt) and returns those fields without the per-note list.
+**Does NOT refresh** ``daily/<date>.md`` — call ``daily_reindex``
+explicitly when the index page needs to be rebuilt. Decoupling
+read from write keeps each step's effect predictable.
 
-Input is a single optional ``date`` (ISO ``YYYY-MM-DD``); falls back to
-today.
+Input is a single optional ``date`` (ISO ``YYYY-MM-DD``); falls back
+to today.
 """
 
 from datetime import date as _date
+from pathlib import Path
 
-from ._day_index import refresh_day_index
+from ._daily_io import scan_notes
 from ..base_step import BaseStep
 
 from ...components import R
@@ -27,19 +23,25 @@ from ...components import R
 
 @R.register("daily_list_step")
 class DailyListStep(BaseStep):
-    """List the notes under a single day; also refreshes ``daily/<date>.md``."""
+    """List the notes under a single day. Pure read — no index refresh."""
 
     async def execute(self):
         assert self.context is not None
         day: str = (self.context.get("date") or "").strip() or _date.today().isoformat()
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
-        refreshed = await refresh_day_index(self.file_store, day, daily_dir)
-        if "error" in refreshed:
-            self.context.response.success = False
-            self.context.response.answer = f"Error: {refreshed['error']}"
-            self.context.response.metadata.update(refreshed)
-            return
-        notes = refreshed["notes"]
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+
+        scanned = scan_notes(vault_dir, day, daily_dir)
+        notes = [
+            {
+                "path": n["path"],
+                "slug": n["slug"],
+                "name": n["name"],
+                "description": n["description"],
+            }
+            for n in scanned
+        ]
+
         self.context.response.success = True
-        self.context.response.answer = f"Listed {len(notes)} note(s) for {refreshed['date']}"
-        self.context.response.metadata.update({"date": refreshed["date"], "notes": notes})
+        self.context.response.answer = f"Listed {len(notes)} note(s) for {day}"
+        self.context.response.metadata.update({"date": day, "notes": notes})

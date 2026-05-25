@@ -1,39 +1,95 @@
-"""``_day_index`` — internal helper: build/refresh ``daily/<date>.md`` index page.
+"""Internal helpers for daily-aware steps — slug validation + day-index rebuild.
 
-The day index is a derived artifact whose single job is **daily-note
-consolidation** — its source of truth lives in each note's
-frontmatter. This module rebuilds the auto-managed sections of the
-index page while preserving any manual content the user has added
-between markers.
+Two related concerns, both private to the ``daily`` package:
 
-Frontmatter shape — only the two reserved fields::
+1. **Slug naming** — Windows-safe filename validation for the slug
+   that becomes the stem of ``daily/<YYYY-MM-DD>/<slug>.md``.
+2. **Day-index** — the derived rollup page ``daily/<YYYY-MM-DD>.md``
+   listing every note under that date with name + description. The
+   index is auto-managed in marker-delimited sections; user-edited
+   manual sections are preserved verbatim across refreshes.
 
-    name:        <date>
-    description: <one-line note-count digest>
+Public entry points:
 
-The note inventory lives in the body's ``<!-- notes:auto -->``
-wikilinks (graph edges feed off them). No bespoke status / lifecycle
-/ scope / role / source / created axes — those are user-defined and
-intentionally absent from the auto-managed payload.
-
-Body auto sections (rebuilt on every refresh, marker-delimited):
-
-* ``notes`` — bulleted list of ``[[link]]\\n  name — description`` rows
-
-Manual sections live outside the auto markers and are preserved verbatim
-across refreshes. A fresh day file gets a ``## 备忘`` section seeded as
-the manual scratch area.
-
-Entry point: ``refresh_day_index(file_store, date)`` — idempotent, safe
-to call after every note mutation. ``daily_reindex_step`` exposes
-it as a standalone tool; orchestrators (synchronizer, batch flows) call
-it explicitly after they finish writing.
+* :func:`validate_slug` — return an error string, or ``None`` when the
+  slug is safe to use as a filename.
+* :func:`scan_notes` — walk ``<daily_dir>/<date>/*.md`` and pull each
+  note's reserved frontmatter (``name`` / ``description``).
+* :func:`refresh_day_index` — rebuild ``<daily_dir>/<date>.md`` from
+  the current state of its notes. Idempotent, safe to re-run.
 """
 
 import re
 from pathlib import Path
 
 import frontmatter
+
+# ---------------------------------------------------------------------------
+# Slug validation
+# ---------------------------------------------------------------------------
+
+_INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def validate_slug(slug: str) -> str | None:
+    """Return an error message, or ``None`` when ``slug`` is a safe filename.
+
+    Rules (Windows is the strictest filesystem, so we validate to its bar):
+
+    - non-empty, no leading / trailing whitespace
+    - no reserved characters: ``< > : " / \\ | ? *`` or control chars (``\\x00-\\x1f``)
+    - no reserved device names: ``CON`` / ``PRN`` / ``AUX`` / ``NUL`` /
+      ``COM1-9`` / ``LPT1-9`` (Windows reserves these with or without an
+      extension — ``CON.txt`` is also forbidden)
+    - no trailing ``.``
+    """
+    if not slug:
+        return "slug is required"
+    if slug != slug.strip():
+        return f"slug cannot have leading or trailing whitespace: {slug!r}"
+    if _INVALID_CHARS.search(slug):
+        return f'slug contains invalid characters (one of < > : " / \\ | ? * ' f"or a control char): {slug!r}"
+    if slug.endswith("."):
+        return f"slug cannot end with '.': {slug!r}"
+    if slug.split(".", 1)[0].upper() in _RESERVED_NAMES:
+        return f"slug is a Windows-reserved device name: {slug!r}"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Day-index rebuild
+# ---------------------------------------------------------------------------
+#
+# The day index is a derived artifact whose single job is **daily-note
+# consolidation** — its source of truth lives in each note's
+# frontmatter. The rebuild refreshes auto-managed sections while
+# preserving any manual content the user has added between markers.
+#
+# Frontmatter shape — only the two reserved fields::
+#
+#     name:        <date>
+#     description: <one-line note-count digest>
+#
+# The note inventory lives in the body's ``<!-- notes:auto -->``
+# wikilinks (graph edges feed off them). No bespoke status / lifecycle
+# / scope / role / source / created axes — those are user-defined and
+# intentionally absent from the auto-managed payload.
+#
+# Body auto sections (rebuilt on every refresh, marker-delimited):
+#
+# * ``notes`` — bulleted list of ``[[link]]\n  name — description`` rows
+#
+# Manual sections live outside the auto markers and are preserved
+# verbatim across refreshes. A fresh day file gets a ``## 备忘``
+# section seeded as the manual scratch area.
 
 # Marker syntax: HTML comments so they're invisible in rendered markdown
 # but trivially detectable in source. Each block has a paired open/close.
@@ -67,7 +123,7 @@ def _count_digest(n: int) -> str:
     return f"今日 {n} 篇笔记。"
 
 
-def _scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
+def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
     """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.
 
     Returns one dict per note::
@@ -86,7 +142,7 @@ def _scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
         slug = md_path.stem
         try:
             post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             continue
         meta = post.metadata or {}
         out.append(
@@ -140,14 +196,11 @@ def _replace_or_append(body: str, name: str, fresh_block: str) -> str:
     pattern = _block_re(name)
     if pattern.search(body):
         replacement = f"{_BLOCK_OPEN.format(name=name)}\n" f"{fresh_block}\n" f"{_BLOCK_CLOSE.format(name=name)}"
-        # Preserve the heading the user had (if any) by only swapping
-        # the marker-wrapped portion.
         return pattern.sub(
             lambda m: (m.group("heading") or "") + replacement,
             body,
             count=1,
         )
-    # Not present — append the canonical heading + block at the tail.
     suffix = _wrap_block(name, fresh_block)
     return f"{body.rstrip()}\n\n{suffix}\n" if body.strip() else f"{suffix}\n"
 
@@ -218,11 +271,10 @@ async def refresh_day_index(file_store, date: str, daily_dir: str = "daily") -> 
     vault_dir = Path(file_store.vault_path or ".").resolve()
     index_rel = f"{daily_dir}/{date}.md"
     index_abs = vault_dir / index_rel
-    notes = _scan_notes(vault_dir, date, daily_dir)
+    notes = scan_notes(vault_dir, date, daily_dir)
 
     notes_payload = [{"path": n["path"], "name": n["name"], "description": n["description"]} for n in notes]
 
-    # Nothing to index and no prior index file — quietly do nothing.
     if not notes and not index_abs.is_file():
         return {
             "date": date,
