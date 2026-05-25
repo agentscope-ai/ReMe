@@ -167,7 +167,10 @@ class SearchStep(BaseStep):
         expand_links: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
 
-        assert query, "query cannot be empty"
+        if not query:
+            self.context.response.success = False
+            self.context.response.answer = "Error: query cannot be empty"
+            return self.context.response
         assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be in [0, 1], got {vector_weight}"
         assert limit > 0, f"limit must be positive, got {limit}"
 
