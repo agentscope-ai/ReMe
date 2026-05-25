@@ -2,10 +2,10 @@ service:
   backend: http
 #  backend: mcp
 
-# Default dev config points vault_dir at ./vault so `python -m reme4vault start`
+# Default dev config points vault_dir at ./.reme so `python -m reme4 start`
 # can be run from the repo root and exercise the full atomic-tool surface
 # against the seeded test data. Override the `vault_dir=` CLI arg.
-vault_dir: vault
+vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
 resource_dir: resource
