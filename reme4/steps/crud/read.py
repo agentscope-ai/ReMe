@@ -1,5 +1,7 @@
 """Read a markdown file from the vault, with line-range slicing and byte-truncation."""
 
+import json
+
 from ._file_io import (
     NON_MD_WARNING,
     gate_md,
@@ -8,12 +10,20 @@ from ._file_io import (
     truncate_text_output,
 )
 from ..base_step import BaseStep
+from ..common.link_expansion import get_first_order_neighbors
 from ...components import R
 
 
 @R.register("read_step")
 class ReadStep(BaseStep):
-    """Read a markdown file. Optional `start_line`/`end_line` for ranged reads."""
+    """Read a markdown file. Optional `start_line`/`end_line` for ranged reads.
+
+    Opt-in kwargs:
+        with_neighbors (bool, default False): when True and the file is markdown,
+            append a block listing first-order bidirectional neighbors (out/in
+            link targets) with their frontmatter, fetched via the file_store.
+        max_neighbors_per_direction (int, default 10): cap per direction.
+    """
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -88,4 +98,78 @@ class ReadStep(BaseStep):
         self.logger.info(
             f"[{self.name}] read path={target} lines={s}-{e}/{total} bytes={len(text.encode('utf-8'))}",
         )
+
+        with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
+        max_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
+        if with_neighbors and is_md:
+            await self._maybe_inject_neighbors(target, text, max_per_direction)
+
         return self.context.response
+
+    async def _maybe_inject_neighbors(self, target, text: str, max_per_direction: int) -> None:
+        """Append the first-order neighbor frontmatter block to response.answer when available."""
+        assert self.context is not None
+        try:
+            rel_path = str(target.relative_to(self.working_path))
+        except ValueError:
+            self.logger.info(f"[{self.name}] skip neighbors: path outside working_path path={target}")
+            return
+
+        try:
+            neighbors = await get_first_order_neighbors(
+                self.file_store,
+                rel_path,
+                max_per_direction=max_per_direction,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning(
+                f"[{self.name}] neighbor fetch failed: {type(exc).__name__}: {exc}",
+            )
+            return
+
+        block = _render_neighbor_block(neighbors)
+        if not block:
+            return
+
+        self.context.response.answer = f"{text}\n\n{block}"
+        self.context.response.metadata["link_expansion"] = _neighbors_to_serializable(neighbors)
+
+
+def _render_neighbor_block(neighbors: dict) -> str:
+    """Render the appended block. Returns '' when both directions are empty."""
+    out = neighbors.get("outlinks", [])
+    inn = neighbors.get("inlinks", [])
+    if not out and not inn:
+        return ""
+
+    lines = [
+        f"========== Related neighbors (outlinks={len(out)}, inlinks={len(inn)}) ==========",
+    ]
+    for arrow, items in (("→", out), ("←", inn)):
+        for item in items:
+            lines.append(f"  {arrow} {item['path']}")
+            node = item.get("node")
+            if node is None:
+                continue
+            fm_dict = node.front_matter.model_dump(exclude_defaults=True, exclude_none=True)
+            if fm_dict:
+                lines.append(f"      frontmatter: {json.dumps(fm_dict, ensure_ascii=False)}")
+    return "\n".join(lines)
+
+
+def _neighbors_to_serializable(neighbors: dict) -> dict:
+    """Replace FileNode values with plain dicts so metadata is JSON-friendly."""
+    serialized: dict[str, list[dict]] = {}
+    for direction in ("outlinks", "inlinks"):
+        items = []
+        for entry in neighbors.get(direction, []):
+            node = entry.get("node")
+            items.append(
+                {
+                    "path": entry["path"],
+                    "node": node.model_dump(exclude_none=True) if node is not None else None,
+                    "edges": entry.get("edges", []),
+                },
+            )
+        serialized[direction] = items
+    return serialized

@@ -2,9 +2,10 @@
 
 import asyncio
 
+from .link_expansion import get_first_order_neighbors_batch
 from ..base_step import BaseStep
 from ...components import R
-from ...schema import FileChunk, FileLink, FileNode
+from ...schema import FileChunk, FileNode
 
 _RRF_K = 60
 _MAX_CANDIDATES = 200
@@ -59,19 +60,6 @@ class SearchStep(BaseStep):
         return " ".join(parts)
 
     @staticmethod
-    def _group_by_neighbor(links: list[FileLink], key_attr: str) -> dict[str, list[dict]]:
-        """Group edges by neighbor path (insertion-ordered), each value a list of {predicate, anchor}."""
-        out: dict[str, list[dict]] = {}
-        for lnk in links:
-            neighbor = getattr(lnk, key_attr)
-            if not neighbor:
-                continue
-            out.setdefault(neighbor, []).append(
-                {"predicate": lnk.predicate, "anchor": lnk.target_anchor},
-            )
-        return out
-
-    @staticmethod
     def _node_meta(node: FileNode | None) -> dict:
         """Extract a compact meta dict (title/description/tags) from a FileNode."""
         if node is None:
@@ -106,40 +94,29 @@ class SearchStep(BaseStep):
             bits.append(f"anchor=#{edge['anchor']}")
         return ", ".join(bits) if bits else "plain"
 
-    async def _expand_links(
+    async def _expand_for_chunks(
         self,
         chunk_paths: list[str],
         max_per_direction: int,
     ) -> dict[str, dict]:
-        """Fetch out/in links for each chunk path; attach neighbor meta. Returns per-path expansion."""
-        if not chunk_paths:
-            return {}
-
-        out_lists, in_lists = await asyncio.gather(
-            asyncio.gather(*(self.file_store.get_outlinks(p) for p in chunk_paths)),
-            asyncio.gather(*(self.file_store.get_inlinks(p) for p in chunk_paths)),
+        """Project shared neighbor expansion into search's compact display structure."""
+        raw = await get_first_order_neighbors_batch(
+            self.file_store,
+            chunk_paths,
+            max_per_direction=max_per_direction,
         )
-
-        # Pre-group + cap per direction so we only fetch meta for displayed neighbors.
-        out_grouped = [
-            dict(list(self._group_by_neighbor(outs, "target_path").items())[:max_per_direction]) for outs in out_lists
-        ]
-        in_grouped = [
-            dict(list(self._group_by_neighbor(ins, "source_path").items())[:max_per_direction]) for ins in in_lists
-        ]
-
-        neighbor_paths = sorted({n for g in out_grouped for n in g} | {n for g in in_grouped for n in g})
-        nodes = await self.file_store.get_nodes(neighbor_paths) if neighbor_paths else []
-        meta_by_path = {n.path: self._node_meta(n) for n in nodes}
-
-        def _attach(grouped: dict[str, list[dict]]) -> list[dict]:
-            return [
-                {"path": npath, "meta": meta_by_path.get(npath, {}), "edges": edges} for npath, edges in grouped.items()
-            ]
-
         return {
-            cp: {"outlinks": _attach(og), "inlinks": _attach(ig)}
-            for cp, og, ig in zip(chunk_paths, out_grouped, in_grouped)
+            cp: {
+                "outlinks": [
+                    {"path": e["path"], "meta": self._node_meta(e["node"]), "edges": e["edges"]}
+                    for e in entry.get("outlinks", [])
+                ],
+                "inlinks": [
+                    {"path": e["path"], "meta": self._node_meta(e["node"]), "edges": e["edges"]}
+                    for e in entry.get("inlinks", [])
+                ],
+            }
+            for cp, entry in raw.items()
         }
 
     @classmethod
@@ -202,7 +179,7 @@ class SearchStep(BaseStep):
 
         unique_paths = list(dict.fromkeys(c.path for c in fused))
         link_expansion: dict[str, dict] = (
-            await self._expand_links(unique_paths, max_links_per_direction) if expand_links else {}
+            await self._expand_for_chunks(unique_paths, max_links_per_direction) if expand_links else {}
         )
 
         answer_lines: list[str] = []
