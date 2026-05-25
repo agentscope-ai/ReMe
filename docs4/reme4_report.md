@@ -154,21 +154,21 @@ ReMe 没有发明新格式，而是完全复用 Obsidian 生态的约定：
 
 - **YAML front matter**：标题、标签、描述、自定义字段。
 
-  ```markdown
-  ---
-  title: 光伏产业链研究
-  description: 从硅料到组件的全链条梳理
-  tags: [新能源, 光伏, 产业链]
-  parent: 新能源
-  author: 张三
-  updated: 2026-05-19
-  ---
+```markdown
+---
+title: 光伏产业链研究
+description: 从硅料到组件的全链条梳理
+tags: [新能源, 光伏, 产业链]
+parent: 新能源
+author: 张三
+updated。: 2026-05-19
+---
 
-  # 正文从这里开始
-  ```
+# 正文从这里开始
 
-  `title` / `description` / `tags` 是约定字段（参见 `reme4/schema/file_front_matter.py`），其余键值对作为 extras
-  全部保留，可被检索和图索引消费。
+`title` / `description` / `tags` 是约定字段（参见 `reme4/schema/file_front_matter.py`），其余键值对作为 extras
+全部保留，可被检索和图索引消费。
+```
 
 - **4 种 wikilink 写法**：
     - `[[X]]`：标准链接
@@ -180,9 +180,7 @@ ReMe 没有发明新格式，而是完全复用 Obsidian 生态的约定：
 - 标准 `[text](xxx.md)` 链接也会被识别为图边。
 
 **意义**：用户的知识库可以直接用 Obsidian 打开做可视化浏览，可以用 Obsidian 插件做扩展。ReMe 不是替代 Obsidian，而是**给
-Obsidian 加上一个会自己写笔记的 Agent**。
-
-```
+Obsidian 加上一个会自己写笔记的 Agent**
 
 ### 4.2 比 RAG 更聪明的切片
 
