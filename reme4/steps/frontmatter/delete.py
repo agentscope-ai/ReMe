@@ -9,54 +9,18 @@ zero-side-effect read.
 ``path`` is a path relative to the vault.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import frontmatter
 
 from ..base_step import BaseStep
-from ...utils import set_answer
 
 from ...components import R
-from ...enumeration import ComponentEnum
-
-
-async def _delete(file_store, path: str, keys: list[str]) -> dict:
-    if not path:
-        return {"path": path, "error": "not found"}
-    target = (Path(file_store.vault_path or ".") / path).resolve()
-    if not target.is_file():
-        return {"path": path, "error": "not found"}
-    if target.suffix != ".md":
-        return {"path": path, "error": "not markdown"}
-    if not keys:
-        return {"path": path, "error": "keys is empty"}
-    raw = target.read_text(encoding="utf-8")
-    post = frontmatter.loads(raw)
-    deleted: list[str] = []
-    missing: list[str] = []
-    for k in keys:
-        if k in post.metadata:
-            del post.metadata[k]
-            deleted.append(k)
-        else:
-            missing.append(k)
-    if deleted:
-        target.write_text(frontmatter.dumps(post), encoding="utf-8")
-    return {
-        "path": path,
-        "deleted": deleted,
-        "missing": missing,
-        "frontmatter": dict(post.metadata),
-    }
 
 
 @R.register("frontmatter_delete_step")
 class FrontmatterDeleteStep(BaseStep):
     """Remove keys from a markdown file's frontmatter."""
-
-    component_type = ComponentEnum.STEP
 
     async def execute(self):
         assert self.context is not None
@@ -65,6 +29,38 @@ class FrontmatterDeleteStep(BaseStep):
         keys = self.context.get("keys") or []
         if isinstance(keys, str):
             keys = [keys]
-        payload = await _delete(self.file_store, path, list(keys))
-        self.context.response.success = "error" not in payload
-        set_answer(self.context, payload)
+        keys = list(keys)
+
+        target = (Path(self.file_store.vault_path or ".") / path).resolve()
+        if not target.is_file():
+            payload: dict = {"path": path, "error": "not found"}
+        elif target.suffix != ".md":
+            payload = {"path": path, "error": "not markdown"}
+        elif not keys:
+            payload = {"path": path, "error": "keys is empty"}
+        else:
+            post = frontmatter.loads(target.read_text(encoding="utf-8"))
+            deleted: list[str] = []
+            missing: list[str] = []
+            for k in keys:
+                if k in post.metadata:
+                    del post.metadata[k]
+                    deleted.append(k)
+                else:
+                    missing.append(k)
+            if deleted:
+                target.write_text(frontmatter.dumps(post), encoding="utf-8")
+            payload = {
+                "path": path,
+                "deleted": deleted,
+                "missing": missing,
+                "frontmatter": dict(post.metadata),
+            }
+
+        if "error" in payload:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {payload['error']}"
+        else:
+            self.context.response.success = True
+            self.context.response.answer = f"Deleted {len(payload['deleted'])} key(s) from {path}"
+        self.context.response.metadata.update(payload)

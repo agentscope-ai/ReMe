@@ -115,27 +115,40 @@ jobs:
       type: object
       properties:
         path:
-          oneOf:
-            - {type: string}
-            - {type: array, items: {type: string}}
-          description: "Seed path or list of paths (relative to the vault)."
-        depth:     {type: integer, description: "Hop limit (default 1 = immediate neighbors).", default: 1}
-        direction: {type: string,  description: "Edge direction filter: forward / backward / both.", default: forward}
+          type: string
+          description: "Seed path (relative to the vault)."
+        depth:
+          type: integer
+          description: "Hop limit (default 1 = immediate neighbors)."
+          default: 1
+        direction:
+          type: string
+          description: "Edge direction filter: forward / backward / both."
+          default: both
       required:
         - path
     steps:
       - backend: traverse_step
 
-  # ── Read ───────────────────────────────────────────────────────────
+  # ── Read Operations ───────────────────────────────────────────────────────────
   - backend: base
     name: list
-    description: "List files under a path; optionally recursive, with a result cap. Plain directory walker — no frontmatter parsing. Callers that need frontmatter-based filtering should iterate the result and call `frontmatter_read` per candidate."
+    description: "List files under a path; optionally recursive, with a result cap. Plain directory walker — no frontmatter parsing. Callers that need frontmatter-based filtering should iterate the result and call `frontmatter:read` per candidate."
     parameters:
       type: object
       properties:
-        path:      {type: string,  description: "Directory path (relative to the vault). Empty = vault root.", default: ""}
-        recursive: {type: boolean, description: "Recurse into subdirectories.", default: false}
-        limit:     {type: integer, description: "Max results.", default: 100}
+        path:
+          type: string
+          description: "Directory path (relative to the vault). Empty = vault root."
+          default: ""
+        recursive:
+          type: boolean
+          description: "Recurse into subdirectories."
+          default: false
+        limit:
+          type: integer
+          description: "Max results."
+          default: 100
     steps:
       - backend: list_step
 
@@ -165,23 +178,29 @@ jobs:
     parameters:
       type: object
       properties:
-        path: {type: string, description: "Path relative to the vault."}
-      required: [path]
+        path:
+          type: string
+          description: "Path relative to the vault."
+      required:
+        - path
     steps:
       - backend: stat_step
 
   - backend: base
-    name: frontmatter_read
+    name: frontmatter:read
     description: "Read a markdown file's parsed YAML frontmatter as a dict (body excluded)."
     parameters:
       type: object
       properties:
-        path: {type: string, description: "Path relative to the vault."}
-      required: [path]
+        path:
+          type: string
+          description: "Path relative to the vault."
+      required:
+        - path
     steps:
-      - backend: frontmatter_read_step
+      - backend: frontmatter:read_step
 
-  # ── Write ──────────────────────────────────────────────────────────
+  # ── Write Operations──────────────────────────────────────────────────────────
   - backend: base
     name: write
     description: >-
@@ -252,47 +271,68 @@ jobs:
       - backend: append_step
 
   - backend: base
-    name: frontmatter_update
+    name: frontmatter:update
     description: "Update YAML frontmatter on an existing markdown file (merge semantics — each entry in `metadata` becomes one frontmatter key; missing keys are inserted, existing keys overwritten). Use for surgical edits to the reserved keys (`name` / `description`) or any caller-defined keys without rewriting the body."
     parameters:
       type: object
       properties:
-        path: {type: string, description: "Path relative to the vault."}
+        path:
+          type: string
+          description: "Path relative to the vault."
         metadata:
           type: object
           description: "Frontmatter keys to merge — every key/value becomes one frontmatter entry."
           additionalProperties: true
-      required: [path, metadata]
+      required:
+        - path
+        - metadata
     steps:
       - backend: frontmatter_update_step
 
   - backend: base
-    name: frontmatter_delete
+    name: frontmatter:delete
     description: "Delete one or more YAML frontmatter keys on an existing file."
     parameters:
       type: object
       properties:
-        path: {type: string, description: "Path relative to the vault."}
+        path:
+          type: string
+          description: "Path relative to the vault."
         keys:
           type: array
           description: "Frontmatter keys to remove."
-          items: {type: string}
-      required: [path, keys]
+          items:
+            type: string
+      required:
+        - path
+        - keys
     steps:
       - backend: frontmatter_delete_step
 
-  # ── File ops (relocate / cross-realm) ──────────────────────────────
+  # ── File Operations (relocate / cross-realm) ──────────────────────────────
   - backend: base
     name: move
-    description: "Relocate / rename a file within the vault and (by default) fix every inbound wikilink. Use for promoting a draft (daily/ → digest/) or renaming a slug. retarget=true (default) rewrites [[path]] references across the vault to [[new_path]] after the rename — keeping the knowledge graph consistent without a second tool call. Set retarget=false only when intentionally leaving inbound links dangling (e.g. moving a file aside to delete next). For cross-realm transfer use upload / download."
+    description: "Relocate / rename a file within the vault and (by default) fix every inbound wikilink. Use for promoting a draft (daily/ → digest/) or renaming a slug. retarget=true (default) rewrites [[src_path]] references across the vault to [[dst_path]] after the rename — keeping the knowledge graph consistent without a second tool call. Set retarget=false only when intentionally leaving inbound links dangling (e.g. moving a file aside to delete next). For cross-realm transfer use upload / download."
     parameters:
       type: object
       properties:
-        path:      {type: string,  description: "Source path (relative to the vault)."}
-        new_path:  {type: string,  description: "Destination path (relative to the vault) with a directory component."}
-        overwrite: {type: boolean, description: "Overwrite if new_path exists.", default: false}
-        retarget:  {type: boolean, description: "Rewrite inbound wikilinks [[path]] → [[new_path]] after the move (across the vault). Set to false to leave links dangling.", default: true}
-      required: [path, new_path]
+        src_path:
+          type: string
+          description: "Source path (relative to the vault)."
+        dst_path:
+          type: string
+          description: "Destination path (relative to the vault) with a directory component."
+        overwrite:
+          type: boolean
+          description: "Overwrite if dst_path exists."
+          default: false
+        retarget:
+          type: boolean
+          description: "Rewrite inbound wikilinks [[src_path]] → [[dst_path]] after the move (across the vault). Set to false to leave links dangling."
+          default: true
+      required:
+        - src_path
+        - dst_path
     steps:
       - backend: move_step
 
@@ -302,69 +342,154 @@ jobs:
     parameters:
       type: object
       properties:
-        path: {type: string, description: "Path relative to the vault. File or directory."}
-      required: [path]
+        path:
+          type: string
+          description: "Path relative to the vault. File or directory."
+      required:
+        - path
     steps:
       - backend: delete_step
 
   - backend: base
     name: upload
-    description: "Land an externally-received asset into resource/<today>/ (today = local date at call time), alongside a meta.json row capturing provenance and a regenerated <date>.md index view. This is the passive-ingest entry point for external channels (wechat / email / browser / api / ...). Do NOT use it for materials the agent actively fetches or generates inside a daily task — those belong as sibling files inside daily/<date>/<slug>/. The bucket file name is derived as `<channel>__<HHMMSS>__<source-basename>` (callers cannot override); source basenames with path separators, dot segments, or a leading '.' are rejected. Returns {date, name, path}. A duplicate (same channel + same second + same source basename) returns an error — the step never silently dedupes."
+    description: "Copy a file INTO the vault from the local filesystem. Symmetric counterpart to `download`: source is on the local host, target is vault-relative. `dst_path` is required and must include a directory component so the caller is always explicit about where in the vault the file lands. For the passive-ingest channel-tagged resource bucket (resource/<date>/ with provenance metadata), use `upload_resource` instead."
     parameters:
       type: object
       properties:
-        path:        {type: string, description: "Source path on the local filesystem; its basename becomes the trailing component of the bucket file name."}
-        channel:     {type: string, description: "Inbound channel identifier (wechat / email / browser / api / ...). Lowercase letters / digits / dashes only; must start with a letter or digit."}
-        description: {type: string, description: "Analysis hint for downstream agents: where the asset came from, what kind of content it carries, and how it should be interpreted (skim vs. deep parse, structured extraction vs. summarization, ...). The digester reads this verbatim from meta.json to decide how to process the asset, so write enough detail to drive that decision — not just a title. Multi-line is fine; the <date>.md bullet view flattens for display while meta.json preserves the original."}
-        metadata:    {type: object, description: "Optional extras persisted on the meta.json row. `source` (free-form origin within the channel — group name, sender, URL, ...) is conventional; any other keys pass through verbatim. Keys `name`, `channel`, `received_at`, `description` are reserved.", default: {}}
-      required: [path, channel, description]
+        src_path:
+          type: string
+          description: "Absolute host filesystem path to the file to copy in."
+        dst_path:
+          type: string
+          description: "Vault-relative destination path (must include a directory component)."
+        overwrite:
+          type: boolean
+          description: "Overwrite if dst_path already exists."
+          default: false
+      required:
+        - src_path
+        - dst_path
     steps:
       - backend: upload_step
 
   - backend: base
-    name: download
-    description: "Copy a file OUT of the vault to the local filesystem. Use to hand materials from the vault to local tools (browser, viewer). `download_path` empty → land in a session-scoped temp file and return the realized path."
+    name: upload_resource
+    description: "Land an externally-received asset into resource/<today>/ (today = local date at call time), alongside a meta.json row capturing provenance and a regenerated <date>.md index view. This is the passive-ingest entry point for external channels (wechat / email / browser / api / ...). Do NOT use it for materials the agent actively fetches or generates inside a daily task — those belong inlined inside the daily note daily/<date>/<slug>.md. The bucket file name is derived as `<channel>__<HHMMSS>__<source-basename>` (callers cannot override); source basenames with path separators, dot segments, or a leading '.' are rejected. Returns {date, name, path}. A duplicate (same channel + same second + same source basename) returns an error — the step never silently dedupes."
     parameters:
       type: object
       properties:
-        path:          {type: string,  description: "File inside the vault (vault-relative)."}
-        download_path: {type: string,  description: "Absolute host filesystem path to write to. Empty = session-scoped temp file (the realized path is returned).", default: ""}
-        overwrite:     {type: boolean, description: "Overwrite if download_path already exists.", default: true}
-      required: [path]
+        path:
+          type: string
+          description: "Source path on the local filesystem; its basename becomes the trailing component of the bucket file name."
+        channel:
+          type: string
+          description: "Inbound channel identifier (wechat / email / browser / api / ...). Lowercase letters / digits / dashes only; must start with a letter or digit."
+        description:
+          type: string
+          description: "Analysis hint for downstream agents: where the asset came from, what kind of content it carries, and how it should be interpreted (skim vs. deep parse, structured extraction vs. summarization, ...). The digester reads this verbatim from meta.json to decide how to process the asset, so write enough detail to drive that decision — not just a title. Multi-line is fine; the <date>.md bullet view flattens for display while meta.json preserves the original."
+        metadata:
+          type: object
+          description: "Optional extras persisted on the meta.json row. `source` (free-form origin within the channel — group name, sender, URL, ...) is conventional; any other keys pass through verbatim. Keys `name`, `channel`, `received_at`, `description` are reserved."
+          default: {}
+      required:
+        - path
+        - channel
+        - description
+    steps:
+      - backend: upload_resource_step
+
+  - backend: base
+    name: download
+    description: "Copy a file OUT of the vault to the local filesystem. Use to hand materials from the vault to local tools (browser, viewer). `dst_path` empty → land in a session-scoped temp file and return the realized path."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "File inside the vault (vault-relative)."
+        dst_path:
+          type: string
+          description: "Absolute host filesystem path to write to. Empty = session-scoped temp file (the realized path is returned)."
+          default: ""
+        overwrite:
+          type: boolean
+          description: "Overwrite if dst_path already exists."
+          default: false
+      required:
+        - src_path
     steps:
       - backend: download_step
 
-  # ── Daily (workspace genesis + day-index rollup) ───────────────────
-  # Workspace body edits use generic file + frontmatter primitives once
-  # the workspace exists.
+  # ── Daily Operations(note genesis + day-index rollup) ───────────────────
+  # Note body edits use generic file + frontmatter primitives once the
+  # note exists.
   - backend: base
-    name: daily_list
-    description: "List the workspaces under a single day AND rebuild `daily/<date>.md` as a side effect (idempotent — the freshly-rendered workspace inventory is exactly what callers want to read). Returns {date, workspaces: [{path, name, description}, ...]} — one row per `daily/<date>/<slug>/<slug>.md` summary with vault-relative path / name / description (frontmatter-parsed). Read view of the same rebuild that `daily_reindex` exposes from the write side."
+    name: daily:list
+    description: "List the notes under a single day AND rebuild `daily/<date>.md` as a side effect (idempotent — the freshly-rendered note inventory is exactly what callers want to read). Returns {date, notes: [{path, name, description}, ...]} — one row per `daily/<date>/<slug>.md` note file with vault-relative path / name / description (frontmatter-parsed). Read view of the same rebuild that `daily:reindex` exposes from the write side."
     parameters:
       type: object
       properties:
-        date: {type: string, description: "ISO date (YYYY-MM-DD). Empty = today.", default: ""}
+        date:
+          type: string
+          description: "ISO date (YYYY-MM-DD). Empty = today."
+          default: ""
     steps:
       - backend: daily_list_step
 
   - backend: base
-    name: daily_resolve
-    description: "Ensure a daily workspace folder exists at daily/<today>/<name>/ and return its vault-relative path. Pure path-shape helper — no body / frontmatter / index writes (use file_write + frontmatter_update for content, daily_reindex to rebuild the day index). Name must be valid as a folder name on Windows (no reserved chars < > : \" / \\ | ? *, no reserved device names CON / PRN / AUX / NUL / COM1-9 / LPT1-9, no trailing '.' or whitespace). Idempotent: when the folder already exists returns {created: false, message: ...} so the caller knows to read-modify rather than overwrite."
+    name: daily:resolve
+    description: "Ensure the day folder daily/<today>/ exists and return the vault-relative path daily/<today>/<name>.md. Pure path-shape helper — does NOT create the note file (use daily:create or file_write for that). Name must be valid as a filename on Windows (no reserved chars < > : \" / \\ | ? *, no reserved device names CON / PRN / AUX / NUL / COM1-9 / LPT1-9, no trailing '.' or whitespace). Idempotent: when the note file already exists returns {exists: true, message: ...} so the caller knows to read-modify rather than overwrite."
     parameters:
       type: object
       properties:
-        name: {type: string, description: "Workspace folder name (also used as the conventional <name>.md summary stem). Must satisfy Windows folder-name rules."}
-      required: [name]
+        name:
+          type: string
+          description: "Note slug (the .md file's stem). Must satisfy Windows filename rules."
+      required:
+        - name
     steps:
       - backend: daily_resolve_step
 
   - backend: base
-    name: daily_reindex
-    description: "Rebuild the day-index page daily/<date>.md from the current set of workspaces under that date. The day index is a derived artifact; this is the standalone writer — call it once after a batch of workspace mutations (resolve / write / frontmatter_update), or for historical backfill and drift recovery. Idempotent and safe to re-run. Returns {date, path, created, workspaces_count} — the write view (was the index page just created? how many workspaces were swept in?). For the per-workspace inventory use `daily_list` (which also triggers this rebuild)."
+    name: daily:create
+    description: "Create the note file daily/<date>/<slug>.md with a minimal `name` frontmatter, then refresh the day index daily/<date>.md. Idempotent — if the note file already exists it is left untouched (caller should read-modify rather than overwrite); the index is still refreshed because sibling notes may have changed. Returns {date, slug, path, created, index}."
     parameters:
       type: object
       properties:
-        date: {type: string, description: "ISO date (YYYY-MM-DD). Empty = today.", default: ""}
+        slug:
+          type: string
+          description: "Note slug (the .md file's stem under daily/<date>/)."
+        body:
+          type: string
+          description: "Initial body content of the note file. Empty leaves the file as frontmatter-only."
+          default: ""
+        date:
+          type: string
+          description: "ISO date (YYYY-MM-DD). Empty = today."
+          default: ""
+        name:
+          type: string
+          description: "Reserved-field name written to frontmatter. Empty falls back to `slug`."
+          default: ""
+        refresh_index:
+          type: boolean
+          description: "Refresh daily/<date>.md after the write. Set false for batch flows that will reindex at the end."
+          default: true
+      required:
+        - slug
+    steps:
+      - backend: daily_create_step
+
+  - backend: base
+    name: daily:reindex
+    description: "Rebuild the day-index page daily/<date>.md from the current set of notes under that date. The day index is a derived artifact; this is the standalone writer — call it once after a batch of note mutations (resolve / write / frontmatter:update), or for historical backfill and drift recovery. Idempotent and safe to re-run. Returns {date, path, created, notes_count} — the write view (was the index page just created? how many notes were swept in?). For the per-note inventory use `daily:list` (which also triggers this rebuild)."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "ISO date (YYYY-MM-DD). Empty = today."
+          default: ""
     steps:
       - backend: daily_reindex_step
 

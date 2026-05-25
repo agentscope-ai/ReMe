@@ -27,13 +27,11 @@ accepted with a warning.
 # pylint: disable=protected-access,redefined-builtin
 
 import asyncio
-import json
 import os
 import tempfile
 import warnings
 from pathlib import Path
 
-from reme4.components.file_parser.linked_file_parser import _extract_links
 from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileNode
 from reme4.steps.crud import (
@@ -44,6 +42,7 @@ from reme4.steps.crud import (
     stat as crud_stat,
 )
 from reme4.utils import call_action, call_and_check, mock_reme_server
+from reme4.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -78,7 +77,7 @@ async def _make_store(files: dict[str, str] | None = None) -> LocalFileStore:
             FileNode(
                 path=rel,
                 st_mtime=abs_path.stat().st_mtime,
-                links=_extract_links(content, rel),
+                links=WikilinkHandler.extract_links(content, rel),
             ),
         )
     if nodes:
@@ -86,8 +85,8 @@ async def _make_store(files: dict[str, str] | None = None) -> LocalFileStore:
     return store
 
 
-def _answer(step) -> dict:
-    return json.loads(step.context.response.answer)
+def _metadata(step) -> dict:
+    return step.context.response.metadata
 
 
 def _run(coro):
@@ -119,7 +118,7 @@ def test_stat_indexed_file():
             store = await _make_store({"topics/n.md": "---\nname: T\n---\nbody"})
             step = crud_stat.StatStep(file_store=store)
             await step(path="topics/n.md")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["exists"] is True
             assert payload["type"] == "file"
             assert "size" in payload and payload["size"] > 0
@@ -140,7 +139,7 @@ def test_stat_directory_fallback():
             (Path(tmp) / "topics").mkdir(parents=True, exist_ok=True)
             step = crud_stat.StatStep(file_store=store)
             await step(path="topics")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["exists"] is True
             assert payload["type"] == "dir"
             await store.close()
@@ -166,7 +165,7 @@ def test_list_lists_files():
             )
             step = crud_list.ListStep(file_store=store)
             await step(path="topics", recursive=True)
-            payload = _answer(step)
+            payload = _metadata(step)
             assert set(payload["items"]) == {"topics/a.md", "topics/b.md", "topics/sub/c.md"}
             assert payload["count"] == 3
             await store.close()
@@ -189,7 +188,7 @@ def test_list_respects_limit_and_non_recursive():
             )
             step = crud_list.ListStep(file_store=store)
             await step(path="topics", recursive=False, limit=1)
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["count"] == 1
             assert len(payload["items"]) == 1
             await store.close()
@@ -202,17 +201,17 @@ def test_list_respects_limit_and_non_recursive():
 
 
 def test_download_to_explicit_path():
-    """download copies the vault file to download_path."""
+    """download copies the vault file to dst_path."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store({"topics/a.md": "alpha"})
             target = Path(tmp) / "out" / "a.md"
             step = crud_download.DownloadStep(file_store=store)
-            await step(path="topics/a.md", download_path=str(target))
-            payload = _answer(step)
+            await step(src_path="topics/a.md", dst_path=str(target))
+            payload = _metadata(step)
             assert "error" not in payload
-            assert payload["download_path"] == str(target)
+            assert payload["dst_path"] == str(target)
             assert target.read_text(encoding="utf-8") == "alpha"
             await store.close()
         print("✓ test_download_to_explicit_path passed")
@@ -220,19 +219,19 @@ def test_download_to_explicit_path():
     asyncio.run(run())
 
 
-def test_download_to_temp_when_download_path_empty():
-    """Without download_path, download lands the file in a temp file and returns the path."""
+def test_download_to_temp_when_dst_path_empty():
+    """Without dst_path, download lands the file in a temp file and returns the path."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store({"topics/a.md": "alpha"})
             step = crud_download.DownloadStep(file_store=store)
-            await step(path="topics/a.md")
-            payload = _answer(step)
+            await step(src_path="topics/a.md")
+            payload = _metadata(step)
             assert "error" not in payload
-            assert Path(payload["download_path"]).read_text(encoding="utf-8") == "alpha"
+            assert Path(payload["dst_path"]).read_text(encoding="utf-8") == "alpha"
             await store.close()
-        print("✓ test_download_to_temp_when_download_path_empty passed")
+        print("✓ test_download_to_temp_when_dst_path_empty passed")
 
     asyncio.run(run())
 
@@ -247,8 +246,8 @@ def test_move_relocates_within_vault():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store({"daily/2026-05-18/foo/foo.md": "draft"})
             step = crud_move.MoveStep(file_store=store)
-            await step(path="daily/2026-05-18/foo/foo.md", new_path="knowledge/foo/foo.md")
-            payload = _answer(step)
+            await step(src_path="daily/2026-05-18/foo/foo.md", dst_path="knowledge/foo/foo.md")
+            payload = _metadata(step)
             assert "error" not in payload
             assert not (Path(tmp) / "daily/2026-05-18/foo/foo.md").exists()
             assert (Path(tmp) / "knowledge/foo/foo.md").read_text(encoding="utf-8") == "draft"
@@ -259,7 +258,7 @@ def test_move_relocates_within_vault():
 
 
 def test_move_refuses_overwrite_without_flag():
-    """move refuses to clobber an existing new_path unless overwrite=True."""
+    """move refuses to clobber an existing dst_path unless overwrite=True."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -270,8 +269,8 @@ def test_move_refuses_overwrite_without_flag():
                 },
             )
             step = crud_move.MoveStep(file_store=store)
-            await step(path="a/x.md", new_path="b/x.md")
-            payload = _answer(step)
+            await step(src_path="a/x.md", dst_path="b/x.md")
+            payload = _metadata(step)
             assert "destination exists" in payload.get("error", "")
             assert (Path(tmp) / "a/x.md").exists()
             await store.close()
@@ -281,7 +280,7 @@ def test_move_refuses_overwrite_without_flag():
 
 
 def test_move_default_retargets_inbound_links():
-    """move with retarget=True (default) rewrites inbound full-path [[path]] → [[new_path]]."""
+    """move with retarget=True (default) rewrites inbound full-path [[src_path]] → [[dst_path]]."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -297,10 +296,10 @@ def test_move_default_retargets_inbound_links():
             )
             step = crud_move.MoveStep(file_store=store)
             await step(
-                path="daily/2026-05-18/draft/draft.md",
-                new_path="knowledge/draft/draft.md",
+                src_path="daily/2026-05-18/draft/draft.md",
+                dst_path="knowledge/draft/draft.md",
             )
-            payload = _answer(step)
+            payload = _metadata(step)
 
             assert "error" not in payload
             assert payload["retarget"]["files_touched"] == 1
@@ -328,11 +327,11 @@ def test_move_opt_out_leaves_links_dangling():
             )
             step = crud_move.MoveStep(file_store=store)
             await step(
-                path="daily/2026-05-18/draft/draft.md",
-                new_path="knowledge/draft/draft.md",
+                src_path="daily/2026-05-18/draft/draft.md",
+                dst_path="knowledge/draft/draft.md",
                 retarget=False,
             )
-            payload = _answer(step)
+            payload = _metadata(step)
 
             assert "error" not in payload
             assert payload["retarget"] is None
@@ -357,7 +356,7 @@ def test_delete_removes_file():
             store = await _make_store({"knowledge/draft/draft.md": "x"})
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="knowledge/draft/draft.md")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload.get("deleted") is True
             assert not (Path(tmp) / "knowledge/draft/draft.md").exists()
             await store.close()
@@ -374,7 +373,7 @@ def test_delete_missing_returns_error():
             store = await _make_store()
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="knowledge/nope/nope.md")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["error"] == "not found"
             await store.close()
         print("✓ test_delete_missing_returns_error passed")
@@ -400,7 +399,7 @@ def test_delete_reports_inbound_refs():
             )
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="knowledge/target/target.md")
-            payload = _answer(step)
+            payload = _metadata(step)
 
             assert payload["deleted"] is True
             assert not (Path(tmp) / "knowledge/target/target.md").exists()
@@ -436,7 +435,7 @@ def test_delete_folder_removes_tree():
             )
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="scratch")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["deleted"] is True
             assert payload["is_dir"] is True
             assert set(payload["deleted_files"]) == {
@@ -467,7 +466,7 @@ def test_delete_folder_reports_only_external_inbound():
             )
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="doomed")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["deleted"] is True
             assert payload["is_dir"] is True
             assert not (Path(tmp) / "doomed").exists()
@@ -501,7 +500,7 @@ def test_delete_folder_empty_has_no_inbound():
             store = await _make_store()
             step = crud_delete.DeleteStep(file_store=store)
             await step(path="empty")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert payload["deleted"] is True
             assert payload["is_dir"] is True
             assert payload["deleted_files"] == []
@@ -1503,7 +1502,7 @@ if __name__ == "__main__":
     test_list_lists_files()
     test_list_respects_limit_and_non_recursive()
     test_download_to_explicit_path()
-    test_download_to_temp_when_download_path_empty()
+    test_download_to_temp_when_dst_path_empty()
     test_move_relocates_within_vault()
     test_move_refuses_overwrite_without_flag()
     test_move_default_retargets_inbound_links()

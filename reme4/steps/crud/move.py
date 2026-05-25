@@ -1,16 +1,16 @@
 """``file_move`` — relocate / rename a file within the vault by copy → retarget → delete.
 
 Three-step ordering keeps vault_dir referentially consistent at every
-intermediate point — no window in which inbound ``[[path]]`` wikilinks
+intermediate point — no window in which inbound ``[[src_path]]`` wikilinks
 dangle:
 
-  1. ``shutil.copyfile(path, new_path)``. Both files now exist on disk;
-     inbound ``[[path]]`` still resolves (to the original location).
-  2. ``retarget_links(path, new_path)``. Rewrites every inbound
-     ``[[path]]`` → ``[[new_path]]`` across the vault. Both files
+  1. ``shutil.copyfile(src_path, dst_path)``. Both files now exist on disk;
+     inbound ``[[src_path]]`` still resolves (to the original location).
+  2. ``retarget_links(src_path, dst_path)``. Rewrites every inbound
+     ``[[src_path]]`` → ``[[dst_path]]`` across the vault. Both files
      exist throughout, so rewrites can land in any order without
      breaking resolution.
-  3. ``path_abs.unlink()``. References now point at ``new_path``; the
+  3. ``src_abs.unlink()``. References now point at ``dst_path``; the
      original is an orphan and is safely removed.
 
 If retargeting fails (raises or returns an error payload), step 3 is
@@ -19,8 +19,8 @@ retry; vault_dir stays consistent (references still resolve to the
 original). The ``src_removed`` boolean in the payload distinguishes
 the two cases.
 
-Source (``path``) must resolve inside vault_dir as a path relative to
-the vault; ``new_path`` must be relative to the vault with a directory
+``src_path`` must resolve inside vault_dir as a path relative to the
+vault; ``dst_path`` must be relative to the vault with a directory
 component (same rule as ``file_upload``). For cross-realm transfer
 (vault_dir ↔ local fs) use ``file_upload`` / ``file_download``.
 
@@ -29,57 +29,56 @@ want to leave references stale (e.g. moving aside before delete) — the
 original is still removed in that case (move semantics, not copy).
 """
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
-from ...utils.wikilink_utils import retarget_links
+from ...utils.wikilink_handler import WikilinkHandler
 
 from ...components import R
-from ...enumeration import ComponentEnum
 
 
 @R.register("move_step")
 class MoveStep(BaseStep):
-    """Move ``path`` to ``new_path`` within the vault (copy → retarget → unlink)."""
-
-    component_type = ComponentEnum.STEP
+    """Move ``src_path`` to ``dst_path`` within the vault (copy → retarget → unlink)."""
 
     async def execute(self):
         assert self.context is not None
-        path: str = self.context.get("path", "") or ""
-        new_path: str = self.context.get("new_path", "") or ""
+        src_path: str = self.context.get("src_path", "") or ""
+        dst_path: str = self.context.get("dst_path", "") or ""
         overwrite: bool = bool(self.context.get("overwrite", False))
         retarget: bool = bool(self.context.get("retarget", True))
-        assert path and new_path, "path and new_path are required"
-        payload = await self._move(path, new_path, overwrite, retarget)
-        self.context.response.success = "error" not in payload
-        set_answer(self.context, payload)
+        assert src_path and dst_path, "src_path and dst_path are required"
+        payload = await self._move(src_path, dst_path, overwrite, retarget)
+        if "error" in payload:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {payload['error']}"
+        else:
+            self.context.response.success = True
+            self.context.response.answer = f"Moved {src_path} → {dst_path}"
+        self.context.response.metadata.update(payload)
 
-    async def _move(self, path: str, new_path: str, overwrite: bool, retarget: bool) -> dict:
+    async def _move(self, src_path: str, dst_path: str, overwrite: bool, retarget: bool) -> dict:
         vault_dir = Path(self.file_store.vault_path or ".")
-        path_abs = (vault_dir / path).resolve() if path else None
-        new_abs = (vault_dir / new_path).resolve() if not Path(new_path).is_absolute() else None
-        precheck_error = _precheck_move(path, new_path, path_abs, new_abs, overwrite)
+        src_abs = (vault_dir / src_path).resolve() if src_path else None
+        dst_abs = (vault_dir / dst_path).resolve() if not Path(dst_path).is_absolute() else None
+        precheck_error = _precheck_move(src_path, dst_path, src_abs, dst_abs, overwrite)
         if precheck_error:
             return precheck_error
-        assert path_abs is not None and new_abs is not None  # narrowed by precheck
-        new_abs.parent.mkdir(parents=True, exist_ok=True)
+        assert src_abs is not None and dst_abs is not None  # narrowed by precheck
+        dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        # Step 1 — copy. Both files exist; inbound [[path]] still resolves.
-        shutil.copyfile(str(path_abs), str(new_abs))
-        payload: dict = {"path": path, "new_path": new_path, "size": new_abs.stat().st_size}
+        # Step 1 — copy. Both files exist; inbound [[src_path]] still resolves.
+        shutil.copyfile(str(src_abs), str(dst_abs))
+        payload: dict = {"src_path": src_path, "dst_path": dst_path, "size": dst_abs.stat().st_size}
 
         # Step 2 — retarget. vault_dir stays consistent throughout: refs still
-        # at [[path]] resolve to the original; refs already rewritten to
-        # [[new_path]] resolve to the new location. On error, bail before
+        # at [[src_path]] resolve to the original; refs already rewritten to
+        # [[dst_path]] resolve to the new location. On error, bail before
         # unlinking so the caller can retry; vault_dir is still consistent.
         if retarget:
             try:
-                report = await retarget_links(self.file_store, src=path, dst=new_path)
+                report = await WikilinkHandler.retarget_links(self.file_store, src=src_path, dst=dst_path)
             except Exception as exc:
                 payload["retarget"] = {"error": f"retarget raised: {exc!r}"}
                 payload["src_removed"] = False
@@ -97,12 +96,12 @@ class MoveStep(BaseStep):
         else:
             payload["retarget"] = None
 
-        # Step 3 — unlink the original. Refs all point at new_path now; the
+        # Step 3 — unlink the original. Refs all point at dst_path now; the
         # original is an orphan. If unlink fails, vault_dir is still
-        # consistent (refs resolve to new_path); the original just lingers
+        # consistent (refs resolve to dst_path); the original just lingers
         # as an orphan that the caller can clean up.
         try:
-            path_abs.unlink()
+            src_abs.unlink()
             payload["src_removed"] = True
         except Exception as exc:
             payload["src_removed"] = False
@@ -112,22 +111,22 @@ class MoveStep(BaseStep):
 
 
 def _precheck_move(
-    path: str,
-    new_path: str,
-    path_abs: Path | None,
-    new_abs: Path | None,
+    src_path: str,
+    dst_path: str,
+    src_abs: Path | None,
+    dst_abs: Path | None,
     overwrite: bool,
 ) -> dict | None:
     """Validate inputs for ``_move``; return an error payload or ``None`` when OK."""
-    if path_abs is None or not path_abs.is_file():
-        return {"path": path, "error": "not found"}
-    if new_abs is None or "/" not in new_path:
+    if src_abs is None or not src_abs.is_file():
+        return {"src_path": src_path, "error": "not found"}
+    if dst_abs is None or "/" not in dst_path:
         return {
-            "new_path": new_path,
-            "error": "new_path must be relative to the vault with a directory component",
+            "dst_path": dst_path,
+            "error": "dst_path must be relative to the vault with a directory component",
         }
-    if new_abs == path_abs:
-        return {"path": path, "new_path": new_path, "error": "path and new_path are the same"}
-    if new_abs.exists() and not overwrite:
-        return {"new_path": new_path, "error": "destination exists; pass overwrite=True"}
+    if dst_abs == src_abs:
+        return {"src_path": src_path, "dst_path": dst_path, "error": "src_path and dst_path are the same"}
+    if dst_abs.exists() and not overwrite:
+        return {"dst_path": dst_path, "error": "destination exists; pass overwrite=True"}
     return None

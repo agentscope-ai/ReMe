@@ -1,10 +1,12 @@
-"""``daily_resolve`` — ensure a daily workspace folder exists; return its vault path.
+"""``daily_resolve`` — resolve a daily note path; ensure the parent day folder exists.
 
-A daily workspace is the folder ``daily/<YYYY-MM-DD>/<name>/``. This step
-creates it if missing and returns the vault-relative path.
+A daily note is a single markdown file ``daily/<YYYY-MM-DD>/<name>.md``.
+This step validates ``name``, makes sure the day folder ``daily/<YYYY-MM-DD>/``
+exists (so a subsequent ``file_write`` succeeds), and returns the
+vault-relative path to the note file.
 
-Input is a single ``name`` (the workspace name). It must be safe to use as a
-folder name on all platforms — Windows is the strictest, so we validate
+Input is a single ``name`` (the note slug). It must be safe to use as a
+filename on all platforms — Windows is the strictest, so we validate
 against its rules:
 
 - no reserved characters: ``< > : " / \\ | ? *`` or control chars (``\\x00-\\x1f``)
@@ -13,21 +15,19 @@ against its rules:
 - no leading/trailing whitespace
 - non-empty
 
-Idempotent: if the folder already exists, returns ``{created: False,
-message: ...}`` so the caller knows to read-modify rather than overwrite.
+Idempotent: returns ``{exists: True}`` when the note file already
+exists (caller should read-modify rather than overwrite); otherwise
+``{exists: False}`` — the file itself is **not** created here, use
+``daily_create`` or ``file_write`` for that.
 """
-
-from __future__ import annotations
 
 import re
 from datetime import date as _date
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
 
 from ...components import R
-from ...enumeration import ComponentEnum
 
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
@@ -41,62 +41,51 @@ _RESERVED_NAMES = {
 }
 
 
-def _today_iso() -> str:
-    return _date.today().isoformat()
-
-
-def _validate_name(name: str) -> str | None:
-    """Return an error string if ``name`` violates Windows folder-name rules; else ``None``."""
-    if not name:
-        return "name is required"
-    if name != name.strip():
-        return f"name cannot have leading or trailing whitespace: {name!r}"
-    if _INVALID_CHARS.search(name):
-        return f'name contains invalid characters (one of < > : " / \\ | ? * or a control char): {name!r}'
-    if name.endswith("."):
-        return f"name cannot end with '.': {name!r}"
-    # Windows reserves these device names with or without an extension (CON.txt also forbidden).
-    stem = name.split(".", 1)[0].upper()
-    if stem in _RESERVED_NAMES:
-        return f"name is a Windows-reserved device name: {name!r}"
-    return None
-
-
 @R.register("daily_resolve_step")
 class DailyResolveStep(BaseStep):
-    """Ensure ``daily/<today>/<name>/`` exists; return its vault-relative path."""
-
-    component_type = ComponentEnum.STEP
+    """Ensure ``daily/<today>/`` exists; return the vault-relative path to ``<name>.md``."""
 
     async def execute(self):
         assert self.context is not None
         name: str = self.context.get("name", "") or ""
 
-        err = _validate_name(name)
+        err: str | None = None
+        if not name:
+            err = "name is required"
+        elif name != name.strip():
+            err = f"name cannot have leading or trailing whitespace: {name!r}"
+        elif _INVALID_CHARS.search(name):
+            err = f'name contains invalid characters (one of < > : " / \\ | ? * or a control char): {name!r}'
+        elif name.endswith("."):
+            err = f"name cannot end with '.': {name!r}"
+        # Windows reserves these device names with or without an extension (CON.txt also forbidden).
+        elif name.split(".", 1)[0].upper() in _RESERVED_NAMES:
+            err = f"name is a Windows-reserved device name: {name!r}"
+
         if err:
-            payload = {"error": err}
             self.context.response.success = False
-            set_answer(self.context, payload)
+            self.context.response.answer = f"Error: {err}"
+            self.context.response.metadata.update({"error": err})
             return
 
-        day = _today_iso()
+        day = _date.today().isoformat()
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
-        folder_rel = f"{daily_dir}/{day}/{name}"
+        path_rel = f"{daily_dir}/{day}/{name}.md"
         vault_dir = Path(self.file_store.vault_path or ".")
-        folder_abs = (vault_dir / folder_rel).resolve()
+        path_abs = (vault_dir / path_rel).resolve()
+        path_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        already_existed = folder_abs.is_dir()
-        if not already_existed:
-            folder_abs.mkdir(parents=True, exist_ok=True)
-
+        exists = path_abs.is_file()
         payload: dict = {
             "date": day,
             "name": name,
-            "path": folder_rel,
-            "created": not already_existed,
+            "path": path_rel,
+            "exists": exists,
         }
-        if already_existed:
-            payload["message"] = f"workspace already exists at {folder_rel}"
+        if exists:
+            payload["message"] = f"note already exists at {path_rel}"
 
         self.context.response.success = True
-        set_answer(self.context, payload)
+        verb = "Resolved" if not exists else "Resolved existing"
+        self.context.response.answer = f"{verb} note {path_rel}"
+        self.context.response.metadata.update(payload)

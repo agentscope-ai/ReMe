@@ -19,23 +19,27 @@ round-trip.
 * ``common``        — search / health_check / help / reindex / version / graph_traverse
 * ``crud``          — list / stat / move / delete / upload / download / read / write / append / edit
 * ``frontmatter``   — markdown frontmatter slice RUD (frontmatter_read_step / update / delete)
-* ``daily``         — workspace genesis / list / day-index reindex
+* ``daily``         — note genesis / list / day-index reindex
 * ``jobs``          — synchronizer / digester (LLM-driven orchestrators)
 """
 
 from . import common  # noqa: F401  -- registers common steps (search, version, graph_traverse, ...)
 from . import crud  # noqa: F401  -- registers list/stat/upload/download/move/delete/read/write/append/edit
 from . import frontmatter  # noqa: F401  -- registers frontmatter_read_step/update/delete
-from . import daily  # noqa: F401  -- registers daily_resolve_step / daily_list_step / daily_reindex_step
+from . import (
+    daily,
+)  # noqa: F401  -- registers daily_resolve_step / daily_create_step / daily_list_step / daily_reindex_step
 from . import background  # noqa: F401
 
 # from . import jobs  # noqa: F401  -- registers synchronizer / digester
 from .base_step import BaseStep
+from . import graph  # noqa: F401
 
 __all__ = [
     "background",
     "common",
     "crud",
+    "graph",
     "frontmatter",
     "daily",
     "BaseStep",

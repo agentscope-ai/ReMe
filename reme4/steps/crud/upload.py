@@ -1,365 +1,74 @@
-"""``upload`` — copy an externally-received asset into ``resource/<date>/``.
+"""``file_upload`` — copy a file from the local filesystem into the vault.
 
-This step is the **passive** ingest entry point: when an external
-channel (wechat group, email, browser save, API push, ...) hands
-the agent a file, ``upload`` lands it in ``resource/<YYYY-MM-DD>/``
-keyed by the day it was received (always today, local time),
-alongside a ``meta.json`` row recording provenance.
+Symmetric counterpart to ``file_download``: source is on the local
+filesystem, target is under the vault.
 
-This is the only ingest path through ``resource/``. Materials the
-main agent *actively* fetches or generates during a daily task
-belong inside the daily folder as sibling materials, not here.
+``src_path`` (filesystem source) is an absolute path on the host
+filesystem (the file to copy in). Returns ``error="not found"``
+when the file isn't on disk.
 
-Bucket layout::
+``dst_path`` is a path relative to the vault, **required**, and must
+include a directory component so the caller is always explicit about
+where in the vault the file lands. ``overwrite`` defaults to False —
+callers must opt in to clobber an existing destination.
 
-    resource/<YYYY-MM-DD>/
-      meta.json                                 # JSON array of ResourceEntry rows
-      <date>.md                                 # derived markdown view
-      <channel>__<HHMMSS>__<source-basename>    # the asset itself
-      ...
-
-Naming convention — the file name is **derived**, never caller-supplied::
-
-    <channel>__<HHMMSS>__<source-basename>
-
-* ``<channel>`` — top-level identity (anchors provenance), lowercase
-  letters/digits/dashes only.
-* ``<HHMMSS>`` — receive time within the bucket day (the date is
-  already implicit in the bucket folder).
-* ``<source-basename>`` — the basename of the ``path`` argument,
-  after rejecting path separators, dot segments, and leading dots.
-
-This format is self-describing in directory listings + wikilinks
-(``[[resource/<date>/wechat__153022__report.pdf]]``) and makes
-cross-channel basename collisions structurally impossible. Two
-genuine duplicates (same channel + same second + same basename)
-are reported as an error — the step never silently dedupes, so
-callers see the conflict and can decide whether to retry, rename
-upstream, or skip.
-
-Each ``upload`` call:
-
-1. Resolves the bucket date as today (local time).
-2. Validates the inputs: ``path`` exists, ``channel`` matches the
-   allowed character class, ``description`` is non-empty, the
-   source basename has no path separators / dot segments / leading
-   dot.
-3. Builds the final name from the format above.
-4. Under a per-day file lock, checks the final name against
-   ``meta.json`` ∪ the on-disk listing. Any collision → error
-   (no silent suffixing).
-5. Copies the asset into the bucket.
-6. Appends a ``ResourceEntry`` to ``meta.json`` and re-renders
-   ``<date>.md``.
-
-Parameters:
-
-* ``path`` (required) — local filesystem path to the asset to ingest.
-* ``channel`` (required) — inbound channel identifier (wechat /
-  email / browser / api / ...). Lowercase letters / digits / dashes
-  only.
-* ``description`` (required) — analysis hint for downstream agents:
-  where the asset came from, what kind of content it carries, and how
-  it should be interpreted. The digester / synchronizer reads this
-  verbatim from ``meta.json`` to decide how to read the asset (skim
-  vs. deep parse, structured extraction vs. summarization, etc.), so
-  callers should write enough detail to drive that decision — not
-  just a title. Multi-line is fine; the ``<date>.md`` bullet view
-  flattens for display while ``meta.json`` preserves the original.
-* ``metadata`` (optional dict) — extras persisted on the meta row.
-  ``source`` (free-form origin within the channel) is conventional;
-  any other keys pass through verbatim. Keys ``name``, ``channel``,
-  ``received_at``, ``description`` are reserved.
-
-Returns ``{date, name, path}`` on success or ``{error}`` on failure.
+For the resource-bucket ingest path (channel-tagged, dated under
+``resource/<YYYY-MM-DD>/`` with provenance metadata) use
+``upload_resource`` instead.
 """
 
-from __future__ import annotations
-
-import datetime
-import fcntl
-import json
-import os
-import re
+import mimetypes
 import shutil
-import tempfile
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
-from ...utils.resource_utils import assemble_day_md
 
 from ...components import R
-from ...enumeration import ComponentEnum
-from ...schema.resource_meta import ResourceEntry
-
-
-# Channel identifier character class — keeps the derived filename predictable
-# and parseable (the `__` separator is also disjoint from this set).
-_CHANNEL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
-
-# Keys the step manages itself — callers cannot smuggle them in via metadata.
-_RESERVED_METADATA_KEYS = frozenset({"name", "channel", "received_at", "description"})
 
 
 @R.register("upload_step")
 class UploadStep(BaseStep):
-    """Land an external asset in ``resource/<date>/`` and update the day's meta + index."""
-
-    component_type = ComponentEnum.STEP
+    """Copy ``src_path`` (on local fs) to ``dst_path`` (under the vault)."""
 
     async def execute(self):
         assert self.context is not None
-        path: str = (self.context.get("path", "") or "").strip()
-        channel: str = (self.context.get("channel", "") or "").strip()
-        description: str = (self.context.get("description", "") or "").strip()
-        metadata_raw = self.context.get("metadata") or {}
+        src_path: str = self.context.get("src_path", "") or ""
+        dst_path: str = self.context.get("dst_path", "") or ""
+        overwrite: bool = bool(self.context.get("overwrite", False))
+        assert src_path and dst_path, "src_path and dst_path are required"
+        payload = await self._upload(src_path, dst_path, overwrite)
+        if "error" in payload:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {payload['error']}"
+        else:
+            self.context.response.success = True
+            self.context.response.answer = f"Uploaded {src_path} → {dst_path} ({payload['size']} bytes)"
+        self.context.response.metadata.update(payload)
 
-        prepared, prep_error = _prepare_inputs(path, channel, description, metadata_raw)
-        if prep_error:
-            self._fail({"error": prep_error})
-            return
-
-        try:
-            outcome = self._land(
-                src=prepared["src"],
-                date=prepared["date"],
-                final_name=prepared["final_name"],
-                entry_fields={
-                    **prepared["metadata"],
-                    "channel": channel,
-                    "received_at": prepared["received_at"],
-                    "description": description,
-                },
-            )
-        except _DuplicateUpload as e:
-            self._fail({"error": str(e)})
-            return
-        except Exception as e:
-            self._fail({"error": f"{type(e).__name__}: {e}"})
-            return
-
-        self.context.response.success = True
-        set_answer(self.context, outcome)
-
-    # ------------------------------------------------------------------
-
-    def _fail(self, payload: dict) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        set_answer(self.context, payload)
-
-    def _resource_dir_name(self) -> str:
-        """Configured ``resource_dir`` subdir name; defaults to ``"resource"`` outside an app context."""
-        if self.app_context is None:
-            return "resource"
-        return self.app_context.app_config.resource_dir
-
-    def _vault_dir(self) -> Path:
-        vr = getattr(self.file_store, "vault_path", None)
-        return Path(vr).resolve() if vr else Path.cwd().resolve()
-
-    def _land(self, src: Path, date: str, final_name: str, entry_fields: dict) -> dict:
-        resource_dir = self._resource_dir_name()
-        bucket = self._vault_dir() / resource_dir / date
-        bucket.mkdir(parents=True, exist_ok=True)
-        meta_path = bucket / "meta.json"
-        day_md = bucket / f"{date}.md"
-        lock_path = bucket / ".lock"
-
-        with _bucket_lock(lock_path):
-            existing_entries = _read_meta(meta_path)
-            # Collision check spans meta ∪ on-disk listing so a stray file
-            # (from a crashed earlier run) and case-insensitive filesystems
-            # both surface the conflict rather than getting silently clobbered.
-            on_disk = {p.name for p in bucket.iterdir() if p.is_file()}
-            existing_names = {e.name for e in existing_entries} | on_disk
-            if final_name in existing_names:
-                raise _DuplicateUpload(
-                    f"duplicate: {final_name!r} already exists in {resource_dir}/{date}/",
-                )
-
-            shutil.copyfile(src, bucket / final_name)
-
-            entry = ResourceEntry(name=final_name, **entry_fields)
-            updated = existing_entries + [entry]
-            _atomic_write_text(
-                meta_path,
-                json.dumps([e.model_dump() for e in updated], ensure_ascii=False, indent=2) + "\n",
-            )
-            _atomic_write_text(day_md, assemble_day_md(updated, date, resource_dir))
-
+    async def _upload(self, src_path: str, dst_path: str, overwrite: bool) -> dict:
+        src_abs = Path(src_path)
+        if not src_abs.is_file():
+            return {"src_path": src_path, "error": "not found"}
+        if "/" not in dst_path:
+            return {
+                "dst_path": dst_path,
+                "error": "dst_path must be relative to the vault with a directory component",
+            }
+        vault_dir = Path(self.file_store.vault_path or ".")
+        dst_abs = (vault_dir / dst_path).resolve() if not Path(dst_path).is_absolute() else None
+        if dst_abs is None:
+            return {"dst_path": dst_path, "error": "dst_path must be relative to the vault"}
+        if dst_abs.exists() and not overwrite:
+            return {
+                "src_path": src_path,
+                "dst_path": dst_path,
+                "error": "destination exists; pass overwrite=True",
+            }
+        dst_abs.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_abs, dst_abs)
         return {
-            "date": date,
-            "name": final_name,
-            "path": f"{resource_dir}/{date}/{final_name}",
+            "src_path": src_path,
+            "dst_path": dst_path,
+            "size": dst_abs.stat().st_size,
+            "mime": mimetypes.guess_type(dst_abs.name)[0] or "application/octet-stream",
         }
-
-
-class _DuplicateUpload(Exception):
-    """Raised when the derived name already exists in the bucket."""
-
-
-# ----------------------------------------------------------------------
-# Input validation
-# ----------------------------------------------------------------------
-
-
-def _prepare_inputs(
-    path: str,
-    channel: str,
-    description: str,
-    metadata_raw,
-) -> tuple[dict, str]:
-    """Validate caller args and derive the bucket date / final name.
-
-    Returns ``(prepared, error)``: on success ``prepared`` has
-    ``{src, date, received_at, final_name, metadata}`` and ``error`` is
-    empty; on failure ``prepared`` is ``{}`` and ``error`` carries the
-    first violation in user-facing order (path → channel → description
-    → metadata-shape → file existence → basename → metadata-keys).
-    """
-    src = Path(path) if path else None
-    metadata, meta_error = _sanitize_metadata(metadata_raw) if isinstance(metadata_raw, dict) else ({}, "")
-    error = next(
-        (
-            msg
-            for msg in (
-                "path is required" if not path else "",
-                _validate_channel(channel),
-                "description is required" if not description else "",
-                "metadata must be a dict" if not isinstance(metadata_raw, dict) else "",
-                f"path not found: {path}" if src is not None and not src.is_file() else "",
-                _validate_basename(src.name) if src is not None else "",
-                meta_error,
-            )
-            if msg
-        ),
-        "",
-    )
-    if error:
-        return {}, error
-
-    assert src is not None  # narrowed by the "path is required" check
-    now = datetime.datetime.now()
-    return (
-        {
-            "src": src,
-            "date": now.strftime("%Y-%m-%d"),
-            "received_at": now.isoformat(timespec="seconds"),
-            "final_name": f"{channel}__{now.strftime('%H%M%S')}__{src.name}",
-            "metadata": metadata,
-        },
-        "",
-    )
-
-
-def _validate_channel(channel: str) -> str:
-    """Return an error string when ``channel`` is unsafe; empty when OK."""
-    if not channel:
-        return "channel is required"
-    if not _CHANNEL_RE.match(channel):
-        return f"channel {channel!r} must be lowercase letters / digits / dashes " f"and start with a letter or digit"
-    return ""
-
-
-def _validate_basename(name: str) -> str:
-    """Return an error string when the source basename is unsafe; empty when OK.
-
-    The derived filename embeds this string after a ``__`` separator, so we
-    only need to block characters that would mangle the filesystem path —
-    path separators, dot segments, leading dots. Bookkeeping-name collisions
-    (``meta.json`` / ``<date>.md``) are impossible by construction once the
-    channel + time prefix is prepended.
-    """
-    if not name:
-        return "source basename is empty"
-    if "/" in name or "\\" in name:
-        return f"source basename must not contain path separators: {name!r}"
-    if name in {".", ".."}:
-        return f"source basename {name!r} is reserved"
-    if name.startswith("."):
-        return f"source basename may not start with '.': {name!r}"
-    return ""
-
-
-def _sanitize_metadata(raw: dict) -> tuple[dict, str]:
-    """Return ``(cleaned_metadata, error)``.
-
-    Rejects reserved keys (those the step manages itself) and coerces
-    ``source`` to a string. All other keys pass through verbatim so
-    callers can attach arbitrary tags that land on the
-    ``ResourceEntry`` row.
-    """
-    for key in _RESERVED_METADATA_KEYS:
-        if key in raw:
-            return {}, f"metadata key {key!r} is reserved"
-
-    cleaned = dict(raw)
-    if "source" in cleaned:
-        src = cleaned["source"]
-        cleaned["source"] = src.strip() if isinstance(src, str) else ""
-    return cleaned, ""
-
-
-# ----------------------------------------------------------------------
-# Per-day exclusive lock + atomic write helpers
-# ----------------------------------------------------------------------
-
-
-class _bucket_lock:
-    """Exclusive ``flock`` on a per-day lock file; serializes meta+md writes."""
-
-    def __init__(self, lock_path: Path):
-        self.lock_path = lock_path
-        self._fp = None
-
-    def __enter__(self):
-        self._fp = open(self.lock_path, "w", encoding="utf-8")
-        fcntl.flock(self._fp.fileno(), fcntl.LOCK_EX)
-        return self
-
-    def __exit__(self, *exc):
-        if self._fp is not None:
-            try:
-                fcntl.flock(self._fp.fileno(), fcntl.LOCK_UN)
-            finally:
-                self._fp.close()
-                self._fp = None
-
-
-def _read_meta(meta_path: Path) -> list[ResourceEntry]:
-    """Read ``meta.json`` as a list of entries; missing or malformed → []."""
-    if not meta_path.is_file():
-        return []
-    try:
-        raw = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(raw, list):
-        return []
-    out: list[ResourceEntry] = []
-    for row in raw:
-        if not isinstance(row, dict):
-            continue
-        try:
-            out.append(ResourceEntry(**row))
-        except Exception:
-            continue
-    return out
-
-
-def _atomic_write_text(target: Path, text: str) -> None:
-    """Atomic text write via tempfile + os.replace in the same directory."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(prefix=".upload-", dir=target.parent)
-    try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(tmp_path, target)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise

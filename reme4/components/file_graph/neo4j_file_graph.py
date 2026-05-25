@@ -32,8 +32,6 @@ Conditional dependency: the ``neo4j`` driver loads lazily; the
 import error fires at ``_start`` (boot), not at first call.
 """
 
-from __future__ import annotations
-
 import json
 from typing import Any
 

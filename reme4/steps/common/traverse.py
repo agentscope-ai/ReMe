@@ -27,16 +27,13 @@ is no longer attempted. Seeds that don't match any graph node yield
 empty BFS results (no error).
 """
 
-from __future__ import annotations
-
 from collections import deque
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
 
 from ...components import R
-from ...enumeration import ComponentEnum
+
 from ...schema import FileLink
 
 
@@ -139,13 +136,11 @@ class TraverseStep(BaseStep):
         depth      — hop limit (default 1 = immediate neighbors).
     """
 
-    component_type = ComponentEnum.STEP
-
     async def execute(self):
         assert self.context is not None
         seeds_raw = self.context.get("path")
         depth = int(self.context.get("depth") or 1)
-        direction = (self.context.get("direction") or "forward").lower()
+        direction = (self.context.get("direction") or "both").lower()
         assert (
             direction in _VALID_DIRECTIONS
         ), f"direction must be one of {sorted(_VALID_DIRECTIONS)}, got {direction!r}"
@@ -153,4 +148,7 @@ class TraverseStep(BaseStep):
         assert seeds, "path is required"
         outbound, inbound = await _build_indexes(self.file_store)
         results = _bfs(seeds, depth, direction, outbound, inbound)
-        set_answer(self.context, results)
+        self.context.response.success = True
+        seed_label = seeds[0] if len(seeds) == 1 else f"{len(seeds)} seeds"
+        self.context.response.answer = f"Traversed {len(results)} edge(s) from {seed_label}"
+        self.context.response.metadata.update({"edges": results, "count": len(results)})

@@ -21,17 +21,13 @@ to rewrite (via ``file_move`` to a merge target), edit the
 citing prose, or accept dangling.
 """
 
-from __future__ import annotations
-
 import shutil
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
-from ...utils.wikilink_utils import find_inbound
+from ...utils.wikilink_handler import WikilinkHandler
 
 from ...components import R
-from ...enumeration import ComponentEnum
 
 
 def _is_inside(rel: str, folder_rel: str) -> bool:
@@ -44,15 +40,21 @@ def _is_inside(rel: str, folder_rel: str) -> bool:
 class DeleteStep(BaseStep):
     """Hard-delete the path at ``path`` (file or folder, relative to the vault)."""
 
-    component_type = ComponentEnum.STEP
-
     async def execute(self):
         assert self.context is not None
         path: str = self.context.get("path", "") or ""
         assert path, "path is required"
         payload = await self._delete(path)
-        self.context.response.success = "error" not in payload
-        set_answer(self.context, payload)
+        if "error" in payload:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {payload['error']}"
+        elif payload.get("is_dir"):
+            self.context.response.success = True
+            self.context.response.answer = f"Deleted directory {path} ({len(payload['deleted_files'])} file(s))"
+        else:
+            self.context.response.success = True
+            self.context.response.answer = f"Deleted {path}"
+        self.context.response.metadata.update(payload)
 
     async def _delete(self, path: str) -> dict:
         if not path:
@@ -60,7 +62,7 @@ class DeleteStep(BaseStep):
         vault_dir = Path(self.file_store.vault_path or ".").resolve()
         target = (vault_dir / path).resolve()
         if target.is_file():
-            inbound = await find_inbound(self.file_store, target=path)
+            inbound = await WikilinkHandler.find_inbound(self.file_store, target=path)
             target.unlink()
             return {
                 "path": path,
@@ -87,7 +89,7 @@ class DeleteStep(BaseStep):
                 except ValueError:
                     continue
                 deleted_files.append(rel)
-                inbound = await find_inbound(self.file_store, target=rel)
+                inbound = await WikilinkHandler.find_inbound(self.file_store, target=rel)
                 # Drop sources that also live inside the doomed folder —
                 # their links vanish with them and aren't actionable.
                 external = [row for row in inbound.get("by_file", []) if not _is_inside(row["path"], folder_rel)]

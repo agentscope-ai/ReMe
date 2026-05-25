@@ -1,7 +1,7 @@
 """``_day_index`` — internal helper: build/refresh ``daily/<date>.md`` index page.
 
-The day index is a derived artifact whose single job is **workspace
-consolidation** — its source of truth lives in each workspace's
+The day index is a derived artifact whose single job is **daily-note
+consolidation** — its source of truth lives in each note's
 frontmatter. This module rebuilds the auto-managed sections of the
 index page while preserving any manual content the user has added
 between markers.
@@ -9,29 +9,26 @@ between markers.
 Frontmatter shape — only the two reserved fields::
 
     name:        <date>
-    description: <one-line workspace-count digest>
+    description: <one-line note-count digest>
 
-The workspace inventory lives in the body's
-``<!-- workspaces:auto -->`` wikilinks (graph edges feed off them).
-No bespoke status / lifecycle / scope / role / source / created
-axes — those are user-defined and intentionally absent from the
-auto-managed payload.
+The note inventory lives in the body's ``<!-- notes:auto -->``
+wikilinks (graph edges feed off them). No bespoke status / lifecycle
+/ scope / role / source / created axes — those are user-defined and
+intentionally absent from the auto-managed payload.
 
 Body auto sections (rebuilt on every refresh, marker-delimited):
 
-* ``workspaces`` — bulleted list of ``[[link]]\\n  name — description`` rows
+* ``notes`` — bulleted list of ``[[link]]\\n  name — description`` rows
 
 Manual sections live outside the auto markers and are preserved verbatim
 across refreshes. A fresh day file gets a ``## 备忘`` section seeded as
 the manual scratch area.
 
 Entry point: ``refresh_day_index(file_store, date)`` — idempotent, safe
-to call after every workspace mutation. ``daily_reindex_step`` exposes
+to call after every note mutation. ``daily_reindex_step`` exposes
 it as a standalone tool; orchestrators (synchronizer, batch flows) call
 it explicitly after they finish writing.
 """
-
-from __future__ import annotations
 
 import re
 from pathlib import Path
@@ -40,12 +37,12 @@ import frontmatter
 
 # Marker syntax: HTML comments so they're invisible in rendered markdown
 # but trivially detectable in source. Each block has a paired open/close.
-_BLOCK_NAMES = ("workspaces",)
+_BLOCK_NAMES = ("notes",)
 _BLOCK_OPEN = "<!-- {name}:auto -->"
 _BLOCK_CLOSE = "<!-- /{name}:auto -->"
 
 _HEADINGS = {
-    "workspaces": "## 工作区",
+    "notes": "## 今日笔记",
 }
 
 _MANUAL_HEADING = "## 备忘"
@@ -64,41 +61,38 @@ def _block_re(name: str) -> re.Pattern:
 
 
 def _count_digest(n: int) -> str:
-    """One-line workspace count, used as the index ``description``."""
+    """One-line note count, used as the index ``description``."""
     if n == 0:
-        return "本日暂无工作区。"
-    return f"今日 {n} 个工作区。"
+        return "本日暂无笔记。"
+    return f"今日 {n} 篇笔记。"
 
 
-def _scan_workspaces(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
-    """Walk ``<daily_dir>/<date>/*/`` and pull each workspace's summary frontmatter.
+def _scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
+    """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.
 
-    Returns one dict per workspace::
+    Returns one dict per note::
 
         {"slug": str, "path": str, "name": str, "description": str}
 
-    Workspaces with no ``<slug>/<slug>.md`` summary are skipped (not a
-    valid workspace). Only reserved fields (name / description) are
+    Each ``.md`` directly under the day folder is a note; the file's
+    stem is the slug. Only reserved fields (name / description) are
     read — user-defined frontmatter keys are ignored by the index.
     """
     date_dir = vault_dir / daily_dir / date
     if not date_dir.is_dir():
         return []
     out: list[dict] = []
-    for slug_dir in sorted(p for p in date_dir.iterdir() if p.is_dir()):
-        slug = slug_dir.name
-        summary = slug_dir / f"{slug}.md"
-        if not summary.is_file():
-            continue
+    for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md"):
+        slug = md_path.stem
         try:
-            post = frontmatter.loads(summary.read_text(encoding="utf-8"))
+            post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
         except Exception:
             continue
         meta = post.metadata or {}
         out.append(
             {
                 "slug": slug,
-                "path": f"{daily_dir}/{date}/{slug}/{slug}.md",
+                "path": f"{daily_dir}/{date}/{slug}.md",
                 "name": str(meta.get("name") or slug),
                 "description": str(meta.get("description") or "").strip(),
             },
@@ -106,22 +100,22 @@ def _scan_workspaces(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
     return out
 
 
-def _render_workspaces_block(workspaces: list[dict]) -> str:
-    """Bulleted workspace digest: link on the bullet line, then an
-    indented ``name — description`` summary so an agent can scan
-    "what's happening today" without opening each workspace.
+def _render_notes_block(notes: list[dict]) -> str:
+    """Bulleted note digest: link on the bullet line, then an indented
+    ``name — description`` summary so an agent can scan "what's
+    happening today" without opening each note.
 
     The indented summary is omitted entirely when both name and
     description add no information beyond the slug already shown in
     the link.
     """
-    if not workspaces:
+    if not notes:
         return "（无）"
     lines: list[str] = []
-    for ws in workspaces:
-        lines.append(f"- [[{ws['path']}]]")
-        name = ws["name"] if ws["name"] and ws["name"] != ws["slug"] else ""
-        description = ws["description"]
+    for note in notes:
+        lines.append(f"- [[{note['path']}]]")
+        name = note["name"] if note["name"] and note["name"] != note["slug"] else ""
+        description = note["description"]
         if name and description:
             lines.append(f"  {name} — {description}")
         elif name:
@@ -172,29 +166,29 @@ def _merge_blocks(body: str, blocks: dict[str, str]) -> str:
     return body
 
 
-def _frontmatter_payload(date: str, workspaces: list[dict]) -> dict:
+def _frontmatter_payload(date: str, notes: list[dict]) -> dict:
     """Reserved-field-only frontmatter for the index page.
 
     Emits ``name`` / ``description`` and nothing else — other axes
     (status / lifecycle / scope / role / source / created) are
-    user-defined and belong in workspace summaries, not in this
-    derived aggregate.
+    user-defined and belong in note bodies, not in this derived
+    aggregate.
     """
     return {
         "name": date,
-        "description": _count_digest(len(workspaces)),
+        "description": _count_digest(len(notes)),
     }
 
 
 async def refresh_day_index(file_store, date: str, daily_dir: str = "daily") -> dict:
-    """Rebuild ``<daily_dir>/<date>.md`` from the current state of its workspaces.
+    """Rebuild ``<daily_dir>/<date>.md`` from the current state of its notes.
 
     Behaviour:
     * No ``<daily_dir>/<date>/`` at all and no existing index file → no-op.
-    * Workspaces present → write the index file (create if missing,
+    * Notes present → write the index file (create if missing,
       otherwise merge auto blocks into the existing body, preserve
       manual segments, refresh frontmatter).
-    * Workspaces directory empty but index file exists → rebuild with
+    * Notes directory empty but index file exists → rebuild with
       empty auto blocks (keeps the file in sync with reality).
 
     ``daily_dir`` defaults to ``"daily"`` for tests / pure-helper
@@ -207,8 +201,8 @@ async def refresh_day_index(file_store, date: str, daily_dir: str = "daily") -> 
         {
           "date": str,
           "path": "<daily_dir>/<date>.md",
-          "workspaces": [
-              {"path": "<daily_dir>/<date>/<slug>/<slug>.md",
+          "notes": [
+              {"path": "<daily_dir>/<date>/<slug>.md",
                "name": str,
                "description": str},
               ...
@@ -216,30 +210,28 @@ async def refresh_day_index(file_store, date: str, daily_dir: str = "daily") -> 
           "created": bool,   # True if index file was just written for the first time
         }
 
-    The ``workspaces`` list mirrors the order rendered in the index body
+    The ``notes`` list mirrors the order rendered in the index body
     (sorted by slug). The ``created`` field reflects index-page creation,
-    not workspace creation, so callers can log "index emerged" events
+    not note creation, so callers can log "index emerged" events
     distinctly.
     """
     vault_dir = Path(file_store.vault_path or ".").resolve()
     index_rel = f"{daily_dir}/{date}.md"
     index_abs = vault_dir / index_rel
-    workspaces = _scan_workspaces(vault_dir, date, daily_dir)
+    notes = _scan_notes(vault_dir, date, daily_dir)
 
-    workspace_payload = [
-        {"path": ws["path"], "name": ws["name"], "description": ws["description"]} for ws in workspaces
-    ]
+    notes_payload = [{"path": n["path"], "name": n["name"], "description": n["description"]} for n in notes]
 
     # Nothing to index and no prior index file — quietly do nothing.
-    if not workspaces and not index_abs.is_file():
+    if not notes and not index_abs.is_file():
         return {
             "date": date,
             "path": index_rel,
-            "workspaces": workspace_payload,
+            "notes": notes_payload,
             "created": False,
         }
 
-    blocks = {"workspaces": _render_workspaces_block(workspaces)}
+    blocks = {"notes": _render_notes_block(notes)}
 
     if index_abs.is_file():
         post = frontmatter.loads(index_abs.read_text(encoding="utf-8"))
@@ -250,13 +242,13 @@ async def refresh_day_index(file_store, date: str, daily_dir: str = "daily") -> 
         new_body = _seed_body(blocks)
         was_created = True
 
-    fm = _frontmatter_payload(date, workspaces)
+    fm = _frontmatter_payload(date, notes)
     out = frontmatter.Post(new_body, **fm)
     index_abs.write_text(frontmatter.dumps(out), encoding="utf-8")
 
     return {
         "date": date,
         "path": index_rel,
-        "workspaces": workspace_payload,
+        "notes": notes_payload,
         "created": was_created,
     }

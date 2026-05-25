@@ -1,4 +1,4 @@
-"""Tests for the wikilink helpers in ``reme4.utils.wikilink_utils``.
+"""Tests for the wikilink helpers in ``reme4.utils.wikilink_handler``.
 
 Two pure async helpers used by file_move / file_delete:
 
@@ -20,10 +20,9 @@ import tempfile
 import warnings
 from pathlib import Path
 
-from reme4.components.file_parser.linked_file_parser import _extract_links
 from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileNode
-from reme4.utils.wikilink_utils import find_inbound, retarget_links
+from reme4.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -64,7 +63,7 @@ async def _store_with(files: dict[str, str]) -> LocalFileStore:
             FileNode(
                 path=rel,
                 st_mtime=abs_path.stat().st_mtime,
-                links=_extract_links(content, rel),
+                links=WikilinkHandler.extract_links(content, rel),
             ),
         )
     if nodes:
@@ -90,7 +89,7 @@ def test_retarget_exact_full_path_match():
                     "people/Alice.md": "# Alice",
                 },
             )
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert "error" not in payload
             assert payload["links_changed"] == 1
             assert payload["files_touched"] == 1
@@ -117,7 +116,7 @@ def test_retarget_short_and_no_ext_forms_ignored():
                     "people/Alice.md": "# Alice",
                 },
             )
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 1  # only the full-path form
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "[[people/Alice.md]]" in body
@@ -136,7 +135,7 @@ def test_retarget_anchor_preserved():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             root = Path(tmp)
             store = await _store_with({"note.md": "Jump to [[topics/Alice.md#intro]] please."})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 1
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "[[people/Alice.md#intro]]" in body
@@ -153,7 +152,7 @@ def test_retarget_alias_preserved():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             root = Path(tmp)
             store = await _store_with({"note.md": "Meet [[topics/Alice.md|Alice the Architect]]."})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 1
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "[[people/Alice.md|Alice the Architect]]" in body
@@ -170,7 +169,7 @@ def test_retarget_anchor_and_alias_together():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             root = Path(tmp)
             store = await _store_with({"note.md": "See [[topics/Alice.md#bio|her bio]] now."})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 1
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "[[people/Alice.md#bio|her bio]]" in body
@@ -187,7 +186,7 @@ def test_retarget_image_marker_preserved():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             root = Path(tmp)
             store = await _store_with({"note.md": "Inline embed: ![[topics/diagram.md]] here."})
-            payload = await retarget_links(store, src="topics/diagram.md", dst="diagrams/diagram.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/diagram.md", dst="diagrams/diagram.md")
             assert payload["links_changed"] == 1
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "![[diagrams/diagram.md]]" in body
@@ -207,7 +206,7 @@ def test_retarget_dataview_predicate_preserved():
                 "colleague:: [[topics/Alice.md]]\n" + "She is the [负责:: [[topics/Alice.md]]] for the migration.\n"
             )
             store = await _store_with({"note.md": body_in})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 2
             body = (root / "note.md").read_text(encoding="utf-8")
             assert "colleague:: [[people/Alice.md]]" in body
@@ -229,7 +228,7 @@ def test_retarget_multiple_files_aggregate_counts():
                     "sub/b.md": "[[topics/Alice.md]] and [[topics/Bob.md]]",
                 },
             )
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="people/Alice.md")
             assert payload["links_changed"] == 3
             assert payload["files_touched"] == 2
             by_file = {row["path"]: row["count"] for row in payload["by_file"]}
@@ -248,7 +247,12 @@ def test_retarget_dry_run_does_not_write():
             root = Path(tmp)
             original = "See [[topics/Alice.md]]."
             store = await _store_with({"note.md": original})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="people/Alice.md", dry_run=True)
+            payload = await WikilinkHandler.retarget_links(
+                store,
+                src="topics/Alice.md",
+                dst="people/Alice.md",
+                dry_run=True,
+            )
             assert payload["dry_run"] is True
             assert payload["links_changed"] == 1
             assert payload["files_touched"] == 1
@@ -271,7 +275,7 @@ def test_retarget_scope_limits_sweep():
                     "outside/note.md": "Also [[topics/Alice.md]].",
                 },
             )
-            payload = await retarget_links(
+            payload = await WikilinkHandler.retarget_links(
                 store,
                 src="topics/Alice.md",
                 dst="people/Alice.md",
@@ -295,7 +299,7 @@ def test_retarget_src_eq_dst_is_noop():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _store_with({"note.md": "See [[topics/Alice.md]]."})
-            payload = await retarget_links(store, src="topics/Alice.md", dst="topics/Alice.md")
+            payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst="topics/Alice.md")
             assert payload["links_changed"] == 0
             assert payload["files_touched"] == 0
             await store.close()
@@ -311,7 +315,7 @@ def test_retarget_empty_src_or_dst_errors():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _empty_store()
             for kwargs in ({"src": "", "dst": "people/Alice.md"}, {"src": "topics/Alice.md", "dst": ""}):
-                payload = await retarget_links(store, **kwargs)
+                payload = await WikilinkHandler.retarget_links(store, **kwargs)
                 assert "error" in payload, f"expected error for {kwargs}"
             await store.close()
         print("✓ test_retarget_empty_src_or_dst_errors passed")
@@ -326,7 +330,7 @@ def test_retarget_dst_with_forbidden_chars_errors():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _empty_store()
             for bad in ["people/Alice#anchor", "people/Alice|alias", "p/[A].md", "p/A]]"]:
-                payload = await retarget_links(store, src="topics/Alice.md", dst=bad)
+                payload = await WikilinkHandler.retarget_links(store, src="topics/Alice.md", dst=bad)
                 assert "error" in payload, f"expected error for dst={bad!r}, got {payload}"
             await store.close()
         print("✓ test_retarget_dst_with_forbidden_chars_errors passed")
@@ -344,7 +348,7 @@ def test_retarget_absolute_path_rejected():
                 {"src": "/abs/old.md", "dst": "people/Alice.md"},
                 {"src": "topics/Alice.md", "dst": "/abs/new.md"},
             ):
-                payload = await retarget_links(store, **kwargs)
+                payload = await WikilinkHandler.retarget_links(store, **kwargs)
                 assert "error" in payload, f"expected error for {kwargs}"
             await store.close()
         print("✓ test_retarget_absolute_path_rejected passed")
@@ -364,7 +368,7 @@ def test_find_inbound_counts_references():
                     "topics/Alice.md": "self-ref [[topics/Alice.md]] should not count",
                 },
             )
-            payload = await find_inbound(store, target="topics/Alice.md")
+            payload = await WikilinkHandler.find_inbound(store, target="topics/Alice.md")
             assert payload["files_touched"] == 2
             assert payload["links_total"] == 3
             by_file = {row["path"]: row["count"] for row in payload["by_file"]}

@@ -18,8 +18,6 @@ parsing succeeds — schema validity is a lint concern.
 Joined with ``file_store.vault_path`` and inspected on disk.
 """
 
-from __future__ import annotations
-
 import mimetypes
 from datetime import datetime
 from pathlib import Path
@@ -27,55 +25,48 @@ from pathlib import Path
 import frontmatter
 
 from ..base_step import BaseStep
-from ...utils import set_answer
 
 from ...components import R
-from ...enumeration import ComponentEnum
-
-
-def _iso(ts: float) -> str:
-    """Filesystem timestamp → ISO 8601 string."""
-    return datetime.fromtimestamp(ts).isoformat()
-
-
-async def _stat(file_store, path: str) -> dict:
-    target = (Path(file_store.vault_path or ".") / path).resolve()
-    if not target.exists():
-        return {"path": path, "exists": False}
-
-    st = target.stat()
-    out: dict = {
-        "path": path,
-        "absolute_path": str(target),
-        "exists": True,
-        "type": "dir" if target.is_dir() else "file",
-        "mtime": _iso(st.st_mtime),
-        "ctime": _iso(st.st_ctime),
-    }
-
-    if target.is_file():
-        out["size"] = st.st_size
-        out["mime"] = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-        if target.suffix == ".md":
-            try:
-                meta = dict(frontmatter.loads(target.read_text(encoding="utf-8")).metadata)
-            except Exception:
-                meta = {}
-            out["frontmatter"] = meta
-
-    return out
 
 
 @R.register("stat_step")
 class StatStep(BaseStep):
     """Return metadata for a file or directory under the vault."""
 
-    component_type = ComponentEnum.STEP
-
     async def execute(self):
         assert self.context is not None
         path: str = self.context.get("path", "") or ""
         assert path, "path is required"
-        payload = await _stat(self.file_store, path)
-        self.context.response.success = payload.get("exists", False) and "error" not in payload
-        set_answer(self.context, payload)
+
+        target = (Path(self.file_store.vault_path or ".") / path).resolve()
+        if not target.exists():
+            self.context.response.success = False
+            self.context.response.answer = f"stat: {path} not found"
+            self.context.response.metadata.update({"path": path, "exists": False})
+            return
+
+        st = target.stat()
+        payload: dict = {
+            "path": path,
+            "absolute_path": str(target),
+            "exists": True,
+            "type": "dir" if target.is_dir() else "file",
+            "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
+            "ctime": datetime.fromtimestamp(st.st_ctime).isoformat(),
+        }
+        if target.is_file():
+            payload["size"] = st.st_size
+            payload["mime"] = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+            if target.suffix == ".md":
+                try:
+                    meta = dict(frontmatter.loads(target.read_text(encoding="utf-8")).metadata)
+                except Exception:
+                    meta = {}
+                payload["frontmatter"] = meta
+            answer = f"stat: {path} (file, {st.st_size} bytes)"
+        else:
+            answer = f"stat: {path} (dir)"
+
+        self.context.response.success = True
+        self.context.response.answer = answer
+        self.context.response.metadata.update(payload)

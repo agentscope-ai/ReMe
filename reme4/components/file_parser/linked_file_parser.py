@@ -8,23 +8,12 @@ Pipeline: build mistletoe AST → ``MdNode`` tree (sections nest by
 heading level) → recursive chunk (try whole subtree; on overflow walk
 children — body siblings pack as a run, subsections recurse). Leaf
 blocks (table / code / list / paragraph) split on internal boundaries
-and each piece is annotated ``[Part X/N]``. Wikilinks in the body are
-extracted as graph edges, with optional Dataview-style typed predicates
-(line-level ``predicate:: [[X]]`` or inline-bracketed ``[predicate:: [[X]]]``).
-
-Wikilink convention. Targets are taken **literally** — ``[[X]]``
-becomes ``target_path="X"`` with no implicit ``.md``, no short-form
-basename search, no folder-note expansion. The recommended form is a
-full path relative to the vault with extension, e.g.
-``[[digest/alice/alice.md]]``. Anything else (``[[Alice]]``,
-``[[digest/alice/alice]]``) is also stored verbatim and will be
-flagged by ``lint:dangling`` because no node lives at that literal
-path — the parser does no validation, lint is the contract enforcer.
+and each piece is annotated ``[Part X/N]``. Wikilink extraction is
+delegated to :class:`reme4.utils.wikilink_handler.WikilinkHandler` —
+the single source of truth for ``[[...]]`` syntax (including
+Dataview-style typed predicates).
 """
 
-from __future__ import annotations
-
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,112 +25,10 @@ from .base_file_parser import BaseFileParser
 from ..component_registry import R
 from ...schema import (
     FileChunk,
-    FileLink,
     FileFrontMatter,
     FileNode,
 )
-
-
-# -- Wikilink extraction --------------------------------------------------
-
-
-_WIKILINK_RE = re.compile(
-    r"""
-    (?:!)?
-    \[\[
-        (?P<target>[^\]\|\#\n]+?)
-        (?:\#(?P<anchor>[^\]\|\n]+))?
-        (?:\|[^\]\n]+)?
-    \]\]
-    """,
-    re.VERBOSE,
-)
-
-_DATAVIEW_LINE_RE = re.compile(
-    r"^[ \t]*(?:[-*+][ \t]+)?(?P<predicate>[A-Za-z][A-Za-z0-9_]*)\s*::\s*(?P<value>.+?)\s*$",
-    re.MULTILINE,
-)
-
-_INLINE_FIELD_OPEN_RE = re.compile(r"\[(?P<predicate>[A-Za-z][A-Za-z0-9_]*)\s*::\s*")
-
-
-def _iter_inline_fields(text: str) -> list[tuple[int, int, str]]:
-    """Find inline-bracketed ``[predicate:: …]`` field spans by depth scan."""
-    out: list[tuple[int, int, str]] = []
-    for m in _INLINE_FIELD_OPEN_RE.finditer(text):
-        depth = 1
-        i = m.end()
-        n = len(text)
-        while i < n:
-            c = text[i]
-            if c == "\n":
-                break
-            if c == "[":
-                depth += 1
-            elif c == "]":
-                depth -= 1
-                if depth == 0:
-                    out.append((m.start(), i + 1, m.group("predicate")))
-                    break
-            i += 1
-    return out
-
-
-def _predicate_for(
-    text: str,
-    pos: int,
-    inline_spans: list[tuple[int, int, str]],
-) -> str | None:
-    """Resolve the predicate governing a wikilink at offset ``pos``.
-
-    Precedence: inline-bracketed > line-level Dataview > none.
-    """
-    for field_start, field_end, predicate in inline_spans:
-        if field_start <= pos < field_end:
-            return predicate
-    line_start = text.rfind("\n", 0, pos) + 1
-    line_end = text.find("\n", pos)
-    if line_end == -1:
-        line_end = len(text)
-    m = _DATAVIEW_LINE_RE.match(text[line_start:line_end])
-    if m and line_start + m.start("value") <= pos:
-        return m.group("predicate")
-    return None
-
-
-def _extract_links(text: str, source_path: str) -> list[FileLink]:
-    """Find every wikilink in ``text`` and emit FileLinks with literal targets.
-
-    No resolution is performed: ``target_path`` is the bracket contents
-    verbatim. ``lint:dangling`` checks whether the literal target exists
-    in the graph. Results are deduped by
-    ``(target_path, predicate, target_anchor)`` preserving order.
-    """
-    if not text:
-        return []
-    inline_spans = _iter_inline_fields(text)
-    out: list[FileLink] = []
-    seen: set[tuple] = set()
-    for wm in _WIKILINK_RE.finditer(text):
-        target = wm.group("target").strip()
-        if not target:
-            continue
-        anchor_raw = wm.group("anchor")
-        anchor = anchor_raw.strip() if anchor_raw else None
-        predicate = _predicate_for(text, wm.start(), inline_spans)
-        key = (target, predicate, anchor)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(
-            FileLink(
-                source_path=source_path,
-                target_path=target,
-                target_anchor=anchor,
-                predicate=predicate,
-            ),
-        )
-    return out
+from ...utils.wikilink_handler import WikilinkHandler
 
 
 # -- AST node + helpers ---------------------------------------------------
@@ -249,7 +136,7 @@ class LinkedFileParser(BaseFileParser):
                 tree = self._build_tree(Document(post.content), renderer)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
 
-        links = _extract_links(post.content, rel_path) if post.content else []
+        links = WikilinkHandler.extract_links(post.content, rel_path) if post.content else []
 
         node = FileNode(
             path=rel_path,

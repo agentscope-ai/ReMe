@@ -1,11 +1,11 @@
-"""Tests for the resource ingest path: ``UploadStep`` + helpers.
+"""Tests for the resource ingest path: ``UploadResourceStep`` + helpers.
 
-``upload`` is the **passive** ingest entry point — external channels
+``upload_resource`` is the **passive** ingest entry point — external channels
 push assets into ``resource/<YYYY-MM-DD>/``, where each call appends a
-``ResourceEntry`` to ``meta.json`` and regenerates the day's
-``<date>.md`` view from the updated meta. These tests exercise that
-contract end-to-end on a temp vault, plus the pure ``assemble_day_md``
-helper in isolation.
+:class:`FileNode` row to ``meta.json`` (provenance on
+``front_matter``) and regenerates the day's ``<date>.md`` view from
+the updated meta. These tests exercise that contract end-to-end on a
+temp vault, plus the pure ``_assemble_day_md`` helper in isolation.
 
 The bucket file name is always derived: ``<channel>__<HHMMSS>__<basename>``.
 Duplicates surface as errors (no silent suffixing).
@@ -23,9 +23,9 @@ import warnings
 from pathlib import Path
 
 from reme4.components.file_store import LocalFileStore
-from reme4.schema.resource_meta import ResourceEntry
-from reme4.steps.crud import upload as crud_upload
-from reme4.utils.resource_utils import assemble_day_md
+from reme4.schema import FileFrontMatter, FileNode
+from reme4.steps.crud import upload_resource as crud_upload
+from reme4.steps.crud.upload_resource import _assemble_day_md
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -54,8 +54,8 @@ async def _make_store() -> LocalFileStore:
     return store
 
 
-def _answer(step) -> dict:
-    return json.loads(step.context.response.answer)
+def _metadata(step) -> dict:
+    return step.context.response.metadata
 
 
 def _meta(tmp: str, date: str) -> list[dict]:
@@ -70,22 +70,32 @@ def _today() -> str:
 _NAME_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)__(\d{6})__(.+)$")
 
 
-# -- assemble_day_md -----------------------------------------------------
+# -- _assemble_day_md ----------------------------------------------------
+
+
+def _entry(name: str, **fm_fields) -> FileNode:
+    """Build a FileNode resource entry: path = resource/<date>/<name>, all
+    provenance fields go onto front_matter (extras allowed)."""
+    return FileNode(
+        path=f"resource/2026-05-22/{name}",
+        st_mtime=0.0,
+        front_matter=FileFrontMatter(**fm_fields),
+    )
 
 
 def test_assemble_day_md_renders_entries():
     """The derived view lists entries with channel / source / time / description."""
     entries = [
-        ResourceEntry(
-            name="wechat__143000__report.pdf",
+        _entry(
+            "wechat__143000__report.pdf",
+            description="Q1 report",
             channel="wechat",
             source="design-group",
             received_at="2026-05-22T14:30:00",
-            description="Q1 report",
         ),
-        ResourceEntry(name="browser__095501__bare.png", channel="browser"),
+        _entry("browser__095501__bare.png", channel="browser"),
     ]
-    md = assemble_day_md(entries, "2026-05-22")
+    md = _assemble_day_md(entries, "2026-05-22")
     assert "name: 2026-05-22" in md
     assert "assets: [wechat__143000__report.pdf, browser__095501__bare.png]" in md
     assert (
@@ -97,7 +107,7 @@ def test_assemble_day_md_renders_entries():
 
 def test_assemble_day_md_empty_bucket():
     """An empty bucket still produces a well-formed frontmatter + header."""
-    md = assemble_day_md([], "2026-05-22")
+    md = _assemble_day_md([], "2026-05-22")
     assert "assets: []" in md
     assert "# 2026-05-22 resources" in md
     print("✓ test_assemble_day_md_empty_bucket passed")
@@ -141,7 +151,7 @@ def test_validate_channel_rejects_unsafe_identifiers():
     print("✓ test_validate_channel_rejects_unsafe_identifiers passed")
 
 
-# -- UploadStep end-to-end -----------------------------------------------
+# -- UploadResourceStep end-to-end --------------------------------------
 
 
 def test_upload_first_call_creates_bucket():
@@ -153,14 +163,14 @@ def test_upload_first_call_creates_bucket():
             src = Path(tmp) / "incoming.pdf"
             src.write_bytes(b"%PDF-fake")
 
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(
                 path=str(src),
                 channel="wechat",
                 description="Q1 report",
                 metadata={"source": "design-group"},
             )
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "error" not in payload, payload
             date = payload["date"]
             assert date == _today()
@@ -176,10 +186,11 @@ def test_upload_first_call_creates_bucket():
 
             meta = _meta(tmp, date)
             assert len(meta) == 1
-            assert meta[0]["name"] == payload["name"]
-            assert meta[0]["channel"] == "wechat"
-            assert meta[0]["source"] == "design-group"
-            assert meta[0]["description"] == "Q1 report"
+            assert Path(meta[0]["path"]).name == payload["name"]
+            fm = meta[0]["front_matter"]
+            assert fm["channel"] == "wechat"
+            assert fm["source"] == "design-group"
+            assert fm["description"] == "Q1 report"
 
             day_md = (bucket / f"{date}.md").read_text(encoding="utf-8")
             assert f"name: {date}" in day_md
@@ -198,13 +209,14 @@ def test_upload_metadata_optional():
             store = await _make_store()
             src = Path(tmp) / "small.txt"
             src.write_text("x")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(path=str(src), channel="api", description="minimal")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "error" not in payload, payload
             row = _meta(tmp, payload["date"])[0]
-            assert row["channel"] == "api"
-            assert row.get("source", "") == ""
+            fm = row["front_matter"]
+            assert fm["channel"] == "api"
+            assert fm.get("source", "") == ""
             await store.close()
         print("✓ test_upload_metadata_optional passed")
 
@@ -221,15 +233,15 @@ def test_upload_appends_to_existing_meta():
             for i, suffix in enumerate(("first", "second"), start=1):
                 src = Path(tmp) / f"{suffix}.txt"
                 src.write_text(f"payload-{i}")
-                step = crud_upload.UploadStep(file_store=store)
+                step = crud_upload.UploadResourceStep(file_store=store)
                 await step(path=str(src), channel="email", description=f"item {i}")
-                payload = _answer(step)
+                payload = _metadata(step)
                 assert "error" not in payload, payload
                 names.append(payload["name"])
 
             date = _today()
             meta = _meta(tmp, date)
-            assert [row["name"] for row in meta] == names
+            assert [Path(row["path"]).name for row in meta] == names
 
             day_md = (Path(tmp) / "resource" / date / f"{date}.md").read_text(encoding="utf-8")
             assert f"assets: [{', '.join(names)}]" in day_md
@@ -260,9 +272,9 @@ def test_upload_errors_on_duplicate_same_second(monkeypatch):
             for i, body in enumerate((b"alpha", b"beta")):
                 src = Path(tmp) / "incoming.pdf"
                 src.write_bytes(body)
-                step = crud_upload.UploadStep(file_store=store)
+                step = crud_upload.UploadResourceStep(file_store=store)
                 await step(path=str(src), channel="wechat", description="dup test")
-                payload = _answer(step)
+                payload = _metadata(step)
                 if i == 0:
                     assert "error" not in payload, payload
                 else:
@@ -303,9 +315,9 @@ def test_upload_errors_on_duplicate_against_on_disk_stray(monkeypatch):
 
             src = Path(tmp) / "report.pdf"
             src.write_bytes(b"fresh")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(path=str(src), channel="api", description="fresh copy")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "duplicate" in payload.get("error", "").lower(), payload
             # Stray untouched.
             assert stray.read_bytes() == b"orphan"
@@ -321,13 +333,13 @@ def test_upload_rejects_missing_source():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store()
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(
                 path=str(Path(tmp) / "ghost.txt"),
                 channel="email",
                 description="x",
             )
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "not found" in payload.get("error", "")
             assert not (Path(tmp) / "resource").exists()
             await store.close()
@@ -345,9 +357,9 @@ def test_upload_requires_channel():
             src = Path(tmp) / "x.txt"
             src.write_text("x")
             for bad in ("   ", "WeChat", "we_chat"):
-                step = crud_upload.UploadStep(file_store=store)
+                step = crud_upload.UploadResourceStep(file_store=store)
                 await step(path=str(src), channel=bad, description="x")
-                payload = _answer(step)
+                payload = _metadata(step)
                 assert "channel" in payload.get("error", ""), (bad, payload)
             await store.close()
         print("✓ test_upload_requires_channel passed")
@@ -363,9 +375,9 @@ def test_upload_requires_description():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(path=str(src), channel="api", description="   ")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "description" in payload.get("error", "")
             await store.close()
         print("✓ test_upload_requires_description passed")
@@ -381,14 +393,14 @@ def test_upload_rejects_non_dict_metadata():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
                 description="x",
                 metadata="source=foo",
             )
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "metadata" in payload.get("error", "")
             await store.close()
         print("✓ test_upload_rejects_non_dict_metadata passed")
@@ -406,14 +418,14 @@ def test_upload_rejects_reserved_metadata_keys():
             src = Path(tmp) / "x.txt"
             src.write_text("x")
             for bad in ("name", "channel", "received_at", "description"):
-                step = crud_upload.UploadStep(file_store=store)
+                step = crud_upload.UploadResourceStep(file_store=store)
                 await step(
                     path=str(src),
                     channel="api",
                     description="x",
                     metadata={bad: "evil"},
                 )
-                payload = _answer(step)
+                payload = _metadata(step)
                 assert "reserved" in payload.get("error", ""), (bad, payload)
             await store.close()
         print("✓ test_upload_rejects_reserved_metadata_keys passed")
@@ -429,7 +441,7 @@ def test_upload_preserves_extra_metadata_keys():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
@@ -440,12 +452,13 @@ def test_upload_preserves_extra_metadata_keys():
                     "priority": 3,
                 },
             )
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "error" not in payload, payload
             row = _meta(tmp, payload["date"])[0]
-            assert row["tag"] == "design"
-            assert row["priority"] == 3
-            assert row["source"] == "https://example.com"
+            fm = row["front_matter"]
+            assert fm["tag"] == "design"
+            assert fm["priority"] == 3
+            assert fm["source"] == "https://example.com"
             await store.close()
         print("✓ test_upload_preserves_extra_metadata_keys passed")
 
@@ -464,13 +477,13 @@ def test_upload_rejects_dotfile_source():
             for bad in (".hidden", ".lock", ".env"):
                 src = Path(tmp) / bad
                 src.write_text("x")
-                step = crud_upload.UploadStep(file_store=store)
+                step = crud_upload.UploadResourceStep(file_store=store)
                 await step(
                     path=str(src),
                     channel="api",
                     description="x",
                 )
-                payload = _answer(step)
+                payload = _metadata(step)
                 assert "start with '.'" in payload.get("error", ""), payload
                 src.unlink()
             await store.close()
@@ -491,13 +504,13 @@ def test_upload_records_received_at_internally():
             store = await _make_store()
             src = Path(tmp) / "doc.pdf"
             src.write_bytes(b"%PDF")
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(path=str(src), channel="api", description="x")
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "error" not in payload
             meta = _meta(tmp, payload["date"])
             assert len(meta) == 1
-            stamped = meta[0]["received_at"]
+            stamped = meta[0]["front_matter"]["received_at"]
             parsed = datetime.datetime.fromisoformat(stamped)
             assert parsed.strftime("%Y-%m-%d") == payload["date"]
             # The HHMMSS slot in the name matches the stamped time.
@@ -520,18 +533,18 @@ def test_upload_preserves_description_verbatim_in_meta():
             src = Path(tmp) / "doc.pdf"
             src.write_bytes(b"%PDF")
             multi = "wechat group screenshot\nfrom design-group at 14:30\nlikely a Q1 KPI table — extract numbers"
-            step = crud_upload.UploadStep(file_store=store)
+            step = crud_upload.UploadResourceStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
                 description=multi,
             )
-            payload = _answer(step)
+            payload = _metadata(step)
             assert "error" not in payload, payload
 
             # meta.json preserves the original — downstream digester sees full hint.
             meta = _meta(tmp, payload["date"])
-            assert meta[0]["description"] == multi
+            assert meta[0]["front_matter"]["description"] == multi
 
             # day.md bullet is flattened (single line, no embedded newlines).
             day_md = (Path(tmp) / "resource" / payload["date"] / f"{payload['date']}.md").read_text(encoding="utf-8")
@@ -549,17 +562,17 @@ def test_upload_preserves_description_verbatim_in_meta():
 
 
 def test_assemble_day_md_flattens_multiline_description():
-    """Pure helper: a multi-line description on a ResourceEntry renders as a
-    single bullet line with newlines collapsed."""
+    """Pure helper: a multi-line description on an entry renders as a single
+    bullet line with newlines collapsed."""
     entries = [
-        ResourceEntry(
-            name="api__120000__doc.pdf",
+        _entry(
+            "api__120000__doc.pdf",
+            description="line one\nline two\n  line three",
             channel="api",
             received_at="2026-05-22T12:00:00",
-            description="line one\nline two\n  line three",
         ),
     ]
-    md = assemble_day_md(entries, "2026-05-22")
+    md = _assemble_day_md(entries, "2026-05-22")
     assert "line one line two line three" in md
     # The bullet line must contain the flattened text on a single line.
     bullets = [line for line in md.splitlines() if line.startswith("- [[resource/2026-05-22/api__120000__doc.pdf]]")]

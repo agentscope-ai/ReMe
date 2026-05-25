@@ -17,58 +17,39 @@ that need frontmatter-based filtering should iterate the result and
 call ``frontmatter_read`` per candidate.
 """
 
-from __future__ import annotations
-
-from collections.abc import Iterator
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils import set_answer
 
 from ...components import R
-from ...enumeration import ComponentEnum
-
-
-def _walk(target_dir: Path, recursive: bool) -> Iterator[Path]:
-    items = target_dir.rglob("*") if recursive else target_dir.iterdir()
-    return (p for p in items if p.is_file())
-
-
-async def _list(
-    file_store,
-    *,
-    path: str,
-    recursive: bool,
-    limit: int,
-) -> dict:
-    vault_dir = Path(file_store.vault_path or ".").resolve()
-    target_dir = (vault_dir / (path or ".")).resolve()
-    if not target_dir.is_dir():
-        return {"items": [], "count": 0}
-    items: list[str] = []
-    for entry in _walk(target_dir, recursive):
-        try:
-            rel = str(entry.relative_to(vault_dir))
-        except ValueError:
-            rel = str(entry)
-        items.append(rel)
-        if len(items) >= limit:
-            break
-    return {"items": items, "count": len(items)}
 
 
 @R.register("list_step")
 class ListStep(BaseStep):
     """Enumerate files under a directory in the vault."""
 
-    component_type = ComponentEnum.STEP
-
     async def execute(self):
         assert self.context is not None
-        result = await _list(
-            self.file_store,
-            path=self.context.get("path") or "",
-            recursive=bool(self.context.get("recursive", False)),
-            limit=int(self.context.get("limit") or 100),
-        )
-        set_answer(self.context, result)
+        path: str = self.context.get("path") or ""
+        recursive: bool = bool(self.context.get("recursive", False))
+        limit: int = int(self.context.get("limit") or 100)
+
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        target_dir = (vault_dir / (path or ".")).resolve()
+        items: list[str] = []
+        if target_dir.is_dir():
+            entries = target_dir.rglob("*") if recursive else target_dir.iterdir()
+            for entry in entries:
+                if not entry.is_file():
+                    continue
+                try:
+                    rel = str(entry.relative_to(vault_dir))
+                except ValueError:
+                    rel = str(entry)
+                items.append(rel)
+                if len(items) >= limit:
+                    break
+
+        self.context.response.success = True
+        self.context.response.answer = f"Listed {len(items)} file(s) under {path or '.'}"
+        self.context.response.metadata.update({"items": items, "count": len(items)})
