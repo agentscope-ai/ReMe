@@ -22,6 +22,24 @@ NON_MD_WARNING = (
     "Operating in compatibility mode may carry risks of errors."
 )
 
+NON_IMAGE_WARNING = (
+    "non-image file detected; CRUD image operations are recommended on standard image formats. "
+    "Operating in compatibility mode may carry risks of errors."
+)
+
+# Image suffix → MIME mapping. SVG intentionally excluded (text format, base64
+# encoding has no benefit — caller should use read_step instead).
+IMAGE_MIME_BY_EXT: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+}
+
 # Modern text formats — assume UTF-8 by convention.
 _STANDARD_TEXT_EXTS = {
     ".md",
@@ -79,6 +97,23 @@ def gate_md(target: Path) -> tuple[Path, bool]:
     if target.suffix.lower() != ".md":
         return target, False
     return target, True
+
+
+def gate_image(target: Path) -> tuple[Path, bool, str | None]:
+    """Image gate with compatibility fallback. Returns ``(path, is_image, mime)``.
+
+    Behavior diverges from :func:`gate_md` in two ways:
+        - **No suffix is NOT auto-appended.** Image formats have no single
+          reasonable default; guessing would mislead.
+        - **No path mutation** — ``target`` is returned unchanged.
+
+    Suffix routing:
+        - Known image suffix (see ``IMAGE_MIME_BY_EXT``) → ``(target, True, mime)``
+        - Empty suffix or unknown suffix → ``(target, False, None)``
+          Caller may still read the file and surface a ``NON_IMAGE_WARNING``.
+    """
+    mime = IMAGE_MIME_BY_EXT.get(target.suffix.lower())
+    return target, mime is not None, mime
 
 
 def _try_decode(data: bytes, encodings: Iterable[str]) -> tuple[str, str] | None:

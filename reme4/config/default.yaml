@@ -146,6 +146,26 @@ jobs:
       - backend: read_step
 
   - backend: base
+    name: read_image
+    description: "read an image file as base64 (relative path under working_dir)"
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: >-
+            relative path under the working_dir; common image formats supported
+            (png/jpg/jpeg/webp/gif/bmp/tiff/heic)
+        max_bytes:
+          type: integer
+          description: "max bytes to base64-encode; oversized images return path & metadata only"
+          default: 5242880
+      required:
+        - path
+    steps:
+      - backend: read_image_step
+
+  - backend: base
     name: write
     description: >-
       Write (create or overwrite) a markdown file. The front matter is fixed to two string
