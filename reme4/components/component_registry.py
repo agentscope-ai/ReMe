@@ -1,4 +1,4 @@
-"""Global registry mapping (ComponentEnum, name) -> component class."""
+"""Global registry mapping ``(ComponentEnum, name) -> component class``."""
 
 from typing import Callable, TypeVar, cast
 
@@ -10,7 +10,7 @@ T = TypeVar("T", bound=BaseComponent)
 
 
 class ComponentRegistry:
-    """Two-level registry: component_type -> name -> class.
+    """Two-level registry: ``component_type -> name -> class``.
 
     Supports both direct calls — ``R.register(MyClass, "name")`` — and
     decorator usage — ``@R.register("name")``.
@@ -21,16 +21,20 @@ class ComponentRegistry:
         self.logger = get_logger()
 
     def _do_register(self, cls: type[T], name: str) -> type[T]:
-        """Insert `cls` under its `component_type` group; warn on overwrite."""
+        """Insert `cls` under its ``component_type`` group; warn on overwrite."""
         component_type = getattr(cls, "component_type", None)
         if not isinstance(component_type, ComponentEnum):
-            raise TypeError(f"{cls.__name__} must have a ComponentEnum 'component_type' attribute")
+            raise TypeError(
+                f"{cls.__name__} must have a ComponentEnum 'component_type' attribute"
+            )
         if not name:
             raise ValueError("Component name cannot be empty")
 
         group = self._registry.setdefault(component_type, {})
         if name in group:
-            self.logger.warning(f"Component '{name}' already registered for {component_type}, overwriting")
+            self.logger.warning(
+                f"Component '{name}' already registered for {component_type}, overwriting"
+            )
         group[name] = cls
         return cls
 
@@ -40,16 +44,19 @@ class ComponentRegistry:
         name: str | None = None,
     ) -> Callable[[type[T]], type[T]] | type[T]:
         """Register a component class directly, or return a decorator that does so."""
-        # Direct mode: first arg is the class itself.
+        # Direct call: register(MyClass) or register(MyClass, "alias").
         if isinstance(cls_or_name, type):
-            return self._do_register(cast(type[T], cls_or_name), name if name is not None else cls_or_name.__name__)
+            cls = cast(type[T], cls_or_name)
+            return self._do_register(cls, name if name is not None else cls.__name__)
 
-        # Decorator mode: first arg is the registration name.
+        # Decorator call: @R.register("alias") — must receive a string name.
         if not isinstance(cls_or_name, str):
             raise TypeError(f"Expected a class or string, got {type(cls_or_name).__name__}")
 
+        registration_name = cls_or_name
+
         def decorator(decorated_cls: type[T]) -> type[T]:
-            return self._do_register(decorated_cls, cls_or_name)
+            return self._do_register(decorated_cls, registration_name)
 
         return decorator
 

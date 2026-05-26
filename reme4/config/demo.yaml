@@ -2,8 +2,8 @@ service:
   backend: http
 
 jobs:
-  - backend: base
-    name: version
+  version:
+    backend: base
     description: "return reme4 package version"
     parameters:
       type: object
@@ -11,8 +11,8 @@ jobs:
     steps:
       - backend: version_step
 
-  - backend: base
-    name: help
+  help:
+    backend: base
     description: "list all registered jobs with their metadata"
     parameters:
       type: object
@@ -20,8 +20,8 @@ jobs:
     steps:
       - backend: help_step
 
-  - backend: base
-    name: demo
+  demo:
+    backend: base
     description: "demo job description"
     parameters:
       type: object
@@ -39,8 +39,8 @@ jobs:
       - backend: demo_echo_step1
       - backend: demo_echo_step2
 
-  - backend: stream
-    name: stream_demo
+  stream_demo:
+    backend: stream
     description: "stream demo job: repeat query 10x and stream char-by-char"
     parameters:
       type: object

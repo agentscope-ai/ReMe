@@ -14,8 +14,8 @@ jobs:
   # ════════════════════════════════════════════════════════════════════
   # UTILITY — service introspection
   # ════════════════════════════════════════════════════════════════════
-  - backend: base
-    name: version
+  version:
+    backend: base
     description: "return reme4 package version"
     parameters:
       type: object
@@ -23,8 +23,8 @@ jobs:
     steps:
       - backend: version_step
 
-  - backend: base
-    name: health_check
+  health_check:
+    backend: base
     description: "return a concise health-check snapshot of reme4 components"
     parameters:
       type: object
@@ -32,8 +32,8 @@ jobs:
     steps:
       - backend: health_check_step
 
-  - backend: base
-    name: help
+  help:
+    backend: base
     description: "list all registered jobs with their metadata"
     parameters:
       type: object
@@ -41,8 +41,8 @@ jobs:
     steps:
       - backend: help_step
 
-  - backend: base
-    name: reindex
+  reindex:
+    backend: base
     description: "wipe the file store and rebuild it from the watcher's tracked files"
     parameters:
       type: object
@@ -50,8 +50,8 @@ jobs:
     steps:
       - backend: reindex_step
 
-  - backend: base
-    name: index_changes
+  index_changes:
+    backend: base
     description: "apply a batch of file changes (added/modified/deleted) into file_store"
     parameters:
       type: object
@@ -82,8 +82,8 @@ jobs:
   # ════════════════════════════════════════════════════════════════════
 
   # ── Retrieve ───────────────────────────────────────────────────────
-  - backend: base
-    name: search
+  search:
+    backend: base
     description: "Hybrid vault search (vector + BM25, RRF-fused)."
     parameters:
       type: object
@@ -108,8 +108,8 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
-  - backend: base
-    name: traverse
+  traverse:
+    backend: base
     description: "Walk the wikilink graph from a seed path."
     parameters:
       type: object
@@ -131,8 +131,8 @@ jobs:
       - backend: traverse_step
 
   # ── Read Operations ───────────────────────────────────────────────────────────
-  - backend: base
-    name: list
+  list:
+    backend: base
     description: "List files under a vault path."
     parameters:
       type: object
@@ -152,8 +152,8 @@ jobs:
     steps:
       - backend: list_step
 
-  - backend: base
-    name: read
+  read:
+    backend: base
     description: "Read a markdown file under the vault."
     parameters:
       type: object
@@ -172,8 +172,8 @@ jobs:
     steps:
       - backend: read_step
 
-  - backend: base
-    name: stat
+  stat:
+    backend: base
     description: "Stat a vault file (size, mtime, exists, is_dir, is_file)."
     parameters:
       type: object
@@ -186,8 +186,8 @@ jobs:
     steps:
       - backend: stat_step
 
-  - backend: base
-    name: frontmatter:read
+  frontmatter:read:
+    backend: base
     description: "Read a file's YAML frontmatter as a dict."
     parameters:
       type: object
@@ -201,8 +201,8 @@ jobs:
       - backend: frontmatter:read_step
 
   # ── Write Operations──────────────────────────────────────────────────────────
-  - backend: base
-    name: write
+  write:
+    backend: base
     description: "Write a markdown file (create or overwrite) with name/description frontmatter."
     parameters:
       type: object
@@ -227,8 +227,8 @@ jobs:
     steps:
       - backend: write_step
 
-  - backend: base
-    name: edit
+  edit:
+    backend: base
     description: "Find-and-replace in a markdown file (all occurrences)."
     parameters:
       type: object
@@ -250,8 +250,8 @@ jobs:
     steps:
       - backend: edit_step
 
-  - backend: base
-    name: append
+  append:
+    backend: base
     description: "Append content to a markdown file."
     parameters:
       type: object
@@ -268,8 +268,8 @@ jobs:
     steps:
       - backend: append_step
 
-  - backend: base
-    name: frontmatter:update
+  frontmatter:update:
+    backend: base
     description: "Merge keys into a file's YAML frontmatter."
     parameters:
       type: object
@@ -287,8 +287,8 @@ jobs:
     steps:
       - backend: frontmatter_update_step
 
-  - backend: base
-    name: frontmatter:delete
+  frontmatter:delete:
+    backend: base
     description: "Drop keys from a file's YAML frontmatter."
     parameters:
       type: object
@@ -308,8 +308,8 @@ jobs:
       - backend: frontmatter_delete_step
 
   # ── File Operations (relocate / cross-realm) ──────────────────────────────
-  - backend: base
-    name: move
+  move:
+    backend: base
     description: "Move / rename a vault file; rewrites inbound wikilinks by default."
     parameters:
       type: object
@@ -334,8 +334,8 @@ jobs:
     steps:
       - backend: move_step
 
-  - backend: base
-    name: delete
+  delete:
+    backend: base
     description: "Delete a vault file or folder; returns surviving inbound wikilinks."
     parameters:
       type: object
@@ -348,8 +348,8 @@ jobs:
     steps:
       - backend: delete_step
 
-  - backend: base
-    name: upload
+  upload:
+    backend: base
     description: "Copy a host file into the vault at an explicit destination."
     parameters:
       type: object
@@ -370,8 +370,8 @@ jobs:
     steps:
       - backend: upload_step
 
-  - backend: base
-    name: upload_resource
+  upload_resource:
+    backend: base
     description: "Ingest an external-channel asset into resource/<today>/ with provenance."
     parameters:
       type: object
@@ -396,8 +396,8 @@ jobs:
     steps:
       - backend: upload_resource_step
 
-  - backend: base
-    name: download
+  download:
+    backend: base
     description: "Copy a vault file out to the host filesystem."
     parameters:
       type: object
@@ -419,8 +419,8 @@ jobs:
       - backend: download_step
 
   # ── Daily Operations (note CRUD + day-index rollup) ───────────────────
-  - backend: base
-    name: daily:read
+  daily:read:
+    backend: base
     description: "Read daily/<date>/<slug>.md (body + frontmatter)."
     parameters:
       type: object
@@ -437,8 +437,8 @@ jobs:
     steps:
       - backend: daily_read_step
 
-  - backend: base
-    name: daily:write
+  daily:write:
+    backend: base
     description: "Write daily/<date>/<slug>.md (body + frontmatter); refreshes the day index."
     parameters:
       type: object
@@ -471,8 +471,8 @@ jobs:
     steps:
       - backend: daily_write_step
 
-  - backend: base
-    name: daily:list
+  daily:list:
+    backend: base
     description: "List notes under a single day."
     parameters:
       type: object
@@ -484,8 +484,8 @@ jobs:
     steps:
       - backend: daily_list_step
 
-  - backend: base
-    name: daily:reindex
+  daily:reindex:
+    backend: base
     description: "Rebuild the day-index page daily/<date>.md."
     parameters:
       type: object
@@ -497,8 +497,8 @@ jobs:
     steps:
       - backend: daily_reindex_step
 
-  - backend: background
-    name: watch_file
+  watch_file:
+    backend: background
     watch_paths:
       - MEMORY.md
       - memory

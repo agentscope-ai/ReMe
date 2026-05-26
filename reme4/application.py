@@ -20,10 +20,14 @@ class Application(BaseComponent):
 
         vault_path = Path(self.config.vault_dir).absolute()
         vault_path.mkdir(parents=True, exist_ok=True)
-        (vault_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
-        (vault_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
-        (vault_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
-        (vault_path / self.config.resource_dir).mkdir(parents=True, exist_ok=True)
+        if self.config.metadata_dir:
+            (vault_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
+        if self.config.daily_dir:
+            (vault_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
+        if self.config.digest_dir:
+            (vault_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
+        if self.config.resource_dir:
+            (vault_path / self.config.resource_dir).mkdir(parents=True, exist_ok=True)
 
         if self.config.enable_logo:
             print_logo(self.config)
@@ -60,15 +64,16 @@ class Application(BaseComponent):
                 self.context.components[component_type][name] = backend_cls(**params)
 
         # Jobs
-        for job_config in self.config.jobs:
+        for name, job_config in self.config.jobs.items():
             if not job_config.backend:
-                raise ValueError(f"Job '{job_config.name}' is missing the required 'backend' field")
+                raise ValueError(f"Job '{name}' is missing the required 'backend' field")
             job_cls = R.get(ComponentEnum.JOB, job_config.backend)
             if not job_cls:
-                raise ValueError(f"Unregistered backend '{job_config.backend}' for job '{job_config.name}'")
+                raise ValueError(f"Unregistered backend '{job_config.backend}' for job '{name}'")
             params = job_config.model_dump()
+            params.setdefault("name", name)
             params["app_context"] = self.context
-            self.context.jobs[job_config.name] = job_cls(**params)
+            self.context.jobs[name] = job_cls(**params)
 
     @property
     def config(self):

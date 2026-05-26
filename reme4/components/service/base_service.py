@@ -60,9 +60,9 @@ class BaseService(BaseComponent):
         return lifespan
 
     def add_jobs(self, app: "Application") -> None:
-        """Register every job from the app context except background-only ones."""
+        """Register every job whose enable_serve flag is True."""
         for name, job in app.context.jobs.items():
-            if job.backend == "background":
+            if not job.enable_serve:
                 continue
             try:
                 self.add_job(job)

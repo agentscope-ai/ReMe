@@ -1,7 +1,4 @@
-"""Abstract base class for keyword index implementations."""
-
 from abc import abstractmethod
-from pathlib import Path
 
 from ..base_component import BaseComponent
 from ..tokenizer import BaseTokenizer
@@ -9,62 +6,48 @@ from ...enumeration import ComponentEnum
 
 
 class BaseKeywordIndex(BaseComponent):
-    """Abstract base class for keyword index implementations."""
+    """关键词索引基类：定义增、删、查、清的统一接口，由具体实现（如 BM25）继承。"""
 
     component_type = ComponentEnum.KEYWORD_INDEX
 
-    def __init__(self, tokenizer: str = "default", index_version: str = "v1", **kwargs):
+    def __init__(self, tokenizer: str = "default", **kwargs):
         super().__init__(**kwargs)
         from ..tokenizer import RegexTokenizer
 
+        # 绑定分词器，未显式指定时回落到 RegexTokenizer
         self.tokenizer = self.bind(tokenizer, BaseTokenizer, default_factory=RegexTokenizer)
-        self.index_version = index_version
-        self.index_path = self.vault_metadata_path / self.component_type.value
-        self.index_path.mkdir(parents=True, exist_ok=True)
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
 
     async def _start(self) -> None:
-        """Load existing index from disk if available."""
         await self.load()
 
     async def _close(self) -> None:
-        """Save index to disk on shutdown."""
         await self.dump()
 
-    @property
-    def index_file(self) -> Path:
-        """Return the pickle file path derived from tokenizer name."""
-        if self.tokenizer is None:
-            raise RuntimeError("Tokenizer not initialized. Call start() first.")
-        name = type(self.tokenizer).__name__.replace("Tokenizer", "").lower()
-        return self.index_path / f"bm25_{name}_{self.index_version}.pkl"
-
     def _tokenize(self, text: str) -> list[str]:
-        """Tokenize a text string into tokens."""
+        """对单段文本调用分词器，返回 token 列表。"""
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not initialized. Call start() first.")
         return self.tokenizer.tokenize([text])[0]
 
     @abstractmethod
-    async def add_docs(self, docs_dict: dict[str, str]) -> None:
-        """Index or update documents. Mapping of doc_id to content."""
+    async def add_docs(self, docs_dict: dict[str, str]) -> None: ...
 
     @abstractmethod
-    async def delete_docs(self, doc_ids: list[str]) -> None:
-        """Remove documents by their IDs."""
+    async def delete_docs(self, doc_ids: list[str]) -> None: ...
 
     @abstractmethod
-    async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]:
-        """Search documents. Returns {doc_id: score} sorted descending."""
+    async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]: ...
 
     @abstractmethod
-    async def clear(self) -> None:
-        """Reset index to empty state."""
+    async def clear(self) -> None: ...
 
     async def reset_index(self, docs_dict: dict[str, str]) -> None:
-        """Clear index, re-add all documents, and persist."""
+        """清空索引后重新构建，并立即落盘。"""
         await self.clear()
         await self.add_docs(docs_dict)
         await self.dump()
 
     async def optimize_index(self) -> None:
-        """Optimize index for performance. Override in subclass if needed."""
+        """对索引进行物理压缩或重建；基类默认无操作，由子类按需重载。"""
+        pass

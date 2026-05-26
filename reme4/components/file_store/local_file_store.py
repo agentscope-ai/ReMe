@@ -111,40 +111,69 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
+        new_nodes, needs_embed, keyword_docs = self._stage_upsert(files, old_map)
 
+        await self.file_graph.upsert_nodes(new_nodes)
+        await self._embed_pending(needs_embed)
+        if self.keyword_index and keyword_docs:
+            await self.keyword_index.add_docs(keyword_docs)
+
+    def _stage_upsert(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+        old_map: dict[str, FileNode],
+    ) -> tuple[list[FileNode], list[FileChunk], dict[str, str]]:
+        """Mutate self.file_chunks for each file and collect the work the I/O step needs:
+        new graph nodes, chunks still needing an embedding, and keyword docs to index.
+        """
         new_nodes: list[FileNode] = []
         needs_embed: list[FileChunk] = []
         keyword_docs: dict[str, str] = {}
         for node, chunks in files:
-            old_node: FileNode | None = old_map.get(node.path)
-            cached: dict = {}
-            if old_node and self.embedding_model:
-                for cid in old_node.chunk_ids:
-                    old = self.file_chunks.pop(cid, None)
-                    if old and old.embedding is not None:
-                        cached[cid] = old.embedding
-
+            cached = self._evict_prior_chunks(old_map.get(node.path))
             node.chunk_ids = []
             for c in chunks:
-                if self.embedding_model and c.embedding is None:
-                    if c.id in cached:
-                        c.embedding = cached[c.id]
-                    elif c.text:
-                        needs_embed.append(c)
+                self._reuse_or_queue_embedding(c, cached, needs_embed)
                 node.chunk_ids.append(c.id)
                 self.file_chunks[c.id] = c
                 if c.text:
                     keyword_docs[c.id] = c.text
             new_nodes.append(node)
+        return new_nodes, needs_embed, keyword_docs
 
-        await self.file_graph.upsert_nodes(new_nodes)
-        if needs_embed and self.embedding_model:
-            try:
-                await self.embedding_model.get_node_embeddings(needs_embed)
-            except Exception as e:
-                self._disable_embedding(f"upsert: {type(e).__name__}: {e}")
-        if self.keyword_index and keyword_docs:
-            await self.keyword_index.add_docs(keyword_docs)
+    def _evict_prior_chunks(self, old_node: FileNode | None) -> dict[str, np.ndarray]:
+        """Drop chunks for the path being re-upserted; keep their embeddings around so
+        a new chunk reusing the same id avoids a redundant embedding call.
+        """
+        cached: dict[str, np.ndarray] = {}
+        if not (old_node and self.embedding_model):
+            return cached
+        for cid in old_node.chunk_ids:
+            old = self.file_chunks.pop(cid, None)
+            if old and old.embedding is not None:
+                cached[cid] = old.embedding
+        return cached
+
+    def _reuse_or_queue_embedding(
+        self,
+        chunk: FileChunk,
+        cached: dict[str, np.ndarray],
+        needs_embed: list[FileChunk],
+    ) -> None:
+        if not self.embedding_model or chunk.embedding is not None:
+            return
+        if chunk.id in cached:
+            chunk.embedding = cached[chunk.id]
+        elif chunk.text:
+            needs_embed.append(chunk)
+
+    async def _embed_pending(self, chunks: list[FileChunk]) -> None:
+        if not (chunks and self.embedding_model):
+            return
+        try:
+            await self.embedding_model.get_node_embeddings(chunks)
+        except Exception as e:
+            self._disable_embedding(f"upsert: {type(e).__name__}: {e}")
 
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None

@@ -16,12 +16,12 @@ class ComponentConfig(BaseModel):
 
 
 class JobConfig(ComponentConfig):
-    """Config for a job — an ordered sequence of step components."""
+    """Config for a job — an ordered sequence of step components. Keyed by name in ApplicationConfig.jobs."""
 
-    name: str = Field(default="", description="Unique job identifier")
     description: str = Field(default="", description="Human-readable description")
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
+    enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
 
 
 class ApplicationConfig(BaseModel):
@@ -42,7 +42,10 @@ class ApplicationConfig(BaseModel):
     log_to_file: bool = Field(default=True, description="Log to file")
     mcp_servers: dict[str, dict] = Field(default_factory=dict, description="MCP server configs by name")
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
-    jobs: list[JobConfig] = Field(default_factory=list, description="Job definitions")
+    jobs: dict[str, JobConfig] = Field(
+        default_factory=dict,
+        description="Job definitions keyed by job name",
+    )
     components: dict[ComponentEnum, dict[str, ComponentConfig]] = Field(
         default_factory=dict,
         description="Component registry keyed by type then name",

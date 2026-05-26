@@ -8,25 +8,26 @@ from string import Formatter
 
 import yaml
 
-# Matches a leading flag tag like "[verbose] some text".
+# Matches a leading flag tag at line start: "[flag] rest of line".
 _FLAG_PATTERN = re.compile(r"^\[(\w+)]")
 
 
 class PromptHandler:
-    """Loads prompts from YAML/JSON or class-adjacent files and formats them.
+    """Loads prompts from YAML/JSON files and renders them with optional flags.
 
-    Templates may carry a language suffix (``key_en``, ``key_zh``); ``get_prompt``
-    falls back to the bare key when no localized variant exists. ``prompt_format``
-    additionally supports per-line flags such as ``[verbose] extra text`` that
-    are kept only when the matching flag kwarg is truthy.
+    Template keys may carry a language suffix (``key_en``, ``key_zh``); lookups
+    fall back to the bare key when no localized variant exists. Lines tagged
+    with ``[flag]`` are kept only when the matching boolean kwarg is truthy.
     """
 
     _SUPPORTED_EXTENSIONS = {".yaml", ".yml", ".json"}
 
     def __init__(self, language: str = "", **kwargs):
-        # Only string entries are treated as prompts; other kwargs are ignored.
+        # Non-string kwargs are silently dropped — prompts must be strings.
         self.data: dict[str, str] = {k: v for k, v in kwargs.items() if isinstance(v, str)}
         self.language: str = language.strip()
+
+    # ----- Loading -------------------------------------------------------
 
     def load_prompt_by_file(
         self,
@@ -41,13 +42,18 @@ class PromptHandler:
         if not path.exists() or path.suffix.lower() not in self._SUPPORTED_EXTENSIONS:
             return self
 
+        return self.load_prompt_dict(self._parse_prompt_file(path), overwrite)
+
+    @staticmethod
+    def _parse_prompt_file(path: Path) -> dict | None:
+        """Parse a YAML or JSON prompt file; return None on any parse error."""
         try:
             with path.open(encoding="utf-8") as f:
-                prompt_dict = yaml.safe_load(f) if path.suffix.lower() in (".yaml", ".yml") else json.load(f)
+                if path.suffix.lower() in (".yaml", ".yml"):
+                    return yaml.safe_load(f)
+                return json.load(f)
         except (json.JSONDecodeError, yaml.YAMLError, OSError):
-            return self
-
-        return self.load_prompt_dict(prompt_dict, overwrite)
+            return None
 
     def load_prompt_by_class(self, cls: type, overwrite: bool = True) -> "PromptHandler":
         """Load prompts from ``<class_module>.yaml`` (or ``.yml``) next to `cls`."""
@@ -57,9 +63,9 @@ class PromptHandler:
             return self
 
         for ext in (".yaml", ".yml"):
-            if (prompt_path := base_path.with_suffix(ext)).exists():
-                return self.load_prompt_by_file(prompt_path, overwrite)
-
+            candidate = base_path.with_suffix(ext)
+            if candidate.exists():
+                return self.load_prompt_by_file(candidate, overwrite)
         return self
 
     def load_prompt_dict(self, prompt_dict: dict | None = None, overwrite: bool = True) -> "PromptHandler":
@@ -70,21 +76,28 @@ class PromptHandler:
         for key, value in prompt_dict.items():
             if isinstance(value, str) and (overwrite or key not in self.data):
                 self.data[key] = value
-
         return self
+
+    # ----- Lookup --------------------------------------------------------
+
+    def _candidate_keys(self, prompt_name: str) -> tuple[str, ...]:
+        """Lookup order: localized key first when a language is set, then bare key."""
+        if self.language:
+            return (f"{prompt_name}_{self.language}", prompt_name)
+        return (prompt_name,)
 
     def get_prompt(self, prompt_name: str) -> str:
         """Return the template, preferring the language-suffixed variant when set."""
-        for key in (f"{prompt_name}_{self.language}", prompt_name) if self.language else (prompt_name,):
+        for key in self._candidate_keys(prompt_name):
             if key in self.data:
                 return self.data[key].strip()
-
-        raise KeyError(f"Prompt '{prompt_name}' not found. Available: {list(self.data.keys())[:10]}")
+        raise KeyError(
+            f"Prompt '{prompt_name}' not found. Available: {list(self.data.keys())[:10]}"
+        )
 
     def has_prompt(self, prompt_name: str) -> bool:
         """True if either the localized or bare prompt is registered."""
-        keys = (f"{prompt_name}_{self.language}", prompt_name) if self.language else (prompt_name,)
-        return any(k in self.data for k in keys)
+        return any(k in self.data for k in self._candidate_keys(prompt_name))
 
     def list_prompts(self, language_filter: str | None = None) -> list[str]:
         """List all keys, optionally filtered to those ending with ``_<language>``."""
@@ -93,33 +106,44 @@ class PromptHandler:
         suffix = f"_{language_filter.strip()}"
         return [k for k in self.data if k.endswith(suffix)]
 
-    def prompt_format(self, prompt_name: str, validate: bool = True, **kwargs) -> str:
-        """Render a prompt: strip inactive flag-lines, then ``str.format`` it.
+    # ----- Formatting ----------------------------------------------------
 
-        Boolean kwargs are treated as flags controlling ``[flag]`` line filtering.
-        Remaining kwargs become positional substitutions for ``{var}`` placeholders.
-        With `validate=True`, missing substitutions raise ``ValueError``.
+    def prompt_format(self, prompt_name: str, validate: bool = True, **kwargs) -> str:
+        """Render a prompt: strip inactive ``[flag]`` lines, then ``str.format`` it.
+
+        Boolean kwargs are treated as flag toggles; the rest are format variables.
+        With ``validate=True``, any missing ``{var}`` placeholder raises ``ValueError``.
         """
         prompt = self.get_prompt(prompt_name)
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
         formats = {k: v for k, v in kwargs.items() if not isinstance(v, bool)}
 
-        # Keep lines without flags; otherwise keep when at least one flag is enabled.
         if flags:
-            lines = []
-            for line in prompt.split("\n"):
-                active_flags = _FLAG_PATTERN.findall(line)
-                cleaned = _FLAG_PATTERN.sub("", line).lstrip()
-                if not active_flags or any(flags.get(f, False) for f in active_flags):
-                    lines.append(cleaned)
-            prompt = "\n".join(lines)
-
+            prompt = self._apply_flag_filter(prompt, flags)
         if validate:
-            required = {f for _, f, _, _ in Formatter().parse(prompt) if f is not None}
-            if missing := required - set(formats.keys()):
-                raise ValueError(f"Missing format variables for '{prompt_name}': {sorted(missing)}")
+            self._check_required_vars(prompt, formats, prompt_name)
 
         return prompt.format(**formats).strip() if formats else prompt
+
+    @staticmethod
+    def _apply_flag_filter(prompt: str, flags: dict[str, bool]) -> str:
+        """Keep unflagged lines; keep flagged lines only when a matching flag is set."""
+        lines = []
+        for line in prompt.split("\n"):
+            active_flags = _FLAG_PATTERN.findall(line)
+            cleaned = _FLAG_PATTERN.sub("", line).lstrip()
+            if not active_flags or any(flags.get(f, False) for f in active_flags):
+                lines.append(cleaned)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _check_required_vars(prompt: str, formats: dict, prompt_name: str) -> None:
+        """Raise when any ``{var}`` placeholder lacks a corresponding kwarg."""
+        required = {f for _, f, _, _ in Formatter().parse(prompt) if f is not None}
+        if missing := required - set(formats.keys()):
+            raise ValueError(
+                f"Missing format variables for '{prompt_name}': {sorted(missing)}"
+            )
 
     def __repr__(self) -> str:
         return f"PromptHandler(language='{self.language}', num_prompts={len(self.data)})"

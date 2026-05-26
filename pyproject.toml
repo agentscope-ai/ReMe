@@ -44,6 +44,7 @@ dependencies = [
     "fastmcp>=2.14.1",
     "httpx>=0.28.1",
     "jieba>=0.42.1",
+    "rjieba>=0.1.11",
     "loguru>=0.7.3",
     "mcp>=1.25.0",
     "networkx>=3.4",

@@ -35,9 +35,10 @@ class BackgroundJob(BaseJob):
         backoff_cap: float = 60.0,
         close_timeout: float = 5.0,
         attempt_reset_after: float = 60.0,
+        enable_serve: bool = False,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__(enable_serve=enable_serve, **kwargs)
         self.supervisor: bool = supervisor
         self.backoff_base: float = backoff_base
         self.backoff_cap: float = backoff_cap
@@ -54,17 +55,37 @@ class BackgroundJob(BaseJob):
     async def _close(self) -> None:
         if self._stop_event is not None:
             self._stop_event.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=self.close_timeout)
-            except asyncio.TimeoutError:
-                self._task.cancel()
-                with contextlib.suppress(BaseException):
-                    await self._task
-            except Exception:
-                self.logger.exception(f"Background task '{self.name}' raised during close")
-            self._task = None
+        await self._shutdown_task()
         await super()._close()
+
+    async def _shutdown_task(self) -> None:
+        """Wait close_timeout for graceful exit, then force-cancel."""
+        if self._task is None:
+            return
+        try:
+            # shield prevents wait_for's cancellation from propagating to the task itself,
+            # so a timeout here truly times out instead of cancelling silently.
+            await asyncio.wait_for(asyncio.shield(self._task), timeout=self.close_timeout)
+        except asyncio.TimeoutError:
+            self._task.cancel()
+            with contextlib.suppress(BaseException):
+                await self._task
+        except Exception:
+            self.logger.exception(f"Background task '{self.name}' raised during close")
+        self._task = None
+
+    def _backoff_delay(self, attempt: int) -> float:
+        """Exponential backoff with ±50% jitter, capped at backoff_cap."""
+        capped = min(self.backoff_base * (2**attempt), self.backoff_cap)
+        return min(capped * (0.5 + random.random()), self.backoff_cap)
+
+    async def _wait_or_stop(self, delay: float) -> None:
+        """Sleep up to delay, returning immediately when stop_event is set."""
+        assert self._stop_event is not None
+        try:
+            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
 
     async def _run_with_supervisor(self) -> None:
         assert self._stop_event is not None
@@ -77,16 +98,13 @@ class BackgroundJob(BaseJob):
             except Exception as e:
                 if not self.supervisor:
                     raise
+                # A long-stable run that just crashed restarts fresh rather than at the capped delay.
                 if time.monotonic() - started_at >= self.attempt_reset_after:
                     attempt = 0
-                capped = min(self.backoff_base * (2**attempt), self.backoff_cap)
-                delay = min(capped * (0.5 + random.random()), self.backoff_cap)
+                delay = self._backoff_delay(attempt)
                 self.logger.exception(f"job body crashed, restart in {delay:.2f}s error={e}")
                 attempt += 1
-                try:
-                    await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
-                except asyncio.TimeoutError:
-                    pass
+                await self._wait_or_stop(delay)
 
     async def __call__(self, **kwargs) -> Response:
         """Default body: run steps in order; errors propagate to supervisor."""
