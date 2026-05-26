@@ -21,7 +21,7 @@ class JiebaTokenizer(BaseTokenizer):
         super().__init__(**kwargs)
         if backend not in self.SUPPORTED_BACKENDS:
             raise ValueError(
-                f"Unknown jieba backend {backend!r}; expected one of {self.SUPPORTED_BACKENDS}"
+                f"Unknown jieba backend {backend!r}; expected one of {self.SUPPORTED_BACKENDS}",
             )
         self.backend = backend
         self._cut: Callable[[str], list[str]] | None = None

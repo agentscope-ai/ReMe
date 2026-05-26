@@ -1,3 +1,5 @@
+"""Local file catalog backend: in-memory dict persisted as JSONL."""
+
 import aiofiles
 
 from .base_file_catalog import BaseFileCatalog

@@ -1,22 +1,14 @@
 service:
   backend: http
-#  backend: mcp
 
-# Default dev config points vault_dir at ./.reme so `python -m reme4 start`
-# can be run from the repo root and exercise the full atomic-tool surface
-# against the seeded test data. Override the `vault_dir=` CLI arg.
-vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
-resource_dir: resource
+resource_dir: ""
 
 jobs:
-  # ════════════════════════════════════════════════════════════════════
-  # UTILITY — service introspection
-  # ════════════════════════════════════════════════════════════════════
   version:
     backend: base
-    description: "return reme4 package version"
+    description: "return reme package version"
     parameters:
       type: object
       properties: {}
@@ -25,7 +17,7 @@ jobs:
 
   health_check:
     backend: base
-    description: "return a concise health-check snapshot of reme4 components"
+    description: "return a concise health-check snapshot of reme components"
     parameters:
       type: object
       properties: {}
@@ -40,6 +32,33 @@ jobs:
       properties: {}
     steps:
       - backend: help_step
+
+  traverse:
+    backend: base
+    description: "Walk the wikilink graph from a path."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "path"
+        depth:
+          type: integer
+          description: "hop limit"
+          default: 1
+        direction:
+          type: string
+          enum:
+            - forward
+            - backward
+            - both
+          default: both
+      required:
+        - path
+    steps:
+      - backend: traverse_step
+
+
 
   reindex:
     backend: base
@@ -108,27 +127,7 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
-  traverse:
-    backend: base
-    description: "Walk the wikilink graph from a seed path."
-    parameters:
-      type: object
-      properties:
-        path:
-          type: string
-          description: "seed path (vault-relative)"
-        depth:
-          type: integer
-          description: "hop limit"
-          default: 1
-        direction:
-          type: string
-          description: "forward / backward / both"
-          default: both
-      required:
-        - path
-    steps:
-      - backend: traverse_step
+
 
   # ── Read Operations ───────────────────────────────────────────────────────────
   list:
@@ -307,33 +306,6 @@ jobs:
     steps:
       - backend: frontmatter_delete_step
 
-  # ── File Operations (relocate / cross-realm) ──────────────────────────────
-  move:
-    backend: base
-    description: "Move / rename a vault file; rewrites inbound wikilinks by default."
-    parameters:
-      type: object
-      properties:
-        src_path:
-          type: string
-          description: "vault-relative source"
-        dst_path:
-          type: string
-          description: "vault-relative destination"
-        overwrite:
-          type: boolean
-          description: "overwrite if dst exists"
-          default: false
-        retarget:
-          type: boolean
-          description: "rewrite [[src]] → [[dst]] across the vault"
-          default: true
-      required:
-        - src_path
-        - dst_path
-    steps:
-      - backend: move_step
-
   delete:
     backend: base
     description: "Delete a vault file or folder; returns surviving inbound wikilinks."
@@ -347,28 +319,6 @@ jobs:
         - path
     steps:
       - backend: delete_step
-
-  upload:
-    backend: base
-    description: "Copy a host file into the vault at an explicit destination."
-    parameters:
-      type: object
-      properties:
-        src_path:
-          type: string
-          description: "host absolute path"
-        dst_path:
-          type: string
-          description: "vault-relative destination"
-        overwrite:
-          type: boolean
-          description: "overwrite if dst exists"
-          default: false
-      required:
-        - src_path
-        - dst_path
-    steps:
-      - backend: upload_step
 
   upload_resource:
     backend: base
@@ -516,7 +466,7 @@ components:
   embedding_model:
     default:
       backend: ${EMBEDDING_BACKEND:-openai}
-      api_key: ${EMBEDDING_API_KEY:-}
+      api_key: ${EMBEDDING_API_KEY}
       base_url: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
       model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
@@ -553,18 +503,3 @@ components:
       embedding_model: default
       keyword_index: default
       file_graph: default
-
-# as_llm / formatter aren't required for atomic primitives; configure
-# only if you'll invoke digester/synchronizer or other LLM-driven
-# paths from the dev server.
-#  as_llm:
-#    default:
-#      backend: ${LLM_BACKEND:-openai}
-#      api_key: ${LLM_API_KEY:-}
-#      model_name: ${LLM_MODEL_NAME:-gpt-4o-mini}
-#      client_kwargs:
-#        base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
-#
-#  as_llm_formatter:
-#    default:
-#      backend: ${LLM_BACKEND:-openai}

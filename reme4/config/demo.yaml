@@ -2,24 +2,6 @@ service:
   backend: http
 
 jobs:
-  version:
-    backend: base
-    description: "return reme4 package version"
-    parameters:
-      type: object
-      properties: { }
-    steps:
-      - backend: version_step
-
-  help:
-    backend: base
-    description: "list all registered jobs with their metadata"
-    parameters:
-      type: object
-      properties: { }
-    steps:
-      - backend: help_step
-
   demo:
     backend: base
     description: "demo job description"
@@ -61,8 +43,3 @@ jobs:
     steps:
       - backend: stream_demo_step1
       - backend: stream_demo_step2
-
-components:
-  tokenizer:
-    default:
-      backend: regex

@@ -119,13 +119,13 @@ skills 建议使用index 看 whole picture~
 ├── daily/
 │   ├── 20260518.md              # 当天主索引（兼容 write/edit）
 │   └── 20260518/
-│       ├── meeting-with-alice.md   
+│       ├── meeting-with-alice.md
 │       ├── debug-login.md
 │       └── reading-paper.md
 └── digest/                      # 固定四个子目录：personal / knowledge / procedural / proactive
     ├── personal/                # 个性化记忆：偏好、习惯、个人事件
              .change_log.md difference
-             _moc.md 
+             _moc.md
     │   └── 用户偏好.md
     ├── knowledge/               # 知识类记忆：用户自定义二级目录（work / financial / ...）
     │   ├── work/

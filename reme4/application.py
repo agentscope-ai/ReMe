@@ -54,7 +54,10 @@ class Application(BaseComponent):
     def _init_service(self) -> None:
         """Instantiate the single service backend declared in config.service."""
         self.context.service = self._instantiate(
-            ComponentEnum.SERVICE, self.config.service, label="Service", expected_type=BaseService,
+            ComponentEnum.SERVICE,
+            self.config.service,
+            label="Service",
+            expected_type=BaseService,
         )
 
     def _init_components(self) -> None:
@@ -63,19 +66,32 @@ class Application(BaseComponent):
             self.context.components[ctype] = {}
             for name, cfg in group.items():
                 self.context.components[ctype][name] = self._instantiate(
-                    ctype, cfg, label=f"Component '{name}'", expected_type=BaseComponent, name=name,
+                    ctype,
+                    cfg,
+                    label=f"Component '{name}'",
+                    expected_type=BaseComponent,
+                    name=name,
                 )
 
     def _init_jobs(self) -> None:
         """Instantiate every job declared under config.jobs."""
         for name, cfg in self.config.jobs.items():
             self.context.jobs[name] = self._instantiate(
-                ComponentEnum.JOB, cfg, label=f"Job '{name}'", expected_type=BaseJob, name=name,
+                ComponentEnum.JOB,
+                cfg,
+                label=f"Job '{name}'",
+                expected_type=BaseJob,
+                name=name,
             )
 
     def _instantiate(
-        self, ctype: ComponentEnum, cfg: ComponentConfig, *,
-        label: str, expected_type: type[T], name: str | None = None,
+        self,
+        ctype: ComponentEnum,
+        cfg: ComponentConfig,
+        *,
+        label: str,
+        expected_type: type[T],
+        name: str | None = None,
     ) -> T:
         """Resolve cfg.backend through the registry and construct the instance.
 
@@ -194,7 +210,10 @@ class Application(BaseComponent):
         stream_queue: asyncio.Queue = asyncio.Queue()
         task = asyncio.create_task(self.context.jobs[name](stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-            stream_queue=stream_queue, task=task, task_name=name, output_format="chunk",
+            stream_queue=stream_queue,
+            task=task,
+            task_name=name,
+            output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk

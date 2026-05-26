@@ -92,7 +92,7 @@ class PromptHandler:
             if key in self.data:
                 return self.data[key].strip()
         raise KeyError(
-            f"Prompt '{prompt_name}' not found. Available: {list(self.data.keys())[:10]}"
+            f"Prompt '{prompt_name}' not found. Available: {list(self.data.keys())[:10]}",
         )
 
     def has_prompt(self, prompt_name: str) -> bool:
@@ -142,7 +142,7 @@ class PromptHandler:
         required = {f for _, f, _, _ in Formatter().parse(prompt) if f is not None}
         if missing := required - set(formats.keys()):
             raise ValueError(
-                f"Missing format variables for '{prompt_name}': {sorted(missing)}"
+                f"Missing format variables for '{prompt_name}': {sorted(missing)}",
             )
 
     def __repr__(self) -> str:

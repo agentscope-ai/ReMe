@@ -36,11 +36,11 @@ from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileNode
 from reme4.steps.crud import (
     delete as crud_delete,
-    download as crud_download,
     list as crud_list,
     move as crud_move,
     stat as crud_stat,
 )
+from reme4.steps.transfer import download as crud_download
 from reme4.utils import call_action, call_and_check, mock_reme_server
 from reme4.utils.wikilink_handler import WikilinkHandler
 

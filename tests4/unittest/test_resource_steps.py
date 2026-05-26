@@ -24,8 +24,8 @@ from pathlib import Path
 
 from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileFrontMatter, FileNode
-from reme4.steps.crud import upload_resource as crud_upload
-from reme4.steps.crud.upload_resource import _assemble_day_md
+from reme4.steps.transfer import upload_resource as crud_upload
+from reme4.steps.transfer.upload_resource import _assemble_day_md
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")

@@ -42,8 +42,7 @@ class Dependency:
     def __getattr__(self, item: str) -> Any:
         # Catches accidental use of the placeholder before start() resolves it.
         raise RuntimeError(
-            f"Dependency {self.ctype.value}:{self.name} accessed before start() "
-            f"(attribute '{item}')",
+            f"Dependency {self.ctype.value}:{self.name} accessed before start() " f"(attribute '{item}')",
         )
 
 
@@ -99,7 +98,7 @@ class BaseComponent(ABC):
         ctype = getattr(base_cls, "component_type", None)
         if not isinstance(ctype, ComponentEnum) or ctype is ComponentEnum.BASE:
             raise TypeError(
-                f"{base_cls.__name__} must declare a non-BASE ComponentEnum 'component_type'"
+                f"{base_cls.__name__} must declare a non-BASE ComponentEnum 'component_type'",
             )
         return cast(T, Dependency(ctype, name, default_factory, optional))
 

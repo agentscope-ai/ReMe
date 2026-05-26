@@ -1,4 +1,4 @@
-"""Update store index with a batch of file changes."""
+"""Update index with a batch of file changes."""
 
 from pathlib import Path
 
@@ -9,8 +9,8 @@ from ...components import R
 from ...schema import FileChunk, FileNode
 
 
-@R.register("update_store_index_step")
-class UpdateStoreIndexStep(BaseStep):
+@R.register("update_index_step")
+class UpdateIndexStep(BaseStep):
     """Classify raw watcher changes and update the file_store index."""
 
     async def execute(self):

@@ -28,6 +28,7 @@ from ..component_registry import R
 
 @R.register("bm25")
 class BM25Index(BaseKeywordIndex):
+    """BM25 inverted index with lazy deletion and on-disk persistence."""
 
     def __init__(self, k1: float = 1.5, b: float = 0.75, index_version: str = "v1", **kwargs):
         super().__init__(**kwargs)
@@ -92,11 +93,7 @@ class BM25Index(BaseKeywordIndex):
         out: dict[int, dict[str, int]] = {}
         for tid, doc_idxs in self._posting_doc_idxs.items():
             tfs = self._posting_tfs[tid]
-            posting = {
-                self._doc_ids[int(i)]: int(tf)
-                for i, tf in zip(doc_idxs, tfs)
-                if not self._deleted[int(i)]
-            }
+            posting = {self._doc_ids[int(i)]: int(tf) for i, tf in zip(doc_idxs, tfs) if not self._deleted[int(i)]}
             if posting:
                 out[tid] = posting
         return out
@@ -153,7 +150,10 @@ class BM25Index(BaseKeywordIndex):
         return unique_tids, len(token_ids), counts
 
     def _append_doc_arrays(
-        self, new_doc_ids: list[str], new_doc_lens: list[int], new_doc_token_ids: list[np.ndarray]
+        self,
+        new_doc_ids: list[str],
+        new_doc_lens: list[int],
+        new_doc_token_ids: list[np.ndarray],
     ) -> None:
         """Append metadata for a batch of new docs to the doc-level arrays."""
         if not new_doc_ids:
@@ -352,10 +352,7 @@ class BM25Index(BaseKeywordIndex):
 
     def _compact_vocab(self, active_mask: np.ndarray) -> tuple[dict[str, int], dict[int, int]]:
         """Keep only tokens still referenced by a live doc; renumber contiguously."""
-        used_tids = {
-            tid for tid, doc_idxs in self._posting_doc_idxs.items()
-            if active_mask[doc_idxs].any()
-        }
+        used_tids = {tid for tid, doc_idxs in self._posting_doc_idxs.items() if active_mask[doc_idxs].any()}
         new_vocab: dict[str, int] = {}
         old_to_new: dict[int, int] = {}
         for token, old_tid in self.vocab.items():
@@ -384,7 +381,9 @@ class BM25Index(BaseKeywordIndex):
         return new_idxs, new_tfs
 
     def _compact_docs(
-        self, active_mask: np.ndarray, old_tid_to_new: dict[int, int]
+        self,
+        active_mask: np.ndarray,
+        old_tid_to_new: dict[int, int],
     ) -> tuple[list[str], list[np.ndarray]]:
         """Rebuild doc_id list and unique-token arrays under the new vocab."""
         active_old_idxs = np.where(active_mask)[0]
@@ -410,7 +409,9 @@ class BM25Index(BaseKeywordIndex):
         old_to_new_idx, n_active = self._build_idx_remap(active_mask)
         new_vocab, old_tid_to_new = self._compact_vocab(active_mask)
         new_posting_idxs, new_posting_tfs = self._compact_postings(
-            active_mask, old_to_new_idx, old_tid_to_new
+            active_mask,
+            old_to_new_idx,
+            old_tid_to_new,
         )
         new_doc_ids, new_doc_token_ids = self._compact_docs(active_mask, old_tid_to_new)
 

@@ -1,3 +1,5 @@
+"""Abstract base class for keyword indexes (BM25 and other lexical backends)."""
+
 from abc import abstractmethod
 
 from ..base_component import BaseComponent
@@ -30,16 +32,20 @@ class BaseKeywordIndex(BaseComponent):
         return self.tokenizer.tokenize([text])[0]
 
     @abstractmethod
-    async def add_docs(self, docs_dict: dict[str, str]) -> None: ...
+    async def add_docs(self, docs_dict: dict[str, str]) -> None:
+        """Add or replace documents keyed by id."""
 
     @abstractmethod
-    async def delete_docs(self, doc_ids: list[str]) -> None: ...
+    async def delete_docs(self, doc_ids: list[str]) -> None:
+        """Delete documents by id; missing ids are skipped."""
 
     @abstractmethod
-    async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]: ...
+    async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]:
+        """Return top-`limit` doc_id → score for the given query."""
 
     @abstractmethod
-    async def clear(self) -> None: ...
+    async def clear(self) -> None:
+        """Wipe in-memory state and remove any persisted artifacts."""
 
     async def reset_index(self, docs_dict: dict[str, str]) -> None:
         """Wipe the index, rebuild it from `docs_dict`, and persist the result."""
@@ -49,4 +55,3 @@ class BaseKeywordIndex(BaseComponent):
 
     async def optimize_index(self) -> None:
         """Compact or rebuild the index. No-op by default; override as needed."""
-        pass

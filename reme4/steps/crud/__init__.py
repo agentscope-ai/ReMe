@@ -3,14 +3,15 @@
 The package covers two related surfaces:
 
 * **Opaque-byte ops** (don't care about file type): ``delete``,
-  ``download``, ``list``, ``move``, ``stat``, ``upload``,
-  ``upload_resource``.
+  ``list``, ``move``, ``stat``.
 * **Text-content ops** (markdown-aware; layered on the same path-
   resolution helpers in ``_file_io.py``): ``read``, ``write``,
   ``append``, ``edit``.
 
 For frontmatter slice RUD (YAML structured-data semantics) see
-``reme4.steps.frontmatter``.
+``reme4.steps.frontmatter``. For vault ↔ local-fs bridge ops
+(``download`` / ``upload`` / ``upload_resource``) see
+``reme4.steps.transfer``.
 """
 
 from .read import ReadStep
@@ -20,10 +21,7 @@ from .write import WriteStep
 from .append import AppendStep
 from .move import MoveStep
 from .stat import StatStep
-from .download import DownloadStep
 from .list import ListStep
-from .upload import UploadStep
-from .upload_resource import UploadResourceStep
 
 __all__ = [
     "DeleteStep",
@@ -31,10 +29,7 @@ __all__ = [
     "AppendStep",
     "MoveStep",
     "StatStep",
-    "DownloadStep",
     "ListStep",
-    "UploadStep",
-    "UploadResourceStep",
     "ReadStep",
     "EditStep",
 ]

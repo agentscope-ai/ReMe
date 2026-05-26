@@ -45,6 +45,7 @@ class BaseTokenizer(BaseComponent):
 
     @property
     def stopwords(self) -> set[str]:
+        """Loaded stopwords (empty set if none were loaded)."""
         return self._stopwords
 
     def tokenize(self, texts: list[str], lower: bool = True, **kwargs) -> list[list[str]]:

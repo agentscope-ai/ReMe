@@ -56,6 +56,7 @@ class BaseEmbeddingModel(BaseComponent):
 
     @property
     def cache_path(self) -> Path:
+        """Path of the persisted embedding cache, namespaced by name and version."""
         return self.vault_metadata_path / "embedding_cache" / f"{self.name}_{self.cache_version}.npz"
 
     async def _start(self) -> None:
@@ -84,6 +85,7 @@ class BaseEmbeddingModel(BaseComponent):
     # -- Public API --
 
     async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray | None:
+        """Embed a single text; returns None if the provider yields nothing."""
         results = await self.get_embeddings([input_text], **kwargs)
         return results[0] if results else None
 
@@ -96,6 +98,7 @@ class BaseEmbeddingModel(BaseComponent):
         return results
 
     async def get_node_embeddings(self, nodes: list[EmbNode], **kwargs) -> list[EmbNode]:
+        """Embed each node's text in-place and return the same list."""
         embeddings = await self.get_embeddings([n.text for n in nodes], **kwargs)
         if len(embeddings) == len(nodes):
             for node, vec in zip(nodes, embeddings):

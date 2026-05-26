@@ -41,8 +41,11 @@ class temp_chdir:
         os.chdir(self.old)
 
 
-async def create_bm25(k1: float = 1.5, b: float = 0.75,
-                      filter_stopwords: bool = False) -> BM25Index:
+async def create_bm25(
+    k1: float = 1.5,
+    b: float = 0.75,
+    filter_stopwords: bool = False,
+) -> BM25Index:
     """Create and start a BM25Index in cwd with a non-filtering RegexTokenizer.
 
     Stopword filtering is off so short test words ("hello", "我", "的") survive.
@@ -75,7 +78,7 @@ def test_basic_init():
             assert bm25.b == 0.75
             assert bm25.index_version == "v1"
             assert bm25.vocab == {}
-            assert bm25.inverted_index == {}
+            assert not bm25.inverted_index
             assert bm25.doc_meta == {}
             assert bm25.n_docs == 0
             assert bm25.total_len == 0
@@ -183,11 +186,13 @@ def test_add_multiple_docs_and_inverted_index():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "hello world",
-                "d2": "hello python",
-                "d3": "world python",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "hello world",
+                    "d2": "hello python",
+                    "d3": "world python",
+                },
+            )
             assert bm25.n_docs == 3
             inv = bm25.inverted_index
             tid_hello = bm25.vocab["hello"]
@@ -359,11 +364,13 @@ def test_retrieve_score_ordering_by_tf():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "high": "python python python",
-                "mid": "python python other",
-                "low": "python alpha beta",
-            })
+            await bm25.add_docs(
+                {
+                    "high": "python python python",
+                    "mid": "python python other",
+                    "low": "python alpha beta",
+                },
+            )
             results = await bm25.retrieve("python", limit=3)
             assert list(results.keys()) == ["high", "mid", "low"]
             scores = list(results.values())
@@ -398,10 +405,12 @@ def test_retrieve_length_normalization():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "short": "python",
-                "long": "python " + " ".join(f"w{i}" for i in range(50)),
-            })
+            await bm25.add_docs(
+                {
+                    "short": "python",
+                    "long": "python " + " ".join(f"w{i}" for i in range(50)),
+                },
+            )
             results = await bm25.retrieve("python", limit=2)
             assert results["short"] > results["long"]
             await bm25.close()
@@ -435,11 +444,13 @@ def test_chinese_only_corpus():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "我爱北京天安门",
-                "d2": "北京是中国的首都",
-                "d3": "上海的天气很好",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "我爱北京天安门",
+                    "d2": "北京是中国的首都",
+                    "d3": "上海的天气很好",
+                },
+            )
             # Regex tokenizer splits Chinese per character.
             assert "北" in bm25.vocab
             assert "京" in bm25.vocab
@@ -458,10 +469,12 @@ def test_english_only_corpus_is_lowercased():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "Python Programming Language",
-                "d2": "Java Programming Language",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "Python Programming Language",
+                    "d2": "Java Programming Language",
+                },
+            )
             assert "python" in bm25.vocab
             assert "Python" not in bm25.vocab
 
@@ -498,11 +511,13 @@ def test_mixed_doc_chinese_query_matches():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "Python 是一种编程语言",
-                "d2": "Java 编程语言",
-                "d3": "Python 数据分析",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "Python 是一种编程语言",
+                    "d2": "Java 编程语言",
+                    "d3": "Python 数据分析",
+                },
+            )
             results = await bm25.retrieve("编程", limit=3)
             assert set(results) >= {"d1", "d2"}
             assert "d3" not in results
@@ -517,11 +532,13 @@ def test_mixed_doc_english_query_matches():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "Python 是一种编程语言",
-                "d2": "Java 编程语言",
-                "d3": "Python 数据分析",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "Python 是一种编程语言",
+                    "d2": "Java 编程语言",
+                    "d3": "Python 数据分析",
+                },
+            )
             results = await bm25.retrieve("python", limit=3)
             assert set(results) == {"d1", "d3"}
             assert "d2" not in results
@@ -536,14 +553,16 @@ def test_mixed_query_combines_chinese_and_english_signal():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "py_cn": "Python 编程",       # matches both 'python' and '编','程'
-                "py_only": "Python tutorial",  # matches only 'python'
-                "cn_only": "编程入门",         # matches only '编','程'
-                # Avoid Chinese chars that the query splits into ('编','程') — '教程' would
-                # leak '程' into 'other' and pollute IDF, so use unrelated chars only.
-                "other": "Java 教学",
-            })
+            await bm25.add_docs(
+                {
+                    "py_cn": "Python 编程",  # matches both 'python' and '编','程'
+                    "py_only": "Python tutorial",  # matches only 'python'
+                    "cn_only": "编程入门",  # matches only '编','程'
+                    # Avoid Chinese chars that the query splits into ('编','程') — '教程' would
+                    # leak '程' into 'other' and pollute IDF, so use unrelated chars only.
+                    "other": "Java 教学",
+                },
+            )
             results = await bm25.retrieve("Python 编程", limit=4)
             # py_cn should rank highest because it matches both branches.
             assert next(iter(results)) == "py_cn"
@@ -562,11 +581,13 @@ def test_mixed_doc_more_matches_outrank_fewer():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "full": "machine learning 机器 学习",
-                "en_only": "machine learning algorithm",
-                "cn_only": "机器 学习 算法",
-            })
+            await bm25.add_docs(
+                {
+                    "full": "machine learning 机器 学习",
+                    "en_only": "machine learning algorithm",
+                    "cn_only": "机器 学习 算法",
+                },
+            )
             results = await bm25.retrieve("machine 机器", limit=3)
             # full has both English and Chinese hits → highest score.
             assert next(iter(results)) == "full"
@@ -581,10 +602,12 @@ def test_unicode_word_with_digits_preserved():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "iPhone15 Pro 售价 9999 元",
-                "d2": "Android 旗舰 999 元",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "iPhone15 Pro 售价 9999 元",
+                    "d2": "Android 旗舰 999 元",
+                },
+            )
             assert "iphone15" in bm25.vocab
             assert "9999" in bm25.vocab
             assert "元" in bm25.vocab
@@ -620,11 +643,13 @@ def test_mixed_persistence_roundtrip():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "Python 编程语言",
-                "d2": "Java 编程",
-                "d3": "数据分析 with Python",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "Python 编程语言",
+                    "d2": "Java 编程",
+                    "d3": "数据分析 with Python",
+                },
+            )
             before = await bm25.retrieve("Python 编程", limit=3)
             await bm25.close()  # close triggers dump
 
@@ -648,11 +673,13 @@ def test_dump_load_roundtrip_preserves_state():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25(k1=2.0, b=0.4)
-            await bm25.add_docs({
-                "d1": "hello world",
-                "d2": "hello python",
-                "d3": "programming language",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "hello world",
+                    "d2": "hello python",
+                    "d3": "programming language",
+                },
+            )
             old_vocab = dict(bm25.vocab)
             old_meta = {k: dict(v) for k, v in bm25.doc_meta.items()}
             await bm25.dump()
@@ -738,10 +765,12 @@ def test_optimize_drops_deleted_only_terms():
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
-            await bm25.add_docs({
-                "d1": "alpha unique_to_d1",
-                "d2": "alpha beta",
-            })
+            await bm25.add_docs(
+                {
+                    "d1": "alpha unique_to_d1",
+                    "d2": "alpha beta",
+                },
+            )
             assert "unique_to_d1" in bm25.vocab
 
             await bm25.delete_docs(["d1"])
@@ -853,7 +882,7 @@ def test_avg_len_tracks_live_docs_only():
             bm25 = await create_bm25()
             assert bm25.avg_len == 0.0
             await bm25.add_docs({"d1": "alpha beta gamma delta"})  # 4 tokens
-            await bm25.add_docs({"d2": "alpha beta"})              # 2 tokens
+            await bm25.add_docs({"d2": "alpha beta"})  # 2 tokens
             assert bm25.avg_len == 3.0
 
             await bm25.delete_docs(["d1"])
@@ -909,10 +938,7 @@ if __name__ == "__main__":
     import sys
 
     mod = sys.modules[__name__]
-    tests = [
-        (name, obj) for name, obj in inspect.getmembers(mod, inspect.isfunction)
-        if name.startswith("test_")
-    ]
+    tests = [(name, obj) for name, obj in inspect.getmembers(mod, inspect.isfunction) if name.startswith("test_")]
     print(f"\n=== BaseKeywordIndex / BM25Index Tests ({len(tests)}) ===\n")
     failed = []
     for name, fn in tests:

@@ -1,4 +1,4 @@
-"""Long-running awatch loop: convert raw changes into update_store_index calls."""
+"""Long-running awatch loop: convert raw changes into update_index calls."""
 
 import asyncio
 
@@ -10,7 +10,7 @@ from ...components import R
 
 @R.register("watch_changes_step")
 class WatchChangesStep(BaseStep):
-    """Watch files and forward each batch of raw changes to the update_store_index job."""
+    """Watch files and forward each batch of raw changes to the update_index job."""
 
     def __init__(
         self,

@@ -1,3 +1,5 @@
+"""Abstract base class for file catalog backends."""
+
 from abc import abstractmethod
 
 from ..base_component import BaseComponent

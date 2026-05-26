@@ -29,6 +29,7 @@ class temp_chdir:
 
 
 def make_node(path: str, mtime: float = 1.0) -> FileNode:
+    """Build a FileNode with the given path and mtime for fixture use."""
     return FileNode(path=path, st_mtime=mtime)
 
 

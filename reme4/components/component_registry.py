@@ -25,7 +25,7 @@ class ComponentRegistry:
         component_type = getattr(cls, "component_type", None)
         if not isinstance(component_type, ComponentEnum):
             raise TypeError(
-                f"{cls.__name__} must have a ComponentEnum 'component_type' attribute"
+                f"{cls.__name__} must have a ComponentEnum 'component_type' attribute",
             )
         if not name:
             raise ValueError("Component name cannot be empty")
@@ -33,7 +33,7 @@ class ComponentRegistry:
         group = self._registry.setdefault(component_type, {})
         if name in group:
             self.logger.warning(
-                f"Component '{name}' already registered for {component_type}, overwriting"
+                f"Component '{name}' already registered for {component_type}, overwriting",
             )
         group[name] = cls
         return cls

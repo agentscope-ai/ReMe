@@ -6,23 +6,18 @@ from ...components import R
 
 @R.register("reindex_step")
 class ReindexStep(BaseStep):
-    """Full re-index: clear store, walk vault, hand the file list to index_changes."""
+    """Full re-index: clear the store, walk the vault, hand the file list to ``index_changes``."""
 
     async def execute(self):
         assert self.context is not None
-
-        suffix_filters: list[str] = self.context.get("suffix_filters", ["md"])
-        suffixes = tuple("." + s.strip(".") for s in suffix_filters) if suffix_filters else None
+        suffixes = tuple("." + s.strip(".") for s in self.context.get("suffix_filters", ["md"]))
 
         await self.file_store.clear()
-
-        paths: list[str] = []
-        for p in self.vault_path.rglob("*"):
-            if not p.is_file():
-                continue
-            if suffixes and not str(p).endswith(suffixes):
-                continue
-            paths.append(str(p.absolute()))
+        paths = [
+            str(p.absolute())
+            for p in self.vault_path.rglob("*")
+            if p.is_file() and (not suffixes or str(p).endswith(suffixes))
+        ]
 
         if paths:
             await self.run_job("index_changes", changes=[{"change": "added", "path": p} for p in paths])
