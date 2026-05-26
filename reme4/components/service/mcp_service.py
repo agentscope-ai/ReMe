@@ -1,8 +1,5 @@
-"""MCP (Model Context Protocol) service implementation."""
+"""MCP (Model Context Protocol) service: exposes jobs as MCP tools."""
 
-import json
-import os
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
@@ -11,8 +8,8 @@ from fastmcp.tools import FunctionTool
 
 from .base_service import BaseService
 from ..component_registry import R
-from ..job import StreamJob, BaseJob
-from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT, REME_SERVICE_INFO
+from ..job import BaseJob, StreamJob
+from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
 if TYPE_CHECKING:
     from ...application import Application
@@ -20,7 +17,7 @@ if TYPE_CHECKING:
 
 @R.register("mcp")
 class MCPService(BaseService):
-    """Expose jobs as MCP (Model Context Protocol) tools."""
+    """Expose non-stream jobs as MCP tools over stdio, SSE, or other supported transports."""
 
     def __init__(
         self,
@@ -34,19 +31,17 @@ class MCPService(BaseService):
         self.host: str = host
         self.port: int = port
 
+    # ----- BaseService contract ------------------------------------------
+
     def build_service(self, app: "Application") -> None:
-        @asynccontextmanager
-        async def lifespan(_: FastMCP):
-            await app.start()
-            service_info = json.dumps({"host": self.host, "port": self.port})
-            os.environ[REME_SERVICE_INFO] = service_info
-            self.logger.info(f"ReMe MCP Service started: {REME_SERVICE_INFO}={service_info}")
-            yield
-            await app.close()
+        """Create the FastMCP server with an app-managed lifespan."""
+        self.service = FastMCP(
+            name=app.config.app_name,
+            lifespan=self._lifespan(app, self.host, self.port),
+        )
 
-        self.service = FastMCP(name=app.config.app_name, lifespan=lifespan)
-
-    def add_job(self, job: "BaseJob") -> None:
+    def add_job(self, job: BaseJob) -> None:
+        """Register a non-stream job as an MCP tool; StreamJobs are skipped (not supported)."""
         if isinstance(job, StreamJob):
             return
 
@@ -64,7 +59,8 @@ class MCPService(BaseService):
         )
 
     def start_service(self, app: "Application") -> None:
-        transport_kwargs = {}
+        """Run the MCP server; bind host/port only when the transport is network-based."""
+        transport_kwargs: dict = {}
         if self.transport != "stdio":
             transport_kwargs["host"] = self.host
             transport_kwargs["port"] = self.port
