@@ -1,10 +1,15 @@
 """Base job component for sequential step execution."""
 
+from typing import TYPE_CHECKING
+
 from ..base_component import BaseComponent
 from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
+
+if TYPE_CHECKING:
+    from ...steps import BaseStep
 
 
 @R.register("base")
@@ -24,14 +29,12 @@ class BaseJob(BaseComponent):
         self.description = description
         self.parameters = parameters or {}
         self.step_configs = steps or []
-
-        from ...steps import BaseStep
-
-        self.step_components: list[BaseStep] = []
+        self.step_specs: list[tuple[type["BaseStep"], dict]] = []
 
     async def _start(self) -> None:
-        """Resolve step configs into instantiated step components."""
-        assert self.app_context is not None, "app_context must be provided"
+        """Resolve step configs into (cls, params) pairs; defer instantiation to __call__."""
+        if self.app_context is None:
+            raise RuntimeError(f"app_context must be provided for job '{self.name}'")
         for raw in self.step_configs:
             config = raw if isinstance(raw, ComponentConfig) else ComponentConfig(**raw)
             if not config.backend:
@@ -41,17 +44,21 @@ class BaseJob(BaseComponent):
                 raise ValueError(f"Unregistered backend '{config.backend}' of type '{ComponentEnum.STEP}'")
             params = config.model_dump()
             params["app_context"] = self.app_context
-            self.step_components.append(step_cls(**params))
+            self.step_specs.append((step_cls, params))
 
     async def _close(self) -> None:
-        """Release all step components."""
-        self.step_components.clear()
+        """Release all step specs."""
+        self.step_specs.clear()
+
+    def _build_steps(self) -> list["BaseStep"]:
+        """Instantiate fresh step instances from stored specs."""
+        return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
     async def __call__(self, **kwargs) -> Response:
         """Execute all steps in order and return the final response."""
         context = RuntimeContext(**kwargs)
         try:
-            for step in self.step_components:
+            for step in self._build_steps():
                 await step(context)
         except Exception as e:
             self.logger.exception(f"Failed to execute job: {e}")

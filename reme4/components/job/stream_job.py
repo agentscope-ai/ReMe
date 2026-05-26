@@ -14,7 +14,7 @@ class StreamJob(BaseJob):
         """Execute steps and stream output; errors are sent as ERROR chunks."""
         context = RuntimeContext(**kwargs)
         try:
-            for step in self.step_components:
+            for step in self._build_steps():
                 await step(context)
         except Exception as e:
             await context.add_stream_string(str(e), ChunkEnum.ERROR)
