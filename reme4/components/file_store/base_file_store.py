@@ -18,13 +18,6 @@ class BaseFileStore(BaseComponent):
 
     component_type = ComponentEnum.FILE_STORE
 
-    def __init__(self, store_name: str, store_version: str = "v1", **kwargs):
-        super().__init__(**kwargs)
-        self.store_name = store_name or self.name
-        self.store_version = store_version
-        self.store_path = self.vault_metadata_path / self.component_type.value / self.store_name
-        self.store_path.mkdir(parents=True, exist_ok=True)
-
     # -- CRUD ------------------------------------------------------------
 
     @abstractmethod

@@ -40,8 +40,8 @@ class FaissLocalFileStore(LocalFileStore):
         self._faiss = faiss
         self.normalize = normalize
         self.max_tombstones = max_tombstones
-        self.faiss_path = self.store_path / f"faiss_index_{self.store_version}.bin"
-        self.faiss_idmap_path = self.store_path / f"faiss_idmap_{self.store_version}.json"
+        self.faiss_path = self.component_metadata_path / f"faiss_index_{self.name}_{self.store_version}.bin"
+        self.faiss_idmap_path = self.component_metadata_path / f"faiss_idmap_{self.name}_{self.store_version}.json"
         self._faiss_index = None  # faiss.Index | None
         self._id_map: list[str] = []  # row -> chunk_id
         self._id_to_row: dict[str, int] = {}  # chunk_id -> row

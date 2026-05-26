@@ -29,6 +29,7 @@ class LocalFileStore(BaseFileStore):
         keyword_index: str = "default",
         file_graph: str = "default",
         encoding: str = "utf-8",
+        store_version: str = "v1",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -46,15 +47,17 @@ class LocalFileStore(BaseFileStore):
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
 
         self.encoding = encoding
+        self.store_version = store_version
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         self.file_chunks: dict[str, FileChunk] = {}
-        self.chunks_path = self.store_path / f"file_chunks_{self.store_version}.jsonl"
+        self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl"
 
     # Lifecycle
 
     async def _start(self) -> None:
         await super()._start()
         if self.embedding_model is not None and not await self.embedding_model.health_check():
-            self.logger.warning(f"{self.store_name}: embedding unhealthy, vector disabled")
+            self.logger.warning(f"{self.name}: embedding unhealthy, vector disabled")
             self.embedding_model = None
         await self.load()
 
@@ -67,7 +70,7 @@ class LocalFileStore(BaseFileStore):
         """Drop embedding after a runtime failure; keyword search still works."""
         if self.embedding_model is None:
             return
-        self.logger.error(f"{self.store_name}: embedding disabled, {reason}")
+        self.logger.error(f"{self.name}: embedding disabled, {reason}")
         self.embedding_model = None
 
     async def load(self) -> None:

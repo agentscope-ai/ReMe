@@ -6,22 +6,10 @@ from ..component_registry import R
 
 @R.register("jieba")
 class JiebaTokenizer(BaseTokenizer):
-    """Tokenizer using jieba for Chinese text segmentation."""
+    """Tokenizer backed by jieba for Chinese word segmentation."""
 
-    def __init__(self, filter_stopwords: bool = True, **kwargs):
-        super().__init__(**kwargs)
-        self.filter_stopwords = filter_stopwords
-
-    def tokenize(self, texts: list[str], lower: bool = True, **kwargs) -> list[list[str]]:
-        """Tokenize texts using jieba."""
+    def _tokenize_one(self, text: str, **kwargs) -> list[str]:
+        # Lazy import: jieba startup cost is non-trivial and only paid when used.
         import jieba
 
-        result = []
-        for text in texts:
-            tokens = jieba.cut(text)
-            if lower:
-                tokens = [x.lower() for x in tokens]
-            if self.filter_stopwords and self._stopwords:
-                tokens = [t for t in tokens if t not in self._stopwords]
-            result.append(tokens)
-        return result
+        return list(jieba.cut(text))
