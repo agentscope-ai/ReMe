@@ -3,101 +3,115 @@
 import asyncio
 import heapq
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, TypeVar
 
 from .components import BaseComponent, ApplicationContext
+from .components.job import BaseJob
+from .components.service import BaseService
 from .enumeration import ComponentEnum
-from .schema import Response, StreamChunk
+from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
+
+T = TypeVar("T", bound=BaseComponent)
+_NodeKey = tuple[ComponentEnum, str]
 
 
 class Application(BaseComponent):
-    """Main application: initializes components, resolves dependencies, runs jobs."""
+    """Wires components from config and runs jobs against them."""
 
     def __init__(self, **kwargs) -> None:
         self.context = ApplicationContext(**kwargs)
         self._started_components: list[BaseComponent] = []
 
-        vault_path = Path(self.config.vault_dir).absolute()
-        vault_path.mkdir(parents=True, exist_ok=True)
-        if self.config.metadata_dir:
-            (vault_path / self.config.metadata_dir).mkdir(parents=True, exist_ok=True)
-        if self.config.daily_dir:
-            (vault_path / self.config.daily_dir).mkdir(parents=True, exist_ok=True)
-        if self.config.digest_dir:
-            (vault_path / self.config.digest_dir).mkdir(parents=True, exist_ok=True)
-        if self.config.resource_dir:
-            (vault_path / self.config.resource_dir).mkdir(parents=True, exist_ok=True)
+        self._setup_vault_directories()
 
         if self.config.enable_logo:
             print_logo(self.config)
-
         logger = get_logger(log_to_console=self.config.log_to_console, log_to_file=self.config.log_to_file)
         logger.info(f"Initializing {self.config.app_name} Application")
         super().__init__()
 
-        from .components import R
-
-        # Service
-        service_config = self.config.service
-        if not service_config.backend:
-            raise ValueError("Service configuration is missing the required 'backend' field")
-        service_cls = R.get(ComponentEnum.SERVICE, service_config.backend)
-        if not service_cls:
-            raise ValueError(f"Unregistered service backend '{service_config.backend}'")
-        params = service_config.model_dump()
-        params["app_context"] = self.context
-        self.context.service = service_cls(**params)
-
-        # Components
-        for component_type, component_configs in self.config.components.items():
-            self.context.components[component_type] = {}
-            for name, config in component_configs.items():
-                if not config.backend:
-                    raise ValueError(f"Component '{name}' is missing the required 'backend' field")
-                backend_cls = R.get(component_type, config.backend)
-                if not backend_cls:
-                    raise ValueError(f"Unregistered backend '{config.backend}' for component '{name}'")
-                params = config.model_dump()
-                params.setdefault("name", name)
-                params["app_context"] = self.context
-                self.context.components[component_type][name] = backend_cls(**params)
-
-        # Jobs
-        for name, job_config in self.config.jobs.items():
-            if not job_config.backend:
-                raise ValueError(f"Job '{name}' is missing the required 'backend' field")
-            job_cls = R.get(ComponentEnum.JOB, job_config.backend)
-            if not job_cls:
-                raise ValueError(f"Unregistered backend '{job_config.backend}' for job '{name}'")
-            params = job_config.model_dump()
-            params.setdefault("name", name)
-            params["app_context"] = self.context
-            self.context.jobs[name] = job_cls(**params)
+        self._init_service()
+        self._init_components()
+        self._init_jobs()
 
     @property
     def config(self):
-        """Application configuration."""
+        """Typed view onto the application config held by the context."""
         return self.context.app_config
 
+    # ----- Wiring (called once during __init__) --------------------------
+
+    def _setup_vault_directories(self) -> None:
+        """Ensure the vault root and configured subdirectories exist on disk."""
+        cfg = self.config
+        vault_path = Path(cfg.vault_dir).absolute()
+        vault_path.mkdir(parents=True, exist_ok=True)
+        for subdir in [cfg.metadata_dir, cfg.daily_dir, cfg.digest_dir, cfg.resource_dir]:
+            if subdir:
+                (vault_path / subdir).mkdir(parents=True, exist_ok=True)
+
+    def _init_service(self) -> None:
+        """Instantiate the single service backend declared in config.service."""
+        self.context.service = self._instantiate(
+            ComponentEnum.SERVICE, self.config.service, label="Service", expected_type=BaseService,
+        )
+
+    def _init_components(self) -> None:
+        """Instantiate every component declared under config.components."""
+        for ctype, group in self.config.components.items():
+            self.context.components[ctype] = {}
+            for name, cfg in group.items():
+                self.context.components[ctype][name] = self._instantiate(
+                    ctype, cfg, label=f"Component '{name}'", expected_type=BaseComponent, name=name,
+                )
+
+    def _init_jobs(self) -> None:
+        """Instantiate every job declared under config.jobs."""
+        for name, cfg in self.config.jobs.items():
+            self.context.jobs[name] = self._instantiate(
+                ComponentEnum.JOB, cfg, label=f"Job '{name}'", expected_type=BaseJob, name=name,
+            )
+
+    def _instantiate(
+        self, ctype: ComponentEnum, cfg: ComponentConfig, *,
+        label: str, expected_type: type[T], name: str | None = None,
+    ) -> T:
+        """Resolve cfg.backend through the registry and construct the instance.
+
+        `label` is the human-readable identifier used only in error messages.
+        `expected_type` narrows the return type and guards against a backend
+        registered under the wrong ComponentEnum.
+        `name` is forwarded to the constructor for named components/jobs;
+        leave it None for the service, which is keyed solely by type.
+        """
+        # Lazy import: the registry self-populates as component modules load.
+        from .components import R
+
+        if not cfg.backend:
+            raise ValueError(f"{label} is missing the required 'backend' field")
+        backend_cls = R.get(ctype, cfg.backend)
+        if backend_cls is None:
+            raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
+
+        params = cfg.model_dump()
+        params["app_context"] = self.context
+        if name is not None:
+            params.setdefault("name", name)
+        instance = backend_cls(**params)
+        if not isinstance(instance, expected_type):
+            got, want = type(instance).__name__, expected_type.__name__
+            raise TypeError(f"{label} backend '{cfg.backend}' produced {got}, expected {want} subclass")
+        return instance
+
+    # ----- Dependency ordering ------------------------------------------
+
     def _topological_order(self) -> list[BaseComponent]:
-        """Kahn's algorithm. Raises on missing required dep or cycle."""
-        nodes: dict[tuple[ComponentEnum, str], BaseComponent] = {
+        """Return components in dependency order via Kahn's algorithm; raise on missing dep or cycle."""
+        nodes: dict[_NodeKey, BaseComponent] = {
             (ctype, name): comp for ctype, group in self.context.components.items() for name, comp in group.items()
         }
-
-        in_degree: dict[tuple[ComponentEnum, str], int] = dict.fromkeys(nodes, 0)
-        dependents: dict[tuple[ComponentEnum, str], list[tuple[ComponentEnum, str]]] = {k: [] for k in nodes}
-        for key, comp in nodes.items():
-            for dep in comp.dependencies:
-                dep_key = (dep.ctype, dep.name)
-                if dep_key in nodes:
-                    dependents[dep_key].append(key)
-                    in_degree[key] += 1
-                elif not dep.optional:
-                    raise ValueError(
-                        f"Component {key[0].value}:{key[1]} depends on {dep.ctype.value}:{dep.name}, not registered",
-                    )
+        in_degree, dependents = self._build_dependency_graph(nodes)
 
         ready = [k for k, d in in_degree.items() if d == 0]
         heapq.heapify(ready)
@@ -115,25 +129,49 @@ class Application(BaseComponent):
             raise ValueError(f"Circular dependency detected among: {unresolved}")
         return ordered
 
+    @staticmethod
+    def _build_dependency_graph(
+        nodes: dict[_NodeKey, BaseComponent],
+    ) -> tuple[dict[_NodeKey, int], dict[_NodeKey, list[_NodeKey]]]:
+        """Compute in-degree and adjacency lists; raise if a required dep is missing."""
+        in_degree: dict[_NodeKey, int] = dict.fromkeys(nodes, 0)
+        dependents: dict[_NodeKey, list[_NodeKey]] = {k: [] for k in nodes}
+        for key, comp in nodes.items():
+            for dep in comp.dependencies:
+                dep_key = (dep.ctype, dep.name)
+                if dep_key in nodes:
+                    dependents[dep_key].append(key)
+                    in_degree[key] += 1
+                elif not dep.optional:
+                    raise ValueError(
+                        f"Component {key[0].value}:{key[1]} depends on unregistered {dep.ctype.value}:{dep.name}",
+                    )
+        return in_degree, dependents
+
+    # ----- Lifecycle -----------------------------------------------------
+
     async def _start(self) -> None:
-        """Start components, then regular jobs, then background jobs; record order for reverse close."""
+        """Start components in dependency order, then jobs (background last)."""
         components = self._topological_order()
         jobs = list(self.context.jobs.values())
-        sequence = (
-            components + [j for j in jobs if j.backend != "background"] + [j for j in jobs if j.backend == "background"]
-        )
+        # Background jobs come last so they observe a fully wired system.
+        foreground = [j for j in jobs if j.backend != "background"]
+        background = [j for j in jobs if j.backend == "background"]
+        for c in components + foreground + background:
+            await self._start_one(c)
 
-        for c in sequence:
-            try:
-                if c.backend == "background":
-                    self.logger.info(f"Starting background job: {c.name}")
-                await c.start()
-                self._started_components.append(c)
-            except Exception as e:
-                self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
+    async def _start_one(self, c: BaseComponent) -> None:
+        """Start one component and record it for ordered shutdown; log and swallow failures."""
+        try:
+            if c.backend == "background":
+                self.logger.info(f"Starting background job: {c.name}")
+            await c.start()
+            self._started_components.append(c)
+        except Exception as e:
+            self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
 
     async def _close(self) -> None:
-        """Close in reverse order of successful start."""
+        """Close in reverse start order so every peer outlives its dependents."""
         for c in reversed(self._started_components):
             try:
                 await c.close()
@@ -141,31 +179,27 @@ class Application(BaseComponent):
                 self.logger.exception(f"Failed to close {c.component_type.value}:{c.name}: {e}")
         self._started_components.clear()
 
+    # ----- Job execution -------------------------------------------------
+
     async def run_job(self, name: str, /, **kwargs) -> Response:
-        """Execute a registered job by name."""
+        """Execute a registered job by name and return its final Response."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         return await self.context.jobs[name](**kwargs)
 
     async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Execute a streaming job and yield chunks."""
+        """Execute a streaming job, yielding chunks as they are produced."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
-        job = self.context.jobs[name]
-        stream_queue = asyncio.Queue()
-        task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
+        stream_queue: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(self.context.jobs[name](stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
-            stream_queue=stream_queue,
-            task=task,
-            task_name=name,
-            output_format="chunk",
+            stream_queue=stream_queue, task=task, task_name=name, output_format="chunk",
         ):
             assert isinstance(chunk, StreamChunk)
             yield chunk
 
     def run_app(self):
-        """Start the service and serve the application."""
-        from .components.service import BaseService
-
+        """Serve the application through the configured service backend."""
         assert isinstance(self.context.service, BaseService)
         self.context.service.run_app(app=self)

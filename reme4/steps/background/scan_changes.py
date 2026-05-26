@@ -13,13 +13,13 @@ class ScanChangesStep(BaseStep):
     def __init__(
         self,
         recursive: bool = True,
-        dump_store_index: bool = True,
+        persist: bool = False,
         dispatch_job: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.recursive: bool = recursive
-        self.dump_store_index: bool = dump_store_index
+        self.persist: bool = persist
         self.dispatch_job: str = dispatch_job
 
     async def execute(self):
@@ -67,7 +67,7 @@ class ScanChangesStep(BaseStep):
                 await self.run_job(
                     self.dispatch_job,
                     changes=changes,
-                    dump_store_index=self.dump_store_index,
+                    persist=self.persist,
                 )
         else:
             self.logger.info(f"[{self.name}] store is up to date")

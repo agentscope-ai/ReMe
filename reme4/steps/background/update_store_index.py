@@ -17,7 +17,7 @@ class UpdateStoreIndexStep(BaseStep):
         assert self.context is not None
         # Each item: {"change": Change | "added"|"modified"|"deleted", "path": absolute path}
         changes: list[dict] = self.context.get("changes") or []
-        dump_store_index: bool = bool(self.context.get("dump_store_index", False))
+        persist: bool = bool(self.context.get("persist", False))
 
         buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
         for item in changes:
@@ -77,7 +77,7 @@ class UpdateStoreIndexStep(BaseStep):
                 self.logger.exception(f"Failed to delete {len(deleted)} file(s)")
                 results.extend({"change": "deleted", "path": p, "success": False, "error": str(e)} for p in deleted)
 
-        if dump_store_index and results:
+        if persist and results:
             await self.file_store.dump()
 
         self.context.response.answer = results

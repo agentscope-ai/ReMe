@@ -85,7 +85,7 @@ async def _make_scan_step(
     watch_paths: list[str] | str = "vault",
     suffix_filters: list[str] | None = None,
     recursive: bool = True,
-    dump_store_index: bool = True,
+    persist: bool = False,
     dispatch_job: str = "update_store_index",
 ) -> tuple[_RecordingScanChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
     fs = LocalFileStore(name="test_store", embedding_model="")
@@ -94,7 +94,7 @@ async def _make_scan_step(
     await parser.start()
     step = _RecordingScanChangesStep(
         recursive=recursive,
-        dump_store_index=dump_store_index,
+        persist=persist,
         dispatch_job=dispatch_job,
         file_store=fs,
         file_parser=parser,
