@@ -1,4 +1,4 @@
-"""Common utilities: hashing and async stream task execution."""
+"""Common utilities: hashing, async stream task execution, HTTP helpers."""
 
 import asyncio
 import hashlib

@@ -8,4 +8,4 @@ class Request(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    metadata: dict = Field(default_factory=dict, description="Request metadata for context")
+    metadata: dict | None = Field(default=None, description="Request metadata for context")

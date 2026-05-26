@@ -1,4 +1,10 @@
-"""Tests for LinkedFileParser (markdown parser + wikilink extraction)."""
+"""Tests for LinkedFileParser (markdown parser + wikilink extraction).
+
+Wikilink convention here is strict: targets are taken literally, no
+short-form basename search, no implicit ``.md``, no folder-note
+expansion. ``lint:dangling`` handles validation; the parser is just
+a markdown-to-FileNode transformer.
+"""
 
 # pylint: disable=protected-access
 
@@ -6,9 +12,7 @@ import asyncio
 import os
 import tempfile
 
-from reme4.components.file_graph import LocalFileGraph
 from reme4.components.file_parser import LinkedFileParser
-from reme4.schema import FileNode
 
 
 class temp_chdir:
@@ -28,22 +32,12 @@ class temp_chdir:
 
 
 def _write_md(tmpdir: str, name: str, body: str) -> str:
-    """Drop a markdown file under tmpdir, return its path."""
-    path = os.path.join(tmpdir, name)
+    """Drop a markdown file under tmpdir, return its relative path (matches cwd)."""
     if "/" in name:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.join(tmpdir, os.path.dirname(name)), exist_ok=True)
+    with open(os.path.join(tmpdir, name), "w", encoding="utf-8") as f:
         f.write(body)
-    return path
-
-
-async def _make_graph(*nodes: FileNode) -> LocalFileGraph:
-    """Build a started LocalFileGraph seeded with the given nodes."""
-    graph = LocalFileGraph()
-    await graph.start()
-    if nodes:
-        await graph.upsert_nodes(list(nodes))
-    return graph
+    return name
 
 
 def test_parse_empty_file():
@@ -51,28 +45,28 @@ def test_parse_empty_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            path = _write_md(tmp, "empty.md", "")
+            path = _write_md(tmp, "x.md", "")
             parser = LinkedFileParser()
             node, chunks = await parser.parse(path)
+            assert node.path == "x.md"
             assert chunks == []
             assert node.links == []
-            assert node.chunk_ids == []
         print("✓ test_parse_empty_file passed")
 
     asyncio.run(run())
 
 
 def test_parse_frontmatter_only():
-    """Front-matter without body → FileNode with metadata, no chunks/links."""
+    """A file with only frontmatter (no body) → no chunks, no links."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            path = _write_md(tmp, "fm.md", "---\ntitle: Demo\ntags: [a, b]\n---\n")
+            path = _write_md(tmp, "fm.md", "---\nname: t\n---\n")
             parser = LinkedFileParser()
             node, chunks = await parser.parse(path)
+            assert node.front_matter.name == "t"
             assert chunks == []
-            assert node.front_matter.title == "Demo"
-            assert list(node.front_matter.tags or []) == ["a", "b"]
+            assert node.links == []
         print("✓ test_parse_frontmatter_only passed")
 
     asyncio.run(run())
@@ -83,27 +77,27 @@ def test_parse_small_body_one_chunk():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            path = _write_md(tmp, "small.md", "# Hello\n\nworld")
-            parser = LinkedFileParser(chunk_chars=2000)
-            _, chunks = await parser.parse(path)
+            body = "# Hello\n\nthis is a small body."
+            path = _write_md(tmp, "small.md", body)
+            parser = LinkedFileParser(chunk_chars=500)
+            node, chunks = await parser.parse(path)
             assert len(chunks) == 1
-            assert "world" in chunks[0].text
-            assert chunks[0].start_line >= 1
-            assert chunks[0].end_line >= chunks[0].start_line
+            assert "this is a small body" in chunks[0].text
+            assert node.chunk_ids == [chunks[0].id]
         print("✓ test_parse_small_body_one_chunk passed")
 
     asyncio.run(run())
 
 
 def test_parse_oversized_body_splits():
-    """A body that exceeds chunk_chars produces multiple chunks."""
+    """A body exceeding chunk_chars triggers multiple chunks."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            # 30 paragraphs of 100 chars each ≈ 3000 chars body
-            body = "# Big\n\n" + "\n\n".join("p" * 100 for _ in range(30))
+            paras = "\n\n".join(f"paragraph {i} with some content text here." for i in range(50))
+            body = "# H\n\n" + paras
             path = _write_md(tmp, "big.md", body)
-            parser = LinkedFileParser(chunk_chars=500, embed_toc=False)
+            parser = LinkedFileParser(chunk_chars=200)
             _, chunks = await parser.parse(path)
             assert len(chunks) > 1
         print("✓ test_parse_oversized_body_splits passed")
@@ -112,12 +106,14 @@ def test_parse_oversized_body_splits():
 
 
 def test_parse_chunk_ids_match_node_chunk_ids():
-    """FileNode.chunk_ids should match the ids of the chunks returned."""
+    """node.chunk_ids is the ordered list of chunk hashes."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            path = _write_md(tmp, "ids.md", "# X\n\nbody")
-            parser = LinkedFileParser()
+            paras = "\n\n".join(f"para {i} body content here." for i in range(40))
+            body = "# H\n\n" + paras
+            path = _write_md(tmp, "p.md", body)
+            parser = LinkedFileParser(chunk_chars=200)
             node, chunks = await parser.parse(path)
             assert node.chunk_ids == [c.id for c in chunks]
         print("✓ test_parse_chunk_ids_match_node_chunk_ids passed")
@@ -125,32 +121,14 @@ def test_parse_chunk_ids_match_node_chunk_ids():
     asyncio.run(run())
 
 
-def test_parse_links_empty_when_no_graph():
-    """Without an app_context / graph, links stay empty even if the body has wikilinks."""
+def test_parse_links_literal_targets():
+    """Wikilink targets are taken verbatim — full path → FileLink.target_path."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            path = _write_md(tmp, "x.md", "see [[Alice]] and [[Bob]]")
+            body = "see [[topics/Alice.md]] and [[topics/Bob.md#sec]]"
+            path = _write_md(tmp, "note.md", body)
             parser = LinkedFileParser()
-            node, _ = await parser.parse(path)
-            assert node.links == []
-        print("✓ test_parse_links_empty_when_no_graph passed")
-
-    asyncio.run(run())
-
-
-def test_parse_links_resolved_via_graph():
-    """With a graph that knows the targets, wikilinks become FileLinks with resolved target_path."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            graph = await _make_graph(
-                FileNode(path="topics/Alice.md", st_mtime=0.0),
-                FileNode(path="topics/Bob.md", st_mtime=0.0),
-            )
-            path = _write_md(tmp, "note.md", "see [[Alice]] and [[Bob#sec]]")
-            parser = LinkedFileParser()
-            parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
             triples = {(link.target_path, link.target_anchor, link.predicate) for link in node.links}
             assert ("topics/Alice.md", None, None) in triples
@@ -158,8 +136,29 @@ def test_parse_links_resolved_via_graph():
             # source_path always equals the node's own path
             for link in node.links:
                 assert link.source_path == node.path
-            await graph.close()
-        print("✓ test_parse_links_resolved_via_graph passed")
+        print("✓ test_parse_links_literal_targets passed")
+
+    asyncio.run(run())
+
+
+def test_parse_links_short_and_no_ext_kept_literally():
+    """Short and no-ext forms are NOT resolved — they're stored as-is.
+
+    The parser does no resolution; whether the target exists is a
+    ``lint:dangling`` concern. ``[[Alice]]`` becomes
+    ``target_path='Alice'`` and will be flagged dangling unless a node
+    with literal path 'Alice' actually exists.
+    """
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            body = "see [[Alice]] and [[topics/Alice]] but also [[topics/Alice.md]]"
+            path = _write_md(tmp, "note.md", body)
+            parser = LinkedFileParser()
+            node, _ = await parser.parse(path)
+            targets = {link.target_path for link in node.links}
+            assert targets == {"Alice", "topics/Alice", "topics/Alice.md"}
+        print("✓ test_parse_links_short_and_no_ext_kept_literally passed")
 
     asyncio.run(run())
 
@@ -169,59 +168,14 @@ def test_parse_links_predicate_inline_and_line():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            graph = await _make_graph(
-                FileNode(path="A.md", st_mtime=0.0),
-                FileNode(path="B.md", st_mtime=0.0),
-            )
-            body = "extends:: [[A]]\n\nsome [concerns:: [[B]]] inline\n"
+            body = "extends:: [[A.md]]\n\nsome [concerns:: [[B.md]]] inline\n"
             path = _write_md(tmp, "note.md", body)
             parser = LinkedFileParser()
-            parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
             pairs = {(link.target_path, link.predicate) for link in node.links}
             assert ("A.md", "extends") in pairs
             assert ("B.md", "concerns") in pairs
-            await graph.close()
         print("✓ test_parse_links_predicate_inline_and_line passed")
-
-    asyncio.run(run())
-
-
-def test_parse_links_short_path_ambiguity_expands():
-    """A short link matching multiple nodes expands to one FileLink per candidate."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            graph = await _make_graph(
-                FileNode(path="topics/Bob.md", st_mtime=0.0),
-                FileNode(path="people/Bob.md", st_mtime=0.0),
-            )
-            path = _write_md(tmp, "note.md", "ref [[Bob]]")
-            parser = LinkedFileParser()
-            parser._resolve_file_graph = lambda: graph
-            node, _ = await parser.parse(path)
-            targets = sorted(link.target_path for link in node.links)
-            assert targets == ["people/Bob.md", "topics/Bob.md"]
-            await graph.close()
-        print("✓ test_parse_links_short_path_ambiguity_expands passed")
-
-    asyncio.run(run())
-
-
-def test_parse_links_dangling_dropped():
-    """Wikilink to a non-existent target is silently dropped (no graph node)."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            graph = await _make_graph(FileNode(path="topics/Alice.md", st_mtime=0.0))
-            path = _write_md(tmp, "note.md", "[[Alice]] and [[Ghost]]")
-            parser = LinkedFileParser()
-            parser._resolve_file_graph = lambda: graph
-            node, _ = await parser.parse(path)
-            targets = {link.target_path for link in node.links}
-            assert targets == {"topics/Alice.md"}
-            await graph.close()
-        print("✓ test_parse_links_dangling_dropped passed")
 
     asyncio.run(run())
 
@@ -231,13 +185,11 @@ def test_parse_links_deduped():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            graph = await _make_graph(FileNode(path="A.md", st_mtime=0.0))
-            path = _write_md(tmp, "note.md", "[[A]] again [[A]] and [[A]]")
+            body = "[[A.md]] again [[A.md]] and [[A.md]]"
+            path = _write_md(tmp, "note.md", body)
             parser = LinkedFileParser()
-            parser._resolve_file_graph = lambda: graph
             node, _ = await parser.parse(path)
             assert len([link for link in node.links if link.target_path == "A.md"]) == 1
-            await graph.close()
         print("✓ test_parse_links_deduped passed")
 
     asyncio.run(run())
@@ -273,11 +225,9 @@ if __name__ == "__main__":
     test_parse_small_body_one_chunk()
     test_parse_oversized_body_splits()
     test_parse_chunk_ids_match_node_chunk_ids()
-    test_parse_links_empty_when_no_graph()
-    test_parse_links_resolved_via_graph()
+    test_parse_links_literal_targets()
+    test_parse_links_short_and_no_ext_kept_literally()
     test_parse_links_predicate_inline_and_line()
-    test_parse_links_short_path_ambiguity_expands()
-    test_parse_links_dangling_dropped()
     test_parse_links_deduped()
     test_parse_min_chunk_chars_clamped()
     test_parse_embed_toc_prefixes_chunk_text()

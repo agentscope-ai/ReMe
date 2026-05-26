@@ -9,7 +9,7 @@ from .file_link import FileLink
 class FileNode(BaseModel):
     """A vault file as a graph node."""
 
-    path: str = Field(default=..., description="Vault-relative file path")
+    path: str = Field(default=..., description="Path relative to the vault")
     st_mtime: float = Field(default=..., description="Filesystem mtime (seconds)")
     links: list[FileLink] = Field(default_factory=list, description="Outgoing wikilinks")
     chunk_ids: list[str] = Field(default_factory=list, description="Owned FileChunk ids")

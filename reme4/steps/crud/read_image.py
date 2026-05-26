@@ -13,7 +13,7 @@ from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
 @R.register("read_image_step")
 class ReadImageStep(BaseStep):
-    """Read an image file under ``working_dir`` and return base64 in ``answer``.
+    """Read an image file under ``vault_dir`` and return base64 in ``answer``.
 
     Invariants (callers depend on these):
         - Normal branch: ``answer`` is pure base64 (no ``data:`` prefix, no
@@ -48,7 +48,7 @@ class ReadImageStep(BaseStep):
             self._fail(f"`max_bytes` must be a positive integer, got {max_bytes_raw!r}")
             return None
 
-        target, err = resolve_path(self.working_path, raw)
+        target, err = resolve_path(self.vault_path, raw)
         if err:
             self._fail(err)
             return None

@@ -6,9 +6,11 @@ shipped today.
 """
 
 from .base_file_store import BaseFileStore
+from .faiss_local_file_store import FaissLocalFileStore
 from .local_file_store import LocalFileStore
 
 __all__ = [
     "BaseFileStore",
+    "FaissLocalFileStore",
     "LocalFileStore",
 ]

@@ -1,4 +1,4 @@
-"""Read a markdown file from the vault, with line-range slicing and byte-truncation."""
+"""Read a markdown file from vault_dir, with line-range slicing and byte-truncation."""
 
 import json
 
@@ -38,7 +38,7 @@ class ReadStep(BaseStep):
         start_line = self.context.get("start_line")
         end_line = self.context.get("end_line")
 
-        target, err = resolve_path(self.working_path, raw)
+        target, err = resolve_path(self.vault_path, raw)
         if err:
             self._fail(err)
             return None
@@ -119,9 +119,9 @@ class ReadStep(BaseStep):
         """Append the first-order neighbor frontmatter block to response.answer when available."""
         assert self.context is not None
         try:
-            rel_path = str(target.relative_to(self.working_path))
+            rel_path = str(target.relative_to(self.vault_path))
         except ValueError:
-            self.logger.info(f"[{self.name}] skip neighbors: path outside working_path path={target}")
+            self.logger.info(f"[{self.name}] skip neighbors: path outside vault_path path={target}")
             return
 
         try:

@@ -84,11 +84,11 @@ class BaseStep(ABC):
         return result
 
     @property
-    def working_path(self) -> Path:
-        """Resolved working directory from app context or cwd."""
+    def vault_path(self) -> Path:
+        """Resolved vault root path from app context or cwd."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.working_dir).absolute()
+        return Path(self.app_context.app_config.vault_dir).absolute()
 
     def _resolve(
         self,
@@ -138,7 +138,7 @@ class BaseStep(ABC):
         """Parse ``path`` with the parser whose ``supported_extensions`` claims its suffix.
 
         First registered match wins (config insertion order). Falls back to the
-        ``bare`` parser (stat-only) when no parser claims the suffix — that's
+        ``default`` parser (stat-only) when no parser claims the suffix — that's
         how attachments / binaries / unknown types still produce a FileNode.
         """
         assert self.app_context is not None
@@ -154,10 +154,12 @@ class BaseStep(ABC):
                     break
 
         if parser is None:
-            parser = file_parser_dict.get("bare")
+            parser = file_parser_dict.get("default")
 
         if parser is None:
-            raise RuntimeError(f"No file parser supports {path} (suffix={suffix!r}) and no 'bare' parser is configured")
+            raise RuntimeError(
+                f"No file parser supports {path} (suffix={suffix!r}) and no 'default' parser is configured",
+            )
 
         return await parser.parse(path)
 

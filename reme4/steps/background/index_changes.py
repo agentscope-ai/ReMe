@@ -66,7 +66,7 @@ class IndexChangesStep(BaseStep):
             for path in deleted:
                 p = Path(path).absolute()
                 try:
-                    rel_deleted.append(str(p.relative_to(self.working_path)))
+                    rel_deleted.append(str(p.relative_to(self.vault_path)))
                 except ValueError:
                     rel_deleted.append(str(p))
             try:

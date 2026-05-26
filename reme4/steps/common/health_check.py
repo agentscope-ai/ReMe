@@ -5,10 +5,11 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from ...enumeration.component_enum import ComponentEnum
+
 from ..base_step import BaseStep
 from ... import __version__
 from ...components import R
-from ...enumeration import ComponentEnum
 
 
 def _deep_size(obj, _seen: set | None = None) -> int:

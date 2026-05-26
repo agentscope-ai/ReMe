@@ -10,6 +10,7 @@ except ImportError:
 
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
+from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
 
 
@@ -97,18 +98,39 @@ class NxFileGraph(BaseFileGraph):
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(self, path: str) -> list[FileLink]:
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        # Source must be real; targets may be virtual placeholders.
+        # ``scope`` picks real / virtual / both targets.
         nodes_view = self._graph.nodes
         if path not in nodes_view or "node" not in nodes_view[path]:
             return []
         return [
             d["link"]
-            for _, target, d in self._graph.out_edges(path, data=True)
-            if "link" in d and "node" in nodes_view[target]
+            for _, tgt, d in self._graph.out_edges(path, data=True)
+            if "link" in d and _match_node(nodes_view, tgt, scope)
         ]
 
-    async def get_inlinks(self, path: str) -> list[FileLink]:
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        # ``path`` is a single node — its realness selects which scope
+        # produces a non-empty result (REAL ↔ real node, VIRTUAL ↔
+        # virtual placeholder; ALL is always allowed).
         nodes_view = self._graph.nodes
-        if path not in nodes_view or "node" not in nodes_view[path]:
+        if path not in nodes_view or not _match_node(nodes_view, path, scope):
             return []
         return [d["link"] for _, _, d in self._graph.in_edges(path, data=True) if "link" in d]
+
+
+def _match_node(nodes_view, key: str, scope: LinkScopeEnum) -> bool:
+    """Whether ``key`` satisfies ``scope`` under the nx node-realness convention."""
+    if scope is LinkScopeEnum.ALL:
+        return True
+    is_real = "node" in nodes_view[key]
+    return is_real if scope is LinkScopeEnum.REAL else not is_real

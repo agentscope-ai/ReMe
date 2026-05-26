@@ -89,11 +89,11 @@ async def get_path_lock(target: Path) -> asyncio.Lock:
     return lock
 
 
-def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]:
-    """Resolve a `path=` argument against ``working_path``.
+def resolve_path(vault_path: Path, raw: str) -> tuple[Path | None, str | None]:
+    """Resolve a `path=` argument against ``vault_path``.
 
     Rules:
-        - Relative paths are joined under ``working_path``.
+        - Relative paths are joined under ``vault_path``.
         - Absolute paths are accepted and returned as-is; a warning is logged
           recommending relative paths, but the read still proceeds.
     Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure
@@ -108,7 +108,7 @@ def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]
     if p.is_absolute():
         logger.info("absolute path detected, recommending relative paths")
         return p, None
-    return working_path / p, None
+    return vault_path / p, None
 
 
 def gate_md(target: Path) -> tuple[Path, bool]:

@@ -28,7 +28,7 @@ class AppendStep(BaseStep):
         content = self.context.get("content")
         content_str = "" if content is None else str(content)
 
-        target, err = resolve_path(self.working_path, raw)
+        target, err = resolve_path(self.vault_path, raw)
         if err:
             self._fail(err)
             return None

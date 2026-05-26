@@ -3,7 +3,7 @@
 from abc import abstractmethod
 
 from ..base_component import BaseComponent
-from ...enumeration import ComponentEnum
+from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 
 
@@ -22,7 +22,7 @@ class BaseFileStore(BaseComponent):
         super().__init__(**kwargs)
         self.store_name = store_name or self.name
         self.store_version = store_version
-        self.store_path = self.working_metadata_path / self.component_type.value / self.store_name
+        self.store_path = self.vault_metadata_path / self.component_type.value / self.store_name
         self.store_path.mkdir(parents=True, exist_ok=True)
 
     # -- CRUD ------------------------------------------------------------
@@ -40,12 +40,20 @@ class BaseFileStore(BaseComponent):
         """Return file nodes; None = all nodes; missing paths are skipped."""
 
     @abstractmethod
-    async def get_outlinks(self, path: str) -> list[FileLink]:
-        """Return outgoing links for *path*."""
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        """Return outgoing links for *path*. See ``BaseFileGraph.get_outlinks`` for scope semantics."""
 
     @abstractmethod
-    async def get_inlinks(self, path: str) -> list[FileLink]:
-        """Return incoming links for *path*."""
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        """Return incoming links for *path*. See ``BaseFileGraph.get_inlinks`` for scope semantics."""
 
     @abstractmethod
     async def clear(self) -> None:

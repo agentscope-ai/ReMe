@@ -10,7 +10,7 @@ class FileFrontMatter(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    name: str = Field(default="", description="Document title")
+    name: str = Field(default="", description="Document name")
     description: str = Field(default="", description="Document description")
 
     @property

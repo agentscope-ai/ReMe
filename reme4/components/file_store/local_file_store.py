@@ -8,6 +8,7 @@ from ..component_registry import R
 from ..embedding import BaseEmbeddingModel
 from ..file_graph import BaseFileGraph
 from ..keyword_index import BaseKeywordIndex
+from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
 
@@ -159,13 +160,21 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
         return await self.file_graph.get_nodes(paths)
 
-    async def get_outlinks(self, path: str) -> list[FileLink]:
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
         assert self.file_graph is not None
-        return await self.file_graph.get_outlinks(path)
+        return await self.file_graph.get_outlinks(path, scope)
 
-    async def get_inlinks(self, path: str) -> list[FileLink]:
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
         assert self.file_graph is not None
-        return await self.file_graph.get_inlinks(path)
+        return await self.file_graph.get_inlinks(path, scope)
 
     async def clear(self) -> None:
         assert self.file_graph is not None

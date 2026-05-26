@@ -4,7 +4,7 @@ from abc import abstractmethod
 from pathlib import Path
 
 from ..base_component import BaseComponent
-from ...enumeration import ComponentEnum
+from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileLink, FileNode
 
 
@@ -17,7 +17,7 @@ class BaseFileGraph(BaseComponent):
         super().__init__(**kwargs)
         self.graph_name: str = graph_name or self.name
         self.graph_version: str = graph_version
-        self.graph_path: Path = self.working_metadata_path / self.component_type.value
+        self.graph_path: Path = self.vault_metadata_path / self.component_type.value
         self.graph_path.mkdir(parents=True, exist_ok=True)
 
     # -- Lifecycle ---------------------------------------------------------
@@ -67,9 +67,30 @@ class BaseFileGraph(BaseComponent):
     # -- Link access -------------------------------------------------------
 
     @abstractmethod
-    async def get_outlinks(self, path: str) -> list[FileLink]:
-        """Return outgoing links for *path*."""
+    async def get_outlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        """Return outgoing links for *path*.
+
+        ``scope=REAL`` (default) → edges whose target is an indexed
+        (real) node. ``scope=VIRTUAL`` → only dangling edges (target
+        was referenced but never upserted, or was deleted). ``ALL``
+        → both.
+        """
 
     @abstractmethod
-    async def get_inlinks(self, path: str) -> list[FileLink]:
-        """Return incoming links for *path*."""
+    async def get_inlinks(
+        self,
+        path: str,
+        scope: LinkScopeEnum = LinkScopeEnum.REAL,
+    ) -> list[FileLink]:
+        """Return incoming links for *path*.
+
+        ``scope=REAL`` (default) → returns the inbound edges only when
+        *path* itself is a real node. ``scope=VIRTUAL`` → returns
+        inbound edges only when *path* is virtual (useful for retarget
+        / lint that must see references to non-existent targets).
+        ``ALL`` → both.
+        """

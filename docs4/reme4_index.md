@@ -29,12 +29,12 @@
 
 | 类 | 文件 | 说明 |
 | --- | --- | --- |
-| `ApplicationConfig` / `ComponentConfig` / `JobConfig` | `application_config.py` | 顶层配置模型；包含 service/jobs/components/working_dir 等字段。 |
+| `ApplicationConfig` / `ComponentConfig` / `JobConfig` | `application_config.py` | 顶层配置模型；包含 service/jobs/components/vault_dir 等字段。 |
 | `EmbNode` | `emb_node.py` | 文本+embedding 节点基类，`np.ndarray` 序列化为列表存储。 |
 | `FileChunk` | `file_chunk.py` | 文件切片（继承 `EmbNode`）：`path/start_line/end_line/scores`，含 `set_hash_id()`。 |
 | `FileNode` | `file_node.py` | 文件级图节点：`path/st_mtime/links/chunk_ids/front_matter`。 |
 | `FileLink` | `file_link.py` | 文件间 wikilink 边：`source_path → target_path`，可选 `target_anchor` / `predicate`。 |
-| `FileFrontMatter` | `file_front_matter.py` | YAML 头：`title/description/tags`，`extra="allow"` 保留未知键。 |
+| `FileFrontMatter` | `file_front_matter.py` | YAML 头：`name/description`，`extra="allow"` 保留未知键。 |
 | `Request` / `Response` | `request.py` / `response.py` | 服务端请求/响应封装。 |
 | `StreamChunk` | `stream_chunk.py` | 流式分块：`chunk_type/chunk/done/metadata`。 |
 
@@ -43,7 +43,7 @@
 > 所有组件继承 `BaseComponent`（`reme4/components/base_component.py`），提供：
 > - `start/close/restart` 生命周期；
 > - `bind(name, base_cls, default_factory, optional)` 声明依赖（启动时通过拓扑排序解析）；
-> - `working_path` / `working_metadata_path` 工作目录；
+> - `vault_path` / `working_metadata_path` 工作目录；
 > - `dump/load` 持久化钩子。
 >
 > 组件通过 `ComponentRegistry`（`R`，`reme4/components/component_registry.py`）按 `(ComponentEnum, name)` 注册和查找；上下文容器为 `ApplicationContext`（`application_context.py`），运行期上下文为 `RuntimeContext`（`runtime_context.py`）。
@@ -86,9 +86,9 @@
 | 类 | 文件 | 说明 |
 | --- | --- | --- |
 | `BaseFileParser` | `base_file_parser.py` | 抽象接口：`parse(path) -> (FileNode, list[FileChunk])`，提供 `_get_relative_path`。 |
-| `BareFileParser` (`@R "bare"`) | `bare_file_parser.py` | 仅 stat：附件/二进制不读内容、不切块、不抽链接。 |
-| `DefaultFileParser` (`@R "default"`) | `default_file_parser.py` | 字节级带 overlap 切片 + YAML front matter + wikilink 抽取（含 Dataview `predicate::`）。 |
-| `LinkedFileParser` (`@R "md"`) | `linked_file_parser.py` | Markdown 专用：mistletoe AST → MdNode 树 → 章节递归分块；每个 chunk 携带完整 heading skeleton（TOC）；wikilink 解析支持隐式 `.md`、folder-note、短路径歧义扇出，需注入 `file_graph` 解析目标。 |
+| `DefaultFileParser` (`@R "default"`) | `default_file_parser.py` | 仅 stat：附件/二进制不读内容、不切块、不抽链接；作为无 `supported_extensions` 命中时的兜底 parser。 |
+| `ChunkedFileParser` (`@R "chunked"`) | `chunked_file_parser.py` | 字节级带 overlap 切片 + YAML front matter + wikilink 抽取（含 Dataview `predicate::`）。 |
+| `LinkedFileParser` (`@R "linked"`) | `linked_file_parser.py` | Markdown 专用：mistletoe AST → MdNode 树 → 章节递归分块；每个 chunk 携带完整 heading skeleton（TOC）；wikilink 解析支持隐式 `.md`、folder-note、短路径歧义扇出，需注入 `file_graph` 解析目标。 |
 
 ### 4.6 File Store — `reme4/components/file_store/`
 

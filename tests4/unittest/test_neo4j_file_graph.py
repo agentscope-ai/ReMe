@@ -280,9 +280,8 @@ def test_node_roundtrip_preserves_frontmatter_and_links():
                     ],
                     chunk_ids=["chunk-a1", "chunk-a2", "chunk-a3"],
                     front_matter=FileFrontMatter(
-                        title="Alice",
+                        name="Alice",
                         description="a person",
-                        tags=["x", "y"],
                     ),
                 )
                 await graph.upsert_nodes([node, make_node("topics/Bob.md")])
@@ -291,9 +290,8 @@ def test_node_roundtrip_preserves_frontmatter_and_links():
                 back = got[0]
                 assert back.path == "topics/Alice.md"
                 assert back.st_mtime == 1234.5
-                assert back.front_matter.title == "Alice"
+                assert back.front_matter.name == "Alice"
                 assert back.front_matter.description == "a person"
-                assert sorted(back.front_matter.tags or []) == ["x", "y"]
                 assert back.chunk_ids == ["chunk-a1", "chunk-a2", "chunk-a3"]
                 assert len(back.links) == 1
                 link = back.links[0]

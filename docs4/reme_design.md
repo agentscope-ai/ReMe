@@ -42,7 +42,7 @@ reme4 version
 | 🔎 search  | 🔍 `search` (`search_step`)                      | `call_server("search", query=…, …)`                         | 📥 `query:str` ⭐ ｜ 🎚️ `limit:int=5`(>0) ｜ 🎚️ `min_score:float=0.0` ｜ ⚖️ `vector_weight:float=0.7` ∈[0,1]（keyword 权 = 1-vw）｜ 🔀 `candidate_multiplier:float=3.0`（candidates = min(200, limit×mult)）｜ 🔗 `expand_links:bool=True` ｜ 🔢 `max_links_per_direction:int=10` ｜ 🎚️ `search_filter:dict={}` ｜ 📤 `answer` 每命中一行 `path:start-end [score=… vector=… keyword=…] text` + 缩进的 `→ outlinks (n)` / `← inlinks (n)` + `via predicate=… anchor=#…` ｜ 📊 `metadata.results` / `metadata.link_expansion` / `metadata.counts={vector,keyword,returned,hybrid}` ｜ 🛠️ 并行 `vector_search` + `keyword_search` → RRF 融合（K=60，按 chunk.id 合并）→ `min_score` 过滤 → `limit` 截断 → 邻居 meta 注入 |
 | 🧪 demo    | 🪄 `demo_echo` (`demo_echo_step1` + `step2`)     | `call_server("demo_echo", query=…, min_score=…)`            | 📥 `query:str=""` ｜ 🎚️ `min_score:float=0.5` ｜ 🛠️ step1：`processed_query = query.strip().lower()`，`adjusted_min_score = min_score * 0.9`，写回 context ｜ 📤 step2：`answer = "echo: {processed_query} (min_score={adjusted_min_score})"` ｜ 📊 `metadata = {step, query, min_score, processed_query, adjusted_min_score}`                                                                                                                                                                                                                                                                                                                                                          |
 | 🌊 demo    | 🌊 `stream_demo` (`stream_demo_step1` + `step2`) | `call_server("stream_demo", query=…, repeat=…, interval=…)` | 📥 `query:str=""` ｜ 🎚️ `repeat:int=10` ｜ 🎚️ `interval:float=0.1`（秒/字符）｜ 🛠️ step1：`stream_text = query * repeat` 写回 context ｜ 📤 step2：按字符 `add_stream_string(ch, ChunkEnum.CONTENT)` 流式输出，`asyncio.sleep(interval)` 节流                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 📂 crud    | 📖 `read` (`read_step`)                          | `call_server("read", path=…, …)`                            | 📥 `path:str` ⭐（**完整相对路径**，相对于 `working_dir`；绝对路径会被拒绝；非 `.md` 后缀拒绝）｜ 🎚️ `start_line:int=null`（1-based, 含端点）｜ 🎚️ `end_line:int=null`（1-based, 含端点）｜ 🎚️ `max_bytes:int=51200`（截断阈值）｜ 📤 `answer = 选中的行内容`，超过 `max_bytes` 时附加 `--- TRUNCATED ---` 续读指引（`start_line=…`）｜ 📊 `metadata.path` / `metadata.total_lines`（出错路径才会附带）｜ 🛠️ 流程：`BaseStep.resolve_path(raw, require_md=True)` → `aiofiles.os.stat` → `read_file_safe`（utf-8-sig BOM 容忍、UnicodeDecodeError fallback `errors=ignore`）→ `split("\n")` 切片 `[s-1:e]` → `truncate_text_output` 按字节截断保行                                                                                              |
+| 📂 crud    | 📖 `read` (`read_step`)                          | `call_server("read", path=…, …)`                            | 📥 `path:str` ⭐（**完整相对路径**，相对于 vault；绝对路径会被拒绝；非 `.md` 后缀拒绝）｜ 🎚️ `start_line:int=null`（1-based, 含端点）｜ 🎚️ `end_line:int=null`（1-based, 含端点）｜ 🎚️ `max_bytes:int=51200`（截断阈值）｜ 📤 `answer = 选中的行内容`，超过 `max_bytes` 时附加 `--- TRUNCATED ---` 续读指引（`start_line=…`）｜ 📊 `metadata.path` / `metadata.total_lines`（出错路径才会附带）｜ 🛠️ 流程：`BaseStep.resolve_path(raw, require_md=True)` → `aiofiles.os.stat` → `read_file_safe`（utf-8-sig BOM 容忍、UnicodeDecodeError fallback `errors=ignore`）→ `split("\n")` 切片 `[s-1:e]` → `truncate_text_output` 按字节截断保行                                                                                              |
 
 使用示例：
 
@@ -67,7 +67,7 @@ reme4 version
 reme4 reindex
 reme4 search query="latency 问题" limit=10 min_score=0.2 vector_weight=0.6
 
-# 读取 working_dir 下的 markdown（完整相对路径；无后缀自动补 .md；可按行切片或限制字节）
+# 读取 vault 下的 markdown（完整相对路径；无后缀自动补 .md；可按行切片或限制字节）
 reme4 read path=Templates/Recipe.md
 reme4 read path=Notes start_line=1 end_line=20
 reme4 read path=Big.md max_bytes=4096
@@ -77,24 +77,35 @@ reme4 search query="..." backend=mcp
 ```
 
 @sen
-| tags | stat | 返回特定tag信息 |
-| tags | list | 返回所有tag列表 |
-| crud | upload/download | 其他文件 |
-| file | stat | path |
-| file | list | path |
-| property | property:read | |
-| property | property:update | path="My Note" status=done xx=xxx |
-| property | property:delete | keys="[xxxx, xxxx]"                                               |
-| graph | traverse | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |
+| file | upload/download/move/delete/stat/list | 文件操作CRUD |
+| property | read/update/delete | frontmatter CRUD |                                           |
+| graph | traverse/retarget | path="My Note"  directtion=forward/backward depth=1 predicat=xxx |
 
 @wangce
-| crud | write | path="New Note" name="xxx" description="xxx" content="# Hello" (4 字段都必填，frontmatter 只写 name/description) |
+| crud | write | path="New Note" name="xxx" description="xxx" metadata={}, content="# Hello" (4 字段都必填，frontmatter 只写 name/description) |
 | crud | read | path="Templates/Recipe.md"                                        |
 | crud | edit | path="Templates/Recipe.md" old="xxx" new="xxx"                    |
 | crud | append | path="My Note" content="New line"                                 |
-| crud | prepend | path="My Note" content="New line"                                 |
+
 | crud | delete | path="My Note
 | daily:crud | daily:xxx | 与 crud 参数保持一致 |
+
+- daily:resolve name=xxxx (符合一定规范 win下要求)
+- daily:list date=xxxx 返回path
+- daily:index
+
+frontmatter read path
+frontmatter update path metadata={}
+frontmatter delete path keys=[]
+
+delete path
+download path=xxx（内部相对路径）download_path=(外部绝对路径，可选)
+upload path=xxx（外部绝对路径）description="xxx" metadata=xxx 返回内部相对路径 加metadata
+stat path
+list path
+mv path=xxx new_path=xxx
+
+traverse path=xxx direction=xxx depth=xxx
 
 # 日记类型
 
@@ -153,10 +164,8 @@ MemorySchema
 
 1. markdown文件结构 @sen
    a. formatter：
-   ⅰ. title
+   ⅰ. name
    ⅱ. desc
-   ⅲ. tags
-   ⅳ.
 2. memory文件结构目录
    a. MEMORY.md
    b. msg/files -> daily/YYYYMMDD/YYYYMMDD.md + xxxx.md

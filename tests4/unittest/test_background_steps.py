@@ -18,7 +18,7 @@ from typing import Any
 
 from watchfiles import Change
 
-from reme4.components.file_parser import DefaultFileParser
+from reme4.components.file_parser import ChunkedFileParser
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
 from reme4.schema import Response
@@ -86,9 +86,9 @@ async def _make_update_step(
     suffix_filters: list[str] | None = None,
     recursive: bool = True,
     dump: bool = True,
-) -> tuple[_RecordingUpdateStoreStep, RuntimeContext, LocalFileStore, DefaultFileParser]:
+) -> tuple[_RecordingUpdateStoreStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
     fs = LocalFileStore(store_name="test_store", embedding_model="")
-    parser = DefaultFileParser()
+    parser = ChunkedFileParser()
     await fs.start()
     await parser.start()
     step = _RecordingUpdateStoreStep(
@@ -105,7 +105,7 @@ async def _make_update_step(
     return step, context, fs, parser
 
 
-async def _teardown(fs: LocalFileStore, parser: DefaultFileParser) -> None:
+async def _teardown(fs: LocalFileStore, parser: ChunkedFileParser) -> None:
     await parser.close()
     await fs.close()
 
@@ -115,7 +115,7 @@ def test_update_store_initial_all_added():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            # Use Path.cwd() as the basis so we match BaseStep.working_path on macOS
+            # Use Path.cwd() as the basis so we match BaseStep.vault_path on macOS
             # (where /var resolves to /private/var via a symlink).
             cwd = Path.cwd()
             vault = cwd / "vault"

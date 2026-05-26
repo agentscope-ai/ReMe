@@ -1,29 +1,19 @@
-daily_dir: memory
-
 service:
   backend: http
 #  backend: mcp
 
-jobs:
-  - backend: base
-    name: demo
-    description: "demo job description"
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "query"
-        min_score:
-          type: number
-          description: "min score"
-          default: 0.5
-      required:
-        - query
-    steps:
-      - backend: demo_echo_step1
-      - backend: demo_echo_step2
+# Default dev config points vault_dir at ./.reme so `python -m reme4 start`
+# can be run from the repo root and exercise the full atomic-tool surface
+# against the seeded test data. Override the `vault_dir=` CLI arg.
+vault_dir: .reme
+daily_dir: daily
+digest_dir: digest
+resource_dir: resource
 
+jobs:
+  # ════════════════════════════════════════════════════════════════════
+  # UTILITY — service introspection
+  # ════════════════════════════════════════════════════════════════════
   - backend: base
     name: version
     description: "return reme4 package version"
@@ -87,9 +77,14 @@ jobs:
     steps:
       - backend: index_changes_step
 
+  # ════════════════════════════════════════════════════════════════════
+  # ATOMIC TOOLS — same surface plugins/reme-{service,expert} expose
+  # ════════════════════════════════════════════════════════════════════
+
+  # ── Retrieve ───────────────────────────────────────────────────────
   - backend: base
     name: search
-    description: "hybrid search over file_store: vector + keyword fused via RRF"
+    description: "Hybrid vault search (vector + BM25, RRF-fused)."
     parameters:
       type: object
       properties:
@@ -98,48 +93,80 @@ jobs:
           description: "search query"
         limit:
           type: integer
-          description: "max results to return"
+          description: "max results"
           default: 5
         min_score:
           type: number
-          description: "minimum fused score threshold (RRF scores are small; default 0 disables filter)"
+          description: "min fused score"
           default: 0.0
-        vector_weight:
-          type: number
-          description: "weight for vector results in [0, 1]; keyword weight = 1 - vector_weight"
-          default: 0.7
-        candidate_multiplier:
-          type: number
-          description: "candidate pool multiplier per branch (capped at 200)"
-          default: 3.0
-        expand_links:
-          type: boolean
-          description: "attach outlinks/inlinks (with neighbor meta) to each result"
-          default: true
-        max_links_per_direction:
-          type: integer
-          description: "max neighbors shown per direction per result"
-          default: 10
       required:
         - query
     steps:
       - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 3.0
+        expand_links: true
+        max_links_per_direction: 10
 
   - backend: base
-    name: read
-    description: "read a markdown file (relative path under working_dir)"
+    name: traverse
+    description: "Walk the wikilink graph from a seed path."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir (no absolute paths); markdown only"
+          description: "seed path (vault-relative)"
+        depth:
+          type: integer
+          description: "hop limit"
+          default: 1
+        direction:
+          type: string
+          description: "forward / backward / both"
+          default: both
+      required:
+        - path
+    steps:
+      - backend: traverse_step
+
+  # ── Read Operations ───────────────────────────────────────────────────────────
+  - backend: base
+    name: list
+    description: "List files under a vault path."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative dir; empty = root"
+          default: ""
+        recursive:
+          type: boolean
+          description: "recurse"
+          default: false
+        limit:
+          type: integer
+          description: "max results"
+          default: 100
+    steps:
+      - backend: list_step
+
+  - backend: base
+    name: read
+    description: "Read a markdown file under the vault."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path; markdown only"
         start_line:
           type: integer
-          description: "Optional, first line to read (1-based, inclusive)"
+          description: "first line (1-based, inclusive)"
         end_line:
           type: integer
-          description: "Optional, last line to read (1-based, inclusive)"
+          description: "last line (1-based, inclusive)"
         with_neighbors:
           type: boolean
           description: >-
@@ -158,14 +185,14 @@ jobs:
 
   - backend: base
     name: read_image
-    description: "read an image file as base64 (relative path under working_dir)"
+    description: "read an image file as base64 (relative path under vault_dir)"
     parameters:
       type: object
       properties:
         path:
           type: string
           description: >-
-            relative path under the working_dir; common image formats supported
+            relative path under the vault_dir; common image formats supported
             (png/jpg/jpeg/webp/gif/bmp/tiff/heic)
         max_bytes:
           type: integer
@@ -177,25 +204,52 @@ jobs:
       - backend: read_image_step
 
   - backend: base
-    name: write
-    description: >-
-      Write (create or overwrite) a markdown file. The front matter is fixed to two string
-      fields: `name` and `description`. Existing files are overwritten with a system notice.
+    name: stat
+    description: "Stat a vault file (size, mtime, exists, is_dir, is_file)."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: stat_step
+
+  - backend: base
+    name: frontmatter:read
+    description: "Read a file's YAML frontmatter as a dict."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: frontmatter:read_step
+
+  # ── Write Operations──────────────────────────────────────────────────────────
+  - backend: base
+    name: write
+    description: "Write a markdown file (create or overwrite) with name/description frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path; markdown only"
         name:
           type: string
-          description: "front matter `name` field; short human-readable title of the file."
+          description: "frontmatter name"
         description:
           type: string
-          description: "front matter `description` field; one-line summary of the file."
+          description: "frontmatter description"
         content:
           type: string
-          description: "body content written after the front matter."
+          description: "body"
         metadata:
           type: object
           description: >-
@@ -212,19 +266,19 @@ jobs:
 
   - backend: base
     name: edit
-    description: "find-and-replace text in a markdown file (replaces every occurrence)"
+    description: "Find-and-replace in a markdown file (all occurrences)."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "vault-relative path"
         old:
           type: string
-          description: "exact text to find."
+          description: "text to find"
         new:
           type: string
-          description: "replacement text."
+          description: "replacement"
           default: ""
       required:
         - path
@@ -235,44 +289,250 @@ jobs:
 
   - backend: base
     name: append
-    description: "append content to the end of an existing markdown file"
+    description: "Append content to a markdown file."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "relative path under the working_dir; markdown only."
+          description: "vault-relative path"
         content:
           type: string
-          description: "content to append."
+          description: "content to append"
       required:
         - path
         - content
     steps:
       - backend: append_step
 
-  - backend: stream
-    name: stream_demo
-    description: "stream demo job: repeat query 10x and stream char-by-char"
+  - backend: base
+    name: frontmatter:update
+    description: "Merge keys into a file's YAML frontmatter."
     parameters:
       type: object
       properties:
-        query:
+        path:
           type: string
-          description: "query to echo"
-        repeat:
-          type: integer
-          description: "number of times to repeat the query"
-          default: 10
-        interval:
-          type: number
-          description: "seconds between chunks"
-          default: 0.1
+          description: "vault-relative path"
+        metadata:
+          type: object
+          description: "keys to merge"
+          additionalProperties: true
       required:
-        - query
+        - path
+        - metadata
     steps:
-      - backend: stream_demo_step1
-      - backend: stream_demo_step2
+      - backend: frontmatter_update_step
+
+  - backend: base
+    name: frontmatter:delete
+    description: "Drop keys from a file's YAML frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+        keys:
+          type: array
+          description: "keys to remove"
+          items:
+            type: string
+      required:
+        - path
+        - keys
+    steps:
+      - backend: frontmatter_delete_step
+
+  # ── File Operations (relocate / cross-realm) ──────────────────────────────
+  - backend: base
+    name: move
+    description: "Move / rename a vault file; rewrites inbound wikilinks by default."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "vault-relative source"
+        dst_path:
+          type: string
+          description: "vault-relative destination"
+        overwrite:
+          type: boolean
+          description: "overwrite if dst exists"
+          default: false
+        retarget:
+          type: boolean
+          description: "rewrite [[src]] → [[dst]] across the vault"
+          default: true
+      required:
+        - src_path
+        - dst_path
+    steps:
+      - backend: move_step
+
+  - backend: base
+    name: delete
+    description: "Delete a vault file or folder; returns surviving inbound wikilinks."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: delete_step
+
+  - backend: base
+    name: upload
+    description: "Copy a host file into the vault at an explicit destination."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "host absolute path"
+        dst_path:
+          type: string
+          description: "vault-relative destination"
+        overwrite:
+          type: boolean
+          description: "overwrite if dst exists"
+          default: false
+      required:
+        - src_path
+        - dst_path
+    steps:
+      - backend: upload_step
+
+  - backend: base
+    name: upload_resource
+    description: "Ingest an external-channel asset into resource/<today>/ with provenance."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "host source path"
+        channel:
+          type: string
+          description: "channel id (wechat / email / browser / api / ...)"
+        description:
+          type: string
+          description: "what the asset is and how to interpret it"
+        metadata:
+          type: object
+          description: "extra provenance keys (e.g. source)"
+          default: {}
+      required:
+        - path
+        - channel
+        - description
+    steps:
+      - backend: upload_resource_step
+
+  - backend: base
+    name: download
+    description: "Copy a vault file out to the host filesystem."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "vault-relative source"
+        dst_path:
+          type: string
+          description: "host absolute dest; empty = temp file"
+          default: ""
+        overwrite:
+          type: boolean
+          description: "overwrite if dst exists"
+          default: false
+      required:
+        - src_path
+    steps:
+      - backend: download_step
+
+  # ── Daily Operations (note CRUD + day-index rollup) ───────────────────
+  - backend: base
+    name: daily:read
+    description: "Read daily/<date>/<slug>.md (body + frontmatter)."
+    parameters:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "note slug"
+        date:
+          type: string
+          description: "ISO date; empty = today"
+          default: ""
+      required:
+        - slug
+    steps:
+      - backend: daily_read_step
+
+  - backend: base
+    name: daily:write
+    description: "Write daily/<date>/<slug>.md (body + frontmatter); refreshes the day index."
+    parameters:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "note slug"
+        body:
+          type: string
+          description: "note body"
+          default: ""
+        frontmatter:
+          type: object
+          description: "frontmatter dict; defaults to {name: <slug>}"
+          default: {}
+        date:
+          type: string
+          description: "ISO date; empty = today"
+          default: ""
+        overwrite:
+          type: boolean
+          description: "false = skip if exists; true = replace"
+          default: false
+        refresh_index:
+          type: boolean
+          description: "refresh daily/<date>.md after write"
+          default: true
+      required:
+        - slug
+    steps:
+      - backend: daily_write_step
+
+  - backend: base
+    name: daily:list
+    description: "List notes under a single day."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "ISO date; empty = today"
+          default: ""
+    steps:
+      - backend: daily_list_step
+
+  - backend: base
+    name: daily:reindex
+    description: "Rebuild the day-index page daily/<date>.md."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "ISO date; empty = today"
+          default: ""
+    steps:
+      - backend: daily_reindex_step
 
   - backend: background
     name: watch_file
@@ -292,8 +552,10 @@ components:
 
   embedding_model:
     default:
-      backend: openai
-      model_name: text-embedding-v4
+      backend: ${EMBEDDING_BACKEND:-openai}
+      api_key: ${EMBEDDING_API_KEY:-}
+      base_url: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
 
   file_graph:
@@ -301,20 +563,20 @@ components:
       backend: local
 
   file_parser:
-    default:
-      backend: default
+    linked:
+      backend: linked
+      supported_extensions:
+        - md
+    chunked:
+      backend: chunked
       supported_extensions:
         - txt
         - html
         - json
         - yaml
         - py
-    bare:
-      backend: bare
-    linked:
-      backend: linked
-      supported_extensions:
-        - md
+    default:
+      backend: default
 
   keyword_index:
     default:
@@ -324,8 +586,22 @@ components:
   file_store:
     default:
       backend: local
-      store_name: default
-#      embedding_model: default
-      embedding_model: ""
+      store_name: local
+      embedding_model: default
       keyword_index: default
       file_graph: default
+
+# as_llm / formatter aren't required for atomic primitives; configure
+# only if you'll invoke digester/synchronizer or other LLM-driven
+# paths from the dev server.
+#  as_llm:
+#    default:
+#      backend: ${LLM_BACKEND:-openai}
+#      api_key: ${LLM_API_KEY:-}
+#      model_name: ${LLM_MODEL_NAME:-gpt-4o-mini}
+#      client_kwargs:
+#        base_url: ${LLM_BASE_URL:-https://api.openai.com/v1}
+#
+#  as_llm_formatter:
+#    default:
+#      backend: ${LLM_BACKEND:-openai}
