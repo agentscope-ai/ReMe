@@ -1,7 +1,4 @@
-"""Abstract base for file-catalog backends."""
-
 from abc import abstractmethod
-from pathlib import Path
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
@@ -9,21 +6,9 @@ from ...schema import FileNode
 
 
 class BaseFileCatalog(BaseComponent):
-    """Abstract base for file-catalog backends.
-
-    A catalog records FileNode entries keyed by path — a lightweight
-    counterpart to FileStore that drops chunk/embedding/keyword/link
-    machinery and exposes only node upsert / delete / lookup.
-    """
+    """File-catalog backend recording FileNode entries keyed by path."""
 
     component_type = ComponentEnum.FILE_CATALOG
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.catalog_path: Path = self.vault_metadata_path / self.component_type.value
-        self.catalog_path.mkdir(parents=True, exist_ok=True)
-
-    # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
         await super()._start()
@@ -34,12 +19,10 @@ class BaseFileCatalog(BaseComponent):
         await super()._close()
 
     async def load(self) -> None:
-        """Load persisted state. No-op for backends without local files."""
+        """Load persisted state. No-op without local files."""
 
     async def dump(self) -> None:
-        """Persist state. No-op for backends without local files."""
-
-    # -- CRUD --------------------------------------------------------------
+        """Persist state. No-op without local files."""
 
     @abstractmethod
     async def upsert(self, nodes: list[FileNode]) -> None:
@@ -51,4 +34,4 @@ class BaseFileCatalog(BaseComponent):
 
     @abstractmethod
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
-        """Return nodes by paths; None = all nodes; [] = []; missing paths are skipped."""
+        """Return nodes by paths; None = all; missing paths are skipped."""

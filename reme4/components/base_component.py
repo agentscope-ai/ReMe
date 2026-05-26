@@ -134,6 +134,11 @@ class BaseComponent(ABC):
             return Path.cwd() / "metadata"
         return self.vault_path / self.app_context.app_config.metadata_dir
 
+    @property
+    def component_metadata_path(self) -> Path:
+        """Resolved component metadata directory: vault_metadata_path / component_type."""
+        return self.vault_metadata_path / self.component_type.value
+
     def to_vault_relative(self, path: str | Path) -> str:
         """Return path relative to vault_path; absolute path string if outside."""
         abs_path = Path(path).absolute()
