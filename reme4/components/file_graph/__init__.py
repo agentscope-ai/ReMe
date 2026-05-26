@@ -5,4 +5,9 @@ from .local_file_graph import LocalFileGraph
 from .neo4j_file_graph import Neo4jFileGraph
 from .nx_file_graph import NxFileGraph
 
-__all__ = ["BaseFileGraph", "LocalFileGraph", "Neo4jFileGraph", "NxFileGraph"]
+__all__ = [
+    "BaseFileGraph",
+    "LocalFileGraph",
+    "Neo4jFileGraph",
+    "NxFileGraph",
+]

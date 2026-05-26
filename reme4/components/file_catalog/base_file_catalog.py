@@ -18,11 +18,9 @@ class BaseFileCatalog(BaseComponent):
 
     component_type = ComponentEnum.FILE_CATALOG
 
-    def __init__(self, catalog_name: str = "default", catalog_version: str = "v1", **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.catalog_name: str = catalog_name or self.name
-        self.catalog_version: str = catalog_version
-        self.catalog_path: Path = self.vault_metadata_path / self.component_type.value / self.catalog_name
+        self.catalog_path: Path = self.vault_metadata_path / self.component_type.value
         self.catalog_path.mkdir(parents=True, exist_ok=True)
 
     # -- Lifecycle ---------------------------------------------------------

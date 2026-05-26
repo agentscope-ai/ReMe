@@ -15,7 +15,7 @@ class LocalFileCatalog(BaseFileCatalog):
         super().__init__(**kwargs)
         self.encoding = encoding
         self._nodes: dict[str, FileNode] = {}
-        self._catalog_file = self.catalog_path / f"nodes_{self.catalog_version}.jsonl"
+        self._catalog_file = self.catalog_path / f"{self.name}.jsonl"
 
     async def load(self) -> None:
         if not self._catalog_file.exists():
