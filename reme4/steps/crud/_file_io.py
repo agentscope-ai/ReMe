@@ -1,5 +1,6 @@
-"""Shared filesystem helpers for CRUD steps (path gating, safe read, truncation)."""
+"""Shared filesystem helpers for CRUD steps (path gating, safe read, truncation, in-process write lock)."""
 
+import asyncio
 from pathlib import Path
 from typing import Iterable
 
@@ -54,6 +55,38 @@ _STANDARD_TEXT_EXTS = {
 }
 # Legacy formats that may use ANSI/GBK on Chinese Windows systems.
 _NON_STANDARD_EXTS = {".csv", ".bat", ".cmd", ".reg"}
+
+
+# ---------------------------------------------------------------------------
+# In-process per-path write lock.
+#
+# Concurrent CRUD writes (write / edit / append) targeting the same path
+# from the same process must be serialized so a read-modify-write cycle
+# isn't interleaved by another coroutine. Different paths get different
+# locks, so unrelated writes still run in parallel.
+#
+# NOTE: this is in-process only — multi-worker / multi-process deployments
+# are NOT protected. That trade-off is acceptable for the current single-
+# process reme server; cross-process protection would need flock or OCC.
+# ---------------------------------------------------------------------------
+_PATH_LOCKS: dict[str, asyncio.Lock] = {}
+_PATH_LOCKS_REGISTRY = asyncio.Lock()
+
+
+async def get_path_lock(target: Path) -> asyncio.Lock:
+    """Return the asyncio.Lock for ``target``; created lazily on first request.
+
+    The lock is keyed by the string form of ``target`` — callers should pass
+    a path that has already been normalized by :func:`resolve_path` so two
+    equivalent paths share one lock.
+    """
+    key = str(target)
+    async with _PATH_LOCKS_REGISTRY:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _PATH_LOCKS[key] = lock
+    return lock
 
 
 def resolve_path(working_path: Path, raw: str) -> tuple[Path | None, str | None]:

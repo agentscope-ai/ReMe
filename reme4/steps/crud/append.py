@@ -2,7 +2,7 @@
 
 import aiofiles
 
-from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, resolve_path
+from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, get_path_lock, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -39,25 +39,29 @@ class AppendStep(BaseStep):
             self._fail(f"path {target} is not a file", path=str(target))
             return None
 
-        created = not target.exists()
-        # Preserve the existing file's encoding so appended bytes don't corrupt
-        # a non-UTF-8 file (e.g. GBK CSV). New files default to UTF-8.
-        encoding = "utf-8" if created else await detect_file_encoding(target)
-        try:
-            if created:
-                target.parent.mkdir(parents=True, exist_ok=True)
+        # Serialize concurrent appends to the same path so payload bytes don't
+        # interleave with another writer's content.
+        lock = await get_path_lock(target)
+        async with lock:
+            created = not target.exists()
+            # Preserve the existing file's encoding so appended bytes don't corrupt
+            # a non-UTF-8 file (e.g. GBK CSV). New files default to UTF-8.
+            encoding = "utf-8" if created else await detect_file_encoding(target)
             try:
-                payload = content_str.encode(encoding)
-            except (UnicodeEncodeError, LookupError):
-                self.logger.warning(
-                    f"[{self.name}] cannot encode appended content as {encoding!r}, falling back to utf-8",
-                )
-                payload = content_str.encode("utf-8")
-            async with aiofiles.open(str(target), "ab") as f:
-                await f.write(payload)
-        except Exception as e:  # pylint: disable=broad-except
-            self._fail(f"write failed: {e}", path=str(target))
-            return None
+                if created:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    payload = content_str.encode(encoding)
+                except (UnicodeEncodeError, LookupError):
+                    self.logger.warning(
+                        f"[{self.name}] cannot encode appended content as {encoding!r}, falling back to utf-8",
+                    )
+                    payload = content_str.encode("utf-8")
+                async with aiofiles.open(str(target), "ab") as f:
+                    await f.write(payload)
+            except Exception as e:  # pylint: disable=broad-except
+                self._fail(f"write failed: {e}", path=str(target))
+                return None
 
         nbytes = len(payload)
         self.context.response.success = True

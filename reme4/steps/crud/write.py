@@ -2,20 +2,31 @@
 
 import frontmatter
 
-from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, resolve_path, write_file_safe
+from ._file_io import (
+    NON_MD_WARNING,
+    detect_file_encoding,
+    gate_md,
+    get_path_lock,
+    resolve_path,
+    write_file_safe,
+)
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("write_step")
 class WriteStep(BaseStep):
-    """Write (create or overwrite) a markdown file. When the target already exists,
-    its contents are replaced and a system notice is appended to the answer.
+    """Write (create or overwrite) a markdown file.
 
-    Front matter is restricted to two string fields: ``name`` and ``description``.
-    The CLI schema declares them as required, but the step itself is lenient —
-    missing or empty values are silently skipped so manual invocations don't
-    fail catastrophically."""
+    Frontmatter accepts two reserved string fields (``name`` / ``description``)
+    plus an optional free-form ``metadata`` dict whose entries are expanded
+    into the frontmatter as-is. ``name`` / ``description`` keys inside
+    ``metadata`` are ignored — only the top-level explicit parameters are
+    honored for those two reserved fields.
+
+    Concurrency: in-process per-path asyncio.Lock serializes concurrent writes
+    to the same file (multi-worker / multi-process safety is out of scope).
+    """
 
     def _fail(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -29,6 +40,7 @@ class WriteStep(BaseStep):
         raw = str(self.context.get("path") or "")
         content = self.context.get("content")
         content = "" if content is None else str(content)
+        metadata_raw = self.context.get("metadata")
 
         target, err = resolve_path(self.working_path, raw)
         if err:
@@ -37,12 +49,19 @@ class WriteStep(BaseStep):
 
         target, is_md = gate_md(target)
 
-        existed = target.exists()
-
         # Non-markdown files have no frontmatter convention: name/description
-        # are silently dropped and the body is written verbatim.
+        # and metadata are silently dropped and the body is written verbatim.
         if is_md:
             meta: dict = {}
+            # Expand `metadata` dict first, skipping the two reserved keys.
+            if isinstance(metadata_raw, dict):
+                for k, v in metadata_raw.items():
+                    if k in ("name", "description"):
+                        continue
+                    if v is None:
+                        continue
+                    meta[str(k)] = v
+            # Layer explicit name/description on top (always wins).
             for key in ("name", "description"):
                 value = self.context.get(key)
                 if value is None:
@@ -62,14 +81,17 @@ class WriteStep(BaseStep):
         else:
             body = content
 
-        # Preserve the existing file's encoding when overwriting (e.g. GBK CSV
-        # stays GBK). New files are written as UTF-8.
-        encoding = await detect_file_encoding(target) if existed else "utf-8"
-        try:
-            await write_file_safe(target, body, encoding=encoding)
-        except Exception as e:  # pylint: disable=broad-except
-            self._fail(f"write failed: {e}", path=str(target))
-            return None
+        lock = await get_path_lock(target)
+        async with lock:
+            existed = target.exists()
+            # Preserve the existing file's encoding when overwriting (e.g. GBK
+            # CSV stays GBK). New files are written as UTF-8.
+            encoding = await detect_file_encoding(target) if existed else "utf-8"
+            try:
+                await write_file_safe(target, body, encoding=encoding)
+            except Exception as e:  # pylint: disable=broad-except
+                self._fail(f"write failed: {e}", path=str(target))
+                return None
 
         try:
             nbytes = len(body.encode(encoding))
@@ -77,7 +99,7 @@ class WriteStep(BaseStep):
             nbytes = len(body.encode("utf-8"))
         self.context.response.success = True
         if existed:
-            answer = f"Wrote {target} ({nbytes} bytes) " f"[system notice: target already existed and was overwritten]"
+            answer = f"Wrote {target} ({nbytes} bytes) [system notice: target already existed and was overwritten]"
         else:
             answer = f"Wrote {target} ({nbytes} bytes)"
         if not is_md:

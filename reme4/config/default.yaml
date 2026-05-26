@@ -140,6 +140,17 @@ jobs:
         end_line:
           type: integer
           description: "Optional, last line to read (1-based, inclusive)"
+        with_neighbors:
+          type: boolean
+          description: >-
+            Optional. When true and the file is markdown, append a block listing
+            first-order bidirectional neighbors (out/in link targets) with their
+            frontmatter. Requires a populated file_store.
+          default: false
+        max_neighbors_per_direction:
+          type: integer
+          description: "Optional. Cap per direction when with_neighbors is true."
+          default: 10
       required:
         - path
     steps:
@@ -185,6 +196,12 @@ jobs:
         content:
           type: string
           description: "body content written after the front matter."
+        metadata:
+          type: object
+          description: >-
+            Optional extra frontmatter fields (md files only; ignored for non-md).
+            `name` / `description` keys here are ignored — use the explicit
+            top-level parameters for those.
       required:
         - path
         - name

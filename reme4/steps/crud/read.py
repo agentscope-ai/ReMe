@@ -99,8 +99,17 @@ class ReadStep(BaseStep):
             f"[{self.name}] read path={target} lines={s}-{e}/{total} bytes={len(text.encode('utf-8'))}",
         )
 
-        with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
-        max_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
+        # Runtime context (HTTP / job parameters) takes precedence over step
+        # init kwargs so callers can toggle neighbor injection per-request.
+        with_neighbors = bool(
+            self.context.get("with_neighbors", self.kwargs.get("with_neighbors", False)),
+        )
+        max_per_direction = int(
+            self.context.get(
+                "max_neighbors_per_direction",
+                self.kwargs.get("max_neighbors_per_direction", 10),
+            ),
+        )
         if with_neighbors and is_md:
             await self._maybe_inject_neighbors(target, text, max_per_direction)
 
