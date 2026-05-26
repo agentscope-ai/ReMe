@@ -185,12 +185,6 @@ jobs:
         content:
           type: string
           description: "body content written after the front matter."
-        metadata:
-          type: object
-          description: >-
-            Optional extra frontmatter fields beyond name/description (md files only;
-            ignored for non-md). Keys `name` / `description` here are overridden by
-            the same-named explicit parameters above.
       required:
         - path
         - name
