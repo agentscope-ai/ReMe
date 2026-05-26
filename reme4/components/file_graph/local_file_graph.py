@@ -15,9 +15,10 @@ class LocalFileGraph(BaseFileGraph):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nodes: dict[str, FileNode] = {}
-        self._inverse: dict[str, set[str]] = {}  # target → {sources}
-        self._pending: dict[str, set[str]] = {}  # virtual target → {sources}
-        self._graph_file: Path = self.graph_path / f"{self.graph_name}_{self.graph_version}.jsonl"
+        self._inverse: dict[str, set[str]] = {}  # real target → sources
+        self._pending: dict[str, set[str]] = {}  # virtual target → sources
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
+        self._graph_file: Path = self.component_metadata_path / f"{self.name}.jsonl"
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -26,20 +27,19 @@ class LocalFileGraph(BaseFileGraph):
         await self.rebuild_links()
 
     async def load(self) -> None:
-        """Load nodes from JSONL file into memory; keep current state on failure."""
         if not self._graph_file.exists():
             return
         try:
             with open(self._graph_file, "r", encoding="utf-8") as f:
-                self._nodes.update(
-                    (n.path, n) for line in f if line.strip() for n in [FileNode.model_validate_json(line)]
-                )
+                for line in f:
+                    if line.strip():
+                        node = FileNode.model_validate_json(line)
+                        self._nodes[node.path] = node
             self.logger.info(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
     async def dump(self) -> None:
-        """Persist all nodes to JSONL via atomic rename."""
         try:
             tmp = self._graph_file.with_suffix(".tmp")
             with open(tmp, "w", encoding="utf-8") as f:
@@ -49,22 +49,29 @@ class LocalFileGraph(BaseFileGraph):
         except Exception as e:
             self.logger.exception(f"Failed to write {self._graph_file}: {e}")
 
-    # -- Edge bookkeeping --------------------------------------------------
+    # -- Internals ---------------------------------------------------------
+
+    @staticmethod
+    def _targets(node: FileNode) -> list[str]:
+        return [lnk.target_path for lnk in node.links if lnk.target_path]
 
     def _add_edge(self, src: str, target: str) -> None:
-        """Register src→target; route to pending if target is virtual."""
         bucket = self._inverse if target in self._nodes else self._pending
         bucket.setdefault(target, set()).add(src)
 
     def _remove_edge(self, src: str, target: str) -> None:
-        """Remove src→target from both inverse and pending buckets."""
         for bucket in (self._inverse, self._pending):
             srcs = bucket.get(target)
-            if srcs is None or src not in srcs:
-                continue
-            srcs.discard(src)
-            if not srcs:
-                del bucket[target]
+            if srcs and src in srcs:
+                srcs.discard(src)
+                if not srcs:
+                    del bucket[target]
+
+    def _scope_match(self, target: str, scope: LinkScopeEnum) -> bool:
+        if scope is LinkScopeEnum.ALL:
+            return True
+        is_real = target in self._nodes
+        return is_real if scope is LinkScopeEnum.REAL else not is_real
 
     # -- Node CRUD ---------------------------------------------------------
 
@@ -73,14 +80,11 @@ class LocalFileGraph(BaseFileGraph):
             path = node.path
             old = self._nodes.get(path)
             if old is not None:
-                for link in old.links:
-                    if link.target_path:
-                        self._remove_edge(path, link.target_path)
+                for target in self._targets(old):
+                    self._remove_edge(path, target)
             self._nodes[path] = node
-            for link in node.links:
-                if link.target_path:
-                    self._add_edge(path, link.target_path)
-            # Promote pending edges that now target a real node.
+            for target in self._targets(node):
+                self._add_edge(path, target)
             promoted = self._pending.pop(path, None)
             if promoted:
                 self._inverse.setdefault(path, set()).update(promoted)
@@ -90,10 +94,8 @@ class LocalFileGraph(BaseFileGraph):
             node = self._nodes.pop(path, None)
             if node is None:
                 continue
-            for link in node.links:
-                if link.target_path:
-                    self._remove_edge(path, link.target_path)
-            # Demote inbound edges to pending (sources still reference this path).
+            for target in self._targets(node):
+                self._remove_edge(path, target)
             demoted = self._inverse.pop(path, None)
             if demoted:
                 self._pending.setdefault(path, set()).update(demoted)
@@ -104,13 +106,11 @@ class LocalFileGraph(BaseFileGraph):
         return [self._nodes[p] for p in paths if p in self._nodes]
 
     async def rebuild_links(self) -> None:
-        """Rebuild inverse/pending indexes from all node link payloads."""
         self._inverse.clear()
         self._pending.clear()
         for src, node in self._nodes.items():
-            for link in node.links:
-                if link.target_path:
-                    self._add_edge(src, link.target_path)
+            for target in self._targets(node):
+                self._add_edge(src, target)
 
     async def clear(self):
         self._nodes.clear()
@@ -120,39 +120,21 @@ class LocalFileGraph(BaseFileGraph):
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(
-        self,
-        path: str,
-        scope: LinkScopeEnum = LinkScopeEnum.REAL,
-    ) -> list[FileLink]:
-        # Source must be real (only real nodes carry a ``links`` payload).
-        # Targets may be real or virtual; ``scope`` selects which to surface.
+    async def get_outlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
         node = self._nodes.get(path)
         if node is None:
             return []
-        return [lnk for lnk in node.links if lnk.target_path and _match_target(lnk.target_path, self._nodes, scope)]
+        return [lnk for lnk in node.links if lnk.target_path and self._scope_match(lnk.target_path, scope)]
 
-    async def get_inlinks(
-        self,
-        path: str,
-        scope: LinkScopeEnum = LinkScopeEnum.REAL,
-    ) -> list[FileLink]:
-        # ``_inverse`` keys real targets; ``_pending`` keys virtual ones.
-        # The queried ``path`` lives in at most one bucket, so ``scope``
-        # is satisfied by selecting which bucket to read.
+    async def get_inlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
         sources: set[str] = set()
         if scope in (LinkScopeEnum.REAL, LinkScopeEnum.ALL):
             sources |= self._inverse.get(path, set())
         if scope in (LinkScopeEnum.VIRTUAL, LinkScopeEnum.ALL):
             sources |= self._pending.get(path, set())
         return [
-            link for src in sources if src in self._nodes for link in self._nodes[src].links if link.target_path == path
+            link
+            for src in sources if src in self._nodes
+            for link in self._nodes[src].links
+            if link.target_path == path
         ]
-
-
-def _match_target(target_path: str, nodes: dict, scope: LinkScopeEnum) -> bool:
-    """Whether an edge into ``target_path`` should be surfaced under ``scope``."""
-    if scope is LinkScopeEnum.ALL:
-        return True
-    is_real = target_path in nodes
-    return is_real if scope is LinkScopeEnum.REAL else not is_real

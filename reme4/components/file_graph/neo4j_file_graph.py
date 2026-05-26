@@ -103,7 +103,7 @@ class Neo4jFileGraph(BaseFileGraph):
             )
             real, virtual, edges = await self._counts(session)
         self.logger.info(
-            f"Neo4jFileGraph '{self.graph_name}' connected at "
+            f"Neo4jFileGraph '{self.name}' connected at "
             f"{self._uri}/{self._database}: "
             f"{real} nodes, {edges} edges, {virtual} virtual",
         )
