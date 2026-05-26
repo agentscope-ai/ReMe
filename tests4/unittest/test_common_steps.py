@@ -61,7 +61,7 @@ def _node(path: str, links: list[tuple[str, str | None, str | None]] | None = No
 
 async def _make_store(nodes: list[FileNode]) -> LocalFileStore:
     """LocalFileStore seeded with the given graph nodes (no files on disk)."""
-    store = LocalFileStore(store_name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_model="")
     await store.start()
     if nodes:
         await store.file_graph.upsert_nodes(nodes)

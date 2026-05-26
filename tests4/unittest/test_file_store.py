@@ -60,7 +60,7 @@ class temp_chdir:
 
 async def make_store(store_name: str = "test_store", **kwargs) -> LocalFileStore:
     """Build a started LocalFileStore with embedding disabled (no OpenAI dep)."""
-    store = LocalFileStore(store_name=store_name, embedding_model="", **kwargs)
+    store = LocalFileStore(name=store_name, embedding_model="", **kwargs)
     await store.start()
     return store
 
@@ -352,7 +352,7 @@ def _skip_if_no_faiss(name: str) -> bool:
 
 async def make_faiss_store(store_name: str = "test_faiss", **kwargs) -> FaissLocalFileStore:
     """Build a started FaissLocalFileStore wired to FakeEmbeddingModel (no API calls)."""
-    store = FaissLocalFileStore(store_name=store_name, embedding_model="fake", **kwargs)
+    store = FaissLocalFileStore(name=store_name, embedding_model="fake", **kwargs)
     fake = FakeEmbeddingModel()
     # Replace the unresolved Dependency placeholder with a concrete instance and
     # let start() cascade lifecycle to it via _owned.
@@ -531,7 +531,7 @@ def test_faiss_disabled_without_embedding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            store = FaissLocalFileStore(store_name="disabled", embedding_model="")
+            store = FaissLocalFileStore(name="disabled", embedding_model="")
             await store.start()
             await store.upsert([make_file("a.md", "alpha")])
 

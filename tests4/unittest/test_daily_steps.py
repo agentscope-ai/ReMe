@@ -75,7 +75,7 @@ async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> Local
     ``daily/<date>/<slug>.md`` with a minimal ``name``-only
     frontmatter — no opinionated status / lifecycle axes.
     """
-    store = LocalFileStore(store_name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_model="")
     await store.start()
     for day, slug, body in entries:
         day_dir = Path.cwd() / "daily" / day
@@ -158,7 +158,7 @@ def test_daily_list_returns_path_slug_name_description():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             await _seed_note(
                 "2026-05-18",
@@ -216,7 +216,7 @@ def test_daily_list_empty_when_no_daily_dir():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
@@ -280,7 +280,7 @@ def test_daily_read_returns_body_and_frontmatter_dict():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             day_dir = Path(tmp) / "daily" / "2026-05-18"
             day_dir.mkdir(parents=True, exist_ok=True)
@@ -373,7 +373,7 @@ def test_daily_read_empty_frontmatter_dict():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             day_dir = Path(tmp) / "daily" / "2026-05-18"
             day_dir.mkdir(parents=True, exist_ok=True)
@@ -678,7 +678,7 @@ def test_day_index_lists_each_note():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             await _seed_note("2026-05-18", "alpha", name="Alpha Project")
             await _seed_note("2026-05-18", "beta", name="Beta Project")
@@ -702,7 +702,7 @@ def test_day_index_includes_note_descriptions():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             cases = [
                 ("alpha", "Alpha Project", "实现 JWT auth 中间件，迁移 session middleware"),
@@ -751,7 +751,7 @@ def test_day_index_preserves_manual_segment():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(store_name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_model="")
             await store.start()
             await _seed_note("2026-05-18", "alpha")
             reindex = daily_reindex_step.DailyReindexStep(file_store=store)

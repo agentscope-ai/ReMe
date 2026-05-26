@@ -88,7 +88,7 @@ async def _make_scan_step(
     dump_store_index: bool = True,
     dispatch_job: str = "update_store_index",
 ) -> tuple[_RecordingScanChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
-    fs = LocalFileStore(store_name="test_store", embedding_model="")
+    fs = LocalFileStore(name="test_store", embedding_model="")
     parser = ChunkedFileParser()
     await fs.start()
     await parser.start()
