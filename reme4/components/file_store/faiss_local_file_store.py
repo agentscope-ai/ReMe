@@ -31,21 +31,25 @@ class FaissLocalFileStore(LocalFileStore):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        try:
-            import faiss
-        except ImportError as e:
-            raise ImportError(
-                "faiss is required for FaissLocalFileStore. Install with `pip install faiss-cpu`.",
-            ) from e
-        self._faiss = faiss
+        self._faiss = self._import_faiss()
         self.normalize = normalize
         self.max_tombstones = max_tombstones
         self.faiss_path = self.component_metadata_path / f"faiss_index_{self.name}_{self.store_version}.bin"
         self.faiss_idmap_path = self.component_metadata_path / f"faiss_idmap_{self.name}_{self.store_version}.json"
         self._faiss_index = None  # faiss.Index | None
         self._id_map: list[str] = []  # row -> chunk_id
-        self._id_to_row: dict[str, int] = {}  # chunk_id -> row
+        self._id_to_row: dict[str, int] = {}  # chunk_id -> row (live entries only)
         self._tombstones: set[int] = set()  # rows whose chunk_id was deleted
+
+    @staticmethod
+    def _import_faiss():
+        try:
+            import faiss
+        except ImportError as e:
+            raise ImportError(
+                "faiss is required for FaissLocalFileStore. Install with `pip install faiss-cpu`.",
+            ) from e
+        return faiss
 
     # -- helpers ----------------------------------------------------------
 
@@ -105,56 +109,63 @@ class FaissLocalFileStore(LocalFileStore):
     # -- persistence ------------------------------------------------------
 
     async def load(self) -> None:
-        """Load chunks (parent), then load FAISS sidecar; rebuild from chunks on miss/corruption."""
+        """Load chunks via the parent, then attach FAISS state (sidecar or rebuild)."""
         await super().load()
         if self.embedding_model is None or self._dim == 0:
             self._faiss_index = None
             return
-
-        loaded = False
-        if self.faiss_path.exists() and self.faiss_idmap_path.exists():
-            try:
-                index = self._faiss.read_index(str(self.faiss_path))
-                if index.d != self._dim:
-                    raise ValueError(f"FAISS dim {index.d} != embedding dim {self._dim}")
-                async with aiofiles.open(self.faiss_idmap_path, encoding=self.encoding) as f:
-                    data = json.loads(await f.read())
-                id_map = list(data.get("id_map", []))
-                if len(id_map) != index.ntotal:
-                    raise ValueError(f"id_map size {len(id_map)} != index ntotal {index.ntotal}")
-                self._faiss_index = index
-                self._id_map = id_map
-                self._tombstones = set(data.get("tombstones", []))
-                self._id_to_row = {cid: i for i, cid in enumerate(self._id_map) if i not in self._tombstones}
-                self.logger.info(f"Loaded FAISS index: {index.ntotal} vectors from {self.faiss_path}")
-                loaded = True
-            except Exception as e:
-                self.logger.exception(f"Failed to load FAISS index, will rebuild: {e}")
-                self.faiss_path.unlink(missing_ok=True)
-                self.faiss_idmap_path.unlink(missing_ok=True)
-
-        if not loaded:
+        if not await self._try_load_sidecar():
             self._rebuild_index()
 
+    async def _try_load_sidecar(self) -> bool:
+        """Read the binary index plus id-map sidecar. On any mismatch or read error,
+        wipe the partial files so the caller can rebuild from chunks cleanly.
+        """
+        if not (self.faiss_path.exists() and self.faiss_idmap_path.exists()):
+            return False
+        try:
+            index = self._faiss.read_index(str(self.faiss_path))
+            if index.d != self._dim:
+                raise ValueError(f"FAISS dim {index.d} != embedding dim {self._dim}")
+            async with aiofiles.open(self.faiss_idmap_path, encoding=self.encoding) as f:
+                data = json.loads(await f.read())
+            id_map = list(data.get("id_map", []))
+            if len(id_map) != index.ntotal:
+                raise ValueError(f"id_map size {len(id_map)} != index ntotal {index.ntotal}")
+            self._faiss_index = index
+            self._id_map = id_map
+            self._tombstones = set(data.get("tombstones", []))
+            self._id_to_row = {cid: i for i, cid in enumerate(self._id_map) if i not in self._tombstones}
+            self.logger.info(f"Loaded FAISS index: {index.ntotal} vectors from {self.faiss_path}")
+            return True
+        except Exception as e:
+            self.logger.exception(f"Failed to load FAISS index, will rebuild: {e}")
+            self.faiss_path.unlink(missing_ok=True)
+            self.faiss_idmap_path.unlink(missing_ok=True)
+            return False
+
     async def dump(self) -> None:
-        """Persist chunks JSONL (parent) plus FAISS sidecar via atomic rename."""
+        """Persist chunks JSONL via the parent, then write the FAISS sidecar atomically."""
         await super().dump()
         if self._faiss_index is None or self.embedding_model is None:
             return
         try:
             self._compact_if_needed()
-            tmp_index = self.faiss_path.with_suffix(".tmp")
-            self._faiss.write_index(self._faiss_index, str(tmp_index))
-            tmp_index.replace(self.faiss_path)
-
-            tmp_idmap = self.faiss_idmap_path.with_suffix(".tmp")
-            payload = json.dumps({"id_map": self._id_map, "tombstones": sorted(self._tombstones)})
-            async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
-                await f.write(payload)
-            tmp_idmap.replace(self.faiss_idmap_path)
+            await self._write_sidecar()
             self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write FAISS index: {e}")
+
+    async def _write_sidecar(self) -> None:
+        tmp_index = self.faiss_path.with_suffix(".tmp")
+        self._faiss.write_index(self._faiss_index, str(tmp_index))
+        tmp_index.replace(self.faiss_path)
+
+        tmp_idmap = self.faiss_idmap_path.with_suffix(".tmp")
+        payload = json.dumps({"id_map": self._id_map, "tombstones": sorted(self._tombstones)})
+        async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
+            await f.write(payload)
+        tmp_idmap.replace(self.faiss_idmap_path)
 
     # -- CRUD overrides ---------------------------------------------------
 
@@ -163,23 +174,27 @@ class FaissLocalFileStore(LocalFileStore):
             return
         assert self.file_graph is not None
 
-        # Snapshot the chunk_ids the file_graph currently holds for these paths,
-        # so we can compute add/delete deltas after super finishes.
+        # Snapshot pre-upsert chunk_ids so we can diff against the post-upsert state.
         old_ids_by_path = {
             n.path: set(n.chunk_ids) for n in await self.file_graph.get_nodes([node.path for node, _ in files])
         }
-
         await super().upsert(files)
 
         if self._faiss_index is None or self.embedding_model is None:
             return
+        self._sync_index_after_upsert(files, old_ids_by_path)
 
+    def _sync_index_after_upsert(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+        old_ids_by_path: dict[str, set[str]],
+    ) -> None:
+        """Apply add/tombstone deltas to FAISS based on chunk_id set differences."""
         existing = set(self._id_to_row)
         to_add: list[FileChunk] = []
         for node, _ in files:
             new_ids = set(node.chunk_ids)
-            old_ids = old_ids_by_path.get(node.path, set())
-            for cid in old_ids - new_ids:
+            for cid in old_ids_by_path.get(node.path, set()) - new_ids:
                 self._tombstone(cid)
             for cid in new_ids - existing:
                 chunk = self.file_chunks.get(cid)
@@ -228,13 +243,16 @@ class FaissLocalFileStore(LocalFileStore):
         if query_embedding is None:
             return []
 
+        # Over-fetch by len(tombstones) so dropped rows can't starve the result set.
         q = self._prepare(query_embedding)
-        # Over-fetch to compensate for tombstoned rows.
         k = min(self._faiss_index.ntotal, limit + len(self._tombstones))
         scores, rows = self._faiss_index.search(q, k)
+        return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit)
 
+    def _collect_hits(self, rows: list[int], scores: list[float], limit: int) -> list[FileChunk]:
+        """Map raw FAISS rows back to chunks, skipping tombstones and stale ids."""
         results: list[FileChunk] = []
-        for raw_row, score in zip(rows[0].tolist(), scores[0].tolist()):
+        for raw_row, score in zip(rows, scores):
             row = int(raw_row)
             if row < 0 or row in self._tombstones or row >= len(self._id_map):
                 continue

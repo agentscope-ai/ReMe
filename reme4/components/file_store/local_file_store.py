@@ -52,7 +52,7 @@ class LocalFileStore(BaseFileStore):
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl"
 
-    # Lifecycle
+    # -- lifecycle ------------------------------------------------------------
 
     async def _start(self) -> None:
         await super()._start()
@@ -73,8 +73,10 @@ class LocalFileStore(BaseFileStore):
         self.logger.error(f"{self.name}: embedding disabled, {reason}")
         self.embedding_model = None
 
+    # -- persistence ----------------------------------------------------------
+
     async def load(self) -> None:
-        """Load chunks from JSONL file into memory."""
+        """Load chunks from the JSONL file into memory; missing file is a no-op."""
         if not self.chunks_path.exists():
             return
         try:
@@ -89,7 +91,7 @@ class LocalFileStore(BaseFileStore):
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
 
     async def dump(self) -> None:
-        """Persist chunks to JSONL via atomic rename, then cascade to keyword_index and file_graph."""
+        """Atomically rewrite the JSONL, then cascade dump into keyword_index and file_graph."""
         assert self.file_graph is not None
         try:
             tmp = self.chunks_path.with_suffix(".tmp")
@@ -103,7 +105,7 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.dump()
         await self.file_graph.dump()
 
-    # CRUD
+    # -- CRUD -----------------------------------------------------------------
 
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
@@ -216,7 +218,7 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.clear()
         await self.file_graph.clear()
 
-    # Search
+    # -- search ---------------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         if self.embedding_model is None or not query:
@@ -261,7 +263,7 @@ class LocalFileStore(BaseFileStore):
 
         return results
 
-    # Extensions
+    # -- extensions -----------------------------------------------------------
 
     async def rebuild_links(self) -> None:
         """Rebuild graph links via the underlying file graph."""
