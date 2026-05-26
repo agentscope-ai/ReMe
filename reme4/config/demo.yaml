@@ -1,0 +1,68 @@
+service:
+  backend: http
+
+jobs:
+  - backend: base
+    name: version
+    description: "return reme4 package version"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: version_step
+
+  - backend: base
+    name: help
+    description: "list all registered jobs with their metadata"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: help_step
+
+  - backend: base
+    name: demo
+    description: "demo job description"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query"
+        min_score:
+          type: number
+          description: "min score"
+          default: 0.5
+      required:
+        - query
+    steps:
+      - backend: demo_echo_step1
+      - backend: demo_echo_step2
+
+  - backend: stream
+    name: stream_demo
+    description: "stream demo job: repeat query 10x and stream char-by-char"
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "query to echo"
+        repeat:
+          type: integer
+          description: "number of times to repeat the query"
+          default: 10
+        interval:
+          type: number
+          description: "seconds between chunks"
+          default: 0.1
+      required:
+        - query
+    steps:
+      - backend: stream_demo_step1
+      - backend: stream_demo_step2
+
+components:
+  tokenizer:
+    default:
+      backend: regex

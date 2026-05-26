@@ -1,4 +1,4 @@
-"""Initial sync: diff watch_paths vs file_store, then index the diff."""
+"""One-shot scan: diff watch_paths vs file_store and emit changes for indexing."""
 
 from pathlib import Path
 
@@ -6,14 +6,21 @@ from ..base_step import BaseStep
 from ...components import R
 
 
-@R.register("update_store_step")
-class UpdateStoreStep(BaseStep):
-    """One-shot sync: compute added/modified/deleted vs file_store and index."""
+@R.register("scan_changes_step")
+class ScanChangesStep(BaseStep):
+    """One-shot scan: compute added/modified/deleted vs file_store and dispatch."""
 
-    def __init__(self, recursive: bool = True, dump: bool = True, **kwargs):
+    def __init__(
+        self,
+        recursive: bool = True,
+        dump_store_index: bool = True,
+        dispatch_job: str = "",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.recursive: bool = recursive
-        self.dump: bool = dump
+        self.dump_store_index: bool = dump_store_index
+        self.dispatch_job: str = dispatch_job
 
     async def execute(self):
         assert self.context is not None
@@ -55,10 +62,13 @@ class UpdateStoreStep(BaseStep):
         counts = {"added": len(to_add), "modified": len(to_modify), "deleted": len(to_delete)}
 
         if changes:
-            self.logger.info(f"[{self.name}] initial sync: {counts}")
-            await self.run_job("index_changes", changes=changes)
-            if self.dump:
-                await self.file_store.dump()
+            self.logger.info(f"[{self.name}] scan: {counts}")
+            if self.dispatch_job:
+                await self.run_job(
+                    self.dispatch_job,
+                    changes=changes,
+                    dump_store_index=self.dump_store_index,
+                )
         else:
             self.logger.info(f"[{self.name}] store is up to date")
 

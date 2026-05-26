@@ -1,7 +1,7 @@
-"""Tests for background steps: UpdateStoreStep + WatchChangesStep.
+"""Tests for background steps: ScanChangesStep + WatchChangesStep.
 
 Both steps are subclasses of BaseStep. To exercise them without spinning up the
-full ApplicationContext / index_changes job, we:
+full ApplicationContext / update_store_index job, we:
   * pass real (started) file_store/file_parser via the step's kwargs (so the
     BaseStep _resolve() machinery returns them);
   * stub run_job() with a small recorder that captures the changes payload.
@@ -22,7 +22,7 @@ from reme4.components.file_parser import ChunkedFileParser
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
 from reme4.schema import Response
-from reme4.steps.background import UpdateStoreStep, WatchChangesStep
+from reme4.steps.background import ScanChangesStep, WatchChangesStep
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -52,7 +52,7 @@ def write_file(path: Path, content: str = "x") -> Path:
 
 
 # ---------------------------------------------------------------------------
-# UpdateStoreStep
+# ScanChangesStep
 # ---------------------------------------------------------------------------
 
 
@@ -63,12 +63,12 @@ class _RecorderStep:
     dispatched: int
 
     def install_recorder(self):
-        """Install a fake run_job that records dispatched 'index_changes' payloads."""
+        """Install a fake run_job that records dispatched 'update_store_index' payloads."""
         self.recorded = []
         self.dispatched = 0
 
         async def fake_run_job(name: str, **kwargs: Any):
-            assert name == "index_changes"
+            assert name == "update_store_index"
             self.recorded = kwargs.get("changes") or []
             self.dispatched += 1
             return Response()
@@ -77,23 +77,25 @@ class _RecorderStep:
         self.run_job = fake_run_job  # type: ignore[assignment]
 
 
-class _RecordingUpdateStoreStep(UpdateStoreStep, _RecorderStep):
+class _RecordingScanChangesStep(ScanChangesStep, _RecorderStep):
     pass
 
 
-async def _make_update_step(
+async def _make_scan_step(
     watch_paths: list[str] | str = "vault",
     suffix_filters: list[str] | None = None,
     recursive: bool = True,
-    dump: bool = True,
-) -> tuple[_RecordingUpdateStoreStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
+    dump_store_index: bool = True,
+    dispatch_job: str = "update_store_index",
+) -> tuple[_RecordingScanChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
     fs = LocalFileStore(store_name="test_store", embedding_model="")
     parser = ChunkedFileParser()
     await fs.start()
     await parser.start()
-    step = _RecordingUpdateStoreStep(
+    step = _RecordingScanChangesStep(
         recursive=recursive,
-        dump=dump,
+        dump_store_index=dump_store_index,
+        dispatch_job=dispatch_job,
         file_store=fs,
         file_parser=parser,
     )
@@ -110,7 +112,7 @@ async def _teardown(fs: LocalFileStore, parser: ChunkedFileParser) -> None:
     await fs.close()
 
 
-def test_update_store_initial_all_added():
+def test_scan_changes_initial_all_added():
     """First run on a fresh store emits 'added' for every existing file (abs paths)."""
 
     async def run():
@@ -121,7 +123,7 @@ def test_update_store_initial_all_added():
             vault = cwd / "vault"
             write_file(vault / "a.md", "alpha")
             write_file(vault / "b.md", "beta")
-            step, ctx, fs, parser = await _make_update_step()
+            step, ctx, fs, parser = await _make_scan_step()
             try:
                 resp = await step(ctx)
                 counts = resp.metadata["counts"]
@@ -134,12 +136,12 @@ def test_update_store_initial_all_added():
                 assert paths == expected
             finally:
                 await _teardown(fs, parser)
-        print("✓ test_update_store_initial_all_added passed")
+        print("✓ test_scan_changes_initial_all_added passed")
 
     asyncio.run(run())
 
 
-def test_update_store_no_changes_skips_dispatch():
+def test_scan_changes_no_changes_skips_dispatch():
     """A second run over an unchanged store reports zero counts and does not dispatch."""
 
     async def run():
@@ -147,7 +149,7 @@ def test_update_store_no_changes_skips_dispatch():
             cwd = Path.cwd()
             vault = cwd / "vault"
             a = write_file(vault / "a.md", "alpha")
-            seed_step, ctx, fs, parser = await _make_update_step()
+            seed_step, ctx, fs, parser = await _make_scan_step()
             try:
                 node, chunks = await parser.parse(a)
                 await fs.upsert([(node, chunks)])
@@ -158,12 +160,12 @@ def test_update_store_no_changes_skips_dispatch():
                 assert seed_step.dispatched == 0
             finally:
                 await _teardown(fs, parser)
-        print("✓ test_update_store_no_changes_skips_dispatch passed")
+        print("✓ test_scan_changes_no_changes_skips_dispatch passed")
 
     asyncio.run(run())
 
 
-def test_update_store_detects_modify_and_delete():
+def test_scan_changes_detects_modify_and_delete():
     """Second pass distinguishes added/modified/deleted; paths are absolute."""
 
     async def run():
@@ -172,7 +174,7 @@ def test_update_store_detects_modify_and_delete():
             vault = cwd / "vault"
             a = write_file(vault / "a.md", "alpha")
             b = write_file(vault / "b.md", "beta")
-            step, ctx, fs, parser = await _make_update_step()
+            step, ctx, fs, parser = await _make_scan_step()
             try:
                 # Seed via direct parse/upsert.
                 for p in (a, b):
@@ -194,25 +196,25 @@ def test_update_store_detects_modify_and_delete():
                 assert by_kind["deleted"] == str(b)
             finally:
                 await _teardown(fs, parser)
-        print("✓ test_update_store_detects_modify_and_delete passed")
+        print("✓ test_scan_changes_detects_modify_and_delete passed")
 
     asyncio.run(run())
 
 
-def test_update_store_missing_watch_path_silently_skipped():
+def test_scan_changes_missing_watch_path_silently_skipped():
     """Non-existent watch_paths entries are dropped silently."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             (Path(tmpdir) / "vault").mkdir()
-            step, ctx, fs, parser = await _make_update_step(watch_paths=["vault", "ghost"])
+            step, ctx, fs, parser = await _make_scan_step(watch_paths=["vault", "ghost"])
             try:
                 resp = await step(ctx)
                 assert resp.metadata["counts"] == {"added": 0, "modified": 0, "deleted": 0}
                 assert step.dispatched == 0
             finally:
                 await _teardown(fs, parser)
-        print("✓ test_update_store_missing_watch_path_silently_skipped passed")
+        print("✓ test_scan_changes_missing_watch_path_silently_skipped passed")
 
     asyncio.run(run())
 
@@ -283,11 +285,11 @@ def test_watch_changes_filter_only_passes_md():
 
 if __name__ == "__main__":
     print("\n=== Background Steps Tests ===")
-    # UpdateStoreStep
-    test_update_store_initial_all_added()
-    test_update_store_no_changes_skips_dispatch()
-    test_update_store_detects_modify_and_delete()
-    test_update_store_missing_watch_path_silently_skipped()
+    # ScanChangesStep
+    test_scan_changes_initial_all_added()
+    test_scan_changes_no_changes_skips_dispatch()
+    test_scan_changes_detects_modify_and_delete()
+    test_scan_changes_missing_watch_path_silently_skipped()
     # WatchChangesStep
     test_watch_changes_requires_stop_event()
     test_watch_changes_raises_when_no_valid_paths()

@@ -1,4 +1,4 @@
-"""Long-running awatch loop: convert raw changes into index_changes calls."""
+"""Long-running awatch loop: convert raw changes into update_store_index calls."""
 
 import asyncio
 
@@ -10,7 +10,7 @@ from ...components import R
 
 @R.register("watch_changes_step")
 class WatchChangesStep(BaseStep):
-    """Watch files and forward each batch of raw changes to the index_changes job."""
+    """Watch files and forward each batch of raw changes to the update_store_index job."""
 
     def __init__(
         self,
@@ -18,6 +18,7 @@ class WatchChangesStep(BaseStep):
         force_polling: bool = True,
         debounce: int = 2000,
         poll_delay_ms: int = 2000,
+        dispatch_job: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -25,6 +26,7 @@ class WatchChangesStep(BaseStep):
         self.force_polling: bool = force_polling
         self.debounce: int = debounce
         self.poll_delay_ms: int = poll_delay_ms
+        self.dispatch_job: str = dispatch_job
 
     def _filter(self, _change: Change, path: str) -> bool:
         suffixes = (self.context.get("suffix_filters") if self.context else None) or ["md"]
@@ -62,6 +64,7 @@ class WatchChangesStep(BaseStep):
             ]
             if changes:
                 self.logger.info(f"Detected {len(changes)} change(s)")
-                await self.run_job("index_changes", changes=changes)
+                if self.dispatch_job:
+                    await self.run_job(self.dispatch_job, changes=changes)
 
         return self.context.response

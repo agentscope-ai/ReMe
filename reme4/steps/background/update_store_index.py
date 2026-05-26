@@ -1,4 +1,4 @@
-"""Index a batch of file changes into file_store."""
+"""Update store index with a batch of file changes."""
 
 from pathlib import Path
 
@@ -9,14 +9,15 @@ from ...components import R
 from ...schema import FileChunk, FileNode
 
 
-@R.register("index_changes_step")
-class IndexChangesStep(BaseStep):
-    """Classify raw watcher changes and index them into file_store."""
+@R.register("update_store_index_step")
+class UpdateStoreIndexStep(BaseStep):
+    """Classify raw watcher changes and update the file_store index."""
 
     async def execute(self):
         assert self.context is not None
         # Each item: {"change": Change | "added"|"modified"|"deleted", "path": absolute path}
         changes: list[dict] = self.context.get("changes") or []
+        dump_store_index: bool = bool(self.context.get("dump_store_index", False))
 
         buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
         for item in changes:
@@ -75,6 +76,9 @@ class IndexChangesStep(BaseStep):
             except Exception as e:
                 self.logger.exception(f"Failed to delete {len(deleted)} file(s)")
                 results.extend({"change": "deleted", "path": p, "success": False, "error": str(e)} for p in deleted)
+
+        if dump_store_index and results:
+            await self.file_store.dump()
 
         self.context.response.answer = results
         self.context.response.success = all(r["success"] for r in results) if results else True

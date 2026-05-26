@@ -1,11 +1,11 @@
 """Background steps."""
 
-from .index_changes import IndexChangesStep
-from .update_store import UpdateStoreStep
+from .scan_changes import ScanChangesStep
+from .update_store_index import UpdateStoreIndexStep
 from .watch_changes import WatchChangesStep
 
 __all__ = [
-    "IndexChangesStep",
-    "UpdateStoreStep",
+    "ScanChangesStep",
+    "UpdateStoreIndexStep",
     "WatchChangesStep",
 ]
