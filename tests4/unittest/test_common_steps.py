@@ -23,7 +23,7 @@ from reme4 import Application, __version__ as REME_VERSION
 from reme4.components.file_store import LocalFileStore
 from reme4.config import resolve_app_config
 from reme4.schema import FileLink, FileNode
-from reme4.steps.common import traverse as traverse_mod
+from reme4.steps.index import traverse as traverse_mod
 from reme4.utils import load_env
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")

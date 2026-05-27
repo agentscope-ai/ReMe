@@ -13,11 +13,14 @@ from ...schema import FileChunk, FileNode
 class UpdateIndexStep(BaseStep):
     """Classify raw watcher changes and update the file_store index."""
 
+    def __init__(self, persist: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self.persist: bool = persist
+
     async def execute(self):
         assert self.context is not None
         # Each item: {"change": Change | "added"|"modified"|"deleted", "path": absolute path}
         changes: list[dict] = self.context.get("changes") or []
-        persist: bool = bool(self.context.get("persist", False))
 
         buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
         for item in changes:
@@ -77,7 +80,7 @@ class UpdateIndexStep(BaseStep):
                 self.logger.exception(f"Failed to delete {len(deleted)} file(s)")
                 results.extend({"change": "deleted", "path": p, "success": False, "error": str(e)} for p in deleted)
 
-        if persist and results:
+        if self.persist and results:
             await self.file_store.dump()
 
         self.context.response.answer = results

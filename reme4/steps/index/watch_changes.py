@@ -5,12 +5,12 @@ import asyncio
 from watchfiles import Change, awatch
 
 from ..base_step import BaseStep
-from ...components import R
-
+from ...components import R, BaseComponent
+from ...enumeration import ComponentEnum
 
 @R.register("watch_changes_step")
 class WatchChangesStep(BaseStep):
-    """Watch files and forward each batch of raw changes to the update_index job."""
+    """Watch files and forward each batch of raw changes to a downstream step."""
 
     def __init__(
         self,
@@ -18,7 +18,7 @@ class WatchChangesStep(BaseStep):
         force_polling: bool = True,
         debounce: int = 2000,
         poll_delay_ms: int = 2000,
-        dispatch_job: str = "",
+        dispatch_step: str = "",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -26,7 +26,7 @@ class WatchChangesStep(BaseStep):
         self.force_polling: bool = force_polling
         self.debounce: int = debounce
         self.poll_delay_ms: int = poll_delay_ms
-        self.dispatch_job: str = dispatch_job
+        self.dispatch_step: str = dispatch_step
 
     def _filter(self, _change: Change, path: str) -> bool:
         suffixes = (self.context.get("suffix_filters") if self.context else None) or ["md"]
@@ -44,6 +44,12 @@ class WatchChangesStep(BaseStep):
         valid_paths = [self.vault_path / x for x in paths if (self.vault_path / x).exists()]
         if not valid_paths:
             raise RuntimeError(f"No valid watch paths under {self.vault_path}: {paths}")
+
+        dispatch_step_cls: type[BaseComponent] | None = None
+        if self.dispatch_step:
+            dispatch_step_cls = R.get(ComponentEnum.STEP, self.dispatch_step)
+            if dispatch_step_cls is None:
+                raise RuntimeError(f"Unregistered step '{self.dispatch_step}'")
 
         self.logger.info(f"Watching: {[str(p) for p in valid_paths]}")
         async for raw_changes in awatch(
@@ -64,7 +70,8 @@ class WatchChangesStep(BaseStep):
             ]
             if changes:
                 self.logger.info(f"Detected {len(changes)} change(s)")
-                if self.dispatch_job:
-                    await self.run_job(self.dispatch_job, changes=changes)
+                if dispatch_step_cls is not None:
+                    step = dispatch_step_cls(app_context=self.app_context)
+                    await step(changes=changes)
 
         return self.context.response

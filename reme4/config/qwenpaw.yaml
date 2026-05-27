@@ -65,7 +65,9 @@ jobs:
       type: object
       properties: {}
     steps:
-      - backend: reindex_step
+      - backend: clear_and_scan_step
+      - backend: update_index_step
+        persist: true
 
   index_changes:
     backend: base
@@ -453,8 +455,11 @@ jobs:
     suffix_filters:
       - md
     steps:
-      - backend: update_store_step
+      - backend: scan_changes_step
+      - backend: update_index_step
+        persist: true
       - backend: watch_changes_step
+        dispatch_step: update_index_step
 
 components:
   tokenizer:

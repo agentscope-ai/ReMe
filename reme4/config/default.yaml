@@ -1,27 +1,113 @@
 service:
   backend: http
-#  backend: mcp
 
-# Default dev config points vault_dir at ./.reme so `python -m reme4 start`
-# can be run from the repo root and exercise the full atomic-tool surface
-# against the seeded test data. Override the `vault_dir=` CLI arg.
 vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
-resource_dir: resource
+resource_dir: ""
 
 jobs:
-  # ════════════════════════════════════════════════════════════════════
-  # UTILITY — service introspection
-  # ════════════════════════════════════════════════════════════════════
+  update_store_index_loop:
+    backend: background
+    watch_paths: [ "daily", "digest" ]
+    suffix_filters: [ "md" ]
+    steps:
+      - backend: scan_changes_step
+      - backend: update_index_step
+        persist: true
+      - backend: watch_changes_step
+        dispatch_step: update_index_step
+
   version:
     backend: base
-    description: "return reme4 package version"
+    description: "return reme package version"
     parameters:
       type: object
-      properties: {}
+      properties: { }
     steps:
       - backend: version_step
+
+  health_check:
+    backend: base
+    description: "return a concise health-check snapshot of reme components"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: health_check_step
+
+  help:
+    backend: base
+    description: "list all registered jobs with their metadata"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: help_step
+
+  traverse:
+    backend: base
+    description: "Walk the wikilink graph from a path."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "path"
+        depth:
+          type: integer
+          description: "hop limit"
+          default: 1
+        direction:
+          type: string
+          enum:
+            - forward
+            - backward
+            - both
+          default: both
+      required:
+        - path
+    steps:
+      - backend: traverse_step
+
+  reindex:
+    backend: base
+    description: "wipe the file store and rebuild it from the existing files"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: clear_and_scan_step
+      - backend: update_index_step
+        persist: true
+
+  search:
+    backend: base
+    description: "Hybrid vault search (vector + BM25, RRF-fused)."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results"
+          default: 5
+        min_score:
+          type: number
+          description: "min fused score"
+          default: 0.0
+      required:
+        - query
+    steps:
+      - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 3.0
+        expand_links: true
+        max_links_per_direction: 10
+
+
 
 components:
   tokenizer:
@@ -32,7 +118,7 @@ components:
     default:
       backend: ${EMBEDDING_BACKEND:-openai}
       api_key: ${EMBEDDING_API_KEY:-}
-      base_url: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
 
@@ -43,16 +129,10 @@ components:
   file_parser:
     linked:
       backend: linked
-      supported_extensions:
-        - md
+      supported_extensions: [ "md" ]
     chunked:
       backend: chunked
-      supported_extensions:
-        - txt
-        - html
-        - json
-        - yaml
-        - py
+      supported_extensions: [ "txt", "html", "json", "yaml", "py" ]
     default:
       backend: default
 
@@ -65,6 +145,7 @@ components:
     default:
       backend: local
       store_name: local
-      embedding_model: default
+      #  embedding_model: default
+      embedding_model: ""
       keyword_index: default
       file_graph: default

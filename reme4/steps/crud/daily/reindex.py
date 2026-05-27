@@ -22,9 +22,9 @@ Always idempotent and safe to re-run.
 from datetime import date as _date
 
 from ._daily_io import refresh_day_index
-from ..base_step import BaseStep
+from ...base_step import BaseStep
 
-from ...components import R
+from ....components import R
 
 
 @R.register("daily_reindex_step")

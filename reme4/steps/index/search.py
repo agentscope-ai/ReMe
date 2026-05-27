@@ -4,7 +4,8 @@ import asyncio
 
 from ..base_step import BaseStep
 from ...components import R
-from ...schema import FileChunk, FileLink, FileNode
+from ...schema import FileChunk
+from ...utils import expand_links, render_expansion_lines
 
 _RRF_K = 60
 _MAX_CANDIDATES = 200
@@ -58,105 +59,6 @@ class SearchStep(BaseStep):
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
         return " ".join(parts)
 
-    @staticmethod
-    def _group_by_neighbor(links: list[FileLink], key_attr: str) -> dict[str, list[dict]]:
-        """Group edges by neighbor path (insertion-ordered), each value a list of {predicate, anchor}."""
-        out: dict[str, list[dict]] = {}
-        for lnk in links:
-            neighbor = getattr(lnk, key_attr)
-            if not neighbor:
-                continue
-            out.setdefault(neighbor, []).append(
-                {"predicate": lnk.predicate, "anchor": lnk.target_anchor},
-            )
-        return out
-
-    @staticmethod
-    def _node_meta(node: FileNode | None) -> dict:
-        """Extract a compact meta dict (name/description) from a FileNode."""
-        if node is None:
-            return {}
-        fm = node.front_matter
-        meta: dict = {}
-        if fm.name:
-            meta["name"] = fm.name
-        if fm.description:
-            meta["description"] = fm.description
-        return meta
-
-    @staticmethod
-    def _format_meta_inline(meta: dict) -> str:
-        """One-line render of node meta for the answer; '(no meta)' when empty."""
-        parts = []
-        if "name" in meta:
-            parts.append(f'name="{meta["name"]}"')
-        if "description" in meta:
-            parts.append(f'description="{meta["description"]}"')
-        return "  ".join(parts) if parts else "(no meta)"
-
-    @staticmethod
-    def _format_via(edge: dict) -> str:
-        """Render a single (predicate, anchor) edge as a 'via ...' descriptor."""
-        bits = []
-        if edge.get("predicate"):
-            bits.append(f"predicate={edge['predicate']}")
-        if edge.get("anchor"):
-            bits.append(f"anchor=#{edge['anchor']}")
-        return ", ".join(bits) if bits else "plain"
-
-    async def _expand_links(
-        self,
-        chunk_paths: list[str],
-        max_per_direction: int,
-    ) -> dict[str, dict]:
-        """Fetch out/in links for each chunk path; attach neighbor meta. Returns per-path expansion."""
-        if not chunk_paths:
-            return {}
-
-        out_lists, in_lists = await asyncio.gather(
-            asyncio.gather(*(self.file_store.get_outlinks(p) for p in chunk_paths)),
-            asyncio.gather(*(self.file_store.get_inlinks(p) for p in chunk_paths)),
-        )
-
-        # Pre-group + cap per direction so we only fetch meta for displayed neighbors.
-        out_grouped = [
-            dict(list(self._group_by_neighbor(outs, "target_path").items())[:max_per_direction]) for outs in out_lists
-        ]
-        in_grouped = [
-            dict(list(self._group_by_neighbor(ins, "source_path").items())[:max_per_direction]) for ins in in_lists
-        ]
-
-        neighbor_paths = sorted({n for g in out_grouped for n in g} | {n for g in in_grouped for n in g})
-        nodes = await self.file_store.get_nodes(neighbor_paths) if neighbor_paths else []
-        meta_by_path = {n.path: self._node_meta(n) for n in nodes}
-
-        def _attach(grouped: dict[str, list[dict]]) -> list[dict]:
-            return [
-                {"path": npath, "meta": meta_by_path.get(npath, {}), "edges": edges} for npath, edges in grouped.items()
-            ]
-
-        return {
-            cp: {"outlinks": _attach(og), "inlinks": _attach(ig)}
-            for cp, og, ig in zip(chunk_paths, out_grouped, in_grouped)
-        }
-
-    @classmethod
-    def _render_expansion_lines(cls, expansion: dict) -> list[str]:
-        """Render outlinks/inlinks blocks for one chunk path; return zero or more indented lines."""
-        lines: list[str] = []
-        for direction, arrow, items in (
-            ("outlinks", "→", expansion.get("outlinks") or []),
-            ("inlinks", "←", expansion.get("inlinks") or []),
-        ):
-            if not items:
-                continue
-            lines.append(f"  {direction} ({len(items)}):")
-            for item in items:
-                lines.append(f"    {arrow} {item['path']}  {cls._format_meta_inline(item['meta'])}")
-                for edge in item["edges"]:
-                    lines.append(f"        via {cls._format_via(edge)}")
-        return lines
-
     async def execute(self):
         assert self.context is not None
         query: str = (self.context.get("query", "") or "").strip()
@@ -164,7 +66,7 @@ class SearchStep(BaseStep):
         min_score: float = float(self.context.get("min_score", 0.0))
         vector_weight: float = float(self.kwargs.get("vector_weight", 0.7))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 3.0))
-        expand_links: bool = bool(self.kwargs.get("expand_links", True))
+        expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
 
         if not query:
@@ -203,7 +105,9 @@ class SearchStep(BaseStep):
 
         unique_paths = list(dict.fromkeys(c.path for c in fused))
         link_expansion: dict[str, dict] = (
-            await self._expand_links(unique_paths, max_links_per_direction) if expand_links else {}
+            await expand_links(self.file_store, unique_paths, max_links_per_direction)
+            if expand_links_enabled
+            else {}
         )
 
         answer_lines: list[str] = []
@@ -212,7 +116,7 @@ class SearchStep(BaseStep):
                 f"========== {c.path}:{c.start_line}-{c.end_line} "
                 f"[{self._format_scores(c.scores, hybrid)}] ==========\n{c.text}",
             )
-            answer_lines.extend(self._render_expansion_lines(link_expansion.get(c.path, {})))
+            answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
 
         self.context.response.answer = "\n".join(answer_lines)
         self.context.response.metadata["results"] = [

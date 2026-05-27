@@ -37,12 +37,14 @@ from pathlib import Path
 import warnings
 
 from reme4.components.file_store import LocalFileStore
-from reme4.steps.daily import (
+from reme4.schema import FileFrontMatter, FileNode
+from reme4.steps.crud.daily import (
     read as daily_read_step,
     write as daily_write_step,
     list as daily_list_step,
     reindex as daily_reindex_step,
 )
+from reme4.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -386,6 +388,108 @@ def test_daily_read_empty_frontmatter_dict():
             assert step.context.response.answer.strip() == "just body"
             await store.close()
         print("✓ test_daily_read_empty_frontmatter_dict passed")
+
+    asyncio.run(run())
+
+
+async def _seed_two_linked_notes(date: str) -> LocalFileStore:
+    """Write two daily notes that wikilink each other and register them in file_graph.
+
+    ``alpha`` links to ``beta`` (outlink); ``beta`` therefore sees
+    ``alpha`` as an inlink. Both nodes carry name + description so the
+    rendered block exercises meta surfacing.
+    """
+    store = LocalFileStore(name="t", embedding_model="")
+    await store.start()
+    day_dir = Path.cwd() / "daily" / date
+    day_dir.mkdir(parents=True, exist_ok=True)
+    alpha_rel = f"daily/{date}/alpha.md"
+    beta_rel = f"daily/{date}/beta.md"
+    alpha_body = (
+        f"---\nname: Alpha\ndescription: alpha note\n---\n"
+        f"Body text linking to [[{beta_rel}]]."
+    )
+    beta_body = "---\nname: Beta\ndescription: beta note\n---\nStandalone body."
+    (day_dir / "alpha.md").write_text(alpha_body, encoding="utf-8")
+    (day_dir / "beta.md").write_text(beta_body, encoding="utf-8")
+    nodes = [
+        FileNode(
+            path=alpha_rel,
+            st_mtime=(day_dir / "alpha.md").stat().st_mtime,
+            links=WikilinkHandler.extract_links(alpha_body, alpha_rel),
+            front_matter=FileFrontMatter(name="Alpha", description="alpha note"),
+        ),
+        FileNode(
+            path=beta_rel,
+            st_mtime=(day_dir / "beta.md").stat().st_mtime,
+            links=WikilinkHandler.extract_links(beta_body, beta_rel),
+            front_matter=FileFrontMatter(name="Beta", description="beta note"),
+        ),
+    ]
+    await store.file_graph.upsert_nodes(nodes)
+    return store
+
+
+def test_daily_read_includes_link_expansion_by_default():
+    """Default expand_links=True ⇒ metadata carries link_expansion AND answer ends with → / ← block."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _seed_two_linked_notes("2026-05-18")
+
+            # alpha has one outlink (beta), no inlinks
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="alpha", date="2026-05-18")
+            payload = _metadata(step)
+            alpha_rel = "daily/2026-05-18/alpha.md"
+            beta_rel = "daily/2026-05-18/beta.md"
+
+            assert step.context.response.success is True
+            assert "link_expansion" in payload
+            alpha_expansion = payload["link_expansion"][alpha_rel]
+            assert len(alpha_expansion["outlinks"]) == 1
+            assert alpha_expansion["outlinks"][0]["path"] == beta_rel
+            assert alpha_expansion["outlinks"][0]["meta"] == {"name": "Beta", "description": "beta note"}
+            assert alpha_expansion["inlinks"] == []
+            assert "outlinks (1):" in step.context.response.answer
+            assert f"→ {beta_rel}" in step.context.response.answer
+
+            # beta has one inlink (alpha), no outlinks
+            step2 = daily_read_step.DailyReadStep(file_store=store)
+            await step2(slug="beta", date="2026-05-18")
+            payload2 = _metadata(step2)
+            beta_expansion = payload2["link_expansion"][beta_rel]
+            assert len(beta_expansion["inlinks"]) == 1
+            assert beta_expansion["inlinks"][0]["path"] == alpha_rel
+            assert "inlinks (1):" in step2.context.response.answer
+            assert f"← {alpha_rel}" in step2.context.response.answer
+
+            await store.close()
+        print("✓ test_daily_read_includes_link_expansion_by_default passed")
+
+    asyncio.run(run())
+
+
+def test_daily_read_can_disable_link_expansion():
+    """expand_links=False ⇒ link_expansion={} AND answer is pure body."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _seed_two_linked_notes("2026-05-18")
+            beta_rel = "daily/2026-05-18/beta.md"
+
+            step = daily_read_step.DailyReadStep(file_store=store)
+            await step(slug="alpha", date="2026-05-18", expand_links=False)
+            payload = _metadata(step)
+
+            assert step.context.response.success is True
+            assert payload["link_expansion"] == {}
+            answer = step.context.response.answer
+            assert f"[[{beta_rel}]]" in answer  # original body's wikilink is still in text
+            assert "outlinks" not in answer  # but the rendered block is not appended
+            assert "→" not in answer
+            await store.close()
+        print("✓ test_daily_read_can_disable_link_expansion passed")
 
     asyncio.run(run())
 

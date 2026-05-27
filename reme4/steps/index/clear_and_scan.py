@@ -1,12 +1,16 @@
-"""Wipe the file store and rebuild it by scanning the vault from disk."""
+"""Wipe the file store and emit every vault file as an ``added`` change.
+
+Designed to be chained before ``update_index_step`` so that the second step
+performs the actual re-indexing and persistence.
+"""
 
 from ..base_step import BaseStep
 from ...components import R
 
 
-@R.register("reindex_step")
-class ReindexStep(BaseStep):
-    """Full re-index: clear the store, walk the vault, hand the file list to ``index_changes``."""
+@R.register("clear_and_scan_step")
+class ClearAndScanStep(BaseStep):
+    """Clear the file store, walk the vault, and write changes into the context."""
 
     async def execute(self):
         assert self.context is not None
@@ -19,12 +23,8 @@ class ReindexStep(BaseStep):
             if p.is_file() and (not suffixes or str(p).endswith(suffixes))
         ]
 
-        if paths:
-            await self.run_job("index_changes", changes=[{"change": "added", "path": p} for p in paths])
-            await self.file_store.dump()
-
+        self.context["changes"] = [{"change": "added", "path": p} for p in paths]
         counts = {"added": len(paths), "modified": 0, "deleted": 0}
-        self.logger.info(f"[{self.name}] reindexed {counts}")
-        self.context.response.answer = f"🔄 Reindexed {counts['added']} file(s)"
         self.context.response.metadata["counts"] = counts
+        self.logger.info(f"[{self.name}] cleared store and scanned {len(paths)} file(s)")
         return self.context.response

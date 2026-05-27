@@ -1,20 +1,25 @@
-"""``daily_read`` — read a daily note by slug + date; return body + parsed frontmatter.
+"""``daily_read`` — read a daily note by slug + date; return body + parsed frontmatter + link context.
 
 Convenience wrapper around the generic ``read`` step for the
 ``daily/<YYYY-MM-DD>/<slug>.md`` path shape. The value over a raw
-``file_read`` is two-fold:
+``file_read`` is three-fold:
 
 * slug validation (Windows-safe filename rules) up front
 * frontmatter parsed into a dict in metadata, so callers don't need a
   separate ``frontmatter_read`` round-trip
+* outlink / inlink graph context expanded by default — the answer
+  body is followed by a ``→`` / ``←`` block so agents see neighbors
+  without a separate search round-trip
 
 Inputs:
     slug (required, validated)
     date (default today, ISO ``YYYY-MM-DD``)
+    expand_links (default True) — set False to skip link expansion
+    max_links_per_direction (default 10) — neighbor cap per direction
 
 Outputs:
-    answer = note body (frontmatter stripped)
-    metadata = {date, slug, path, exists, frontmatter: dict}
+    answer = note body (frontmatter stripped) + appended link block when non-empty
+    metadata = {date, slug, path, exists, frontmatter: dict, link_expansion: dict}
 
 For arbitrary-path reads or ranged reads use the generic ``read`` step.
 """
@@ -24,9 +29,10 @@ from datetime import date as _date
 import frontmatter
 
 from ._daily_io import validate_slug
-from ..crud._file_io import read_file_safe
-from ..base_step import BaseStep
-from ...components import R
+from .._file_io import read_file_safe
+from ...base_step import BaseStep
+from ....components import R
+from ....utils.link_expansion import expand_links, render_expansion_lines
 
 
 @R.register("daily_read_step")
@@ -74,6 +80,15 @@ class DailyReadStep(BaseStep):
         body = post.content
         meta = dict(post.metadata or {})
 
+        link_expansion_data: dict = {}
+        if self.context.get("expand_links", True):
+            max_per_dir = int(self.context.get("max_links_per_direction", 10))
+            link_expansion_data = await expand_links(self.file_store, [path_rel], max_per_dir)
+
+        expansion_lines = render_expansion_lines(link_expansion_data.get(path_rel, {}))
+        if expansion_lines:
+            body = body.rstrip() + "\n\n" + "\n".join(expansion_lines)
+
         self.context.response.success = True
         self.context.response.answer = body
         self.context.response.metadata.update(
@@ -83,9 +98,12 @@ class DailyReadStep(BaseStep):
                 "path": path_rel,
                 "exists": True,
                 "frontmatter": meta,
+                "link_expansion": link_expansion_data,
             },
         )
         self.logger.info(
-            f"[{self.name}] read path={path_rel} " f"bytes={len(body.encode('utf-8'))} fm_keys={list(meta)}",
+            f"[{self.name}] read path={path_rel} "
+            f"bytes={len(body.encode('utf-8'))} fm_keys={list(meta)} "
+            f"links={'on' if link_expansion_data else 'off'}",
         )
         return self.context.response

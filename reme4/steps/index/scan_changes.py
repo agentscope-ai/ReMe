@@ -1,4 +1,8 @@
-"""One-shot scan: diff watch_paths vs file_store and emit changes for indexing."""
+"""One-shot scan: diff watch_paths vs file_store and write changes into context.
+
+Designed to be chained before ``update_index_step`` so that the second step
+performs the actual writes and persistence.
+"""
 
 from pathlib import Path
 
@@ -8,19 +12,11 @@ from ...components import R
 
 @R.register("scan_changes_step")
 class ScanChangesStep(BaseStep):
-    """One-shot scan: compute added/modified/deleted vs file_store and dispatch."""
+    """One-shot scan: compute added/modified/deleted vs file_store and write to context."""
 
-    def __init__(
-        self,
-        recursive: bool = True,
-        persist: bool = False,
-        dispatch_job: str = "",
-        **kwargs,
-    ):
+    def __init__(self, recursive: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.recursive: bool = recursive
-        self.persist: bool = persist
-        self.dispatch_job: str = dispatch_job
 
     async def execute(self):
         assert self.context is not None
@@ -61,14 +57,9 @@ class ScanChangesStep(BaseStep):
         )
         counts = {"added": len(to_add), "modified": len(to_modify), "deleted": len(to_delete)}
 
+        self.context["changes"] = changes
         if changes:
             self.logger.info(f"[{self.name}] scan: {counts}")
-            if self.dispatch_job:
-                await self.run_job(
-                    self.dispatch_job,
-                    changes=changes,
-                    persist=self.persist,
-                )
         else:
             self.logger.info(f"[{self.name}] store is up to date")
 
