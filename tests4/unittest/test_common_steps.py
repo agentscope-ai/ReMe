@@ -2,10 +2,10 @@
 
 Two surfaces share this file:
 
-* **HTTP / MCP E2E tests** (top half) spawn ``reme4 start`` via
-  ``mock_reme_server`` and drive ``version`` / ``help`` / ``search`` /
-  ``init`` / ``demo`` over the wire. Each test uses an isolated cwd so
-  the vault (``.reme`` by default) does not collide.
+* **In-process job tests** (top half) build an ``Application`` from the
+  default config and call ``run_job`` directly — no subprocess, no HTTP.
+  Each test uses an isolated cwd so the vault (``.reme`` by default)
+  does not collide.
 * **Direct unit tests** (bottom half) exercise ``TraverseStep``
   (registered as ``traverse_step``) — BFS over wikilink edges from a
   seed file, forward / backward / both — against a freshly built
@@ -19,11 +19,12 @@ import os
 import tempfile
 import warnings
 
-from reme4 import __version__ as REME_VERSION
+from reme4 import Application, __version__ as REME_VERSION
 from reme4.components.file_store import LocalFileStore
+from reme4.config import resolve_app_config
 from reme4.schema import FileLink, FileNode
 from reme4.steps.common import traverse as traverse_mod
-from reme4.utils import call_action, call_and_check, mock_reme_server
+from reme4.utils import load_env
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -50,6 +51,15 @@ def _run(coro):
     asyncio.run(coro)
 
 
+async def _make_app() -> Application:
+    """Build and start an Application with the default config, logging silenced."""
+    load_env()
+    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
+    app = Application(**cfg)
+    await app.start()
+    return app
+
+
 def _node(path: str, links: list[tuple[str, str | None, str | None]] | None = None) -> FileNode:
     """Build a FileNode with (target_path, target_anchor, predicate) outgoing edges."""
     return FileNode(
@@ -73,7 +83,7 @@ def _edges(step) -> list[dict]:
 
 
 # ===========================================================================
-# HTTP / MCP E2E tests: version / help / search / init / demo
+# In-process job tests: version / help / health_check / search / reindex
 # ===========================================================================
 
 
@@ -82,18 +92,14 @@ def test_version_job():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "version",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and r.get("answer") == REME_VERSION
-                        and r.get("metadata", {}).get("version") == REME_VERSION
-                    ),
-                )
+            app = await _make_app()
+            try:
+                resp = await app.run_job("version")
+                assert resp.success is True
+                assert resp.answer == REME_VERSION
+                assert resp.metadata.get("version") == REME_VERSION
+            finally:
+                await app.close()
         print("✓ test_version_job passed")
 
     _run(run())
@@ -104,24 +110,17 @@ def test_help_job():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                result = await call_and_check(
-                    "help",
-                    host=host,
-                    port=port,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("answer"), str)
-                        and r.get("metadata", {}).get("job_count", 0) > 0
-                        and "`help`" not in r["answer"]
-                    ),
-                )
-                # Spot-check that a couple of known jobs appear in the listing.
-                answer = result["answer"]
+            app = await _make_app()
+            try:
+                resp = await app.run_job("help")
+                assert resp.success is True
+                assert isinstance(resp.answer, str)
+                assert resp.metadata.get("job_count", 0) > 0
+                assert "`help`" not in resp.answer
                 for expected_job in ("version", "health_check", "search"):
-                    if expected_job not in answer:
-                        raise AssertionError(f"help output missing job {expected_job!r}: {answer!r}")
+                    assert expected_job in resp.answer, f"help missing {expected_job!r}: {resp.answer!r}"
+            finally:
+                await app.close()
         print("✓ test_help_job passed")
 
     _run(run())
@@ -132,92 +131,61 @@ def test_search_job_empty_store():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "search",
-                    host=host,
-                    port=port,
-                    query="hello world",
-                    limit=5,
-                    validator=lambda r: (
-                        isinstance(r, dict)
-                        and r.get("success") is True
-                        and isinstance(r.get("metadata"), dict)
-                        and isinstance(r["metadata"].get("counts"), dict)
-                        and r["metadata"]["counts"].get("returned", -1) == 0
-                    ),
-                )
+            app = await _make_app()
+            try:
+                resp = await app.run_job("search", query="hello world", limit=5)
+                assert resp.success is True
+                counts = resp.metadata.get("counts", {})
+                assert isinstance(counts, dict)
+                assert counts.get("returned", -1) == 0
+            finally:
+                await app.close()
         print("✓ test_search_job_empty_store passed")
 
     _run(run())
 
 
 def test_search_job_missing_query():
-    """search without a query should surface the assertion error in `answer`."""
+    """search with empty query returns success=False and a query-related error in answer."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                result = await call_action("search", host=host, port=port, query="")
-                if not isinstance(result, dict):
-                    raise AssertionError(f"expected dict response, got {result!r}")
-                if "query" not in str(result.get("answer", "")).lower():
-                    raise AssertionError(f"expected query-related error in answer, got {result!r}")
+            app = await _make_app()
+            try:
+                resp = await app.run_job("search", query="")
+                assert resp.success is False
+                assert "query" in str(resp.answer).lower()
+            finally:
+                await app.close()
         print("✓ test_search_job_missing_query passed")
 
     _run(run())
 
 
-# -- aggregate: reuse one server instance for all jobs -------------------
-
-
-def test_all_jobs_one_server():
-    """Run every common job against a single shared server for efficiency."""
+def test_all_jobs_single_app():
+    """Run every common job against one shared in-process Application for efficiency."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            async with mock_reme_server() as (host, port):
-                # version
-                await call_and_check(
-                    "version",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and r.get("answer") == REME_VERSION,
-                )
-                # help
-                await call_and_check(
-                    "help",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and r.get("metadata", {}).get("job_count", 0) > 0,
-                )
-                # health_check
-                await call_and_check(
-                    "health_check",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict)
-                    and isinstance(
-                        r.get("metadata", {}).get("health"),
-                        dict,
-                    ),
-                )
-                # search (empty store)
-                await call_and_check(
-                    "search",
-                    host=host,
-                    port=port,
-                    query="anything",
-                    validator=lambda r: isinstance(r, dict) and r.get("success") is True,
-                )
-                # reindex
-                await call_and_check(
-                    "reindex",
-                    host=host,
-                    port=port,
-                    validator=lambda r: isinstance(r, dict) and isinstance(r.get("metadata", {}).get("counts"), dict),
-                )
-        print("✓ test_all_jobs_one_server passed")
+            app = await _make_app()
+            try:
+                resp = await app.run_job("version")
+                assert resp.answer == REME_VERSION
+
+                resp = await app.run_job("help")
+                assert resp.metadata.get("job_count", 0) > 0
+
+                resp = await app.run_job("health_check")
+                assert isinstance(resp.metadata.get("health"), dict)
+
+                resp = await app.run_job("search", query="anything")
+                assert resp.success is True
+
+                resp = await app.run_job("reindex")
+                assert isinstance(resp.metadata.get("counts"), dict)
+            finally:
+                await app.close()
+        print("✓ test_all_jobs_single_app passed")
 
     _run(run())
 
@@ -365,12 +333,12 @@ def test_traverse_both_directions():
 
 
 if __name__ == "__main__":
-    print("\n=== reme4 common steps E2E tests ===")
+    print("\n=== reme4 common steps in-process tests ===")
     test_version_job()
     test_help_job()
     test_search_job_empty_store()
     test_search_job_missing_query()
-    test_all_jobs_one_server()
+    test_all_jobs_single_app()
     print("\n=== traverse step tests ===")
     test_traverse_forward_depth_1()
     test_traverse_backward_returns_inlinks()

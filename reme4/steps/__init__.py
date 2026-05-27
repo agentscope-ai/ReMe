@@ -38,14 +38,12 @@ from . import index  # noqa: F401  -- registers update_catalog_step / update_ind
 
 # from . import jobs  # noqa: F401  -- registers synchronizer / digester
 from .base_step import BaseStep
-from . import graph  # noqa: F401
 
 __all__ = [
     "background",
     "common",
     "crud",
     "transfer",
-    "graph",
     "index",
     "frontmatter",
     "daily",
