@@ -2,25 +2,25 @@
 """Tests for crud steps — the opaque-byte vault_dir surface plus the
 text-content ops (``read`` / ``write`` / ``edit``).
 
-Two surfaces share this file:
+Every test drives a step directly against a freshly built
+``LocalFileStore`` (embedding disabled, BM25 kept) with files seeded
+on disk (and, where relevant, registered in the graph so retarget's
+reverse-index lookup finds inbound edges). No app config, no HTTP
+server — the step's ``vault_path`` defaults to ``cwd()`` and tests
+chdir into a tmpdir to scope the vault.
 
-* **Direct unit tests** (top half) drive each step against a freshly
-  built ``LocalFileStore`` (embedding disabled, BM25 kept) with files
-  registered in the graph so retarget's reverse-index lookup finds
-  inbound edges. Covers ``stat`` / ``list`` / ``download`` / ``move``
-  / ``delete``.
-* **HTTP/MCP E2E tests** (bottom half) spawn ``reme4 start`` via
-  ``mock_reme_server`` and exercise ``read`` / ``write`` / ``edit``
-  end-to-end, including non-md degraded mode + encoding edge cases.
+Covers ``stat`` / ``list`` / ``download`` / ``move`` / ``delete``
+plus the text ops ``read`` / ``write`` / ``edit`` (including non-md
+degraded mode + encoding edge cases).
 
 Frontmatter-only ops live in ``test_frontmatter_steps.py``. The
 ``upload`` step is a passive resource-ingest entry point with its own
 bucket semantics — tests for it live in ``test_resource_steps.py``.
 
-CLI rule for the HTTP half: ``path=`` is relative-only, rooted at the
-reme vault. A bare path with no suffix auto-appends ``.md``;
-non-``.md`` suffix is accepted in degraded mode. Absolute paths are
-accepted with a warning.
+Path-shape contract (enforced by ``read`` / ``write`` / ``edit``):
+``path=`` is vault-relative by default. A bare path with no suffix
+auto-appends ``.md``; non-``.md`` suffix is accepted in degraded mode.
+Absolute paths are accepted with a warning.
 """
 
 # pylint: disable=protected-access,redefined-builtin
@@ -31,19 +31,18 @@ import tempfile
 import warnings
 from pathlib import Path
 
-from reme4 import Application
 from reme4.components.file_store import LocalFileStore
-from reme4.config import resolve_app_config
 from reme4.schema import FileNode
 from reme4.steps.crud import (
     delete as crud_delete,
+    edit as crud_edit,
     list as crud_list,
     move as crud_move,
+    read as crud_read,
     stat as crud_stat,
+    write as crud_write,
 )
 from reme4.steps.transfer import download as crud_download
-from reme4.utils import load_env
-from reme4.utils.common_utils import call_and_check, mock_reme_server
 from reme4.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -103,18 +102,8 @@ def _seed_md(vault_dir: Path, rel: str, body: str) -> Path:
     return target
 
 
-async def _make_app() -> Application:
-    """Build and start an Application with the default config, logging silenced."""
-    load_env()
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
-
-
 # ===========================================================================
 # Direct unit tests: stat / list / download / move / delete
-# (LocalFileStore, no HTTP server)
 # ===========================================================================
 
 
@@ -525,31 +514,47 @@ def test_delete_folder_empty_has_no_inbound():
 
 
 # ===========================================================================
-# In-process job tests: read / write / edit
-# (Application.run_job, no HTTP server)
+# Direct unit tests: read / write / edit
 # ===========================================================================
 
 
 # -- read ----------------------------------------------------------------
 
 
+async def _read(store: LocalFileStore, **kwargs):
+    """Run a ReadStep against ``store`` and return its response."""
+    step = crud_read.ReadStep(file_store=store)
+    await step(**kwargs)
+    return step.context.response
+
+
+async def _write(store: LocalFileStore, **kwargs):
+    """Run a WriteStep against ``store`` and return its response."""
+    step = crud_write.WriteStep(file_store=store)
+    await step(**kwargs)
+    return step.context.response
+
+
+async def _edit(store: LocalFileStore, **kwargs):
+    """Run an EditStep against ``store`` and return its response."""
+    step = crud_edit.EditStep(file_store=store)
+    await step(**kwargs)
+    return step.context.response
+
+
 def test_read_relative_path():
-    """`reme4 read path=Templates/Recipe.md` returns the file body from vault/."""
+    """`read path=Templates/Recipe.md` returns the file body from the vault."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
             body = "# Recipe\n\nMix flour and water.\n"
-            _seed_md(working, "Templates/Recipe.md", body)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Templates/Recipe.md")
-                assert resp.success is True
-                assert "# Recipe" in str(resp.answer)
-                assert "flour and water" in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Templates/Recipe.md", body)
+            store = await _make_store()
+            resp = await _read(store, path="Templates/Recipe.md")
+            assert resp.success is True
+            assert "# Recipe" in str(resp.answer)
+            assert "flour and water" in str(resp.answer)
+            await store.close()
         print("✓ test_read_relative_path passed")
 
     _run(run())
@@ -560,16 +565,12 @@ def test_read_no_suffix_autoappends_md():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Templates/Recipe.md", "auto-md\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Templates/Recipe")
-                assert resp.success is True
-                assert "auto-md" in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Templates/Recipe.md", "auto-md\n")
+            store = await _make_store()
+            resp = await _read(store, path="Templates/Recipe")
+            assert resp.success is True
+            assert "auto-md" in str(resp.answer)
+            await store.close()
         print("✓ test_read_no_suffix_autoappends_md passed")
 
     _run(run())
@@ -580,20 +581,16 @@ def test_read_line_range():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Notes.md", start_line=2, end_line=4)
-                assert resp.success is True
-                assert "L2" in str(resp.answer)
-                assert "L3" in str(resp.answer)
-                assert "L4" in str(resp.answer)
-                assert "L1" not in str(resp.answer)
-                assert "L5" not in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
+            store = await _make_store()
+            resp = await _read(store, path="Notes.md", start_line=2, end_line=4)
+            assert resp.success is True
+            assert "L2" in str(resp.answer)
+            assert "L3" in str(resp.answer)
+            assert "L4" in str(resp.answer)
+            assert "L1" not in str(resp.answer)
+            assert "L5" not in str(resp.answer)
+            await store.close()
         print("✓ test_read_line_range passed")
 
     _run(run())
@@ -604,16 +601,12 @@ def test_read_absolute_path_accepted():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            target = _seed_md(working, "Abs.md", "x\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path=str(target.resolve()))
-                assert resp.success is True
-                assert "x" in str(resp.answer)
-            finally:
-                await app.close()
+            target = _seed_md(Path(tmp), "Abs.md", "x\n")
+            store = await _make_store()
+            resp = await _read(store, path=str(target.resolve()))
+            assert resp.success is True
+            assert "x" in str(resp.answer)
+            await store.close()
         print("✓ test_read_absolute_path_accepted passed")
 
     _run(run())
@@ -624,16 +617,12 @@ def test_read_non_md_degraded():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "data/foo.txt", "plain-text body\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="data/foo.txt")
-                assert resp.success is True
-                assert "plain-text body" in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "data/foo.txt", "plain-text body\n")
+            store = await _make_store()
+            resp = await _read(store, path="data/foo.txt")
+            assert resp.success is True
+            assert "plain-text body" in str(resp.answer)
+            await store.close()
         print("✓ test_read_non_md_degraded passed")
 
     _run(run())
@@ -644,15 +633,11 @@ def test_read_missing_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="NotThere.md")
-                assert resp.success is False
-                assert "does not exist" in str(resp.answer).lower()
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _read(store, path="NotThere.md")
+            assert resp.success is False
+            assert "does not exist" in str(resp.answer).lower()
+            await store.close()
         print("✓ test_read_missing_file passed")
 
     _run(run())
@@ -663,16 +648,12 @@ def test_read_start_after_end():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Range.md", "a\nb\nc\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Range.md", start_line=3, end_line=1)
-                assert resp.success is False
-                assert "start_line" in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Range.md", "a\nb\nc\n")
+            store = await _make_store()
+            resp = await _read(store, path="Range.md", start_line=3, end_line=1)
+            assert resp.success is False
+            assert "start_line" in str(resp.answer)
+            await store.close()
         print("✓ test_read_start_after_end passed")
 
     _run(run())
@@ -683,16 +664,12 @@ def test_read_start_line_exceeds_total():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Short.md", "only-one-line\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Short.md", start_line=99)
-                assert resp.success is False
-                assert "exceeds" in str(resp.answer).lower()
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Short.md", "only-one-line\n")
+            store = await _make_store()
+            resp = await _read(store, path="Short.md", start_line=99)
+            assert resp.success is False
+            assert "exceeds" in str(resp.answer).lower()
+            await store.close()
         print("✓ test_read_start_line_exceeds_total passed")
 
     _run(run())
@@ -703,19 +680,15 @@ def test_read_truncation():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
             # Seed > DEFAULT_MAX_BYTES (50 KiB) so the default truncation kicks in.
             body = "\n".join(f"line {i}" for i in range(8000)) + "\n"
-            _seed_md(working, "Big.md", body)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="Big.md")
-                assert resp.success is True
-                assert "truncated" in str(resp.answer)
-                assert "start_line=" in str(resp.answer)
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "Big.md", body)
+            store = await _make_store()
+            resp = await _read(store, path="Big.md")
+            assert resp.success is True
+            assert "truncated" in str(resp.answer)
+            assert "start_line=" in str(resp.answer)
+            await store.close()
         print("✓ test_read_truncation passed")
 
     _run(run())
@@ -726,15 +699,11 @@ def test_read_empty_path_rejected():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="")
-                assert resp.success is False
-                assert "required" in str(resp.answer).lower()
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _read(store, path="")
+            assert resp.success is False
+            assert "required" in str(resp.answer).lower()
+            await store.close()
         print("✓ test_read_empty_path_rejected passed")
 
     _run(run())
@@ -744,30 +713,26 @@ def test_read_empty_path_rejected():
 
 
 def test_write_basic_with_frontmatter():
-    """`reme4 write path=... name=... description=... content=...` writes a YAML front matter block."""
+    """`write path=... name=... description=... content=...` writes a YAML front matter block."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job(
-                    "write",
-                    path="Notes/A.md",
-                    name="Greetings",
-                    description="a friendly hello note",
-                    content="# Hello",
-                )
-                assert resp.success is True
-                assert "Wrote" in str(resp.answer)
-            finally:
-                await app.close()
-            on_disk = (working / "Notes/A.md").read_text(encoding="utf-8")
+            store = await _make_store()
+            resp = await _write(
+                store,
+                path="Notes/A.md",
+                name="Greetings",
+                description="a friendly hello note",
+                content="# Hello",
+            )
+            assert resp.success is True
+            assert "Wrote" in str(resp.answer)
+            on_disk = (Path(tmp) / "Notes/A.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
             assert "name: Greetings" in on_disk
             assert "description: a friendly hello note" in on_disk
             assert "# Hello" in on_disk
+            await store.close()
         print("✓ test_write_basic_with_frontmatter passed")
 
     _run(run())
@@ -778,15 +743,11 @@ def test_write_no_suffix_autoappends_md():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("write", path="Notes/My", content="x")
-                assert resp.success is True
-            finally:
-                await app.close()
-            assert (working / "Notes/My.md").exists()
+            store = await _make_store()
+            resp = await _write(store, path="Notes/My", content="x")
+            assert resp.success is True
+            assert (Path(tmp) / "Notes/My.md").exists()
+            await store.close()
         print("✓ test_write_no_suffix_autoappends_md passed")
 
     _run(run())
@@ -797,21 +758,16 @@ def test_write_overwrites_with_notice():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Existing.md", "old\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("write", path="Existing.md", content="new")
-                assert resp.success is True
-                assert "Wrote" in str(resp.answer)
-                assert "already existed" in str(resp.answer)
-                assert "overwritten" in str(resp.answer)
-            finally:
-                await app.close()
-            # File body has been replaced.
-            on_disk = (working / "Existing.md").read_text(encoding="utf-8")
+            _seed_md(Path(tmp), "Existing.md", "old\n")
+            store = await _make_store()
+            resp = await _write(store, path="Existing.md", content="new")
+            assert resp.success is True
+            assert "Wrote" in str(resp.answer)
+            assert "already existed" in str(resp.answer)
+            assert "overwritten" in str(resp.answer)
+            on_disk = (Path(tmp) / "Existing.md").read_text(encoding="utf-8")
             assert "new" in on_disk and "old" not in on_disk, on_disk
+            await store.close()
         print("✓ test_write_overwrites_with_notice passed")
 
     _run(run())
@@ -822,15 +778,11 @@ def test_write_creates_parent_dirs():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("write", path="a/b/c/D.md", content="hi")
-                assert resp.success is True
-            finally:
-                await app.close()
-            assert (working / "a/b/c/D.md").exists()
+            store = await _make_store()
+            resp = await _write(store, path="a/b/c/D.md", content="hi")
+            assert resp.success is True
+            assert (Path(tmp) / "a/b/c/D.md").exists()
+            await store.close()
         print("✓ test_write_creates_parent_dirs passed")
 
     _run(run())
@@ -844,17 +796,13 @@ def test_write_no_frontmatter_when_all_empty():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("write", path="Plain.md", name="", description="", content="# Hello")
-                assert resp.success is True
-            finally:
-                await app.close()
-            on_disk = (working / "Plain.md").read_text(encoding="utf-8")
+            store = await _make_store()
+            resp = await _write(store, path="Plain.md", name="", description="", content="# Hello")
+            assert resp.success is True
+            on_disk = (Path(tmp) / "Plain.md").read_text(encoding="utf-8")
             assert not on_disk.startswith("---"), on_disk
             assert "# Hello" in on_disk
+            await store.close()
         print("✓ test_write_no_frontmatter_when_all_empty passed")
 
     _run(run())
@@ -865,26 +813,21 @@ def test_write_ignores_arbitrary_extra_fields():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                # Extras below should NOT appear in front matter under the
-                # hardcoded-fields schema.
-                resp = await app.run_job(
-                    "write",
-                    path="Custom.md",
-                    name="My Note",
-                    description="short summary",
-                    content="body",
-                    title="ignored",
-                    author="ignored",
-                    tags='["x","y"]',
-                )
-                assert resp.success is True
-            finally:
-                await app.close()
-            on_disk = (working / "Custom.md").read_text(encoding="utf-8")
+            store = await _make_store()
+            # Extras below should NOT appear in front matter under the
+            # hardcoded-fields schema.
+            resp = await _write(
+                store,
+                path="Custom.md",
+                name="My Note",
+                description="short summary",
+                content="body",
+                title="ignored",
+                author="ignored",
+                tags='["x","y"]',
+            )
+            assert resp.success is True
+            on_disk = (Path(tmp) / "Custom.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
             assert "name: My Note" in on_disk
             assert "description: short summary" in on_disk
@@ -892,6 +835,7 @@ def test_write_ignores_arbitrary_extra_fields():
             assert "author:" not in on_disk
             assert "tags:" not in on_disk
             assert "body" in on_disk
+            await store.close()
         print("✓ test_write_ignores_arbitrary_extra_fields passed")
 
     _run(run())
@@ -902,39 +846,31 @@ def test_write_only_description_present():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("write", path="OnlyDesc.md", description="just a description", content="body")
-                assert resp.success is True
-            finally:
-                await app.close()
-            on_disk = (working / "OnlyDesc.md").read_text(encoding="utf-8")
+            store = await _make_store()
+            resp = await _write(store, path="OnlyDesc.md", description="just a description", content="body")
+            assert resp.success is True
+            on_disk = (Path(tmp) / "OnlyDesc.md").read_text(encoding="utf-8")
             assert on_disk.startswith("---\n"), on_disk
             assert "description: just a description" in on_disk
             assert "name:" not in on_disk
+            await store.close()
         print("✓ test_write_only_description_present passed")
 
     _run(run())
 
 
 def test_edit_global_replace():
-    """`reme4 edit` replaces every occurrence of `old` with `new`."""
+    """`edit` replaces every occurrence of `old` with `new`."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "E.md", "foo bar foo\nfoo\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="E.md", old="foo", new="qux")
-                assert resp.success is True
-                assert "3" in str(resp.answer)  # 3 replacements
-            finally:
-                await app.close()
-            assert (working / "E.md").read_text(encoding="utf-8") == "qux bar qux\nqux\n"
+            _seed_md(Path(tmp), "E.md", "foo bar foo\nfoo\n")
+            store = await _make_store()
+            resp = await _edit(store, path="E.md", old="foo", new="qux")
+            assert resp.success is True
+            assert "3" in str(resp.answer)  # 3 replacements
+            assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "qux bar qux\nqux\n"
+            await store.close()
         print("✓ test_edit_global_replace passed")
 
     _run(run())
@@ -945,18 +881,13 @@ def test_edit_old_not_found():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "E.md", "hello world\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="E.md", old="absent", new="x")
-                assert resp.success is False
-                assert "not found" in str(resp.answer).lower()
-            finally:
-                await app.close()
-            # File unchanged.
-            assert (working / "E.md").read_text(encoding="utf-8") == "hello world\n"
+            _seed_md(Path(tmp), "E.md", "hello world\n")
+            store = await _make_store()
+            resp = await _edit(store, path="E.md", old="absent", new="x")
+            assert resp.success is False
+            assert "not found" in str(resp.answer).lower()
+            assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "hello world\n"
+            await store.close()
         print("✓ test_edit_old_not_found passed")
 
     _run(run())
@@ -967,15 +898,11 @@ def test_edit_missing_file():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="NotThere.md", old="x", new="y")
-                assert resp.success is False
-                assert "does not exist" in str(resp.answer).lower()
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _edit(store, path="NotThere.md", old="x", new="y")
+            assert resp.success is False
+            assert "does not exist" in str(resp.answer).lower()
+            await store.close()
         print("✓ test_edit_missing_file passed")
 
     _run(run())
@@ -986,8 +913,6 @@ def test_edit_skips_frontmatter():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
             body = (
                 "---\n"
                 "name: alpha\n"
@@ -995,21 +920,19 @@ def test_edit_skips_frontmatter():
                 "---\n"
                 "intro paragraph mentioning alpha and alpha again.\n"
             )
-            _seed_md(working, "WithFM.md", body)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="WithFM.md", old="alpha", new="beta")
-                assert resp.success is True
-                assert "2" in str(resp.answer)  # 2 body occurrences only
-            finally:
-                await app.close()
-            on_disk = (working / "WithFM.md").read_text(encoding="utf-8")
+            _seed_md(Path(tmp), "WithFM.md", body)
+            store = await _make_store()
+            resp = await _edit(store, path="WithFM.md", old="alpha", new="beta")
+            assert resp.success is True
+            assert "2" in str(resp.answer)  # 2 body occurrences only
+            on_disk = (Path(tmp) / "WithFM.md").read_text(encoding="utf-8")
             # Front matter untouched.
             assert "name: alpha" in on_disk, on_disk
             assert "description: alpha-doc" in on_disk, on_disk
             # Body fully rewritten.
             assert "beta and beta" in on_disk, on_disk
             assert "alpha and alpha" not in on_disk, on_disk
+            await store.close()
         print("✓ test_edit_skips_frontmatter passed")
 
     _run(run())
@@ -1020,19 +943,15 @@ def test_edit_match_only_in_frontmatter_fails():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
             body = "---\nname: secret\ndescription: nope\n---\nplain body without the keyword.\n"
-            _seed_md(working, "FMOnly.md", body)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="FMOnly.md", old="secret", new="leaked")
-                assert resp.success is False
-                assert "not found" in str(resp.answer).lower()
-            finally:
-                await app.close()
+            _seed_md(Path(tmp), "FMOnly.md", body)
+            store = await _make_store()
+            resp = await _edit(store, path="FMOnly.md", old="secret", new="leaked")
+            assert resp.success is False
+            assert "not found" in str(resp.answer).lower()
             # File untouched.
-            assert (working / "FMOnly.md").read_text(encoding="utf-8") == body
+            assert (Path(tmp) / "FMOnly.md").read_text(encoding="utf-8") == body
+            await store.close()
         print("✓ test_edit_match_only_in_frontmatter_fails passed")
 
     _run(run())
@@ -1046,26 +965,22 @@ def test_write_non_md_skips_frontmatter():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            app = await _make_app()
-            try:
-                resp = await app.run_job(
-                    "write",
-                    path="data/notes.txt",
-                    name="Greetings",
-                    description="should be ignored",
-                    content="# Hello",
-                )
-                assert resp.success is True
-                assert "Wrote" in str(resp.answer)
-                assert "non-markdown" in str(resp.answer).lower()
-            finally:
-                await app.close()
-            on_disk = (working / "data/notes.txt").read_text(encoding="utf-8")
+            store = await _make_store()
+            resp = await _write(
+                store,
+                path="data/notes.txt",
+                name="Greetings",
+                description="should be ignored",
+                content="# Hello",
+            )
+            assert resp.success is True
+            assert "Wrote" in str(resp.answer)
+            assert "non-markdown" in str(resp.answer).lower()
+            on_disk = (Path(tmp) / "data/notes.txt").read_text(encoding="utf-8")
             assert not on_disk.startswith("---"), on_disk
             assert "name: Greetings" not in on_disk
             assert on_disk == "# Hello"
+            await store.close()
         print("✓ test_write_non_md_skips_frontmatter passed")
 
     _run(run())
@@ -1076,22 +991,18 @@ def test_edit_non_md_full_text():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
             # A YAML-looking header that would otherwise be stripped as frontmatter.
             body = "---\nname: keep-me\n---\nfoo bar foo\n"
-            _seed_md(working, "data/code.txt", body)
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="data/code.txt", old="keep-me", new="replaced")
-                assert resp.success is True
-                assert "1" in str(resp.answer)
-                assert "non-markdown" in str(resp.answer).lower()
-            finally:
-                await app.close()
-            on_disk = (working / "data/code.txt").read_text(encoding="utf-8")
+            _seed_md(Path(tmp), "data/code.txt", body)
+            store = await _make_store()
+            resp = await _edit(store, path="data/code.txt", old="keep-me", new="replaced")
+            assert resp.success is True
+            assert "1" in str(resp.answer)
+            assert "non-markdown" in str(resp.answer).lower()
+            on_disk = (Path(tmp) / "data/code.txt").read_text(encoding="utf-8")
             assert "name: replaced" in on_disk, on_disk
             assert "foo bar foo" in on_disk, on_disk
+            await store.close()
         print("✓ test_edit_non_md_full_text passed")
 
     _run(run())
@@ -1102,19 +1013,15 @@ def test_read_non_utf8_encoding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            target = working / "data.csv"
+            target = Path(tmp) / "data.csv"
             target.parent.mkdir(parents=True, exist_ok=True)
             text = "姓名,职业\n你好世界,工程师\n"
             target.write_bytes(text.encode("gbk"))
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="data.csv")
-                assert resp.success is True
-                assert "你好世界" in str(resp.answer)
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _read(store, path="data.csv")
+            assert resp.success is True
+            assert "你好世界" in str(resp.answer)
+            await store.close()
         print("✓ test_read_non_utf8_encoding passed")
 
     _run(run())
@@ -1125,22 +1032,18 @@ def test_edit_preserves_gbk_encoding():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            target = working / "notes.csv"
+            target = Path(tmp) / "notes.csv"
             target.parent.mkdir(parents=True, exist_ok=True)
             text = "原始内容,占位\n" * 20
             target.write_bytes(text.encode("gbk"))
-            app = await _make_app()
-            try:
-                resp = await app.run_job("edit", path="notes.csv", old="原始内容", new="替换后")
-                assert resp.success is True
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _edit(store, path="notes.csv", old="原始内容", new="替换后")
+            assert resp.success is True
             raw = target.read_bytes()
             # File still decodes as GBK (would raise if we'd silently converted to UTF-8).
             decoded = raw.decode("gbk")
             assert "替换后" in decoded and "原始内容" not in decoded
+            await store.close()
         print("✓ test_edit_preserves_gbk_encoding passed")
 
     _run(run())
@@ -1151,61 +1054,43 @@ def test_read_utf8_bom():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            target = working / "bom.txt"
+            target = Path(tmp) / "bom.txt"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"\xef\xbb\xbfhello world\n")
-            app = await _make_app()
-            try:
-                resp = await app.run_job("read", path="bom.txt")
-                assert resp.success is True
-                assert "hello world" in str(resp.answer)
-                assert "﻿" not in str(resp.answer)
-            finally:
-                await app.close()
+            store = await _make_store()
+            resp = await _read(store, path="bom.txt")
+            assert resp.success is True
+            assert "hello world" in str(resp.answer)
+            assert "﻿" not in str(resp.answer)
+            await store.close()
         print("✓ test_read_utf8_bom passed")
 
     _run(run())
 
 
-# -- aggregate: reuse one server for all read cases ----------------------
+# -- aggregate: reuse one store for all read cases ----------------------
 
 
-def test_all_read_cases_one_server():
-    """Run multiple read scenarios against a single shared server for efficiency."""
+def test_all_read_cases_one_store():
+    """Run multiple read scenarios against a single shared store for efficiency."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            working = Path(tmp) / ".reme"
-            working.mkdir(parents=True, exist_ok=True)
-            _seed_md(working, "Templates/Recipe.md", "# Recipe\nbody\n")
-            _seed_md(working, "Notes.md", "L1\nL2\nL3\n")
-            async with mock_reme_server() as (host, port):
-                await call_and_check(
-                    "read",
-                    host=host,
-                    port=port,
-                    path="Templates/Recipe.md",
-                    validator=lambda r: r.get("success") is True and "# Recipe" in r["answer"],
-                )
-                await call_and_check(
-                    "read",
-                    host=host,
-                    port=port,
-                    path="Notes",
-                    validator=lambda r: r.get("success") is True and "L1" in r["answer"],
-                )
-                await call_and_check(
-                    "read",
-                    host=host,
-                    port=port,
-                    path="Notes.md",
-                    start_line=2,
-                    end_line=2,
-                    validator=lambda r: r.get("success") is True and r["answer"].strip() == "L2",
-                )
-        print("✓ test_all_read_cases_one_server passed")
+            _seed_md(Path(tmp), "Templates/Recipe.md", "# Recipe\nbody\n")
+            _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\n")
+            store = await _make_store()
+
+            resp = await _read(store, path="Templates/Recipe.md")
+            assert resp.success is True and "# Recipe" in str(resp.answer)
+
+            resp = await _read(store, path="Notes")  # auto-append .md
+            assert resp.success is True and "L1" in str(resp.answer)
+
+            resp = await _read(store, path="Notes.md", start_line=2, end_line=2)
+            assert resp.success is True and str(resp.answer).strip() == "L2"
+
+            await store.close()
+        print("✓ test_all_read_cases_one_store passed")
 
     _run(run())
 
