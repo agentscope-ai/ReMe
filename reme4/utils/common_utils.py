@@ -138,7 +138,7 @@ async def mock_reme_server(
     port: int | None = None,
     config: str | None = None,
     extra_args: list[str] | None = None,
-    startup_timeout: float = 30.0,
+    startup_timeout: float = 120.0,
     shutdown_timeout: float = 10.0,
     log_to_file: bool = False,
     enable_logo: bool = False,
