@@ -418,10 +418,10 @@ jobs:
     steps:
       - backend: download_step
 
-  # ── Daily Operations (note CRUD + day-index rollup) ───────────────────
-  daily:read:
+  # ── Daily Operations (slug provisioning + day-index rollup) ──────────
+  daily:create:
     backend: base
-    description: "Read daily/<date>/<slug>.md (body + frontmatter)."
+    description: "Provision daily/<date>/<slug>.md (empty body, frontmatter {name: slug}); idempotent; refreshes the day index."
     parameters:
       type: object
       properties:
@@ -435,41 +435,7 @@ jobs:
       required:
         - slug
     steps:
-      - backend: daily_read_step
-
-  daily:write:
-    backend: base
-    description: "Write daily/<date>/<slug>.md (body + frontmatter); refreshes the day index."
-    parameters:
-      type: object
-      properties:
-        slug:
-          type: string
-          description: "note slug"
-        body:
-          type: string
-          description: "note body"
-          default: ""
-        frontmatter:
-          type: object
-          description: "frontmatter dict; defaults to {name: <slug>}"
-          default: {}
-        date:
-          type: string
-          description: "ISO date; empty = today"
-          default: ""
-        overwrite:
-          type: boolean
-          description: "false = skip if exists; true = replace"
-          default: false
-        refresh_index:
-          type: boolean
-          description: "refresh daily/<date>.md after write"
-          default: true
-      required:
-        - slug
-    steps:
-      - backend: daily_write_step
+      - backend: daily_create_step
 
   daily:list:
     backend: base

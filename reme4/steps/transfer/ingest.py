@@ -1,8 +1,8 @@
-"""``upload_resource`` — copy an externally-received asset into ``resource/<date>/``.
+"""``ingest`` — capture an externally-received asset into ``resource/<date>/``.
 
-This step is the **passive** ingest entry point: when an external
-channel (wechat group, email, browser save, API push, ...) hands
-the agent a file, ``upload_resource`` lands it in ``resource/<YYYY-MM-DD>/``
+This step is the dedicated information-capture interface: when an
+external channel (wechat group, email, browser save, API push, ...)
+hands the agent a file, ``ingest`` lands it in ``resource/<YYYY-MM-DD>/``
 keyed by the day it was received (always today, local time),
 alongside a ``meta.json`` row recording provenance.
 
@@ -40,7 +40,7 @@ are reported as an error — the step never silently dedupes, so
 callers see the conflict and can decide whether to retry, rename
 upstream, or skip.
 
-Each ``upload_resource`` call:
+Each ``ingest`` call:
 
 1. Resolves the bucket date as today (local time).
 2. Validates the inputs: ``path`` exists, ``channel`` matches the
@@ -101,9 +101,9 @@ _CHANNEL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _RESERVED_METADATA_KEYS = frozenset({"name", "channel", "received_at", "description"})
 
 
-@R.register("upload_resource_step")
-class UploadResourceStep(BaseStep):
-    """Land an external asset in ``resource/<date>/`` and update the day's meta + index."""
+@R.register("ingest_step")
+class IngestStep(BaseStep):
+    """Capture an external asset into ``resource/<date>/`` and update the day's meta + index."""
 
     async def execute(self):
         assert self.context is not None
@@ -129,7 +129,7 @@ class UploadResourceStep(BaseStep):
                     "description": description,
                 },
             )
-        except _DuplicateUpload as e:
+        except _DuplicateIngest as e:
             self._fail({"error": str(e)})
             return
         except Exception as e:
@@ -137,7 +137,7 @@ class UploadResourceStep(BaseStep):
             return
 
         self.context.response.success = True
-        self.context.response.answer = f"Uploaded {outcome['name']} to {outcome['path']}"
+        self.context.response.answer = f"Ingested {outcome['name']} to {outcome['path']}"
         self.context.response.metadata.update(outcome)
 
     # ------------------------------------------------------------------
@@ -145,7 +145,7 @@ class UploadResourceStep(BaseStep):
     def _fail(self, payload: dict) -> None:
         assert self.context is not None
         self.context.response.success = False
-        self.context.response.answer = f"Error: {payload.get('error', 'upload failed')}"
+        self.context.response.answer = f"Error: {payload.get('error', 'ingest failed')}"
         self.context.response.metadata.update(payload)
 
     def _resource_dir_name(self) -> str:
@@ -176,7 +176,7 @@ class UploadResourceStep(BaseStep):
             on_disk = {p.name for p in bucket.iterdir() if p.is_file()}
             existing_names = {Path(e.path).name for e in existing_entries} | on_disk
             if final_name in existing_names:
-                raise _DuplicateUpload(
+                raise _DuplicateIngest(
                     f"duplicate: {final_name!r} already exists in {resource_dir}/{date}/",
                 )
 
@@ -206,7 +206,7 @@ class UploadResourceStep(BaseStep):
         }
 
 
-class _DuplicateUpload(Exception):
+class _DuplicateIngest(Exception):
     """Raised when the derived name already exists in the bucket."""
 
 
@@ -362,7 +362,7 @@ def _read_meta(meta_path: Path) -> list[FileNode]:
 def _atomic_write_text(target: Path, text: str) -> None:
     """Atomic text write via tempfile + os.replace in the same directory."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(prefix=".upload-", dir=target.parent)
+    tmp_fd, tmp_path = tempfile.mkstemp(prefix=".ingest-", dir=target.parent)
     try:
         with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
             f.write(text)

@@ -5,8 +5,8 @@ Two pure helpers:
 * ``expand_links(file_store, paths, max_per_direction)`` — fetch
   outlinks / inlinks for each path with neighbor meta attached.
 * ``render_expansion_lines(expansion)`` — turn one path's expansion
-  dict into the indented ``→`` / ``←`` block used by SearchStep and
-  DailyReadStep answers.
+  dict into the indented ``→`` / ``←`` block used by SearchStep
+  answers.
 """
 
 # pylint: disable=protected-access
@@ -178,8 +178,8 @@ def test_expand_links_node_without_meta_returns_empty_meta_dict():
 
 def test_render_expansion_lines_empty_input_yields_empty_list():
     """Both directions empty ⇒ no lines."""
-    assert render_expansion_lines({}) == []
-    assert render_expansion_lines({"outlinks": [], "inlinks": []}) == []
+    assert not render_expansion_lines({})
+    assert not render_expansion_lines({"outlinks": [], "inlinks": []})
     print("✓ test_render_expansion_lines_empty_input_yields_empty_list passed")
 
 

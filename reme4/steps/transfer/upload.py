@@ -14,7 +14,7 @@ callers must opt in to clobber an existing destination.
 
 For the resource-bucket ingest path (channel-tagged, dated under
 ``resource/<YYYY-MM-DD>/`` with provenance metadata) use
-``upload_resource`` instead.
+``ingest`` instead.
 """
 
 import mimetypes

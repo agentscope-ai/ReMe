@@ -2,11 +2,11 @@
 
 The day index ``daily/<date>.md`` is a derived artifact whose job is to
 list and describe every note file under ``daily/<date>/``. It is auto-
-refreshed by ``daily_write`` after every body write. Generic ops like
-``file_write`` / ``file_append`` / ``frontmatter_update`` leave it
-stale — this step is the standalone writer to call after batch flows
-(historical backfill, drift recovery, end-of-batch consolidation, or
-a ``frontmatter_update`` that touched ``name`` / ``description``).
+refreshed by ``daily_create``. Generic ops like ``file_write`` /
+``file_append`` / ``frontmatter_update`` leave it stale — this step
+is the standalone writer to call after batch flows (historical
+backfill, drift recovery, end-of-batch consolidation, or a
+``frontmatter_update`` that touched ``name`` / ``description``).
 
 This is the **write view**: it reports the index-page path and a
 ``created`` flag (true when the file was just emitted for the first
@@ -21,10 +21,10 @@ Always idempotent and safe to re-run.
 
 from datetime import date as _date
 
-from ._daily_io import refresh_day_index
-from ...base_step import BaseStep
+from ._file_io import refresh_day_index
+from ..base_step import BaseStep
 
-from ....components import R
+from ...components import R
 
 
 @R.register("daily_reindex_step")

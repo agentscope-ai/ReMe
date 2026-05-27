@@ -6,10 +6,9 @@ from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
-from .crud.daily.list import DailyListStep
-from .crud.daily.read import DailyReadStep
-from .crud.daily.reindex import DailyReindexStep
-from .crud.daily.write import DailyWriteStep
+from .crud.daily_create import DailyCreateStep
+from .crud.daily_list import DailyListStep
+from .crud.daily_reindex import DailyReindexStep
 from .crud.delete import DeleteStep
 from .crud.edit import EditStep
 from .crud.frontmatter_delete import FrontmatterDeleteStep
@@ -28,8 +27,8 @@ from .index.update_catalog import UpdateCatalogStep
 from .index.update_index import UpdateIndexStep
 from .index.watch_changes import WatchChangesStep
 from .transfer.download import DownloadStep
+from .transfer.ingest import IngestStep
 from .transfer.upload import UploadStep
-from .transfer.upload_resource import UploadResourceStep
 
 __all__ = [
     "BaseStep",
@@ -42,7 +41,6 @@ __all__ = [
     "StreamDemoStep2",
     "VersionStep",
     # crud
-    "AppendStep",
     "DeleteStep",
     "EditStep",
     "ListStep",
@@ -50,11 +48,10 @@ __all__ = [
     "ReadStep",
     "StatStep",
     "WriteStep",
-    # crud.daily
+    # crud (daily)
+    "DailyCreateStep",
     "DailyListStep",
-    "DailyReadStep",
     "DailyReindexStep",
-    "DailyWriteStep",
     # crud.frontmatter
     "FrontmatterDeleteStep",
     "FrontmatterReadStep",
@@ -69,6 +66,6 @@ __all__ = [
     "WatchChangesStep",
     # transfer
     "DownloadStep",
+    "IngestStep",
     "UploadStep",
-    "UploadResourceStep",
 ]

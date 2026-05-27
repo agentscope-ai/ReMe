@@ -1,8 +1,8 @@
 """Expand a file's wikilink neighbors and render them as indented text.
 
-Shared between :class:`~reme4.steps.index.search.SearchStep` (per-hit
-context) and :class:`~reme4.steps.daily.read.DailyReadStep` (single-note
-context). Pure helper — no step state, only ``file_store`` is required.
+Used by :class:`~reme4.steps.index.search.SearchStep` for per-hit
+context expansion. Pure helper — no step state, only ``file_store`` is
+required.
 
 Two-layer split so callers can pick what they need:
 
@@ -89,9 +89,7 @@ async def expand_links(
     out_grouped = [
         dict(list(_group_by_neighbor(outs, "target_path").items())[:max_per_direction]) for outs in out_lists
     ]
-    in_grouped = [
-        dict(list(_group_by_neighbor(ins, "source_path").items())[:max_per_direction]) for ins in in_lists
-    ]
+    in_grouped = [dict(list(_group_by_neighbor(ins, "source_path").items())[:max_per_direction]) for ins in in_lists]
 
     neighbor_paths = sorted({n for g in out_grouped for n in g} | {n for g in in_grouped for n in g})
     nodes = await file_store.get_nodes(neighbor_paths) if neighbor_paths else []
@@ -102,10 +100,7 @@ async def expand_links(
             {"path": npath, "meta": meta_by_path.get(npath, {}), "edges": edges} for npath, edges in grouped.items()
         ]
 
-    return {
-        p: {"outlinks": _attach(og), "inlinks": _attach(ig)}
-        for p, og, ig in zip(paths, out_grouped, in_grouped)
-    }
+    return {p: {"outlinks": _attach(og), "inlinks": _attach(ig)} for p, og, ig in zip(paths, out_grouped, in_grouped)}
 
 
 def render_expansion_lines(expansion: dict, indent: str = "  ") -> list[str]:

@@ -105,9 +105,7 @@ class SearchStep(BaseStep):
 
         unique_paths = list(dict.fromkeys(c.path for c in fused))
         link_expansion: dict[str, dict] = (
-            await expand_links(self.file_store, unique_paths, max_links_per_direction)
-            if expand_links_enabled
-            else {}
+            await expand_links(self.file_store, unique_paths, max_links_per_direction) if expand_links_enabled else {}
         )
 
         answer_lines: list[str] = []

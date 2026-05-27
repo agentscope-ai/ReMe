@@ -8,6 +8,7 @@ from ..base_step import BaseStep
 from ...components import R, BaseComponent
 from ...enumeration import ComponentEnum
 
+
 @R.register("watch_changes_step")
 class WatchChangesStep(BaseStep):
     """Watch files and forward each batch of raw changes to a downstream step."""

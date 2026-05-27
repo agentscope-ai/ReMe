@@ -1,6 +1,6 @@
-"""Tests for the resource ingest path: ``UploadResourceStep`` + helpers.
+"""Tests for the resource ingest path: ``IngestStep`` + helpers.
 
-``upload_resource`` is the **passive** ingest entry point — external channels
+``ingest`` is the **passive** ingest entry point — external channels
 push assets into ``resource/<YYYY-MM-DD>/``, where each call appends a
 :class:`FileNode` row to ``meta.json`` (provenance on
 ``front_matter``) and regenerates the day's ``<date>.md`` view from
@@ -24,8 +24,8 @@ from pathlib import Path
 
 from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileFrontMatter, FileNode
-from reme4.steps.transfer import upload_resource as crud_upload
-from reme4.steps.transfer.upload_resource import _assemble_day_md
+from reme4.steps.transfer import ingest as crud_ingest
+from reme4.steps.transfer.ingest import _assemble_day_md
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -120,7 +120,7 @@ def test_validate_basename_rejects_path_separators():
     """Path-separator basenames are rejected even if the public API can no
     longer reach this code path (Path(...).name strips them) — defense in depth."""
     for bad in ("evil/payload.pdf", "..\\winpath.pdf", "../escape.pdf"):
-        err = crud_upload._validate_basename(bad)
+        err = crud_ingest._validate_basename(bad)
         assert "path separators" in err or "reserved" in err, (bad, err)
     print("✓ test_validate_basename_rejects_path_separators passed")
 
@@ -128,7 +128,7 @@ def test_validate_basename_rejects_path_separators():
 def test_validate_basename_rejects_dot_segments():
     """`.` and `..` are explicitly reserved."""
     for bad in (".", ".."):
-        err = crud_upload._validate_basename(bad)
+        err = crud_ingest._validate_basename(bad)
         assert "reserved" in err or "start with '.'" in err, (bad, err)
     print("✓ test_validate_basename_rejects_dot_segments passed")
 
@@ -139,19 +139,19 @@ def test_validate_basename_rejects_dot_segments():
 def test_validate_channel_accepts_safe_identifiers():
     """Lowercase letters / digits / dashes, starting alnum — all accepted."""
     for ok in ("wechat", "email", "api", "browser", "slack-1", "ch1"):
-        assert crud_upload._validate_channel(ok) == "", ok
+        assert crud_ingest._validate_channel(ok) == "", ok
     print("✓ test_validate_channel_accepts_safe_identifiers passed")
 
 
 def test_validate_channel_rejects_unsafe_identifiers():
     """Uppercase, underscores, leading dash, empty, special chars — rejected."""
     for bad in ("", "WeChat", "we_chat", "-leading", "we chat", "we/chat", "我"):
-        err = crud_upload._validate_channel(bad)
+        err = crud_ingest._validate_channel(bad)
         assert err, bad
     print("✓ test_validate_channel_rejects_unsafe_identifiers passed")
 
 
-# -- UploadResourceStep end-to-end --------------------------------------
+# -- IngestStep end-to-end --------------------------------------
 
 
 def test_upload_first_call_creates_bucket():
@@ -163,7 +163,7 @@ def test_upload_first_call_creates_bucket():
             src = Path(tmp) / "incoming.pdf"
             src.write_bytes(b"%PDF-fake")
 
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(
                 path=str(src),
                 channel="wechat",
@@ -209,7 +209,7 @@ def test_upload_metadata_optional():
             store = await _make_store()
             src = Path(tmp) / "small.txt"
             src.write_text("x")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(path=str(src), channel="api", description="minimal")
             payload = _metadata(step)
             assert "error" not in payload, payload
@@ -233,7 +233,7 @@ def test_upload_appends_to_existing_meta():
             for i, suffix in enumerate(("first", "second"), start=1):
                 src = Path(tmp) / f"{suffix}.txt"
                 src.write_text(f"payload-{i}")
-                step = crud_upload.UploadResourceStep(file_store=store)
+                step = crud_ingest.IngestStep(file_store=store)
                 await step(path=str(src), channel="email", description=f"item {i}")
                 payload = _metadata(step)
                 assert "error" not in payload, payload
@@ -267,12 +267,12 @@ def test_upload_errors_on_duplicate_same_second(monkeypatch):
                 def now(cls, tz=None):  # pylint: disable=unused-argument
                     return fixed
 
-            monkeypatch.setattr(crud_upload.datetime, "datetime", _FrozenDT)
+            monkeypatch.setattr(crud_ingest.datetime, "datetime", _FrozenDT)
 
             for i, body in enumerate((b"alpha", b"beta")):
                 src = Path(tmp) / "incoming.pdf"
                 src.write_bytes(body)
-                step = crud_upload.UploadResourceStep(file_store=store)
+                step = crud_ingest.IngestStep(file_store=store)
                 await step(path=str(src), channel="wechat", description="dup test")
                 payload = _metadata(step)
                 if i == 0:
@@ -306,7 +306,7 @@ def test_upload_errors_on_duplicate_against_on_disk_stray(monkeypatch):
                 def now(cls, tz=None):  # pylint: disable=unused-argument
                     return fixed
 
-            monkeypatch.setattr(crud_upload.datetime, "datetime", _FrozenDT)
+            monkeypatch.setattr(crud_ingest.datetime, "datetime", _FrozenDT)
 
             bucket = Path(tmp) / "resource" / "2026-05-22"
             bucket.mkdir(parents=True)
@@ -315,7 +315,7 @@ def test_upload_errors_on_duplicate_against_on_disk_stray(monkeypatch):
 
             src = Path(tmp) / "report.pdf"
             src.write_bytes(b"fresh")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(path=str(src), channel="api", description="fresh copy")
             payload = _metadata(step)
             assert "duplicate" in payload.get("error", "").lower(), payload
@@ -333,7 +333,7 @@ def test_upload_rejects_missing_source():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store()
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(
                 path=str(Path(tmp) / "ghost.txt"),
                 channel="email",
@@ -357,7 +357,7 @@ def test_upload_requires_channel():
             src = Path(tmp) / "x.txt"
             src.write_text("x")
             for bad in ("   ", "WeChat", "we_chat"):
-                step = crud_upload.UploadResourceStep(file_store=store)
+                step = crud_ingest.IngestStep(file_store=store)
                 await step(path=str(src), channel=bad, description="x")
                 payload = _metadata(step)
                 assert "channel" in payload.get("error", ""), (bad, payload)
@@ -375,7 +375,7 @@ def test_upload_requires_description():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(path=str(src), channel="api", description="   ")
             payload = _metadata(step)
             assert "description" in payload.get("error", "")
@@ -393,7 +393,7 @@ def test_upload_rejects_non_dict_metadata():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
@@ -418,7 +418,7 @@ def test_upload_rejects_reserved_metadata_keys():
             src = Path(tmp) / "x.txt"
             src.write_text("x")
             for bad in ("name", "channel", "received_at", "description"):
-                step = crud_upload.UploadResourceStep(file_store=store)
+                step = crud_ingest.IngestStep(file_store=store)
                 await step(
                     path=str(src),
                     channel="api",
@@ -441,7 +441,7 @@ def test_upload_preserves_extra_metadata_keys():
             store = await _make_store()
             src = Path(tmp) / "x.txt"
             src.write_text("x")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
@@ -477,7 +477,7 @@ def test_upload_rejects_dotfile_source():
             for bad in (".hidden", ".lock", ".env"):
                 src = Path(tmp) / bad
                 src.write_text("x")
-                step = crud_upload.UploadResourceStep(file_store=store)
+                step = crud_ingest.IngestStep(file_store=store)
                 await step(
                     path=str(src),
                     channel="api",
@@ -504,7 +504,7 @@ def test_upload_records_received_at_internally():
             store = await _make_store()
             src = Path(tmp) / "doc.pdf"
             src.write_bytes(b"%PDF")
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(path=str(src), channel="api", description="x")
             payload = _metadata(step)
             assert "error" not in payload
@@ -533,7 +533,7 @@ def test_upload_preserves_description_verbatim_in_meta():
             src = Path(tmp) / "doc.pdf"
             src.write_bytes(b"%PDF")
             multi = "wechat group screenshot\nfrom design-group at 14:30\nlikely a Q1 KPI table — extract numbers"
-            step = crud_upload.UploadResourceStep(file_store=store)
+            step = crud_ingest.IngestStep(file_store=store)
             await step(
                 path=str(src),
                 channel="api",
