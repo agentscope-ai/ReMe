@@ -6,16 +6,15 @@ from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
-from .crud.append import AppendStep
 from .crud.daily.list import DailyListStep
 from .crud.daily.read import DailyReadStep
 from .crud.daily.reindex import DailyReindexStep
 from .crud.daily.write import DailyWriteStep
 from .crud.delete import DeleteStep
 from .crud.edit import EditStep
-from .crud.frontmatter.delete import FrontmatterDeleteStep
-from .crud.frontmatter.read import FrontmatterReadStep
-from .crud.frontmatter.update import FrontmatterUpdateStep
+from .crud.frontmatter_delete import FrontmatterDeleteStep
+from .crud.frontmatter_read import FrontmatterReadStep
+from .crud.frontmatter_update import FrontmatterUpdateStep
 from .crud.list import ListStep
 from .crud.move import MoveStep
 from .crud.read import ReadStep
