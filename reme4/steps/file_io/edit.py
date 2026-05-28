@@ -2,7 +2,7 @@
 
 import frontmatter
 
-from ._file_io import NON_MD_WARNING, detect_file_encoding, gate_md, read_file_safe, resolve_path, write_file_safe
+from ._file_io import NON_MD_WARNING, gate_md, read_file_safe, resolve_path, write_file_safe
 from ..base_step import BaseStep
 from ...components import R
 
@@ -52,7 +52,7 @@ class EditStep(BaseStep):
             return None
 
         try:
-            raw_text = await read_file_safe(target)
+            raw_text, encoding = await read_file_safe(target)
         except Exception as e:  # pylint: disable=broad-except
             self._fail(f"read failed: {e}", path=str(target))
             return None
@@ -87,9 +87,8 @@ class EditStep(BaseStep):
         else:
             new_text = new_body
 
-        # Preserve the file's original encoding so edits don't silently re-encode
-        # non-UTF-8 files (e.g. GBK CSV) to UTF-8.
-        encoding = await detect_file_encoding(target)
+        # Preserve the file's original encoding (returned by read_file_safe above)
+        # so edits don't silently re-encode non-UTF-8 files (e.g. GBK CSV) to UTF-8.
         try:
             await write_file_safe(target, new_text, encoding=encoding)
         except Exception as e:  # pylint: disable=broad-except

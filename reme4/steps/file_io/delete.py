@@ -25,9 +25,8 @@ import shutil
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils.wikilink_handler import WikilinkHandler
-
 from ...components import R
+from ...utils.wikilink_handler import WikilinkHandler
 
 
 def _is_inside(rel: str, folder_rel: str) -> bool:

@@ -13,7 +13,7 @@ This is the **write view**: it reports the index-page path and a
 time), which is what a caller running a rebuild wants to confirm. For
 the per-note inventory use ``daily_list``.
 
-Input is a single optional ``date`` (ISO ``YYYY-MM-DD``); falls back to
+Input is a single optional ``date`` (``YYYY-MM-DD``); falls back to
 today.
 
 Always idempotent and safe to re-run.
@@ -23,7 +23,6 @@ from datetime import date as _date
 
 from ._file_io import refresh_day_index
 from ..base_step import BaseStep
-
 from ...components import R
 
 
@@ -31,11 +30,16 @@ from ...components import R
 class DailyReindexStep(BaseStep):
     """Rebuild ``daily/<date>.md`` from the current state of its notes."""
 
-    async def execute(self):
+    def _collect_params(self) -> tuple[str, str]:
+        """Read ``date`` (default today, ``YYYY-MM-DD``) and ``daily_dir`` (default ``daily``) from context/app config."""
         assert self.context is not None
-        day: str = (self.context.get("date") or "").strip() or _date.today().isoformat()
+        day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
-        refreshed = await refresh_day_index(self.file_store, day, daily_dir)
+        return day, daily_dir
+
+    def _apply_result(self, refreshed: dict) -> None:
+        """Mirror the rebuild outcome (surfaced error or success payload) onto the response object."""
+        assert self.context is not None
         if "error" in refreshed:
             self.context.response.success = False
             self.context.response.answer = f"Error: {refreshed['error']}"
@@ -45,10 +49,11 @@ class DailyReindexStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = f"Reindexed {refreshed['path']} ({notes_count} note(s))"
         self.context.response.metadata.update(
-            {
-                "date": refreshed["date"],
-                "path": refreshed["path"],
-                "created": refreshed["created"],
-                "notes_count": notes_count,
-            },
+            {"date": refreshed["date"], "path": refreshed["path"], "created": refreshed["created"],
+             "notes_count": notes_count},
         )
+
+    async def execute(self):
+        """Trigger the index rebuild and stamp the response."""
+        day, daily_dir = self._collect_params()
+        self._apply_result(await refresh_day_index(self.file_store, day, daily_dir))

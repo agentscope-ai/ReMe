@@ -13,5 +13,7 @@ class LinkScopeEnum(str, Enum):
     """
 
     REAL = "real"
+
     VIRTUAL = "virtual"
+
     ALL = "all"

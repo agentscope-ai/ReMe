@@ -14,13 +14,12 @@ from pathlib import Path
 import frontmatter
 
 from ..base_step import BaseStep
-
 from ...components import R
 
 
 @R.register("frontmatter_delete_step")
 class FrontmatterDeleteStep(BaseStep):
-    """Remove keys from a markdown file's frontmatter."""
+    """Remove keys from a Markdown file's frontmatter."""
 
     async def execute(self):
         assert self.context is not None

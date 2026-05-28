@@ -36,7 +36,7 @@ from pathlib import Path
 import warnings
 
 from reme4.components.file_store import LocalFileStore
-from reme4.steps.crud import (
+from reme4.steps.file_io import (
     daily_create as daily_create_step,
     daily_list as daily_list_step,
     daily_reindex as daily_reindex_step,
@@ -151,8 +151,8 @@ def test_daily_list_filters_by_date():
     asyncio.run(run())
 
 
-def test_daily_list_returns_path_slug_name_description():
-    """Each note row exposes path / slug / name / description (and nothing else)."""
+def test_daily_list_returns_path_slug_metadata():
+    """Each note row exposes path / slug / metadata (full frontmatter dict)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -171,12 +171,11 @@ def test_daily_list_returns_path_slug_name_description():
                 {
                     "path": "daily/2026-05-18/alpha.md",
                     "slug": "alpha",
-                    "name": "Alpha Project",
-                    "description": "JWT auth migration",
+                    "metadata": {"name": "Alpha Project", "description": "JWT auth migration"},
                 },
             ]
             await store.close()
-        print("✓ test_daily_list_returns_path_slug_name_description passed")
+        print("✓ test_daily_list_returns_path_slug_metadata passed")
 
     asyncio.run(run())
 
@@ -456,9 +455,7 @@ def test_day_index_lists_each_note():
 
 
 def test_day_index_includes_note_descriptions():
-    """Note ``description`` fields land in the rendered block so the
-    index reads as a one-glance "what's happening today" summary.
-    """
+    """Each note line inlines the full frontmatter (single-line, key: value pairs)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -474,9 +471,14 @@ def test_day_index_includes_note_descriptions():
 
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
-            assert "Alpha Project — 实现 JWT auth 中间件" in text
-            assert "调研增值税新政对 SaaS 的影响" in text
-            assert "  Gamma\n" in text or text.rstrip().endswith("Gamma")
+            # name + description inline on the same line as the wikilink
+            assert "[[daily/2026-05-18/alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件" in text
+            assert "[[daily/2026-05-18/beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响" in text
+            # gamma has no description → only name is emitted, no trailing `description:` cruft
+            assert "[[daily/2026-05-18/gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
+                "[[daily/2026-05-18/gamma.md]] name: Gamma",
+            )
+            assert "description:" not in text.split("[[daily/2026-05-18/gamma.md]]")[1].split("\n")[0]
             await store.close()
         print("✓ test_day_index_includes_note_descriptions passed")
 
@@ -506,8 +508,9 @@ def test_day_index_description_is_note_count():
     asyncio.run(run())
 
 
-def test_day_index_preserves_manual_segment():
-    """The ``## 备忘`` (manual) segment is preserved across refreshes."""
+def test_day_index_preserves_user_content_outside_marker():
+    """Any user-authored content sitting outside the auto markers is
+    preserved verbatim across refreshes."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -519,20 +522,19 @@ def test_day_index_preserves_manual_segment():
 
             index_path = Path(tmp) / "daily" / "2026-05-18.md"
             text = index_path.read_text(encoding="utf-8")
-            patched = text.replace(
-                "（人工记录区，刷新索引时不会动）",
-                "MY HAND-WRITTEN NOTE\n这是我手写的备忘，不该被覆盖",
-            )
-            index_path.write_text(patched, encoding="utf-8")
+            # Append user content AFTER the auto block; it should survive refresh.
+            user_block = "\n\n## 我的笔记\nMY HAND-WRITTEN NOTE\n这是我手写的备忘，不该被覆盖\n"
+            index_path.write_text(text.rstrip() + user_block, encoding="utf-8")
 
             await _seed_note("2026-05-18", "beta")
             await reindex(date="2026-05-18")
             after = index_path.read_text(encoding="utf-8")
             assert "MY HAND-WRITTEN NOTE" in after
             assert "这是我手写的备忘" in after
+            assert "## 我的笔记" in after
             assert "[[daily/2026-05-18/beta.md]]" in after
             await store.close()
-        print("✓ test_day_index_preserves_manual_segment passed")
+        print("✓ test_day_index_preserves_user_content_outside_marker passed")
 
     asyncio.run(run())
 
@@ -600,7 +602,7 @@ if __name__ == "__main__":
     print("\n=== Daily step tests ===")
     test_daily_list_default_date_is_today()
     test_daily_list_filters_by_date()
-    test_daily_list_returns_path_slug_name_description()
+    test_daily_list_returns_path_slug_metadata()
     test_daily_list_ignores_subdirectories()
     test_daily_list_empty_when_no_daily_dir()
     test_daily_list_does_not_refresh_index()
@@ -615,7 +617,7 @@ if __name__ == "__main__":
     test_day_index_lists_each_note()
     test_day_index_includes_note_descriptions()
     test_day_index_description_is_note_count()
-    test_day_index_preserves_manual_segment()
+    test_day_index_preserves_user_content_outside_marker()
     test_daily_reindex_returns_write_view()
     test_daily_reindex_created_flag_flips_on_rerun()
     print("\nAll tests passed!")

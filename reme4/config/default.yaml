@@ -107,7 +107,245 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
+  daily:create:
+    backend: base
+    description: "Provision a note slug under a daily folder: daily/<date>/<slug>.md"
+    parameters:
+      type: object
+      properties:
+        slug:
+          type: string
+          description: "the file stem"
+        date:
+          type: string
+          description: "YYYY-MM-DD; empty = today"
+          default: ""
+      required:
+        - slug
+    steps:
+      - backend: daily_create_step
 
+  daily:list:
+    backend: base
+    description: "List notes under a single day."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD; empty = today"
+          default: ""
+    steps:
+      - backend: daily_list_step
+
+  daily:reindex:
+    backend: base
+    description: "Rebuild the day-index page daily/<date>.md."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD; empty = today"
+          default: ""
+    steps:
+      - backend: daily_reindex_step
+
+  frontmatter:delete:
+    backend: base
+    description: "Drop keys from a file's frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+        keys:
+          type: array
+          description: "keys to remove"
+          items:
+            type: string
+      required:
+        - path
+        - keys
+    steps:
+      - backend: frontmatter_delete_step
+
+  frontmatter:read:
+    backend: base
+    description: "Read a file's frontmatter as a dict."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: frontmatter_read_step
+
+  frontmatter:update:
+    backend: base
+    description: "Merge keys into a file's frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+        metadata:
+          type: object
+          description: "keys to merge"
+      required:
+        - path
+        - metadata
+    steps:
+      - backend: frontmatter_update_step
+
+  stat:
+    backend: base
+    description: "Stat path (size, mtime, exists, is_dir, is_file)."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: stat_step
+
+  list:
+    backend: base
+    description: "List files under a vault path."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative dir; empty = root"
+          default: ""
+        recursive:
+          type: boolean
+          description: "recurse"
+          default: false
+        limit:
+          type: integer
+          description: "max results"
+          default: 100
+    steps:
+      - backend: list_step
+
+  move:
+    backend: base
+    description: "Move / rename a vault file; rewrites inbound wikilinks by default."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "vault-relative source"
+        dst_path:
+          type: string
+          description: "vault-relative destination"
+        overwrite:
+          type: boolean
+          description: "overwrite if dst exists"
+          default: false
+        retarget:
+          type: boolean
+          description: "rewrite [[src]] → [[dst]] across the vault"
+          default: true
+      required:
+        - src_path
+        - dst_path
+    steps:
+      - backend: move_step
+
+  delete:
+    backend: base
+    description: "Delete a vault file or folder; returns surviving inbound wikilinks."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+      required:
+        - path
+    steps:
+      - backend: delete_step
+
+  read:
+    backend: base
+    description: "Read a markdown file under the vault."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path; markdown only"
+        start_line:
+          type: integer
+          description: "first line (1-based, inclusive)"
+        end_line:
+          type: integer
+          description: "last line (1-based, inclusive)"
+      required:
+        - path
+    steps:
+      - backend: read_step
+
+  write:
+    backend: base
+    description: "Write a markdown file (create or overwrite) with name/description frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path; markdown only"
+        name:
+          type: string
+          description: "frontmatter name"
+        description:
+          type: string
+          description: "frontmatter description"
+        content:
+          type: string
+          description: "body"
+      required:
+        - path
+        - name
+        - description
+        - content
+    steps:
+      - backend: write_step
+
+  edit:
+    backend: base
+    description: "Find-and-replace in a markdown file (all occurrences)."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path"
+        old:
+          type: string
+          description: "text to find"
+        new:
+          type: string
+          description: "replacement"
+          default: ""
+      required:
+        - path
+        - old
+        - new
+    steps:
+      - backend: edit_step
 
 components:
   tokenizer:

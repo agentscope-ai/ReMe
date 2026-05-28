@@ -6,19 +6,19 @@ from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
-from .crud.daily_create import DailyCreateStep
-from .crud.daily_list import DailyListStep
-from .crud.daily_reindex import DailyReindexStep
-from .crud.delete import DeleteStep
-from .crud.edit import EditStep
-from .crud.frontmatter_delete import FrontmatterDeleteStep
-from .crud.frontmatter_read import FrontmatterReadStep
-from .crud.frontmatter_update import FrontmatterUpdateStep
-from .crud.list import ListStep
-from .crud.move import MoveStep
-from .crud.read import ReadStep
-from .crud.stat import StatStep
-from .crud.write import WriteStep
+from .file_io.daily_create import DailyCreateStep
+from .file_io.daily_list import DailyListStep
+from .file_io.daily_reindex import DailyReindexStep
+from .file_io.delete import DeleteStep
+from .file_io.edit import EditStep
+from .file_io.frontmatter_delete import FrontmatterDeleteStep
+from .file_io.frontmatter_read import FrontmatterReadStep
+from .file_io.frontmatter_update import FrontmatterUpdateStep
+from .file_io.list import ListStep
+from .file_io.move import MoveStep
+from .file_io.read import ReadStep
+from .file_io.stat import StatStep
+from .file_io.write import WriteStep
 from .index.clear_and_scan import ClearAndScanStep
 from .index.scan_changes import ScanChangesStep
 from .index.search import SearchStep
@@ -40,7 +40,7 @@ __all__ = [
     "StreamDemoStep1",
     "StreamDemoStep2",
     "VersionStep",
-    # crud
+    # file_io
     "DeleteStep",
     "EditStep",
     "ListStep",
@@ -48,11 +48,11 @@ __all__ = [
     "ReadStep",
     "StatStep",
     "WriteStep",
-    # crud (daily)
+    # file_io (daily)
     "DailyCreateStep",
     "DailyListStep",
     "DailyReindexStep",
-    # crud.frontmatter
+    # file_io.frontmatter
     "FrontmatterDeleteStep",
     "FrontmatterReadStep",
     "FrontmatterUpdateStep",

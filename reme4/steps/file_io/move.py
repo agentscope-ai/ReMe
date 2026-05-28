@@ -33,9 +33,8 @@ import shutil
 from pathlib import Path
 
 from ..base_step import BaseStep
-from ...utils.wikilink_handler import WikilinkHandler
-
 from ...components import R
+from ...utils.wikilink_handler import WikilinkHandler
 
 
 @R.register("move_step")
@@ -44,8 +43,8 @@ class MoveStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        src_path: str = self.context.get("src_path", "") or ""
-        dst_path: str = self.context.get("dst_path", "") or ""
+        src_path: str = self.context.get("src_path", "")
+        dst_path: str = self.context.get("dst_path", "")
         overwrite: bool = bool(self.context.get("overwrite", False))
         retarget: bool = bool(self.context.get("retarget", True))
         assert src_path and dst_path, "src_path and dst_path are required"
@@ -111,11 +110,11 @@ class MoveStep(BaseStep):
 
 
 def _precheck_move(
-    src_path: str,
-    dst_path: str,
-    src_abs: Path | None,
-    dst_abs: Path | None,
-    overwrite: bool,
+        src_path: str,
+        dst_path: str,
+        src_abs: Path | None,
+        dst_abs: Path | None,
+        overwrite: bool,
 ) -> dict | None:
     """Validate inputs for ``_move``; return an error payload or ``None`` when OK."""
     if src_abs is None or not src_abs.is_file():

@@ -33,7 +33,7 @@ from pathlib import Path
 
 from reme4.components.file_store import LocalFileStore
 from reme4.schema import FileNode
-from reme4.steps.crud import (
+from reme4.steps.file_io import (
     delete as crud_delete,
     edit as crud_edit,
     list as crud_list,
@@ -738,6 +738,31 @@ def test_write_basic_with_frontmatter():
     _run(run())
 
 
+def test_write_rejects_invalid_path_components():
+    """`resolve_path` validates each segment with the same rules as daily-note slugs:
+    Windows reserved chars / device names / trailing-dot (also blocks `..` traversal)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store()
+            for bad in (
+                "CON.md",            # Windows-reserved device name (with extension)
+                "Notes/AUX",         # device name in a sub-segment
+                "Notes/foo<bar.md",  # invalid char `<`
+                "../escape.md",      # path-traversal attempt
+                "Notes/ trim.md",    # leading whitespace
+                "lpt9.md",           # case-insensitive device name match
+            ):
+                resp = await _write(store, path=bad, content="x")
+                assert resp.success is False, f"expected reject for {bad!r}, got success"
+            # Sanity: no `Notes/` directory got created from any of the bad attempts.
+            assert not (Path(tmp) / "Notes").exists()
+            await store.close()
+        print("✓ test_write_rejects_invalid_path_components passed")
+
+    _run(run())
+
+
 def test_write_no_suffix_autoappends_md():
     """`path` with no suffix gets `.md` appended."""
 
@@ -1125,7 +1150,6 @@ if __name__ == "__main__":
     test_read_start_line_exceeds_total()
     test_read_truncation()
     test_read_empty_path_rejected()
-    test_all_read_cases_one_server()
     print("\n=== crud_md (write/edit) E2E tests ===")
     test_write_basic_with_frontmatter()
     test_write_no_suffix_autoappends_md()
