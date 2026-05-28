@@ -55,8 +55,6 @@ in the active config; ``add_as_tool`` wraps ``job(**kwargs)`` into a
 tool surface (rich descriptions + JSON schema) as the L2 MCP layer.
 """
 
-
-
 import datetime
 import zoneinfo
 from pathlib import Path
@@ -69,7 +67,6 @@ from pydantic import BaseModel, Field
 from ..base_step import BaseStep
 
 from ...components import R
-
 
 
 _DIGESTER_TOOLS: tuple[str, ...] = (
@@ -152,8 +149,6 @@ class Digester(BaseStep):
     Output (written to context.response.answer):
         DistillResult JSON — see model docstring.
     """
-
-    
 
     def __init__(
         self,

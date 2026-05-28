@@ -56,8 +56,6 @@ the service layer (plugin configs, custom callers) is the right place
 to pin down the *deployment-specific* shape.
 """
 
-
-
 import datetime
 import re
 import zoneinfo
@@ -71,7 +69,6 @@ from pydantic import BaseModel, Field
 from ..base_step import BaseStep
 
 from ...components import R
-
 
 
 _NOTE_PATH_RE = re.compile(r"daily/\d{4}-\d{2}-\d{2}/[^/\s]+\.md")
@@ -167,8 +164,6 @@ class SynchronizerResult(BaseModel):
 @R.register("synchronizer")
 class Synchronizer(BaseStep):
     """Drive daily-note sync via a ReAct agent."""
-
-
 
     def __init__(
         self,
