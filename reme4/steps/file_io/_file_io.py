@@ -10,6 +10,7 @@ Two related concerns, both private to the ``crud`` package:
    manual sections are preserved verbatim across refreshes.
 """
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Iterable
@@ -32,6 +33,24 @@ NON_MD_WARNING = (
     "Operating in compatibility mode may carry risks of errors."
 )
 
+NON_IMAGE_WARNING = (
+    "non-image file detected; CRUD image operations are recommended on standard image formats. "
+    "Operating in compatibility mode may carry risks of errors."
+)
+
+# Image suffix → MIME mapping. SVG intentionally excluded (text format, base64
+# encoding has no benefit — caller should use read_step instead).
+IMAGE_MIME_BY_EXT: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".tiff": "image/tiff",
+    ".heic": "image/heic",
+}
+
 # Modern text formats — assume UTF-8 by convention.
 _STANDARD_TEXT_EXTS = {
     ".md",
@@ -52,6 +71,39 @@ _STANDARD_TEXT_EXTS = {
 }
 # Legacy formats that may use ANSI/GBK on Chinese Windows systems.
 _NON_STANDARD_EXTS = {".csv", ".bat", ".cmd", ".reg"}
+
+
+# ---------------------------------------------------------------------------
+# In-process per-path write lock.
+#
+# Concurrent CRUD writes (write / edit) targeting the same path from the
+# same process must be serialized so a read-modify-write cycle isn't
+# interleaved by another coroutine. Different paths get different locks,
+# so unrelated writes still run in parallel.
+#
+# NOTE: this is in-process only — multi-worker / multi-process deployments
+# are NOT protected. That trade-off is acceptable for the current single-
+# process reme server; cross-process protection would need flock or OCC.
+# ---------------------------------------------------------------------------
+_PATH_LOCKS: dict[str, asyncio.Lock] = {}
+_PATH_LOCKS_REGISTRY = asyncio.Lock()
+
+
+async def get_path_lock(target: Path) -> asyncio.Lock:
+    """Return the asyncio.Lock for ``target``; created lazily on first request.
+
+    The lock is keyed by the string form of ``target`` — callers should pass
+    a path that has already been normalized by :func:`resolve_path` so two
+    equivalent paths share one lock.
+    """
+    key = str(target)
+    async with _PATH_LOCKS_REGISTRY:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _PATH_LOCKS[key] = lock
+    return lock
+
 
 # Path helpers
 # ------------
@@ -147,6 +199,23 @@ def gate_md(target: Path) -> tuple[Path, bool]:
     if target.suffix.lower() != ".md":
         return target, False
     return target, True
+
+
+def gate_image(target: Path) -> tuple[Path, bool, str | None]:
+    """Image gate with compatibility fallback. Returns ``(path, is_image, mime)``.
+
+    Behavior diverges from :func:`gate_md` in two ways:
+        - **No suffix is NOT auto-appended.** Image formats have no single
+          reasonable default; guessing would mislead.
+        - **No path mutation** — ``target`` is returned unchanged.
+
+    Suffix routing:
+        - Known image suffix (see ``IMAGE_MIME_BY_EXT``) → ``(target, True, mime)``
+        - Empty suffix or unknown suffix → ``(target, False, None)``
+          Caller may still read the file and surface a ``NON_IMAGE_WARNING``.
+    """
+    mime = IMAGE_MIME_BY_EXT.get(target.suffix.lower())
+    return target, mime is not None, mime
 
 
 # Encoding detection (private)

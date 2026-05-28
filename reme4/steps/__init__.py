@@ -17,6 +17,7 @@ from .file_io.frontmatter_update import FrontmatterUpdateStep
 from .file_io.list import ListStep
 from .file_io.move import MoveStep
 from .file_io.read import ReadStep
+from .file_io.read_image import ReadImageStep
 from .file_io.stat import StatStep
 from .file_io.write import WriteStep
 from .index.clear_and_scan import ClearAndScanStep
@@ -46,6 +47,7 @@ __all__ = [
     "ListStep",
     "MoveStep",
     "ReadStep",
+    "ReadImageStep",
     "StatStep",
     "WriteStep",
     # file_io (daily)
