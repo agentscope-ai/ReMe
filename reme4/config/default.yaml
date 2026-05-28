@@ -187,7 +187,7 @@ jobs:
 
   frontmatter:update:
     backend: base
-    description: "Merge keys into a file's frontmatter."
+    description: "Merge key-values into a file's frontmatter."
     parameters:
       type: object
       properties:
@@ -196,7 +196,7 @@ jobs:
           description: "vault-relative path"
         metadata:
           type: object
-          description: "keys to merge"
+          description: "key-values to merge"
       required:
         - path
         - metadata
