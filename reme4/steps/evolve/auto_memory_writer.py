@@ -1,24 +1,21 @@
-"""``auto_memory_writer`` — execute a single daily-note upsert.
+"""``auto_memory_writer`` — execute daily-note upserts.
 
-Takes one ``(path, description)`` task from the planner plus the
-recent conversation, decides UPDATE vs CREATE by probing the vault,
-and writes the note via ``frontmatter_read`` / ``frontmatter_update``
-/ ``read`` / ``edit`` / ``write``.
+Reads the ``memory_updates`` list produced by ``auto_memory_planner``
+from ``context.response.metadata['memory_updates']``, then iterates
+over each ``{path, description}`` task: decides UPDATE vs CREATE by
+probing the vault, and writes the note via ``frontmatter_read`` /
+``frontmatter_update`` / ``read`` / ``edit`` / ``write``.
 
-The writer agent is told that the body must preserve every
-Personal / Procedural / Knowledge fact named in the planner's
-description, and that the frontmatter must be rich (name,
-description, tags, type, topics, related, status, created, updated,
-etc.).
+A fresh ReAct agent is created per task to keep conversations isolated.
 
 Inputs (from RuntimeContext):
     messages (list[Msg], required): conversation slice (context).
     memory_hint (str, optional): caller-supplied note hint.
-    path (str, required): the daily-note vault-relative path to upsert.
-    description (str, required): planner-produced instructions.
+    response.metadata['memory_updates'] (list[dict]): planner output.
 
-Output (written to context.response.answer):
-    One line: ``<action> <path>`` where ``<action>`` ∈ {{created, updated}}.
+Output (written to context.response):
+    answer: one line per task — ``<action> <path>``.
+    metadata['written_count']: number of tasks executed.
 """
 
 from agentscope.agent import ReActAgent
@@ -32,7 +29,7 @@ from ...components import R
 
 @R.register("auto_memory_writer_step")
 class AutoMemoryWriterStep(BaseStep):
-    """Execute one note upsert via a ReAct agent."""
+    """Execute note upserts from the planner's task list."""
 
     def __init__(self, console_enabled: bool = False, **kwargs):
         super().__init__(**kwargs)
@@ -41,15 +38,15 @@ class AutoMemoryWriterStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        note_path = self.context.get("path", "")
-        description = self.context.get("description", "")
-        current = now(self.context.get("timezone"))
-        assert note_path, "path is required"
-        assert description, "description is required"
+        memory_updates: list[dict] = self.context.response.metadata.get("memory_updates") or []
+        if not memory_updates:
+            self.context.response.success = True
+            self.context.response.answer = "[SKIP] No memory updates to write"
+            return
 
+        current = now(self.context.get("timezone"))
         messages: list[Msg] = [
-            item if isinstance(item, Msg) else Msg.from_dict(item)
-            for item in self.context.get("messages", [])
+            item if isinstance(item, Msg) else Msg.from_dict(item) for item in self.context.get("messages", [])
         ]
         memory_hint: str = self.context.get("memory_hint", "")
 
@@ -57,26 +54,36 @@ class AutoMemoryWriterStep(BaseStep):
         for job_name in self.writer_tools:
             self.add_as_tool(toolkit, job_name)
 
-        agent = ReActAgent(
-            name="auto_memory_writer",
-            model=self.as_llm,
-            sys_prompt=self.prompt_format("system_prompt"),
-            formatter=self.as_llm_formatter,
-            toolkit=toolkit,
-        )
-        agent.set_console_output_enabled(self.console_enabled)
+        results: list[str] = []
+        for task in memory_updates:
+            note_path = task.get("path", "")
+            description = task.get("description", "")
+            if not note_path or not description:
+                continue
 
-        user_message: str = self.prompt_format(
-            "user_message",
-            today=current.strftime("%Y-%m-%d"),
-            vault_dir=str(self.file_store.vault_path),
-            note=memory_hint or "(none)",
-            note_path=note_path,
-            description=description,
-            history=format_history(messages),
-        )
+            agent = ReActAgent(
+                name="auto_memory_writer",
+                model=self.as_llm,
+                sys_prompt=self.prompt_format("system_prompt"),
+                formatter=self.as_llm_formatter,
+                toolkit=toolkit,
+            )
+            agent.set_console_output_enabled(self.console_enabled)
 
-        final_msg: Msg = await agent.reply(Msg(name="reme", role="user", content=user_message))
+            user_message: str = self.prompt_format(
+                "user_message",
+                today=current.strftime("%Y-%m-%d"),
+                vault_dir=str(self.file_store.vault_path),
+                note=memory_hint or "(none)",
+                note_path=note_path,
+                description=description,
+                history=format_history(messages),
+            )
+
+            final_msg: Msg = await agent.reply(Msg(name="reme", role="user", content=user_message))
+            result_line = (final_msg.get_text_content() or "").strip()
+            results.append(result_line)
+
         self.context.response.success = True
-        self.context.response.answer = (final_msg.get_text_content() or "").strip()
-        self.context.response.metadata.update({"path": note_path})
+        self.context.response.answer = "\n".join(results) if results else "[SKIP] No valid tasks"
+        self.context.response.metadata.update({"written_count": len(results)})

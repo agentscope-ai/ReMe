@@ -12,7 +12,7 @@ def now(timezone: str | None = None) -> datetime.datetime:
         return datetime.datetime.now()
     try:
         return datetime.datetime.now(zoneinfo.ZoneInfo(timezone))
-    except Exception as _:
+    except Exception:
         return datetime.datetime.now()
 
 

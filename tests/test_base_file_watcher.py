@@ -12,7 +12,7 @@ Usage:
     pytest tests/test_base_file_watcher.py -v -k "test_existing"
 """
 
-# pylint: disable=redefined-outer-name,protected-access,unused-argument
+# pylint: disable=redefined-outer-name,protected-access,unused-argument,no-name-in-module
 
 import asyncio
 import tempfile

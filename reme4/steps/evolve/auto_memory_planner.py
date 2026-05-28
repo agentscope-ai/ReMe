@@ -33,7 +33,10 @@ from ...components import R
 class MemoryUpdateTask(BaseModel):
     """One daily-note upsert task emitted by the planner."""
 
-    path: str = Field(description="Vault-relative note path, form `daily/<YYYY-MM-DD>/<kebab-case-stem>.md`. Reuse an existing path to upsert.")
+    path: str = Field(
+        description="Vault-relative note path, form `daily/<YYYY-MM-DD>/<kebab-case-stem>.md`. "
+        "Reuse an existing path to upsert.",
+    )
     description: str = Field(description="Flat fact checklist — what to preserve, not how to categorize or format.")
 
 
@@ -42,7 +45,8 @@ class MemoryUpdatesPlan(BaseModel):
 
     memory_updates: list[MemoryUpdateTask] = Field(
         default_factory=list,
-        description="List of daily-note upsert tasks; empty means nothing worth persisting.")
+        description="List of daily-note upsert tasks; empty means nothing worth persisting.",
+    )
 
 
 @R.register("auto_memory_planner_step")
@@ -56,8 +60,9 @@ class AutoMemoryPlannerStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        messages: list[Msg] = [item if isinstance(item, Msg) else Msg.from_dict(item)
-                               for item in self.context.get("messages", [])]
+        messages: list[Msg] = [
+            item if isinstance(item, Msg) else Msg.from_dict(item) for item in self.context.get("messages", [])
+        ]
         memory_hint: str = self.context.get("memory_hint", "")
         current = now(self.context.get("timezone"))
 

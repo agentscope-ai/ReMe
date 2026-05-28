@@ -130,7 +130,7 @@ system_prompt_zh: |
 user_message_zh: |
   今天：{today}
   Vault 目录：{vault_dir}
-  笔记提示：{note}
+  额外提示：{note}
   目标路径：{note_path}
 
   # 规划者的指示（你的完整任务说明）

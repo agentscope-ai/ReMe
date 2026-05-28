@@ -7,6 +7,7 @@ filesystems (Windows NTFS, macOS APFS/HFS+). See agentscope-ai/ReMe#228.
 """
 
 # pylint: disable=redefined-outer-name,protected-access,missing-function-docstring,missing-class-docstring
+# pylint: disable=no-name-in-module
 
 import tempfile
 from pathlib import Path
