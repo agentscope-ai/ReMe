@@ -4,8 +4,11 @@ from .base_step import BaseStep
 from .common.demo import DemoEchoStep1, DemoEchoStep2
 from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
+from .common.llm_demo import LLMDemoStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
+from .evolve.auto_memory_planner import AutoMemoryPlannerStep
+from .evolve.auto_memory_writer import AutoMemoryWriterStep
 from .file_io.daily_create import DailyCreateStep
 from .file_io.daily_list import DailyListStep
 from .file_io.daily_reindex import DailyReindexStep
@@ -38,9 +41,13 @@ __all__ = [
     "DemoEchoStep2",
     "HealthCheckStep",
     "HelpStep",
+    "LLMDemoStep",
     "StreamDemoStep1",
     "StreamDemoStep2",
     "VersionStep",
+    # evolve
+    "AutoMemoryPlannerStep",
+    "AutoMemoryWriterStep",
     # file_io
     "DeleteStep",
     "EditStep",

@@ -115,7 +115,7 @@ jobs:
       properties:
         slug:
           type: string
-          description: "the file stem"
+          description: "the file stem: event name or topic name"
         date:
           type: string
           description: "YYYY-MM-DD; empty = today"
@@ -369,32 +369,6 @@ jobs:
     steps:
       - backend: edit_step
 
-  submit_slug_updates:
-    backend: base
-    description: "Planner agent's terminal submit tool: hand off a list of {slug, description} daily-note update tasks for the writer agent. Call once at the end of planning."
-    parameters:
-      type: object
-      properties:
-        slug_updates:
-          type: array
-          description: "list of update tasks the planner produced; one per daily note slug to create or update"
-          items:
-            type: object
-            properties:
-              slug:
-                type: string
-                description: "kebab-case daily note slug; same slug across calls = upsert into the same file"
-              description:
-                type: string
-                description: "what the writer should put in the note body + frontmatter; must spell out the Personal/Procedural/Knowledge memory to preserve"
-            required:
-              - slug
-              - description
-      required:
-        - slug_updates
-    steps:
-      - backend: submit_slug_updates_step
-
   auto_memory:
     backend: base
     description: "Auto-memory orchestrator"
@@ -409,10 +383,15 @@ jobs:
         memory_hint:
           type: string
           description: "optional hint"
+        timezone:
+          type: string
+          description: "IANA timezone, e.g. Asia/Shanghai"
+          default: "Asia/Shanghai"
       required:
         - messages
     steps:
-      - backend: auto_memory_step
+      - backend: auto_memory_planner_step
+      - backend: auto_memory_writer_step
 
 components:
   tokenizer:
