@@ -36,7 +36,7 @@ jobs:
 
       - name: Run tests4 unit tests
         run: |
-          pytest tests4/unittest \
+          pytest tests4/unit \
             -v \
             --tb=long \
             -s \

@@ -117,11 +117,10 @@ def test_daily_list_default_date_is_today():
             await step()
             payload = _metadata(step)
             assert payload["date"] == _today()
-            paths = sorted(n["path"] for n in payload["notes"])
-            assert paths == [
-                f"daily/{_today()}/today-a.md",
-                f"daily/{_today()}/today-b.md",
-            ]
+            assert payload["count"] == 2
+            answer = step.context.response.answer
+            assert f"daily/{_today()}/today-a.md" in answer
+            assert f"daily/{_today()}/today-b.md" in answer
             await store.close()
         print("✓ test_daily_list_default_date_is_today passed")
 
@@ -143,8 +142,9 @@ def test_daily_list_filters_by_date():
             await step(date="2026-05-18")
             payload = _metadata(step)
             assert payload["date"] == "2026-05-18"
-            paths = [n["path"] for n in payload["notes"]]
-            assert paths == ["daily/2026-05-18/a.md"]
+            assert payload["count"] == 1
+            answer = step.context.response.answer
+            assert "daily/2026-05-18/a.md" in answer
             await store.close()
         print("✓ test_daily_list_filters_by_date passed")
 
@@ -167,13 +167,11 @@ def test_daily_list_returns_path_slug_metadata():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            assert payload["notes"] == [
-                {
-                    "path": "daily/2026-05-18/alpha.md",
-                    "slug": "alpha",
-                    "metadata": {"name": "Alpha Project", "description": "JWT auth migration"},
-                },
-            ]
+            assert payload["count"] == 1
+            answer = step.context.response.answer
+            assert "daily/2026-05-18/alpha.md" in answer
+            assert "Alpha Project" in answer
+            assert "JWT auth migration" in answer
             await store.close()
         print("✓ test_daily_list_returns_path_slug_metadata passed")
 
@@ -200,8 +198,9 @@ def test_daily_list_ignores_subdirectories():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            paths = [n["path"] for n in payload["notes"]]
-            assert paths == ["daily/2026-05-18/main.md"]
+            assert payload["count"] == 1
+            answer = step.context.response.answer
+            assert "daily/2026-05-18/main.md" in answer
             await store.close()
         print("✓ test_daily_list_ignores_subdirectories passed")
 
@@ -218,7 +217,7 @@ def test_daily_list_empty_when_no_daily_dir():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            assert payload == {"date": "2026-05-18", "notes": []}
+            assert payload == {"date": "2026-05-18", "count": 0}
             await store.close()
         print("✓ test_daily_list_empty_when_no_daily_dir passed")
 
@@ -250,7 +249,7 @@ def test_daily_list_does_not_refresh_index():
 
 
 def test_daily_list_response_shape():
-    """daily_list returns only {date, notes}."""
+    """daily_list returns only {date, count}."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -262,7 +261,7 @@ def test_daily_list_response_shape():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            assert set(payload.keys()) == {"date", "notes"}
+            assert set(payload.keys()) == {"date", "count"}
             await store.close()
         print("✓ test_daily_list_response_shape passed")
 
