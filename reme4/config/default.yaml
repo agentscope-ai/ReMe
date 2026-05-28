@@ -107,7 +107,7 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
-  daily:create:
+  daily_create:
     backend: base
     description: "Provision a note slug under a daily folder: daily/<date>/<slug>.md"
     parameters:
@@ -125,7 +125,7 @@ jobs:
     steps:
       - backend: daily_create_step
 
-  daily:list:
+  daily_list:
     backend: base
     description: "List notes under a single day."
     parameters:
@@ -138,7 +138,7 @@ jobs:
     steps:
       - backend: daily_list_step
 
-  daily:reindex:
+  daily_reindex:
     backend: base
     description: "Rebuild the day-index page daily/<date>.md."
     parameters:
@@ -151,7 +151,7 @@ jobs:
     steps:
       - backend: daily_reindex_step
 
-  frontmatter:delete:
+  frontmatter_delete:
     backend: base
     description: "Drop keys from a file's frontmatter."
     parameters:
@@ -171,7 +171,7 @@ jobs:
     steps:
       - backend: frontmatter_delete_step
 
-  frontmatter:read:
+  frontmatter_read:
     backend: base
     description: "Read a file's frontmatter as a dict."
     parameters:
@@ -185,7 +185,7 @@ jobs:
     steps:
       - backend: frontmatter_read_step
 
-  frontmatter:update:
+  frontmatter_update:
     backend: base
     description: "Merge key-values into a file's frontmatter."
     parameters:
@@ -369,6 +369,51 @@ jobs:
     steps:
       - backend: edit_step
 
+  submit_slug_updates:
+    backend: base
+    description: "Planner agent's terminal submit tool: hand off a list of {slug, description} daily-note update tasks for the writer agent. Call once at the end of planning."
+    parameters:
+      type: object
+      properties:
+        slug_updates:
+          type: array
+          description: "list of update tasks the planner produced; one per daily note slug to create or update"
+          items:
+            type: object
+            properties:
+              slug:
+                type: string
+                description: "kebab-case daily note slug; same slug across calls = upsert into the same file"
+              description:
+                type: string
+                description: "what the writer should put in the note body + frontmatter; must spell out the Personal/Procedural/Knowledge memory to preserve"
+            required:
+              - slug
+              - description
+      required:
+        - slug_updates
+    steps:
+      - backend: submit_slug_updates_step
+
+  auto_memory:
+    backend: base
+    description: "Auto-memory orchestrator"
+    parameters:
+      type: object
+      properties:
+        messages:
+          type: array
+          description: "messages"
+          items:
+            type: object
+        memory_hint:
+          type: string
+          description: "optional hint"
+      required:
+        - messages
+    steps:
+      - backend: auto_memory_step
+
 components:
   tokenizer:
     default:
@@ -381,6 +426,18 @@ components:
       base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-anthropic}
+      model_name: ${LLM_MODEL_NAME:-glm-5}
+      api_key: ${LLM_API_KEY:-}
+      client_kwargs:
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+
+  as_llm_formatter:
+    default:
+      backend: ${LLM_FORMATTER_BACKEND:-anthropic}
 
   file_graph:
     default:

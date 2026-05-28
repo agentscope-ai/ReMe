@@ -185,7 +185,7 @@ jobs:
     steps:
       - backend: stat_step
 
-  frontmatter:read:
+  frontmatter_read:
     backend: base
     description: "Read a file's YAML frontmatter as a dict."
     parameters:
@@ -197,7 +197,7 @@ jobs:
       required:
         - path
     steps:
-      - backend: frontmatter:read_step
+      - backend: frontmatter_read_step
 
   # ── Write Operations──────────────────────────────────────────────────────────
   write:
@@ -267,7 +267,7 @@ jobs:
     steps:
       - backend: append_step
 
-  frontmatter:update:
+  frontmatter_update:
     backend: base
     description: "Merge keys into a file's YAML frontmatter."
     parameters:
@@ -286,7 +286,7 @@ jobs:
     steps:
       - backend: frontmatter_update_step
 
-  frontmatter:delete:
+  frontmatter_delete:
     backend: base
     description: "Drop keys from a file's YAML frontmatter."
     parameters:
@@ -369,7 +369,7 @@ jobs:
       - backend: download_step
 
   # ── Daily Operations (slug provisioning + day-index rollup) ──────────
-  daily:create:
+  daily_create:
     backend: base
     description: "Provision daily/<date>/<slug>.md (empty body, frontmatter {name: slug}); idempotent; refreshes the day index."
     parameters:
@@ -387,7 +387,7 @@ jobs:
     steps:
       - backend: daily_create_step
 
-  daily:list:
+  daily_list:
     backend: base
     description: "List notes under a single day."
     parameters:
@@ -400,7 +400,7 @@ jobs:
     steps:
       - backend: daily_list_step
 
-  daily:reindex:
+  daily_reindex:
     backend: base
     description: "Rebuild the day-index page daily/<date>.md."
     parameters:

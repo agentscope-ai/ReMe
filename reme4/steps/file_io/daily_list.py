@@ -37,11 +37,27 @@ class DailyListStep(BaseStep):
         """Keep only the user-facing keys (drop internal scan_notes fields, if any)."""
         return {"path": note["path"], "slug": note["slug"], "metadata": note["metadata"]}
 
+    @staticmethod
+    def _format_note_line(note: dict) -> str:
+        """Format a single note as ``- path: ... name: ... description: ... <other keys>``."""
+        meta: dict = note.get("metadata", {})
+        ordered_keys = [k for k in ("name", "description") if k in meta]
+        ordered_keys += [k for k in meta if k not in ("name", "description")]
+        parts = [f"- path: {note['path']}"]
+        for key in ordered_keys:
+            value = meta[key]
+            if value is None or value == "":
+                continue
+            value_str = str(value).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+            parts.append(f"{key}: {value_str}")
+        return " ".join(parts)
+
     async def execute(self):
         """Scan ``<daily_dir>/<date>/`` and emit one projected record per note."""
         assert self.context is not None
         day, daily_dir, vault_dir = self._collect_params()
         notes = [self._project(n) for n in scan_notes(vault_dir, day, daily_dir)]
         self.context.response.success = True
-        self.context.response.answer = f"Listed {len(notes)} note(s) for {day}"
-        self.context.response.metadata.update({"date": day, "notes": notes})
+        lines = [self._format_note_line(n) for n in notes]
+        self.context.response.answer = "\n".join(lines) if lines else f"No notes found for {day}"
+        self.context.response.metadata.update({"date": day, "count": len(notes)})

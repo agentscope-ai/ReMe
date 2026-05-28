@@ -1,6 +1,6 @@
 """Smart Digester — knowledge distillation from daily notes to digest/.
 
-The Digester is the **cold-write** counterpart to Synchronizer (hot-write).
+The Digester is the **cold-write** counterpart to AutoMemory (hot-write).
 It reads completed work in ``daily/<date>/<slug>.md`` note files,
 identifies entities / concepts / claims / methods worth preserving
 long-term, and sinks them into ``digest/`` as canonical-entry nodes so
@@ -26,7 +26,7 @@ extra). After processing each daily, the agent must call
 (or ``metadata={"status": "skipped"}`` when intentionally bypassed). Convention: absent
 ≡ ``pending``, so the next pass finds residual work via
 ``file_list path=daily recursive=true`` + per-item ``frontmatter_read`` to filter for absent ``status``.
-Only the digester writes ``status``; Synchronizer / hand-edits must
+Only the digester writes ``status``; AutoMemory / hand-edits must
 leave it alone.
 
 No degraded path — distillation strictly requires an LLM. When ``as_llm``

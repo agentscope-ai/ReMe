@@ -113,7 +113,7 @@ class LinkedFileParser(BaseFileParser):
     def __init__(
         self,
         encoding: str = "utf-8",
-        chunk_chars: int = 2000,
+        chunk_chars: int = 10000,
         embed_toc: bool = True,
         **kwargs,
     ):

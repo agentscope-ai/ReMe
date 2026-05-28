@@ -88,11 +88,11 @@ reme4 search query="..." backend=mcp
 | crud | append | path="My Note" content="New line"                                 |
 
 | crud | delete | path="My Note
-| daily:crud | daily:xxx | 与 crud 参数保持一致 |
+| daily_crud | daily_xxx | 与 crud 参数保持一致 |
 
-- daily:resolve name=xxxx (符合一定规范 win下要求)
-- daily:list date=xxxx 返回path
-- daily:index
+- daily_resolve name=xxxx (符合一定规范 win下要求)
+- daily_list date=xxxx 返回path
+- daily_index
 
 frontmatter read path
 frontmatter update path metadata={}
