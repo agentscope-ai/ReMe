@@ -61,9 +61,10 @@ def _seed_bytes(rel: str, data: bytes) -> Path:
     return target
 
 
-async def _read_image(store: LocalFileStore, **kwargs):
-    step = crud_read_image.ReadImageStep(file_store=store)
-    await step(**kwargs)
+async def _read_image(store: LocalFileStore, *, step_kwargs: dict | None = None, **call_kwargs):
+    """Run ReadImageStep; ``step_kwargs`` go to step init (kwargs/attrs)."""
+    step = crud_read_image.ReadImageStep(file_store=store, **(step_kwargs or {}))
+    await step(**call_kwargs)
     return step.context.response
 
 
@@ -113,7 +114,7 @@ def test_read_image_oversized():
             payload = b"\x89PNG\r\n\x1a\n" + b"x" * 2048
             _seed_bytes("big.png", payload)
             store = await _make_store()
-            resp = await _read_image(store, path="big.png", max_bytes=1024)
+            resp = await _read_image(store, step_kwargs={"max_bytes": 1024}, path="big.png")
             assert resp.success is True, resp
             assert resp.metadata["oversized"] is True, resp.metadata
             assert resp.metadata["max_bytes"] == 1024, resp.metadata
@@ -223,7 +224,7 @@ def test_read_image_invalid_max_bytes():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             _seed_bytes("a.png", b"\x89PNG\r\n\x1a\nx")
             store = await _make_store()
-            resp = await _read_image(store, path="a.png", max_bytes=-1)
+            resp = await _read_image(store, step_kwargs={"max_bytes": -1}, path="a.png")
             assert resp.success is False, resp
             assert "positive integer" in resp.answer, resp
             await store.close()

@@ -12,7 +12,8 @@ from ...utils import expand_links, render_expansion_lines
 class ReadStep(BaseStep):
     """Read a markdown file. Optional `start_line`/`end_line` for ranged reads.
 
-    Opt-in kwargs (runtime context):
+    Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
+    not exposed to LLM):
         with_neighbors (bool, default False): when true and the file is
             markdown, append a block listing first-order bidirectional
             neighbors (out/in link targets) with name/description meta,
@@ -90,6 +91,8 @@ class ReadStep(BaseStep):
         assert self.context is not None
         raw = str(self.context.get("path") or "")
         start_line, end_line = self.context.get("start_line"), self.context.get("end_line")
+        with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
+        max_neighbors_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
 
         # Validate inputs and target before touching the filesystem twice.
         target = self._resolve_target(raw)
@@ -122,33 +125,14 @@ class ReadStep(BaseStep):
         self.context.response.answer = text
         self.logger.info(f"[{self.name}] read path={target} lines={s}-{e}/{total} bytes={len(text.encode('utf-8'))}")
 
-        if self._want_neighbors() and target.suffix.lower() == ".md":
-            await self._maybe_inject_neighbors(target, text)
+        if with_neighbors and target.suffix.lower() == ".md":
+            await self._maybe_inject_neighbors(target, text, max_neighbors_per_direction)
 
         return self.context.response
 
     # -- neighbor injection (opt-in) -----------------------------------------
 
-    def _want_neighbors(self) -> bool:
-        """``with_neighbors`` may arrive from context (YAML param) or step kwargs."""
-        assert self.context is not None
-        value = self.context.get("with_neighbors")
-        if value is None:
-            value = self.kwargs.get("with_neighbors", False)
-        return bool(value)
-
-    def _max_neighbors(self) -> int:
-        """Cap per direction; same precedence as ``_want_neighbors``."""
-        assert self.context is not None
-        value = self.context.get("max_neighbors_per_direction")
-        if value is None:
-            value = self.kwargs.get("max_neighbors_per_direction", 10)
-        try:
-            return max(1, int(value))
-        except (TypeError, ValueError):
-            return 10
-
-    async def _maybe_inject_neighbors(self, target: Path, text: str) -> None:
+    async def _maybe_inject_neighbors(self, target: Path, text: str, max_per_direction: int) -> None:
         """Append the rendered neighbor block + stash raw expansion in metadata."""
         assert self.context is not None
         try:
@@ -158,7 +142,7 @@ class ReadStep(BaseStep):
             return
 
         try:
-            expansion = await expand_links(self.file_store, [rel_path], self._max_neighbors())
+            expansion = await expand_links(self.file_store, [rel_path], max_per_direction)
         except Exception as exc:  # noqa: BLE001
             self.logger.warning(f"[{self.name}] neighbor fetch failed: {type(exc).__name__}: {exc}")
             return

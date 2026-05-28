@@ -76,9 +76,10 @@ async def _store_with(files: dict[str, dict]) -> LocalFileStore:
     return store
 
 
-async def _read(store: LocalFileStore, **kwargs):
-    step = crud_read.ReadStep(file_store=store)
-    await step(**kwargs)
+async def _read(store: LocalFileStore, *, step_kwargs: dict | None = None, **call_kwargs):
+    """Run a ReadStep against ``store``; ``step_kwargs`` go to step init (kwargs/attrs)."""
+    step = crud_read.ReadStep(file_store=store, **(step_kwargs or {}))
+    await step(**call_kwargs)
     return step.context.response
 
 
@@ -120,7 +121,7 @@ def test_read_with_neighbors_injects_block_and_metadata():
                     "B.md": {"body": "End node.", "name": "B Doc", "description": "beta"},
                 },
             )
-            resp = await _read(store, path="A.md", with_neighbors=True)
+            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="A.md")
             assert resp.success is True
             answer = str(resp.answer)
             assert "Related neighbors" in answer
@@ -149,7 +150,7 @@ def test_read_with_neighbors_no_links_no_block():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _store_with({"lonely.md": {"body": "no links here", "name": "Lonely"}})
-            resp = await _read(store, path="lonely.md", with_neighbors=True)
+            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="lonely.md")
             assert resp.success is True
             assert "Related neighbors" not in str(resp.answer)
             assert "link_expansion" not in resp.metadata
@@ -170,7 +171,7 @@ def test_read_with_neighbors_non_md_falls_through():
             (Path(tmp) / "notes.txt").write_text("plain text body", encoding="utf-8")
             store = LocalFileStore(name="t_read_neighbors_nonmd", embedding_model="")
             await store.start()
-            resp = await _read(store, path="notes.txt", with_neighbors=True)
+            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes.txt")
             assert resp.success is True
             assert "Related neighbors" not in str(resp.answer)
             assert "link_expansion" not in resp.metadata

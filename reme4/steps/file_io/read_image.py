@@ -15,6 +15,12 @@ from ...constants import DEFAULT_MAX_IMAGE_BYTES
 class ReadImageStep(BaseStep):
     """Read an image file under ``vault_dir`` and return base64 in ``answer``.
 
+    Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
+    not exposed to LLM):
+        max_bytes (int, default ``DEFAULT_MAX_IMAGE_BYTES``): cap for the
+            base64 path. Above this, ``answer`` carries a notice and
+            ``metadata.oversized=True`` (no base64).
+
     Invariants (callers depend on these):
         - Normal branch: ``answer`` is pure base64 (no ``data:`` prefix, no
           notice suffix). Use ``f"data:{mime};base64,{answer}"`` if you need a
@@ -36,9 +42,7 @@ class ReadImageStep(BaseStep):
     async def execute(self):  # pylint: disable=too-many-return-statements
         assert self.context is not None
         raw = str(self.context.get("path") or "")
-        max_bytes_raw = self.context.get("max_bytes")
-        if max_bytes_raw is None:
-            max_bytes_raw = self.kwargs.get("max_bytes", DEFAULT_MAX_IMAGE_BYTES)
+        max_bytes_raw = self.kwargs.get("max_bytes", DEFAULT_MAX_IMAGE_BYTES)
 
         try:
             max_bytes = int(max_bytes_raw)
