@@ -746,12 +746,12 @@ def test_write_rejects_invalid_path_components():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store()
             for bad in (
-                "CON.md",            # Windows-reserved device name (with extension)
-                "Notes/AUX",         # device name in a sub-segment
+                "CON.md",  # Windows-reserved device name (with extension)
+                "Notes/AUX",  # device name in a sub-segment
                 "Notes/foo<bar.md",  # invalid char `<`
-                "../escape.md",      # path-traversal attempt
-                "Notes/ trim.md",    # leading whitespace
-                "lpt9.md",           # case-insensitive device name match
+                "../escape.md",  # path-traversal attempt
+                "Notes/ trim.md",  # leading whitespace
+                "lpt9.md",  # case-insensitive device name match
             ):
                 resp = await _write(store, path=bad, content="x")
                 assert resp.success is False, f"expected reject for {bad!r}, got success"

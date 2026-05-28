@@ -9,7 +9,7 @@ heading level) → recursive chunk (try whole subtree; on overflow walk
 children — body siblings pack as a run, subsections recurse). Leaf
 blocks (table / code / list / paragraph) split on internal boundaries
 and each piece is annotated ``[Part X/N]``. Wikilink extraction is
-delegated to :class:`reme4.utils.wikilink_handler.WikilinkHandler` —
+delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
 the single source of truth for ``[[...]]`` syntax (including
 Dataview-style typed predicates).
 """

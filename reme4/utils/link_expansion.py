@@ -1,6 +1,6 @@
 """Expand a file's wikilink neighbors and render them as indented text.
 
-Used by :class:`~reme4.steps.index.search.SearchStep` for per-hit
+Used by :class:`~reme.steps.index.search.SearchStep` for per-hit
 context expansion. Pure helper — no step state, only ``file_store`` is
 required.
 

@@ -31,7 +31,7 @@ class DailyReindexStep(BaseStep):
     """Rebuild ``daily/<date>.md`` from the current state of its notes."""
 
     def _collect_params(self) -> tuple[str, str]:
-        """Read ``date`` (default today, ``YYYY-MM-DD``) and ``daily_dir`` (default ``daily``) from context/app config."""
+        """Read ``date`` (default today) and ``daily_dir`` (default ``daily``) from context/app config."""
         assert self.context is not None
         day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
@@ -49,8 +49,12 @@ class DailyReindexStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = f"Reindexed {refreshed['path']} ({notes_count} note(s))"
         self.context.response.metadata.update(
-            {"date": refreshed["date"], "path": refreshed["path"], "created": refreshed["created"],
-             "notes_count": notes_count},
+            {
+                "date": refreshed["date"],
+                "path": refreshed["path"],
+                "created": refreshed["created"],
+                "notes_count": notes_count,
+            },
         )
 
     async def execute(self):

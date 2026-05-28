@@ -99,5 +99,6 @@ class ListStep(BaseStep):
         self.context.response.answer = f"Listed {len(items)} file(s) under {path or '.'}"
         self.context.response.metadata.update({"items": items, "count": len(items)})
         self.logger.info(
-            f"[{self.name}] listed dir={target_dir} recursive={recursive} count={len(items)} limit={limit}")
+            f"[{self.name}] listed dir={target_dir} recursive={recursive} count={len(items)} limit={limit}",
+        )
         return self.context.response

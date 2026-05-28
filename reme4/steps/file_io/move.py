@@ -110,11 +110,11 @@ class MoveStep(BaseStep):
 
 
 def _precheck_move(
-        src_path: str,
-        dst_path: str,
-        src_abs: Path | None,
-        dst_abs: Path | None,
-        overwrite: bool,
+    src_path: str,
+    dst_path: str,
+    src_abs: Path | None,
+    dst_abs: Path | None,
+    overwrite: bool,
 ) -> dict | None:
     """Validate inputs for ``_move``; return an error payload or ``None`` when OK."""
     if src_abs is None or not src_abs.is_file():

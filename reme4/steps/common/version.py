@@ -7,7 +7,7 @@ from ...components import R
 
 @R.register("version_step")
 class VersionStep(BaseStep):
-    """Emit reme4.__version__ as the response answer."""
+    """Emit reme.__version__ as the response answer."""
 
     async def execute(self):
         assert self.context is not None

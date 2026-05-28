@@ -501,7 +501,7 @@ def test_day_index_description_is_note_count():
 
             text = _day_index_text(tmp, "2026-05-18")
             assert "description:" in text
-            assert "2 篇笔记" in text
+            assert "2 note(s) today." in text
             await store.close()
         print("✓ test_day_index_description_is_note_count passed")
 

@@ -2,7 +2,7 @@ service:
   backend: http
 #  backend: mcp
 
-# Default dev config points vault_dir at ./.reme so `python -m reme4 start`
+# Default dev config points vault_dir at ./.reme so `python -m reme start`
 # can be run from the repo root and exercise the full atomic-tool surface
 # against the seeded test data. Override the `vault_dir=` CLI arg.
 vault_dir: .reme
@@ -16,7 +16,7 @@ jobs:
   # ════════════════════════════════════════════════════════════════════
   version:
     backend: base
-    description: "return reme4 package version"
+    description: "return reme package version"
     parameters:
       type: object
       properties: {}
@@ -25,7 +25,7 @@ jobs:
 
   health_check:
     backend: base
-    description: "return a concise health-check snapshot of reme4 components"
+    description: "return a concise health-check snapshot of reme components"
     parameters:
       type: object
       properties: {}

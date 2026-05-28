@@ -20,7 +20,7 @@ class FaissLocalFileStore(LocalFileStore):
     remains the source of truth.
 
     faiss is imported lazily inside ``__init__`` so that merely importing this
-    module (e.g. via ``reme4 version``) does not trigger the SWIG bindings and
+    module (e.g. via ``reme version``) does not trigger the SWIG bindings and
     their associated DeprecationWarnings.
     """
 

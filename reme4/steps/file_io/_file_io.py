@@ -116,7 +116,7 @@ def resolve_path(vault_path: Path, raw: str) -> tuple[Path | None, str | None]:
           trailing-``.`` rule, which doubles as path-traversal protection.
     Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
     Filetype-specific gating (e.g. markdown-only / suffix auto-append) is
-    layered on top by callers — see ``reme4/steps/crud/_file_io.py::gate_md``.
+    layered on top by callers — see ``reme/steps/file_io/_file_io.py::gate_md``.
     """
     if not raw or not str(raw).strip():
         return None, "`path` is required"
@@ -151,6 +151,7 @@ def gate_md(target: Path) -> tuple[Path, bool]:
 
 # Encoding detection (private)
 # ----------------------------
+
 
 def _try_decode(data: bytes, encodings: Iterable[str]) -> tuple[str, str] | None:
     """Return ``(text, encoding)`` for the first encoding that decodes ``data`` cleanly."""
@@ -199,6 +200,7 @@ def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
 
 # File read / write
 # -----------------
+
 
 async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> tuple[str, str]:
     """Read file in byte mode and decode using extension-aware strategy.
@@ -261,14 +263,15 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
 # Output formatting
 # -----------------
 
+
 def truncate_text_output(
-        text: str,
-        *,
-        start_line: int = 1,
-        total_lines: int = 0,
-        max_bytes: int = DEFAULT_MAX_BYTES,
-        file_path: str | None = None,
-        encoding: str = "utf-8",
+    text: str,
+    *,
+    start_line: int = 1,
+    total_lines: int = 0,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    file_path: str | None = None,
+    encoding: str = "utf-8",
 ) -> str:
     """Truncate text by bytes preserving line integrity; append a continuation notice.
 
@@ -297,11 +300,11 @@ def truncate_text_output(
             return result
 
         notice = (
-                TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
-                                           f"\nThe full content is saved to the file and contains {total_lines} lines in total."
-                                           f"\nThis excerpt starts at line {start_line} and covers the next {max_bytes} bytes."
-                                           f"\nIf the current content is not enough, call `read` with file={file_path or ''} "
-                                           f"start_line={read_from} to read more."
+            TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
+            f"\nThe full content is saved to the file and contains {total_lines} lines in total."
+            f"\nThis excerpt starts at line {start_line} and covers the next {max_bytes} bytes."
+            f"\nIf the current content is not enough, call `read` with file={file_path or ''} "
+            f"start_line={read_from} to read more."
         )
         return result + notice
     except Exception:
@@ -315,6 +318,7 @@ def truncate_text_output(
 
 # Slug validation
 # ---------------
+
 
 def validate_slug(slug: str) -> str | None:
     """Validate a daily-note slug. Thin wrapper over :func:`validate_filename_component`."""
@@ -354,6 +358,7 @@ def _wrap_notes_block(inner: str) -> str:
 # Content rendering
 # -----------------
 
+
 def _render_notes_block(notes: list[dict]) -> str:
     """Render each note as a single line with its full frontmatter inlined.
 
@@ -384,6 +389,7 @@ def _render_notes_block(notes: list[dict]) -> str:
 # Body manipulation
 # -----------------
 
+
 def _replace_or_append_notes(body: str, fresh_block: str) -> str:
     """Replace an existing notes auto block in-place; append at end if absent."""
     if _NOTES_BLOCK_RE.search(body):
@@ -395,6 +401,7 @@ def _replace_or_append_notes(body: str, fresh_block: str) -> str:
 
 # Public scan + rebuild
 # ---------------------
+
 
 def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
     """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.

@@ -143,7 +143,7 @@ async def mock_reme_server(
     log_to_file: bool = False,
     enable_logo: bool = False,
 ):
-    """Spawn `reme4 start` as a subprocess and yield (host, port) once ready.
+    """Spawn `reme start` as a subprocess and yield (host, port) once ready.
 
     Auto-picks a free port when port is None. Subprocess is terminated on exit.
     """
@@ -154,7 +154,7 @@ async def mock_reme_server(
     cmd: list[str] = [
         sys.executable,
         "-m",
-        "reme4.reme",
+        "reme.reme",
         "start",
         f"service.host={host}",
         f"service.port={port}",

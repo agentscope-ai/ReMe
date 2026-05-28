@@ -79,7 +79,7 @@ def precheck_start(svc_config: dict | None) -> bool:
         return False
     if status == "occupied":
         print(
-            f"port {port} occupied. Start on another port: reme4 start service.port=<other_port>",
+            f"port {port} occupied. Start on another port: reme start service.port=<other_port>",
             file=sys.stderr,
         )
         sys.exit(1)

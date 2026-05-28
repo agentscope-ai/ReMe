@@ -4,7 +4,7 @@ One class, :class:`WikilinkHandler`, owning every wikilink concern:
 
 * **Pure text** — regex, Dataview predicate inference, validation:
   :meth:`~WikilinkHandler.extract_links` (used by
-  :mod:`reme4.components.file_parser.linked_file_parser`),
+  :mod:`reme.components.file_parser.linked_file_parser`),
   :meth:`~WikilinkHandler.scan_and_rewrite`,
   :meth:`~WikilinkHandler.validate_src_dst` /
   :meth:`~WikilinkHandler.validate_scope` /

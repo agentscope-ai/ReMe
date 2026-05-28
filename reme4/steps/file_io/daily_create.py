@@ -43,7 +43,7 @@ class DailyCreateStep(BaseStep):
             self.context.response.metadata.update(meta)
 
     def _collect_params(self) -> tuple[str, str, str]:
-        """Read ``slug`` + ``date`` from context; default ``date`` to today (``YYYY-MM-DD``), ``daily_dir`` from app config."""
+        """Read ``slug`` + ``date`` from context; default ``date`` today, ``daily_dir`` from app config."""
         assert self.context is not None
         slug = self.context.get("slug", "")
         day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
