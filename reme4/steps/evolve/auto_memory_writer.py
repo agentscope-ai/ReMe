@@ -76,7 +76,7 @@ class AutoMemoryWriterStep(BaseStep):
                 vault_dir=str(self.file_store.vault_path),
                 note=memory_hint or "(none)",
                 note_path=note_path,
-                description=description,
+                writing_hint=description,
                 history=format_history(messages),
             )
 
