@@ -64,10 +64,10 @@ user_message: |
   ### Step 2 — UPDATE branch
   1. `read path=<target path>` to view the current body.
   2. Plan the merge per the rules above (timeline appends, facts merge-and-dedupe, current-state rewritten in full).
-  3. Execute the write — choose the tool(s) based on the scope of change, combinable:
-     - Local body change → `edit path=<target path> old=<original snippet> new=<replacement snippet>` (frontmatter is unaffected).
-     - After any body change, you must also refresh frontmatter → `frontmatter_update path=<target path> metadata={"description": "<updated summary>"}`.
-     - When the change is too sweeping for `edit` to express → `write path=<target path> name=<name> description=<description> content=<full body>`, resetting body and frontmatter in one shot.
+  3. Execute the write — **prefer `edit` over `write`**; only fall back to `write` when the change is genuinely too sweeping for `edit` to express cleanly:
+     - **Default: `edit`** — `edit path=<target path> old=<original snippet> new=<replacement snippet>` for each changed section (frontmatter is unaffected). Use multiple `edit` calls if needed to cover several sections.
+     - After any body change, you must also refresh frontmatter → `frontmatter_update path=<target path> metadata={{"description": "<updated summary>"}}`.
+     - **Fallback: `write`** — only when the body has changed so extensively that multiple edits would be harder to get right than a full rewrite → `write path=<target path> name=<name> description=<description> content=<full body>`, resetting body and frontmatter in one shot.
 
   ### Step 2' — CREATE branch
   1. Write the full body, capturing every fact from writing_hint.
@@ -148,10 +148,10 @@ user_message_zh: |
   ### 步骤 2 — UPDATE 分支
   1. `read path=<目标路径>` 查看当前正文。
   2. 按上述规则规划合并（时间线追加，事实合并去重，当下状态整段重写）。
-  3. 执行写入——根据变更范围选择工具，可组合使用：
-     - 正文局部变更 → `edit path=<目标路径> old=<原文片段> new=<替换片段>`（frontmatter 不受影响）。
-     - 正文变更后，必须同时刷新 frontmatter → `frontmatter_update path=<目标路径> metadata={"description": "<更新后的总结>"}`。
-     - 当变更范围过大、edit 难以表达时 → `write path=<目标路径> name=<name> description=<description> content=<完整正文>`，一次性重置正文和 frontmatter。
+  3. 执行写入——**优先使用 `edit`，而非 `write`**；仅当变更范围确实过大、edit 难以清晰表达时才退回到 `write`：
+     - **默认：`edit`** — `edit path=<目标路径> old=<原文片段> new=<替换片段>`，对每个变更区域分别调用（frontmatter 不受影响）。需要时可多次调用 `edit` 覆盖多个区域。
+     - 正文变更后，必须同时刷新 frontmatter → `frontmatter_update path=<目标路径> metadata={{"description": "<更新后的总结>"}}`。
+     - **退路：`write`** — 仅当正文改动极大、多次 edit 反而更难准确操作时 → `write path=<目标路径> name=<name> description=<description> content=<完整正文>`，一次性重置正文和 frontmatter。
 
   ### 步骤 2' — CREATE 分支
   1. 编写完整正文，捕捉 writing_hint 中的全部事实。

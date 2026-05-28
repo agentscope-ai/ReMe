@@ -202,5 +202,12 @@ class BaseStep(ABC):
             tool_func=run_job,
             func_name=job_name,
             func_description=job.description,
-            json_schema=job.parameters,
+            json_schema={
+                "type": "function",
+                "function": {
+                    "name": job_name,
+                    "description": job.description,
+                    "parameters": job.parameters,
+                },
+            },
         )

@@ -60,7 +60,7 @@ user_message: |
   - Timeline events (events that occurred, decision moments)
 
   ### Step 5 — Submit
-  Call `generate_response` with `memory_updates=[{path, description}, ...]`. If Step 1 determined a skip, emit `[]`. This is your only way to finish — do not produce free text after Step 4; the structured payload from the finish tool is your entire deliverable.
+  Call `generate_response` with `memory_updates=[{{path, description}}, ...]`. If Step 1 determined a skip, emit `[]`. This is your only way to finish — do not produce free text after Step 4; the structured payload from the finish tool is your entire deliverable.
 
   ## Boundaries
 
@@ -132,7 +132,7 @@ user_message_zh: |
   - 时间线事件（发生的事件、决策时刻）
 
   ### 步骤 5 — 提交
-  调用 `generate_response`，传入 `memory_updates=[{path, description}, ...]`。如果步骤 1 判定跳过，就发出 `[]`。这是你唯一的收尾方式——步骤 4 之后不要再产出自由文本；完成工具的结构化负载就是全部交付物。
+  调用 `generate_response`，传入 `memory_updates=[{{path, description}}, ...]`。如果步骤 1 判定跳过，就发出 `[]`。这是你唯一的收尾方式——步骤 4 之后不要再产出自由文本；完成工具的结构化负载就是全部交付物。
 
   ## 边界
 
