@@ -11,6 +11,7 @@ doesn't exist; otherwise ``{exists: true, frontmatter: {...}}``.
 from pathlib import Path
 
 import frontmatter
+import yaml
 
 from ..base_step import BaseStep
 from ...components import R
@@ -37,7 +38,13 @@ class FrontmatterReadStep(BaseStep):
             self.context.response.metadata.update({"path": path, "error": "not markdown"})
             return
 
-        meta = dict(frontmatter.loads(target.read_text(encoding="utf-8")).metadata)
+        try:
+            meta = dict(frontmatter.loads(target.read_text(encoding="utf-8")).metadata)
+        except yaml.YAMLError as exc:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: failed to parse frontmatter in {path}: {exc}"
+            self.context.response.metadata.update({"path": path, "exists": True, "error": str(exc)})
+            return
         self.context.response.success = True
         self.context.response.answer = f"Read frontmatter from {path} ({len(meta)} key(s))"
         self.context.response.metadata.update({"path": path, "exists": True, "frontmatter": meta})

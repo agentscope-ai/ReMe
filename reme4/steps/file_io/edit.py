@@ -1,6 +1,7 @@
 """Find-and-replace text in a markdown file body (front matter is preserved)."""
 
 import frontmatter
+import yaml
 
 from ._file_io import (
     NON_MD_WARNING,
@@ -73,7 +74,11 @@ class EditStep(BaseStep):
             # Markdown: parse frontmatter and operate on body only. Non-markdown:
             # there's no frontmatter convention, so operate on the full text.
             if is_md:
-                post = frontmatter.loads(raw_text)
+                try:
+                    post = frontmatter.loads(raw_text)
+                except yaml.YAMLError as exc:
+                    self._fail(f"failed to parse frontmatter in {target}: {exc}", path=str(target))
+                    return None
                 body = post.content
                 not_found_msg = (
                     f"text to replace was not found in the body of {target} (front matter is excluded from edit)"

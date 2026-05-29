@@ -35,8 +35,7 @@ DUMP_DIR = Path(__file__).resolve().parent
 SEED_STEM = "auth-middleware-rewrite"
 SEED_BODY = """---
 name: auth-middleware-rewrite
-description: JWT auth middleware rewrite driven by legal/compliance requirements around session token storage;
-uses RS256 signing; lead Alice, contributor Bob.
+description: JWT auth middleware rewrite driven by legal/compliance requirements around session token storage
 ---
 
 # 背景
