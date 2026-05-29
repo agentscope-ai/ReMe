@@ -382,18 +382,22 @@ def test_daily_create_rejects_invalid_session_id():
     asyncio.run(run())
 
 
-def test_daily_create_rejects_empty_session_id():
-    """Empty / missing session_id is rejected with a clear message."""
+def test_daily_create_empty_session_id_creates_day_level_file():
+    """Empty session_id creates day-level file ``daily/<date>.md``."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
             step = daily_create_step.DailyCreateStep(file_store=store)
             await step(session_id="", date="2026-05-18")
-            assert step.context.response.success is False
-            assert "session_id" in (step.context.response.answer or "").lower()
+            assert step.context.response.success is True
+            meta = step.context.response.metadata
+            assert meta["path"] == "daily/2026-05-18.md"
+            assert meta["session_id"] == ""
+            assert meta["created"] is True
+            assert Path(tmp, "daily", "2026-05-18.md").is_file()
             await store.close()
-        print("✓ test_daily_create_rejects_empty_session_id passed")
+        print("✓ test_daily_create_empty_session_id_creates_day_level_file passed")
 
     asyncio.run(run())
 
@@ -610,7 +614,7 @@ if __name__ == "__main__":
     test_daily_create_default_date_is_today()
     test_daily_create_default_frontmatter_uses_session_id_as_name()
     test_daily_create_rejects_invalid_session_id()
-    test_daily_create_rejects_empty_session_id()
+    test_daily_create_empty_session_id_creates_day_level_file()
     test_daily_create_then_skip_round_trip()
     test_day_index_lists_each_note()
     test_day_index_includes_note_descriptions()
