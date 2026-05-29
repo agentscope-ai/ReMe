@@ -1,8 +1,8 @@
 """``daily_list`` — list the notes under a single day (pure read, no side effects).
 
-Returns one row per ``daily/<date>/<slug>.md`` note file with its
-vault-relative ``path``, ``slug``, and the raw ``metadata`` dict
-(full frontmatter). Sorted by slug for stable output.
+Returns one row per ``daily/<date>/<session_id>.md`` note file with its
+vault-relative ``path``, ``session_id``, and the raw ``metadata`` dict
+(full frontmatter). Sorted by session_id for stable output.
 
 **Does NOT refresh** ``daily/<date>.md`` — call ``daily_reindex``
 explicitly when the index page needs to be rebuilt. Decoupling
@@ -35,7 +35,7 @@ class DailyListStep(BaseStep):
     @staticmethod
     def _project(note: dict) -> dict:
         """Keep only the user-facing keys (drop internal scan_notes fields, if any)."""
-        return {"path": note["path"], "slug": note["slug"], "metadata": note["metadata"]}
+        return {"path": note["path"], "session_id": note["session_id"], "metadata": note["metadata"]}
 
     @staticmethod
     def _format_note_line(note: dict) -> str:

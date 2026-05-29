@@ -109,19 +109,19 @@ jobs:
 
   daily_create:
     backend: base
-    description: "Provision a note slug under a daily folder: daily/<date>/<slug>.md"
+    description: "Provision a session note under a daily folder: daily/<date>/<session_id>.md"
     parameters:
       type: object
       properties:
-        slug:
+        session_id:
           type: string
-          description: "the file stem: event name or topic name"
+          description: "the session identifier (also the file stem)"
         date:
           type: string
           description: "YYYY-MM-DD; empty = today"
           default: ""
       required:
-        - slug
+        - session_id
     steps:
       - backend: daily_create_step
 

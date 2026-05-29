@@ -1,8 +1,8 @@
-"""``daily_reindex_step`` — rebuild ``daily/<date>.md`` from its notes.
+"""``daily_reindex_step`` — rebuild ``daily/<date>.md`` from its session notes.
 
 The day index ``daily/<date>.md`` is a derived artifact whose job is to
-list and describe every note file under ``daily/<date>/``. It is auto-
-refreshed by ``daily_create``. Generic ops like ``file_write`` /
+list and describe every session note file under ``daily/<date>/``. It is
+auto-refreshed by ``daily_create``. Generic ops like ``file_write`` /
 ``file_append`` / ``frontmatter_update`` leave it stale — this step
 is the standalone writer to call after batch flows (historical
 backfill, drift recovery, end-of-batch consolidation, or a

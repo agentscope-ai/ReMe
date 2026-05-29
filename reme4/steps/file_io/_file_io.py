@@ -4,10 +4,10 @@ Two related concerns, both private to the ``crud`` package:
 
 1. **Generic file IO** — path gating, encoding-aware read/write, output
    truncation (used by every CRUD step that touches the filesystem).
-2. **Daily-note helpers** — slug validation + ``daily/<date>.md`` index
-   rebuild (used by the ``daily_*`` steps). The day index is a derived
-   rollup page auto-managed in marker-delimited sections; user-edited
-   manual sections are preserved verbatim across refreshes.
+2. **Daily-note helpers** — session_id validation + ``daily/<date>.md``
+   index rebuild (used by the ``daily_*`` steps). The day index is a
+   derived rollup page auto-managed in marker-delimited sections;
+   user-edited manual sections are preserved verbatim across refreshes.
 """
 
 import asyncio
@@ -140,7 +140,7 @@ def validate_filename_component(name: str, *, kind: str = "filename") -> str | N
       for callers that validate per component)
 
     ``kind`` is the human-readable label inserted into error messages
-    (e.g. ``"slug"``, ``"path component"``).
+    (e.g. ``"session_id"``, ``"path component"``).
     """
     if not name:
         return f"{kind} is required"
@@ -382,16 +382,16 @@ def truncate_text_output(
 
 
 # ---------------------------------------------------------------------------
-# Daily-note helpers: slug validation + day-index rebuild
+# Daily-note helpers: session_id validation + day-index rebuild
 # ---------------------------------------------------------------------------
 
-# Slug validation
-# ---------------
+# Session ID validation
+# ---------------------
 
 
-def validate_slug(slug: str) -> str | None:
-    """Validate a daily-note slug. Thin wrapper over :func:`validate_filename_component`."""
-    return validate_filename_component(slug, kind="slug")
+def validate_session_id(session_id: str) -> str | None:
+    """Validate a daily-note session_id. Thin wrapper over :func:`validate_filename_component`."""
+    return validate_filename_component(session_id, kind="session_id")
 
 
 # Day-index rebuild
@@ -447,26 +447,26 @@ def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
 
     Returns one dict per note::
 
-        {"slug": str, "path": str, "metadata": dict}
+        {"session_id": str, "path": str, "metadata": dict}
 
     ``metadata`` is the raw frontmatter dict (insertion-ordered);
     consumers decide which keys to surface. Each ``.md`` directly
-    under the day folder is a note; the file's stem is the slug.
+    under the day folder is a note; the file's stem is the session_id.
     """
     date_dir = vault_dir / daily_dir / date
     if not date_dir.is_dir():
         return []
     out: list[dict] = []
     for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md"):
-        slug = md_path.stem
+        session_id = md_path.stem
         try:
             post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
         except Exception:  # pylint: disable=broad-except
             continue
         out.append(
             {
-                "slug": slug,
-                "path": f"{daily_dir}/{date}/{slug}.md",
+                "session_id": session_id,
+                "path": f"{daily_dir}/{date}/{session_id}.md",
                 "metadata": dict(post.metadata or {}),
             },
         )
@@ -492,7 +492,7 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
     index_abs = vault_dir / index_rel
     notes = scan_notes(vault_dir, date, daily_dir)
 
-    notes_payload = [{"path": n["path"], "slug": n["slug"], "metadata": n["metadata"]} for n in notes]
+    notes_payload = [{"path": n["path"], "session_id": n["session_id"], "metadata": n["metadata"]} for n in notes]
 
     if not notes and not index_abs.is_file():
         return {
