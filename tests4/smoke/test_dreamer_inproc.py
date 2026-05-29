@@ -32,12 +32,14 @@ SMOKE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(SMOKE_DIR))
 
+# pylint: disable=wrong-import-position
 from _dreamer_fixture import clean_vault, seed_vault, INPUT_PATH  # noqa: E402
 
 VAULT = os.environ.get("VAULT_PATH", "/tmp/reme-dreamer-test")
 
 
 async def main() -> None:
+    """Main function for testing the ReMeFs CLI."""
     from reme4 import ReMe  # noqa: E402
     from reme4.config import resolve_app_config  # noqa: E402
     from reme4.utils import load_env  # noqa: E402

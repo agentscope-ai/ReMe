@@ -424,7 +424,8 @@ class Dreamer(BaseStep):
                             },
                             "content": {
                                 "type": "string",
-                                "description": "body (markdown; no frontmatter — name/description go in the fields above)",
+                                "description": "body (markdown; no frontmatter "
+                                "— name/description go in the fields above)",
                             },
                         },
                         "required": ["path", "name", "description", "content"],

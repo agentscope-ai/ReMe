@@ -250,6 +250,7 @@ def seed_vault(vault: Path) -> list[str]:
     return seeded
 
 
+# pylint: disable=missing-function-docstring
 def main() -> None:
     if len(sys.argv) < 2:
         print(f"usage: {sys.argv[0]} <vault_dir>", file=sys.stderr)
