@@ -20,7 +20,7 @@ from pathlib import Path
 
 import frontmatter
 
-from .digest_write import DEFAULT_DIGEST_DIR, _validate_digest_path, bucket_names, normalize_buckets
+from .digest_write import _validate_digest_path, bucket_names, normalize_buckets
 from ..file_io._file_io import read_file_safe
 from ..file_io.edit import EditStep
 from ...components import R
@@ -29,12 +29,15 @@ from ...utils.wikilink_handler import WikilinkHandler
 
 @R.register("digest_edit_step")
 class DigestEditStep(EditStep):
-    """EditStep variant that enforces digest path shape + E-1 edge conservation."""
+    """EditStep variant that enforces digest path shape + E-1 edge conservation.
 
-    def __init__(self, buckets=None, digest_dir: str | None = None, **kwargs):
+    ``digest_dir`` is sourced from ``app_context.app_config.digest_dir`` at
+    execute time — same convention as the ``daily_*`` steps.
+    """
+
+    def __init__(self, buckets=None, **kwargs):
         super().__init__(**kwargs)
         self.buckets = normalize_buckets(buckets)
-        self.digest_dir = (digest_dir or "").strip() or DEFAULT_DIGEST_DIR
 
     def _reject(self, message: str, **meta) -> None:
         assert self.context is not None
@@ -48,8 +51,9 @@ class DigestEditStep(EditStep):
         raw = str(self.context.get("path") or "")
         old = self.context.get("old")
         new = self.context.get("new")
+        digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
 
-        err = _validate_digest_path(raw, bucket_names(self.buckets), self.digest_dir)
+        err = _validate_digest_path(raw, bucket_names(self.buckets), digest_dir)
         if err:
             self._reject(err)
             return None

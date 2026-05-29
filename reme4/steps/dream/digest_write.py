@@ -80,17 +80,18 @@ def bucket_names(buckets) -> tuple[str, ...]:
     return tuple(buckets)
 
 
-DEFAULT_DIGEST_DIR: str = "digest"
-
-
 @R.register("digest_write_step")
 class DigestWriteStep(WriteStep):
-    """WriteStep variant that enforces the ``<digest_dir>/<bucket>/<slug>.md`` layout."""
+    """WriteStep variant that enforces the ``<digest_dir>/<bucket>/<slug>.md`` layout.
 
-    def __init__(self, buckets=None, digest_dir: str | None = None, **kwargs):
+    ``digest_dir`` is sourced from ``app_context.app_config.digest_dir`` at
+    execute time — same convention as ``daily_create`` / ``daily_list`` /
+    ``daily_reindex`` for their ``daily_dir``.
+    """
+
+    def __init__(self, buckets=None, **kwargs):
         super().__init__(**kwargs)
         self.buckets = normalize_buckets(buckets)
-        self.digest_dir = (digest_dir or "").strip() or DEFAULT_DIGEST_DIR
 
     def _reject(self, message: str) -> None:
         assert self.context is not None
@@ -100,8 +101,9 @@ class DigestWriteStep(WriteStep):
     async def execute(self):
         assert self.context is not None
         raw = str(self.context.get("path") or "")
+        digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
 
-        err = _validate_digest_path(raw, bucket_names(self.buckets), self.digest_dir)
+        err = _validate_digest_path(raw, bucket_names(self.buckets), digest_dir)
         if err:
             self._reject(err)
             return None

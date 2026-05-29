@@ -198,14 +198,6 @@ class Dreamer(BaseStep):
         vr = getattr(self.file_store, "vault_path", None)
         return Path(vr).resolve() if vr else Path.cwd().resolve()
 
-    def _digest_dir(self) -> str:
-        """Resolve the configured digest subroot (defaults to ``"digest"``)."""
-        if self.app_context is not None:
-            val = getattr(self.app_context.app_config, "digest_dir", "") or ""
-            if val:
-                return val
-        return "digest"
-
     def _llm_available(self) -> bool:
         try:
             return self.as_llm is not None
@@ -275,13 +267,10 @@ class Dreamer(BaseStep):
     def _make_digest_write_tool(self):
         """Tool closure: wraps :class:`DigestWriteStep` and tracks creates."""
 
-        digest_dir = self._digest_dir()
-
         async def digest_write(path: str, name: str, description: str, content: str) -> ToolResponse:
             step = DigestWriteStep(
                 file_store=self.file_store,
                 buckets=self.buckets,
-                digest_dir=digest_dir,
                 app_context=self.app_context,
             )
             await step(path=path, name=name, description=description, content=content)
@@ -297,13 +286,10 @@ class Dreamer(BaseStep):
     def _make_digest_edit_tool(self):
         """Tool closure: wraps :class:`DigestEditStep` and tracks updates / conservation violations."""
 
-        digest_dir = self._digest_dir()
-
         async def digest_edit(path: str, old: str, new: str) -> ToolResponse:
             step = DigestEditStep(
                 file_store=self.file_store,
                 buckets=self.buckets,
-                digest_dir=digest_dir,
                 app_context=self.app_context,
             )
             await step(path=path, old=old, new=new)
@@ -388,7 +374,7 @@ class Dreamer(BaseStep):
         toolkit = self.toolkit or Toolkit()
         for job_name in _INTEGRATE_READ_TOOLS:
             self.add_as_tool(toolkit, job_name)
-        digest_dir = self._digest_dir()
+        digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
         path_shape = f"'{digest_dir}/<bucket>/<slug>.md'"
         digest_write_desc = (
             "Create a NEW digest node — same shape as the canonical `write` job, plus "
@@ -507,7 +493,7 @@ class Dreamer(BaseStep):
     async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> str:
         """One ReAct invocation per memory sub-unit. Returns LLM summary of writes."""
         toolkit = self._build_integrate_toolkit()
-        digest_dir = self._digest_dir()
+        digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
         buckets_block = "\n".join(
             f"  - `{digest_dir}/{b['name']}/`" + (f"  — {b['description']}" if b.get("description") else "")
             for b in self.buckets
