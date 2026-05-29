@@ -368,6 +368,41 @@ jobs:
     steps:
       - backend: edit_step
 
+  dream:
+    backend: base
+    description: "Dream: lift atomic units from one daily/resource file into digest/ (LLM)."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path of one daily-event note or resource file"
+        hint:
+          type: string
+          description: "caller guidance to the dreamer LLM"
+          default: ""
+      required:
+        - path
+    steps:
+      - backend: dreamer_step
+
+  dream_today:
+    backend: base
+    description: "Dream-today: scan <daily_dir>/<today>/ + <resource_dir>/<today>/ and dream each file (LLM). Subroots resolved from app config."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD to scan; defaults to today in the dreamer's timezone"
+          default: ""
+        hint:
+          type: string
+          description: "caller guidance passed through to each per-file dream"
+          default: ""
+    steps:
+      - backend: cron_dreamer_step
+
   auto_memory:
     backend: base
     description: "Auto-memory: record conversation facts into a daily note"
@@ -447,3 +482,15 @@ components:
       embedding_model: ""
       keyword_index: default
       file_graph: default
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      api_key: ${LLM_API_KEY:-}
+      base_url: ${LLM_BASE_URL:-}
+      model_name: ${LLM_MODEL_NAME:-}
+      stream: false
+
+  as_llm_formatter:
+    default:
+      backend: ${LLM_BACKEND:-openai}

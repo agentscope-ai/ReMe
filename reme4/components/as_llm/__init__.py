@@ -25,7 +25,13 @@ class OpenAIAsLLM(BaseAsLLM):
     """OpenAI chat model wrapper."""
 
     async def _start(self) -> None:
-        self.model = OpenAIChatModel(**self.kwargs)
+        kwargs = dict(self.kwargs)
+        base_url = kwargs.pop("base_url", None)
+        if base_url:
+            client_kwargs = dict(kwargs.pop("client_kwargs", None) or {})
+            client_kwargs.setdefault("base_url", base_url)
+            kwargs["client_kwargs"] = client_kwargs
+        self.model = OpenAIChatModel(**kwargs)
 
     async def _close(self) -> None:
         if self.model is not None:

@@ -29,6 +29,11 @@ from .index.traverse import TraverseStep
 from .index.update_catalog import UpdateCatalogStep
 from .index.update_index import UpdateIndexStep
 from .index.watch_changes import WatchChangesStep
+from .dream.cron_dreamer import CronDreamer
+from .dream.digest_edit import DigestEditStep
+from .dream.digest_write import DigestWriteStep
+from .dream.dreamer import Dreamer
+from .jobs.synchronizer import Synchronizer
 from .transfer.download import DownloadStep
 from .transfer.ingest import IngestStep
 from .transfer.upload import UploadStep
@@ -71,6 +76,13 @@ __all__ = [
     "UpdateCatalogStep",
     "UpdateIndexStep",
     "WatchChangesStep",
+    # dream
+    "CronDreamer",
+    "DigestEditStep",
+    "DigestWriteStep",
+    "Dreamer",
+    # jobs
+    "Synchronizer",
     # transfer
     "DownloadStep",
     "IngestStep",

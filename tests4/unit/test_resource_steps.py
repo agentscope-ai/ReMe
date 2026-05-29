@@ -542,7 +542,7 @@ def test_upload_preserves_description_verbatim_in_meta():
             payload = _metadata(step)
             assert "error" not in payload, payload
 
-            # meta.json preserves the original — downstream digester sees full hint.
+            # meta.json preserves the original — downstream dreamer sees full hint.
             meta = _meta(tmp, payload["date"])
             assert meta[0]["front_matter"]["description"] == multi
 

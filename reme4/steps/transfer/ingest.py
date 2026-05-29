@@ -63,7 +63,7 @@ Parameters:
   only.
 * ``description`` (required) — analysis hint for downstream agents:
   where the asset came from, what kind of content it carries, and how
-  it should be interpreted. The digester / auto_memory reads this
+  it should be interpreted. The dreamer / auto_memory reads this
   verbatim from ``meta.json`` to decide how to read the asset (skim
   vs. deep parse, structured extraction vs. summarization, etc.), so
   callers should write enough detail to drive that decision — not
