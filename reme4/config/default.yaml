@@ -109,19 +109,18 @@ jobs:
 
   daily_create:
     backend: base
-    description: "Provision a session note under a daily folder: daily/<date>/<session_id>.md"
+    description: "Provision a session note under a daily folder: daily/<date>/<session_id>.md or daily/<date>.md"
     parameters:
       type: object
       properties:
         session_id:
           type: string
-          description: "the session identifier (also the file stem)"
+          description: "the session identifier (also the file stem); empty = day-level file"
+          default: ""
         date:
           type: string
           description: "YYYY-MM-DD; empty = today"
           default: ""
-      required:
-        - session_id
     steps:
       - backend: daily_create_step
 
@@ -371,7 +370,7 @@ jobs:
 
   auto_memory:
     backend: base
-    description: "Auto-memory orchestrator"
+    description: "Auto-memory: record conversation facts into a daily note"
     parameters:
       type: object
       properties:
@@ -380,6 +379,10 @@ jobs:
           description: "messages"
           items:
             type: object
+        session_id:
+          type: string
+          description: "session identifier passed to daily_create"
+          default: ""
         memory_hint:
           type: string
           description: "optional hint"
@@ -390,8 +393,7 @@ jobs:
       required:
         - messages
     steps:
-      - backend: auto_memory_planner_step
-      - backend: auto_memory_writer_step
+      - backend: auto_memory_step
 
 components:
   tokenizer:

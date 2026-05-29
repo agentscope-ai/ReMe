@@ -101,12 +101,12 @@ litellm = [
 ]
 
 light = [
-    "agentscope==1.0.19",
+    "agentscope==1.0.20",
     "flowllm[reme]>=0.2.0.10",
 ]
 
 core = [
-    "agentscope==1.0.19",
+    "agentscope==1.0.20",
 ]
 
 [tool.setuptools.packages.find]
