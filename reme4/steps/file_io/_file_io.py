@@ -414,58 +414,28 @@ def validate_slug(slug: str) -> str | None:
 _NOTES_OPEN = "<!-- notes:auto -->"
 _NOTES_CLOSE = "<!-- /notes:auto -->"
 
-_NOTES_BLOCK_RE = re.compile(
-    rf"{re.escape(_NOTES_OPEN)}(?P<inner>.*?){re.escape(_NOTES_CLOSE)}",
-    re.DOTALL,
-)
-
-
-def _wrap_notes_block(inner: str) -> str:
-    return f"{_NOTES_OPEN}\n{inner}\n{_NOTES_CLOSE}"
-
-
-# Content rendering
-# -----------------
-
 
 def _render_notes_block(notes: list[dict]) -> str:
-    """Render each note as a single line with its full frontmatter inlined.
-
-    Format: ``- [[path]] key1: value1 key2: value2 ...``. ``name`` and
-    ``description`` lead (when present) so columns line up across notes;
-    remaining keys follow in frontmatter insertion order. Empty / None
-    values are skipped; newlines in values collapse to spaces so the
-    single-line invariant holds.
-    """
+    """Render each note as ``- [[path]] key: val ...`` (one line per note)."""
     if not notes:
         return "(none)"
     lines: list[str] = []
     for note in notes:
         meta: dict = note["metadata"]
-        ordered_keys = [k for k in ("name", "description") if k in meta]
-        ordered_keys += [k for k in meta if k not in ("name", "description")]
-        parts = [f"- [[{note['path']}]]"]
-        for key in ordered_keys:
-            value = meta[key]
-            if value is None or value == "":
-                continue
-            value_str = str(value).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-            parts.append(f"{key}: {value_str}")
+        keys = [k for k in ("name", "description") if k in meta] + [k for k in meta if k not in ("name", "description")]
+        parts = [f"- [[{note['path']}]]"] + [
+            f"{k}: {str(v).replace(chr(10), ' ')}" for k in keys if (v := meta[k]) not in (None, "")
+        ]
         lines.append(" ".join(parts))
     return "\n".join(lines)
 
 
-# Body manipulation
-# -----------------
-
-
-def _replace_or_append_notes(body: str, fresh_block: str) -> str:
-    """Replace an existing notes auto block in-place; append at end if absent."""
-    if _NOTES_BLOCK_RE.search(body):
-        replacement = _wrap_notes_block(fresh_block)
-        return _NOTES_BLOCK_RE.sub(lambda m: replacement, body, count=1)
-    suffix = _wrap_notes_block(fresh_block)
-    return f"{body.rstrip()}\n\n{suffix}\n" if body.strip() else f"{suffix}\n"
+def _rebuild_body(body: str, notes_content: str) -> str:
+    """Replace or append the auto block, preserving surrounding content."""
+    block = f"{_NOTES_OPEN}\n{notes_content}\n{_NOTES_CLOSE}"
+    if _NOTES_OPEN in body and _NOTES_CLOSE in body:
+        return body.split(_NOTES_OPEN, 1)[0] + block + body.split(_NOTES_CLOSE, 1)[1]
+    return f"{body.rstrip()}\n\n{block}\n" if body.strip() else f"{block}\n"
 
 
 # Public scan + rebuild
@@ -539,7 +509,7 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
 
     if index_abs.is_file():
         post = frontmatter.loads(index_abs.read_text(encoding="utf-8"))
-        new_body = _replace_or_append_notes(post.content, notes_block)
+        new_body = _rebuild_body(post.content, notes_block)
         merged = dict(post.metadata or {})
         for key, value in fm.items():
             if not merged.get(key):
@@ -548,7 +518,7 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
         was_created = False
     else:
         index_abs.parent.mkdir(parents=True, exist_ok=True)
-        new_body = _wrap_notes_block(notes_block) + "\n"
+        new_body = f"{_NOTES_OPEN}\n{notes_block}\n{_NOTES_CLOSE}\n"
         was_created = True
     out = frontmatter.Post(new_body, **fm)
     index_abs.write_text(frontmatter.dumps(out), encoding="utf-8")

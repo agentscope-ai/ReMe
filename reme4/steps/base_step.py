@@ -188,14 +188,14 @@ class BaseStep(ABC):
             raise RuntimeError(f"Job {name} not found")
         return await job(**kwargs)
 
-    def add_as_tool(self, toolkit: Toolkit, job_name: str) -> None:
+    def add_as_tool(self, toolkit: Toolkit, job_name: str, **kwargs) -> None:
         """Add the step as a tool to the toolkit."""
         job: "BaseJob | None" = self.get_job(job_name)
         if job is None:
             raise RuntimeError(f"Job {job_name} not found")
 
-        async def run_job(**kwargs) -> ToolResponse:
-            response = await job(**kwargs)
+        async def run_job(**_kwargs) -> ToolResponse:
+            response = await job(**{**_kwargs, **kwargs})
             return ToolResponse(content=[TextBlock(type="text", text=response.answer)])
 
         toolkit.register_tool_function(

@@ -2,7 +2,9 @@
 
 import datetime
 import zoneinfo
+from typing import Literal
 
+from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 
 
@@ -27,3 +29,15 @@ def format_history(messages: list[Msg], include_timestamp: bool = True) -> str:
         header = f"[{speaker} @ {msg.timestamp}]" if include_timestamp else f"[{speaker}]"
         lines.append(f"{header}\n{text}")
     return "\n\n".join(lines) or "(empty)"
+
+
+class FlexReActAgent(ReActAgent):
+    """ReActAgent subclass that allows structured output without forcing tool_choice='required'."""
+
+    async def _reasoning(
+        self,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
+    ) -> Msg:
+        if tool_choice == "required":
+            tool_choice = None
+        return await super()._reasoning(tool_choice)

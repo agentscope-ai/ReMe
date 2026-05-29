@@ -20,12 +20,11 @@ Output (written to context.response):
     metadata['memory_updates']: list of ``{path, description}`` dicts.
 """
 
-from agentscope.agent import ReActAgent
 from agentscope.message import Msg
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
-from ._evolve import format_history, now
+from ._evolve import FlexReActAgent, format_history, now
 from ..base_step import BaseStep
 from ...components import R
 
@@ -76,7 +75,7 @@ class AutoMemoryPlannerStep(BaseStep):
         for job_name in self.planner_tools:
             self.add_as_tool(toolkit, job_name)
 
-        agent = ReActAgent(
+        agent = FlexReActAgent(
             name="auto_memory_planner",
             model=self.as_llm,
             sys_prompt=self.prompt_format("system_prompt"),
