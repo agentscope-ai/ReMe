@@ -418,7 +418,7 @@ components:
 
   as_llm_formatter:
     default:
-      backend: ${LLM_FORMATTER_BACKEND:-anthropic}
+      backend: ${LLM_BACKEND:-anthropic}
 
   file_graph:
     default:
