@@ -77,8 +77,8 @@ class ChunkedFileParser(BaseFileParser):
         spans: list[tuple[int, int]] = []
         last_char, last_byte = 0, 0
         for wm in WikilinkHandler.iter_matches(content):
-            last_byte += len(content[last_char:wm.start].encode(self.encoding))
-            match_bytes = len(content[wm.start:wm.end].encode(self.encoding))
+            last_byte += len(content[last_char : wm.start].encode(self.encoding))
+            match_bytes = len(content[wm.start : wm.end].encode(self.encoding))
             spans.append((last_byte, last_byte + match_bytes))
             last_byte += match_bytes
             last_char = wm.end
