@@ -44,7 +44,7 @@ class EditStep(BaseStep):
             self._fail("`old` is required and must be non-empty")
             return None
         if new is None:
-            self.fail("`new` is required")
+            self._fail("`new` is required")
             return None
         old_str = str(old)
         new_str = str(new)

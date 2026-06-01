@@ -85,6 +85,7 @@ _NON_STANDARD_EXTS = {".csv", ".bat", ".cmd", ".reg"}
 # are NOT protected. That trade-off is acceptable for the current single-
 # process reme server; cross-process protection would need flock or OCC.
 # ---------------------------------------------------------------------------
+_PATH_LOCKS_MAX = 1024
 _PATH_LOCKS: dict[str, asyncio.Lock] = {}
 _PATH_LOCKS_REGISTRY = asyncio.Lock()
 
@@ -95,11 +96,17 @@ async def get_path_lock(target: Path) -> asyncio.Lock:
     The lock is keyed by the string form of ``target`` — callers should pass
     a path that has already been normalized by :func:`resolve_path` so two
     equivalent paths share one lock.
+
+    Evicts unlocked entries when the cache exceeds ``_PATH_LOCKS_MAX``.
     """
     key = str(target)
     async with _PATH_LOCKS_REGISTRY:
         lock = _PATH_LOCKS.get(key)
         if lock is None:
+            if len(_PATH_LOCKS) >= _PATH_LOCKS_MAX:
+                to_remove = [k for k, v in _PATH_LOCKS.items() if not v.locked()]
+                for k in to_remove[:len(_PATH_LOCKS) // 2]:
+                    del _PATH_LOCKS[k]
             lock = asyncio.Lock()
             _PATH_LOCKS[key] = lock
     return lock

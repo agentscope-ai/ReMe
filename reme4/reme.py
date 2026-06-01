@@ -18,6 +18,8 @@ async def call_server(action: str, **kwargs):
     """Call the appropriate server component."""
     backend: str = kwargs.pop("backend", "http")
     client_cls = R.get(ComponentEnum.CLIENT, backend)
+    if client_cls is None:
+        raise ValueError(f"Unknown client backend: {backend!r}")
     async with client_cls() as client:
         async for chunk in client(action=action, **kwargs):
             print(chunk, end="", flush=True)

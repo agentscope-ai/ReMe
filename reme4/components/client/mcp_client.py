@@ -80,8 +80,8 @@ class MCPClient(BaseClient):
         cls = _TRANSPORT_MAP[self.transport]
 
         if self.transport == "stdio":
-            command = self.kwargs.pop("command", "")
-            args = self.kwargs.pop("args", [])
+            command = self.kwargs.get("command", "")
+            args = self.kwargs.get("args", [])
             return cls(command=command, args=args)
 
         path = "/sse" if self.transport == "sse" else "/mcp"
