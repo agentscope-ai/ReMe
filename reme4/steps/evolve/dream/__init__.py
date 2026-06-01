@@ -1,19 +1,17 @@
-"""dream — auto-dream pipeline: classify + integrate via constrained digest tools.
+"""dream — auto-dream pipeline: extract abstractions, then integrate per
+sub-unit using bucket-specific Phase 2 prompts.
 
-Four steps:
+Two steps:
 
-    dreamer            — 2-phase ReAct workflow (extract memory sub-units,
-                         then integrate per sub-unit via the digest tools).
-    cron_dreamer       — daily wrapper around dreamer; scans today's
-                         daily/ + resource/ files and runs dream_one on each.
-    digest_write_step  — constrained WriteStep that creates a new
-                         digest/<bucket>/<slug>.md.
-    digest_edit_step   — constrained EditStep that find-and-replaces in
-                         an existing digest node, enforcing E-1 edge
-                         conservation.
+    dreamer       — 2-phase ReAct workflow (extract memory sub-units
+                    tagged with bucket, then integrate per sub-unit
+                    via the canonical write/edit tools).
+    cron_dreamer  — daily wrapper around dreamer; scans today's
+                    daily/ + resource/ files and runs dream_one on each.
+
+Phase 2 uses the canonical ``write`` / ``edit`` jobs directly — no
+constrained variants. Bucket placement is prompt-level discipline.
 """
 
 from . import cron_dreamer  # noqa: F401  -- @R.register("cron_dreamer_step")
-from . import digest_edit  # noqa: F401  -- @R.register("digest_edit_step")
-from . import digest_write  # noqa: F401  -- @R.register("digest_write_step")
 from . import dreamer  # noqa: F401  -- @R.register("dreamer_step")

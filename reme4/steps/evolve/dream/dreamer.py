@@ -1,88 +1,46 @@
 """Dreamer — auto-dream's create_or_update step.
 
 Reads one daily-event note or resource file at the given vault-relative
-``path``, identifies the ABSTRACTIONS the material teaches in Phase 1,
-then in Phase 2 makes ONE cognitive write decision (CREATE or one of
-the three UPDATE flavors: CORROBORATE / REFINE / CORRECT) per
-abstraction. See ``docs4/auto_dream_design.md`` for the model
-contract (buckets / nodes / edges / evolution) and ``§4.2`` for the
-pipeline.
+``path``, identifies the ABSTRACTIONS the material teaches in Phase 1
+(each tagged with one of the three buckets), then in Phase 2 makes
+ONE cognitive write decision (CREATE or one of the three UPDATE
+flavors: CORROBORATE / REFINE / CORRECT) per abstraction using a
+**bucket-specific** integrate prompt.
 
-**Digest is the abstract memory layer** — analogous to a prefrontal
-cortex aggregating cognition. Raw details (timestamps, full
-procedures, who-said-what, numbers) stay in the material; digest
-holds the principle, pattern, or precedent that should survive
-once the details fade. Provenance wikilinks (``derived_from::``)
-let readers drill back down to the source on demand.
+**Digest is the abstract memory layer** — raw details stay in the
+material; digest holds the principle, pattern, or precedent worth
+recalling once the specifics fade. Provenance wikilinks
+(``derived_from::``) let readers drill back down to the source.
 
 Pipeline (external loop in Python, two distinct ReAct agent invocations,
 **light Phase 1 / heavy Phase 2**):
 
     execute():
         _extract(material_blob)         # 1× ReAct: identify abstractions
-                                        #   agent emits ExtractedUnits structured output
-                                        #   ({units: [{name, summary}, ...]})
-        for unit in self._units:        # Python loop, K iterations (K = num abstractions)
-            _integrate_unit(unit)       # 1× ReAct per abstraction: agent sees full material +
-                                        #   the sub-unit's name/summary, recalls, decides
-                                        #   bucket, makes ONE write decision (CREATE or
-                                        #   one of the UPDATE flavors). Sub-unit ↔ digest
-                                        #   node is 1:1.
+                                        #   agent emits ExtractedUnits
+                                        #   ({units: [{name, bucket, summary}, ...]})
+        for unit in self._units:        # Python loop, K iterations
+            _integrate_unit(unit)       # 1× ReAct per abstraction, dispatched
+                                        #   to integrate_system_prompt_<bucket>;
+                                        #   recalls cross-bucket, decides write,
+                                        #   uses canonical write/edit tools.
 
-* **Phase 1 (extract / abstract)** uses a read-only toolkit
-  and emits an :class:`ExtractedUnits` Pydantic model as its
-  final structured answer (no tool call needed for the unit
-  list — agentscope's ``structured_model`` enforces the shape).
-  The agent identifies the abstractions the material teaches —
-  principles, patterns, precedents worth carrying forward once
-  specifics fade. Multiple raw facts that illustrate the same
-  abstraction collapse into ONE sub-unit. Prompt biases toward
-  fewer / coarser sub-units; filing detail under a digest
-  sub-unit is the wrong layer. No event-level umbrella node is
-  manufactured — the material itself plays that role via
-  ``derived_from`` provenance edges.
+The bucket vocabulary is hard-coded (:data:`BUCKETS`) — three buckets,
+each with a dedicated Phase 2 prompt:
 
-* **Phase 2 (integrate per abstraction)** runs once per declared
-  sub-unit with a fresh ReAct session (clean context) and the full
-  read + write toolkit (``search``, ``traverse``, ``read``,
-  ``frontmatter_read``, ``digest_write``, ``digest_edit``). Three
-  UPDATE shapes are surfaced explicitly
-  in the prompt:
+* ``procedure`` — how-to-do-X: steps, methods, recipes, workflows.
+* ``personal``  — user/team specific: identity, preferences,
+  conventions, things they avoid.
+* ``wiki``      — general knowledge: definitions, principles,
+  observations, decisions-as-precedent. Default catch-all.
 
-    - **corroborate** (most common): the abstraction already
-      exists; the material is one more instance → append a
-      ``derived_from::`` provenance wikilink so confidence
-      accumulates; body unchanged in substance.
-    - **refine**: the material reveals nuance / scope / edge
-      cases the abstraction under-specified → tighten the
-      relevant span + add the new provenance link.
-    - **correct**: the material contradicts the abstraction →
-      tighten to the narrower form both old and new support,
-      or annotate the contradiction inline + add provenance.
+There is no SKIP outcome in Phase 2: Phase 1 is the gate for "not
+worth memorizing"; anything reaching Phase 2 warrants a write.
 
-  CREATE is reserved for genuinely new abstractions not yet in
-  the vault — even thin first-encounter seeds, which grow via
-  CORROBORATE / REFINE on later passes. There is no SKIP outcome:
-  Phase 1 is the gate for "not worth memorizing"; anything that
-  reaches Phase 2 warrants a write.
-
-The trade-off vs heavy Phase 1: full material is sent to LLM K
-times in Phase 2 (one per abstraction). The advantages: no
-information loss in summary, focused reasoning per call, and
-granularity tuned at a single prompt (Phase 1) rather than two.
-
-Mechanical guardrails at the write boundary:
-
-* ``digest_write`` (subclass of WriteStep) rejects paths outside
-  ``<digest_dir>/<bucket>/<slug>.md`` (where ``digest_dir`` comes
-  from app config and ``bucket`` is in the fixed bucket set), and
-  refuses if the path already exists.
-* ``digest_edit`` (subclass of EditStep) is a body-only find-and-replace
-  on an existing digest node, gated by E-1 strong-conservation: the
-  outbound link set BEFORE the replacement must be a subset of the link
-  set AFTER. If any edge would be dropped the tool returns
-  ``REJECT_CONSERVATION`` and the agent must adjust ``new`` to keep
-  the missing links before retrying.
+Phase 2 uses the **canonical** ``write`` / ``edit`` jobs (no
+constrained variants). Bucket placement and edge conservation are
+prompt-level discipline; the tools themselves perform no path-shape
+or conservation validation.
 
 Invocation form (CLI / MCP):
     reme dream path=daily/2026-05-28/auth-refactor/auth-refactor.md
@@ -98,11 +56,19 @@ from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 from pydantic import BaseModel, Field
 
-from .digest_edit import DigestEditStep
-from .digest_write import DigestWriteStep, bucket_names, normalize_buckets
 from .._evolve import FlexReActAgent
 from ...base_step import BaseStep
 from ....components import R
+
+
+# Hard-coded bucket vocabulary. Phase 1 classifies each sub-unit into
+# one of these; Phase 2 dispatches to the bucket-specific prompt.
+# Order matters for prompt rendering — keep procedure/personal/wiki.
+BUCKETS: tuple[str, ...] = ("procedure", "personal", "wiki")
+
+# Bucket = Literal of BUCKETS. Pydantic Literal must be a static type;
+# update both BUCKETS and Bucket together if the vocabulary changes.
+Bucket = Literal["procedure", "personal", "wiki"]
 
 
 _EXTRACT_READ_TOOLS: tuple[str, ...] = ("read",)
@@ -112,6 +78,11 @@ _INTEGRATE_READ_TOOLS: tuple[str, ...] = (
     "traverse",
     "read",
     "frontmatter_read",
+)
+
+_INTEGRATE_WRITE_TOOLS: tuple[str, ...] = (
+    "write",
+    "edit",
 )
 
 
@@ -139,7 +110,18 @@ class MemoryUnit(BaseModel):
             "Short kebab-case identifier for the abstraction "
             "(e.g. 'jwt-rotation-decision', 'pr-size-pref'). "
             "Agent-internal handle — NOT the eventual digest slug; "
-            "Phase 2 picks the actual filing path + bucket."
+            "Phase 2 picks the actual filing path."
+        ),
+    )
+    bucket: Bucket = Field(
+        description=(
+            "Which bucket this abstraction belongs in — Phase 2 dispatches "
+            "to a bucket-specific prompt based on this. Pick exactly one: "
+            "`procedure` (how-to-do-X — steps, methods, recipes, workflows), "
+            "`personal` (user/team-specific — identity, preferences, "
+            "conventions, things they avoid), `wiki` (general knowledge — "
+            "definitions, principles, observations, decisions-as-precedent; "
+            "default catch-all when nothing else fits)."
         ),
     )
     summary: str = Field(
@@ -161,24 +143,18 @@ class ExtractedUnits(BaseModel):
         description=(
             "Memory sub-units identified in the material — orthogonal "
             "abstractions (principles / patterns / precedents) worth "
-            "lifting into long-term memory. Empty list = nothing worth "
-            "lifting (Phase 2 is skipped)."
+            "lifting into long-term memory. Each is tagged with its "
+            "bucket. Empty list = nothing worth lifting (Phase 2 is skipped)."
         ),
     )
 
 
-def _render_outcome_line(unit_name: str, o: "IntegrateOutcome") -> str:
+def _render_outcome_line(unit_name: str, bucket: str, o: "IntegrateOutcome") -> str:
     """Format one IntegrateOutcome as a one-line summary entry."""
-    if o.action == "CREATE":
-        body = f"CREATE {o.target_path}"
-        if o.note:
-            body += f" — {o.note}"
-    else:  # CORROBORATE / REFINE / CORRECT (all UPDATE-flavored)
-        recovered = " (recovered from REJECT_CONSERVATION)" if o.recovered_from_conservation else ""
-        body = f"{o.action} {o.target_path}{recovered}"
-        if o.note:
-            body += f" — {o.note}"
-    return f"[{unit_name}] {body}"
+    body = f"{o.action} {o.target_path}"
+    if o.note:
+        body += f" — {o.note}"
+    return f"[{unit_name}/{bucket}] {body}"
 
 
 class IntegrateOutcome(BaseModel):
@@ -203,7 +179,8 @@ class IntegrateOutcome(BaseModel):
     )
     target_path: str = Field(
         description=(
-            "The digest path you wrote to — must match what your " "`digest_write` / `digest_edit` call(s) targeted."
+            "The digest path you wrote to — must match what your `write` / "
+            "`edit` call(s) targeted."
         ),
     )
     note: str = Field(
@@ -216,14 +193,6 @@ class IntegrateOutcome(BaseModel):
             "outcome note."
         ),
     )
-    recovered_from_conservation: bool = Field(
-        default=False,
-        description=(
-            "Set to true if `digest_edit` initially returned "
-            "REJECT_CONSERVATION and you re-composed `new` to preserve the "
-            "missing links. Only meaningful for CORROBORATE / REFINE / CORRECT."
-        ),
-    )
 
 
 class DreamResult(BaseModel):
@@ -231,9 +200,8 @@ class DreamResult(BaseModel):
 
     Per-tool audit lives in the toolkit layer (not exposed back to the
     orchestrator). Structured outcome here is the input path the call
-    processed, the memory sub-units the agent declared in Phase 1,
-    what got created / updated in Phase 2, and any conservation
-    rejections that occurred along the way.
+    processed, the memory sub-units the agent declared in Phase 1, and
+    what got created / updated in Phase 2.
     """
 
     used_llm: bool = False
@@ -242,7 +210,6 @@ class DreamResult(BaseModel):
     units: list[dict] = Field(default_factory=list)
     nodes_created: list[str] = Field(default_factory=list)
     nodes_updated: list[str] = Field(default_factory=list)
-    conservation_violations: list[dict] = Field(default_factory=list)
     summary: str = ""
     error: str = ""
 
@@ -257,8 +224,6 @@ class Dreamer(BaseStep):
             empty string to no-op.
         hint       (str, optional): caller guidance to the LLM
             (e.g. "focus on the auth-related decisions").
-        buckets    (list[str], optional): override the fixed bucket
-            set; default ``DEFAULT_BUCKETS``.
 
     Output (written to context.response.answer):
         ``DreamResult`` JSON in ``metadata``; LLM summary in ``answer``.
@@ -272,20 +237,16 @@ class Dreamer(BaseStep):
         toolkit: Toolkit | None = None,
         console_enabled: bool = False,
         timezone: str | None = None,
-        buckets: list[str] | tuple[str, ...] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.toolkit = toolkit
         self.console_enabled = console_enabled
         self.timezone = timezone
-        self.buckets = normalize_buckets(buckets)
-        assert "unknown" in bucket_names(self.buckets), "bucket set must include 'unknown' as the unclassified fallback"
         # Per-invocation outcome trackers, populated by tool callbacks.
         self._units: list[dict] = []
         self._created: list[str] = []
         self._updated: list[str] = []
-        self._violations: list[dict] = []
 
     def _now(self) -> datetime.datetime:
         if self.timezone:
@@ -305,46 +266,43 @@ class Dreamer(BaseStep):
         except Exception:
             return False
 
-    def _make_digest_write_tool(self):
-        """Tool closure: wraps :class:`DigestWriteStep` and tracks creates."""
+    def _make_write_tool(self):
+        """Wrap the canonical ``write`` job with create-tracking.
 
-        async def digest_write(path: str, name: str, description: str, content: str) -> ToolResponse:
-            step = DigestWriteStep(
-                file_store=self.file_store,
-                buckets=self.buckets,
-                app_context=self.app_context,
+        Same shape as the underlying job; the wrapper just records
+        successful paths into ``self._created`` so the dreamer can
+        reconstruct outcomes when the LLM drops its structured emission.
+        """
+        job = self.get_job("write")
+        if job is None:
+            raise RuntimeError("write job not registered")
+
+        async def write(path: str, name: str, description: str, content: str) -> ToolResponse:
+            resp = await job(
+                path=path,
+                name=name,
+                description=description,
+                content=content,
             )
-            await step(path=path, name=name, description=description, content=content)
-            assert step.context is not None
-            resp = step.context.response
-            if not resp.success:
-                return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
-            self._created.append(path)
-            return ToolResponse(content=[TextBlock(type="text", text=f"OK: created {path}")])
+            if resp.success:
+                self._created.append(path)
+            return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
 
-        return digest_write
+        return write, job
 
-    def _make_digest_edit_tool(self):
-        """Tool closure: wraps :class:`DigestEditStep` and tracks updates / conservation violations."""
+    def _make_edit_tool(self):
+        """Wrap the canonical ``edit`` job with update-tracking."""
+        job = self.get_job("edit")
+        if job is None:
+            raise RuntimeError("edit job not registered")
 
-        async def digest_edit(path: str, old: str, new: str) -> ToolResponse:
-            step = DigestEditStep(
-                file_store=self.file_store,
-                buckets=self.buckets,
-                app_context=self.app_context,
-            )
-            await step(path=path, old=old, new=new)
-            assert step.context is not None
-            resp = step.context.response
-            if not resp.success:
-                violation = (resp.metadata or {}).get("conservation_violation")
-                if violation:
-                    self._violations.append(violation)
-                return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
-            self._updated.append(path)
-            return ToolResponse(content=[TextBlock(type="text", text=f"OK: updated {path}")])
+        async def edit(path: str, old: str, new: str) -> ToolResponse:
+            resp = await job(path=path, old=old, new=new)
+            if resp.success:
+                self._updated.append(path)
+            return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
 
-        return digest_edit
+        return edit, job
 
     def _build_extract_toolkit(self) -> Toolkit:
         """Read-only toolkit for the extract agent. Sub-units come back via
@@ -355,97 +313,43 @@ class Dreamer(BaseStep):
         return toolkit
 
     def _build_integrate_toolkit(self) -> Toolkit:
-        """Full read + conservation-aware write toolkit for the integrate agent."""
+        """Full read + canonical write/edit toolkit for the integrate agent.
+
+        write/edit are wrapped in tracker closures (created/updated paths)
+        so the outer loop can reconstruct outcomes when an LLM call drops
+        its structured emission. Read-only tools go through ``add_as_tool``
+        unchanged.
+        """
         toolkit = self.toolkit or Toolkit()
         for job_name in _INTEGRATE_READ_TOOLS:
             self.add_as_tool(toolkit, job_name)
-        digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
-        path_shape = f"'{digest_dir}/<bucket>/<slug>.md'"
-        digest_write_desc = (
-            "Create a NEW digest node — same shape as the canonical `write` job, plus "
-            f"path-shape validation: `path` must be {path_shape} where "
-            f"bucket is one of {list(bucket_names(self.buckets))} (use 'unknown' when "
-            "no specialized bucket fits — it is a first-class bucket, not a failure "
-            "state). `name` and `description` go into the YAML frontmatter; `content` "
-            "is the body. Fails if the path already exists; use `digest_edit` then."
-        )
+
+        write_tool, write_job = self._make_write_tool()
         toolkit.register_tool_function(
-            tool_func=self._make_digest_write_tool(),
-            func_name="digest_write",
-            func_description=digest_write_desc,
+            tool_func=write_tool,
+            func_name="write",
+            func_description=write_job.description,
             json_schema={
                 "type": "function",
                 "function": {
-                    "name": "digest_write",
-                    "description": digest_write_desc,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": f"vault-relative path; must match {path_shape}",
-                            },
-                            "name": {
-                                "type": "string",
-                                "description": "frontmatter name (usually the slug)",
-                            },
-                            "description": {
-                                "type": "string",
-                                "description": "frontmatter description — one-line summary of the abstraction",
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "body (markdown; no frontmatter "
-                                "— name/description go in the fields above)",
-                            },
-                        },
-                        "required": ["path", "name", "description", "content"],
-                    },
+                    "name": "write",
+                    "description": write_job.description,
+                    "parameters": write_job.parameters,
                 },
             },
         )
-        digest_edit_desc = (
-            "Find-and-replace inside an existing digest node's body — same shape as "
-            "the canonical `edit` job, plus path-shape validation (`path` must be "
-            f"{path_shape}, file must exist) and E-1 strong edge conservation: every "
-            "outbound wikilink present BEFORE the replacement must still be present "
-            "AFTER. If you drop any edge the tool returns REJECT_CONSERVATION and you "
-            "must adjust `new` to keep the missing links. Operates on body only; "
-            "frontmatter is untouched. Prefer narrow `old` spans."
-        )
+
+        edit_tool, edit_job = self._make_edit_tool()
         toolkit.register_tool_function(
-            tool_func=self._make_digest_edit_tool(),
-            func_name="digest_edit",
-            func_description=digest_edit_desc,
+            tool_func=edit_tool,
+            func_name="edit",
+            func_description=edit_job.description,
             json_schema={
                 "type": "function",
                 "function": {
-                    "name": "digest_edit",
-                    "description": digest_edit_desc,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": f"vault-relative path; must match {path_shape} and exist",
-                            },
-                            "old": {
-                                "type": "string",
-                                "description": (
-                                    "Substring to locate in the EXISTING body (frontmatter excluded). "
-                                    "Must match verbatim. Pick a span large enough to be unique."
-                                ),
-                            },
-                            "new": {
-                                "type": "string",
-                                "description": (
-                                    "Replacement text. Should weave new material into the existing "
-                                    "wording without dropping any wikilinks the `old` span contained."
-                                ),
-                            },
-                        },
-                        "required": ["path", "old", "new"],
-                    },
+                    "name": "edit",
+                    "description": edit_job.description,
+                    "parameters": edit_job.parameters,
                 },
             },
         )
@@ -460,7 +364,7 @@ class Dreamer(BaseStep):
             sys_prompt=self.prompt_format(
                 "extract_system_prompt",
                 vault_dir=str(vault_dir),
-                buckets=", ".join(bucket_names(self.buckets)),
+                buckets=", ".join(BUCKETS),
             ),
             formatter=self.as_llm_formatter,
             toolkit=toolkit,
@@ -486,36 +390,44 @@ class Dreamer(BaseStep):
                 continue
             name = str(raw.get("name") or "").strip()
             summary = str(raw.get("summary") or "").strip()
-            if name and summary:
-                cleaned.append({"name": name, "summary": summary})
+            bucket = str(raw.get("bucket") or "").strip()
+            if not name or not summary:
+                continue
+            if bucket not in BUCKETS:
+                # Defensive: structured_model should already reject this,
+                # but if it slips through we route to wiki (the catch-all).
+                self.logger.warning(
+                    f"[{self.name}] unit {name!r} emitted bucket {bucket!r} "
+                    f"not in {list(BUCKETS)}; routing to 'wiki'",
+                )
+                bucket = "wiki"
+            cleaned.append({"name": name, "summary": summary, "bucket": bucket})
         self._units = cleaned
         return (msg.get_text_content() or "").strip()
 
     async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> IntegrateOutcome:
-        """One ReAct invocation per memory sub-unit. Returns the parsed
+        """One ReAct invocation per memory sub-unit, dispatched to the
+        bucket-specific system prompt. Returns the parsed
         :class:`IntegrateOutcome` reported by the agent.
 
-        File writes happen as side effects via the ``digest_write`` /
-        ``digest_edit`` tool calls during the ReAct loop (which populate
-        ``self._created`` / ``self._updated`` / ``self._violations``); the
-        structured outcome here is the agent's own summary of what it
-        decided — useful for rendering and for catching hallucinations
-        (action=CREATE without the matching write call landing in trackers).
+        File writes happen as side effects via the canonical ``write`` /
+        ``edit`` tool calls (which populate ``self._created`` /
+        ``self._updated`` via the tracker closures); the structured
+        outcome here is the agent's own summary of what it decided —
+        useful for rendering and for catching hallucinations (action=
+        CREATE without the matching write call landing in trackers).
         """
+        bucket = unit.get("bucket") or "wiki"
         toolkit = self._build_integrate_toolkit()
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
-        buckets_block = "\n".join(
-            f"  - `{digest_dir}/{b['name']}/`" + (f"  — {b['description']}" if b.get("description") else "")
-            for b in self.buckets
-        )
         agent = FlexReActAgent(
             name=f"reme_dreamer_integrate_{unit.get('name', 'unit')}",
             model=self.as_llm,
             sys_prompt=self.prompt_format(
-                "integrate_system_prompt",
+                f"integrate_system_prompt_{bucket}",
                 vault_dir=str(vault_dir),
                 digest_dir=digest_dir,
-                buckets=buckets_block,
+                bucket=bucket,
             ),
             formatter=self.as_llm_formatter,
             toolkit=toolkit,
@@ -525,6 +437,7 @@ class Dreamer(BaseStep):
             "integrate_user_message",
             hint=hint or "(none)",
             unit_name=unit.get("name", ""),
+            unit_bucket=bucket,
             unit_summary=unit.get("summary", ""),
             material_blob=material_blob,
         )
@@ -580,12 +493,11 @@ class Dreamer(BaseStep):
         self._units.clear()
         self._created.clear()
         self._updated.clear()
-        self._violations.clear()
 
         vault_dir = self._vault_dir()
 
         # Phase 1 — extract (light). Agent emits ExtractedUnits structured output to commit the
-        # memory sub-units worth lifting.
+        # memory sub-units worth lifting. Each unit carries its own bucket.
         self.logger.info(f"[{self.name}] extract phase: path={path!r}")
         extract_summary = await self._extract(material_blob, hint, vault_dir)
 
@@ -599,31 +511,36 @@ class Dreamer(BaseStep):
 
         self.logger.info(
             f"[{self.name}] integrate phase: {len(self._units)} sub-unit(s): "
-            f"{', '.join(u['name'] for u in self._units)}",
+            + ", ".join(f"{u['name']}/{u['bucket']}" for u in self._units),
         )
 
-        # Phase 2 — integrate, one fresh ReAct per sub-unit. Python-level
-        # loop, not agent loop. Each session emits a structured
-        # IntegrateOutcome; file writes happen as side effects via
-        # digest_write / digest_edit tool calls.
+        # Phase 2 — integrate, one fresh ReAct per sub-unit, dispatched to
+        # the bucket-specific system prompt. Python-level loop, not agent
+        # loop. Each session emits a structured IntegrateOutcome; file
+        # writes happen as side effects via the canonical write / edit
+        # tool calls.
         per_unit_lines: list[str] = []
         for i, unit in enumerate(self._units, start=1):
             name = unit.get("name", "?")
+            bucket = unit.get("bucket", "?")
             try:
                 outcome = await self._integrate_unit(unit, material_blob, hint, vault_dir)
             except Exception as e:
                 self.logger.error(
-                    f"[{self.name}] integrate {i}/{len(self._units)} (unit={name}) " f"failed: {type(e).__name__}: {e}",
+                    f"[{self.name}] integrate {i}/{len(self._units)} "
+                    f"(unit={name}, bucket={bucket}) failed: {type(e).__name__}: {e}",
                 )
-                per_unit_lines.append(f"[{name}] FAILED: {type(e).__name__}: {e}")
+                per_unit_lines.append(f"[{name}/{bucket}] FAILED: {type(e).__name__}: {e}")
                 continue
-            per_unit_lines.append(_render_outcome_line(name, outcome))
+            per_unit_lines.append(_render_outcome_line(name, bucket, outcome))
 
         summary = (
             f"Declared {len(self._units)} sub-unit(s) "
-            f"({', '.join(u['name'] for u in self._units)}); "
-            f"created {len(self._created)}, updated {len(self._updated)}, "
-            f"conservation violations {len(self._violations)}.\n" + "\n".join(per_unit_lines)
+            + "("
+            + ", ".join(f"{u['name']}/{u['bucket']}" for u in self._units)
+            + "); "
+            f"created {len(self._created)}, updated {len(self._updated)}.\n"
+            + "\n".join(per_unit_lines)
         )
 
         return DreamResult(
@@ -632,7 +549,6 @@ class Dreamer(BaseStep):
             units=list(self._units),
             nodes_created=list(self._created),
             nodes_updated=list(self._updated),
-            conservation_violations=list(self._violations),
             summary=summary,
             skipped=False,
         )

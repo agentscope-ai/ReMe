@@ -1,21 +1,26 @@
-"""dreamer in-process integration test (option C).
+"""dreamer in-process integration test.
 
 Loads the default reme4 config, seeds a rich workspace (pre-existing
-digest nodes + a new daily that should drive both UPDATE and CREATE
-through Phase 1 classify → Phase 2 per-kind recall+write), reindexes
-so search_step can hit the pre-existing nodes, then calls `dream` and
-prints what happened.
+digest nodes spread across the three buckets + a new daily that
+exercises CREATE and UPDATE in each bucket), reindexes so search can
+hit the pre-existing nodes, then calls `dream` and prints what
+happened.
+
+Phase 1 classifies each sub-unit into one of {procedure, personal,
+wiki}; Phase 2 dispatches to the bucket-specific integrate prompt
+and writes via the canonical `write` / `edit` tools.
 
 Usage (from anywhere):
     VAULT_PATH=/tmp/reme-dreamer-test python tests4/integration/test_dreamer_inproc.py
-    VAULT_PATH=/tmp/reme-dreamer-test python tests4/integration/test_dreamer_inproc.py
-daily/2026-05-28/auth-refactor/notes.md
+    VAULT_PATH=/tmp/reme-dreamer-test python tests4/integration/test_dreamer_inproc.py \\
+        daily/2026-05-28/auth-refactor/notes.md
 
 Defaults:
     VAULT_PATH unset → /tmp/reme-dreamer-test
     Each run wipes `daily/`, `digest/`, and `reme_metadata/` under the
     vault before reseeding, so the dreamer always starts from the same
-    fixture state. See _dreamer_fixture.py for what gets created.
+    fixture state. See _dreamer_fixture.py for what gets created and
+    the expected CREATE / UPDATE landings per bucket.
 
 Required env (from .env or shell):
     LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_NAME    — for the Phase 1/2 agents
@@ -66,9 +71,9 @@ async def main() -> None:
     app = ReMe(**cfg)
     await app.start()
     try:
-        # Reindex first so search_step can actually find the pre-seeded
+        # Reindex first so search can actually find the pre-seeded
         # digest/ nodes — otherwise Phase 2 recall returns empty and
-        # every atomic unit ends up as CREATE (UPDATE path not exercised).
+        # every sub-unit ends up as CREATE (UPDATE path not exercised).
         print("\n--- reindexing vault so Phase 2 recall has something to hit")
         await app.run_job("reindex")
 

@@ -53,9 +53,6 @@ class BaseJob(BaseComponent):
             raise ValueError(f"Unregistered backend '{config.backend}' of type '{ComponentEnum.STEP}'")
         params = config.model_dump()
         params["app_context"] = self.app_context
-        # Inherit app-level language unless the step's own config overrides it.
-        if not params.get("language") and self.app_context is not None:
-            params["language"] = getattr(self.app_context.app_config, "language", "") or ""
         return step_cls, params
 
     def _build_steps(self) -> list["BaseStep"]:

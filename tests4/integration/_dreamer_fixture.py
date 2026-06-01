@@ -2,25 +2,33 @@
 
 Seeds a vault with:
 
-  - 4 pre-existing digest/ nodes (3 concepts/procedures, 1 preference) —
-    these are the **recall targets**; the new material partially overlaps
-    them so Phase 2 must find them via search_step + file_read and decide
-    UPDATE (with E-1 edge conservation in play).
+  - 4 pre-existing digest/ nodes spread across the three buckets
+    (procedure / personal / wiki) — these are the **recall targets**;
+    the new material partially overlaps them so Phase 2 must find
+    them via search + read and decide UPDATE.
   - 4 small daily/ stubs the digest nodes already link to — they exist
-    only so the seeded digest bodies don't dangle (the conservation check
-    doesn't validate link targets, but a realistic graph reads better).
-  - 1 NEW daily note (the file the dreamer will be invoked on). It covers
-    all three outcome cases — CREATE / UPDATE / SKIP — across 4 kinds:
-      * concept    : UPDATE digest/concept/jwt.md + CREATE digest/concept/kid-versioning.md
-                     + SKIP (an OAuth2 restatement that adds nothing over
-                     the existing digest/concept/oauth2.md)
-      * procedure  : UPDATE digest/procedure/key-rotation.md
-      * observation: CREATE digest/observation/soc2-30day-finding.md
-      * preference : UPDATE digest/preference/no-trailing-summary.md + CREATE digest/preference/small-pr.md
+    only so the seeded digest bodies don't dangle.
+  - 1 NEW daily note (the file the dreamer will be invoked on).
+    It exercises CREATE and UPDATE across the three buckets:
 
-  Total budget per integration run: 1 Phase 1 + up-to-4 Phase 2 = up to 5
-  ReAct sessions, each with several tool turns (search → file_read →
-  digest_* / SKIP).
+      * wiki      : UPDATE digest/wiki/jwt.md (24h rotation cadence
+                    refines short-credential-compliance framing) +
+                    CREATE digest/wiki/kid-versioning.md +
+                    CREATE digest/wiki/soc2-30day-finding.md
+                    (the OAuth2 restatement section is intentionally
+                    a non-abstraction — Phase 1 should NOT emit a
+                    sub-unit for it; tests Phase 1's gate-keeping)
+      * procedure : UPDATE digest/procedure/key-rotation.md (24h
+                    cadence + kid-versioning supersede the 30-day
+                    JWKS-cache flow)
+      * personal  : UPDATE digest/personal/no-trailing-summary.md
+                    (extend "no trailing summary" to also forbid
+                    "next steps" lists) + CREATE
+                    digest/personal/small-pr.md
+
+  Total budget per integration run: 1 Phase 1 + up-to-6 Phase 2 = up
+  to 7 ReAct sessions, each with several tool turns (search +
+  traverse → frontmatter_read + read → write / edit).
 
 Idempotent: re-running does NOT overwrite existing files. To re-seed
 from scratch, delete the vault and rerun.
@@ -43,7 +51,7 @@ INPUT_PATH = "daily/2026-05-28/auth-refactor/notes.md"
 
 _FILES: dict[str, str] = {
     # ----- pre-existing digest nodes (recall targets) -----
-    "digest/concept/jwt.md": """\
+    "digest/wiki/jwt.md": """\
 ---
 name: jwt
 description: JSON Web Token — signed authentication token format
@@ -60,11 +68,11 @@ token used to assert identity and claims between parties.
 - Signature
 
 ## Related
-Often issued by [[digest/concept/oauth2.md]] flows.
+Often issued by [[digest/wiki/oauth2.md]] flows.
 
 derived_from:: [[daily/2026-05-15/auth-design/notes.md]]
 """,
-    "digest/concept/oauth2.md": """\
+    "digest/wiki/oauth2.md": """\
 ---
 name: oauth2
 description: OAuth 2.0 — delegated authorization framework
@@ -91,7 +99,7 @@ description: Rotating signing keys for JWT issuance
 
 # Key rotation (current — pre 2026-05-28 refactor)
 
-Procedure for rotating the signing key used by [[digest/concept/jwt.md]]
+Procedure for rotating the signing key used by [[digest/wiki/jwt.md]]
 issuance.
 
 ## Steps
@@ -107,7 +115,7 @@ no formal compliance requirement has tightened this so far.
 
 derived_from:: [[daily/2026-05-20/rotation-plan/notes.md]]
 """,
-    "digest/preference/no-trailing-summary.md": """\
+    "digest/personal/no-trailing-summary.md": """\
 ---
 name: no-trailing-summary
 description: 不要在回复末尾加总结段落
@@ -116,6 +124,11 @@ description: 不要在回复末尾加总结段落
 # 不要在回复末尾加总结段落
 
 用户能看 diff,不需要在回复末尾重述刚做的事。
+
+**Why**: diff 已经把"改了什么"摆在用户面前;再口述一遍是噪音。
+
+**How to apply**: 任意编码 / 编辑任务回复结束时,直接停在最后一条
+有信息量的话上,不要再补一段"以上就是本次的修改..."。
 
 derived_from:: [[daily/2026-05-01/style-feedback/notes.md]]
 """,
