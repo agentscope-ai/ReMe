@@ -125,6 +125,8 @@ class BaseStep(ComponentMixin, ABC):
     ):
         super().__init__(name=name, backend=backend, app_context=app_context, **kwargs)
         self.language: str = language
+        if not self.language and self.app_context is not None:
+            self.language = self.app_context.app_config.language
         self.input_mapping = input_mapping
         self.output_mapping = output_mapping
         self.context: RuntimeContext | None = None
