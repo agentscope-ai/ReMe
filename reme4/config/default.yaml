@@ -387,9 +387,9 @@ jobs:
     steps:
       - backend: dreamer_step
 
-  dream_today:
+  auto-dream:
     backend: base
-    description: "Dream-today: scan <daily_dir>/<today>/ + <resource_dir>/<today>/ and dream each file (LLM). Subroots resolved from app config."
+    description: "Auto-dream: scan today's day-index <daily_dir>/<today>.md and session notes under <daily_dir>/<today>/*.md — run dream on each (Phase 1 extract+classify, Phase 2 per-bucket integrate)."
     parameters:
       type: object
       properties:

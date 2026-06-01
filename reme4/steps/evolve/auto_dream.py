@@ -16,14 +16,14 @@ Pipeline (external loop in Python, two distinct ReAct agent invocations,
 **light Phase 1 / heavy Phase 2**):
 
     execute():
-        _extract(material_blob)         # 1× ReAct: identify abstractions
-                                        #   agent emits ExtractedUnits
-                                        #   ({units: [{name, bucket, summary}, ...]})
-        for unit in self._units:        # Python loop, K iterations
-            _integrate_unit(unit)       # 1× ReAct per abstraction, dispatched
-                                        #   to integrate_system_prompt_<bucket>;
-                                        #   recalls cross-bucket, decides write,
-                                        #   uses canonical write/edit tools.
+        units, _ = _extract(material_blob)  # 1× ReAct: identify abstractions
+                                            #   agent emits ExtractedUnits
+                                            #   ({units: [{name, bucket, summary}, ...]})
+        for unit in units:                  # Python loop, K iterations
+            _integrate_unit(unit)           # 1× ReAct per abstraction, dispatched
+                                            #   to integrate_system_prompt_<bucket>;
+                                            #   recalls cross-bucket, decides write,
+                                            #   uses canonical write/edit/frontmatter_update tools.
 
 The bucket vocabulary is hard-coded (:data:`BUCKETS`) — three buckets,
 each with a dedicated Phase 2 prompt:
@@ -52,8 +52,8 @@ import zoneinfo
 from pathlib import Path
 from typing import Literal
 
-from agentscope.message import Msg, TextBlock
-from agentscope.tool import Toolkit, ToolResponse
+from agentscope.message import Msg
+from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
 from ._evolve import FlexReActAgent
@@ -71,18 +71,18 @@ BUCKETS: tuple[str, ...] = ("procedure", "personal", "wiki")
 Bucket = Literal["procedure", "personal", "wiki"]
 
 
-_EXTRACT_READ_TOOLS: tuple[str, ...] = ("read",)
+_EXTRACT_TOOLS: tuple[str, ...] = ("read",)
 
-_INTEGRATE_READ_TOOLS: tuple[str, ...] = (
+_INTEGRATE_TOOLS: tuple[str, ...] = (
+    # read
     "search",
     "traverse",
     "read",
     "frontmatter_read",
-)
-
-_INTEGRATE_WRITE_TOOLS: tuple[str, ...] = (
+    # write
     "write",
     "edit",
+    "frontmatter_update",
 )
 
 
@@ -240,10 +240,6 @@ class Dreamer(BaseStep):
         self.toolkit = toolkit
         self.console_enabled = console_enabled
         self.timezone = timezone
-        # Per-invocation outcome trackers, populated by tool callbacks.
-        self._units: list[dict] = []
-        self._created: list[str] = []
-        self._updated: list[str] = []
 
     def _now(self) -> datetime.datetime:
         if self.timezone:
@@ -263,97 +259,33 @@ class Dreamer(BaseStep):
         except Exception:
             return False
 
-    def _make_write_tool(self):
-        """Wrap the canonical ``write`` job with create-tracking.
-
-        Same shape as the underlying job; the wrapper just records
-        successful paths into ``self._created`` so the dreamer can
-        reconstruct outcomes when the LLM drops its structured emission.
-        """
-        job = self.get_job("write")
-        if job is None:
-            raise RuntimeError("write job not registered")
-
-        async def write(path: str, name: str, description: str, content: str) -> ToolResponse:
-            resp = await job(
-                path=path,
-                name=name,
-                description=description,
-                content=content,
-            )
-            if resp.success:
-                self._created.append(path)
-            return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
-
-        return write, job
-
-    def _make_edit_tool(self):
-        """Wrap the canonical ``edit`` job with update-tracking."""
-        job = self.get_job("edit")
-        if job is None:
-            raise RuntimeError("edit job not registered")
-
-        async def edit(path: str, old: str, new: str) -> ToolResponse:
-            resp = await job(path=path, old=old, new=new)
-            if resp.success:
-                self._updated.append(path)
-            return ToolResponse(content=[TextBlock(type="text", text=resp.answer)])
-
-        return edit, job
-
     def _build_extract_toolkit(self) -> Toolkit:
         """Read-only toolkit for the extract agent. Sub-units come back via
         :class:`ExtractedUnits` structured output, not via a tool call."""
         toolkit = Toolkit()
-        for job_name in _EXTRACT_READ_TOOLS:
+        for job_name in _EXTRACT_TOOLS:
             self.add_as_tool(toolkit, job_name)
         return toolkit
 
     def _build_integrate_toolkit(self) -> Toolkit:
-        """Full read + canonical write/edit toolkit for the integrate agent.
-
-        write/edit are wrapped in tracker closures (created/updated paths)
-        so the outer loop can reconstruct outcomes when an LLM call drops
-        its structured emission. Read-only tools go through ``add_as_tool``
-        unchanged.
-        """
+        """Full read + canonical write/edit/frontmatter_update toolkit for
+        the integrate agent. All tools are registered via :meth:`add_as_tool`
+        — same as every other step in this codebase. Outcome tracking is
+        driven by the agent's :class:`IntegrateOutcome` structured emission,
+        not by per-tool callbacks."""
         toolkit = self.toolkit or Toolkit()
-        for job_name in _INTEGRATE_READ_TOOLS:
+        for job_name in _INTEGRATE_TOOLS:
             self.add_as_tool(toolkit, job_name)
-
-        write_tool, write_job = self._make_write_tool()
-        toolkit.register_tool_function(
-            tool_func=write_tool,
-            func_name="write",
-            func_description=write_job.description,
-            json_schema={
-                "type": "function",
-                "function": {
-                    "name": "write",
-                    "description": write_job.description,
-                    "parameters": write_job.parameters,
-                },
-            },
-        )
-
-        edit_tool, edit_job = self._make_edit_tool()
-        toolkit.register_tool_function(
-            tool_func=edit_tool,
-            func_name="edit",
-            func_description=edit_job.description,
-            json_schema={
-                "type": "function",
-                "function": {
-                    "name": "edit",
-                    "description": edit_job.description,
-                    "parameters": edit_job.parameters,
-                },
-            },
-        )
         return toolkit
 
-    async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> str:
-        """Phase 1: one ReAct invocation — read material + emit ExtractedUnits. Returns LLM summary."""
+    async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> tuple[list[dict], str]:
+        """Phase 1: one ReAct invocation — read material + emit ExtractedUnits.
+
+        Returns ``(units, llm_summary)`` where ``units`` is the cleaned
+        sub-unit list (each entry has ``name`` / ``bucket`` / ``summary``)
+        and ``llm_summary`` is whatever free-form text the agent produced
+        alongside its structured emission.
+        """
         toolkit = self._build_extract_toolkit()
         agent = FlexReActAgent(
             name="reme_dreamer_extract",
@@ -399,21 +331,14 @@ class Dreamer(BaseStep):
                 )
                 bucket = "wiki"
             cleaned.append({"name": name, "summary": summary, "bucket": bucket})
-        self._units = cleaned
-        return (msg.get_text_content() or "").strip()
+        return cleaned, (msg.get_text_content() or "").strip()
 
     async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> IntegrateOutcome:
         """One ReAct invocation per memory sub-unit, dispatched to the
         bucket-specific system prompt. Returns the parsed
-        :class:`IntegrateOutcome` reported by the agent.
-
-        File writes happen as side effects via the canonical ``write`` /
-        ``edit`` tool calls (which populate ``self._created`` /
-        ``self._updated`` via the tracker closures); the structured
-        outcome here is the agent's own summary of what it decided —
-        useful for rendering and for catching hallucinations (action=
-        CREATE without the matching write call landing in trackers).
-        """
+        :class:`IntegrateOutcome` reported by the agent — that's the
+        single source of truth for what got written (action +
+        target_path)."""
         bucket = unit.get("bucket") or "wiki"
         toolkit = self._build_integrate_toolkit()
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
@@ -438,29 +363,12 @@ class Dreamer(BaseStep):
             unit_summary=unit.get("summary", ""),
             material_blob=material_blob,
         )
-        # Snapshot trackers so we can reconstruct the outcome from the
-        # filesystem side effects if the agent's structured emission slips.
-        created_before = len(self._created)
-        updated_before = len(self._updated)
         msg = await agent.reply(
             Msg(name="reme", role="user", content=user_message),
             structured_model=IntegrateOutcome,
         )
         meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-        try:
-            return IntegrateOutcome.model_validate(meta)
-        except Exception:
-            # The LLM occasionally drops the final structured emission even
-            # after a successful tool call. The trackers are the source of
-            # truth — reconstruct the outcome from the new entries this
-            # session added.
-            new_created = self._created[created_before:]
-            new_updated = self._updated[updated_before:]
-            if new_created:
-                return IntegrateOutcome(action="CREATE", target_path=new_created[-1])
-            if new_updated:
-                return IntegrateOutcome(action="CORROBORATE", target_path=new_updated[-1])
-            raise
+        return IntegrateOutcome.model_validate(meta)
 
     async def dream_one(self, path: str, hint: str = "") -> DreamResult:
         """Run the full extract + integrate pipeline on one vault-relative
@@ -486,19 +394,14 @@ class Dreamer(BaseStep):
 
         material_blob = _pack_material(self.file_store, path)
 
-        # Reset per-invocation trackers.
-        self._units.clear()
-        self._created.clear()
-        self._updated.clear()
-
         vault_dir = self._vault_dir()
 
         # Phase 1 — extract (light). Agent emits ExtractedUnits structured output to commit the
         # memory sub-units worth lifting. Each unit carries its own bucket.
         self.logger.info(f"[{self.name}] extract phase: path={path!r}")
-        extract_summary = await self._extract(material_blob, hint, vault_dir)
+        units, extract_summary = await self._extract(material_blob, hint, vault_dir)
 
-        if not self._units:
+        if not units:
             return DreamResult(
                 used_llm=True,
                 path=path,
@@ -506,42 +409,47 @@ class Dreamer(BaseStep):
                 skipped=True,
             )
 
-        unit_handles = ", ".join(f"{u['name']}/{u['bucket']}" for u in self._units)
-        self.logger.info(f"[{self.name}] integrate phase: {len(self._units)} sub-unit(s): {unit_handles}")
+        unit_handles = ", ".join(f"{u['name']}/{u['bucket']}" for u in units)
+        self.logger.info(f"[{self.name}] integrate phase: {len(units)} sub-unit(s): {unit_handles}")
 
         # Phase 2 — integrate, one fresh ReAct per sub-unit, dispatched to
         # the bucket-specific system prompt. Python-level loop, not agent
-        # loop. Each session emits a structured IntegrateOutcome; file
-        # writes happen as side effects via the canonical write / edit
-        # tool calls.
+        # loop. Each session emits a structured IntegrateOutcome whose
+        # action + target_path are the source of truth for what landed.
+        nodes_created: list[str] = []
+        nodes_updated: list[str] = []
         per_unit_lines: list[str] = []
-        for i, unit in enumerate(self._units, start=1):
+        for i, unit in enumerate(units, start=1):
             name = unit.get("name", "?")
             bucket = unit.get("bucket", "?")
             try:
                 outcome = await self._integrate_unit(unit, material_blob, hint, vault_dir)
             except Exception as e:
                 self.logger.error(
-                    f"[{self.name}] integrate {i}/{len(self._units)} "
+                    f"[{self.name}] integrate {i}/{len(units)} "
                     f"(unit={name}, bucket={bucket}) failed: {type(e).__name__}: {e}",
                 )
                 per_unit_lines.append(f"[{name}/{bucket}] FAILED: {type(e).__name__}: {e}")
                 continue
+            if outcome.action == "CREATE":
+                nodes_created.append(outcome.target_path)
+            else:
+                nodes_updated.append(outcome.target_path)
             per_unit_lines.append(_render_outcome_line(name, bucket, outcome))
 
         per_unit_block = "\n".join(per_unit_lines)
         summary = (
-            f"Declared {len(self._units)} sub-unit(s) ({unit_handles}); "
-            f"created {len(self._created)}, updated {len(self._updated)}.\n"
+            f"Declared {len(units)} sub-unit(s) ({unit_handles}); "
+            f"created {len(nodes_created)}, updated {len(nodes_updated)}.\n"
             f"{per_unit_block}"
         )
 
         return DreamResult(
             used_llm=True,
             path=path,
-            units=list(self._units),
-            nodes_created=list(self._created),
-            nodes_updated=list(self._updated),
+            units=units,
+            nodes_created=nodes_created,
+            nodes_updated=nodes_updated,
             summary=summary,
             skipped=False,
         )
