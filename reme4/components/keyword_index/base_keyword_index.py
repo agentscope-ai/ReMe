@@ -17,9 +17,9 @@ class BaseKeywordIndex(BaseComponent):
         from ..tokenizer import RegexTokenizer
 
         self.tokenizer = self.bind(tokenizer, BaseTokenizer, default_factory=RegexTokenizer)
-        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
 
     async def _start(self) -> None:
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await self.load()
 
     async def _close(self) -> None:

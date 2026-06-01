@@ -17,12 +17,12 @@ class LocalFileGraph(BaseFileGraph):
         self._nodes: dict[str, FileNode] = {}
         self._inverse: dict[str, set[str]] = {}  # real target → sources
         self._pending: dict[str, set[str]] = {}  # virtual target → sources
-        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         self._graph_file: Path = self.component_metadata_path / f"{self.name}.jsonl"
 
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()  # base calls load()
         await self.rebuild_links()
 

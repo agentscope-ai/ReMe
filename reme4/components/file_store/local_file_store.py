@@ -48,13 +48,13 @@ class LocalFileStore(BaseFileStore):
 
         self.encoding = encoding
         self.store_version = store_version
-        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl"
 
     # -- lifecycle ------------------------------------------------------------
 
     async def _start(self) -> None:
+        self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()
         if self.embedding_model is not None and not await self.embedding_model.health_check():
             self.logger.warning(f"{self.name}: embedding unhealthy, vector disabled")
