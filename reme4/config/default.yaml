@@ -5,6 +5,7 @@ vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
 resource_dir: ""
+# language: zh
 
 jobs:
   update_store_index_loop:
@@ -482,15 +483,3 @@ components:
       embedding_model: ""
       keyword_index: default
       file_graph: default
-
-  as_llm:
-    default:
-      backend: ${LLM_BACKEND:-openai}
-      api_key: ${LLM_API_KEY:-}
-      base_url: ${LLM_BASE_URL:-}
-      model_name: ${LLM_MODEL_NAME:-}
-      stream: false
-
-  as_llm_formatter:
-    default:
-      backend: ${LLM_BACKEND:-openai}

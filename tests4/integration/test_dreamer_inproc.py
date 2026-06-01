@@ -1,4 +1,4 @@
-"""dreamer in-process smoke test (option C).
+"""dreamer in-process integration test (option C).
 
 Loads the default reme4 config, seeds a rich workspace (pre-existing
 digest nodes + a new daily that should drive both UPDATE and CREATE
@@ -7,8 +7,9 @@ so search_step can hit the pre-existing nodes, then calls `dream` and
 prints what happened.
 
 Usage (from anywhere):
-    VAULT_PATH=/tmp/reme-dreamer-test python tests4/smoke/test_dreamer_inproc.py
-    VAULT_PATH=/tmp/reme-dreamer-test python tests4/smoke/test_dreamer_inproc.py daily/2026-05-28/auth-refactor/notes.md
+    VAULT_PATH=/tmp/reme-dreamer-test python tests4/integration/test_dreamer_inproc.py
+    VAULT_PATH=/tmp/reme-dreamer-test python tests4/integration/test_dreamer_inproc.py
+daily/2026-05-28/auth-refactor/notes.md
 
 Defaults:
     VAULT_PATH unset → /tmp/reme-dreamer-test
@@ -28,9 +29,9 @@ from pathlib import Path
 # Make `reme4` importable regardless of the caller's cwd; and make the
 # fixture module importable as a top-level name.
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SMOKE_DIR = Path(__file__).resolve().parent
+INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(SMOKE_DIR))
+sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
 from _dreamer_fixture import clean_vault, seed_vault, INPUT_PATH  # noqa: E402

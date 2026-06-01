@@ -8,6 +8,10 @@ from .common.llm_demo import LLMDemoStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
 from .evolve.auto_memory import AutoMemoryStep
+from .evolve.dream.cron_dreamer import CronDreamer
+from .evolve.dream.digest_edit import DigestEditStep
+from .evolve.dream.digest_write import DigestWriteStep
+from .evolve.dream.dreamer import Dreamer
 from .file_io.daily_create import DailyCreateStep
 from .file_io.daily_list import DailyListStep
 from .file_io.daily_reindex import DailyReindexStep
@@ -29,11 +33,6 @@ from .index.traverse import TraverseStep
 from .index.update_catalog import UpdateCatalogStep
 from .index.update_index import UpdateIndexStep
 from .index.watch_changes import WatchChangesStep
-from .dream.cron_dreamer import CronDreamer
-from .dream.digest_edit import DigestEditStep
-from .dream.digest_write import DigestWriteStep
-from .dream.dreamer import Dreamer
-from .jobs.synchronizer import Synchronizer
 from .transfer.download import DownloadStep
 from .transfer.ingest import IngestStep
 from .transfer.upload import UploadStep
@@ -76,13 +75,11 @@ __all__ = [
     "UpdateCatalogStep",
     "UpdateIndexStep",
     "WatchChangesStep",
-    # dream
+    # evolve.dream
     "CronDreamer",
     "DigestEditStep",
     "DigestWriteStep",
     "Dreamer",
-    # jobs
-    "Synchronizer",
     # transfer
     "DownloadStep",
     "IngestStep",

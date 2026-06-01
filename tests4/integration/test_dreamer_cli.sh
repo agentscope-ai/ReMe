@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# dreamer CLI smoke test (option B).
+# dreamer CLI integration test (option B).
 #
 # Seeds a rich workspace via _dreamer_fixture.py, starts `reme start`
 # bound to that vault, reindexes so Phase 2 recall can hit the pre-
 # seeded digest nodes, then calls `reme dream`.
 #
 # Usage (from anywhere):
-#   VAULT_PATH=/tmp/reme-dreamer-test bash tests4/smoke/test_dreamer_cli.sh
-#   VAULT_PATH=/tmp/reme-dreamer-test bash tests4/smoke/test_dreamer_cli.sh daily/2026-05-28/auth-refactor/notes.md
+#   VAULT_PATH=/tmp/reme-dreamer-test bash tests4/integration/test_dreamer_cli.sh
+#   VAULT_PATH=/tmp/reme-dreamer-test bash tests4/integration/test_dreamer_cli.sh daily/2026-05-28/auth-refactor/notes.md
 #
 # Defaults:
 #   VAULT_PATH unset → /tmp/reme-dreamer-test
@@ -18,17 +18,17 @@
 set -euo pipefail
 
 VAULT="${VAULT_PATH:-/tmp/reme-dreamer-test}"
-SMOKE_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO="$(cd "$SMOKE_DIR/../.." && pwd)"
+INTEGRATION_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$INTEGRATION_DIR/../.." && pwd)"
 LOG="/tmp/test_dreamer_cli_server.log"
 
 # Resolve input from arg, else default to fixture's input path.
-DEFAULT_INPUT="$(python -c "import sys; sys.path.insert(0, '$SMOKE_DIR'); from _dreamer_fixture import INPUT_PATH; print(INPUT_PATH)")"
+DEFAULT_INPUT="$(python -c "import sys; sys.path.insert(0, '$INTEGRATION_DIR'); from _dreamer_fixture import INPUT_PATH; print(INPUT_PATH)")"
 INPUT="${1:-$DEFAULT_INPUT}"
 
 mkdir -p "$VAULT"
 echo "--- seeding fixture under $VAULT"
-python "$SMOKE_DIR/_dreamer_fixture.py" "$VAULT"
+python "$INTEGRATION_DIR/_dreamer_fixture.py" "$VAULT"
 
 cd "$REPO"
 

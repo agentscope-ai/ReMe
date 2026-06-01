@@ -5,8 +5,8 @@
 > 配套阅读:
 > - `structure.md` §1.2(数据视角)/ §2(三层存储)/ §3.5(digest 动作)
 > - `auto_memory_design.md`:daily 实时事件 = dream 的入流之一
-> - `auto_maintain_design.md`:M split / D 检测 / CAS 写入协议(dream 模型的运行时实现)
-> - `auto_link_design.md`:dream 写完后的后置增强(背景实体识别 + wikilink 写回)
+> - `auto_consolidate_design.md`:M split / D 检测 / CAS 写入协议(dream 模型的运行时实现)
+> - `auto_cognition_design.md`:auto-cognition 三阶段顶层思想 —— dream 是其 Stage 1(写入阶段)的实现
 >
 > **核心**:digest = **浅桶(shallow bucket)+ flat .md** + **一张图(节点 + 边)**;dream 定义模型与主流程(create_or_update),maintain 负责 split / 写入运行时。
 >
@@ -117,8 +117,8 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 
 | op | 谁 | 何时 | 改什么 |
 |---|---|---|---|
-| **dream**(create_or_update) | dreamer(本文档 §4.2) | 入流(新材料进入) | 创建新节点 / update 已有节点 body(语义守恒重写) |
-| **M split** | maintainer(`auto_maintain_design.md` §1) | 节点过载(token / 主题离散度超阈值) | 把 parent body 拆成 parent overview + N children;parent 文件原地 |
+| **dream**(create_or_update) | dreamer(本文档 §4.2) | 入流(新材料进入) | 创建新节点 / update 已有节点 body(语义守恒重写;UPDATE 内分 **CORROBORATE / REFINE / CORRECT** 三种 flavor,详 §4.2.3) |
+| **M split** | maintainer(`auto_consolidate_design.md` §1) | 节点过载(token / 主题离散度超阈值) | 把 parent body 拆成 parent overview + N children;parent 文件原地 |
 
 > **关键观察**:"主题概览节点"不是一种 kind,也不是 maintainer 主动涌现的产物 —— 它是 split 的副产品(parent 节点天然成为该 cluster 的 overview,中心性自然高)。
 
@@ -131,51 +131,77 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 
 **dream = dreamer 入流唯一改 body 的操作,且只改 subject node。**
 
+#### 4.2.0 digest 是抽象记忆层
+
+Digest 是 agent 长期记忆的**抽象层** —— 类比前额叶对认知的聚合。原始细节(数字、流程文本、谁说了什么)留在材料(daily / resource),digest 只承载细节淡忘后仍想调取的那一层:原则、模式、可作为先例的决策、认知要点。这一立场决定了 dream 流程的形态:**Phase 1 识别抽象,Phase 2 把抽象登记到 digest 节点**。
+
+#### 4.2.1 两阶段流程
+
 ```
 material 进入(daily / resource 选定 scope)
   │
   ▼
-LLM 抽取原子单元 → N 个候选
+Phase 1 — extract (轻量)
+  LLM 读材料 → 识别其中教导的"抽象"(原则 / 模式 / 先例)
+  → 发出 ExtractedUnits 结构化输出 = K 个 sub-unit
+    (每个: {name, summary},summary 标注证据在材料的哪段)
+  说明:多个支撑事实说明同一抽象 → 合并为同一 sub-unit
+       (倾向少而精);Phase 1 是 gate ——
+       无新抽象时发空列表,Phase 2 跳过整轮
   │
-  ▼ 对每个候选:
-SearchStep 召回相似候选节点
-  (reme4/steps/index/search.py;vector + keyword 并发 → RRF 融合
-   → expand_links 邻接展开;scope `digest/`;默认 limit 5~10)
+  ▼ (Python 外循环,K 次)
+Phase 2 — integrate (per sub-unit,每次独立 ReAct 会话)
+  │  sub-unit ↔ digest 节点 1:1;Phase 2 必写,无 SKIP 出口
   │
-  ▼
-LLM 终判:候选池里有"同概念节点"吗?
-  ├─ 有 → update 路径
-  │       (a) 把新内容融入已有 body(语义守恒重写)
-  │       (b) 加 provenance 反指
-  │       (c) 必要时加 / 改 wikilink
+  ├─ RECALL: search(关键词 + 向量 + RRF) + traverse(对 top hit
+  │  做图扩展,跨 bucket) → 候选路径集
   │
-  └─ 无 → create 路径
-          (a) 挑 bucket(固定集合;无合适专属桶 → `unknown`)
-          (b) 写文件名(同 bucket 唯一,fs 层断言)
-          (c) 写 body + provenance + 横向 link
+  ├─ HIT: frontmatter_read 廉价 triage → read 完整 body
+  │  确认候选是否承载同一抽象 → hit 集合
   │
-  ▼
-写入前 outbound diff 守恒校验(update 走 E-1;create 无 old outbound)
-  │
-  ▼
-CAS 写入(`auto_maintain_design.md` §5)
+  ├─ 决策:
+  │   ├─ hit 空    → CREATE 路径 (挑 bucket,写新节点)
+  │   └─ hit 非空  → UPDATE 路径 (CORROBORATE / REFINE / CORRECT)
   │
   ▼
-写完 inline 触发 D3 检测(`auto_maintain_design.md` §4)
+写入(digest_write 创建 / digest_edit 改正文,E-1 强守恒,§4.4)
+  │
+  ▼
+agent 上报 IntegrateOutcome {action, target_path}
 ```
 
-**关键边界**:
-- **dream update 必须语义守恒** —— LLM 重写 body 时只能"融入"新内容,不能删除已有信息(只增不删 / 不改原意;冲突标注 `> 注:不同来源记载...`,不擅自仲裁);**写入前机械校验出边强守恒**(E-1,详 §4.4)
+**两阶段 trade-off**:Phase 2 把完整材料发 LLM K 次(一次一 sub-unit),不做 summary loss;代价是 K 倍 prompt token。换来的是 Phase 1 只做"识别抽象"这一件事(粒度集中在一个 prompt),Phase 2 每次会话上下文干净、聚焦单一抽象的写决策。
+
+#### 4.2.2 召回二段
+
+**RECALL = search + traverse**:search 给关键词 + 向量 RRF 命中;只要 search 在 `digest/` 下返回任何 hit,就对 top hit 跑 `traverse depth=2 direction=both`。理由是 search 关键词导向,会漏掉用不同术语归档的语义相邻抽象,那些常常一跳之外。search 在 `digest/` 下完全无命中 → 无 traverse 起点 → 候选集为空 → 直接 CREATE。
+
+**HIT = frontmatter_read + read**:渐进披露 —— 先 `frontmatter_read` 读 `name + description` 廉价 triage 淘汰明显无关候选,剩下的再 `read` 整 body。**不可仅凭 chunk 片段或 frontmatter 决定 UPDATE**,body 才是判定依据。
+
+#### 4.2.3 UPDATE 三种 flavor
+
+| flavor | 何时 | body 怎么动 |
+|---|---|---|
+| **CORROBORATE**(最常见)| 已有节点已覆盖此抽象,材料是又一个实例 | body 实质不变 —— 追加 `derived_from::` 溯源,可选强化措辞("似乎"→"确实") |
+| **REFINE**(常见)| 已有节点覆盖了核心,但材料揭示新的范围 / 边界 / 维度 | 改相关片段使更精确,加新维度,加 `derived_from::`。正文在**精度**上长,不在**细节**上膨胀 |
+| **CORRECT**(少见)| 材料与已有抽象矛盾 / 表明它被夸大 | 收紧到新旧证据都支持的窄形式,或内联标注 `> note: contradicted by [[...]]` 不仲裁。仍加溯源 |
+
+三种都受 §4.4 E-1 强守恒约束(出边集合不能缩)。
+
+#### 4.2.4 关键边界
+
+- **Phase 1 是 gate** —— "不值得记忆"在 Phase 1 过滤(空列表);Phase 2 必然写,sub-unit 与 digest 节点 1:1
+- **dream update 必须语义守恒** —— LLM 重写 body 时只能"融入"新内容,不能删除已有信息(只增不删 / 不改原意;冲突标注 `> 注:不同来源记载...`,不擅自仲裁);写入前机械校验出边强守恒(E-1,详 §4.4)
 - **dream 不改其它节点正文**(F-2) —— 只动 subject
+- **dreamer 不做事件级伞节点** —— 材料本身(daily / resource 文件)就是 fan-out 点,每个 sub-unit 的 `derived_from::` 让材料天然聚合到所有派生节点
 - **0 出边节点合法**(没识别到合适邻居),后续 dream 进入时其它节点可以反向链回来 —— 不强求 LLM 一次性给全
-- **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 vault 累积明显重复,由 auto-link L4 离线 audit 工具产报告(`auto_link_design.md` §1.3)
+- **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 vault 累积明显重复,由 auto-consolidate 的 dups 检测周期 batch 产报告(`auto_consolidate_design.md` §3)
 - **召回不做 bucket 粗筛** —— LLM 拥有完整跨桶视野,可识别"概念错分到 unknown"或"跨桶同概念"
 
 **provenance 写出**:
 - 行文中自然带:"... 该模式最早出现在 [[daily/2026/05/15.md]] 的实践中"
-- 可选 predicate:`derived_from:: [[daily/2026/05/15.md]]`,不强制
-- prompt 必须要求"出处用 `[[...]]` 形式表达"(纯散文会被守恒校验视为丢边)
-- **首版可先用 append 起步**(出边集合天然 ⊇,守恒校验自动通过);成熟后切到重写
+- **强制 typed predicate `derived_from::`** —— body 必须织入至少一条 `derived_from:: [[daily/...]]` 或 `[[resource/...]]`,纯散文形式不被守恒校验视作边,下次 update 时会消失
+- 不走"首版 append 起步"的过渡路径 —— digest_edit 自一开始就跑 E-1 强守恒,LLM 直接做语义守恒重写
 
 ### 4.3 F-invariants(演化的硬约束)
 
@@ -228,21 +254,18 @@ write_subject_body(subject, new_body):
 |---|---|
 | ← **auto-memory**(daily) | dream 读 daily 作为入流;daily 写完即对 dream 可见 |
 | ← **resource** | dream 读 resource 作为入流(只读,不写) |
-| → **auto-maintain** | dream 写完触发 D3 inline 检测;D3 过载 → enqueue split job(maintain 异步消费);写入并发由 CAS 协议(`auto_maintain_design.md` §5)保护 |
-| → **auto-link** | dream 写完 enqueue auto-link L1(背景实体识别 + wikilink 写回);走同一 CAS 队列(`auto_link_design.md` §1.2) |
 
-**关键边界**:dream 不写 daily / resource(I-2 / I-3);只写 digest 节点 body(自身 subject)。
+**关键边界**:dream 不写 daily / resource(I-2 / I-3);只写 digest 节点 body(自身 subject)。dream 不感知下游 —— split / 链接增强 / 索引刷新 / rename 等由 `auto_consolidate_design.md` / `auto_cognition_design.md` / `update_store_index_loop` 各自负责。
 
 ---
 
 ## 6. 下一步
 
-本文档覆盖 dream 模型(桶 / 节点 / 边 / 演化)。组织端实现清单(M split / D 检测 / CAS 框架)见 `auto_maintain_design.md` §10。
+本文档覆盖 dream 模型(桶 / 节点 / 边 / 演化)。组织端实现清单(M split / D 检测 / CAS 框架)见 `auto_consolidate_design.md` §10。
 
-1. **dream step 实现** —— scope → 抽取 → SearchStep 召回 → LLM 终判 → CAS 写入 + E-1 守恒校验
-2. **rename 路径封装** —— `wikilink_handler.retarget_links(old, new)` 已就绪;封装为单步 step,无 alias 表,无透明展开
-3. **bucket 集合配置** —— `vault.yaml` schema / 默认桶模板 / `unknown` 兜底 / `_buckets.md` 视图生成
-4. **边守恒校验工具** —— `extract_links` 已就绪;新增 outbound diff 比较器 + LLM 重试编排 + ConservationViolation audit 事件
-5. **provenance prompt 规范** —— dream 引导 LLM 写 `[[daily/...]]` / `[[resource/...]]`
+- ✅ **dream step 实现** —— Phase 1 extract + Phase 2 integrate(per sub-unit)+ E-1 守恒校验(`reme4/steps/evolve/dream/`)
+- ✅ **边守恒校验工具** —— `digest_edit` 的 outbound diff 比较器 + REJECT_CONSERVATION 重试 + 违规上报
+- ✅ **provenance prompt 规范** —— `derived_from:: [[daily/...]]` / `[[resource/...]]` 强制
+- ⏳ **bucket 集合配置外置** —— 当前 hardcoded 在 `digest_write.py` 的 `DEFAULT_BUCKETS`;目标 `vault.yaml` schema + `_buckets.md` 视图生成
 
-实现进入 `reme4/steps/jobs/` 与 `reme4/file_graph/` 时,本文档与 `auto_memory_design.md` / `auto_maintain_design.md` / `auto_link_design.md` 共同作为契约依据。
+实现进入 `reme4/steps/evolve/` 时,本文档与 `auto_memory_design.md` / `auto_consolidate_design.md` / `auto_cognition_design.md` 共同作为契约依据。

@@ -1,4 +1,4 @@
-"""Fixture for the dreamer smoke tests.
+"""Fixture for the dreamer integration tests.
 
 Seeds a vault with:
 
@@ -18,7 +18,7 @@ Seeds a vault with:
       * observation: CREATE digest/observation/soc2-30day-finding.md
       * preference : UPDATE digest/preference/no-trailing-summary.md + CREATE digest/preference/small-pr.md
 
-  Total budget per smoke run: 1 Phase 1 + up-to-4 Phase 2 = up to 5
+  Total budget per integration run: 1 Phase 1 + up-to-4 Phase 2 = up to 5
   ReAct sessions, each with several tool turns (search → file_read →
   digest_* / SKIP).
 
@@ -26,7 +26,7 @@ Idempotent: re-running does NOT overwrite existing files. To re-seed
 from scratch, delete the vault and rerun.
 
 Usage as a script:
-    python tests4/smoke/_dreamer_fixture.py /tmp/my-vault
+    python tests4/integration/_dreamer_fixture.py /tmp/my-vault
 
 Usage as a module:
     from _dreamer_fixture import clean_vault, seed_vault, INPUT_PATH

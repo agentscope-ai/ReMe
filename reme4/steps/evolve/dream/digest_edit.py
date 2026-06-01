@@ -21,10 +21,10 @@ from pathlib import Path
 import frontmatter
 
 from .digest_write import _validate_digest_path, bucket_names, normalize_buckets
-from ..file_io._file_io import read_file_safe
-from ..file_io.edit import EditStep
-from ...components import R
-from ...utils.wikilink_handler import WikilinkHandler
+from ...file_io._file_io import read_file_safe
+from ...file_io.edit import EditStep
+from ....components import R
+from ....utils.wikilink_handler import WikilinkHandler
 
 
 @R.register("digest_edit_step")

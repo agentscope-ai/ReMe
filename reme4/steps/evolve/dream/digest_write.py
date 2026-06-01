@@ -20,8 +20,8 @@ accepts an override.
 
 from pathlib import Path
 
-from ..file_io.write import WriteStep
-from ...components import R
+from ...file_io.write import WriteStep
+from ....components import R
 
 
 # Each bucket carries a name (the filesystem folder under ``digest/``) and a

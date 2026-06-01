@@ -31,7 +31,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from .dreamer import Dreamer, DreamResult
-from ...components import R
+from ....components import R
 
 
 class CronDreamResult(BaseModel):

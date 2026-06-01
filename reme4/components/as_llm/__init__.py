@@ -26,11 +26,6 @@ class OpenAIAsLLM(BaseAsLLM):
 
     async def _start(self) -> None:
         kwargs = dict(self.kwargs)
-        base_url = kwargs.pop("base_url", None)
-        if base_url:
-            client_kwargs = dict(kwargs.pop("client_kwargs", None) or {})
-            client_kwargs.setdefault("base_url", base_url)
-            kwargs["client_kwargs"] = client_kwargs
         self.model = OpenAIChatModel(**kwargs)
 
     async def _close(self) -> None:

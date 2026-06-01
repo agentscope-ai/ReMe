@@ -1,4 +1,4 @@
-"""Demo steps for smoke-testing the application stack."""
+"""Demo steps for integration-testing the application stack."""
 
 from ..base_step import BaseStep
 from ...components import R

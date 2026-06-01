@@ -2,8 +2,9 @@
 
 Reads one daily-event note or resource file at the given vault-relative
 ``path``, identifies the ABSTRACTIONS the material teaches in Phase 1,
-then in Phase 2 makes ONE cognitive write decision (CREATE / UPDATE /
-SKIP) per abstraction. See ``docs4/auto_dream_design.md`` for the model
+then in Phase 2 makes ONE cognitive write decision (CREATE or one of
+the three UPDATE flavors: CORROBORATE / REFINE / CORRECT) per
+abstraction. See ``docs4/auto_dream_design.md`` for the model
 contract (buckets / nodes / edges / evolution) and ``§4.2`` for the
 pipeline.
 
@@ -19,28 +20,33 @@ Pipeline (external loop in Python, two distinct ReAct agent invocations,
 
     execute():
         _extract(material_blob)         # 1× ReAct: identify abstractions
-                                        #   agent calls declare_units([{name, summary}, ...])
+                                        #   agent emits ExtractedUnits structured output
+                                        #   ({units: [{name, summary}, ...]})
         for unit in self._units:        # Python loop, K iterations (K = num abstractions)
             _integrate_unit(unit)       # 1× ReAct per abstraction: agent sees full material +
                                         #   the sub-unit's name/summary, recalls, decides
-                                        #   bucket, makes ONE write decision (CREATE /
-                                        #   UPDATE / SKIP). Sub-unit ↔ digest node is 1:1.
+                                        #   bucket, makes ONE write decision (CREATE or
+                                        #   one of the UPDATE flavors). Sub-unit ↔ digest
+                                        #   node is 1:1.
 
-* **Phase 1 (extract / abstract)** uses a minimal toolkit
-  (``declare_units`` + ``read``). The agent identifies the
-  abstractions the material teaches — principles, patterns,
-  precedents worth carrying forward once specifics fade. Multiple
-  raw facts that illustrate the same abstraction collapse into
-  ONE sub-unit. Prompt biases toward fewer / coarser sub-units;
-  filing detail under a digest sub-unit is the wrong layer.
-  No event-level umbrella node is manufactured — the material
-  itself plays that role via ``derived_from`` provenance edges.
+* **Phase 1 (extract / abstract)** uses a read-only toolkit
+  and emits an :class:`ExtractedUnits` Pydantic model as its
+  final structured answer (no tool call needed for the unit
+  list — agentscope's ``structured_model`` enforces the shape).
+  The agent identifies the abstractions the material teaches —
+  principles, patterns, precedents worth carrying forward once
+  specifics fade. Multiple raw facts that illustrate the same
+  abstraction collapse into ONE sub-unit. Prompt biases toward
+  fewer / coarser sub-units; filing detail under a digest
+  sub-unit is the wrong layer. No event-level umbrella node is
+  manufactured — the material itself plays that role via
+  ``derived_from`` provenance edges.
 
 * **Phase 2 (integrate per abstraction)** runs once per declared
   sub-unit with a fresh ReAct session (clean context) and the full
   read + write toolkit (``search``, ``traverse``, ``read``,
-  ``list``, ``stat``, ``frontmatter:read``, ``digest_write``,
-  ``digest_edit``). Three UPDATE shapes are surfaced explicitly
+  ``frontmatter_read``, ``digest_write``, ``digest_edit``). Three
+  UPDATE shapes are surfaced explicitly
   in the prompt:
 
     - **corroborate** (most common): the abstraction already
@@ -55,9 +61,10 @@ Pipeline (external loop in Python, two distinct ReAct agent invocations,
       or annotate the contradiction inline + add provenance.
 
   CREATE is reserved for genuinely new abstractions not yet in
-  the vault. SKIP should be uncommon — even an additional
-  instance of an existing abstraction usually warrants a
-  corroborate-style UPDATE.
+  the vault — even thin first-encounter seeds, which grow via
+  CORROBORATE / REFINE on later passes. There is no SKIP outcome:
+  Phase 1 is the gate for "not worth memorizing"; anything that
+  reaches Phase 2 warrants a write.
 
 The trade-off vs heavy Phase 1: full material is sent to LLM K
 times in Phase 2 (one per abstraction). The advantages: no
@@ -85,16 +92,17 @@ Invocation form (CLI / MCP):
 import datetime
 import zoneinfo
 from pathlib import Path
+from typing import Literal
 
-from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit, ToolResponse
 from pydantic import BaseModel, Field
 
 from .digest_edit import DigestEditStep
 from .digest_write import DigestWriteStep, bucket_names, normalize_buckets
-from ..base_step import BaseStep
-from ...components import R
+from .._evolve import FlexReActAgent
+from ...base_step import BaseStep
+from ....components import R
 
 
 _EXTRACT_READ_TOOLS: tuple[str, ...] = ("read",)
@@ -103,9 +111,7 @@ _INTEGRATE_READ_TOOLS: tuple[str, ...] = (
     "search",
     "traverse",
     "read",
-    "list",
-    "stat",
-    "frontmatter:read",
+    "frontmatter_read",
 )
 
 
@@ -123,6 +129,101 @@ def _pack_material(file_store, path: str) -> str:
         return f"### {path}\n{absolute.read_text(encoding='utf-8')}\n"
     except Exception as e:
         return f"### {path}\n(error reading: {type(e).__name__}: {e})\n"
+
+
+class MemoryUnit(BaseModel):
+    """One memory sub-unit identified by Phase 1's structured output."""
+
+    name: str = Field(
+        description=(
+            "Short kebab-case identifier for the abstraction "
+            "(e.g. 'jwt-rotation-decision', 'pr-size-pref'). "
+            "Agent-internal handle — NOT the eventual digest slug; "
+            "Phase 2 picks the actual filing path + bucket."
+        ),
+    )
+    summary: str = Field(
+        description=(
+            "1-2 sentences naming the abstraction AND pointing at where "
+            "in the material the supporting evidence lives "
+            "(e.g. 'short-credential compliance drives auth cadence; "
+            "illustrated by the 30→24h decision in the 'Decision' section "
+            "+ the SOC2 CC6.1 criticism in the 'Observation' section')."
+        ),
+    )
+
+
+class ExtractedUnits(BaseModel):
+    """Structured output emitted by Phase 1's extract agent."""
+
+    units: list[MemoryUnit] = Field(
+        default_factory=list,
+        description=(
+            "Memory sub-units identified in the material — orthogonal "
+            "abstractions (principles / patterns / precedents) worth "
+            "lifting into long-term memory. Empty list = nothing worth "
+            "lifting (Phase 2 is skipped)."
+        ),
+    )
+
+
+def _render_outcome_line(unit_name: str, o: "IntegrateOutcome") -> str:
+    """Format one IntegrateOutcome as a one-line summary entry."""
+    if o.action == "CREATE":
+        body = f"CREATE {o.target_path}"
+        if o.note:
+            body += f" — {o.note}"
+    else:  # CORROBORATE / REFINE / CORRECT (all UPDATE-flavored)
+        recovered = " (recovered from REJECT_CONSERVATION)" if o.recovered_from_conservation else ""
+        body = f"{o.action} {o.target_path}{recovered}"
+        if o.note:
+            body += f" — {o.note}"
+    return f"[{unit_name}] {body}"
+
+
+class IntegrateOutcome(BaseModel):
+    """Structured outcome reported by Phase 2 for one sub-unit."""
+
+    action: Literal["CREATE", "CORROBORATE", "REFINE", "CORRECT"] = Field(
+        description=(
+            "Outcome of the write decision for this sub-unit. Phase 1 already "
+            "filtered out non-abstractions, so every sub-unit reaching you "
+            "warrants a write — pick the matching fine-grained action: "
+            "`CREATE` — brand-new digest node (recall returned no node "
+            "covering this abstraction); even thin first-encounter seeds go "
+            "here, they grow via CORROBORATE / REFINE on later passes. "
+            "`CORROBORATE` (most common when a covering node exists) — "
+            "provenance append + optional wording strengthening; the "
+            "abstraction already covers this material. `REFINE` — covering "
+            "node exists but the material reveals nuance, scope, or edge "
+            "cases the abstraction under-specified. `CORRECT` — covering "
+            "node exists but the material contradicts it; tighten the "
+            "abstraction or annotate the contradiction inline."
+        ),
+    )
+    target_path: str = Field(
+        description=(
+            "The digest path you wrote to — must match what your " "`digest_write` / `digest_edit` call(s) targeted."
+        ),
+    )
+    note: str = Field(
+        default="",
+        description=(
+            "Optional ONE short line, ≤ 200 chars, no newlines, summarizing "
+            "what landed (e.g. 'extended scope to also cover X'). Do NOT "
+            "dump recall summaries, search results, internal reasoning, or "
+            "transcripts here — those belong in the ReAct trace, not the "
+            "outcome note."
+        ),
+    )
+    recovered_from_conservation: bool = Field(
+        default=False,
+        description=(
+            "Set to true if `digest_edit` initially returned "
+            "REJECT_CONSERVATION and you re-composed `new` to preserve the "
+            "missing links. Only meaningful for CORROBORATE / REFINE / CORRECT."
+        ),
+    )
 
 
 class DreamResult(BaseModel):
@@ -204,66 +305,6 @@ class Dreamer(BaseStep):
         except Exception:
             return False
 
-    def _make_declare_units_tool(self):
-        """Tool closure: agent commits the memory sub-units present in the material.
-
-        Each unit is one orthogonal chunk of memory-worth information in this
-        material — e.g. for an analysis note: the subject, the method, the
-        decision, the finding, the open question. Free-form; not bound to the
-        digest bucket vocabulary (Phase 2 picks the bucket per atom at write
-        time).
-        """
-
-        async def declare_units(units: list[dict]) -> ToolResponse:
-            if not isinstance(units, list):
-                return ToolResponse(
-                    content=[
-                        TextBlock(
-                            type="text",
-                            text=f"REJECT: units must be a list, got {type(units).__name__}",
-                        ),
-                    ],
-                )
-            cleaned: list[dict] = []
-            for i, u in enumerate(units):
-                if not isinstance(u, dict):
-                    return ToolResponse(
-                        content=[
-                            TextBlock(
-                                type="text",
-                                text=f"REJECT: units[{i}] must be an object",
-                            ),
-                        ],
-                    )
-                name = str(u.get("name", "")).strip()
-                summary = str(u.get("summary", "")).strip()
-                if not name or not summary:
-                    return ToolResponse(
-                        content=[
-                            TextBlock(
-                                type="text",
-                                text=f"REJECT: units[{i}] missing required 'name' or 'summary'",
-                            ),
-                        ],
-                    )
-                cleaned.append({"name": name, "summary": summary})
-            # Last call wins; replaces any previous declaration in this session.
-            self._units = cleaned
-            return ToolResponse(
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"OK: declared {len(cleaned)} memory sub-unit(s) "
-                            f"({', '.join(u['name'] for u in cleaned)}). "
-                            "Phase 1 closed. Downstream will process each sub-unit in a separate session."
-                        ),
-                    ),
-                ],
-            )
-
-        return declare_units
-
     def _make_digest_write_tool(self):
         """Tool closure: wraps :class:`DigestWriteStep` and tracks creates."""
 
@@ -306,67 +347,11 @@ class Dreamer(BaseStep):
         return digest_edit
 
     def _build_extract_toolkit(self) -> Toolkit:
-        """Minimal toolkit for the extract agent: declare_units + read-only."""
+        """Read-only toolkit for the extract agent. Sub-units come back via
+        :class:`ExtractedUnits` structured output, not via a tool call."""
         toolkit = Toolkit()
         for job_name in _EXTRACT_READ_TOOLS:
             self.add_as_tool(toolkit, job_name)
-        declare_units_desc = (
-            "Commit the list of MEMORY SUB-UNITS present in this material — the orthogonal "
-            "information chunks worth lifting into long-term memory. Each entry is one focused "
-            "sub-unit (e.g. for an analysis note: the subject, the method, a decision, a finding). "
-            "Free-form — sub-units are NOT bucket names, just an agent-internal clustering of the "
-            "material's key information. Call EXACTLY ONCE after reading. Downstream processes each "
-            "sub-unit in its own session and picks the bucket per atom at write time."
-        )
-        toolkit.register_tool_function(
-            tool_func=self._make_declare_units_tool(),
-            func_name="declare_units",
-            func_description=declare_units_desc,
-            json_schema={
-                "type": "function",
-                "function": {
-                    "name": "declare_units",
-                    "description": declare_units_desc,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "units": {
-                                "type": "array",
-                                "description": (
-                                    "Memory sub-units identified in the material. Each is one "
-                                    "orthogonal information chunk; the same topic does not get "
-                                    "duplicated, but multiple distinct topics each get their own entry."
-                                ),
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string",
-                                            "description": (
-                                                "Short kebab-case identifier for the sub-unit "
-                                                "(e.g. 'jwt-rotation-decision', 'pr-size-pref'). "
-                                                "Agent-internal only — not the eventual digest slug."
-                                            ),
-                                        },
-                                        "summary": {
-                                            "type": "string",
-                                            "description": (
-                                                "1-2 sentences pointing the downstream agent at "
-                                                "the SPECIFIC part of the material this sub-unit "
-                                                "covers (e.g. 'the JWT rotation cadence decision "
-                                                "in the 决定 section, driven by SOC2')."
-                                            ),
-                                        },
-                                    },
-                                    "required": ["name", "summary"],
-                                },
-                            },
-                        },
-                        "required": ["units"],
-                    },
-                },
-            },
-        )
         return toolkit
 
     def _build_integrate_toolkit(self) -> Toolkit:
@@ -467,9 +452,9 @@ class Dreamer(BaseStep):
         return toolkit
 
     async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> str:
-        """Phase 1: one ReAct invocation — read material + declare_units. Returns LLM summary."""
+        """Phase 1: one ReAct invocation — read material + emit ExtractedUnits. Returns LLM summary."""
         toolkit = self._build_extract_toolkit()
-        agent = ReActAgent(
+        agent = FlexReActAgent(
             name="reme_dreamer_extract",
             model=self.as_llm,
             sys_prompt=self.prompt_format(
@@ -487,18 +472,43 @@ class Dreamer(BaseStep):
             hint=hint or "(none)",
             material_blob=material_blob,
         )
-        msg = await agent.reply(Msg(name="reme", role="user", content=user_message))
+        msg = await agent.reply(
+            Msg(name="reme", role="user", content=user_message),
+            structured_model=ExtractedUnits,
+        )
+
+        # Structured output lands in msg.metadata as a dict matching ExtractedUnits.
+        # Empty / missing → no sub-units (Phase 2 will skip).
+        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+        cleaned: list[dict] = []
+        for raw in meta.get("units") or []:
+            if not isinstance(raw, dict):
+                continue
+            name = str(raw.get("name") or "").strip()
+            summary = str(raw.get("summary") or "").strip()
+            if name and summary:
+                cleaned.append({"name": name, "summary": summary})
+        self._units = cleaned
         return (msg.get_text_content() or "").strip()
 
-    async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> str:
-        """One ReAct invocation per memory sub-unit. Returns LLM summary of writes."""
+    async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> IntegrateOutcome:
+        """One ReAct invocation per memory sub-unit. Returns the parsed
+        :class:`IntegrateOutcome` reported by the agent.
+
+        File writes happen as side effects via the ``digest_write`` /
+        ``digest_edit`` tool calls during the ReAct loop (which populate
+        ``self._created`` / ``self._updated`` / ``self._violations``); the
+        structured outcome here is the agent's own summary of what it
+        decided — useful for rendering and for catching hallucinations
+        (action=CREATE without the matching write call landing in trackers).
+        """
         toolkit = self._build_integrate_toolkit()
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
         buckets_block = "\n".join(
             f"  - `{digest_dir}/{b['name']}/`" + (f"  — {b['description']}" if b.get("description") else "")
             for b in self.buckets
         )
-        agent = ReActAgent(
+        agent = FlexReActAgent(
             name=f"reme_dreamer_integrate_{unit.get('name', 'unit')}",
             model=self.as_llm,
             sys_prompt=self.prompt_format(
@@ -518,8 +528,29 @@ class Dreamer(BaseStep):
             unit_summary=unit.get("summary", ""),
             material_blob=material_blob,
         )
-        msg = await agent.reply(Msg(name="reme", role="user", content=user_message))
-        return (msg.get_text_content() or "").strip()
+        # Snapshot trackers so we can reconstruct the outcome from the
+        # filesystem side effects if the agent's structured emission slips.
+        created_before = len(self._created)
+        updated_before = len(self._updated)
+        msg = await agent.reply(
+            Msg(name="reme", role="user", content=user_message),
+            structured_model=IntegrateOutcome,
+        )
+        meta = msg.metadata if isinstance(msg.metadata, dict) else {}
+        try:
+            return IntegrateOutcome.model_validate(meta)
+        except Exception:
+            # The LLM occasionally drops the final structured emission even
+            # after a successful tool call. The trackers are the source of
+            # truth — reconstruct the outcome from the new entries this
+            # session added.
+            new_created = self._created[created_before:]
+            new_updated = self._updated[updated_before:]
+            if new_created:
+                return IntegrateOutcome(action="CREATE", target_path=new_created[-1])
+            if new_updated:
+                return IntegrateOutcome(action="CORROBORATE", target_path=new_updated[-1])
+            raise
 
     async def dream_one(self, path: str, hint: str = "") -> DreamResult:
         """Run the full extract + integrate pipeline on one vault-relative
@@ -553,7 +584,7 @@ class Dreamer(BaseStep):
 
         vault_dir = self._vault_dir()
 
-        # Phase 1 — extract (light). Agent calls declare_units to commit the
+        # Phase 1 — extract (light). Agent emits ExtractedUnits structured output to commit the
         # memory sub-units worth lifting.
         self.logger.info(f"[{self.name}] extract phase: path={path!r}")
         extract_summary = await self._extract(material_blob, hint, vault_dir)
@@ -562,7 +593,7 @@ class Dreamer(BaseStep):
             return DreamResult(
                 used_llm=True,
                 path=path,
-                summary=extract_summary or "SKIP: no memory sub-units declared",
+                summary=extract_summary or "no memory sub-units declared",
                 skipped=True,
             )
 
@@ -572,25 +603,27 @@ class Dreamer(BaseStep):
         )
 
         # Phase 2 — integrate, one fresh ReAct per sub-unit. Python-level
-        # loop, not agent loop. Each session decides bucket per atom written.
-        per_unit_replies: list[str] = []
+        # loop, not agent loop. Each session emits a structured
+        # IntegrateOutcome; file writes happen as side effects via
+        # digest_write / digest_edit tool calls.
+        per_unit_lines: list[str] = []
         for i, unit in enumerate(self._units, start=1):
             name = unit.get("name", "?")
             try:
-                reply = await self._integrate_unit(unit, material_blob, hint, vault_dir)
+                outcome = await self._integrate_unit(unit, material_blob, hint, vault_dir)
             except Exception as e:
                 self.logger.error(
                     f"[{self.name}] integrate {i}/{len(self._units)} (unit={name}) " f"failed: {type(e).__name__}: {e}",
                 )
-                per_unit_replies.append(f"[{name}] FAILED: {type(e).__name__}: {e}")
+                per_unit_lines.append(f"[{name}] FAILED: {type(e).__name__}: {e}")
                 continue
-            per_unit_replies.append(f"[{name}]\n{reply}")
+            per_unit_lines.append(_render_outcome_line(name, outcome))
 
         summary = (
             f"Declared {len(self._units)} sub-unit(s) "
             f"({', '.join(u['name'] for u in self._units)}); "
             f"created {len(self._created)}, updated {len(self._updated)}, "
-            f"conservation violations {len(self._violations)}.\n" + "\n\n".join(per_unit_replies)
+            f"conservation violations {len(self._violations)}.\n" + "\n".join(per_unit_lines)
         )
 
         return DreamResult(
@@ -619,7 +652,7 @@ class Dreamer(BaseStep):
             self.context.response.answer = f"Error: {result.error}"
         elif result.skipped:
             self.context.response.success = True
-            self.context.response.answer = result.summary or "SKIP"
+            self.context.response.answer = result.summary or "Skipped: no memory sub-units declared"
         else:
             self.context.response.success = True
             self.context.response.answer = result.summary
