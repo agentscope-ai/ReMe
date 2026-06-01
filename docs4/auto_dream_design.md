@@ -34,31 +34,31 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 |---|---|
 | **物理几何** | `digest/<bucket>/<slug>.md`;**浅桶一层**(顶多两层),桶内 flat |
 | **bucket 角色** | **仅承担物理归档 + OS-level 浏览锚点**;不承担语义本体角色 —— 主题由图中节点表达 |
-| **bucket 集合** | **固定预定义**(`vault.yaml` 顶层 `digest.buckets:`),不由 dreamer / maintainer 动态生成 |
-| **集合视图** | 自动生成 `digest/_buckets.md` 作为人/LLM 可读视图;dream 时读后者作 prompt context |
-| **初始化** | opinionated default(6 桶,按"答什么问"划分):`concept`(答"X 是什么")/ `procedure`(答"怎么做 X")/ `entity`(答"X 是谁/哪个")/ `observation`(答"发生了什么")/ `preference`(答"X 喜欢怎样 / 别做什么";用户记忆主战场)/ **必带 `unknown`** —— 消费层可改桶名,但 `unknown` 不可删 |
+| **bucket 集合** | **代码内 hard-coded**(`reme4/steps/evolve/auto_dream.py` 的 `BUCKETS` 常量),不通过配置外置,不由 dreamer / maintainer 动态生成 —— 三桶设定是 dream 模型本身的一部分(Phase 2 prompt 按 bucket 专化),不是可调参数 |
+| **集合视图** | 桶名内嵌在 prompt 中(extract 阶段三桶判别启发 + 三份独立 integrate prompt);不再生成独立 `_buckets.md` 视图 |
+| **初始化** | opinionated **三桶**,按"答什么问 + 谁在问"划分:`procedure`(答"怎么做 X" —— 步骤 / 方法 / runbook)/ `personal`(答"X 是谁 / 喜欢什么 / 不要做什么" —— 用户 / 团队 specific 身份 + 偏好)/ `wiki`(答"X 是什么 / 发生了什么 / 决策依据是什么" —— 通用知识 / 定义 / 原则 / 观察 / 决策先例;**也是默认兜底**) |
 | **bucket 主页** | 不强制存在;split 累积出层级时 parent 节点天然成为浏览主页(中心性涌现,非架构必需) |
-| **新节点归属** | dream 只能从已有桶集合**挑选**;LLM 不能造新桶 |
-| **未归类节点** | 统一落入兜底桶 `digest/unknown/`(详下) |
+| **新节点归属** | bucket 由 **Phase 1** 在 unit 级别分配(写进 `MemoryUnit.bucket`),Phase 2 据此分发到对应 bucket 的专用 prompt;LLM 不能造新桶 |
+| **未归类节点** | Phase 1 找不到更明确归属时强制归入 `wiki` —— 它就是默认兜底,不是失败状态 |
 | **跨桶 move** | F-1 已禁止;若必须做(人工介入修错桶),走一次 `wikilink_handler.retarget_links(old, new)` |
 
-**`unknown` 兜底桶**:
+**`wiki` 兜底桶**:
 
 | 维度 | 内容 |
 |---|---|
-| **语义** | "分类未定 / 暂无专属归属" —— **合法常态,非故障状态**(LLM 没找到合适专属桶时的诚实表达,不是写入失败) |
-| **路径** | `digest/unknown/<slug>.md`,与其它 bucket 完全等同;节点演化与其它桶一致 |
+| **语义** | "通用知识 / 默认归属" —— `wiki` 在三桶中 scope 最广(定义 / 原则 / 观察 / 决策先例),Phase 1 没有更明确归属(不属于 `procedure` 的可执行流程,也不属于 `personal` 的用户 specific 偏好)时归入此桶;**是合法常态,不是故障状态** |
+| **路径** | `digest/wiki/<slug>.md`,与其它 bucket 完全等同;节点演化与其它桶一致 |
 | **错桶后续** | 不主动跨桶 move;若严重,人工 mv + `retarget_links(old, new)` |
 
-**为什么是 `unknown` 而不是 `general`**:`general` 听起来像在断言"这个概念真的属于通用类",实际上只是 LLM 没找到合适专属桶;`unknown` 诚实表达"分类未定",不强加伪类目。但 `unknown` 不是"待清理状态" —— 它是合法常态,节点在此演化(被 update / 被 wikilink 引 / 中心性增长)与其它桶完全等同;不会随时间被自动清空。
+**为什么 `wiki` 兜底,而不是另设 `unknown`**:三桶设计中 `procedure` / `personal` 都有明确语义边界,剩下的"X 是什么 / 决策依据 / 一般原则"自然落在通用知识那一边 —— 这恰好就是 `wiki` 的本职。再设独立 `unknown` 会出现两类语义重叠的兜底(`wiki` 的"通用知识" vs `unknown` 的"分类未定"),反倒让 LLM 在 Phase 1 多一道无意义的犹豫。`wiki` 节点本身就是合法常态,不需要后续清理。
 
 **为什么是浅桶而不是深树**:
-- 物理浏览有"主题轮廓"(打开 `digest/auth/` 能看到这一族节点),不像纯 flat 那样毫无锚点
-- 节点不被深路径绑死("属 auth/jwt 还是 auth/session"这种归属焦虑被消解 —— 一个节点可以同时被多个主题通过 wikilink 引用)
+- 物理浏览有"主题轮廓"(打开 `digest/wiki/` 能看到这一族节点),不像纯 flat 那样毫无锚点
+- 节点不被深路径绑死("属 wiki/auth 还是 wiki/session"这种归属焦虑被消解 —— 一个节点可以同时被多个主题通过 wikilink 引用)
 - F-1(0 文件移动)+ 平铺后,深树的核心收益(子树重组)消失,只剩深路径维护负担
-- **固定集合的关键意义**:LLM 在 dream 桶决定时只做"分类",不做"造类" —— 决策面坍缩,跨任务跨时间稳定;不会出现 "auth-stuff" / "auth" / "authentication" 三个语义重叠的桶共存
+- **固定三桶的关键意义**:LLM 在 dream 桶决定时只做"分类"(三选一),不做"造类" —— 决策面坍缩,跨任务跨时间稳定;不会出现 "knowledge" / "wiki" / "concepts" 三个语义重叠的桶共存。三桶覆盖 personal-knowledge 的核心切片(做什么 / 谁喜欢什么 / 知识本身),进一步细分由桶内 wikilink 图自然涌现
 
-**已排除**:动态扩桶 / 拒绝写入(候选丢失)/ 强行选最近似专属桶(本体污染)。
+**已排除**:动态扩桶 / 拒绝写入(候选丢失)/ 强行选最近似专属桶(本体污染) / 把 bucket 数推回 6+(决策面失控)。
 
 ---
 
@@ -71,7 +71,7 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 | **身份(ID)** | **vault-relative 路径(含 `.md`)即节点身份** —— `digest/auth/jwt-rotation.md` |
 | **`name` frontmatter** | 文件名 basename(不含扩展名),与文件名同步 —— 检索 hint / 人读标签,**不当 ID 用** |
 | **frontmatter 保留字段** | 只有 `name` + `description`(reme 核心保留)|
-| **可选 `kind` 字段** | 例:concept / procedure / entity / observation / preference / ...;**消费层 schema 提示**,reme 核心透明,不读它做结构决策 |
+| **可选 `kind` 字段** | 例:concept / procedure / preference / observation / ...;**消费层 schema 提示**,reme 核心透明,不读它做结构决策。与 bucket 是不同概念 —— bucket 决定物理归档(三桶)+ Phase 2 prompt 走哪份;`kind` 是更细粒度的 frontmatter 标签,留给消费层自由使用 |
 | **文件名冲突** | 同 bucket 内文件名冲突 → 文件系统层断言(写入即拒);不需要独立检测信号 |
 | **rename** | 一次 `wikilink_handler.retarget_links(old_path, new_path)`(机制现成);无 alias 表,无透明展开 |
 
@@ -143,34 +143,41 @@ material 进入(daily / resource 选定 scope)
   ▼
 Phase 1 — extract (轻量)
   LLM 读材料 → 识别其中教导的"抽象"(原则 / 模式 / 先例)
+  → 为每个 unit **分配 bucket**(procedure / personal / wiki)
   → 发出 ExtractedUnits 结构化输出 = K 个 sub-unit
-    (每个: {name, summary},summary 标注证据在材料的哪段)
+    (每个: {name, bucket, summary})
   说明:多个支撑事实说明同一抽象 → 合并为同一 sub-unit
        (倾向少而精);Phase 1 是 gate ——
-       无新抽象时发空列表,Phase 2 跳过整轮
+       无新抽象时发空列表,Phase 2 跳过整轮;
+       bucket 由 Phase 1 一次性决定,Phase 2 不再回选
   │
   ▼ (Python 外循环,K 次)
-Phase 2 — integrate (per sub-unit,每次独立 ReAct 会话)
+Phase 2 — integrate (per sub-unit,**按 bucket 分发到独立 prompt**)
+  │  system prompt = integrate_system_prompt_<unit.bucket>
+  │  procedure / personal / wiki 三份独立 prompt,**不共用一套**
   │  sub-unit ↔ digest 节点 1:1;Phase 2 必写,无 SKIP 出口
   │
   ├─ RECALL: search(关键词 + 向量 + RRF) + traverse(对 top hit
-  │  做图扩展,跨 bucket) → 候选路径集
+  │  做图扩展,**跨 bucket**) → 候选路径集
   │
   ├─ HIT: frontmatter_read 廉价 triage → read 完整 body
   │  确认候选是否承载同一抽象 → hit 集合
   │
   ├─ 决策:
-  │   ├─ hit 空    → CREATE 路径 (挑 bucket,写新节点)
-  │   └─ hit 非空  → UPDATE 路径 (CORROBORATE / REFINE / CORRECT)
+  │   ├─ hit 空    → CREATE 在 digest/<unit.bucket>/<slug>.md
+  │   └─ hit 非空  → UPDATE 路径 (CORROBORATE / REFINE / CORRECT;
+  │                  目标可在任意桶 —— 召回是跨桶的)
   │
   ▼
-写入(digest_write 创建 / digest_edit 改正文,E-1 强守恒,§4.4)
+写入(canonical write 创建 / canonical edit 改正文)
   │
   ▼
 agent 上报 IntegrateOutcome {action, target_path}
 ```
 
-**两阶段 trade-off**:Phase 2 把完整材料发 LLM K 次(一次一 sub-unit),不做 summary loss;代价是 K 倍 prompt token。换来的是 Phase 1 只做"识别抽象"这一件事(粒度集中在一个 prompt),Phase 2 每次会话上下文干净、聚焦单一抽象的写决策。
+**两阶段 trade-off**:Phase 2 把完整材料发 LLM K 次(一次一 sub-unit),不做 summary loss;代价是 K 倍 prompt token。换来的是 Phase 1 只做"识别抽象 + 分类 bucket"两件事(粒度集中在一个 prompt),Phase 2 每次会话上下文干净、bucket-specific prompt 让推理聚焦于"这一桶要怎么写 / 怎么改"。
+
+**Phase 2 的 bucket 专化**:三桶各有独立 system prompt,因为各桶的 body 形态、决策偏置不同 —— `procedure` 节点是 runbook 风(触发 / 步骤 / 前置 / 失败模式),`personal` 节点是规则风(rule + Why + How to apply),`wiki` 节点是百科风(定义 + 性质 + 关系)。共用一份通用 prompt 会让"应该写成什么样"的指导被稀释,bucket 信号靠一段 if-this-then-that 散文承载,效果劣于让每桶自带专属 prompt。
 
 #### 4.2.2 召回二段
 
@@ -190,18 +197,21 @@ agent 上报 IntegrateOutcome {action, target_path}
 
 #### 4.2.4 关键边界
 
-- **Phase 1 是 gate** —— "不值得记忆"在 Phase 1 过滤(空列表);Phase 2 必然写,sub-unit 与 digest 节点 1:1
-- **dream update 必须语义守恒** —— LLM 重写 body 时只能"融入"新内容,不能删除已有信息(只增不删 / 不改原意;冲突标注 `> 注:不同来源记载...`,不擅自仲裁);写入前机械校验出边强守恒(E-1,详 §4.4)
+- **Phase 1 是 gate + 分类器** —— "不值得记忆"在 Phase 1 过滤(空列表);此外 Phase 1 还为每个进入 Phase 2 的 unit 分配 bucket(procedure / personal / wiki),决定 Phase 2 走哪份专用 prompt;Phase 2 必然写,sub-unit 与 digest 节点 1:1
+- **Phase 2 prompt 按 bucket 分发** —— `integrate_system_prompt_procedure` / `_personal` / `_wiki` 三份独立 system prompt,各自承载该桶的 body 形态指南与决策偏置,**不共用一份通用 prompt**
+- **CREATE 写入桶 = Phase 1 分配的桶**;**UPDATE 目标可在任意桶**(召回跨桶,UPDATE 命中谁就写谁)
+- **dream update 必须语义守恒** —— LLM 重写 body 时只能"融入"新内容,不能删除已有信息(只增不删 / 不改原意;冲突标注 `> 注:不同来源记载...`,不擅自仲裁);**当前实现下 E-1 强守恒是 prompt-only 自律**(canonical edit 不做机械 outbound diff;早期 `digest_edit` 子类的机械校验已在切到 canonical 工具时移除,详 §4.4)
+- **Phase 2 用 canonical write / edit** —— 不再有 `digest_write_step` / `digest_edit_step` 子类;桶归位与边守恒都是 prompt-level 纪律
 - **dream 不改其它节点正文**(F-2) —— 只动 subject
 - **dreamer 不做事件级伞节点** —— 材料本身(daily / resource 文件)就是 fan-out 点,每个 sub-unit 的 `derived_from::` 让材料天然聚合到所有派生节点
 - **0 出边节点合法**(没识别到合适邻居),后续 dream 进入时其它节点可以反向链回来 —— 不强求 LLM 一次性给全
 - **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 vault 累积明显重复,由 auto-consolidate 的 dups 检测周期 batch 产报告(`auto_consolidate_design.md` §3)
-- **召回不做 bucket 粗筛** —— LLM 拥有完整跨桶视野,可识别"概念错分到 unknown"或"跨桶同概念"
+- **召回不做 bucket 粗筛** —— LLM 拥有完整跨桶视野,可识别"概念跨桶同抽象"(例如同一原则在 wiki 已有节点而 Phase 1 把新材料归入 personal,此时 UPDATE wiki 节点而非新建 personal 节点)
 
 **provenance 写出**:
 - 行文中自然带:"... 该模式最早出现在 [[daily/2026/05/15.md]] 的实践中"
-- **强制 typed predicate `derived_from::`** —— body 必须织入至少一条 `derived_from:: [[daily/...]]` 或 `[[resource/...]]`,纯散文形式不被守恒校验视作边,下次 update 时会消失
-- 不走"首版 append 起步"的过渡路径 —— digest_edit 自一开始就跑 E-1 强守恒,LLM 直接做语义守恒重写
+- **强制 typed predicate `derived_from::`** —— body 必须织入至少一条 `derived_from:: [[daily/...]]` 或 `[[resource/...]]`,纯散文形式不会被未来的 update / 守恒比对识别为边,下次 update 时会消失
+- LLM 直接做语义守恒重写(只增不删) —— 不走"首版 append 起步"的过渡路径
 
 ### 4.3 F-invariants(演化的硬约束)
 
@@ -214,29 +224,22 @@ agent 上报 IntegrateOutcome {action, target_path}
 | **F-5** | **不确定时不动** | dream 拿不准 create 还是 update → 倾向 create;split 拿不准 cluster → 不拆 |
 | **F-7** | **多归属合法** | 一个节点可被多个引用,也可指向多个;**没有"单父"约束** |
 | **F-10** | **inbound 目标节点不动** | 所有 inbound 是裸链 `[[<parent-path>.md]]`(digest 不引入 anchor);split 时全部保持,parent 路径未变即天然有效 |
-| **F-11** | **wikilink 是 body 的一部分** | 不存在"独立的边";reme 核心机械算子只感知字符层,语义责任在 LLM(prompt)+ 守恒校验(outbound diff) |
+| **F-11** | **wikilink 是 body 的一部分** | 不存在"独立的边";reme 核心机械算子只感知字符层,语义责任在 LLM(prompt 自律);split 写入路径仍带机械 outbound 校验,dream update 当前是 prompt-only(详 §4.4) |
 
 ### 4.4 边守恒(E-1 / E-2 / E-3)
 
-**前提**:wikilink 是 body 的一部分(F-11)。"边"不是独立抽象 —— body 一变,边就跟着变。reme 核心**没有"修边"算子**;边的所有变化都是 body 文本编辑的副作用。但语义守恒不能放任 LLM:守恒责任在 prompt + 机械校验。
+**前提**:wikilink 是 body 的一部分(F-11)。"边"不是独立抽象 —— body 一变,边就跟着变。reme 核心**没有"修边"算子**;边的所有变化都是 body 文本编辑的副作用。语义层守恒由两条腿承担:**prompt 自律**(LLM 在 update 时被反复要求 only-add, not-delete)+ **必要时的机械校验**(下文区分了哪些保留、哪些已移除)。
 
 | # | 类别 | 规则 | 谁负责 |
 |---|---|---|---|
-| **E-1** | dream update 节点出边(subject 自身) | **强守恒**:新 body 出边 ⊇ 原 body 出边(`(target, predicate)` 二元组,predicate 一并守住) | LLM(prompt)+ 机械(outbound diff) |
-| **E-2** | split parent 出边(parent 拆解) | `(parent_new ∪ ∪children_outbound) ⊇ parent_old` | LLM(split prompt)+ 机械 |
+| **E-1** | dream update 节点出边(subject 自身) | **强守恒**:新 body 出边 ⊇ 原 body 出边(`(target, predicate)` 二元组,predicate 一并守住) | **当前实现:LLM(prompt)自律** —— canonical `edit` 不做机械 outbound diff,prompt 反复强调"never drop wikilinks the old span contained" |
+| **E-2** | split parent 出边(parent 拆解) | `(parent_new ∪ ∪children_outbound) ⊇ parent_old` | LLM(split prompt)+ 机械(由 maintainer 在 split 写入路径上实施,见 `auto_consolidate_design.md`) |
 | **E-3** | inbound wikilink `[[<parent-path>.md]]` | split 时**不动** —— 仍指 parent;后续 dream 进入若 LLM 觉得 child 粒度更合适,直接加新边到 child(F-10) | 不动 |
 
-**机械 outbound diff 校验**(E-1 / E-2)伪码:
-```
-write_subject_body(subject, new_body):
-    old = extract_links(old_body)
-    new = extract_links(new_body)
-    if old - new:
-        new_body = llm_retry_with_missing(old - new)
-        if old - extract_links(new_body):
-            raise ConservationViolation(...)  # 拒写 + audit
-    write(subject, new_body)
-```
+**E-1 实现取舍**:早期版本有专用 `digest_edit_step` 子类,在写入前对 body 做 outbound diff 比较,违反守恒时返回 `REJECT_CONSERVATION` 让 LLM 重试。在切到 canonical `edit` 工具(放弃 digest 子类)后,这道机械校验被移除 —— 守恒退化为 prompt-only 自律。trade-off:
+- **失**:LLM 偶尔会在 REFINE / CORRECT 时无意丢弃 `derived_from::` 链;系统不再自动拒写
+- **得**:Phase 2 工具与系统其它写入路径完全一致(write / edit 是 canonical job),没有 dream-private 写入语义;prompt 复杂度下降,工具表面更小
+- **后续**:若 prompt-only 守恒在生产中被证伪(掉链率高),可在 canonical `edit` 上挂一个可选的 conservation 校验 hook(不再走子类化路径),由 dreamer 在调用前后各 read 一次做 diff;但当前不做
 
 **强守恒(集合包含)而非等价**:`new ⊇ old` = 允许加新边(新关联),不允许减边(老内容不能丢);`new == old` 会拒绝任何新出边 → update 失去意义。
 
@@ -263,9 +266,10 @@ write_subject_body(subject, new_body):
 
 本文档覆盖 dream 模型(桶 / 节点 / 边 / 演化)。组织端实现清单(M split / D 检测 / CAS 框架)见 `auto_consolidate_design.md` §10。
 
-- ✅ **dream step 实现** —— Phase 1 extract + Phase 2 integrate(per sub-unit)+ E-1 守恒校验(`reme4/steps/evolve/dream/`)
-- ✅ **边守恒校验工具** —— `digest_edit` 的 outbound diff 比较器 + REJECT_CONSERVATION 重试 + 违规上报
-- ✅ **provenance prompt 规范** —— `derived_from:: [[daily/...]]` / `[[resource/...]]` 强制
-- ⏳ **bucket 集合配置外置** —— 当前 hardcoded 在 `digest_write.py` 的 `DEFAULT_BUCKETS`;目标 `vault.yaml` schema + `_buckets.md` 视图生成
+- ✅ **dream step 实现** —— Phase 1 extract(识别抽象 + 分配 bucket)+ Phase 2 integrate(per sub-unit,**bucket-specific prompt 分发**;`reme4/steps/evolve/auto_dream.py` + `auto_dream.yaml`,与 `auto_memory` 同级同形)
+- ✅ **三桶 hard-coded** —— `procedure / personal / wiki`,`BUCKETS` 常量在 `dreamer.py` 顶部,Phase 1 通过 `MemoryUnit.bucket: Literal[...]` 由 Pydantic 强制约束
+- ✅ **provenance prompt 规范** —— `derived_from:: [[daily/...]]` / `[[resource/...]]` 强制(三桶 prompt 各自重申)
+- ❌ ~~**边守恒校验工具**~~ —— 早期 `digest_edit` 子类的 outbound diff 校验已随子类一并移除(切到 canonical `edit`);E-1 现由 prompt 自律,详 §4.4
+- ❌ ~~**bucket 集合配置外置**~~ —— 撤销:三桶是 dream 模型本身的一部分,不做配置参数(`vault.yaml` 不再承载 `digest.buckets`,`_buckets.md` 视图也不再生成)
 
 实现进入 `reme4/steps/evolve/` 时,本文档与 `auto_memory_design.md` / `auto_consolidate_design.md` / `auto_cognition_design.md` 共同作为契约依据。

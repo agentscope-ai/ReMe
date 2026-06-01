@@ -318,7 +318,7 @@ auto-memory 写入的 daily event 节点也是图的一部分(承载 daily → d
 ## 11. 演进 / 待补
 
 **当前实现状态**:
-- ✅ Stage 1 dream 已实现并跑通(`reme4/steps/evolve/dream/`)
+- ✅ Stage 1 dream 已实现并跑通(`reme4/steps/evolve/auto_dream.py` + `auto_dream.yaml`)
 - ⏳ Stage 2 consolidate split 部分将实现;dups / community / decay / archived 待实现
 - ⏳ Stage 3 recall 增强未实现(当前 search.py 已有 vector + keyword + RRF + 一跳 expand)
 
