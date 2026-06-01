@@ -4,7 +4,7 @@ from pathlib import Path
 
 from watchfiles import Change
 
-from ..base_step import BaseStep
+from ..base_step import BaseStep, Ref
 from ...components import R
 from ...components.file_catalog import BaseFileCatalog
 from ...enumeration import ComponentEnum
@@ -15,10 +15,7 @@ from ...schema import FileNode
 class UpdateCatalogStep(BaseStep):
     """Classify raw watcher changes and update the file_catalog."""
 
-    @property
-    def file_catalog(self) -> BaseFileCatalog:
-        """Return the file catalog component."""
-        return self._resolve("file_catalog", BaseFileCatalog, ComponentEnum.FILE_CATALOG)
+    file_catalog: BaseFileCatalog = Ref(BaseFileCatalog, ComponentEnum.FILE_CATALOG)
 
     async def execute(self):
         assert self.context is not None
