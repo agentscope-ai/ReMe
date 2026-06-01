@@ -29,7 +29,8 @@ from pathlib import Path
 
 import frontmatter
 
-from ._file_io import refresh_day_index, validate_session_id, write_file_safe
+from ._daily_index import refresh_day_index, validate_session_id
+from ._file_io import write_file_safe
 from ..base_step import BaseStep
 from ...components import R
 

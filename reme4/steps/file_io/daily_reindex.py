@@ -21,7 +21,7 @@ Always idempotent and safe to re-run.
 
 from datetime import date as _date
 
-from ._file_io import refresh_day_index
+from ._daily_index import refresh_day_index
 from ..base_step import BaseStep
 from ...components import R
 

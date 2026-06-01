@@ -1,6 +1,5 @@
 """File parser with byte-based overlapping chunking."""
 
-import re
 from bisect import bisect_right
 from pathlib import Path
 
@@ -9,21 +8,8 @@ import yaml
 
 from .base_file_parser import BaseFileParser
 from ..component_registry import R
-from ...schema import FileChunk, FileFrontMatter, FileLink, FileNode
-
-# Single-pass wikilink + optional dataview predicate.
-# Covers: [[X]] / ![[X]] / [[X#h]] / [[X|alias]] / pred:: [[X]] / [pred:: [[X]]]
-# - predicate group: optional leading '[' (dataview inline-bracket form), an identifier,
-#   then '::' — the whole prefix is non-capturing-optional so bare wikilinks still match.
-# - optional '!' prefix matches the embed form (![[X]]).
-# - target / anchor / alias all forbid '\n' so a wikilink cannot span lines.
-# - alias '|...': consumed but not captured (we don't need display text).
-_LINK_RE = re.compile(
-    r"(?:\[?\s*(?P<predicate>[A-Za-z][\w-]*)\s*::\s*)?"
-    r"!?\[\[\s*(?P<target>[^\[\]|#\n]+?)"
-    r"(?:#(?P<anchor>[^\[\]|\n]+?))?"
-    r"\s*(?:\|[^\[\]\n]*?)?\s*]]",
-)
+from ...schema import FileChunk, FileFrontMatter, FileNode
+from ...utils.wikilink_handler import WikilinkHandler
 
 
 @R.register("chunked")
@@ -35,25 +21,6 @@ class ChunkedFileParser(BaseFileParser):
         self.encoding = encoding
         self.chunk_byte_size = max(100, chunk_byte_size)
         self.overlap_byte_size = max(4, overlap_byte_size)
-
-    @staticmethod
-    def parse_links(content: str, source_path: str) -> list[FileLink]:
-        """Extract wikilinks with optional dataview predicate as outgoing FileLinks."""
-        links: list[FileLink] = []
-        for m in _LINK_RE.finditer(content):
-            target = m["target"].strip()
-            if not target:
-                continue
-            anchor = m["anchor"]
-            links.append(
-                FileLink(
-                    source_path=source_path,
-                    target_path=target,
-                    target_anchor=anchor.strip() if anchor else None,
-                    predicate=m["predicate"],
-                ),
-            )
-        return links
 
     @staticmethod
     def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str]:
@@ -86,7 +53,7 @@ class ChunkedFileParser(BaseFileParser):
             front_matter, content = self._parse_front_matter(text)
             if not content:
                 return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter), []
-            links = self.parse_links(content, rel_path)
+            links = WikilinkHandler.extract_links(content, rel_path)
         else:
             front_matter = FileFrontMatter()
             content = text
@@ -109,12 +76,12 @@ class ChunkedFileParser(BaseFileParser):
         """Return [start, end) byte spans of every wikilink in content."""
         spans: list[tuple[int, int]] = []
         last_char, last_byte = 0, 0
-        for m in _LINK_RE.finditer(content):
-            last_byte += len(content[last_char : m.start()].encode(self.encoding))
-            match_bytes = len(m.group(0).encode(self.encoding))
+        for wm in WikilinkHandler.iter_matches(content):
+            last_byte += len(content[last_char:wm.start].encode(self.encoding))
+            match_bytes = len(content[wm.start:wm.end].encode(self.encoding))
             spans.append((last_byte, last_byte + match_bytes))
             last_byte += match_bytes
-            last_char = m.end()
+            last_char = wm.end
         return spans
 
     @staticmethod

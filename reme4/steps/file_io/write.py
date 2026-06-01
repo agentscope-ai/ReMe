@@ -2,14 +2,8 @@
 
 import frontmatter
 
-from ._file_io import (
-    NON_MD_WARNING,
-    detect_file_encoding,
-    gate_md,
-    get_path_lock,
-    resolve_path,
-    write_file_safe,
-)
+from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
+from ._path import NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 

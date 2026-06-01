@@ -15,7 +15,7 @@ to today.
 from datetime import date as _date
 from pathlib import Path
 
-from ._file_io import scan_notes
+from ._daily_index import scan_notes
 from ..base_step import BaseStep
 from ...components import R
 

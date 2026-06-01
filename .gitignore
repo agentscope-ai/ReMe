@@ -47,3 +47,4 @@ meta_memory/*
 memories/*
 .reme/*
 vault
+*/integration/*.jsonl

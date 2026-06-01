@@ -3,14 +3,8 @@
 import frontmatter
 import yaml
 
-from ._file_io import (
-    NON_MD_WARNING,
-    gate_md,
-    get_path_lock,
-    read_file_safe,
-    resolve_path,
-    write_file_safe,
-)
+from ._file_io import get_path_lock, read_file_safe, write_file_safe
+from ._path import NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 

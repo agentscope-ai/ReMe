@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from ._file_io import NON_MD_WARNING, gate_md, read_file_safe, resolve_path, truncate_text_output
+from ._file_io import read_file_safe, truncate_text_output
+from ._path import NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils import expand_links, render_expansion_lines

@@ -5,7 +5,7 @@ import base64
 import aiofiles
 import aiofiles.os
 
-from ._file_io import NON_IMAGE_WARNING, gate_image, resolve_path
+from ._path import NON_IMAGE_WARNING, gate_image, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_IMAGE_BYTES

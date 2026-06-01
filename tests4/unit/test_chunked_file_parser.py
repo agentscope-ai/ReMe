@@ -5,6 +5,7 @@ import os
 import tempfile
 
 from reme4.components.file_parser import ChunkedFileParser
+from reme4.utils.wikilink_handler import WikilinkHandler
 
 
 # Add parent path for import
@@ -171,7 +172,7 @@ def test_file_chunk_properties():
 
 def test_parse_links_bare():
     """Bare wikilink: [[target]]."""
-    links = ChunkedFileParser.parse_links("see [[note]]", "src.md")
+    links = WikilinkHandler.extract_links("see [[note]]", "src.md")
     assert len(links) == 1
     link = links[0]
     assert link.source_path == "src.md"
@@ -183,7 +184,7 @@ def test_parse_links_bare():
 
 def test_parse_links_with_anchor():
     """Wikilink with anchor: [[target#anchor]]."""
-    links = ChunkedFileParser.parse_links("see [[note#section A]]", "src.md")
+    links = WikilinkHandler.extract_links("see [[note#section A]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "section A"
@@ -193,7 +194,7 @@ def test_parse_links_with_anchor():
 
 def test_parse_links_alias_dropped():
     """Alias after '|' is consumed but not captured as anchor."""
-    links = ChunkedFileParser.parse_links("see [[note|display text]]", "src.md")
+    links = WikilinkHandler.extract_links("see [[note|display text]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor is None
@@ -202,7 +203,7 @@ def test_parse_links_alias_dropped():
 
 def test_parse_links_anchor_and_alias():
     """[[target#anchor|alias]] — anchor captured, alias dropped."""
-    links = ChunkedFileParser.parse_links("see [[note#sec|disp]]", "src.md")
+    links = WikilinkHandler.extract_links("see [[note#sec|disp]]", "src.md")
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "sec"
@@ -211,7 +212,7 @@ def test_parse_links_anchor_and_alias():
 
 def test_parse_links_predicate_simple():
     """Dataview inline: predicate:: [[target]]."""
-    links = ChunkedFileParser.parse_links("author:: [[Alice]]", "src.md")
+    links = WikilinkHandler.extract_links("author:: [[Alice]]", "src.md")
     assert len(links) == 1
     assert links[0].predicate == "author"
     assert links[0].target_path == "Alice"
@@ -221,7 +222,7 @@ def test_parse_links_predicate_simple():
 
 def test_parse_links_predicate_bracketed():
     """Dataview inline-bracket: [predicate:: [[target]]]."""
-    links = ChunkedFileParser.parse_links("text [author:: [[Alice]]] more", "src.md")
+    links = WikilinkHandler.extract_links("text [author:: [[Alice]]] more", "src.md")
     assert len(links) == 1
     assert links[0].predicate == "author"
     assert links[0].target_path == "Alice"
@@ -230,7 +231,7 @@ def test_parse_links_predicate_bracketed():
 
 def test_parse_links_predicate_bracketed_with_anchor():
     """[predicate:: [[target_path#target_anchor]]] — combined form."""
-    links = ChunkedFileParser.parse_links(
+    links = WikilinkHandler.extract_links(
         "[predicate:: [[target_path#target_anchor]]]",
         "src.md",
     )
@@ -244,17 +245,17 @@ def test_parse_links_predicate_bracketed_with_anchor():
 
 
 def test_parse_links_predicate_sticks_to_first():
-    """Predicate attaches only to the immediately following wikilink."""
-    links = ChunkedFileParser.parse_links("pred:: [[a]] and bare [[b]]", "src.md")
+    """Line-level predicate covers all wikilinks in its value portion."""
+    links = WikilinkHandler.extract_links("pred:: [[a]] and bare [[b]]", "src.md")
     assert len(links) == 2
     assert links[0].predicate == "pred" and links[0].target_path == "a"
-    assert links[1].predicate is None and links[1].target_path == "b"
+    assert links[1].predicate == "pred" and links[1].target_path == "b"
     print("✓ test_parse_links_predicate_sticks_to_first passed")
 
 
 def test_parse_links_multiple_on_one_line():
     """Multiple bare wikilinks on the same line are all captured."""
-    links = ChunkedFileParser.parse_links("see [[x]] and [[y#h]]", "src.md")
+    links = WikilinkHandler.extract_links("see [[x]] and [[y#h]]", "src.md")
     assert [(link.target_path, link.target_anchor) for link in links] == [
         ("x", None),
         ("y", "h"),
@@ -264,19 +265,19 @@ def test_parse_links_multiple_on_one_line():
 
 def test_parse_links_no_match():
     """Strings without [[]] yield no links, even if '::' appears."""
-    assert len(ChunkedFileParser.parse_links("no link here :: foo", "src.md")) == 0
-    assert len(ChunkedFileParser.parse_links("plain text without brackets", "src.md")) == 0
-    assert len(ChunkedFileParser.parse_links("", "src.md")) == 0
+    assert len(WikilinkHandler.extract_links("no link here :: foo", "src.md")) == 0
+    assert len(WikilinkHandler.extract_links("plain text without brackets", "src.md")) == 0
+    assert len(WikilinkHandler.extract_links("", "src.md")) == 0
     print("✓ test_parse_links_no_match passed")
 
 
-def test_parse_links_predicate_with_dash_and_digits():
-    """Predicate identifier accepts letters, digits, underscore, dash."""
-    links = ChunkedFileParser.parse_links("see-also-2:: [[target]]", "src.md")
+def test_parse_links_predicate_with_underscore_and_digits():
+    """Predicate identifier accepts letters, digits, underscore (no dash per Dataview spec)."""
+    links = WikilinkHandler.extract_links("see_also2:: [[target]]", "src.md")
     assert len(links) == 1
-    assert links[0].predicate == "see-also-2"
+    assert links[0].predicate == "see_also2"
     assert links[0].target_path == "target"
-    print("✓ test_parse_links_predicate_with_dash_and_digits passed")
+    print("✓ test_parse_links_predicate_with_underscore_and_digits passed")
 
 
 def test_parse_links_in_file():
@@ -465,7 +466,7 @@ if __name__ == "__main__":
     test_parse_links_predicate_sticks_to_first()
     test_parse_links_multiple_on_one_line()
     test_parse_links_no_match()
-    test_parse_links_predicate_with_dash_and_digits()
+    test_parse_links_predicate_with_underscore_and_digits()
     test_parse_links_in_file()
     test_parse_links_empty_when_no_content()
     test_chunk_does_not_split_wikilink_at_boundary()
