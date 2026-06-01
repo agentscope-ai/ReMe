@@ -90,7 +90,8 @@ class BaseStep(ComponentMixin, ABC):
                 return value
 
         name = self.kwargs.get(key, "default")
-        assert self.app_context is not None
+        if self.app_context is None:
+            raise RuntimeError(f"app_context is not set when resolving '{key}'")
         comp = self.app_context.components[comp_enum][name]
         return getattr(comp, attr) if attr else comp
 
@@ -126,7 +127,8 @@ class BaseStep(ComponentMixin, ABC):
         ``default`` parser (stat-only) when no parser claims the suffix — that's
         how attachments / binaries / unknown types still produce a FileNode.
         """
-        assert self.app_context is not None
+        if self.app_context is None:
+            raise RuntimeError("app_context is not set when resolving file parser")
         file_parser_dict: dict[str, BaseFileParser] = self.app_context.components[ComponentEnum.FILE_PARSER]
 
         suffix = Path(path).suffix.lstrip(".").lower()
