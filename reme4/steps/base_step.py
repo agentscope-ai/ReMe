@@ -11,6 +11,7 @@ from agentscope.model import ChatModelBase
 from agentscope.token import TokenCounterBase
 from agentscope.tool import Toolkit, ToolResponse
 
+from ..components.base_component import ComponentMixin
 from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
 from ..components.file_store import BaseFileStore
@@ -18,7 +19,6 @@ from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..schema import FileChunk, FileNode, Response
-from ..utils import get_logger
 
 if TYPE_CHECKING:
     from ..components import ApplicationContext
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class BaseStep(ABC):
+class BaseStep(ComponentMixin, ABC):
     """Composable unit of an LLM workflow."""
 
     component_type = ComponentEnum.STEP
@@ -50,19 +50,11 @@ class BaseStep(ABC):
         output_mapping: dict[str, str] | None = None,
         **kwargs,
     ):
-        super().__init__()
-        self.name: str = name or self.__class__.__name__
-        self.backend: str = backend
-        self.app_context: "ApplicationContext | None" = app_context
+        super().__init__(name=name, backend=backend, app_context=app_context, **kwargs)
         self.language: str = language
         self.input_mapping = input_mapping
         self.output_mapping = output_mapping
-        self.kwargs: dict = kwargs
         self.context: RuntimeContext | None = None
-
-        self.logger = get_logger()
-        if hasattr(self.logger, "bind"):
-            self.logger = self.logger.bind(component=self.name)
 
         # Load class-level prompts first, then overlay caller-provided overrides.
         self.prompt = PromptHandler(language=self.language)
@@ -82,13 +74,6 @@ class BaseStep(ABC):
         if self.output_mapping:
             self.context.apply_mapping(self.output_mapping)
         return result
-
-    @property
-    def vault_path(self) -> Path:
-        """Resolved vault root path from app context or cwd."""
-        if self.app_context is None:
-            return Path.cwd()
-        return Path(self.app_context.app_config.vault_dir).absolute()
 
     def _resolve(
         self,

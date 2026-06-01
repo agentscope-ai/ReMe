@@ -14,7 +14,7 @@ from . import keyword_index
 from . import service
 from . import tokenizer
 from .application_context import ApplicationContext
-from .base_component import BaseComponent
+from .base_component import BaseComponent, ComponentMixin
 from .component_registry import ComponentRegistry, R
 from .prompt_handler import PromptHandler
 from .runtime_context import RuntimeContext
@@ -22,6 +22,7 @@ from .runtime_context import RuntimeContext
 __all__ = [
     "ApplicationContext",
     "BaseComponent",
+    "ComponentMixin",
     "ComponentRegistry",
     "R",
     "PromptHandler",

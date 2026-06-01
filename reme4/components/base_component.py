@@ -14,6 +14,42 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="BaseComponent")
 
 
+class ComponentMixin:
+    """Shared state for components and steps: identity, config, vault paths."""
+
+    component_type = ComponentEnum.BASE
+
+    def __init__(
+        self,
+        name: str | None = None,
+        backend: str = "",
+        app_context: "ApplicationContext | None" = None,
+        **kwargs,
+    ) -> None:
+        self.name: str = name or self.__class__.__name__
+        self.backend: str = backend
+        self.app_context: "ApplicationContext | None" = app_context
+        self.kwargs: dict = dict(kwargs)
+
+        logger = get_logger()
+        self.logger = logger.bind(component=self.name) if hasattr(logger, "bind") else logger
+
+    @property
+    def vault_path(self) -> Path:
+        """Absolute vault root directory (cwd when no app_context is attached)."""
+        if self.app_context is None:
+            return Path.cwd()
+        return Path(self.app_context.app_config.vault_dir).absolute()
+
+    def to_vault_relative(self, path: str | Path) -> str:
+        """Convert `path` to a vault-relative string; return absolute path when outside."""
+        abs_path = Path(path).absolute()
+        try:
+            return str(abs_path.relative_to(self.vault_path))
+        except ValueError:
+            return str(abs_path)
+
+
 class Dependency:
     """Placeholder returned by ``BaseComponent.bind`` for an unresolved dependency.
 
@@ -46,7 +82,7 @@ class Dependency:
         )
 
 
-class BaseComponent(ABC):
+class BaseComponent(ComponentMixin, ABC):
     """Async lifecycle base class with bind-based dependency injection."""
 
     component_type = ComponentEnum.BASE
@@ -58,13 +94,7 @@ class BaseComponent(ABC):
         app_context: "ApplicationContext | None" = None,
         **kwargs,
     ) -> None:
-        self.name: str = name or self.__class__.__name__
-        self.backend: str = backend
-        self.app_context: "ApplicationContext | None" = app_context
-        self.kwargs: dict = dict(kwargs)
-
-        logger = get_logger()
-        self.logger = logger.bind(component=self.name) if hasattr(logger, "bind") else logger
+        super().__init__(name=name, backend=backend, app_context=app_context, **kwargs)
 
         self._is_started: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
@@ -147,13 +177,6 @@ class BaseComponent(ABC):
     # ----- Vault path helpers --------------------------------------------
 
     @property
-    def vault_path(self) -> Path:
-        """Absolute vault root directory (cwd when no app_context is attached)."""
-        if self.app_context is None:
-            return Path.cwd()
-        return Path(self.app_context.app_config.vault_dir).absolute()
-
-    @property
     def vault_metadata_path(self) -> Path:
         """Vault metadata directory: ``<vault>/<metadata_dir>``."""
         if self.app_context is None:
@@ -164,14 +187,6 @@ class BaseComponent(ABC):
     def component_metadata_path(self) -> Path:
         """Per-component metadata directory under the vault."""
         return self.vault_metadata_path / self.component_type.value
-
-    def to_vault_relative(self, path: str | Path) -> str:
-        """Convert `path` to a vault-relative string; return absolute path when outside."""
-        abs_path = Path(path).absolute()
-        try:
-            return str(abs_path.relative_to(self.vault_path))
-        except ValueError:
-            return str(abs_path)
 
     # ----- Lifecycle hooks (override in subclasses) ----------------------
 
