@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import random
+import threading
 import time
 
 from .base_job import BaseJob
@@ -36,6 +37,7 @@ class BackgroundJob(BaseJob):
         close_timeout: float = 5.0,
         attempt_reset_after: float = 60.0,
         enable_serve: bool = False,
+        use_thread_pool: bool = False,
         **kwargs,
     ):
         super().__init__(enable_serve=enable_serve, **kwargs)
@@ -44,13 +46,21 @@ class BackgroundJob(BaseJob):
         self.backoff_cap: float = backoff_cap
         self.close_timeout: float = close_timeout
         self.attempt_reset_after: float = attempt_reset_after
-        self._stop_event: asyncio.Event | None = None
+        self.use_thread_pool: bool = use_thread_pool
+        self._stop_event: asyncio.Event | threading.Event | None = None
         self._task: asyncio.Task | None = None
 
     async def _start(self) -> None:
         await super()._start()
-        self._stop_event = asyncio.Event()
-        self._task = asyncio.create_task(self._run_with_supervisor())
+        if self.use_thread_pool and self.app_context.thread_pool:
+            self._stop_event = threading.Event()
+            loop = asyncio.get_event_loop()
+            self._task = asyncio.ensure_future(
+                loop.run_in_executor(self.app_context.thread_pool, self._run_in_thread),
+            )
+        else:
+            self._stop_event = asyncio.Event()
+            self._task = asyncio.create_task(self._run_with_supervisor())
 
     async def _close(self) -> None:
         if self._stop_event is not None:
@@ -79,13 +89,20 @@ class BackgroundJob(BaseJob):
         capped = min(self.backoff_base * (2**attempt), self.backoff_cap)
         return min(capped * (0.5 + random.random()), self.backoff_cap)
 
+    def _run_in_thread(self) -> None:
+        """Thread-pool mode: run the supervisor in a dedicated thread with its own event loop."""
+        asyncio.run(self._run_with_supervisor())
+
     async def _wait_or_stop(self, delay: float) -> None:
         """Sleep up to delay, returning immediately when stop_event is set."""
         assert self._stop_event is not None
-        try:
-            await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
-        except asyncio.TimeoutError:
-            pass
+        if isinstance(self._stop_event, threading.Event):
+            self._stop_event.wait(timeout=delay)
+        else:
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
 
     async def _run_with_supervisor(self) -> None:
         assert self._stop_event is not None

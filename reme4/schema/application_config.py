@@ -46,6 +46,10 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Job definitions keyed by job name",
     )
+    thread_pool_max_workers: int = Field(
+        default=0,
+        description="Max worker threads in the shared thread pool; 0 to disable",
+    )
     components: dict[ComponentEnum, dict[str, ComponentConfig]] = Field(
         default_factory=dict,
         description="Component registry keyed by type then name",

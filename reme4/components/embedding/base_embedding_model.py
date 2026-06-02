@@ -17,7 +17,7 @@ Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 
 
 class BaseEmbeddingModel(BaseComponent):
-    """Embedding model with LRU cache, disk persistence, and concurrent batching."""
+    """Embedding model with LRU cache, disk persistence, and serial batching."""
 
     component_type = ComponentEnum.EMBEDDING_MODEL
 
@@ -31,7 +31,6 @@ class BaseEmbeddingModel(BaseComponent):
         max_batch_size: int = 10,
         max_input_length: int = 8192,
         max_cache_size: int = 10000,
-        max_concurrency: int = 2,
         enable_cache: bool = True,
         cache_version: str = "v1",
         max_retries: int = 3,
@@ -46,7 +45,6 @@ class BaseEmbeddingModel(BaseComponent):
         self.max_batch_size = max_batch_size
         self.max_input_length = max_input_length
         self.max_cache_size = max_cache_size
-        self.max_concurrency = max_concurrency
         self.enable_cache = enable_cache
         self.cache_version = cache_version
         self.max_retries = max_retries
@@ -90,7 +88,7 @@ class BaseEmbeddingModel(BaseComponent):
         return results[0] if results else None
 
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
-        """Get embeddings for texts. Cache hits return immediately; misses run concurrently."""
+        """Get embeddings for texts. Cache hits return immediately; misses run in serial batches."""
         texts = [self._truncate(t) for t in input_text]
         results, misses = self._partition_by_cache(texts)
         if misses:
@@ -129,17 +127,11 @@ class BaseEmbeddingModel(BaseComponent):
         return results, misses
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
-        """Compute miss embeddings in concurrent batches and write into results + cache."""
+        """Compute miss embeddings in serial batches and write into results + cache."""
         size = self.max_batch_size
         batches = [misses[i : i + size] for i in range(0, len(misses), size)]
-        sem = asyncio.Semaphore(self.max_concurrency)
-
-        async def run(batch: list[Miss]) -> list[tuple[int, str, np.ndarray]]:
-            async with sem:
-                return await self._compute_batch(batch, **kwargs)
-
-        for done in await asyncio.gather(*(run(b) for b in batches)):
-            for idx, key, emb in done:
+        for batch in batches:
+            for idx, key, emb in await self._compute_batch(batch, **kwargs):
                 results[idx] = emb
                 self._cache_put(key, emb)
 

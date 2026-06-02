@@ -2,6 +2,7 @@
 
 import asyncio
 import heapq
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
@@ -168,6 +169,10 @@ class Application(BaseComponent):
 
     async def _start(self) -> None:
         """Start components in dependency order, then jobs (background last)."""
+        pool_size = self.config.thread_pool_max_workers
+        if pool_size > 0:
+            self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
+            self.logger.info(f"Thread pool created with max_workers={pool_size}")
         components = self._topological_order()
         jobs = list(self.context.jobs.values())
         # Background jobs come last so they observe a fully wired system.
@@ -194,6 +199,9 @@ class Application(BaseComponent):
             except Exception as e:
                 self.logger.exception(f"Failed to close {c.component_type.value}:{c.name}: {e}")
         self._started_components.clear()
+        if self.context.thread_pool is not None:
+            self.context.thread_pool.shutdown(wait=True)
+            self.context.thread_pool = None
 
     # ----- Job execution -------------------------------------------------
 

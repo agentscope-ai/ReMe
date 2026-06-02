@@ -1,0 +1,84 @@
+[project]
+name = "reme4"
+dynamic = ["version"]
+description = "Remember Me, Refine Me."
+authors = [
+    { name = "EconML team of Alibaba Tongyi Lab", email = "jinli.yl@alibaba-inc.com" },
+]
+license = "Apache-2.0"
+requires-python = ">=3.11"
+keywords = ["llm", "memory", "agent", "agentscope", "ai", "mcp", "reme"]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "aiofiles>=24.1.0",
+    "fastapi>=0.135.1",
+    "fastmcp>=3.1.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "mistletoe>=1.5.1",
+    "numpy>=2.2.6",
+    "openai>=2.26.0",
+    "pydantic>=2.12.5",
+    "python-frontmatter>=1.1.0",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.3",
+    "uvicorn>=0.41.0",
+    "watchfiles>=1.1.1",
+]
+
+[project.optional-dependencies]
+core = [
+    "agentscope>=2.0.0",
+    "faiss-cpu>=1.13.2",
+    "jieba>=0.42.1",
+    "rjieba>=0.2.1",
+    "neo4j>=6.2.0",
+    "networkx>=3.4.2",
+]
+dev = [
+    "pre-commit",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+full = [
+    "reme4[core]",
+    "reme4[dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/agentscope-ai/ReMe"
+Documentation = "https://reme.agentscope.io/"
+Repository = "https://github.com/agentscope-ai/ReMe"
+
+[project.scripts]
+reme4 = "reme4.reme:main"
+
+[tool.setuptools]
+packages = { find = { where = [".."], include = ["reme4*"] } }
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["py.typed", "**/*.yaml", "**/*.json"]
+
+[tool.setuptools.dynamic]
+version = { attr = "reme4.__version__" }
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["../tests4"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

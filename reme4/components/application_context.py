@@ -1,5 +1,6 @@
 """Application context: shared state container for components, jobs, and service."""
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from ..enumeration import ComponentEnum
@@ -27,3 +28,4 @@ class ApplicationContext:
         self.service: "BaseService | None" = None
         self.components: dict[ComponentEnum, dict[str, "BaseComponent"]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
+        self.thread_pool: ThreadPoolExecutor | None = None
