@@ -436,13 +436,18 @@ components:
     default:
       backend: regex
 
-  embedding_model:
+  embedding:
     default:
       backend: ${EMBEDDING_BACKEND:-openai}
       api_key: ${EMBEDDING_API_KEY:-}
       base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       model_name: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
+
+  embedding_store:
+    default:
+      backend: local
+      embedding: default
 
   as_llm:
     default:
@@ -479,7 +484,7 @@ components:
     default:
       backend: local
       store_name: local
-      #  embedding_model: default
-      embedding_model: ""
+      #  embedding_store: default
+      embedding_store: ""
       keyword_index: default
       file_graph: default

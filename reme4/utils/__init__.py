@@ -13,6 +13,7 @@ from .logger_utils import get_logger
 from .logo_utils import print_logo
 from .service_utils import find_reme, locate_reme, precheck_start, cli_find_reme
 from .similarity_utils import cosine_similarity, batch_cosine_similarity
+from .token_utils import estimate_token_count
 
 __all__ = [
     "hash_text",
@@ -31,4 +32,5 @@ __all__ = [
     "cli_find_reme",
     "cosine_similarity",
     "batch_cosine_similarity",
+    "estimate_token_count",
 ]

@@ -8,11 +8,9 @@ from typing import TypeVar, TYPE_CHECKING
 from agentscope.formatter import FormatterBase
 from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
-from agentscope.token import TokenCounterBase
 from agentscope.tool import Toolkit, ToolResponse
 
 from ..components.base_component import ComponentMixin
-from ..components.embedding import BaseEmbeddingModel
 from ..components.file_parser import BaseFileParser
 from ..components.file_store import BaseFileStore
 from ..components.prompt_handler import PromptHandler
@@ -144,9 +142,7 @@ class BaseStep(ComponentMixin, ABC):
 
     as_llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
     as_llm_formatter: FormatterBase = Ref(FormatterBase, ComponentEnum.AS_LLM_FORMATTER, "formatter")
-    as_token_counter: TokenCounterBase = Ref(TokenCounterBase, ComponentEnum.AS_TOKEN_COUNTER, "token_counter")
     file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
-    embedding: BaseEmbeddingModel = Ref(BaseEmbeddingModel, ComponentEnum.EMBEDDING_MODEL)
 
     @abstractmethod
     async def execute(self):

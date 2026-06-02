@@ -5,7 +5,7 @@ import numpy as np
 
 from .base_file_store import BaseFileStore
 from ..component_registry import R
-from ..embedding import BaseEmbeddingModel
+from ..embedding_store import BaseEmbeddingStore
 from ..file_graph import BaseFileGraph
 from ..keyword_index import BaseKeywordIndex
 from ...enumeration import LinkScopeEnum
@@ -17,7 +17,7 @@ from ...utils import batch_cosine_similarity
 class LocalFileStore(BaseFileStore):
     """In-memory file store with deferred JSONL persistence.
 
-    Composes three subcomponents: ``embedding_model`` for vector retrieval,
+    Composes three subcomponents: ``embedding_store`` for vector retrieval,
     ``keyword_index`` for full-text retrieval, and ``file_graph`` for node / link
     storage. ``file_graph`` is mandatory; at least one of embedding / keyword
     must be present.
@@ -25,7 +25,7 @@ class LocalFileStore(BaseFileStore):
 
     def __init__(
         self,
-        embedding_model: str = "default",
+        embedding_store: str = "default",
         keyword_index: str = "default",
         file_graph: str = "default",
         encoding: str = "utf-8",
@@ -33,16 +33,16 @@ class LocalFileStore(BaseFileStore):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        from ..embedding import OpenAIEmbeddingModel
+        from ..embedding_store import LocalEmbeddingStore
         from ..file_graph import LocalFileGraph
         from ..keyword_index import BM25Index
 
-        if not embedding_model and not keyword_index:
-            raise ValueError("At least one of embedding_model or keyword_index must be set.")
+        if not embedding_store and not keyword_index:
+            raise ValueError("At least one of embedding_store or keyword_index must be set.")
         if not file_graph:
             raise ValueError("file_graph is required for LocalFileStore.")
 
-        self.embedding_model = self.bind(embedding_model, BaseEmbeddingModel, default_factory=OpenAIEmbeddingModel)
+        self.embedding_store = self.bind(embedding_store, BaseEmbeddingStore, default_factory=LocalEmbeddingStore)
         self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
 
@@ -56,9 +56,9 @@ class LocalFileStore(BaseFileStore):
     async def _start(self) -> None:
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()
-        if self.embedding_model is not None and not await self.embedding_model.health_check():
+        if self.embedding_store is not None and not await self.embedding_store.health_check():
             self.logger.warning(f"{self.name}: embedding unhealthy, vector disabled")
-            self.embedding_model = None
+            self.embedding_store = None
         await self.load()
 
     async def _close(self) -> None:
@@ -68,10 +68,10 @@ class LocalFileStore(BaseFileStore):
 
     def _disable_embedding(self, reason: str) -> None:
         """Drop embedding after a runtime failure; keyword search still works."""
-        if self.embedding_model is None:
+        if self.embedding_store is None:
             return
         self.logger.error(f"{self.name}: embedding disabled, {reason}")
-        self.embedding_model = None
+        self.embedding_store = None
 
     # -- persistence ----------------------------------------------------------
 
@@ -148,7 +148,7 @@ class LocalFileStore(BaseFileStore):
         a new chunk reusing the same id avoids a redundant embedding call.
         """
         cached: dict[str, np.ndarray] = {}
-        if not (old_node and self.embedding_model):
+        if not (old_node and self.embedding_store):
             return cached
         for cid in old_node.chunk_ids:
             old = self.file_chunks.pop(cid, None)
@@ -162,7 +162,7 @@ class LocalFileStore(BaseFileStore):
         cached: dict[str, np.ndarray],
         needs_embed: list[FileChunk],
     ) -> None:
-        if not self.embedding_model or chunk.embedding is not None:
+        if not self.embedding_store or chunk.embedding is not None:
             return
         if chunk.id in cached:
             chunk.embedding = cached[chunk.id]
@@ -170,10 +170,10 @@ class LocalFileStore(BaseFileStore):
             needs_embed.append(chunk)
 
     async def _embed_pending(self, chunks: list[FileChunk]) -> None:
-        if not (chunks and self.embedding_model):
+        if not (chunks and self.embedding_store):
             return
         try:
-            await self.embedding_model.get_node_embeddings(chunks)
+            await self.embedding_store.get_node_embeddings(chunks)
         except Exception as e:
             self._disable_embedding(f"upsert: {type(e).__name__}: {e}")
 
@@ -221,11 +221,11 @@ class LocalFileStore(BaseFileStore):
     # -- search ---------------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_model is None or not query:
+        if self.embedding_store is None or not query:
             return []
 
         try:
-            query_embedding = await self.embedding_model.get_embedding(query)
+            query_embedding = await self.embedding_store.get_embedding(query)
         except Exception as e:
             self._disable_embedding(f"search: {type(e).__name__}: {e}")
             return []

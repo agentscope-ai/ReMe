@@ -1,73 +1,61 @@
-"""Base embedding model with LRU cache and disk persistence."""
+"""Local embedding store with LRU cache and disk persistence."""
 
 import asyncio
 import hashlib
-import os
-from abc import abstractmethod
 from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
 
-from ..base_component import BaseComponent
-from ...enumeration import ComponentEnum
-from ...schema import EmbNode
-
+from .base_embedding_store import BaseEmbeddingStore
+from ..component_registry import R
+from ..embedding import BaseEmbedding
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 
 
-class BaseEmbeddingModel(BaseComponent):
-    """Embedding model with LRU cache, disk persistence, and serial batching."""
+@R.register("local")
+class LocalEmbeddingStore(BaseEmbeddingStore):
+    """Embedding store with LRU cache, disk persistence, and serial batching.
 
-    component_type = ComponentEnum.EMBEDDING_MODEL
+    Delegates actual embedding computation to a bound ``embedding`` component.
+    """
 
     def __init__(
         self,
-        api_key: str | None = None,
-        base_url: str | None = None,
-        model_name: str = "",
-        dimensions: int = 1024,
-        pass_dimensions: bool = False,
-        max_batch_size: int = 10,
-        max_input_length: int = 8192,
+        embedding: str = "default",
         max_cache_size: int = 10000,
         enable_cache: bool = True,
         cache_version: str = "v1",
-        max_retries: int = 3,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.api_key = api_key or os.environ.get("EMBEDDING_API_KEY", "")
-        self.base_url = base_url or os.environ.get("EMBEDDING_BASE_URL", "")
-        self.model_name = model_name
-        self.dimensions = dimensions
-        self.pass_dimensions = pass_dimensions
-        self.max_batch_size = max_batch_size
-        self.max_input_length = max_input_length
+        self.embedding = self.bind(embedding, BaseEmbedding, optional=False)
         self.max_cache_size = max_cache_size
         self.enable_cache = enable_cache
         self.cache_version = cache_version
-        self.max_retries = max_retries
         self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
-        self._key_suffix = f"|{model_name}|{dimensions}".encode()
-        self.is_healthy: bool = True
+        self._key_suffix: bytes = b""
+
+    @property
+    def dimensions(self) -> int:
+        assert self.embedding is not None, "embedding component not bound"
+        return self.embedding.dimensions
 
     @property
     def cache_path(self) -> Path:
-        """Path of the persisted embedding cache, namespaced by name and version."""
-        return self.vault_metadata_path / "embedding_cache" / f"{self.name}_{self.cache_version}.npz"
+        return self.component_metadata_path / f"{self.name}_{self.cache_version}.npz"
 
     async def _start(self) -> None:
+        self._key_suffix = f"|{self.dimensions}".encode()
         await self.load()
 
     async def _close(self) -> None:
         await self.dump()
 
     async def health_check(self, timeout: float = 2.0) -> bool:
-        """Probe the provider; sets and returns is_healthy."""
-        tag = f"[EMBEDDING HEALTH CHECK] name={self.name} model={self.model_name}"
+        tag = f"[EMBEDDING HEALTH CHECK] name={self.name}"
         try:
-            result = await asyncio.wait_for(self._get_embeddings(["ping"]), timeout=timeout)
+            result = await asyncio.wait_for(self.embedding(["ping"]), timeout=timeout)
             if not result or result[0] is None:
                 raise RuntimeError("empty embedding")
             self.is_healthy = True
@@ -82,31 +70,12 @@ class BaseEmbeddingModel(BaseComponent):
 
     # -- Public API --
 
-    async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray | None:
-        """Embed a single text; returns None if the provider yields nothing."""
-        results = await self.get_embeddings([input_text], **kwargs)
-        return results[0] if results else None
-
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
-        """Get embeddings for texts. Cache hits return immediately; misses run in serial batches."""
         texts = [self._truncate(t) for t in input_text]
         results, misses = self._partition_by_cache(texts)
         if misses:
             await self._fill_misses(misses, results, **kwargs)
         return results
-
-    async def get_node_embeddings(self, nodes: list[EmbNode], **kwargs) -> list[EmbNode]:
-        """Embed each node's text in-place and return the same list."""
-        embeddings = await self.get_embeddings([n.text for n in nodes], **kwargs)
-        if len(embeddings) == len(nodes):
-            for node, vec in zip(nodes, embeddings):
-                if vec is not None:
-                    node.embedding = vec
-        return nodes
-
-    @abstractmethod
-    async def _get_embeddings(self, input_text: list[str], **kwargs) -> list[list[float] | None]:
-        """Get raw embeddings from the underlying provider."""
 
     # -- Batching --
 
@@ -114,7 +83,6 @@ class BaseEmbeddingModel(BaseComponent):
         return text if len(text) <= self.max_input_length else text[: self.max_input_length]
 
     def _partition_by_cache(self, texts: list[str]) -> tuple[list[np.ndarray | None], list[Miss]]:
-        """Split texts into pre-filled results (hits) and a miss list to compute."""
         results: list[np.ndarray | None] = [None] * len(texts)
         misses: list[Miss] = []
         for idx, text in enumerate(texts):
@@ -127,7 +95,6 @@ class BaseEmbeddingModel(BaseComponent):
         return results, misses
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
-        """Compute miss embeddings in serial batches and write into results + cache."""
         size = self.max_batch_size
         batches = [misses[i : i + size] for i in range(0, len(misses), size)]
         for batch in batches:
@@ -136,7 +103,6 @@ class BaseEmbeddingModel(BaseComponent):
                 self._cache_put(key, emb)
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
-        """Call provider for one batch with retry; returns [(idx, key, embedding)]."""
         texts = [text for _, text, _ in batch]
         embeddings = await self._call_with_retry(texts, **kwargs)
         if not embeddings or len(embeddings) != len(texts):
@@ -150,10 +116,9 @@ class BaseEmbeddingModel(BaseComponent):
         return out
 
     async def _call_with_retry(self, texts: list[str], **kwargs) -> list[list[float] | None] | None:
-        """Call provider with exponential backoff on transient errors."""
         for attempt in range(self.max_retries):
             try:
-                result = await self._get_embeddings(texts, **kwargs)
+                result = await self.embedding(texts, **kwargs)
                 if result and len(result) == len(texts):
                     return result
             except (TimeoutError, ConnectionError, OSError):
@@ -197,7 +162,6 @@ class BaseEmbeddingModel(BaseComponent):
     # -- Persistence --
 
     async def load(self) -> None:
-        """Load cached embeddings from disk (npz); replaces in-memory cache."""
         self._cache.clear()
         if not self.enable_cache or not self.cache_path.exists():
             return
@@ -219,7 +183,6 @@ class BaseEmbeddingModel(BaseComponent):
         self.logger.info(f"Loaded {len(self._cache)} embeddings from {self.cache_path}")
 
     async def dump(self) -> None:
-        """Persist in-memory cache to disk (npz)."""
         if not self.enable_cache or not self._cache:
             return
         await asyncio.to_thread(self._dump_sync)

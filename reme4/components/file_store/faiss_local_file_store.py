@@ -55,7 +55,7 @@ class FaissLocalFileStore(LocalFileStore):
 
     @property
     def _dim(self) -> int:
-        return self.embedding_model.dimensions if self.embedding_model is not None else 0
+        return self.embedding_store.dimensions if self.embedding_store is not None else 0
 
     def _new_index(self):
         return self._faiss.IndexFlatIP(self._dim)
@@ -111,7 +111,7 @@ class FaissLocalFileStore(LocalFileStore):
     async def load(self) -> None:
         """Load chunks via the parent, then attach FAISS state (sidecar or rebuild)."""
         await super().load()
-        if self.embedding_model is None or self._dim == 0:
+        if self.embedding_store is None or self._dim == 0:
             self._faiss_index = None
             return
         if not await self._try_load_sidecar():
@@ -147,7 +147,7 @@ class FaissLocalFileStore(LocalFileStore):
     async def dump(self) -> None:
         """Persist chunks JSONL via the parent, then write the FAISS sidecar atomically."""
         await super().dump()
-        if self._faiss_index is None or self.embedding_model is None:
+        if self._faiss_index is None or self.embedding_store is None:
             return
         try:
             self._compact_if_needed()
@@ -180,7 +180,7 @@ class FaissLocalFileStore(LocalFileStore):
         }
         await super().upsert(files)
 
-        if self._faiss_index is None or self.embedding_model is None:
+        if self._faiss_index is None or self.embedding_store is None:
             return
         self._sync_index_after_upsert(files, old_ids_by_path)
 
@@ -220,7 +220,7 @@ class FaissLocalFileStore(LocalFileStore):
 
     async def clear(self) -> None:
         await super().clear()
-        self._faiss_index = self._new_index() if self.embedding_model is not None else None
+        self._faiss_index = self._new_index() if self.embedding_store is not None else None
         self._id_map = []
         self._id_to_row = {}
         self._tombstones.clear()
@@ -230,13 +230,13 @@ class FaissLocalFileStore(LocalFileStore):
     # -- search -----------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_model is None or not query or self._faiss_index is None:
+        if self.embedding_store is None or not query or self._faiss_index is None:
             return []
         if self._faiss_index.ntotal == 0:
             return []
 
         try:
-            query_embedding = await self.embedding_model.get_embedding(query)
+            query_embedding = await self.embedding_store.get_embedding(query)
         except Exception as e:
             self._disable_embedding(f"search: {type(e).__name__}: {e}")
             return []
