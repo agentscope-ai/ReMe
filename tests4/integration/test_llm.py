@@ -1,4 +1,4 @@
-"""Integration tests: drive ReActAgent through LLMDemoStep + Application wiring.
+"""Integration tests: drive Agent through LLMDemoStep + Application wiring.
 
 Requires LLM_API_KEY (and optionally LLM_BASE_URL / LLM_MODEL_NAME) in the
 environment or a .env file at the repo root. Hits the real Anthropic API.
@@ -41,7 +41,7 @@ async def _make_app() -> Application:
 
 
 def test_llm_demo_step_basic_chat():
-    """LLMDemoStep drives ReActAgent through self.llm."""
+    """LLMDemoStep drives Agent through self.llm."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
@@ -86,7 +86,7 @@ def test_llm_demo_step_with_tool():
 
 
 if __name__ == "__main__":
-    print("=== LLMDemoStep + ReActAgent integration tests ===")
+    print("=== LLMDemoStep + Agent integration tests ===")
     test_llm_demo_step_basic_chat()
     test_llm_demo_step_with_tool()
     print("\nAll integration tests passed!")

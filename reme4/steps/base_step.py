@@ -102,6 +102,9 @@ class BaseStep(ComponentMixin, ABC):
 
     component_type = ComponentEnum.STEP
 
+    llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.LLM, "model")
+    file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
+
     def __new__(cls, *args, **kwargs):
         # Snapshot init args so copy() can rebuild an equivalent instance later.
         instance = object.__new__(cls)
@@ -136,11 +139,6 @@ class BaseStep(ComponentMixin, ABC):
         for cls in reversed(self.__class__.__mro__):
             self.prompt.load_prompt_by_class(cls)
         self.prompt.load_prompt_dict(prompt_dict)
-
-    # ----- Component references (resolved lazily on first access) ----------
-
-    llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.LLM, "model")
-    file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     @abstractmethod
     async def execute(self):

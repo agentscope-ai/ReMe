@@ -17,8 +17,8 @@ Output (written to context.response):
     metadata: {path, created}.
 """
 
-from agentscope.agent import ReActAgent
-from agentscope.message import Msg
+from agentscope.agent import Agent
+from agentscope.message import Msg, TextBlock
 from agentscope.tool import Toolkit
 
 from ._evolve import format_history, now
@@ -28,17 +28,16 @@ from ...components import R
 
 @R.register("auto_memory_step")
 class AutoMemoryStep(BaseStep):
-    """Record conversation facts into a daily note via a ReAct agent."""
+    """Record conversation facts into a daily note via an Agent."""
 
-    def __init__(self, console_enabled: bool = False, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.console_enabled = console_enabled
         self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     async def execute(self):
         assert self.context is not None
         messages: list[Msg] = [
-            item if isinstance(item, Msg) else Msg.from_dict(item) for item in self.context.get("messages", [])
+            item if isinstance(item, Msg) else Msg.model_validate(item) for item in self.context.get("messages", [])
         ]
         session_id: str = self.context.get("session_id", "")
         memory_hint: str = self.context.get("memory_hint", "")
@@ -62,13 +61,12 @@ class AutoMemoryStep(BaseStep):
         for job_name in self.agent_tools:
             self.add_as_tool(toolkit, job_name)
 
-        agent = ReActAgent(
+        agent = Agent(
             name="auto_memory",
             model=self.llm,
-            sys_prompt=self.prompt_format("system_prompt"),
+            system_prompt=self.prompt_format("system_prompt"),
             toolkit=toolkit,
         )
-        agent.set_console_output_enabled(self.console_enabled)
 
         template_key = "user_message_create" if created else "user_message_update"
         user_message: str = self.prompt_format(
@@ -80,7 +78,7 @@ class AutoMemoryStep(BaseStep):
             history=format_history(messages),
         )
 
-        final_msg: Msg = await agent.reply(Msg(name="reme", role="user", content=user_message))
+        final_msg: Msg = await agent.reply(Msg(name="reme", role="user", content=[TextBlock(text=user_message)]))
 
         self.context.response.success = True
         self.context.response.answer = (final_msg.get_text_content() or "").strip()

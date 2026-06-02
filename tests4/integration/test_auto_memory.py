@@ -20,7 +20,7 @@ import tempfile
 from datetime import date as _date
 from pathlib import Path
 
-from agentscope.agent import ReActAgent
+from agentscope.agent import Agent
 
 from reme4 import Application
 from reme4.config import resolve_app_config
@@ -168,7 +168,7 @@ def _read_text(p: Path) -> str:
 
 
 class _AgentMemoryRecorder:
-    """Monkey-patches ReActAgent.__init__ to capture every agent created inside
+    """Monkey-patches Agent.__init__ to capture every agent created inside
     the ``with`` block, then dumps each agent's memory to a jsonl file in
     DUMP_DIR on exit.
     """
@@ -177,13 +177,13 @@ class _AgentMemoryRecorder:
         """init"""
         self.dump_dir = dump_dir
         self.prefix = prefix
-        self.agents: list[ReActAgent] = []
+        self.agents: list[Agent] = []
         self._orig_init = None
         self.dumped_paths: list[Path] = []
 
     def __enter__(self):
-        """Monkey-patch ReActAgent.__init__."""
-        self._orig_init = ReActAgent.__init__
+        """Monkey-patch Agent.__init__."""
+        self._orig_init = Agent.__init__
         agents = self.agents
         orig = self._orig_init
 
@@ -191,25 +191,25 @@ class _AgentMemoryRecorder:
             orig(agent_self, *args, **kwargs)
             agents.append(agent_self)
 
-        ReActAgent.__init__ = _capturing_init
+        Agent.__init__ = _capturing_init
         return self
 
     def __exit__(self, *exc):
         """Restore the original __init__."""
-        ReActAgent.__init__ = self._orig_init
+        Agent.__init__ = self._orig_init
 
     async def dump(self) -> list[Path]:
-        """Dump all agent memories."""
+        """Dump all agent context histories."""
         for stale in self.dump_dir.glob(f"{self.prefix}_*.jsonl"):
             stale.unlink()
 
         for idx, agent in enumerate(self.agents, 1):
-            messages = await agent.memory.get_memory()
+            messages = agent.state.context
             name = getattr(agent, "name", "agent") or "agent"
             out_path = self.dump_dir / f"{self.prefix}_{idx:02d}_{name}.jsonl"
             with out_path.open("w", encoding="utf-8") as f:
                 for msg in messages:
-                    f.write(json.dumps(msg.to_dict(), ensure_ascii=False, default=str) + "\n")
+                    f.write(json.dumps(msg.model_dump(), ensure_ascii=False, default=str) + "\n")
             self.dumped_paths.append(out_path)
         return self.dumped_paths
 
