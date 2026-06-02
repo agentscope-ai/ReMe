@@ -54,9 +54,9 @@ class BackgroundJob(BaseJob):
         await super()._start()
         if self.use_thread_pool and self.app_context.thread_pool:
             self._stop_event = threading.Event()
-            loop = asyncio.get_event_loop()
-            self._task = asyncio.ensure_future(
-                loop.run_in_executor(self.app_context.thread_pool, self._run_in_thread),
+            self._task = asyncio.get_event_loop().run_in_executor(
+                self.app_context.thread_pool,
+                lambda: asyncio.run(self._run_with_supervisor()),
             )
         else:
             self._stop_event = asyncio.Event()
@@ -88,10 +88,6 @@ class BackgroundJob(BaseJob):
         """Exponential backoff with ±50% jitter, capped at backoff_cap."""
         capped = min(self.backoff_base * (2**attempt), self.backoff_cap)
         return min(capped * (0.5 + random.random()), self.backoff_cap)
-
-    def _run_in_thread(self) -> None:
-        """Thread-pool mode: run the supervisor in a dedicated thread with its own event loop."""
-        asyncio.run(self._run_with_supervisor())
 
     async def _wait_or_stop(self, delay: float) -> None:
         """Sleep up to delay, returning immediately when stop_event is set."""
