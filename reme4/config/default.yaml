@@ -1,11 +1,11 @@
-service:
-  backend: http
-
 vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
 resource_dir: ""
 # language: zh
+
+service:
+  backend: http
 
 jobs:
   update_store_index_loop:
@@ -463,6 +463,7 @@ components:
       parameters:
         max_tokens: 100000
         thinking_enable: true
+        thinking_budget: 38000
 
   file_graph:
     default:

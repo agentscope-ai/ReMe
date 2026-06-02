@@ -5,9 +5,8 @@ from abc import abstractmethod, ABC
 from pathlib import Path
 from typing import TypeVar, TYPE_CHECKING
 
-from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
-from agentscope.tool import Toolkit, ToolResponse
+from agentscope.tool import Toolkit, FunctionTool
 
 from ..components.base_component import ComponentMixin
 from ..components.file_parser import BaseFileParser
@@ -218,20 +217,15 @@ class BaseStep(ComponentMixin, ABC):
         if job is None:
             raise RuntimeError(f"Job {job_name} not found")
 
-        async def run_job(**_kwargs) -> ToolResponse:
+        async def run_job(**_kwargs) -> str:
             response = await job(**{**_kwargs, **kwargs})
-            return ToolResponse(content=[TextBlock(type="text", text=response.answer)])
+            return response.answer
 
-        toolkit.register_tool_function(
-            tool_func=run_job,
-            func_name=job_name,
-            func_description=job.description,
-            json_schema={
-                "type": "function",
-                "function": {
-                    "name": job_name,
-                    "description": job.description,
-                    "parameters": job.parameters,
-                },
-            },
+        tool = FunctionTool(
+            func=run_job,
+            name=job_name,
+            description=job.description,
         )
+        if job.parameters:
+            tool.input_schema = job.parameters
+        toolkit.tool_groups[0].tools.append(tool)

@@ -1,14 +1,19 @@
 """Demo step that drives an Agent via BaseStep.llm."""
 
+from typing import Type
+
 from agentscope.agent import Agent
+from agentscope.state import AgentState
 from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.tool import FunctionTool, Toolkit
+from pydantic import BaseModel
 
 from ..base_step import BaseStep
 from ...components import R
 
 
-def _add(a: float, b: float) -> str:
+def add(a: float, b: float) -> str:
     """Add two numbers and return the sum.
 
     Args:
@@ -38,19 +43,25 @@ class LLMDemoStep(BaseStep):
         query: str = self.context.get("query", "")
         sys_prompt: str = self.context.get("sys_prompt") or self.DEFAULT_SYS_PROMPT
         use_add_tool: bool = bool(self.context.get("use_add_tool", False))
+        structured_model: Type[BaseModel] | None = self.context.get("structured_model")
 
         if not query:
             self.context.response.success = False
             self.context.response.answer = "Skipped: empty query"
             return self.context.response
 
-        toolkit = Toolkit(tools=[FunctionTool(_add)]) if use_add_tool else Toolkit()
+        toolkit = Toolkit(tools=[FunctionTool(add)]) if use_add_tool else Toolkit()
 
         agent = Agent(
             name=self.name,
             system_prompt=sys_prompt,
             model=self.llm,
             toolkit=toolkit,
+            state=AgentState(
+                permission_context=PermissionContext(
+                    mode=PermissionMode.BYPASS,
+                ),
+            ),
         )
 
         response: Msg = await agent.reply(
@@ -58,6 +69,14 @@ class LLMDemoStep(BaseStep):
         )
         text = (response.get_text_content() or "").strip()
         self.logger.info(f"[{self.name}] response: {text!r}")
+
+        structured_content: dict | None = None
+        if structured_model is not None:
+            structured_resp = await self.llm.generate_structured_output(
+                agent.state.context,
+                structured_model=structured_model,
+            )
+            structured_content = structured_resp.content
 
         self.context.response.success = True
         self.context.response.answer = text
@@ -67,6 +86,7 @@ class LLMDemoStep(BaseStep):
                 "sys_prompt": sys_prompt,
                 "use_add_tool": use_add_tool,
                 "response": text,
+                "structured_output": structured_content,
             },
         )
         return self.context.response
