@@ -64,9 +64,8 @@ class AutoMemoryStep(BaseStep):
 
         agent = ReActAgent(
             name="auto_memory",
-            model=self.as_llm,
+            model=self.llm,
             sys_prompt=self.prompt_format("system_prompt"),
-            formatter=self.as_llm_formatter,
             toolkit=toolkit,
         )
         agent.set_console_output_enabled(self.console_enabled)

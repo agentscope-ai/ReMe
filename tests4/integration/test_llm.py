@@ -41,7 +41,7 @@ async def _make_app() -> Application:
 
 
 def test_llm_demo_step_basic_chat():
-    """LLMDemoStep drives ReActAgent through self.as_llm/as_llm_formatter."""
+    """LLMDemoStep drives ReActAgent through self.llm."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):

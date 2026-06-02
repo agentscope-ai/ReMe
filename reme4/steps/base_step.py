@@ -5,7 +5,6 @@ from abc import abstractmethod, ABC
 from pathlib import Path
 from typing import TypeVar, TYPE_CHECKING
 
-from agentscope.formatter import FormatterBase
 from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, ToolResponse
@@ -33,7 +32,7 @@ class Ref:
     Replaces the ``@property`` + ``_resolve()`` boilerplate with a single
     class-level declaration::
 
-        as_llm = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
+        llm = Ref(ChatModelBase, ComponentEnum.LLM, "model")
         file_store = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     Resolution follows a 3-source fallback identical to the old ``_resolve``:
@@ -140,8 +139,7 @@ class BaseStep(ComponentMixin, ABC):
 
     # ----- Component references (resolved lazily on first access) ----------
 
-    as_llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
-    as_llm_formatter: FormatterBase = Ref(FormatterBase, ComponentEnum.AS_LLM_FORMATTER, "formatter")
+    llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.LLM, "model")
     file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     @abstractmethod

@@ -10,6 +10,7 @@ import numpy as np
 from .base_embedding_store import BaseEmbeddingStore
 from ..component_registry import R
 from ..embedding import BaseEmbedding
+
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 
 
@@ -38,11 +39,13 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     @property
     def dimensions(self) -> int:
+        """Return the embedding dimension size."""
         assert self.embedding is not None, "embedding component not bound"
         return self.embedding.dimensions
 
     @property
     def cache_path(self) -> Path:
+        """Return the path to the disk cache file."""
         return self.component_metadata_path / f"{self.name}_{self.cache_version}.npz"
 
     async def _start(self) -> None:

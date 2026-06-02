@@ -1,4 +1,4 @@
-"""Demo step that drives a ReActAgent via BaseStep.as_llm/as_llm_formatter."""
+"""Demo step that drives a ReActAgent via BaseStep.llm."""
 
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg, TextBlock
@@ -20,7 +20,7 @@ def _add(a: float, b: float) -> ToolResponse:
 
 @R.register("llm_demo_step")
 class LLMDemoStep(BaseStep):
-    """Drive a ReActAgent powered by ``self.as_llm`` / ``self.as_llm_formatter``.
+    """Drive a ReActAgent powered by ``self.llm``.
 
     Inputs (from RuntimeContext):
         query     (str, required): user message content.
@@ -53,8 +53,7 @@ class LLMDemoStep(BaseStep):
         agent = ReActAgent(
             name=self.name,
             sys_prompt=sys_prompt,
-            model=self.as_llm,
-            formatter=self.as_llm_formatter,
+            model=self.llm,
             toolkit=toolkit,
         )
         agent.set_console_output_enabled(console_enabled)

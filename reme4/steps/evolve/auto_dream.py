@@ -255,7 +255,7 @@ class Dreamer(BaseStep):
 
     def _llm_available(self) -> bool:
         try:
-            return self.as_llm is not None
+            return self.llm is not None
         except Exception:
             return False
 
@@ -289,13 +289,12 @@ class Dreamer(BaseStep):
         toolkit = self._build_extract_toolkit()
         agent = FlexReActAgent(
             name="reme_dreamer_extract",
-            model=self.as_llm,
+            model=self.llm,
             sys_prompt=self.prompt_format(
                 "extract_system_prompt",
                 vault_dir=str(vault_dir),
                 buckets=", ".join(BUCKETS),
             ),
-            formatter=self.as_llm_formatter,
             toolkit=toolkit,
         )
         agent.set_console_output_enabled(self.console_enabled)
@@ -344,14 +343,13 @@ class Dreamer(BaseStep):
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
         agent = FlexReActAgent(
             name=f"reme_dreamer_integrate_{unit.get('name', 'unit')}",
-            model=self.as_llm,
+            model=self.llm,
             sys_prompt=self.prompt_format(
                 f"integrate_system_prompt_{bucket}",
                 vault_dir=str(vault_dir),
                 digest_dir=digest_dir,
                 bucket=bucket,
             ),
-            formatter=self.as_llm_formatter,
             toolkit=toolkit,
         )
         agent.set_console_output_enabled(self.console_enabled)
@@ -389,7 +387,7 @@ class Dreamer(BaseStep):
                 used_llm=False,
                 skipped=True,
                 path=path,
-                error="no as_llm configured; dreaming requires an LLM",
+                error="no llm configured; dreaming requires an LLM",
             )
 
         material_blob = _pack_material(self.file_store, path)

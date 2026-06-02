@@ -449,17 +449,20 @@ components:
       backend: local
       embedding: default
 
-  as_llm:
+  llm:
     default:
       backend: ${LLM_BACKEND:-anthropic}
-      model_name: ${LLM_MODEL_NAME:-glm-5}
-      api_key: ${LLM_API_KEY:-}
-      client_kwargs:
+      model: ${LLM_MODEL_NAME:-glm-5.1}
+      stream: true
+      context_size: 200000
+      max_retries: 3
+      retry_delay: 1.0
+      credential:
+        api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-
-  as_llm_formatter:
-    default:
-      backend: ${LLM_BACKEND:-anthropic}
+      parameters:
+        max_tokens: 100000
+        thinking_enable: true
 
   file_graph:
     default:

@@ -25,12 +25,13 @@ class BaseEmbedding(BaseComponent):
 
     @property
     def dimensions(self) -> int:
+        """Return the embedding dimension size."""
         assert self.model is not None
         return self.model.dimensions
 
     async def __call__(self, text: list[str], **kwargs) -> list[list[float]]:
         assert self.model is not None
-        response = await self.model(text, **kwargs)
+        response = await self.model(text, **kwargs)  # pylint: disable=not-callable
         return response.embeddings
 
     async def _close(self) -> None:
