@@ -19,6 +19,8 @@ Output (written to context.response):
 
 from agentscope.agent import Agent
 from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from ._evolve import format_history, now
@@ -34,11 +36,17 @@ class AutoMemoryStep(BaseStep):
         super().__init__(**kwargs)
         self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
+    @staticmethod
+    def _to_msg(item) -> Msg:
+        if isinstance(item, Msg):
+            return item
+        if isinstance(item, dict) and isinstance(item.get("content"), str):
+            item = {**item, "content": [{"type": "text", "text": item["content"]}]}
+        return Msg.model_validate(item)
+
     async def execute(self):
         assert self.context is not None
-        messages: list[Msg] = [
-            item if isinstance(item, Msg) else Msg.model_validate(item) for item in self.context.get("messages", [])
-        ]
+        messages: list[Msg] = [self._to_msg(item) for item in self.context.get("messages", [])]
         session_id: str = self.context.get("session_id", "")
         memory_hint: str = self.context.get("memory_hint", "")
         current = now(self.context.get("timezone"))
@@ -66,6 +74,11 @@ class AutoMemoryStep(BaseStep):
             model=self.llm,
             system_prompt=self.prompt_format("system_prompt"),
             toolkit=toolkit,
+            state=AgentState(
+                permission_context=PermissionContext(
+                    mode=PermissionMode.BYPASS,
+                ),
+            ),
         )
 
         template_key = "user_message_create" if created else "user_message_update"

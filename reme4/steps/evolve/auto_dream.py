@@ -54,6 +54,8 @@ from typing import Literal
 
 from agentscope.agent import Agent
 from agentscope.message import Msg, TextBlock
+from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
@@ -294,6 +296,11 @@ class Dreamer(BaseStep):
                 buckets=", ".join(BUCKETS),
             ),
             toolkit=toolkit,
+            state=AgentState(
+                permission_context=PermissionContext(
+                    mode=PermissionMode.BYPASS,
+                ),
+            ),
         )
         user_message = self.prompt_format(
             "extract_user_message",
@@ -349,6 +356,11 @@ class Dreamer(BaseStep):
                 bucket=bucket,
             ),
             toolkit=toolkit,
+            state=AgentState(
+                permission_context=PermissionContext(
+                    mode=PermissionMode.BYPASS,
+                ),
+            ),
         )
         user_message = self.prompt_format(
             "integrate_user_message",
