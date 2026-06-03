@@ -185,20 +185,30 @@ integrate_system_prompt_procedure: |
     Plain-prose provenance does NOT count (only wikilinks survive
     future updates).
 
-  ## Recall → decide → write
+  ## Recall → classify → decide → weave
 
-  1. **Recall** — `search` (include verb stems: rotate, migrate,
-     deploy…) + `traverse depth=2 direction=both` on any hit under
-     `{digest_dir}/`. Cross-bucket on purpose: an existing match
+  1. **Recall** — call `dream_search` with whatever queries best
+     fit the unit (verb stems work well: rotate, migrate, deploy…).
+     Use `limit=20-30` for broader coverage; one call usually
+     suffices but feel free to issue more if the unit spans
+     multiple concept dimensions. Recall feeds BOTH the dedup
+     judgment (same_abstraction label) and the synapse judgment
+     (related label). Cross-bucket on purpose: an existing match
      filed elsewhere beats a duplicate.
-  2. **Hit** — `frontmatter_read` triage, then `read` body for
-     survivors. Same procedure = same trigger + substantially
-     overlapping steps. New step or one-line nuance is REFINE,
-     not "different procedure".
-  3. **Decide** (exactly one):
-     - empty hit set → **CREATE** at
+  2. **Classify (internal)** — `dream_search` returns name +
+     description inline; triage from that directly. Use `read`
+     only for the few survivors needing body inspection. Internally
+     label each candidate (reasoning only, not emitted to output):
+     - **same_abstraction** — same trigger + substantially
+       overlapping steps → UPDATE target (new step / nuance is
+       REFINE, not "different procedure")
+     - **related** — adjacent procedure / sub-step / failure-mode
+       cross-ref → synapse wikilink in body
+     - **unrelated** — drop
+  3. **Decide** (exactly one same_abstraction action):
+     - no same_abstraction hit → **CREATE** at
        `{digest_dir}/procedure/<slug>.md`.
-     - hit non-empty → **UPDATE** the best match:
+     - same_abstraction hit → **UPDATE** the best match:
        - **CORROBORATE** — same procedure observed again; append
          `derived_from::`, optionally strengthen wording
          ("consistently used across N runs").
@@ -208,6 +218,11 @@ integrate_system_prompt_procedure: |
        - **CORRECT** — wrong order, missing critical step, bad
          outcome; tighten or annotate inline (`> note:
          contradicted by [[new-material]] — <one-line>`).
+  4. **Synapse weave** (both CREATE and UPDATE) — weave every
+     `related` candidate from step 2 into the body as `[[Y.md]]`.
+     CREATE: woven from the start. UPDATE: additive `edit`
+     (only-add, never drop existing wikilinks). Default to weaving
+     more, not less — this is the only chance.
 
   ## Discipline
 
@@ -280,21 +295,31 @@ integrate_system_prompt_personal: |
   preference** (not one big node per person) — that's the
   granularity downstream search will hit.
 
-  ## Recall → decide → write
+  ## Recall → classify → decide → weave
 
-  1. **Recall** — `search` (user/team name + rule keywords:
-     `user-X-pr-size-pref`, `team-no-friday-deploys`) +
-     `traverse depth=2 direction=both` on any hit under
-     `{digest_dir}/`. Personal nodes often link to each other and
-     to the user's identity node; don't skip traverse.
-  2. **Hit** — `frontmatter_read` triage; `read` body for
-     survivors. Same rule = same actor scope + same governing
-     principle. A new context where the rule applies is REFINE,
-     not "different rule".
-  3. **Decide** (exactly one):
-     - empty hit set → **CREATE** at
+  1. **Recall** — call `dream_search` with whatever queries best
+     fit the unit (user/team name + rule keywords:
+     `user-X-pr-size-pref`, `team-no-friday-deploys`). Use
+     `limit=20-30` for broader coverage; issue more calls if the
+     rule has multiple scope dimensions. Recall feeds BOTH the
+     dedup judgment (same_abstraction label) and the synapse
+     judgment (related label). Personal nodes often link to each
+     other and to the user's identity node — vector similarity
+     surfaces those even when literal names differ.
+  2. **Classify (internal)** — `dream_search` returns name +
+     description inline; triage from that directly. Use `read`
+     only for the few survivors needing body inspection. Internally
+     label each candidate (reasoning only, not emitted to output):
+     - **same_abstraction** — same actor scope + same governing
+       principle → UPDATE target (new applicable context is
+       REFINE, not "different rule")
+     - **related** — adjacent rule / contrasting preference /
+       identity node cross-ref → synapse wikilink in body
+     - **unrelated** — drop
+  3. **Decide** (exactly one same_abstraction action):
+     - no same_abstraction hit → **CREATE** at
        `{digest_dir}/personal/<slug>.md`.
-     - hit non-empty → **UPDATE** the best match:
+     - same_abstraction hit → **UPDATE** the best match:
        - **CORROBORATE** — rule reaffirmed; append
          `derived_from::`, possibly strengthen certainty
          ("observed across N independent contexts").
@@ -305,6 +330,11 @@ integrate_system_prompt_personal: |
          evidence support, OR annotate (`> note: contradicted by
          [[new-material]] — user now prefers Y`) without
          arbitrating.
+  4. **Synapse weave** (both CREATE and UPDATE) — weave every
+     `related` candidate from step 2 into the body as `[[Y.md]]`.
+     CREATE: woven from the start. UPDATE: additive `edit`
+     (only-add, never drop existing wikilinks). Default to weaving
+     more, not less — this is the only chance.
 
   ## Discipline
 
@@ -366,23 +396,32 @@ integrate_system_prompt_wiki: |
   - **`derived_from:: [[<material-path>]]`** — at least one.
     Plain-prose provenance does NOT count.
 
-  ## Recall → decide → write
+  ## Recall → classify → decide → weave
 
-  1. **Recall** — `search` (noun phrases + common synonyms) +
-     `traverse depth=2 direction=both` on any hit under
-     `{digest_dir}/`. Skipping `traverse` is the main failure mode
-     producing duplicate concept nodes filed under different
-     terminology — semantically close abstractions often live one
-     wikilink away from a noisy hit.
-  2. **Hit** — `frontmatter_read` triage; `read` body for
-     survivors. Same abstraction = same definition / principle in
-     the body, even if wording differs. Slightly different framing
-     of the same idea is REFINE; outright different concepts are
-     different nodes.
-  3. **Decide** (exactly one):
-     - empty hit set → **CREATE** at
+  1. **Recall** — call `dream_search` with whatever queries best
+     fit the unit (noun phrases + common synonyms). Use
+     `limit=20-30` for broader coverage; issue more calls when
+     the abstraction has multiple aspects worth querying
+     separately. Recall feeds BOTH the dedup judgment
+     (same_abstraction label) and the synapse judgment
+     (related label). Vector similarity catches abstractions
+     filed under different terminology even when surface words
+     don't overlap.
+  2. **Classify (internal)** — `dream_search` returns name +
+     description inline; triage from that directly. Use `read`
+     only for the few survivors needing body inspection. Internally
+     label each candidate (reasoning only, not emitted to output):
+     - **same_abstraction** — same definition / principle in body,
+       even if wording differs → UPDATE target (slightly different
+       framing is REFINE; outright different concepts are
+       different nodes)
+     - **related** — concept-adjacent / contrasts / sup-/sub-
+       concept / instance cross-ref → synapse wikilink in body
+     - **unrelated** — drop
+  3. **Decide** (exactly one same_abstraction action):
+     - no same_abstraction hit → **CREATE** at
        `{digest_dir}/wiki/<slug>.md`.
-     - hit non-empty → **UPDATE** the best match:
+     - same_abstraction hit → **UPDATE** the best match:
        - **CORROBORATE** — principle reaffirmed by new instance;
          append `derived_from::`, optionally strengthen wording
          ("consistently observed across N sources" / replace
@@ -396,6 +435,11 @@ integrate_system_prompt_wiki: |
          evidence support, or annotate inline (`> note:
          contradicted by [[new-material]] — <one-line>`) without
          arbitrating.
+  4. **Synapse weave** (both CREATE and UPDATE) — weave every
+     `related` candidate from step 2 into the body as `[[Y.md]]`.
+     CREATE: woven from the start. UPDATE: additive `edit`
+     (only-add, never drop existing wikilinks). Default to weaving
+     more, not less — this is the only chance.
 
   ## Discipline
 
@@ -590,19 +634,26 @@ integrate_system_prompt_procedure_zh: |
   - **`derived_from:: [[<material-path>]]`** —— 至少一条。纯
     散文形式 **不算**(下次 update 时会消失)。
 
-  ## 召回 → 决策 → 写入
+  ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— `search`(带动词词根:rotate / migrate /
-     deploy…)+ 对 `{digest_dir}/` 下 **任何** 命中跑
-     `traverse depth=2 direction=both`。**跨 bucket** 是有意 ——
-     就地更新优于复制创建。
-  2. **命中** —— `frontmatter_read` 廉价 triage,幸存者用
-     `read` 读完整 body。"同一流程" = 同触发 + 步骤大幅重叠。
-     新增一步 / 细微差异是 REFINE,**不是** 另一个流程。
-  3. **决策**(恰好一种):
-     - 命中空 → **CREATE** 在
+  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+     选(带动词词根效果好:rotate / migrate / deploy…)。`limit=
+     20-30` 取更宽覆盖;通常一次够,但若 unit 跨多个概念维度可
+     多调几次。召回结果同时服务 dedup(same_abstraction label)
+     和 synapse(related label)两类判断。**跨 bucket** 是有意
+     —— 就地更新优于复制创建。
+  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+     直接据此 triage。仅对需要看 body 的少数候选用 `read`。
+     对每个候选**内化打 label**(只在思考中分类,不输出):
+     - **same_abstraction** —— 同触发 + 步骤大幅重叠 → UPDATE
+       目标(新增一步 / 细微差异是 REFINE,**不是** 另一个流程)
+     - **related** —— 邻近流程 / 子步骤 / 失败模式互引 → 织成
+       body 内的 synapse wikilink
+     - **unrelated** —— 丢弃
+  3. **决策**(恰好一个 same_abstraction 动作):
+     - 无 same_abstraction 命中 → **CREATE** 在
        `{digest_dir}/procedure/<slug>.md`。
-     - 命中非空 → **UPDATE** 最匹配的:
+     - same_abstraction 命中 → **UPDATE** 最匹配的:
        - **CORROBORATE** —— 同流程再次出现;加 `derived_from::`,
          可选强化措辞("跨 N 次运行一致使用");步骤不动。
        - **REFINE** —— 新前置 / 边界 / 失败模式;扩展相关片段,
@@ -610,6 +661,10 @@ integrate_system_prompt_procedure_zh: |
        - **CORRECT** —— 顺序错 / 缺关键步 / 结果不对;收紧或
          内联标注(`> note: contradicted by [[new-material]] —
          <一句话>`)。
+  4. **织突触**(CREATE 与 UPDATE 都要做)—— 把第 2 步所有
+     `related` 候选织入 body 作 `[[Y.md]]`。CREATE:写入时一次性
+     织全。UPDATE:additive `edit`(只增不删,绝不丢已有 wikilink)。
+     宁可多织 —— **这是唯一机会**。
 
   ## 纪律
 
@@ -673,20 +728,28 @@ integrate_system_prompt_personal_zh: |
   同一人有多条偏好时,**一条偏好一个节点**(不是一个人一大
   节点) —— 这才是下游搜索的粒度。
 
-  ## 召回 → 决策 → 写入
+  ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— `search`(user / team 名 + 规则关键词:
-     `user-X-pr-size-pref`、`team-no-friday-deploys`)+ 对
-     `{digest_dir}/` 下 **任何** 命中跑
-     `traverse depth=2 direction=both`。personal 节点常彼此互
-     链并指向用户身份节点;**别跳过 traverse**。
-  2. **命中** —— `frontmatter_read` triage,幸存者 `read` body。
-     "同一规则" = 同 actor 范围 + 同支配原则。新增"规则适用情
-     境"是 REFINE,**不是** 另一条规则。
-  3. **决策**(恰好一种):
-     - 命中空 → **CREATE** 在
+  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+     选(user / team 名 + 规则关键词:`user-X-pr-size-pref`、
+     `team-no-friday-deploys`)。`limit=20-30` 取更宽覆盖;规则
+     若有多个 scope 维度可多调几次。召回结果同时服务 dedup
+     (same_abstraction label)和 synapse(related label)两类
+     判断。personal 节点常彼此互链并指向用户身份节点 —— vector
+     相似度能在字面名不同时也召回这些。
+  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+     直接据此 triage。仅对需要看 body 的少数候选用 `read`。
+     对每个候选**内化打 label**(只在思考中分类,不输出):
+     - **same_abstraction** —— 同 actor 范围 + 同支配原则 →
+       UPDATE 目标(新增"规则适用情境"是 REFINE,**不是** 另一
+       条规则)
+     - **related** —— 邻近规则 / 对比偏好 / 用户身份节点互引 →
+       织成 body 内的 synapse wikilink
+     - **unrelated** —— 丢弃
+  3. **决策**(恰好一个 same_abstraction 动作):
+     - 无 same_abstraction 命中 → **CREATE** 在
        `{digest_dir}/personal/<slug>.md`。
-     - 命中非空 → **UPDATE** 最匹配的:
+     - same_abstraction 命中 → **UPDATE** 最匹配的:
        - **CORROBORATE** —— 规则在新场景再次坐实;加
          `derived_from::`,可选强化确定性("跨 N 个独立情境
          观察")。
@@ -696,6 +759,10 @@ integrate_system_prompt_personal_zh: |
          新旧证据都支持的形式,或内联标注
          (`> note: contradicted by [[new-material]] — 用户现在
          偏好 Y`)不仲裁。
+  4. **织突触**(CREATE 与 UPDATE 都要做)—— 把第 2 步所有
+     `related` 候选织入 body 作 `[[Y.md]]`。CREATE:写入时一次性
+     织全。UPDATE:additive `edit`(只增不删,绝不丢已有 wikilink)。
+     宁可多织 —— **这是唯一机会**。
 
   ## 纪律
 
@@ -750,19 +817,27 @@ integrate_system_prompt_wiki_zh: |
   - **`derived_from:: [[<material-path>]]`** —— 至少一条;纯
     散文形式不算。
 
-  ## 召回 → 决策 → 写入
+  ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— `search`(名词短语 + 常见同义词)+ 对
-     `{digest_dir}/` 下 **任何** 命中跑
-     `traverse depth=2 direction=both`。跳过 `traverse` 是产生
-     重复概念节点(不同 slug 同语义)的主要失败模式 —— 语义相
-     邻的抽象常常就在某个噪音命中的一跳之外。
-  2. **命中** —— `frontmatter_read` triage,幸存者 `read` body。
-     "同一抽象" = body 中的定义 / 原则相同(措辞可不同)。同
-     思想的略不同表述是 REFINE;真正不同的概念是不同节点。
-  3. **决策**(恰好一种):
-     - 命中空 → **CREATE** 在 `{digest_dir}/wiki/<slug>.md`。
-     - 命中非空 → **UPDATE** 最匹配的:
+  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+     选(名词短语 + 常见同义词)。`limit=20-30` 取更宽覆盖;若
+     抽象本身有多个侧面,值得分别查询时可多调几次。召回结果
+     同时服务 dedup(same_abstraction label)和 synapse
+     (related label)两类判断。vector 相似度能捕获以不同术语
+     归档的同语义抽象,即便字面词不重叠。
+  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+     直接据此 triage。仅对需要看 body 的少数候选用 `read`。
+     对每个候选**内化打 label**(只在思考中分类,不输出):
+     - **same_abstraction** —— body 中的定义 / 原则相同(措辞
+       可不同)→ UPDATE 目标(同思想的略不同表述是 REFINE;真正
+       不同的概念是不同节点)
+     - **related** —— 概念邻近 / 对比 / 上位下位 / 实例互引 →
+       织成 body 内的 synapse wikilink
+     - **unrelated** —— 丢弃
+  3. **决策**(恰好一个 same_abstraction 动作):
+     - 无 same_abstraction 命中 → **CREATE** 在
+       `{digest_dir}/wiki/<slug>.md`。
+     - same_abstraction 命中 → **UPDATE** 最匹配的:
        - **CORROBORATE** —— 原则被新实例再坐实;加
          `derived_from::`,可选强化措辞("跨 N 个来源一致观
          察"、把"似乎"换成"确实");正文实质不变。
@@ -771,6 +846,10 @@ integrate_system_prompt_wiki_zh: |
        - **CORRECT** —— 事实矛盾或夸大;收紧到新旧证据都支持
          的窄形式,或内联标注(`> note: contradicted by
          [[new-material]] — <一句话>`)不仲裁。
+  4. **织突触**(CREATE 与 UPDATE 都要做)—— 把第 2 步所有
+     `related` 候选织入 body 作 `[[Y.md]]`。CREATE:写入时一次性
+     织全。UPDATE:additive `edit`(只增不删,绝不丢已有 wikilink)。
+     宁可多织 —— **这是唯一机会**。
 
   ## 纪律
 

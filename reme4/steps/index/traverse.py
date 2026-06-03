@@ -104,8 +104,26 @@ class TraverseStep(BaseStep):
         outbound, inbound = await _build_adjacency(self.file_store)
         results = _bfs(seeds, depth, direction, outbound, inbound)
 
+        self.logger.info(
+            f"[{self.name}] seeds={seeds!r} depth={depth} direction={direction} "
+            f"nodes={len(outbound) + len(inbound)} edges={len(results)}",
+        )
+
         label = seeds[0] if len(seeds) == 1 else f"{len(seeds)} seeds"
+        if not results:
+            answer = f"No edges found from {label}"
+        else:
+            header = f"Traversed {len(results)} edge(s) from {label}"
+            lines = [header, ""]
+            for r in results:
+                target = r["path"]
+                if r["anchor"]:
+                    target = f"{target}#{r['anchor']}"
+                predicate = r["predicate"] or "-"
+                lines.append(f"[depth={r['depth']}] {r['via']} --{predicate}--> {target}")
+            answer = "\n".join(lines)
+
         self.context.response.success = True
-        self.context.response.answer = f"Traversed {len(results)} edge(s) from {label}"
+        self.context.response.answer = answer
         self.context.response.metadata.update({"edges": results, "count": len(results)})
         return self.context.response

@@ -14,10 +14,25 @@ jobs:
     suffix_filters: [ "md" ]
     steps:
       - backend: scan_changes_step
+        source: file_store
       - backend: update_index_step
         persist: true
       - backend: watch_changes_step
         dispatch_step: update_index_step
+
+  auto_dream_loop:
+    backend: background
+    watch_paths: [ "daily"]
+    suffix_filters: [ "md" ]
+    steps:
+      - backend: scan_changes_step
+        source: file_catalog
+      - backend: dream_step
+        persist: true
+      - backend: watch_changes_step
+        dispatch_step: dream_step
+        # step: 300000                  # awatch yields after 5min of whole-watcher silence
+        # debounce: 600000              # batch ceiling — keep > step so step governs
 
   version:
     backend: base
@@ -107,6 +122,26 @@ jobs:
         candidate_multiplier: 3.0
         expand_links: true
         max_links_per_direction: 10
+
+  dream_search:
+    backend: base
+    description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max digest nodes to return"
+          default: 20
+      required:
+        - query
+    steps:
+      - backend: dream_search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
 
   daily_create:
     backend: base
@@ -456,16 +491,18 @@ components:
       stream: true
       context_size: 200000
       max_retries: 3
-      retry_delay: 1.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       parameters:
-        max_tokens: 100000
-        thinking_enable: true
-        thinking_budget: 38000
+        max_tokens: 65536
+        thinking_enable: false
 
   file_graph:
+    default:
+      backend: local
+
+  file_catalog:
     default:
       backend: local
 

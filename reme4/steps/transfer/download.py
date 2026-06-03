@@ -50,9 +50,14 @@ class DownloadStep(BaseStep):
         if "error" in payload:
             self.context.response.success = False
             self.context.response.answer = f"Error: {payload['error']}"
+            self.logger.info(f"[{self.name}] download failed src={src_path} error={payload['error']!r}")
         else:
             self.context.response.success = True
             self.context.response.answer = f"Downloaded {src_path} → {payload['dst_path']} ({payload['size']} bytes)"
+            self.logger.info(
+                f"[{self.name}] src={src_path} dst={payload['dst_path']} "
+                f"size={payload['size']} mime={payload['mime']}",
+            )
         self.context.response.metadata.update(payload)
 
     async def _download(self, src_path: str, dst_path: str, overwrite: bool) -> dict:

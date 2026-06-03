@@ -1,27 +1,33 @@
-"""One-shot scan: diff watch_paths vs file_store and write changes into context.
+"""One-shot scan: diff watch_paths vs a state source, write changes into context.
 
-Designed to be chained before ``update_index_step`` so that the second step
-performs the actual writes and persistence.
+Source defaults to ``file_store`` (used by ``update_store_index_loop``) but can
+be set to ``file_catalog`` so a sibling loop (e.g. ``auto_dream_loop``) can
+maintain its own independent state without contending with the index writer.
 """
 
 from pathlib import Path
 
-from ..base_step import BaseStep
+from ..base_step import BaseStep, Ref
 from ...components import R
+from ...components.file_catalog import BaseFileCatalog
+from ...enumeration import ComponentEnum
 
 
 @R.register("scan_changes_step")
 class ScanChangesStep(BaseStep):
-    """One-shot scan: compute added/modified/deleted vs file_store and write to context."""
+    """One-shot scan: compute added/modified/deleted vs the chosen source."""
 
-    def __init__(self, recursive: bool = True, **kwargs):
+    file_catalog: BaseFileCatalog = Ref(BaseFileCatalog, ComponentEnum.FILE_CATALOG, optional=True)
+
+    def __init__(self, recursive: bool = True, source: str = "file_store", **kwargs):
         super().__init__(**kwargs)
         self.recursive: bool = recursive
+        if source not in ("file_store", "file_catalog"):
+            raise ValueError(f"source must be 'file_store' or 'file_catalog', got {source!r}")
+        self.source: str = source
 
     async def execute(self):
         assert self.context is not None
-        if self.file_store is None:
-            raise RuntimeError("file_store is not initialized!")
 
         raw: list[str] = self.context.get("watch_paths", [])
         suffixes: list[str] = self.context.get("suffix_filters", ["md"])
@@ -41,9 +47,18 @@ class ScanChangesStep(BaseStep):
                 abs_p = p.absolute()
                 existing[str(abs_p)] = abs_p.stat().st_mtime
 
+        if self.source == "file_catalog":
+            if self.file_catalog is None:
+                raise RuntimeError("file_catalog is not configured but source='file_catalog'")
+            nodes = await self.file_catalog.get_nodes()
+        else:
+            if self.file_store is None:
+                raise RuntimeError("file_store is not initialized!")
+            nodes = await self.file_store.get_nodes()
+
         indexed: dict[str, float] = {
             str(Path(n.path) if Path(n.path).is_absolute() else vault_path / n.path): n.st_mtime
-            for n in await self.file_store.get_nodes()
+            for n in nodes
         }
 
         to_delete = list(indexed.keys() - existing.keys())

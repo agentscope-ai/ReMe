@@ -115,6 +115,7 @@ class IngestStep(BaseStep):
         prepared, prep_error = _prepare_inputs(path, channel, description, metadata_raw)
         if prep_error:
             self._fail({"error": prep_error})
+            self.logger.info(f"[{self.name}] ingest failed channel={channel!r} error={prep_error!r}")
             return
 
         try:
@@ -131,14 +132,19 @@ class IngestStep(BaseStep):
             )
         except _DuplicateIngest as e:
             self._fail({"error": str(e)})
+            self.logger.info(f"[{self.name}] ingest duplicate channel={channel!r} error={str(e)!r}")
             return
         except Exception as e:
             self._fail({"error": f"{type(e).__name__}: {e}"})
+            self.logger.info(f"[{self.name}] ingest crashed channel={channel!r} error={type(e).__name__}: {e}")
             return
 
         self.context.response.success = True
         self.context.response.answer = f"Ingested {outcome['name']} to {outcome['path']}"
         self.context.response.metadata.update(outcome)
+        self.logger.info(
+            f"[{self.name}] channel={channel} date={outcome['date']} name={outcome['name']} path={outcome['path']}",
+        )
 
     # ------------------------------------------------------------------
 

@@ -47,12 +47,23 @@ class DeleteStep(BaseStep):
         if "error" in payload:
             self.context.response.success = False
             self.context.response.answer = f"Error: {payload['error']}"
+            self.logger.info(f"[{self.name}] delete failed path={path} error={payload['error']!r}")
         elif payload.get("is_dir"):
             self.context.response.success = True
             self.context.response.answer = f"Deleted directory {path} ({len(payload['deleted_files'])} file(s))"
+            self.logger.info(
+                f"[{self.name}] deleted dir path={path} files={len(payload['deleted_files'])} "
+                f"inbound_files={payload['inbound']['files_touched']} "
+                f"inbound_links={payload['inbound']['links_total']}",
+            )
         else:
             self.context.response.success = True
             self.context.response.answer = f"Deleted {path}"
+            self.logger.info(
+                f"[{self.name}] deleted file path={path} "
+                f"inbound_files={payload['inbound']['files_touched']} "
+                f"inbound_links={payload['inbound']['links_total']}",
+            )
         self.context.response.metadata.update(payload)
 
     async def _delete(self, path: str) -> dict:

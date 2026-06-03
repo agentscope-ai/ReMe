@@ -44,6 +44,7 @@ class DailyReindexStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = f"Error: {refreshed['error']}"
             self.context.response.metadata.update(refreshed)
+            self.logger.info(f"[{self.name}] reindex failed error={refreshed['error']!r}")
             return
         notes_count = len(refreshed["notes"])
         self.context.response.success = True
@@ -55,6 +56,10 @@ class DailyReindexStep(BaseStep):
                 "created": refreshed["created"],
                 "notes_count": notes_count,
             },
+        )
+        self.logger.info(
+            f"[{self.name}] date={refreshed['date']} path={refreshed['path']} "
+            f"created={refreshed['created']} notes={notes_count}",
         )
 
     async def execute(self):

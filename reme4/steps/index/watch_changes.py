@@ -1,4 +1,27 @@
-"""Long-running awatch loop: convert raw changes into update_index calls."""
+"""Long-running awatch loop: convert raw changes into dispatch_step calls.
+
+Two relevant awatch parameters are exposed verbatim:
+
+* ``step`` (default ``50ms``) — awatch yields when the entire watcher
+  has gone this long without new changes (and at least one change is
+  pending). Raise to ``5 minutes``-ish for ``auto_dream_loop`` so
+  half-written sync output isn't dreamed mid-write; keep at default
+  for ``update_store_index_loop`` where every fs change should hit
+  the index promptly.
+
+* ``debounce`` (default ``2000ms``) — per-batch ceiling, regardless
+  of whether activity is still arriving. Set ``debounce > step`` so
+  ``step`` is the operative limit; otherwise the watcher pre-empts
+  long-quiet-window setups under bursty writes.
+
+Both are global to the watcher (not per-path). The two reme watchers
+have disjoint ``watch_paths`` (digest vs daily/resource), so global
+quiet windows are good enough — no per-path bookkeeping needed.
+
+awatch internally deduplicates same-path same-change tuples within
+the yielded batch, so a file ``modified`` ten times during the
+quiet window arrives as one ``(modified, path)`` entry.
+"""
 
 import asyncio
 
@@ -11,13 +34,14 @@ from ...enumeration import ComponentEnum
 
 @R.register("watch_changes_step")
 class WatchChangesStep(BaseStep):
-    """Watch files and forward each batch of raw changes to a downstream step."""
+    """Watch files and forward each yielded batch to a downstream step."""
 
     def __init__(
         self,
         recursive: bool = True,
         force_polling: bool = True,
         debounce: int = 2000,
+        step: int = 50,
         poll_delay_ms: int = 2000,
         dispatch_step: str = "",
         **kwargs,
@@ -26,6 +50,7 @@ class WatchChangesStep(BaseStep):
         self.recursive: bool = recursive
         self.force_polling: bool = force_polling
         self.debounce: int = debounce
+        self.step: int = step
         self.poll_delay_ms: int = poll_delay_ms
         self.dispatch_step: str = dispatch_step
 
@@ -52,13 +77,17 @@ class WatchChangesStep(BaseStep):
             if dispatch_step_cls is None:
                 raise RuntimeError(f"Unregistered step '{self.dispatch_step}'")
 
-        self.logger.info(f"Watching: {[str(p) for p in valid_paths]}")
+        self.logger.info(
+            f"Watching: {[str(p) for p in valid_paths]} step={self.step}ms debounce={self.debounce}ms",
+        )
+
         async for raw_changes in awatch(
             *valid_paths,
             watch_filter=self._filter,
             recursive=self.recursive,
             force_polling=self.force_polling,
             debounce=self.debounce,
+            step=self.step,
             poll_delay_ms=self.poll_delay_ms,
             stop_event=stop_event,
         ):

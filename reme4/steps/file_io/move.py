@@ -52,9 +52,16 @@ class MoveStep(BaseStep):
         if "error" in payload:
             self.context.response.success = False
             self.context.response.answer = f"Error: {payload['error']}"
+            self.logger.info(f"[{self.name}] move failed src={src_path} dst={dst_path} error={payload['error']!r}")
         else:
             self.context.response.success = True
             self.context.response.answer = f"Moved {src_path} → {dst_path}"
+            retarget_info = payload.get("retarget") or {}
+            self.logger.info(
+                f"[{self.name}] moved src={src_path} dst={dst_path} src_removed={payload.get('src_removed')} "
+                f"retarget_files={retarget_info.get('files_touched', 0) if isinstance(retarget_info, dict) else '-'} "
+                f"retarget_links={retarget_info.get('links_changed', 0) if isinstance(retarget_info, dict) else '-'}",
+            )
         self.context.response.metadata.update(payload)
 
     async def _move(self, src_path: str, dst_path: str, overwrite: bool, retarget: bool) -> dict:

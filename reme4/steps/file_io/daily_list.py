@@ -61,3 +61,4 @@ class DailyListStep(BaseStep):
         lines = [self._format_note_line(n) for n in notes]
         self.context.response.answer = "\n".join(lines) if lines else f"No notes found for {day}"
         self.context.response.metadata.update({"date": day, "count": len(notes)})
+        self.logger.info(f"[{self.name}] date={day} notes={len(notes)}")

@@ -42,6 +42,7 @@ class StatStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = f"stat: {path} not found"
             self.context.response.metadata.update({"path": path, "exists": False})
+            self.logger.info(f"[{self.name}] path={path} exists=False")
             return
 
         st = target.stat()
@@ -69,3 +70,7 @@ class StatStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = answer
         self.context.response.metadata.update(payload)
+        self.logger.info(
+            f"[{self.name}] path={path} type={payload['type']} "
+            f"size={payload.get('size', '-')} mime={payload.get('mime', '-')}",
+        )

@@ -47,7 +47,9 @@ class FrontmatterUpdateStep(BaseStep):
         if "error" in payload:
             self.context.response.success = False
             self.context.response.answer = f"Error: {payload['error']}"
+            self.logger.info(f"[{self.name}] update failed path={path} error={payload['error']!r}")
         else:
             self.context.response.success = True
             self.context.response.answer = f"Updated {len(metadata)} key(s) on {path}"
+            self.logger.info(f"[{self.name}] path={path} keys={list(metadata.keys())}")
         self.context.response.metadata.update(payload)

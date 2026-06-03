@@ -31,11 +31,13 @@ class FrontmatterReadStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = f"Error: {path} not found"
             self.context.response.metadata.update({"path": path, "exists": False})
+            self.logger.info(f"[{self.name}] path={path} exists=False")
             return
         if target.suffix != ".md":
             self.context.response.success = False
             self.context.response.answer = "Error: not markdown"
             self.context.response.metadata.update({"path": path, "error": "not markdown"})
+            self.logger.info(f"[{self.name}] path={path} error=not_markdown")
             return
 
         try:
@@ -44,7 +46,9 @@ class FrontmatterReadStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = f"Error: failed to parse frontmatter in {path}: {exc}"
             self.context.response.metadata.update({"path": path, "exists": True, "error": str(exc)})
+            self.logger.info(f"[{self.name}] path={path} parse_error={exc!r}")
             return
         self.context.response.success = True
         self.context.response.answer = f"Read frontmatter from {path} ({len(meta)} key(s))"
         self.context.response.metadata.update({"path": path, "exists": True, "frontmatter": meta})
+        self.logger.info(f"[{self.name}] path={path} keys={len(meta)}")

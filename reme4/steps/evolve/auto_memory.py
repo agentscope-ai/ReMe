@@ -54,16 +54,22 @@ class AutoMemoryStep(BaseStep):
         if not messages:
             self.context.response.success = True
             self.context.response.answer = "Skipped: no messages supplied"
+            self.logger.info(f"[{self.name}] skipped: no messages session_id={session_id!r}")
             return
 
         create_response = await self.run_job("daily_create", session_id=session_id)
         if not create_response.success:
             self.context.response.success = False
             self.context.response.answer = f"daily_create failed: {create_response.answer}"
+            self.logger.info(f"[{self.name}] daily_create failed session_id={session_id!r}")
             return
 
         note_path: str = create_response.metadata["path"]
         created: bool = create_response.metadata["created"]
+        self.logger.info(
+            f"[{self.name}] note_path={note_path} created={created} "
+            f"messages={len(messages)} hint={'yes' if memory_hint else 'no'}",
+        )
 
         toolkit = Toolkit()
         for job_name in self.agent_tools:
@@ -96,3 +102,4 @@ class AutoMemoryStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = (final_msg.get_text_content() or "").strip()
         self.context.response.metadata.update({"path": note_path, "created": created})
+        self.logger.info(f"[{self.name}] done note_path={note_path}")
