@@ -1,5 +1,7 @@
 """Tests for PromptHandler."""
 
+# pylint: disable=missing-function-docstring
+
 import json
 import tempfile
 from pathlib import Path
@@ -233,9 +235,11 @@ def test_format_no_variables_no_error():
 
 def test_format_flags_and_variables_combined():
     ph = PromptHandler()
-    ph.load_prompt_dict({
-        "p": "[verbose] Debug: {detail}\nResult: {answer}",
-    })
+    ph.load_prompt_dict(
+        {
+            "p": "[verbose] Debug: {detail}\nResult: {answer}",
+        },
+    )
     result = ph.prompt_format("p", verbose=True, detail="trace", answer="42")
     assert "Debug: trace" in result
     assert "Result: 42" in result
@@ -243,9 +247,11 @@ def test_format_flags_and_variables_combined():
 
 def test_format_flags_false_variable_not_needed():
     ph = PromptHandler()
-    ph.load_prompt_dict({
-        "p": "[verbose] Debug: {detail}\nResult: {answer}",
-    })
+    ph.load_prompt_dict(
+        {
+            "p": "[verbose] Debug: {detail}\nResult: {answer}",
+        },
+    )
     result = ph.prompt_format("p", verbose=False, answer="42")
     assert "Debug" not in result
     assert "Result: 42" in result

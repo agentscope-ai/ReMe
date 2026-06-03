@@ -1,5 +1,7 @@
 """Tests for ComponentRegistry."""
 
+# pylint: disable=missing-function-docstring,missing-class-docstring,protected-access,unused-argument
+
 import pytest
 
 from reme4.components.base_component import BaseComponent
@@ -94,7 +96,7 @@ def test_get_all_returns_copy():
 
 def test_get_all_unknown_type_returns_empty():
     reg = ComponentRegistry()
-    assert reg.get_all(ComponentEnum.LLM) == {}
+    assert not reg.get_all(ComponentEnum.LLM)
 
 
 # -- get (miss) ---------------------------------------------------------------
@@ -128,8 +130,8 @@ def test_clear():
     reg.register(_DummyComponent, "a")
     reg.register(_AnotherComponent, "b")
     reg.clear()
-    assert reg.get_all(ComponentEnum.FILE_PARSER) == {}
-    assert reg.get_all(ComponentEnum.KEYWORD_INDEX) == {}
+    assert not reg.get_all(ComponentEnum.FILE_PARSER)
+    assert not reg.get_all(ComponentEnum.KEYWORD_INDEX)
 
 
 if __name__ == "__main__":

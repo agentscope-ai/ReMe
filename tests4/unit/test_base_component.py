@@ -1,6 +1,6 @@
 """Tests for BaseComponent, Dependency, and ComponentMixin."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,missing-function-docstring,missing-class-docstring,attribute-defined-outside-init
 
 import asyncio
 import os
@@ -93,7 +93,9 @@ def test_bind_rejects_no_component_type():
 
 
 def test_bind_with_default_factory():
-    factory = lambda: DepTarget(name="default")
+    def factory():
+        return DepTarget(name="default")
+
     result = BaseComponent.bind("idx", DepTarget, default_factory=factory)
     assert isinstance(result, Dependency)
     assert result.default_factory is factory
@@ -276,7 +278,9 @@ def test_resolve_from_context_required_missing_raises():
 
 def test_vault_path_no_context():
     mixin = ComponentMixin()
-    assert mixin.vault_path == (lambda: __import__("pathlib").Path.cwd())()
+    from pathlib import Path
+
+    assert mixin.vault_path == Path.cwd()
 
 
 def test_to_vault_relative_inside_vault():

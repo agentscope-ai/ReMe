@@ -1,6 +1,6 @@
 """Tests for BaseJob and BackgroundJob."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,missing-function-docstring,missing-class-docstring,no-self-argument,unused-argument
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
@@ -10,12 +10,11 @@ import pytest
 from reme4.components.component_registry import ComponentRegistry
 from reme4.components.job.background_job import BackgroundJob
 from reme4.components.job.base_job import BaseJob
-from reme4.components.runtime_context import RuntimeContext
-from reme4.enumeration import ComponentEnum
 from reme4.schema import ComponentConfig
 
 
 # -- helpers ------------------------------------------------------------------
+
 
 def _make_registry_and_context(step_classes=None):
     """Build a fresh registry + minimal app_context for job tests."""
