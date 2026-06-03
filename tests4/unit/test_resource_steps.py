@@ -49,7 +49,7 @@ class temp_chdir:
 
 async def _make_store() -> LocalFileStore:
     """Minimal LocalFileStore (embedding disabled). vault_path resolves to CWD."""
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     return store
 

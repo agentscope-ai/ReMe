@@ -67,7 +67,7 @@ class temp_chdir:
 
 async def _make_store(files: dict[str, str] | None = None) -> LocalFileStore:
     """LocalFileStore seeded with files on disk + registered in the graph."""
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     nodes: list[FileNode] = []
     for rel, content in (files or {}).items():

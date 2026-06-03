@@ -50,7 +50,7 @@ async def _store_with(files: dict[str, dict]) -> LocalFileStore:
     ``description`` populate FileFrontMatter so neighbor meta lookups
     have something to surface.
     """
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     nodes: list[FileNode] = []
     root = Path.cwd()
@@ -84,7 +84,7 @@ def test_expand_links_empty_paths_short_circuits():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             result = await expand_links(store, [])
             assert result == {}

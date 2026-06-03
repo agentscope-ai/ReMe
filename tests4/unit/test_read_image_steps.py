@@ -48,7 +48,7 @@ def _run(coro):
 
 
 async def _make_store() -> LocalFileStore:
-    store = LocalFileStore(name="t_img", embedding_model="")
+    store = LocalFileStore(name="t_img", embedding_store="")
     await store.start()
     return store
 

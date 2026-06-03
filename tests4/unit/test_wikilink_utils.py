@@ -51,7 +51,7 @@ async def _store_with(files: dict[str, str]) -> LocalFileStore:
     Without the parsed links the reverse-index lookup yields nothing and
     retarget becomes a no-op.
     """
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     nodes: list[FileNode] = []
     root = Path.cwd()
@@ -72,7 +72,7 @@ async def _store_with(files: dict[str, str]) -> LocalFileStore:
 
 
 async def _empty_store() -> LocalFileStore:
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     return store
 

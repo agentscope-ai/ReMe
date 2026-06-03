@@ -73,7 +73,7 @@ async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> Local
     ``daily/<date>/<session_id>.md`` with a minimal ``name``-only
     frontmatter — no opinionated status / lifecycle axes.
     """
-    store = LocalFileStore(name="t", embedding_model="")
+    store = LocalFileStore(name="t", embedding_store="")
     await store.start()
     for day, session_id, body in entries:
         day_dir = Path.cwd() / "daily" / day
@@ -156,7 +156,7 @@ def test_daily_list_returns_path_session_id_metadata():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             await _seed_note(
                 "2026-05-18",
@@ -212,7 +212,7 @@ def test_daily_list_empty_when_no_daily_dir():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
@@ -439,7 +439,7 @@ def test_day_index_lists_each_note():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             await _seed_note("2026-05-18", "alpha", name="Alpha Project")
             await _seed_note("2026-05-18", "beta", name="Beta Project")
@@ -461,7 +461,7 @@ def test_day_index_includes_note_descriptions():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             cases = [
                 ("alpha", "Alpha Project", "实现 JWT auth 中间件，迁移 session middleware"),
@@ -516,7 +516,7 @@ def test_day_index_preserves_user_content_outside_marker():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_model="")
+            store = LocalFileStore(name="t", embedding_store="")
             await store.start()
             await _seed_note("2026-05-18", "alpha")
             reindex = daily_reindex_step.DailyReindexStep(file_store=store)

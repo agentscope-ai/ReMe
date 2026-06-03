@@ -57,11 +57,15 @@ def _mb_str(*objs) -> str:
 
 def _embedding_status(comp) -> dict:
     cache = getattr(comp, "_embedding_cache", {}) or {}
+    try:
+        dims = comp.dimensions
+    except Exception:
+        dims = None
     return {
         "is_started": comp.is_started,
         "is_healthy": getattr(comp, "is_healthy", None),
         "model_name": getattr(comp, "model_name", None),
-        "dimensions": getattr(comp, "dimensions", None),
+        "dimensions": dims,
         "cache_size": len(cache),
         "memory": _mb_str(cache),
     }

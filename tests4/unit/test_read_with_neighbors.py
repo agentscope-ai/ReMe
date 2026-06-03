@@ -50,7 +50,7 @@ def _run(coro):
 
 async def _store_with(files: dict[str, dict]) -> LocalFileStore:
     """LocalFileStore seeded with files + parsed wikilinks + optional frontmatter."""
-    store = LocalFileStore(name="t_read_neighbors", embedding_model="")
+    store = LocalFileStore(name="t_read_neighbors", embedding_store="")
     await store.start()
     nodes: list[FileNode] = []
     root = Path.cwd()
@@ -169,7 +169,7 @@ def test_read_with_neighbors_non_md_falls_through():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             (Path(tmp) / "notes.txt").write_text("plain text body", encoding="utf-8")
-            store = LocalFileStore(name="t_read_neighbors_nonmd", embedding_model="")
+            store = LocalFileStore(name="t_read_neighbors_nonmd", embedding_store="")
             await store.start()
             resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes.txt")
             assert resp.success is True
