@@ -43,51 +43,6 @@ async def _make_app() -> Application:
     return app
 
 
-def test_llm_demo_step_basic_chat():
-    """LLMDemoStep drives Agent through self.llm."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
-            try:
-                step = LLMDemoStep(app_context=app.context)
-                response = await step(
-                    query="What is 1 + 1? Reply with just the number.",
-                )
-                text = (response.answer or "").strip()
-                print(f"\n[basic_chat] response: {text!r}")
-                assert text, "Empty assistant response"
-                assert "2" in text, f"Expected '2' in response, got: {text!r}"
-                print("✓ test_llm_demo_step_basic_chat passed")
-            finally:
-                await app.close()
-
-    asyncio.run(run())
-
-
-def test_llm_demo_step_with_tool():
-    """LLMDemoStep registers the add tool and the agent invokes it."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
-            try:
-                step = LLMDemoStep(app_context=app.context)
-                response = await step(
-                    query="Use the add tool to compute 21 + 21 and report the result.",
-                    sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
-                    use_add_tool=True,
-                )
-                text = (response.answer or "").strip()
-                print(f"\n[with_tool] response: {text!r}")
-                assert "42" in text, f"Expected '42' in response, got: {text!r}"
-                print("✓ test_llm_demo_step_with_tool passed")
-            finally:
-                await app.close()
-
-    asyncio.run(run())
-
-
 class MathResult(BaseModel):
     """Structured output for a math computation."""
 
@@ -110,66 +65,80 @@ class SentimentAnalysis(BaseModel):
     )
 
 
-def test_llm_demo_step_structured_output():
-    """LLMDemoStep generates structured output via generate_structured_output."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
-            try:
-                step = LLMDemoStep(app_context=app.context)
-                response = await step(
-                    query="What is 15 multiplied by 7? Show your work.",
-                    sys_prompt="You are a math tutor. Solve the problem step by step.",
-                    structured_model=MathResult,
-                )
-                structured = response.metadata.get("structured_output")
-                print(f"\n[structured_output] result: {structured}")
-                assert structured is not None, "structured_output should not be None"
-                assert "result" in structured, "structured_output should have 'result' field"
-                assert structured["result"] == 105, f"Expected result=105, got: {structured['result']}"
-                assert "expression" in structured, "structured_output should have 'expression' field"
-                assert "explanation" in structured, "structured_output should have 'explanation' field"
-                print("✓ test_llm_demo_step_structured_output passed")
-            finally:
-                await app.close()
-
-    asyncio.run(run())
+async def _run_basic_chat(app: Application) -> None:
+    step = LLMDemoStep(app_context=app.context)
+    response = await step(
+        query="What is 1 + 1? Reply with just the number.",
+    )
+    text = (response.answer or "").strip()
+    print(f"\n[basic_chat] response: {text!r}")
+    assert text, "Empty assistant response"
+    assert "2" in text, f"Expected '2' in response, got: {text!r}"
+    print("✓ test_llm_demo_step_basic_chat passed")
 
 
-def test_llm_demo_step_structured_output_enum():
-    """LLMDemoStep structured output with Literal/enum fields."""
+async def _run_with_tool(app: Application) -> None:
+    step = LLMDemoStep(app_context=app.context)
+    response = await step(
+        query="Use the add tool to compute 21 + 21 and report the result.",
+        sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
+        use_add_tool=True,
+    )
+    text = (response.answer or "").strip()
+    print(f"\n[with_tool] response: {text!r}")
+    assert "42" in text, f"Expected '42' in response, got: {text!r}"
+    print("✓ test_llm_demo_step_with_tool passed")
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
-            try:
-                step = LLMDemoStep(app_context=app.context)
-                response = await step(
-                    query="Analyze the sentiment: 'I absolutely love this product! It exceeded all my expectations.'",
-                    sys_prompt="You are a sentiment analysis expert. Analyze the given text.",
-                    structured_model=SentimentAnalysis,
-                )
-                structured = response.metadata.get("structured_output")
-                print(f"\n[structured_enum] result: {structured}")
-                assert structured is not None, "structured_output should not be None"
-                assert (
-                    structured["sentiment"] == "positive"
-                ), f"Expected sentiment='positive', got: {structured['sentiment']}"
-                assert 0 <= structured["confidence"] <= 1, f"Confidence should be 0-1, got: {structured['confidence']}"
-                assert isinstance(structured["key_phrases"], list), "key_phrases should be a list"
-                assert len(structured["key_phrases"]) > 0, "key_phrases should not be empty"
-                print("✓ test_llm_demo_step_structured_output_enum passed")
-            finally:
-                await app.close()
 
-    asyncio.run(run())
+async def _run_structured_output(app: Application) -> None:
+    step = LLMDemoStep(app_context=app.context)
+    response = await step(
+        query="What is 15 multiplied by 7? Show your work.",
+        sys_prompt="You are a math tutor. Solve the problem step by step.",
+        structured_model=MathResult,
+    )
+    structured = response.metadata.get("structured_output")
+    print(f"\n[structured_output] result: {structured}")
+    assert structured is not None, "structured_output should not be None"
+    assert "result" in structured, "structured_output should have 'result' field"
+    assert structured["result"] == 105, f"Expected result=105, got: {structured['result']}"
+    assert "expression" in structured, "structured_output should have 'expression' field"
+    assert "explanation" in structured, "structured_output should have 'explanation' field"
+    print("✓ test_llm_demo_step_structured_output passed")
+
+
+async def _run_structured_output_enum(app: Application) -> None:
+    step = LLMDemoStep(app_context=app.context)
+    response = await step(
+        query="Analyze the sentiment: 'I absolutely love this product! It exceeded all my expectations.'",
+        sys_prompt="You are a sentiment analysis expert. Analyze the given text.",
+        structured_model=SentimentAnalysis,
+    )
+    structured = response.metadata.get("structured_output")
+    print(f"\n[structured_enum] result: {structured}")
+    assert structured is not None, "structured_output should not be None"
+    assert (
+        structured["sentiment"] == "positive"
+    ), f"Expected sentiment='positive', got: {structured['sentiment']}"
+    assert 0 <= structured["confidence"] <= 1, f"Confidence should be 0-1, got: {structured['confidence']}"
+    assert isinstance(structured["key_phrases"], list), "key_phrases should be a list"
+    assert len(structured["key_phrases"]) > 0, "key_phrases should not be empty"
+    print("✓ test_llm_demo_step_structured_output_enum passed")
+
+
+async def _run_all() -> None:
+    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+        app = await _make_app()
+        try:
+            await _run_basic_chat(app)
+            await _run_with_tool(app)
+            await _run_structured_output(app)
+            await _run_structured_output_enum(app)
+        finally:
+            await app.close()
 
 
 if __name__ == "__main__":
     print("=== LLMDemoStep + Agent integration tests ===")
-    test_llm_demo_step_basic_chat()
-    test_llm_demo_step_with_tool()
-    test_llm_demo_step_structured_output()
-    test_llm_demo_step_structured_output_enum()
+    asyncio.run(_run_all())
     print("\nAll integration tests passed!")

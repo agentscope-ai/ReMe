@@ -475,7 +475,7 @@ components:
       supported_extensions: [ "md" ]
     chunked:
       backend: chunked
-      supported_extensions: [ "txt", "html", "json", "yaml", "py" ]
+      supported_extensions: [ "txt", "html", "json", "jsonl", "yaml", "py" ]
     default:
       backend: default
 
