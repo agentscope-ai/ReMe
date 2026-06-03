@@ -7,24 +7,31 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import Column, JSON, String, text as sa_text
-from sqlalchemy.dialects.mysql import LONGTEXT
 
 from .base_vector_store import BaseVectorStore
 from ..embedding import BaseEmbeddingModel
 from ..schema import VectorNode
 
-_OBVECTOR_IMPORT_ERROR: Exception | None = None
+_OBVEC_IMPORT_ERROR: Exception | None = None
 
 try:
+    from sqlalchemy import Column, JSON, String, text as sa_text
+    from sqlalchemy.dialects.mysql import LONGTEXT
     from pyobvector import IndexParams, ObVecClient, VecIndexType, VECTOR
     from pyobvector import cosine_distance, inner_product
 except Exception as e:
-    _OBVECTOR_IMPORT_ERROR = e
+    _OBVEC_IMPORT_ERROR = e
+    Column = None  # type: ignore[misc, assignment]
+    JSON = None  # type: ignore[misc, assignment]
+    String = None  # type: ignore[misc, assignment]
+    sa_text = None  # type: ignore[misc, assignment]
+    LONGTEXT = None  # type: ignore[misc, assignment]
     IndexParams = None  # type: ignore[misc, assignment]
     ObVecClient = None  # type: ignore[misc, assignment]
     VecIndexType = None  # type: ignore[misc, assignment]
     VECTOR = None  # type: ignore[misc, assignment]
+    cosine_distance = None  # type: ignore[misc, assignment]
+    inner_product = None  # type: ignore[misc, assignment]
 
 _COL_SELECT = "id, content, vector, metadata"
 
@@ -139,10 +146,11 @@ class ObVecVectorStore(BaseVectorStore):
         index_ef_search: int = 100,
         **kwargs,
     ):
-        if _OBVECTOR_IMPORT_ERROR is not None:
+        if _OBVEC_IMPORT_ERROR is not None:
             raise ImportError(
-                "ObVecVectorStore requires pyobvector. Install with `pip install pyobvector`",
-            ) from _OBVECTOR_IMPORT_ERROR
+                "ObVecVectorStore requires pyobvector and sqlalchemy. "
+                "Install with `pip install pyobvector sqlalchemy`",
+            ) from _OBVEC_IMPORT_ERROR
 
         super().__init__(
             collection_name=collection_name,

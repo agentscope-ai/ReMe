@@ -43,35 +43,37 @@ dependencies = [
     "fastapi>=0.121.3",
     "fastmcp>=2.14.1",
     "httpx>=0.28.1",
-    "jieba>=0.42.1",
-    "rjieba>=0.1.11",
     "loguru>=0.7.3",
     "mcp>=1.25.0",
-    "networkx>=3.4",
     "numpy>=2.2.6",
     "openai>=2.8.1",
     "pandas>=2.3.3",
     "prompt_toolkit>=3.0.52",
     "pydantic>=2.12.4",
-    "pyobvector>=0.1.20",
     "pyyaml>=6.0.3",
     "qdrant-client>=1.16.0",
     "rich>=14.2.0",
     "sqlite-vec>=0.1.6",
-    # pyobvector imports Expression from sqlglot; removed from sqlglot 30+ top-level API
-    "sqlglot>=25,<30",
     "tavily-python>=0.7.13",
     "tiktoken>=0.12.0",
     "tqdm>=4.67.1",
     "transformers>=4.57.3",
     "uvicorn>=0.40.0",
     "watchfiles>=1.1.1",
-    "pyyaml>=6.0.3",
-    "mistletoe",
-    "neo4j",
 ]
 
 [project.optional-dependencies]
+obvec = [
+    "pyobvector>=0.1.20",
+    "sqlalchemy>=2.0",
+    # pyobvector imports Expression from sqlglot; removed from sqlglot 30+ top-level API
+    "sqlglot>=25,<30",
+]
+
+zvec = [
+    "zvec",
+]
+
 ray = [
     "ray",
 ]
@@ -111,7 +113,7 @@ core = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["reme_ai*", "reme*", "reme4*"]
+include = ["reme_ai*", "reme*"]
 exclude = ["test*", "cookbook*", "doc*", "library*", "dist*"]
 
 [tool.setuptools.package-data]
@@ -122,12 +124,6 @@ reme_ai = [
 ]
 
 reme = [
-    "**/*.yaml",
-    "**/*.py",
-    "**/*.json",
-]
-
-reme4 = [
     "**/*.yaml",
     "**/*.py",
     "**/*.json",
@@ -145,7 +141,6 @@ Repository = "https://github.com/agentscope-ai/ReMe"
 reme = "reme_ai.main:main"
 reme2 = "reme.reme:main"
 remecli = "reme.reme_cli:main"
-reme4 = "reme4.reme:main"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
