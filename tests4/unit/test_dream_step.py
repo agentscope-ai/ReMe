@@ -1,24 +1,34 @@
-"""Tests for DreamStep — the per-change-batch dream + index processor.
+"""Tests for DreamStep — the per-change-batch dream + catalog processor.
 
 DreamStep is the middle step in ``auto_dream_loop``: it consumes
 ``context.changes`` (filled by ``scan_changes_step`` at startup or by
-``watch_changes_step`` at runtime) and runs ``dream_one`` followed by
-``UpdateIndexStep`` for each ``added`` / ``modified``; ``deleted``
-paths go straight to ``file_store.delete``. Path-shape filtering is
-delegated to the watcher (``watch_paths`` + ``suffix_filters``) — this
-step trusts whatever lands in ``changes``.
+``watch_changes_step`` at runtime) and runs ``dream_one`` for each
+``added`` / ``modified``; ``deleted`` paths go straight to
+``file_catalog.delete``.
 
-We mock both ``dream_one`` (needs an LLM) and ``UpdateIndexStep``
-(needs an ``app_context`` for the file_parser registry). The unit
-under test is the fan-out + persistence-gating logic; the inner
-steps are exercised in their own files / integration tests.
+DreamStep does **not** touch ``file_store`` — index writes are owned
+by ``update_store_index_loop`` so the two background loops don't race
+on the same on-disk artefact. Instead, it tracks "which paths have
+been dreamed at which mtime" in the bound ``file_catalog``: a
+successful (or vacuously-skipped) dream upserts a ``FileNode``
+keyed by vault-relative path; a failure leaves the catalog untouched
+so the next ``scan_changes_step source=file_catalog`` re-reports the
+file and we retry.
+
+We mock ``dream_one`` (needs an LLM) and inject a fake ``file_catalog``
+so the unit under test is the fan-out + state-recording logic; the
+inner step + the real catalog are exercised in their own files /
+integration tests.
 
 Covered points:
 
-* Persisting ``file_store`` only on dream success
-* Skipped (Phase 1 empty) is still treated as success → still indexed
+* Catalog upsert only on dream success (with FileNode carrying the
+  current ``st_mtime``)
+* Skipped (Phase 1 empty) is still success → still catalogued
 * Per-file granularity (one failure does not block subsequent files)
+* ``deleted`` changes call ``file_catalog.delete`` and skip dream entirely
 * Outside-vault paths are dropped defensively
+* ``persist=True`` triggers a single ``file_catalog.dump`` per batch
 * ``WatchChangesStep`` exposes awatch ``step`` / ``debounce`` verbatim
 """
 
@@ -31,9 +41,7 @@ import warnings
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from watchfiles import Change
-
-from reme4.components.file_store import BaseFileStore
+from reme4.components.file_catalog import BaseFileCatalog
 from reme4.components.runtime_context import RuntimeContext
 from reme4.steps import DreamStep, WatchChangesStep
 from reme4.steps.evolve.auto_dream import DreamResult
@@ -65,44 +73,30 @@ def _touch(path: Path, content: str = "x") -> Path:
 
 
 # ---------------------------------------------------------------------------
-# DreamStep — fan-out / persistence wiring
+# DreamStep — fan-out / catalog wiring
 #
-# Everything below patches ``UpdateIndexStep`` and ``dream_one`` so we
-# don't need an LLM or an app_context. The mocked UpdateIndexStep stub
-# records each call so we can assert which paths got persisted.
+# We patch ``dream_one`` so we don't need an LLM, and inject a fake
+# ``file_catalog`` (AsyncMock) recording every upsert / delete / dump.
 # ---------------------------------------------------------------------------
 
 
-def _make_step(vault: Path) -> DreamStep:
-    """DreamStep with vault_path forced and a fake file_store recording deletes."""
-    fake_fs = MagicMock(spec=BaseFileStore)
-    fake_fs.delete = AsyncMock()
+def _make_step(vault: Path, persist: bool = True) -> DreamStep:
+    """DreamStep with vault_path forced and a fake file_catalog recording calls."""
+    fake_catalog = MagicMock(spec=BaseFileCatalog)
+    fake_catalog.upsert = AsyncMock()
+    fake_catalog.delete = AsyncMock()
+    fake_catalog.dump = AsyncMock()
 
     class _FixedVault(DreamStep):
         @property
         def vault_path(self):
             return vault
 
-    step = _FixedVault(file_store=fake_fs, persist=True)
-    return step
+    return _FixedVault(file_catalog=fake_catalog, persist=persist)
 
 
-def _patch_update_index_step():
-    """Patch UpdateIndexStep at the import site inside dream_step."""
-    instances: list[MagicMock] = []
-
-    def _factory(**kwargs):
-        m = AsyncMock()
-        m.kwargs = kwargs
-        instances.append(m)
-        return m
-
-    patcher = patch("reme4.steps.evolve.dream_step.UpdateIndexStep", side_effect=_factory)
-    return patcher, instances
-
-
-def test_dream_step_added_modified_persists_on_success():
-    """A successful dream on an add/modify must construct + call UpdateIndexStep."""
+def test_dream_step_added_modified_upserts_on_success():
+    """A successful dream must upsert a FileNode (path + st_mtime) into file_catalog."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -114,23 +108,24 @@ def test_dream_step_added_modified_persists_on_success():
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=True, path=rel, summary="ok")
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "dream_one", side_effect=_fake_dream):
                 resp = await step(ctx)
 
             assert resp.success
             assert resp.metadata["dreamed"] == 1
-            assert len(instances) == 1
-            call = instances[0].await_args
-            forwarded = call.kwargs["changes"]
-            assert forwarded == [{"change": Change.modified, "path": str(note)}]
-        print("✓ test_dream_step_added_modified_persists_on_success passed")
+            step.file_catalog.upsert.assert_awaited_once()
+            (nodes,), _ = step.file_catalog.upsert.call_args
+            assert len(nodes) == 1
+            assert nodes[0].path == "daily/2026-06-02/note.md"
+            assert nodes[0].st_mtime == note.stat().st_mtime
+            step.file_catalog.dump.assert_awaited_once()
+        print("✓ test_dream_step_added_modified_upserts_on_success passed")
 
     asyncio.run(run())
 
 
-def test_dream_step_skipped_still_persists():
-    """Phase 1 returning empty (skipped=True) is success — still indexed."""
+def test_dream_step_skipped_still_upserts():
+    """Phase 1 returning empty (skipped=True) is success — still catalogued."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -142,19 +137,19 @@ def test_dream_step_skipped_still_persists():
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=True, path=rel, skipped=True, summary="empty")
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "dream_one", side_effect=_fake_dream):
                 resp = await step(ctx)
 
             assert resp.success
-            assert len(instances) == 1
-        print("✓ test_dream_step_skipped_still_persists passed")
+            step.file_catalog.upsert.assert_awaited_once()
+            step.file_catalog.dump.assert_awaited_once()
+        print("✓ test_dream_step_skipped_still_upserts passed")
 
     asyncio.run(run())
 
 
-def test_dream_step_failure_does_not_persist():
-    """On dream error UpdateIndexStep must not be invoked at all."""
+def test_dream_step_failure_does_not_upsert():
+    """On dream error the catalog must not be touched (next scan will re-report)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -166,20 +161,20 @@ def test_dream_step_failure_does_not_persist():
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=False, path=rel, error="boom")
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "dream_one", side_effect=_fake_dream):
                 resp = await step(ctx)
 
             assert not resp.success
             assert resp.metadata["failed"] == 1
-            assert not instances
-        print("✓ test_dream_step_failure_does_not_persist passed")
+            step.file_catalog.upsert.assert_not_awaited()
+            step.file_catalog.dump.assert_not_awaited()
+        print("✓ test_dream_step_failure_does_not_upsert passed")
 
     asyncio.run(run())
 
 
 def test_dream_step_deletes_paths():
-    """Deleted paths skip dream entirely and call file_store.delete."""
+    """Deleted paths skip dream entirely and call file_catalog.delete."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -188,23 +183,22 @@ def test_dream_step_deletes_paths():
             step = _make_step(vault)
             ctx = RuntimeContext(changes=[{"change": "deleted", "path": str(note_path)}])
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one") as dream_mock:
+            with patch.object(step, "dream_one") as dream_mock:
                 resp = await step(ctx)
                 dream_mock.assert_not_called()
 
             assert resp.success
             assert resp.metadata["deleted"] == 1
-            step.file_store.delete.assert_awaited_once_with(["daily/2026-06-02/note.md"])
-            assert not instances
+            step.file_catalog.delete.assert_awaited_once_with(["daily/2026-06-02/note.md"])
+            step.file_catalog.upsert.assert_not_awaited()
+            step.file_catalog.dump.assert_awaited_once()
         print("✓ test_dream_step_deletes_paths passed")
 
     asyncio.run(run())
 
 
 def test_dream_step_drops_paths_outside_vault():
-    """Defensive guard: paths the watcher should never have forwarded
-    (outside vault root) must be dropped instead of crashing."""
+    """Defensive guard: paths outside vault root are dropped silently."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as outside:
@@ -213,20 +207,21 @@ def test_dream_step_drops_paths_outside_vault():
             step = _make_step(vault)
             ctx = RuntimeContext(changes=[{"change": "added", "path": str(external)}])
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one") as dream_mock:
+            with patch.object(step, "dream_one") as dream_mock:
                 resp = await step(ctx)
                 dream_mock.assert_not_called()
 
             assert resp.success
-            assert not instances
+            step.file_catalog.upsert.assert_not_awaited()
+            step.file_catalog.delete.assert_not_awaited()
+            step.file_catalog.dump.assert_not_awaited()
         print("✓ test_dream_step_drops_paths_outside_vault passed")
 
     asyncio.run(run())
 
 
 def test_dream_step_partial_failure_does_not_block_other_files():
-    """File N's failure must not stop file N+1 from being persisted."""
+    """File N's failure must not stop file N+1 from being catalogued."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -246,15 +241,40 @@ def test_dream_step_partial_failure_does_not_block_other_files():
                     return DreamResult(used_llm=False, path=rel, error="boom")
                 return DreamResult(used_llm=True, path=rel, summary="ok")
 
-            patcher, instances = _patch_update_index_step()
-            with patcher, patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "dream_one", side_effect=_fake_dream):
                 resp = await step(ctx)
 
             assert not resp.success
-            assert len(instances) == 1
-            forwarded = instances[0].await_args.kwargs["changes"]
-            assert forwarded == [{"change": Change.modified, "path": str(b)}]
+            assert resp.metadata["dreamed"] == 1
+            assert resp.metadata["failed"] == 1
+            step.file_catalog.upsert.assert_awaited_once()
+            (nodes,), _ = step.file_catalog.upsert.call_args
+            assert [n.path for n in nodes] == ["daily/2026-06-02/b.md"]
         print("✓ test_dream_step_partial_failure_does_not_block_other_files passed")
+
+    asyncio.run(run())
+
+
+def test_dream_step_persist_false_skips_dump():
+    """persist=False → upsert still happens but no dump (caller controls flush)."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            vault = Path(tmpdir).resolve()
+            note = _touch(vault / "daily" / "2026-06-02" / "note.md")
+            step = _make_step(vault, persist=False)
+            ctx = RuntimeContext(changes=[{"change": "added", "path": str(note)}])
+
+            async def _fake_dream(rel, _hint):
+                return DreamResult(used_llm=True, path=rel, summary="ok")
+
+            with patch.object(step, "dream_one", side_effect=_fake_dream):
+                resp = await step(ctx)
+
+            assert resp.success
+            step.file_catalog.upsert.assert_awaited_once()
+            step.file_catalog.dump.assert_not_awaited()
+        print("✓ test_dream_step_persist_false_skips_dump passed")
 
     asyncio.run(run())
 
@@ -282,12 +302,13 @@ def test_watch_changes_accepts_step_and_debounce_overrides():
 
 if __name__ == "__main__":
     print("\n=== DreamStep / WatchChanges Tests ===")
-    test_dream_step_added_modified_persists_on_success()
-    test_dream_step_skipped_still_persists()
-    test_dream_step_failure_does_not_persist()
+    test_dream_step_added_modified_upserts_on_success()
+    test_dream_step_skipped_still_upserts()
+    test_dream_step_failure_does_not_upsert()
     test_dream_step_deletes_paths()
     test_dream_step_drops_paths_outside_vault()
     test_dream_step_partial_failure_does_not_block_other_files()
+    test_dream_step_persist_false_skips_dump()
     test_watch_changes_defaults_match_awatch_defaults()
     test_watch_changes_accepts_step_and_debounce_overrides()
     print("\n所有测试通过!")
