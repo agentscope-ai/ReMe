@@ -117,9 +117,7 @@ async def _run_structured_output_enum(app: Application) -> None:
     structured = response.metadata.get("structured_output")
     print(f"\n[structured_enum] result: {structured}")
     assert structured is not None, "structured_output should not be None"
-    assert (
-        structured["sentiment"] == "positive"
-    ), f"Expected sentiment='positive', got: {structured['sentiment']}"
+    assert structured["sentiment"] == "positive", f"Expected sentiment='positive', got: {structured['sentiment']}"
     assert 0 <= structured["confidence"] <= 1, f"Confidence should be 0-1, got: {structured['confidence']}"
     assert isinstance(structured["key_phrases"], list), "key_phrases should be a list"
     assert len(structured["key_phrases"]) > 0, "key_phrases should not be empty"

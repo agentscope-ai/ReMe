@@ -41,7 +41,7 @@ class ApplicationConfig(BaseModel):
     mcp_servers: dict[str, dict] = Field(default_factory=dict, description="MCP server configs by name")
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
     jobs: dict[str, JobConfig] = Field(default_factory=dict, description="Job definitions keyed by job name")
-    thread_pool_max_workers: int = Field(default=0,description="Max worker threads; 0 to disable")
+    thread_pool_max_workers: int = Field(default=0, description="Max worker threads; 0 to disable")
     components: dict[ComponentEnum, dict[str, ComponentConfig]] = Field(
         default_factory=dict,
         description="Component registry keyed by type then name",
