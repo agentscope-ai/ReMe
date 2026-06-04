@@ -36,11 +36,13 @@ class BackgroundJob(BaseJob):
         backoff_cap: float = 60.0,
         close_timeout: float = 5.0,
         attempt_reset_after: float = 60.0,
-        enable_serve: bool = False,
         use_thread_pool: bool = False,
         **kwargs,
     ):
-        super().__init__(enable_serve=enable_serve, **kwargs)
+        # Background jobs are long-running loops, not request-shaped callables —
+        # forced off so they never get registered as service tools.
+        kwargs.pop("enable_serve", None)
+        super().__init__(enable_serve=False, **kwargs)
         self.supervisor: bool = supervisor
         self.backoff_base: float = backoff_base
         self.backoff_cap: float = backoff_cap

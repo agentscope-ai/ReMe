@@ -8,6 +8,7 @@ from ..schema import ApplicationConfig
 
 if TYPE_CHECKING:
     from .base_component import BaseComponent
+    from .channel_sink import ChannelSink
     from .job import BaseJob
     from .service import BaseService
 
@@ -29,3 +30,6 @@ class ApplicationContext:
         self.components: dict[ComponentEnum, dict[str, "BaseComponent"]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
+        # Populated by MCPService.build_service() when transport is stdio;
+        # IngestStep reads it to push notifications/claude/channel events.
+        self.channel_sink: "ChannelSink | None" = None

@@ -48,3 +48,5 @@ memories/*
 .reme/*
 vault
 */integration/*.jsonl
+apps/
+reme_driver/

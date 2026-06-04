@@ -34,7 +34,7 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 |---|---|
 | **物理几何** | `digest/<bucket>/<slug>.md`;**浅桶一层**(顶多两层),桶内 flat |
 | **bucket 角色** | **仅承担物理归档 + OS-level 浏览锚点**;不承担语义本体角色 —— 主题由图中节点表达 |
-| **bucket 集合** | **代码内 hard-coded**(`reme4/steps/evolve/auto_dream.py` 的 `BUCKETS` 常量),不通过配置外置,不由 dreamer / maintainer 动态生成 —— 三桶设定是 dream 模型本身的一部分(Phase 2 prompt 按 bucket 专化),不是可调参数 |
+| **bucket 集合** | **代码内 hard-coded**(`reme4/steps/evolve/dream.py` 的 `BUCKETS` 常量),不通过配置外置,不由 dreamer / maintainer 动态生成 —— 三桶设定是 dream 模型本身的一部分(Phase 2 prompt 按 bucket 专化),不是可调参数 |
 | **集合视图** | 桶名内嵌在 prompt 中(extract 阶段三桶判别启发 + 三份独立 integrate prompt);不再生成独立 `_buckets.md` 视图 |
 | **初始化** | opinionated **三桶**,按"答什么问 + 谁在问"划分:`procedure`(答"怎么做 X" —— 步骤 / 方法 / runbook)/ `personal`(答"X 是谁 / 喜欢什么 / 不要做什么" —— 用户 / 团队 specific 身份 + 偏好)/ `wiki`(答"X 是什么 / 发生了什么 / 决策依据是什么" —— 通用知识 / 定义 / 原则 / 观察 / 决策先例;**也是默认兜底**) |
 | **bucket 主页** | 不强制存在;split 累积出层级时 parent 节点天然成为浏览主页(中心性涌现,非架构必需) |
@@ -179,11 +179,83 @@ agent 上报 IntegrateOutcome {action, target_path}
 
 **Phase 2 的 bucket 专化**:三桶各有独立 system prompt,因为各桶的 body 形态、决策偏置不同 —— `procedure` 节点是 runbook 风(触发 / 步骤 / 前置 / 失败模式),`personal` 节点是规则风(rule + Why + How to apply),`wiki` 节点是百科风(定义 + 性质 + 关系)。共用一份通用 prompt 会让"应该写成什么样"的指导被稀释,bucket 信号靠一段 if-this-then-that 散文承载,效果劣于让每桶自带专属 prompt。
 
-#### 4.2.2 召回二段
+#### 4.2.2 召回 → 内化分类 → 决策 → 织突触(ReAct agent 一体完成)
 
-**RECALL = search + traverse**:search 给关键词 + 向量 RRF 命中;只要 search 在 `digest/` 下返回任何 hit,就对 top hit 跑 `traverse depth=2 direction=both`。理由是 search 关键词导向,会漏掉用不同术语归档的语义相邻抽象,那些常常一跳之外。search 在 `digest/` 下完全无命中 → 无 traverse 起点 → 候选集为空 → 直接 CREATE。
+Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 stage,不引入外部机械步骤**,只通过 prompt 引导 agent 把 dedup 与 synapse 这两类判断都做透。当前默认 `search(limit=5)` 不够,prompt 已显式引导更深召回。
 
-**HIT = frontmatter_read + read**:渐进披露 —— 先 `frontmatter_read` 读 `name + description` 廉价 triage 淘汰明显无关候选,剩下的再 `read` 整 body。**不可仅凭 chunk 片段或 frontmatter 决定 UPDATE**,body 才是判定依据。
+**4 步流程**(整段由 ReAct agent 自主组织调用):
+
+| # | 步 | 关键动作 |
+|---|---|---|
+| 1 | **召回 —— 多角度宽召** | 显式 `limit=20-30` × 两轮 search(一次 hybrid,一次 `vector_weight=1.0` 纯语义)+ `traverse depth=2` 拓扑补充 |
+| 2 | **内化分类** | `frontmatter_read` triage + 必要时 `read` body;对每个候选**内化打 label**(只在思考中分类,不输出):`same_abstraction` / `related` / `unrelated` |
+| 3 | **决策** | 0 个 `same_abstraction` → CREATE;1 个 → UPDATE(选 flavor) |
+| 4 | **织突触** | CREATE 或 UPDATE 都把所有 `related` 候选织入 body 作 `[[Y.md]]`;CREATE 一次性织全;UPDATE additive 加 wikilink |
+
+**两类内化判断的本质**:
+
+| 判断 | 服务 | 输出形态 |
+|---|---|---|
+| **同抽象?**(dedup)| 决定 CREATE / UPDATE | 0/1 个 target(决策面排他) |
+| **相关?**(synapse)| 决定织哪些 wikilink | N 个 related 候选(决策面累加) |
+
+两者是同一个 ReAct agent 在看完 candidates 后的**两层独立判断**,共享同一批召回结果,**不需要分两轮 LLM 调用**。
+
+**召回**(对应 prompt step 1):dream 用专属的 `dream_search`(`reme4/steps/index/dream_search.py`),**不**用通用 `search`,**也不用 `traverse`** —— 详 §4.2.2.1(traverse 是 retrieve-time 子图挖掘工具,跟 dream 写入场景错位)。
+
+| 调用 | 找什么 |
+|---|---|
+| `dream_search(query=<...>, limit=20-30)` | digest 内节点级 hybrid 召回(vector + BM25 RRF),返回 path + frontmatter |
+
+**召回结果服务两类判断**:dedup(`same_abstraction` label,是否同抽象 → CREATE / UPDATE)和 synapse(`related` label,是否相关 → 织 wikilink)是 LLM 在**同一批 candidates** 上的两类内化 label。原"两轮 search(hybrid + vector_only)"是设计冗余 —— 同一批候选 LLM 自己能判 same/related/unrelated,模式切换无意义。**调用次数由 agent 自决**:一次通常够;若 unit 跨多个概念维度,agent 可发起多次不同 query 的召回,prompt 不强约束。
+
+**HIT = `dream_search` 返回 + read**:`dream_search` 已内嵌返回每个 hit 的 frontmatter(`name + description`),agent 直接据此 triage,**不需要额外调 `frontmatter_read` 批量取 metadata**;仅对需要看 body 的少数候选用 `read`。**不可仅凭 frontmatter 决定 UPDATE**,body 才是判定依据。
+
+##### 4.2.2.1 dream_search vs 通用 search 的差别 + 为什么 dream 不用 traverse
+
+**dream_search vs 通用 search**:dream 的召回需求跟外部 agent 的 RAG 检索**结构性不同**,因此用专属 step 而非复用 `search`:
+
+| 维度 | 通用 `search`(外部 agent)| `dream_search`(dream Phase 2) |
+|---|---|---|
+| 用户 | 用户/外部 agent 的自然语言 query | dream 内部生成的 unit.summary |
+| 结果粒度 | **chunk 级**(可能同一 node 多个 chunk)| **node 级**(同 path 聚合 max score)|
+| 返回信息 | 完整 chunk text + scores | **path + name + description**(frontmatter 内嵌,无 body)|
+| 范围 | 全 vault(daily / resource / digest) | **digest-only**(dream 永远只在 digest 找候选)|
+| expand_links | 默认 `True`(给 agent 更多上下文)| **永远 `False`**(synapse 找的就是未 link 的)|
+| 默认 limit | 5 | **20**(dream 需要宽召覆盖 synapse)|
+
+复用通用 `search` 会让 dream 拿到的候选**既粒度不对**(chunk 级,同 node 多次出现)**又信息冗余**(chunk text 不必要)**又被噪声污染**(daily / resource hits 永远不是 dream 的 UPDATE 候选)**又召回偏窄**(expand_links 把已 link 的拖回来,挤掉真正未 link 的 synapse 候选)。所以 dream 需要自己的 `dream_search`。
+
+**为什么 dream toolkit 不包含 traverse(或 dream_traverse)** —— traverse 是 **retrieve-time 子图挖掘工具**,跟 dream 写入场景**结构性错位**:
+
+| 维度 | traverse 的本性(retrieve / RAG)| dream 的真实需求(写入)|
+|---|---|---|
+| 方向 | 从已知中心向外扩散 | 从外部新材料找 vault 内相关候选 |
+| 输入 | 已知种子节点 | 新材料的 unit.summary |
+| 输出语义 | "X 的子图"(给读者上下文) | "X 应该 link 到哪些 Y" |
+| 图遍历的角色 | 主操作 | 召回兜底(可有可无) |
+
+dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给 query 找相关),不是**遍历**问题(给中心找邻居)。**召回工具 = dream_search;遍历工具 = traverse(留给 retrieve / 外部 agent 用)。dream 不需要遍历**。
+
+(早期曾实现 `dream_traverse` 准备作为 dream toolkit 一员,后撤销 —— 实测拓扑遍历 vs vector 召回重叠率 ~95%,真正独特贡献 < 2%,且引入 LLM 调用 / 上下文 / 复杂度成本。详 git log。)
+
+**dream_search 参数极简**(`query / limit` 两个):**mode 不需要**(同一批候选服务双判断);**exclude_paths 不需要**(self 由 LLM 自己识别,frontmatter 内嵌让 agent 一眼看出"这就是我");**min_score 不需要**(RRF 分数范围 0~0.025,跟 cosine 0~1 量纲完全不同,召回深度由 `limit` 控制就够)。**调用次数 agent 自决**:prompt 不约束"必须一次",unit 跨多个概念维度时 agent 可多次召回。
+
+**dream_search 召回算法:weighted node-level RRF**(vector + BM25 hybrid):
+
+- vector + BM25 各自独立召回 → 各自得到 chunk list(按各自 score 排序)
+- 同 path 多 chunk 合并:取该 path 在两个 list 中的 max chunk score 位置作为 node rank
+- RRF 融合:`score(path) = vector_weight × 1/(60 + rank_v) + (1-vector_weight) × 1/(60 + rank_k)`
+- `vector_weight=0.7`(默认),vector 主导,BM25 作为兜底(覆盖专有名词 / 缩写等 embedding 可能 struggle 的字面 case)
+- 输出 score 是 RRF 分(0~0.025 量级,不是 cosine);LLM 不依赖具体分数,内化判 same/related/unrelated
+
+**reinforce 并入立场**(对照 `auto_consolidate_design.md` §4 标作废):reinforce 不再是独立的 consolidate 动作 —— 它就是 step 4 的"织突触"。新节点写入瞬间一次性建立关系,vault 不维护"事后周期 batch 补 wikilink"的通道。F-2 自然守住 —— dream 只动新节点 body,不动其它节点。
+
+**关键约束**(诚实承认):
+- **写入即定型** —— 今天没织的 wikilink 以后没机会再织;vault 单调演化
+- **一次性 commit,无事后兜底** —— prompt 明示"宁可多织"(false positive 一眼能否决;false negative 永远沉默)
+- **召回深度取决于 prompt 引导 + agent 配合** —— 不引入外部机械召回 step;prompt 已明示 `limit=20-30 × 两轮`,但仍是 ReAct agent 的开放执行
+- **dedup 与 synapse 在一次 LLM 调用内完成** —— 不拆独立 stage,共享召回结果,内化分类是免费的
 
 #### 4.2.3 UPDATE 三种 flavor
 
@@ -207,6 +279,8 @@ agent 上报 IntegrateOutcome {action, target_path}
 - **0 出边节点合法**(没识别到合适邻居),后续 dream 进入时其它节点可以反向链回来 —— 不强求 LLM 一次性给全
 - **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 vault 累积明显重复,由 auto-consolidate 的 dups 检测周期 batch 产报告(`auto_consolidate_design.md` §3)
 - **召回不做 bucket 粗筛** —— LLM 拥有完整跨桶视野,可识别"概念跨桶同抽象"(例如同一原则在 wiki 已有节点而 Phase 1 把新材料归入 personal,此时 UPDATE wiki 节点而非新建 personal 节点)
+- **reinforce 已并入 dream synapse recall** —— 不存在独立的 reinforce 动作或周期 batch;突触构建(原 `auto_consolidate_design.md` §4 reinforce 的职责)在 dream Phase 2 synapse recall 阶段完成,新节点写入瞬间织全(详 §4.2.2)
+- **vault 不维护事后补 wikilink 通道** —— 上一条的直接推论;cognition §9.2 立场("关系建立在写入瞬间")在此自然守住
 
 **provenance 写出**:
 - 行文中自然带:"... 该模式最早出现在 [[daily/2026/05/15.md]] 的实践中"
@@ -266,10 +340,13 @@ agent 上报 IntegrateOutcome {action, target_path}
 
 本文档覆盖 dream 模型(桶 / 节点 / 边 / 演化)。组织端实现清单(M split / D 检测 / CAS 框架)见 `auto_consolidate_design.md` §10。
 
-- ✅ **dream step 实现** —— Phase 1 extract(识别抽象 + 分配 bucket)+ Phase 2 integrate(per sub-unit,**bucket-specific prompt 分发**;`reme4/steps/evolve/auto_dream.py` + `auto_dream.yaml`,与 `auto_memory` 同级同形)
-- ✅ **三桶 hard-coded** —— `procedure / personal / wiki`,`BUCKETS` 常量在 `dreamer.py` 顶部,Phase 1 通过 `MemoryUnit.bucket: Literal[...]` 由 Pydantic 强制约束
+- ✅ **dream step 实现** —— Phase 1 extract(识别抽象 + 分配 bucket)+ Phase 2 integrate(per sub-unit,**bucket-specific prompt 分发**;`reme4/steps/evolve/dream.py` + `dream.yaml`,与 `auto_memory` 同级同形)
+- ✅ **三桶 hard-coded** —— `procedure / personal / wiki`,`BUCKETS` 常量在 `dream.py` 顶部,Phase 1 通过 `MemoryUnit.bucket: Literal[...]` 由 Pydantic 强制约束
 - ✅ **provenance prompt 规范** —— `derived_from:: [[daily/...]]` / `[[resource/...]]` 强制(三桶 prompt 各自重申)
 - ❌ ~~**边守恒校验工具**~~ —— 早期 `digest_edit` 子类的 outbound diff 校验已随子类一并移除(切到 canonical `edit`);E-1 现由 prompt 自律,详 §4.4
 - ❌ ~~**bucket 集合配置外置**~~ —— 撤销:三桶是 dream 模型本身的一部分,不做配置参数(`vault.yaml` 不再承载 `digest.buckets`,`_buckets.md` 视图也不再生成)
+- 🆕 **Phase 2 召回拆 dedup / synapse**(2026-06-02 沉淀,详 §4.2.2)—— 当前 prompt 共用一次 `search(limit=5)`,既不够 dedup 精度也不够 synapse 覆盖;落地:`dream.yaml` 6 处(en + zh × 3 buckets)Recall 段改写,加 synapse 模式说明 + 写入即定型纪律
+- 🆕 **`file_store.default.embedding_model` 启用**(blocker)—— `default.yaml` 当前 `""`,synapse recall 用 vector_weight=1.0 模式必须开启;否则 `search` 退化为纯 BM25,dedup 也劣化
+- 🆕 **reinforce 并入立场写入**(详 §4.2.2)—— 与 `auto_consolidate_design.md` §4 标作废同步;`hierarchical_summary.md` §13.2 Q4 标解决
 
 实现进入 `reme4/steps/evolve/` 时,本文档与 `auto_memory_design.md` / `auto_consolidate_design.md` / `auto_cognition_design.md` 共同作为契约依据。

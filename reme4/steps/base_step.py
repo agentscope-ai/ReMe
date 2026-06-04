@@ -134,8 +134,8 @@ class BaseStep(ComponentMixin, ABC):
 
         # Load class-level prompts first, then overlay caller-provided overrides.
         # Walk MRO in reverse so most-derived class wins; subclasses without their
-        # own YAML inherit prompts from their parent (e.g. CronDreamer inherits
-        # dreamer.yaml from Dreamer).
+        # own YAML inherit prompts from their parent (e.g. AutoDreamStep inherits
+        # dream.yaml from DreamStep).
         self.prompt = PromptHandler(language=self.language)
         for cls in reversed(self.__class__.__mro__):
             self.prompt.load_prompt_by_class(cls)

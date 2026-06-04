@@ -7,10 +7,9 @@ from .common.help import HelpStep
 from .common.llm_demo import LLMDemoStep
 from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
+from .evolve.auto_dream import AutoDreamStep
 from .evolve.auto_memory import AutoMemoryStep
-from .evolve.auto_dream import Dreamer
-from .evolve.cron_dreamer import CronDreamer
-from .evolve.dream_step import DreamStep
+from .evolve.dream import DreamStep
 from .file_io.daily_create import DailyCreateStep
 from .file_io.daily_list import DailyListStep
 from .file_io.daily_reindex import DailyReindexStep
@@ -25,6 +24,8 @@ from .file_io.read import ReadStep
 from .file_io.read_image import ReadImageStep
 from .file_io.stat import StatStep
 from .file_io.write import WriteStep
+from .index.channel_notify import ChannelNotifyStep
+from .index.claim_channel import ClaimChannelStep
 from .index.clear_and_scan import ClearAndScanStep
 from .index.dream_search import DreamSearchStep
 from .index.scan_changes import ScanChangesStep
@@ -68,6 +69,8 @@ __all__ = [
     "FrontmatterReadStep",
     "FrontmatterUpdateStep",
     # index
+    "ChannelNotifyStep",
+    "ClaimChannelStep",
     "ClearAndScanStep",
     "DreamSearchStep",
     "ScanChangesStep",
@@ -77,9 +80,8 @@ __all__ = [
     "UpdateIndexStep",
     "WatchChangesStep",
     # evolve (dream)
-    "CronDreamer",
+    "AutoDreamStep",
     "DreamStep",
-    "Dreamer",
     # transfer
     "DownloadStep",
     "IngestStep",

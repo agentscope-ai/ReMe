@@ -57,8 +57,7 @@ class ScanChangesStep(BaseStep):
             nodes = await self.file_store.get_nodes()
 
         indexed: dict[str, float] = {
-            str(Path(n.path) if Path(n.path).is_absolute() else vault_path / n.path): n.st_mtime
-            for n in nodes
+            str(Path(n.path) if Path(n.path).is_absolute() else vault_path / n.path): n.st_mtime for n in nodes
         }
 
         to_delete = list(indexed.keys() - existing.keys())

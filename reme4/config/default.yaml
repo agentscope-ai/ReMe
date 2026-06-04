@@ -20,20 +20,6 @@ jobs:
       - backend: watch_changes_step
         dispatch_step: update_index_step
 
-  auto_dream_loop:
-    backend: background
-    watch_paths: [ "daily"]
-    suffix_filters: [ "md" ]
-    steps:
-      - backend: scan_changes_step
-        source: file_catalog
-      - backend: dream_step
-        persist: true
-      - backend: watch_changes_step
-        dispatch_step: dream_step
-        # step: 300000                  # awatch yields after 5min of whole-watcher silence
-        # debounce: 600000              # batch ceiling — keep > step so step governs
-
   version:
     backend: base
     description: "return reme package version"
@@ -420,7 +406,7 @@ jobs:
       required:
         - path
     steps:
-      - backend: dreamer_step
+      - backend: dream_step
 
   auto-dream:
     backend: base
@@ -437,7 +423,7 @@ jobs:
           description: "caller guidance passed through to each per-file dream"
           default: ""
     steps:
-      - backend: cron_dreamer_step
+      - backend: auto_dream_step
 
   auto_memory:
     backend: base
@@ -496,7 +482,7 @@ components:
         base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       parameters:
         max_tokens: 65536
-        thinking_enable: false
+        thinking_enable: true
 
   file_graph:
     default:

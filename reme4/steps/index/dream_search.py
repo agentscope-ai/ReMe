@@ -25,7 +25,7 @@ the **same candidate pool**; there is no need to split into separate
 recall passes (the previous ``mode={hybrid,vector_only}`` toggle was
 spurious — both judgments operate on the same recall output).
 
-Used in dream Phase 2 (auto_dream.yaml ``integrate_system_prompt_*``).
+Used in dream Phase 2 (dream.yaml ``integrate_system_prompt_*``).
 External agents must keep using ``search`` for chunk-level retrieval +
 link expansion.
 """
