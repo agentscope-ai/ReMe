@@ -48,7 +48,7 @@ class Application(BaseComponent):
         cfg = self.config
         vault_path = Path(cfg.vault_dir).absolute()
         vault_path.mkdir(parents=True, exist_ok=True)
-        for subdir in [cfg.metadata_dir, cfg.daily_dir, cfg.digest_dir, cfg.resource_dir]:
+        for subdir in [cfg.metadata_dir, cfg.resource_dir, cfg.dialog_dir, cfg.daily_dir, cfg.digest_dir]:
             if subdir:
                 (vault_path / subdir).mkdir(parents=True, exist_ok=True)
 
