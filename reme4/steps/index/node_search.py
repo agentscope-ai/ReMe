@@ -1,4 +1,4 @@
-"""``dream_search_step`` — node-level digest search for dream Phase 2.
+"""``node_search_step`` — node-level digest search for dream Phase 2.
 
 Specialized for dream's recall needs; **NOT** a drop-in replacement for the
 general-purpose ``search`` step (which serves external RAG agents).
@@ -55,8 +55,8 @@ def _rrf_merge_nodes(
     return scores
 
 
-@R.register("dream_search_step")
-class DreamSearchStep(BaseStep):
+@R.register("node_search_step")
+class NodeSearchStep(BaseStep):
     """Node-level digest-only hybrid search for dream Phase 2 recall."""
 
     async def execute(self):
@@ -137,7 +137,7 @@ class DreamSearchStep(BaseStep):
         )
 
         lines = [
-            f"=== dream_search query={query!r} hits={len(hits)}/{candidates} ===",
+            f"=== node_search query={query!r} hits={len(hits)}/{candidates} ===",
         ]
         if not hits:
             lines.append("(no digest hits)")

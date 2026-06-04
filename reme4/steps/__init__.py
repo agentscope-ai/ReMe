@@ -27,8 +27,8 @@ from .file_io.write import WriteStep
 from .index.channel_notify import ChannelNotifyStep
 from .index.claim_channel import ClaimChannelStep
 from .index.clear_and_scan import ClearAndScanStep
-from .index.dream_search import DreamSearchStep
-from .index.scan_changes import ScanChangesStep
+from .index.node_search import NodeSearchStep
+from .index.scan_changes import ScanCatalogChangesStep, ScanStoreChangesStep
 from .index.search import SearchStep
 from .index.traverse import TraverseStep
 from .index.update_catalog import UpdateCatalogStep
@@ -72,8 +72,9 @@ __all__ = [
     "ChannelNotifyStep",
     "ClaimChannelStep",
     "ClearAndScanStep",
-    "DreamSearchStep",
-    "ScanChangesStep",
+    "NodeSearchStep",
+    "ScanCatalogChangesStep",
+    "ScanStoreChangesStep",
     "SearchStep",
     "TraverseStep",
     "UpdateCatalogStep",

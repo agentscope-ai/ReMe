@@ -8,7 +8,7 @@ Each tick scans today's two surfaces under ``<daily_dir>/``:
 * ``<daily_dir>/<today>/**/*.md`` — event notes for the day.
 
 The diff vs ``file_catalog`` follows the same shape as
-:class:`ScanChangesStep`: build ``existing`` (on-disk ``rel → mtime``)
+:class:`ScanCatalogChangesStep`: build ``existing`` (on-disk ``rel → mtime``)
 and ``indexed`` (catalog ``rel → mtime``, restricted to today's
 prefix so we never disturb entries from other days), then:
 
@@ -116,7 +116,7 @@ class AutoDreamStep(DreamStep):
             n.path: n.st_mtime for n in all_nodes if n.path == today_md or n.path.startswith(today_dir)
         }
 
-        # Diff — same vocabulary as scan_changes_step (added/modified/deleted).
+        # Diff — same vocabulary as scan_*_changes_step (added/modified/deleted).
         to_dream: list[tuple[str, float]] = [(rel, mt) for rel, mt in existing.items() if indexed.get(rel) != mt]
         unchanged: list[str] = [rel for rel, mt in existing.items() if indexed.get(rel) == mt]
         to_delete: list[str] = sorted(indexed.keys() - existing.keys())

@@ -12,7 +12,7 @@ list and exercise three paths:
 
 import asyncio
 
-from reme4.components.channel_sink import ChannelSink
+from reme4.components.service.mcp_service import ChannelSink
 
 
 class _StubSession:

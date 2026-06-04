@@ -1,11 +1,15 @@
-"""Tests for background steps: ScanChangesStep + WatchChangesStep.
+"""Tests for background steps: ScanStoreChangesStep + WatchChangesStep.
 
 Both steps are subclasses of BaseStep. To exercise them without spinning up the
 full ApplicationContext, we pass real (started) file_store/file_parser via the
 step's kwargs (so the BaseStep _resolve() machinery returns them).
 
-ScanChangesStep writes its result into ``context["changes"]`` for a downstream
+ScanStoreChangesStep writes its result into ``context["changes"]`` for a downstream
 ``update_index_step`` to consume; tests assert against that key directly.
+
+The catalog-side sibling (ScanCatalogChangesStep) shares the same diff helper
+and is exercised through the dream-loop integration tests; covering it here
+would duplicate the file_store-diff assertions without adding signal.
 """
 
 # pylint: disable=protected-access
@@ -21,7 +25,7 @@ from watchfiles import Change
 from reme4.components.file_parser import ChunkedFileParser
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
-from reme4.steps import ScanChangesStep, WatchChangesStep
+from reme4.steps import ScanStoreChangesStep, WatchChangesStep
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -51,7 +55,7 @@ def write_file(path: Path, content: str = "x") -> Path:
 
 
 # ---------------------------------------------------------------------------
-# ScanChangesStep
+# ScanStoreChangesStep
 # ---------------------------------------------------------------------------
 
 
@@ -59,12 +63,12 @@ async def _make_scan_step(
     watch_paths: list[str] | str = "vault",
     suffix_filters: list[str] | None = None,
     recursive: bool = True,
-) -> tuple[ScanChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
+) -> tuple[ScanStoreChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
     fs = LocalFileStore(name="test_store", embedding_store="")
     parser = ChunkedFileParser()
     await fs.start()
     await parser.start()
-    step = ScanChangesStep(
+    step = ScanStoreChangesStep(
         recursive=recursive,
         file_store=fs,
         file_parser=parser,
@@ -246,7 +250,7 @@ def test_watch_changes_filter_only_passes_md():
 
 if __name__ == "__main__":
     print("\n=== Background Steps Tests ===")
-    # ScanChangesStep
+    # ScanStoreChangesStep
     test_scan_changes_initial_all_added()
     test_scan_changes_no_changes_emits_empty_list()
     test_scan_changes_detects_modify_and_delete()

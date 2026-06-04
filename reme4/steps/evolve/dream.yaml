@@ -187,7 +187,7 @@ integrate_system_prompt_procedure: |
 
   ## Recall → classify → decide → weave
 
-  1. **Recall** — call `dream_search` with whatever queries best
+  1. **Recall** — call `node_search` with whatever queries best
      fit the unit (verb stems work well: rotate, migrate, deploy…).
      Use `limit=20-30` for broader coverage; one call usually
      suffices but feel free to issue more if the unit spans
@@ -195,7 +195,7 @@ integrate_system_prompt_procedure: |
      judgment (same_abstraction label) and the synapse judgment
      (related label). Cross-bucket on purpose: an existing match
      filed elsewhere beats a duplicate.
-  2. **Classify (internal)** — `dream_search` returns name +
+  2. **Classify (internal)** — `node_search` returns name +
      description inline; triage from that directly. Use `read`
      only for the few survivors needing body inspection. Internally
      label each candidate (reasoning only, not emitted to output):
@@ -297,7 +297,7 @@ integrate_system_prompt_personal: |
 
   ## Recall → classify → decide → weave
 
-  1. **Recall** — call `dream_search` with whatever queries best
+  1. **Recall** — call `node_search` with whatever queries best
      fit the unit (user/team name + rule keywords:
      `user-X-pr-size-pref`, `team-no-friday-deploys`). Use
      `limit=20-30` for broader coverage; issue more calls if the
@@ -306,7 +306,7 @@ integrate_system_prompt_personal: |
      judgment (related label). Personal nodes often link to each
      other and to the user's identity node — vector similarity
      surfaces those even when literal names differ.
-  2. **Classify (internal)** — `dream_search` returns name +
+  2. **Classify (internal)** — `node_search` returns name +
      description inline; triage from that directly. Use `read`
      only for the few survivors needing body inspection. Internally
      label each candidate (reasoning only, not emitted to output):
@@ -398,7 +398,7 @@ integrate_system_prompt_wiki: |
 
   ## Recall → classify → decide → weave
 
-  1. **Recall** — call `dream_search` with whatever queries best
+  1. **Recall** — call `node_search` with whatever queries best
      fit the unit (noun phrases + common synonyms). Use
      `limit=20-30` for broader coverage; issue more calls when
      the abstraction has multiple aspects worth querying
@@ -407,7 +407,7 @@ integrate_system_prompt_wiki: |
      (related label). Vector similarity catches abstractions
      filed under different terminology even when surface words
      don't overlap.
-  2. **Classify (internal)** — `dream_search` returns name +
+  2. **Classify (internal)** — `node_search` returns name +
      description inline; triage from that directly. Use `read`
      only for the few survivors needing body inspection. Internally
      label each candidate (reasoning only, not emitted to output):
@@ -636,13 +636,13 @@ integrate_system_prompt_procedure_zh: |
 
   ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+  1. **召回** —— 调 `node_search`,query 由你自己根据 unit 内容
      选(带动词词根效果好:rotate / migrate / deploy…)。`limit=
      20-30` 取更宽覆盖;通常一次够,但若 unit 跨多个概念维度可
      多调几次。召回结果同时服务 dedup(same_abstraction label)
      和 synapse(related label)两类判断。**跨 bucket** 是有意
      —— 就地更新优于复制创建。
-  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+  2. **内化分类** —— `node_search` 已内嵌返回 name + description,
      直接据此 triage。仅对需要看 body 的少数候选用 `read`。
      对每个候选**内化打 label**(只在思考中分类,不输出):
      - **same_abstraction** —— 同触发 + 步骤大幅重叠 → UPDATE
@@ -730,14 +730,14 @@ integrate_system_prompt_personal_zh: |
 
   ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+  1. **召回** —— 调 `node_search`,query 由你自己根据 unit 内容
      选(user / team 名 + 规则关键词:`user-X-pr-size-pref`、
      `team-no-friday-deploys`)。`limit=20-30` 取更宽覆盖;规则
      若有多个 scope 维度可多调几次。召回结果同时服务 dedup
      (same_abstraction label)和 synapse(related label)两类
      判断。personal 节点常彼此互链并指向用户身份节点 —— vector
      相似度能在字面名不同时也召回这些。
-  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+  2. **内化分类** —— `node_search` 已内嵌返回 name + description,
      直接据此 triage。仅对需要看 body 的少数候选用 `read`。
      对每个候选**内化打 label**(只在思考中分类,不输出):
      - **same_abstraction** —— 同 actor 范围 + 同支配原则 →
@@ -819,13 +819,13 @@ integrate_system_prompt_wiki_zh: |
 
   ## 召回 → 内化分类 → 决策 → 织突触
 
-  1. **召回** —— 调 `dream_search`,query 由你自己根据 unit 内容
+  1. **召回** —— 调 `node_search`,query 由你自己根据 unit 内容
      选(名词短语 + 常见同义词)。`limit=20-30` 取更宽覆盖;若
      抽象本身有多个侧面,值得分别查询时可多调几次。召回结果
      同时服务 dedup(same_abstraction label)和 synapse
      (related label)两类判断。vector 相似度能捕获以不同术语
      归档的同语义抽象,即便字面词不重叠。
-  2. **内化分类** —— `dream_search` 已内嵌返回 name + description,
+  2. **内化分类** —— `node_search` 已内嵌返回 name + description,
      直接据此 triage。仅对需要看 body 的少数候选用 `read`。
      对每个候选**内化打 label**(只在思考中分类,不输出):
      - **same_abstraction** —— body 中的定义 / 原则相同(措辞

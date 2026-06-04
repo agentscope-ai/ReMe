@@ -13,8 +13,7 @@ jobs:
     watch_paths: [ "daily", "digest" ]
     suffix_filters: [ "md" ]
     steps:
-      - backend: scan_changes_step
-        source: file_store
+      - backend: scan_store_changes_step
       - backend: update_index_step
         persist: true
       - backend: watch_changes_step
@@ -109,7 +108,7 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
-  dream_search:
+  node_search:
     backend: base
     description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."
     parameters:
@@ -125,7 +124,7 @@ jobs:
       required:
         - query
     steps:
-      - backend: dream_search_step
+      - backend: node_search_step
         vector_weight: 0.7
         candidate_multiplier: 5.0
 

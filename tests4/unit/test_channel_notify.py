@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 from reme4.components.application_context import ApplicationContext
-from reme4.components.channel_sink import ChannelSink
+from reme4.components.service.mcp_service import ChannelSink
 from reme4.components.runtime_context import RuntimeContext
 from reme4.steps.index.channel_notify import ChannelNotifyStep
 
@@ -39,7 +39,7 @@ def _app_ctx_with_sink(vault: Path, stub: _StubSession | None) -> tuple[Applicat
         return app_ctx, None
     sink = ChannelSink()
     sink.bind(stub)
-    app_ctx.channel_sink = sink
+    app_ctx.metadata["channel_sink"] = sink
     return app_ctx, sink
 
 
@@ -85,7 +85,7 @@ def test_noop_when_sink_not_bound(tmp_path):
     """Step must run cleanly when no ``ChannelSink`` is configured."""
     app_ctx, _ = _app_ctx_with_sink(tmp_path, None)
     step = ChannelNotifyStep(app_context=app_ctx)
-    # Should run without raising even though channel_sink is None
+    # Should run without raising even though channel_sink is absent from metadata
     _run(step(context=_ctx([{"change": "added", "path": "/tmp/x.md"}])))
 
 

@@ -2,7 +2,7 @@
 
 AutoDreamStep walks ``daily/<today>.md`` + ``daily/<today>/**`` and
 diffs the result against ``file_catalog`` (same shape as
-``scan_changes_step``):
+``scan_catalog_changes_step``):
 
 * on-disk path missing from catalog          → dream
 * on-disk mtime != catalog mtime             → dream (modified)

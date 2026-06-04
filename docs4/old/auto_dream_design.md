@@ -201,21 +201,21 @@ Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 
 
 两者是同一个 ReAct agent 在看完 candidates 后的**两层独立判断**,共享同一批召回结果,**不需要分两轮 LLM 调用**。
 
-**召回**(对应 prompt step 1):dream 用专属的 `dream_search`(`reme4/steps/index/dream_search.py`),**不**用通用 `search`,**也不用 `traverse`** —— 详 §4.2.2.1(traverse 是 retrieve-time 子图挖掘工具,跟 dream 写入场景错位)。
+**召回**(对应 prompt step 1):dream 用专属的 `node_search`(`reme4/steps/index/node_search.py`),**不**用通用 `search`,**也不用 `traverse`** —— 详 §4.2.2.1(traverse 是 retrieve-time 子图挖掘工具,跟 dream 写入场景错位)。
 
 | 调用 | 找什么 |
 |---|---|
-| `dream_search(query=<...>, limit=20-30)` | digest 内节点级 hybrid 召回(vector + BM25 RRF),返回 path + frontmatter |
+| `node_search(query=<...>, limit=20-30)` | digest 内节点级 hybrid 召回(vector + BM25 RRF),返回 path + frontmatter |
 
 **召回结果服务两类判断**:dedup(`same_abstraction` label,是否同抽象 → CREATE / UPDATE)和 synapse(`related` label,是否相关 → 织 wikilink)是 LLM 在**同一批 candidates** 上的两类内化 label。原"两轮 search(hybrid + vector_only)"是设计冗余 —— 同一批候选 LLM 自己能判 same/related/unrelated,模式切换无意义。**调用次数由 agent 自决**:一次通常够;若 unit 跨多个概念维度,agent 可发起多次不同 query 的召回,prompt 不强约束。
 
-**HIT = `dream_search` 返回 + read**:`dream_search` 已内嵌返回每个 hit 的 frontmatter(`name + description`),agent 直接据此 triage,**不需要额外调 `frontmatter_read` 批量取 metadata**;仅对需要看 body 的少数候选用 `read`。**不可仅凭 frontmatter 决定 UPDATE**,body 才是判定依据。
+**HIT = `node_search` 返回 + read**:`node_search` 已内嵌返回每个 hit 的 frontmatter(`name + description`),agent 直接据此 triage,**不需要额外调 `frontmatter_read` 批量取 metadata**;仅对需要看 body 的少数候选用 `read`。**不可仅凭 frontmatter 决定 UPDATE**,body 才是判定依据。
 
-##### 4.2.2.1 dream_search vs 通用 search 的差别 + 为什么 dream 不用 traverse
+##### 4.2.2.1 node_search vs 通用 search 的差别 + 为什么 dream 不用 traverse
 
-**dream_search vs 通用 search**:dream 的召回需求跟外部 agent 的 RAG 检索**结构性不同**,因此用专属 step 而非复用 `search`:
+**node_search vs 通用 search**:dream 的召回需求跟外部 agent 的 RAG 检索**结构性不同**,因此用专属 step 而非复用 `search`:
 
-| 维度 | 通用 `search`(外部 agent)| `dream_search`(dream Phase 2) |
+| 维度 | 通用 `search`(外部 agent)| `node_search`(dream Phase 2) |
 |---|---|---|
 | 用户 | 用户/外部 agent 的自然语言 query | dream 内部生成的 unit.summary |
 | 结果粒度 | **chunk 级**(可能同一 node 多个 chunk)| **node 级**(同 path 聚合 max score)|
@@ -224,7 +224,7 @@ Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 
 | expand_links | 默认 `True`(给 agent 更多上下文)| **永远 `False`**(synapse 找的就是未 link 的)|
 | 默认 limit | 5 | **20**(dream 需要宽召覆盖 synapse)|
 
-复用通用 `search` 会让 dream 拿到的候选**既粒度不对**(chunk 级,同 node 多次出现)**又信息冗余**(chunk text 不必要)**又被噪声污染**(daily / resource hits 永远不是 dream 的 UPDATE 候选)**又召回偏窄**(expand_links 把已 link 的拖回来,挤掉真正未 link 的 synapse 候选)。所以 dream 需要自己的 `dream_search`。
+复用通用 `search` 会让 dream 拿到的候选**既粒度不对**(chunk 级,同 node 多次出现)**又信息冗余**(chunk text 不必要)**又被噪声污染**(daily / resource hits 永远不是 dream 的 UPDATE 候选)**又召回偏窄**(expand_links 把已 link 的拖回来,挤掉真正未 link 的 synapse 候选)。所以 dream 需要自己的 `node_search`。
 
 **为什么 dream toolkit 不包含 traverse(或 dream_traverse)** —— traverse 是 **retrieve-time 子图挖掘工具**,跟 dream 写入场景**结构性错位**:
 
@@ -235,13 +235,13 @@ Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 
 | 输出语义 | "X 的子图"(给读者上下文) | "X 应该 link 到哪些 Y" |
 | 图遍历的角色 | 主操作 | 召回兜底(可有可无) |
 
-dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给 query 找相关),不是**遍历**问题(给中心找邻居)。**召回工具 = dream_search;遍历工具 = traverse(留给 retrieve / 外部 agent 用)。dream 不需要遍历**。
+dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给 query 找相关),不是**遍历**问题(给中心找邻居)。**召回工具 = node_search;遍历工具 = traverse(留给 retrieve / 外部 agent 用)。dream 不需要遍历**。
 
 (早期曾实现 `dream_traverse` 准备作为 dream toolkit 一员,后撤销 —— 实测拓扑遍历 vs vector 召回重叠率 ~95%,真正独特贡献 < 2%,且引入 LLM 调用 / 上下文 / 复杂度成本。详 git log。)
 
-**dream_search 参数极简**(`query / limit` 两个):**mode 不需要**(同一批候选服务双判断);**exclude_paths 不需要**(self 由 LLM 自己识别,frontmatter 内嵌让 agent 一眼看出"这就是我");**min_score 不需要**(RRF 分数范围 0~0.025,跟 cosine 0~1 量纲完全不同,召回深度由 `limit` 控制就够)。**调用次数 agent 自决**:prompt 不约束"必须一次",unit 跨多个概念维度时 agent 可多次召回。
+**node_search 参数极简**(`query / limit` 两个):**mode 不需要**(同一批候选服务双判断);**exclude_paths 不需要**(self 由 LLM 自己识别,frontmatter 内嵌让 agent 一眼看出"这就是我");**min_score 不需要**(RRF 分数范围 0~0.025,跟 cosine 0~1 量纲完全不同,召回深度由 `limit` 控制就够)。**调用次数 agent 自决**:prompt 不约束"必须一次",unit 跨多个概念维度时 agent 可多次召回。
 
-**dream_search 召回算法:weighted node-level RRF**(vector + BM25 hybrid):
+**node_search 召回算法:weighted node-level RRF**(vector + BM25 hybrid):
 
 - vector + BM25 各自独立召回 → 各自得到 chunk list(按各自 score 排序)
 - 同 path 多 chunk 合并:取该 path 在两个 list 中的 max chunk score 位置作为 node rank

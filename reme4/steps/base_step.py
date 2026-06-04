@@ -8,7 +8,6 @@ from typing import TypeVar, TYPE_CHECKING
 from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, FunctionTool, ToolChunk
-from agentscope.tool._response import ToolResultState
 
 from ..components.base_component import ComponentMixin
 from ..components.file_parser import BaseFileParser
@@ -223,7 +222,7 @@ class BaseStep(ComponentMixin, ABC):
             response = await job(**{**_kwargs, **kwargs})
             return ToolChunk(
                 content=[TextBlock(text=str(response.answer))],
-                state=ToolResultState.SUCCESS if response.success else ToolResultState.ERROR,
+                state="success" if response.success else "error",
             )
 
         tool = FunctionTool(

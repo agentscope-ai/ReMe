@@ -33,15 +33,15 @@ class ClaimChannelStep(BaseStep):
             ctx = get_context()
             session = ctx.session
             assert session is not None, "FastMCP context has no ServerSession"
-            assert (
-                self.app_context is not None and self.app_context.channel_sink is not None
-            ), "channel_sink not configured on application context"
+            assert self.app_context is not None, "claim_channel requires an application context"
+            sink = self.app_context.metadata.get("channel_sink")
+            assert sink is not None, "channel_sink not configured on application context metadata"
         except Exception as e:
             self.context.response.answer = {"claimed": False, "reason": f"{type(e).__name__}: {e}"}
             self.context.response.metadata["claimed"] = False
             return self.context.response
 
-        self.app_context.channel_sink.bind(session)
+        sink.bind(session)
         session_id = ctx.session_id or "<unknown>"
         self.logger.info(f"[claim_channel] channel bound to session={session_id}")
         self.context.response.answer = {

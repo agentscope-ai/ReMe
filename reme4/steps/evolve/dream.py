@@ -78,11 +78,11 @@ _EXTRACT_TOOLS: tuple[str, ...] = ("read",)
 _INTEGRATE_TOOLS: tuple[str, ...] = (
     # read — dream uses its own node-level digest search (NOT the
     # general chunk-level `search`), specialized for dedup + synapse
-    # recall. See reme4/steps/index/dream_search.py for the rationale.
+    # recall. See reme4/steps/index/node_search.py for the rationale.
     # NO traverse here: traverse is a retrieve-time subgraph mining
     # tool (used by external retrieval agents); dream is a write-time
     # candidate recall operation, structurally a different problem.
-    "dream_search",
+    "node_search",
     "read",
     "frontmatter_read",
     # write

@@ -6,7 +6,17 @@ decides what to preserve, and writes the note via ``read`` / ``edit``
 / ``frontmatter_update`` / ``write`` tools.
 
 Inputs (from RuntimeContext):
-    messages (list[Msg], required): conversation slice to inspect.
+    messages (list[Msg], optional): conversation slice to inspect.
+        Mutually exclusive with ``transcript_path``; if both are
+        provided, ``messages`` wins.
+    transcript_path (str, optional): absolute path to a Claude Code
+        transcript JSONL file. When provided (and ``messages`` is
+        empty), the step parses the file via
+        :func:`reme4.utils.transcript.load_messages_from_transcript`
+        and proceeds as if those were the messages. This is what the
+        ``reme-service`` plugin's PreCompact / SessionEnd hooks pass
+        in directly via ``type: mcp_tool``, replacing the temporary
+        spawn-subagent bridge.
     session_id (str, optional): passed to daily_create to determine
         the note path.
     memory_hint (str, optional): caller-supplied hint for the agent.
@@ -14,7 +24,7 @@ Inputs (from RuntimeContext):
 
 Output (written to context.response):
     answer: one-line summary from the agent.
-    metadata: {path, created}.
+    metadata: {path, created, n_messages, transcript_path?}.
 """
 
 from agentscope.agent import Agent
@@ -26,6 +36,7 @@ from agentscope.tool import Toolkit
 from ._evolve import format_history, now
 from ..base_step import BaseStep
 from ...components import R
+from ...utils.transcript import load_messages_from_transcript
 
 
 @R.register("auto_memory_step")
@@ -46,15 +57,35 @@ class AutoMemoryStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        messages: list[Msg] = [self._to_msg(item) for item in self.context.get("messages", [])]
+        raw_messages = self.context.get("messages") or []
+        transcript_path: str = self.context.get("transcript_path", "") or ""
         session_id: str = self.context.get("session_id", "")
         memory_hint: str = self.context.get("memory_hint", "")
         current = now(self.context.get("timezone"))
 
+        # If caller passed transcript_path (the canonical Claude Code hook
+        # input) instead of messages, parse it here so the rest of the step
+        # stays unchanged.
+        if not raw_messages and transcript_path:
+            raw_messages = load_messages_from_transcript(transcript_path)
+            self.logger.info(
+                f"[{self.name}] loaded {len(raw_messages)} messages from transcript_path={transcript_path}",
+            )
+
+        messages: list[Msg] = [self._to_msg(item) for item in raw_messages]
+
         if not messages:
             self.context.response.success = True
-            self.context.response.answer = "Skipped: no messages supplied"
-            self.logger.info(f"[{self.name}] skipped: no messages session_id={session_id!r}")
+            reason = (
+                f"Skipped: no messages in transcript_path={transcript_path}"
+                if transcript_path
+                else "Skipped: no messages supplied"
+            )
+            self.context.response.answer = reason
+            self.context.response.metadata.update(
+                {"n_messages": 0, "transcript_path": transcript_path},
+            )
+            self.logger.info(f"[{self.name}] skipped: {reason} session_id={session_id!r}")
             return
 
         create_response = await self.run_job("daily_create", session_id=session_id)
@@ -101,5 +132,12 @@ class AutoMemoryStep(BaseStep):
 
         self.context.response.success = True
         self.context.response.answer = (final_msg.get_text_content() or "").strip()
-        self.context.response.metadata.update({"path": note_path, "created": created})
+        self.context.response.metadata.update(
+            {
+                "path": note_path,
+                "created": created,
+                "n_messages": len(messages),
+                "transcript_path": transcript_path,
+            },
+        )
         self.logger.info(f"[{self.name}] done note_path={note_path}")
