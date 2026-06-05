@@ -46,10 +46,11 @@ class HttpService(BaseService):
             title=app.config.app_name,
             lifespan=self._lifespan(app, self.host, self.port),
         )
+        cors_origins = ["*"]
         self.service.add_middleware(
             CORSMiddleware,  # type: ignore[arg-type]
-            allow_origins=["*"],
-            allow_credentials=True,
+            allow_origins=cors_origins,
+            allow_credentials="*" not in cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
         )

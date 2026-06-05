@@ -33,6 +33,7 @@ import error fires at ``_start`` (boot), not at first call.
 """
 
 import json
+import os
 from typing import Any
 
 from .base_file_graph import BaseFileGraph
@@ -64,7 +65,7 @@ class Neo4jFileGraph(BaseFileGraph):
     Connection params (constructor kwargs):
         uri:      bolt URL, e.g. ``bolt://localhost:7687``
         user:     auth user (default ``neo4j``)
-        password: auth password
+        password: auth password (required; falls back to ``NEO4J_PASSWORD`` env var)
         database: target db name (default ``neo4j``)
     """
 
@@ -72,14 +73,19 @@ class Neo4jFileGraph(BaseFileGraph):
         self,
         uri: str = "bolt://localhost:7687",
         user: str = "neo4j",
-        password: str = "neo4j",
+        password: str | None = None,
         database: str = "neo4j",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._uri: str = uri
         self._user: str = user
-        self._password: str = password
+        self._password: str = password or os.environ.get("NEO4J_PASSWORD") or ""
+        if not self._password:
+            raise ValueError(
+                "Neo4j password must be provided via the 'password' argument "
+                "or the NEO4J_PASSWORD environment variable.",
+            )
         self._database: str = database
         self._driver = None
 
