@@ -6,6 +6,7 @@ environment or a .env file at the repo root. Hits the real LLM API.
 
 import asyncio
 import os
+import sys
 import tempfile
 
 from reme4 import Application
@@ -14,6 +15,7 @@ from reme4.enumeration import ChunkEnum
 from reme4.schema import StreamChunk
 from reme4.steps.common.stream_llm_demo import StreamLLMDemoStep
 from reme4.utils import load_env
+from reme4.utils.common_utils import execute_stream_task
 
 load_env()
 
@@ -49,25 +51,30 @@ async def _test_stream_llm_basic_chat():
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
+            chunks: list[StreamChunk] = []
 
-            response = await step(
+            task = asyncio.create_task(step(
                 stream_queue=queue,
-                query="What is 1 + 1? Reply with just the number.",
-            )
+                query="Explain step by step how to compute 1 + 1, and give the final answer.",
+            ))
 
-            # Collect all chunks from the queue
-            chunks = []
-            while not queue.empty():
-                chunks.append(await queue.get())
+            print("\n[stream_basic] streaming output:")
+            async for raw in execute_stream_task(queue, task, output_format="chunk"):
+                chunk: StreamChunk = raw  # type: ignore[assignment]
+                chunks.append(chunk)
+                if chunk.chunk_type == ChunkEnum.CONTENT:
+                    sys.stdout.write(chunk.chunk)
+                    sys.stdout.flush()
 
-            # Should have received CONTENT chunks
+            response = task.result()
+
+            # Should have received multiple CONTENT chunks for a longer response
             content_chunks = [c for c in chunks if c.chunk_type == ChunkEnum.CONTENT]
-            print(f"\n[stream_basic] got {len(content_chunks)} CONTENT chunks")
-            assert len(content_chunks) > 0, "Expected at least one CONTENT chunk"
+            print(f"\n\n[stream_basic] got {len(content_chunks)} CONTENT chunks")
+            assert len(content_chunks) > 1, "Expected multiple CONTENT chunks for streaming"
 
             # Final answer should be populated
             text = (response.answer or "").strip()
-            print(f"[stream_basic] final answer: {text!r}")
             assert text, "Empty assistant response"
             assert "2" in text, f"Expected '2' in response, got: {text!r}"
 
@@ -86,24 +93,36 @@ async def _test_stream_llm_with_tool():
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
+            chunks: list[StreamChunk] = []
 
-            response = await step(
+            task = asyncio.create_task(step(
                 stream_queue=queue,
                 query="Use the add tool to compute 21 + 21 and report the result.",
                 sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
                 use_add_tool=True,
-            )
+            ))
 
-            # Collect all chunks
-            chunks = []
-            while not queue.empty():
-                chunks.append(await queue.get())
+            print("\n[stream_tool] streaming output:")
+            async for raw in execute_stream_task(queue, task, output_format="chunk"):
+                chunk: StreamChunk = raw  # type: ignore[assignment]
+                chunks.append(chunk)
+                if chunk.chunk_type == ChunkEnum.CONTENT:
+                    sys.stdout.write(chunk.chunk)
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.TOOL_CALL:
+                    sys.stdout.write(f"\033[33m{chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.TOOL_RESULT:
+                    sys.stdout.write(f"\033[32m{chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+
+            response = task.result()
 
             tool_call_chunks = [c for c in chunks if c.chunk_type == ChunkEnum.TOOL_CALL]
             tool_result_chunks = [c for c in chunks if c.chunk_type == ChunkEnum.TOOL_RESULT]
             content_chunks = [c for c in chunks if c.chunk_type == ChunkEnum.CONTENT]
 
-            print(f"\n[stream_tool] TOOL_CALL chunks: {len(tool_call_chunks)}")
+            print(f"\n\n[stream_tool] TOOL_CALL chunks: {len(tool_call_chunks)}")
             print(f"[stream_tool] TOOL_RESULT chunks: {len(tool_result_chunks)}")
             print(f"[stream_tool] CONTENT chunks: {len(content_chunks)}")
 
@@ -119,16 +138,34 @@ async def _test_stream_llm_with_tool():
 
 
 async def _test_stream_llm_fallback_no_stream():
-    """Without stream_queue, falls back to non-streaming reply."""
+    """Without stream_queue, still uses streaming under the hood for real-time output."""
     with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
         app = await _make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
-            response = await step(
-                query="What is 1 + 1? Reply with just the number.",
-            )
+            queue: asyncio.Queue = asyncio.Queue()
+            chunks: list[StreamChunk] = []
+
+            task = asyncio.create_task(step(
+                stream_queue=queue,
+                query="Explain step by step how to compute 1 + 1, and give the final answer.",
+            ))
+
+            print("\n[fallback_stream] streaming output:")
+            async for raw in execute_stream_task(queue, task, output_format="chunk"):
+                chunk: StreamChunk = raw  # type: ignore[assignment]
+                chunks.append(chunk)
+                if chunk.chunk_type == ChunkEnum.CONTENT:
+                    sys.stdout.write(chunk.chunk)
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.THINK:
+                    sys.stdout.write(f"\033[2m{chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+
+            response = task.result()
             text = (response.answer or "").strip()
-            print(f"\n[fallback] response: {text!r}")
+            content_chunks = [c for c in chunks if c.chunk_type == ChunkEnum.CONTENT]
+            print(f"\n\n[fallback_stream] got {len(content_chunks)} CONTENT chunks")
             assert text, "Empty assistant response"
             assert "2" in text, f"Expected '2' in response, got: {text!r}"
             print("✓ test_stream_llm_fallback_no_stream passed")
@@ -153,8 +190,6 @@ def test_stream_llm_fallback_no_stream():
 
 async def _demo_stream_print():
     """Real-time streaming print demo — ask a longer question to see chunked output."""
-    import sys  # pylint: disable=import-outside-toplevel,redefined-outer-name
-
     with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
         app = await _make_app()
         try:
@@ -166,36 +201,27 @@ async def _demo_stream_print():
                 "Include the chain rule, gradient descent, and give a concrete example with numbers."
             )
 
-            async def consumer():
-                """Print chunks to terminal in real-time."""
-                while True:
-                    chunk = await queue.get()
-                    if chunk.done:
-                        break
-                    if chunk.chunk_type == ChunkEnum.CONTENT:
-                        sys.stdout.write(chunk.chunk)
-                        sys.stdout.flush()
-                    elif chunk.chunk_type == ChunkEnum.THINK:
-                        sys.stdout.write(f"\033[2m{chunk.chunk}\033[0m")
-                        sys.stdout.flush()
-                    elif chunk.chunk_type == ChunkEnum.TOOL_CALL:
-                        sys.stdout.write(f"\n\033[33m[tool_call] {chunk.chunk}\033[0m")
-                        sys.stdout.flush()
-                    elif chunk.chunk_type == ChunkEnum.TOOL_RESULT:
-                        sys.stdout.write(f"\033[32m{chunk.chunk}\033[0m")
-                        sys.stdout.flush()
-                print()
-
-            consumer_task = asyncio.create_task(consumer())
-
-            await step(
+            task = asyncio.create_task(step(
                 stream_queue=queue,
                 query=query,
                 sys_prompt="You are a knowledgeable AI teacher. Explain concepts thoroughly.",
-            )
-            # Signal done so consumer exits
-            await queue.put(StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True))
-            await consumer_task
+            ))
+
+            async for raw in execute_stream_task(queue, task, output_format="chunk"):
+                chunk: StreamChunk = raw  # type: ignore[assignment]
+                if chunk.chunk_type == ChunkEnum.CONTENT:
+                    sys.stdout.write(chunk.chunk)
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.THINK:
+                    sys.stdout.write(f"\033[2m{chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.TOOL_CALL:
+                    sys.stdout.write(f"\n\033[33m[tool_call] {chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+                elif chunk.chunk_type == ChunkEnum.TOOL_RESULT:
+                    sys.stdout.write(f"\033[32m{chunk.chunk}\033[0m")
+                    sys.stdout.flush()
+            print()
         finally:
             await app.close()
 
@@ -209,8 +235,6 @@ async def _run_all():
 
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) > 1 and sys.argv[1] == "demo":
         asyncio.run(_demo_stream_print())
     else:

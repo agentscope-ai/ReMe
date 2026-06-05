@@ -1,8 +1,7 @@
-"""Demo step that drives an Agent via BaseStep.as_llm with streaming output."""
+"""Demo step that drives an Agent via the agent_wrapper component with streaming output."""
 
 import json
 
-from agentscope.agent import Agent
 from agentscope.event import (
     TextBlockDeltaEvent,
     ThinkingBlockDeltaEvent,
@@ -12,9 +11,7 @@ from agentscope.event import (
     ModelCallEndEvent,
     ReplyStartEvent,
 )
-from agentscope.message import Msg, TextBlock
-from agentscope.permission import PermissionContext, PermissionMode
-from agentscope.state import AgentState
+from agentscope.message import Msg
 from agentscope.tool import FunctionTool, Toolkit
 
 from ..base_step import BaseStep
@@ -34,11 +31,11 @@ def add(a: float, b: float) -> str:
 
 @R.register("stream_llm_demo_step")
 class StreamLLMDemoStep(BaseStep):
-    """Drive an Agent powered by ``self.as_llm`` with streaming output.
+    """Drive an Agent powered by the ``agent_wrapper`` component with streaming output.
 
     When streaming is enabled on the context, text/thinking/tool events are
     pushed chunk-by-chunk via ``self.context.add_stream_string``.
-    When streaming is not enabled, falls back to non-streaming ``agent.reply``.
+    When streaming is not enabled, falls back to non-streaming reply.
 
     Inputs (from RuntimeContext):
         query      (str, required): user message content.
@@ -49,7 +46,7 @@ class StreamLLMDemoStep(BaseStep):
         The agent's final reply text.
     """
 
-    DEFAULT_SYS_PROMPT = "You are a concise assistant. Reply in one short sentence."
+    DEFAULT_SYS_PROMPT = "You are a helpful assistant. Provide clear and detailed responses."
 
     async def execute(self):
         assert self.context is not None
@@ -64,27 +61,18 @@ class StreamLLMDemoStep(BaseStep):
 
         toolkit = Toolkit(tools=[FunctionTool(add)]) if use_add_tool else Toolkit()
 
-        agent = Agent(
-            name=self.name,
-            system_prompt=sys_prompt,
-            model=self.as_llm,
-            toolkit=toolkit,
-            state=AgentState(
-                permission_context=PermissionContext(
-                    mode=PermissionMode.BYPASS,
-                ),
-            ),
-        )
-
-        input_msg = Msg(name="user", role="user", content=[TextBlock(text=query)])
+        wrapper_kwargs = {
+            "system_prompt": sys_prompt,
+            "toolkit": toolkit,
+        }
 
         if self.context.stream:
-            text = await self._stream_reply(agent, input_msg)
+            text = await self._stream_reply(query, **wrapper_kwargs)
         else:
-            response: Msg = await agent.reply(input_msg)
-            text = (response.get_text_content() or "").strip()
+            _, msg = await self.agent_wrapper.reply(query, **wrapper_kwargs)
+            text = (msg.get_text_content() or "").strip()
 
-        self.logger.info(f"[{self.name}] response: {text!r}")
+        self.logger.debug(f"[{self.name}] response: {text!r}")
 
         self.context.response.success = True
         self.context.response.answer = text
@@ -98,12 +86,12 @@ class StreamLLMDemoStep(BaseStep):
         )
         return self.context.response
 
-    async def _stream_reply(self, agent: Agent, input_msg: Msg) -> str:
+    async def _stream_reply(self, query: str, **wrapper_kwargs) -> str:
         """Stream agent reply events to the context stream queue."""
         assert self.context is not None
         reply_msg: Msg | None = None
 
-        async for event in agent.reply_stream(input_msg):
+        async for event in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
             if isinstance(event, ReplyStartEvent):
                 reply_msg = Msg(
                     id=event.reply_id,

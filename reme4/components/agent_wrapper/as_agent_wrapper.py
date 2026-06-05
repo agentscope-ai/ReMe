@@ -1,5 +1,6 @@
 """AgentScope backend for the unified agent wrapper."""
 
+from collections.abc import AsyncGenerator
 from typing import Any, TYPE_CHECKING
 
 from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
@@ -37,7 +38,8 @@ class AsAgentWrapper(BaseAgentWrapper):
             tool.input_schema = job.parameters
         return tool
 
-    async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
+    def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
+        """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
@@ -68,17 +70,30 @@ class AsAgentWrapper(BaseAgentWrapper):
         if isinstance(inputs, str):
             inputs = UserMsg(name="user", content=inputs)
 
+        return agent, inputs
+
+    async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
+        agent, inputs = self._build_agent(inputs, **kwargs)
+
         await agent.observe(inputs)
         await agent.reply()
         last_msg = agent.state.context[-1]
 
-        output_schema = kwargs.get("output_schema")
+        output_schema: dict | None = kwargs.get("output_schema")
         if output_schema is not None:
-            if isinstance(output_schema, type) and issubclass(output_schema, BaseModel):
-                output_schema = output_schema.model_json_schema()
+            assert self.as_llm is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
+            model = self.as_llm.model
+            assert model is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
             res = await model.generate_structured_output(
                 messages=agent.state.context, structured_model=output_schema,
             )
             return agent.state.session_id, {"message": last_msg, "structured_output": res.content}
 
         return agent.state.session_id, last_msg
+
+    async def reply_stream(self, inputs: Any, session_id: str | None = None, **kwargs) -> AsyncGenerator[Any, None]:
+        """Stream agent events via AgentScope's reply_stream API."""
+        agent, inputs = self._build_agent(inputs, **kwargs)
+
+        async for event in agent.reply_stream(inputs):
+            yield event

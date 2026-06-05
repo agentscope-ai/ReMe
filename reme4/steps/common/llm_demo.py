@@ -32,7 +32,7 @@ class LLMDemoStep(BaseStep):
         The agent's final reply text.
     """
 
-    DEFAULT_SYS_PROMPT = "You are a concise assistant. Reply in one short sentence."
+    DEFAULT_SYS_PROMPT = "You are a helpful assistant. Provide clear and detailed responses."
 
     async def execute(self):
         assert self.context is not None
