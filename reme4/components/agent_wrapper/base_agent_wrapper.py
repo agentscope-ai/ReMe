@@ -29,6 +29,11 @@ class BaseAgentWrapper(BaseComponent):
         self.kwargs.setdefault("tools", []).extend(tools)
         return self
 
+    def set_output_schema(self, schema: dict) -> "BaseAgentWrapper":
+        """Set a JSON schema for structured output. Returns self for chaining."""
+        self.kwargs["output_schema"] = schema
+        return self
+
     @abstractmethod
     async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
         """Send inputs to the agent and return (session_id, last_message)."""

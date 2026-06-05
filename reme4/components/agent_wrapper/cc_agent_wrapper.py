@@ -65,6 +65,10 @@ class CcAgentWrapper(BaseAgentWrapper):
                 opts.mcp_servers = {"reme": server}
             opts.allowed_tools.extend(job.name for job in tools)
 
+        output_schema = kwargs.get("output_schema")
+        if output_schema:
+            opts.output_format = {"type": "json_schema", "schema": output_schema}
+
         if isinstance(inputs, str):
             prompt = inputs
         else:
@@ -78,4 +82,5 @@ class CcAgentWrapper(BaseAgentWrapper):
         if last_msg is None:
             raise ValueError("No message received from Claude Code.")
 
-        return last_msg.session_id or "", last_msg
+        result = last_msg.structured_output if output_schema and last_msg.structured_output else last_msg
+        return last_msg.session_id or "", result

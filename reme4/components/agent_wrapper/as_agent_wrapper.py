@@ -3,7 +3,7 @@
 from typing import Any, TYPE_CHECKING
 
 from agentscope.agent import Agent
-from agentscope.message import TextBlock, ToolResultState, UserMsg
+from agentscope.message import TextBlock, ToolResultState, UserMsg, SystemMsg
 from agentscope.tool import FunctionTool, ToolChunk, Toolkit
 
 from .base_agent_wrapper import BaseAgentWrapper
@@ -48,20 +48,37 @@ class AsAgentWrapper(BaseAgentWrapper):
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
-        tools: list["BaseJob"] = self.kwargs.get("tools", [])
+        for k, v in self.kwargs.items():
+            kwargs.setdefault(k, v)
+
+        output_schema: dict | None = kwargs.get("output_schema")
+
+        tools: list["BaseJob"] = kwargs.get("tools", [])
         toolkit = Toolkit(tools=[self._make_tool(job) for job in tools]) if tools else Toolkit()
+
+        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
 
         agent = Agent(
             name=self.name,
-            system_prompt=self.kwargs.get("system_prompt", "You are a helpful assistant."),
+            system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
         )
 
         if isinstance(inputs, str):
             inputs = UserMsg(name="user", content=inputs)
+
+        if output_schema:
+            messages = [
+                SystemMsg(name="system", content=system_prompt),
+                inputs,
+            ]
+            res = await model.generate_structured_output(
+                messages=messages,
+                structured_model=output_schema,
+            )
+            return agent.state.session_id, res.content
+
         await agent.observe(inputs)
         await agent.reply()
-
-        # save
         return agent.state.session_id, agent.state.context[-1]
