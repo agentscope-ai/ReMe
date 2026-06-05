@@ -269,7 +269,7 @@ class DreamStep(BaseStep):
 
     def _llm_available(self) -> bool:
         try:
-            return self.llm is not None
+            return self.as_llm is not None
         except Exception:
             return False
 
@@ -303,7 +303,7 @@ class DreamStep(BaseStep):
         toolkit = self._build_extract_toolkit()
         agent = Agent(
             name="reme_dreamer_extract",
-            model=self.llm,
+            model=self.as_llm,
             system_prompt=self.prompt_format(
                 "extract_system_prompt",
                 vault_dir=str(vault_dir),
@@ -326,7 +326,7 @@ class DreamStep(BaseStep):
             Msg(name="reme", role="user", content=[TextBlock(text=user_message)]),
         )
 
-        structured_resp = await self.llm.generate_structured_output(
+        structured_resp = await self.as_llm.generate_structured_output(
             agent.state.context,
             structured_model=ExtractedUnits,
         )
@@ -362,7 +362,7 @@ class DreamStep(BaseStep):
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
         agent = Agent(
             name=f"reme_dreamer_integrate_{unit.get('name', 'unit')}",
-            model=self.llm,
+            model=self.as_llm,
             system_prompt=self.prompt_format(
                 f"integrate_system_prompt_{bucket}",
                 vault_dir=str(vault_dir),
@@ -387,7 +387,7 @@ class DreamStep(BaseStep):
         await agent.reply(
             Msg(name="reme", role="user", content=[TextBlock(text=user_message)]),
         )
-        structured_resp = await self.llm.generate_structured_output(
+        structured_resp = await self.as_llm.generate_structured_output(
             agent.state.context,
             structured_model=IntegrateOutcome,
         )

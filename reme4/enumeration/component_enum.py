@@ -8,9 +8,9 @@ class ComponentEnum(str, Enum):
 
     BASE = "base"
 
-    LLM = "llm"
+    AS_LLM = "as_llm"
 
-    EMBEDDING = "embedding"
+    AS_EMBEDDING = "as_embedding"
 
     EMBEDDING_STORE = "embedding_store"
 

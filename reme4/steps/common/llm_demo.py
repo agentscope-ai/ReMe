@@ -1,4 +1,4 @@
-"""Demo step that drives an Agent via BaseStep.llm."""
+"""Demo step that drives an Agent via BaseStep.as_llm."""
 
 from typing import Type
 
@@ -25,7 +25,7 @@ def add(a: float, b: float) -> str:
 
 @R.register("llm_demo_step")
 class LLMDemoStep(BaseStep):
-    """Drive an Agent powered by ``self.llm``.
+    """Drive an Agent powered by ``self.as_llm``.
 
     Inputs (from RuntimeContext):
         query     (str, required): user message content.
@@ -55,7 +55,7 @@ class LLMDemoStep(BaseStep):
         agent = Agent(
             name=self.name,
             system_prompt=sys_prompt,
-            model=self.llm,
+            model=self.as_llm,
             toolkit=toolkit,
             state=AgentState(
                 permission_context=PermissionContext(
@@ -72,7 +72,7 @@ class LLMDemoStep(BaseStep):
 
         structured_content: dict | None = None
         if structured_model is not None:
-            structured_resp = await self.llm.generate_structured_output(
+            structured_resp = await self.as_llm.generate_structured_output(
                 agent.state.context,
                 structured_model=structured_model,
             )

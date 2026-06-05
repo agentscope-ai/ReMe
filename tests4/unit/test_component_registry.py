@@ -96,7 +96,7 @@ def test_get_all_returns_copy():
 
 def test_get_all_unknown_type_returns_empty():
     reg = ComponentRegistry()
-    assert not reg.get_all(ComponentEnum.LLM)
+    assert not reg.get_all(ComponentEnum.AS_LLM)
 
 
 # -- get (miss) ---------------------------------------------------------------

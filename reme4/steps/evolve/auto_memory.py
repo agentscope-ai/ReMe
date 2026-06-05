@@ -108,7 +108,7 @@ class AutoMemoryStep(BaseStep):
 
         agent = Agent(
             name="auto_memory",
-            model=self.llm,
+            model=self.as_llm,
             system_prompt=self.prompt_format("system_prompt"),
             toolkit=toolkit,
             state=AgentState(

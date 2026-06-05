@@ -9,7 +9,7 @@ import numpy as np
 
 from .base_embedding_store import BaseEmbeddingStore
 from ..component_registry import R
-from ..embedding import BaseEmbedding
+from ..as_embedding import BaseAsEmbedding
 
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 
@@ -30,7 +30,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.embedding = self.bind(embedding, BaseEmbedding, optional=False)
+        self.embedding = self.bind(embedding, BaseAsEmbedding, optional=False)
         self.max_cache_size = max_cache_size
         self.enable_cache = enable_cache
         self.cache_version = cache_version

@@ -1,8 +1,8 @@
 """Components"""
 
-from . import llm
+from . import as_llm
 from . import client
-from . import embedding
+from . import as_embedding
 from . import embedding_store
 from . import file_catalog
 from . import file_graph
@@ -27,9 +27,9 @@ __all__ = [
     "PromptHandler",
     "RuntimeContext",
     # base components
-    "llm",
+    "as_llm",
     "client",
-    "embedding",
+    "as_embedding",
     "embedding_store",
     "file_catalog",
     "file_graph",

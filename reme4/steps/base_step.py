@@ -32,7 +32,7 @@ class Ref:
     Replaces the ``@property`` + ``_resolve()`` boilerplate with a single
     class-level declaration::
 
-        llm = Ref(ChatModelBase, ComponentEnum.LLM, "model")
+        as_llm = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
         file_store = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     Resolution follows a 3-source fallback identical to the old ``_resolve``:
@@ -102,7 +102,7 @@ class BaseStep(ComponentMixin, ABC):
 
     component_type = ComponentEnum.STEP
 
-    llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.LLM, "model")
+    as_llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
     file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     def __new__(cls, *args, **kwargs):

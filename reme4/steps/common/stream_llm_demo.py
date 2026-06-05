@@ -1,4 +1,4 @@
-"""Demo step that drives an Agent via BaseStep.llm with streaming output."""
+"""Demo step that drives an Agent via BaseStep.as_llm with streaming output."""
 
 import json
 
@@ -34,7 +34,7 @@ def add(a: float, b: float) -> str:
 
 @R.register("stream_llm_demo_step")
 class StreamLLMDemoStep(BaseStep):
-    """Drive an Agent powered by ``self.llm`` with streaming output.
+    """Drive an Agent powered by ``self.as_llm`` with streaming output.
 
     When streaming is enabled on the context, text/thinking/tool events are
     pushed chunk-by-chunk via ``self.context.add_stream_string``.
@@ -67,7 +67,7 @@ class StreamLLMDemoStep(BaseStep):
         agent = Agent(
             name=self.name,
             system_prompt=sys_prompt,
-            model=self.llm,
+            model=self.as_llm,
             toolkit=toolkit,
             state=AgentState(
                 permission_context=PermissionContext(

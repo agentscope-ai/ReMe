@@ -457,7 +457,7 @@ components:
     default:
       backend: regex
 
-  embedding:
+  as_embedding:
     default:
       backend: ${EMBEDDING_BACKEND:-openai}
       api_key: ${EMBEDDING_API_KEY:-}
@@ -470,7 +470,7 @@ components:
       backend: local
       embedding: default
 
-  llm:
+  as_llm:
     default:
       backend: ${LLM_BACKEND:-anthropic}
       model: ${LLM_MODEL_NAME:-glm-5.1}

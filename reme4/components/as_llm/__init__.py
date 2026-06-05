@@ -18,13 +18,13 @@ from ..component_registry import R
 from ...enumeration import ComponentEnum
 
 
-class BaseLLM(BaseComponent):
+class BaseAsLLM(BaseComponent):
     """Base wrapper for AgentScope chat models.
 
     Subclasses set ``credential_cls`` and inherit ``_start`` / ``_close``.
     """
 
-    component_type = ComponentEnum.LLM
+    component_type = ComponentEnum.AS_LLM
     credential_cls: type[CredentialBase]
 
     def __init__(self, **kwargs) -> None:
@@ -44,69 +44,69 @@ class BaseLLM(BaseComponent):
 
 
 @R.register("openai")
-class OpenAILLM(BaseLLM):
+class OpenAIAsLLM(BaseAsLLM):
     """OpenAI chat model wrapper."""
 
     credential_cls = OpenAICredential
 
 
 @R.register("anthropic")
-class AnthropicLLM(BaseLLM):
+class AnthropicAsLLM(BaseAsLLM):
     """Anthropic chat model wrapper."""
 
     credential_cls = AnthropicCredential
 
 
 @R.register("dashscope")
-class DashScopeLLM(BaseLLM):
+class DashScopeAsLLM(BaseAsLLM):
     """DashScope chat model wrapper."""
 
     credential_cls = DashScopeCredential
 
 
 @R.register("deepseek")
-class DeepSeekLLM(BaseLLM):
+class DeepSeekAsLLM(BaseAsLLM):
     """DeepSeek chat model wrapper."""
 
     credential_cls = DeepSeekCredential
 
 
 @R.register("gemini")
-class GeminiLLM(BaseLLM):
+class GeminiAsLLM(BaseAsLLM):
     """Gemini chat model wrapper."""
 
     credential_cls = GeminiCredential
 
 
 @R.register("moonshot")
-class MoonshotLLM(BaseLLM):
+class MoonshotAsLLM(BaseAsLLM):
     """Moonshot chat model wrapper."""
 
     credential_cls = MoonshotCredential
 
 
 @R.register("ollama")
-class OllamaLLM(BaseLLM):
+class OllamaAsLLM(BaseAsLLM):
     """Ollama chat model wrapper."""
 
     credential_cls = OllamaCredential
 
 
 @R.register("xai")
-class XAILLM(BaseLLM):
+class XAIAsLLM(BaseAsLLM):
     """xAI chat model wrapper."""
 
     credential_cls = XAICredential
 
 
 __all__ = [
-    "BaseLLM",
-    "OpenAILLM",
-    "AnthropicLLM",
-    "DashScopeLLM",
-    "DeepSeekLLM",
-    "GeminiLLM",
-    "MoonshotLLM",
-    "OllamaLLM",
-    "XAILLM",
+    "BaseAsLLM",
+    "OpenAIAsLLM",
+    "AnthropicAsLLM",
+    "DashScopeAsLLM",
+    "DeepSeekAsLLM",
+    "GeminiAsLLM",
+    "MoonshotAsLLM",
+    "OllamaAsLLM",
+    "XAIAsLLM",
 ]

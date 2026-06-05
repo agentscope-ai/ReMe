@@ -1,7 +1,7 @@
 """AgentScope embedding model wrappers."""
 
 from agentscope.embedding import (
-    DashScopeMultiModalEmbedding as _AsDashScopeMultiModalEmbedding,
+    DashScopeMultiModalEmbedding,
     DashScopeTextEmbedding,
     EmbeddingModelBase,
     GeminiTextEmbedding,
@@ -14,10 +14,10 @@ from ..component_registry import R
 from ...enumeration import ComponentEnum
 
 
-class BaseEmbedding(BaseComponent):
+class BaseAsEmbedding(BaseComponent):
     """Base wrapper for AgentScope embedding models. Builds ``self.model`` in ``_start``."""
 
-    component_type = ComponentEnum.EMBEDDING
+    component_type = ComponentEnum.AS_EMBEDDING
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -39,7 +39,7 @@ class BaseEmbedding(BaseComponent):
 
 
 @R.register("openai")
-class OpenAIEmbedding(BaseEmbedding):
+class OpenAIAsEmbedding(BaseAsEmbedding):
     """OpenAI embedding model wrapper."""
 
     async def _start(self) -> None:
@@ -52,7 +52,7 @@ class OpenAIEmbedding(BaseEmbedding):
 
 
 @R.register("dashscope")
-class DashScopeEmbedding(BaseEmbedding):
+class DashScopeAsEmbedding(BaseAsEmbedding):
     """DashScope text embedding model wrapper."""
 
     async def _start(self) -> None:
@@ -60,15 +60,15 @@ class DashScopeEmbedding(BaseEmbedding):
 
 
 @R.register("dashscope_multimodal")
-class DashScopeMultiModalEmbedding(BaseEmbedding):
+class DashScopeMultiModalAsEmbedding(BaseAsEmbedding):
     """DashScope multimodal embedding model wrapper."""
 
     async def _start(self) -> None:
-        self.model = _AsDashScopeMultiModalEmbedding(**self.kwargs)
+        self.model = DashScopeMultiModalEmbedding(**self.kwargs)
 
 
 @R.register("gemini")
-class GeminiEmbedding(BaseEmbedding):
+class GeminiAsEmbedding(BaseAsEmbedding):
     """Gemini embedding model wrapper."""
 
     async def _start(self) -> None:
@@ -76,7 +76,7 @@ class GeminiEmbedding(BaseEmbedding):
 
 
 @R.register("ollama")
-class OllamaEmbedding(BaseEmbedding):
+class OllamaAsEmbedding(BaseAsEmbedding):
     """Ollama embedding model wrapper."""
 
     async def _start(self) -> None:
@@ -84,10 +84,10 @@ class OllamaEmbedding(BaseEmbedding):
 
 
 __all__ = [
-    "BaseEmbedding",
-    "OpenAIEmbedding",
-    "DashScopeEmbedding",
-    "DashScopeMultiModalEmbedding",
-    "GeminiEmbedding",
-    "OllamaEmbedding",
+    "BaseAsEmbedding",
+    "OpenAIAsEmbedding",
+    "DashScopeAsEmbedding",
+    "DashScopeMultiModalAsEmbedding",
+    "GeminiAsEmbedding",
+    "OllamaAsEmbedding",
 ]
