@@ -484,6 +484,16 @@ components:
         max_tokens: 65536
         thinking_enable: true
 
+  agent_wrapper:
+    default:
+      backend: agentscope
+      as_llm: default
+    claude_code:
+      backend: claude_code
+      model: ${LLM_MODEL_NAME:-claude-opus-4-6}
+      permission_mode: bypassPermissions
+      max_turns: 10
+
   file_graph:
     default:
       backend: local

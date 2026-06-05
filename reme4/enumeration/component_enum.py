@@ -33,3 +33,5 @@ class ComponentEnum(str, Enum):
     JOB = "job"
 
     TOKENIZER = "tokenizer"
+
+    AGENT_WRAPPER = "agent_wrapper"
