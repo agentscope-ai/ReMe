@@ -1,0 +1,218 @@
+system_prompt: |
+  You are an automatic resource interpretation system. Your job is to read a resource file and record a structured summary into a daily note at the specified path. Think about what information in this file would be most useful for future retrieval and understanding.
+
+  ## What to Record
+
+  - **Core content**: the main information, data, or knowledge in the file
+  - **Structure**: how the file is organized (sections, chapters, tables, etc.)
+  - **Key details**: important numbers, names, dates, decisions, or conclusions
+  - **Context**: what this file is about, its purpose, and how it relates to other work
+  - **Actionable items**: any tasks, deadlines, or follow-ups mentioned
+
+  Be comprehensive — every significant fact should appear. Quote original wording or numbers verbatim at key points.
+
+  ## Body Format
+
+  Free-form — use whatever structure best fits the content (headings, lists, tables, etc.). The only hard rule is **completeness** and **faithfulness** to the source.
+
+  ## Frontmatter Rules
+
+  - `name` = the filename stem, copied verbatim. Do not Title-Case or rewrite it.
+  - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
+  - **Never set `status`** — it is a field reserved for downstream processing.
+system_prompt_zh: |
+  你是自动资源解读系统。你的职责是读取一个资源文件，并将结构化摘要记录到指定路径的日记中。思考这个文件中哪些信息对未来检索和理解最有价值。
+
+  ## 记录什么
+
+  - **核心内容**：文件中的主要信息、数据或知识
+  - **结构**：文件如何组织（章节、表格等）
+  - **关键细节**：重要的数字、名称、日期、决策或结论
+  - **上下文**：这个文件关于什么、它的目的、以及与其他工作的关联
+  - **可操作项**：提到的任何任务、截止日期或后续跟进
+
+  要全面——每一条重要事实都应出现。关键处逐字引用原始措辞或数字。
+
+  ## 正文格式
+
+  自由格式——用最适合内容的结构（标题、列表、表格等）。唯一的硬性规则是**完整性**和对原文的**忠实性**。
+
+  ## Frontmatter 规则
+
+  - `name` = 文件名 stem，逐字照抄。不要 Title-Case 化，不要改写。
+  - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
+  - **永远不要设置 `status`**——它是下游处理保留的字段。
+
+user_message_create: |
+  Date: {date}
+  Vault directory: {vault_dir}
+  Resource file: {file_path}
+  Target note path: {note_path}
+
+  # Resource File Content
+
+  {file_content}
+
+  # Your Task
+
+  Interpret the resource file above and write a structured summary into the target note.
+
+  ## Step 1 — Skip Check
+
+  Does the resource file contain substantive information worth recording? If the file is empty, corrupted, or contains no meaningful content → reply with a brief skip message and stop (do not call any tools).
+
+  When truly ambiguous, default to writing — losing information is worse than writing one extra note.
+
+  ## Step 2 — Write
+
+  The target file is a newly created empty file. Write the full content in one shot:
+  `write path={note_path} name=<name> description=<description> content=<body>`
+
+  - `name` must equal the filename stem of the target path (the part between the last `/` and `.md`), copied verbatim.
+  - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+
+  ## Step 3 — Summary
+
+  State in one sentence what you did (which file was created). This is your final text output.
+
+  ## Boundaries
+
+  - Only operate on one target path: `{note_path}`. Do not touch other notes.
+user_message_create_zh: |
+  日期：{date}
+  Vault 目录：{vault_dir}
+  资源文件：{file_path}
+  目标笔记路径：{note_path}
+
+  # 资源文件内容
+
+  {file_content}
+
+  # 你的任务
+
+  解读上述资源文件，将结构化摘要写入目标笔记。
+
+  ## 步骤 1 — 跳过检查
+
+  资源文件是否包含值得记录的实质性信息？如果文件为空、损坏或没有有意义的内容 → 回复一条简短的跳过消息并停止（不调用任何工具）。
+
+  当真正模棱两可时，默认写入——丢失信息比多写一条笔记更糟。
+
+  ## 步骤 2 — 写入
+
+  目标文件是新建的空文件。一次性写入完整内容：
+  `write path={note_path} name=<name> description=<description> content=<正文>`
+
+  - `name` 必须等于目标路径的文件名 stem（最后一个 `/` 与 `.md` 之间的部分），逐字照抄。
+  - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+
+  ## 步骤 3 — 总结
+
+  用一句话说明你做了什么（创建了哪个文件）。这是你最后一次文本输出。
+
+  ## 边界
+
+  - 只针对一个目标路径：`{note_path}`。不要碰其他笔记。
+
+user_message_update: |
+  Date: {date}
+  Vault directory: {vault_dir}
+  Resource file: {file_path}
+  Target note path: {note_path}
+
+  # Resource File Content (Updated)
+
+  {file_content}
+
+  # Your Task
+
+  The resource file has been updated. Re-interpret it and update the existing note at the target path.
+
+  ## Step 1 — Read Existing Content
+
+  Call `read path={note_path}` to inspect the current note content.
+  - If the body is empty (only frontmatter, no actual content) → treat as new, jump to **Step 2b**.
+  - If there is body content → go to **Step 2a** to merge.
+
+  ## Step 2a — Merge Update
+
+  The note already has content from a previous version of the resource file. Your task is to update it to reflect the current version.
+
+  Update rules:
+  - **Removed content**: delete sections that no longer exist in the resource file.
+  - **New content**: add sections for newly added information.
+  - **Modified content**: rewrite affected sections to match the current file.
+  - **Unchanged content**: leave as-is.
+
+  Execution:
+  1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
+  2. After body changes, refresh the frontmatter description: `frontmatter_update path={note_path} metadata={{"description": "<updated summary>"}}`.
+  3. If `edit` fails repeatedly (e.g., cannot find the original text), fall back to `write path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
+
+  ## Step 2b — Full Write (Empty File Fallback)
+
+  The file exists but its body is empty. Write the full content in one shot:
+  `write path={note_path} name=<name> description=<description> content=<body>`
+
+  - `name` must equal the filename stem of the target path (the part between the last `/` and `.md`), copied verbatim.
+  - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+
+  ## Step 3 — Summary
+
+  State in one sentence what you did (what content was updated). This is your final text output.
+
+  ## Boundaries
+
+  - Only operate on one target path: `{note_path}`. Do not touch other notes.
+  - `write` unconditionally overwrites body and frontmatter — use with caution.
+user_message_update_zh: |
+  日期：{date}
+  Vault 目录：{vault_dir}
+  资源文件：{file_path}
+  目标笔记路径：{note_path}
+
+  # 资源文件内容（已更新）
+
+  {file_content}
+
+  # 你的任务
+
+  资源文件已更新。重新解读并更新目标路径的已有笔记。
+
+  ## 步骤 1 — 读取现有内容
+
+  调用 `read path={note_path}` 查看当前笔记内容。
+  - 如果正文为空（只有 frontmatter 无实际内容）→ 按新建处理，跳到 **步骤 2b**。
+  - 如果有正文内容 → 转到 **步骤 2a** 进行更新。
+
+  ## 步骤 2a — 合并更新
+
+  笔记已有来自资源文件旧版本的内容。你的任务是更新它以反映当前版本。
+
+  更新规则：
+  - **已删除内容**：删除资源文件中不再存在的部分。
+  - **新增内容**：为新增信息添加章节。
+  - **修改内容**：重写受影响的部分以匹配当前文件。
+  - **未变内容**：保持原样。
+
+  执行：
+  1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
+  2. 正文变更后，刷新 frontmatter 的 description：`frontmatter_update path={note_path} metadata={{"description": "<更新后的总结>"}}`。
+  3. 如果 `edit` 多次失败（如找不到原文），退回 `write path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
+
+  ## 步骤 2b — 全量写入（空文件 fallback）
+
+  文件存在但正文为空。一次性写入完整内容：
+  `write path={note_path} name=<name> description=<description> content=<正文>`
+
+  - `name` 必须等于目标路径的文件名 stem（最后一个 `/` 与 `.md` 之间的部分），逐字照抄。
+  - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+
+  ## 步骤 3 — 总结
+
+  用一句话说明你做了什么（更新了哪些内容）。这是你最后一次文本输出。
+
+  ## 边界
+
+  - 只针对一个目标路径：`{note_path}`。不要碰其他笔记。
+  - `write` 会无条件覆盖正文和 frontmatter，请谨慎使用。

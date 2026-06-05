@@ -54,8 +54,10 @@ def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
         return []
     out: list[dict] = []
     prefix = "session_agent_"
-    for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md" and p.stem.startswith(prefix)):
-        session_id = md_path.stem[len(prefix):]
+    for md_path in sorted(
+        p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md" and p.stem.startswith(prefix)
+    ):
+        session_id = md_path.stem[len(prefix) :]
         try:
             post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
         except Exception:

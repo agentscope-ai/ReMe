@@ -4,10 +4,8 @@ from pathlib import Path
 
 from watchfiles import Change
 
-from ..base_step import BaseStep, Ref
+from ..base_step import BaseStep
 from ...components import R
-from ...components.file_catalog import BaseFileCatalog
-from ...enumeration import ComponentEnum
 from ...schema import FileNode
 
 
@@ -15,13 +13,14 @@ from ...schema import FileNode
 class UpdateCatalogStep(BaseStep):
     """Classify raw watcher changes and update the file_catalog."""
 
-    file_catalog: BaseFileCatalog = Ref(BaseFileCatalog, ComponentEnum.FILE_CATALOG)
+    def __init__(self, persist: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        self._persist: bool = persist
 
     async def execute(self):
         assert self.context is not None
-        # Each item: {"change": Change | "added"|"modified"|"deleted", "path": absolute path}
         changes: list[dict] = self.context.get("changes") or []
-        persist: bool = bool(self.context.get("persist", False))
+        persist: bool = self._persist or bool(self.context.get("persist", False))
 
         buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
         for item in changes:

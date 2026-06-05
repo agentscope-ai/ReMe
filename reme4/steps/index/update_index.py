@@ -6,6 +6,8 @@ from watchfiles import Change
 
 from ..base_step import BaseStep
 from ...components import R
+from ...components.file_chunker import BaseFileChunker
+from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 
 
@@ -16,6 +18,35 @@ class UpdateIndexStep(BaseStep):
     def __init__(self, persist: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.persist: bool = persist
+
+    async def chunk_file(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+        """Chunk ``path`` using the file chunker whose ``supported_extensions`` claims its suffix.
+
+        First registered match wins (config insertion order). Falls back to the
+        ``default`` chunker when no chunker claims the suffix.
+        """
+        if self.app_context is None:
+            raise RuntimeError("app_context is not set when resolving file chunker")
+        chunker_dict: dict[str, BaseFileChunker] = self.app_context.components[ComponentEnum.FILE_CHUNKER]
+
+        suffix = Path(path).suffix.lstrip(".").lower()
+
+        chunker: BaseFileChunker | None = None
+        if suffix:
+            for candidate in chunker_dict.values():
+                if suffix in {ext.lower().lstrip(".") for ext in candidate.supported_extensions}:
+                    chunker = candidate
+                    break
+
+        if chunker is None:
+            chunker = chunker_dict.get("default")
+
+        if chunker is None:
+            raise RuntimeError(
+                f"No file chunker supports {path} (suffix={suffix!r}) and no 'default' chunker is configured",
+            )
+
+        return await chunker.chunk(path)
 
     async def execute(self):
         assert self.context is not None
@@ -46,7 +77,7 @@ class UpdateIndexStep(BaseStep):
                     continue
                 self.logger.info(f"{action} file: {path}")
                 try:
-                    parsed.append(await self.parse_file(abs_path))
+                    parsed.append(await self.chunk_file(abs_path))
                     ok_paths.append(path)
                 except Exception as e:
                     self.logger.exception(f"Failed to parse {path}")

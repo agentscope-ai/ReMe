@@ -46,8 +46,8 @@ def test_parse_empty_file():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             path = _write_md(tmp, "x.md", "")
-            parser = MarkdownFileChunker()
-            node, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, chunks = await chunker.chunk(path)
             assert node.path == "x.md"
             assert chunks == []
             assert node.links == []
@@ -62,8 +62,8 @@ def test_parse_frontmatter_only():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             path = _write_md(tmp, "fm.md", "---\nname: t\n---\n")
-            parser = MarkdownFileChunker()
-            node, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, chunks = await chunker.chunk(path)
             assert node.front_matter.name == "t"
             assert chunks == []
             assert node.links == []
@@ -79,8 +79,8 @@ def test_parse_small_body_one_chunk():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "# Hello\n\nthis is a small body."
             path = _write_md(tmp, "small.md", body)
-            parser = MarkdownFileChunker(chunk_chars=500)
-            node, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker(chunk_chars=500)
+            node, chunks = await chunker.chunk(path)
             assert len(chunks) == 1
             assert "this is a small body" in chunks[0].text
             assert node.chunk_ids == [chunks[0].id]
@@ -97,8 +97,8 @@ def test_parse_oversized_body_splits():
             paras = "\n\n".join(f"paragraph {i} with some content text here." for i in range(50))
             body = "# H\n\n" + paras
             path = _write_md(tmp, "big.md", body)
-            parser = MarkdownFileChunker(chunk_chars=200)
-            _, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker(chunk_chars=200)
+            _, chunks = await chunker.chunk(path)
             assert len(chunks) > 1
         print("✓ test_parse_oversized_body_splits passed")
 
@@ -113,8 +113,8 @@ def test_parse_chunk_ids_match_node_chunk_ids():
             paras = "\n\n".join(f"para {i} body content here." for i in range(40))
             body = "# H\n\n" + paras
             path = _write_md(tmp, "p.md", body)
-            parser = MarkdownFileChunker(chunk_chars=200)
-            node, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker(chunk_chars=200)
+            node, chunks = await chunker.chunk(path)
             assert node.chunk_ids == [c.id for c in chunks]
         print("✓ test_parse_chunk_ids_match_node_chunk_ids passed")
 
@@ -128,8 +128,8 @@ def test_parse_links_literal_targets():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "see [[topics/Alice.md]] and [[topics/Bob.md#sec]]"
             path = _write_md(tmp, "note.md", body)
-            parser = MarkdownFileChunker()
-            node, _ = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, _ = await chunker.chunk(path)
             triples = {(link.target_path, link.target_anchor, link.predicate) for link in node.links}
             assert ("topics/Alice.md", None, None) in triples
             assert ("topics/Bob.md", "sec", None) in triples
@@ -154,8 +154,8 @@ def test_parse_links_short_and_no_ext_kept_literally():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "see [[Alice]] and [[topics/Alice]] but also [[topics/Alice.md]]"
             path = _write_md(tmp, "note.md", body)
-            parser = MarkdownFileChunker()
-            node, _ = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, _ = await chunker.chunk(path)
             targets = {link.target_path for link in node.links}
             assert targets == {"Alice", "topics/Alice", "topics/Alice.md"}
         print("✓ test_parse_links_short_and_no_ext_kept_literally passed")
@@ -170,8 +170,8 @@ def test_parse_links_predicate_inline_and_line():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "extends:: [[A.md]]\n\nsome [concerns:: [[B.md]]] inline\n"
             path = _write_md(tmp, "note.md", body)
-            parser = MarkdownFileChunker()
-            node, _ = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, _ = await chunker.chunk(path)
             pairs = {(link.target_path, link.predicate) for link in node.links}
             assert ("A.md", "extends") in pairs
             assert ("B.md", "concerns") in pairs
@@ -187,8 +187,8 @@ def test_parse_links_deduped():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "[[A.md]] again [[A.md]] and [[A.md]]"
             path = _write_md(tmp, "note.md", body)
-            parser = MarkdownFileChunker()
-            node, _ = await parser.parse(path)
+            chunker = MarkdownFileChunker()
+            node, _ = await chunker.chunk(path)
             assert len([link for link in node.links if link.target_path == "A.md"]) == 1
         print("✓ test_parse_links_deduped passed")
 
@@ -197,8 +197,8 @@ def test_parse_links_deduped():
 
 def test_parse_min_chunk_chars_clamped():
     """chunk_chars below 100 should be clamped to 100."""
-    parser = MarkdownFileChunker(chunk_chars=10)
-    assert parser.chunk_chars == 100
+    chunker = MarkdownFileChunker(chunk_chars=10)
+    assert chunker.chunk_chars == 100
     print("✓ test_parse_min_chunk_chars_clamped passed")
 
 
@@ -209,8 +209,8 @@ def test_parse_embed_toc_prefixes_chunk_text():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             body = "# Top\n\n## Sub\n\nbody-content"
             path = _write_md(tmp, "toc.md", body)
-            parser = MarkdownFileChunker(chunk_chars=200, embed_toc=True)
-            _, chunks = await parser.parse(path)
+            chunker = MarkdownFileChunker(chunk_chars=200, embed_toc=True)
+            _, chunks = await chunker.chunk(path)
             # Single small section fits; check that the heading appears in text.
             assert any("Top" in c.text for c in chunks)
         print("✓ test_parse_embed_toc_prefixes_chunk_text passed")

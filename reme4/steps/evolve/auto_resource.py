@@ -1,0 +1,141 @@
+"""auto_resource — interpret resource files into daily notes via an agent."""
+
+import hashlib
+from pathlib import PurePosixPath
+
+import aiofiles
+from watchfiles import Change
+
+from ..base_step import BaseStep
+from ...components import R
+
+
+def _compute_session_id(filename: str) -> str:
+    """Return 'resource_' + first 8 hex chars of MD5(filename)."""
+    digest = hashlib.md5(filename.encode()).hexdigest()[:8]
+    return f"resource_{digest}"
+
+
+def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
+    """Extract (date, filename) from a resource path like 'resource/2026-06-06/report.pdf'.
+
+    Returns (date_str, filename) where filename may contain subdirectories.
+    """
+    parts = PurePosixPath(file_path).parts
+    # Strip leading resource_dir prefix
+    prefix_parts = PurePosixPath(resource_dir).parts
+    if parts[: len(prefix_parts)] == prefix_parts:
+        parts = parts[len(prefix_parts) :]
+    # First segment is date, rest is filename
+    date_str = parts[0] if parts else ""
+    filename = str(PurePosixPath(*parts[1:])) if len(parts) > 1 else ""
+    return date_str, filename
+
+
+@R.register("auto_resource_step")
+class AutoResourceStep(BaseStep):
+    """Interpret resource files into daily notes via an Agent."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
+
+    def _normalize_change(self, raw) -> Change | None:
+        if isinstance(raw, Change):
+            return raw
+        if isinstance(raw, str):
+            return Change.__members__.get(raw)
+        return None
+
+    async def _handle_delete(self, date_str: str, session_id: str) -> None:
+        daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
+        note_rel = f"{daily_dir}/{date_str}/session_agent_{session_id}.md"
+        note_abs = self.vault_path / note_rel
+
+        if note_abs.is_file():
+            note_abs.unlink()
+            self.logger.info(f"[{self.name}] Deleted file: {note_rel}")
+
+        await self.file_store.delete([note_rel])
+
+        self.context.response.success = True
+        self.context.response.answer = f"Deleted resource note: {note_rel}"
+        self.context.response.metadata.update({"path": note_rel, "action": "deleted"})
+
+    async def _handle_upsert(self, file_path: str, date_str: str, session_id: str, created: bool) -> None:
+        create_response = await self.run_job("daily_create", session_id=session_id, date=date_str)
+        if not create_response.success:
+            self.context.response.success = False
+            self.context.response.answer = f"daily_create failed: {create_response.answer}"
+            return
+
+        note_path: str = create_response.metadata["path"]
+        note_created: bool = create_response.metadata["created"]
+
+        # Read resource file content
+        abs_path = self.vault_path / file_path
+        if not abs_path.is_file():
+            self.context.response.success = False
+            self.context.response.answer = f"Resource file not found: {file_path}"
+            return
+
+        async with aiofiles.open(abs_path, encoding="utf-8", errors="replace") as f:
+            file_content = await f.read()
+
+        template_key = "user_message_create" if created else "user_message_update"
+        user_message = self.prompt_format(
+            template_key,
+            vault_dir=str(self.vault_path),
+            note_path=note_path,
+            file_path=file_path,
+            file_content=file_content,
+            date=date_str,
+        )
+
+        tools = [self.get_job(name) for name in self.agent_tools]
+        _, msg = await self.agent_wrapper.reply(
+            user_message,
+            system_prompt=self.prompt_format("system_prompt"),
+            tools=tools,
+        )
+
+        self.context.response.success = True
+        self.context.response.answer = (msg.get_text_content() or "").strip()
+        self.context.response.metadata.update(
+            {"path": note_path, "created": note_created, "action": "added" if created else "modified"},
+        )
+        self.logger.info(f"[{self.name}] done {note_path}")
+
+    async def execute(self):
+        assert self.context is not None
+        file_path: str = self.context.get("file_path", "")
+        raw_change = self.context.get("change", "")
+
+        if not file_path:
+            self.context.response.success = False
+            self.context.response.answer = "Missing file_path"
+            return
+
+        change = self._normalize_change(raw_change)
+        if change is None:
+            self.context.response.success = False
+            self.context.response.answer = f"Invalid change type: {raw_change}"
+            return
+
+        resource_dir = self.app_context.app_config.resource_dir if self.app_context else "resource"
+        date_str, filename = _parse_resource_path(file_path, resource_dir)
+
+        if not date_str or not filename:
+            self.context.response.success = False
+            self.context.response.answer = f"Cannot parse date/filename from: {file_path}"
+            return
+
+        session_id = _compute_session_id(filename)
+        self.logger.info(f"[{self.name}] {change.name} file_path={file_path} session_id={session_id}")
+
+        if change == Change.deleted:
+            await self._handle_delete(date_str, session_id)
+        else:
+            await self._handle_upsert(
+                file_path, date_str, session_id, created=change == Change.added
+            )

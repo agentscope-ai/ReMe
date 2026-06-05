@@ -9,6 +9,7 @@ from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
 from .common.version import VersionStep
 from .evolve.auto_dream import AutoDreamStep
 from .evolve.auto_memory import AutoMemoryStep
+from .evolve.auto_resource import AutoResourceStep
 from .evolve.dream import DreamStep
 from .file_io.daily_create import DailyCreateStep
 from .file_io.daily_list import DailyListStep
@@ -33,6 +34,8 @@ from .index.search import SearchStep
 from .index.traverse import TraverseStep
 from .index.update_catalog import UpdateCatalogStep
 from .index.update_index import UpdateIndexStep
+from .index.foreach_dispatch import ForeachDispatchStep
+from .index.log_changes import LogChangesStep
 from .index.watch_changes import WatchChangesStep
 from .transfer.download import DownloadStep
 from .transfer.ingest import IngestStep
@@ -51,6 +54,7 @@ __all__ = [
     "VersionStep",
     # evolve
     "AutoMemoryStep",
+    "AutoResourceStep",
     # file_io
     "DeleteStep",
     "EditStep",
@@ -73,6 +77,8 @@ __all__ = [
     "ClaimChannelStep",
     # index
     "ClearAndScanStep",
+    "ForeachDispatchStep",
+    "LogChangesStep",
     "NodeSearchStep",
     "ScanCatalogChangesStep",
     "ScanStoreChangesStep",

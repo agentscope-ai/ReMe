@@ -37,7 +37,7 @@ class DefaultFileChunker(BaseFileChunker):
             front_matter = FileFrontMatter()
         return front_matter, text[end_idx + 4 :].lstrip("\n")
 
-    async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+    async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         stat = file_path.stat()
         rel_path = self.to_vault_relative(path)

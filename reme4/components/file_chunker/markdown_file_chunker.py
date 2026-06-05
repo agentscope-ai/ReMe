@@ -122,7 +122,7 @@ class MarkdownFileChunker(BaseFileChunker):
         self.chunk_chars = max(100, chunk_chars)
         self.embed_toc = embed_toc
 
-    async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+    async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         from mistletoe.markdown_renderer import MarkdownRenderer
         from mistletoe.block_token import Document
 

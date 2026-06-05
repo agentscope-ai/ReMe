@@ -51,10 +51,7 @@ from pydantic import BaseModel, Field
 
 from ._evolve import now
 from .dream import DreamStep, DreamResult
-from ..base_step import Ref
 from ...components import R
-from ...components.file_catalog import BaseFileCatalog
-from ...enumeration import ComponentEnum
 from ...schema import FileNode
 
 
@@ -76,8 +73,6 @@ class AutoDreamResult(BaseModel):
 class AutoDreamStep(DreamStep):
     """Scan ``daily/<today>.md`` + ``daily/<today>/`` and dream each file
     whose ``st_mtime`` doesn't already match its ``file_catalog`` entry."""
-
-    file_catalog: BaseFileCatalog = Ref(BaseFileCatalog, ComponentEnum.FILE_CATALOG)
 
     def __init__(self, persist: bool = True, **kwargs):
         super().__init__(**kwargs)

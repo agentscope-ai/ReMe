@@ -9,7 +9,7 @@ from ...schema import FileChunk, FileNode
 
 
 class BaseFileChunker(BaseComponent):
-    """Abstract base for file chunkers. Subclasses implement `parse`."""
+    """Abstract base for file chunkers. Subclasses implement `chunk`."""
 
     component_type = ComponentEnum.FILE_CHUNKER
 
@@ -18,5 +18,5 @@ class BaseFileChunker(BaseComponent):
         self.supported_extensions: list[str] = supported_extensions or []
 
     @abstractmethod
-    async def parse(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
-        """Parse a file into (node, chunks)."""
+    async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
+        """Chunk a file into (node, chunks)."""

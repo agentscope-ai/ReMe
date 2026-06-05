@@ -8,10 +8,10 @@ service:
   backend: http
 
 jobs:
-  update_store_index_loop:
+  index_update_loop:
     backend: background
-    watch_paths: [ "daily", "digest" ]
-    suffix_filters: [ "md" ]
+    watch_dirs: [daily_dir, digest_dir, resource_dir]
+    watch_suffixes: [md, jsonl]
     steps:
       - backend: scan_store_changes_step
         recursive: true
@@ -19,6 +19,34 @@ jobs:
         persist: true
       - backend: watch_changes_step
         dispatch_step: update_index_step
+
+  resource_watch_loop:
+    backend: background
+    watch_dirs: [resource_dir]
+    watch_suffixes: [md, txt, json, jsonl, csv, yaml, html]
+    dispatch_job: auto_resource
+    persist: true
+    steps:
+      - backend: scan_catalog_changes_step
+        recursive: true
+      - backend: update_catalog_step
+        persist: true
+      - backend: foreach_dispatch_step
+      - backend: watch_changes_step
+        dispatch_steps: [update_catalog_step, foreach_dispatch_step]
+
+  digest_watch_loop:
+    backend: background
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
+    persist: true
+    steps:
+      - backend: scan_catalog_changes_step
+        recursive: true
+      - backend: update_catalog_step
+        persist: true
+      - backend: watch_changes_step
+        dispatch_step: log_changes_step
 
   version:
     backend: base
@@ -452,6 +480,24 @@ jobs:
     steps:
       - backend: auto_memory_step
 
+  auto_resource:
+    backend: base
+    description: "Auto-resource: interpret resource files into daily notes"
+    parameters:
+      type: object
+      properties:
+        file_path:
+          type: string
+          description: "vault-relative resource file path, e.g. resource/2026-06-06/report.pdf"
+        change:
+          type: string
+          description: "added/modified/deleted"
+      required:
+        - file_path
+        - change
+    steps:
+      - backend: auto_resource_step
+
 components:
   tokenizer:
     default:
@@ -518,7 +564,7 @@ components:
       supported_extensions: [ "md" ]
     default:
       backend: default
-      supported_extensions: [ "txt", "html", "json", "jsonl", "yaml", "py" ]
+      supported_extensions: [ "jsonl" ]
 
   keyword_index:
     default:

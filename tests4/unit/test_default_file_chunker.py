@@ -19,8 +19,8 @@ def test_parse_empty_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker()
-            file_node, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker()
+            file_node, chunks = await chunker.chunk(temp_path)
             assert file_node.path == temp_path
             assert len(chunks) == 0
             print("✓ test_parse_empty_file passed")
@@ -40,8 +40,8 @@ def test_parse_small_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=10000)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=10000)
+            _, chunks = await chunker.chunk(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
             assert chunks[0].end_line == 3
@@ -64,8 +64,8 @@ def test_parse_multiline_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=10000)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=10000)
+            _, chunks = await chunker.chunk(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
             assert chunks[0].end_line == 5
@@ -88,8 +88,8 @@ def test_parse_chunked_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=5000, overlap_byte_size=100)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=5000, overlap_byte_size=100)
+            _, chunks = await chunker.chunk(temp_path)
             assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
             # Verify overlap by checking that consecutive chunks share some content
             print(f"  Created {len(chunks)} chunks")
@@ -110,8 +110,8 @@ def test_parse_with_custom_encoding():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(encoding="utf-8")
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(encoding="utf-8")
+            _, chunks = await chunker.chunk(temp_path)
             assert len(chunks) >= 1
             assert "你好世界" in chunks[0].text
             print("✓ test_parse_with_custom_encoding passed")
@@ -131,8 +131,8 @@ def test_file_node_properties():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker()
-            file_node, _ = await parser.parse(temp_path)
+            chunker = DefaultFileChunker()
+            file_node, _ = await chunker.chunk(temp_path)
             assert hasattr(file_node, "path")
             assert hasattr(file_node, "st_mtime")
             assert file_node.st_mtime > 0
@@ -153,8 +153,8 @@ def test_file_chunk_properties():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker()
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker()
+            _, chunks = await chunker.chunk(temp_path)
             chunk = chunks[0]
             assert hasattr(chunk, "path")
             assert hasattr(chunk, "start_line")
@@ -298,8 +298,8 @@ def test_parse_links_in_file():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker()
-            file_node, _ = await parser.parse(temp_path)
+            chunker = DefaultFileChunker()
+            file_node, _ = await chunker.chunk(temp_path)
             triples = {(link.predicate, link.target_path, link.target_anchor) for link in file_node.links}
             assert (None, "alpha", None) in triples
             assert (None, "beta", "h2") in triples
@@ -326,9 +326,9 @@ def test_parse_links_empty_when_no_content():
             fm_only_path = f.name
 
         try:
-            parser = DefaultFileChunker()
-            node1, _ = await parser.parse(empty_path)
-            node2, _ = await parser.parse(fm_only_path)
+            chunker = DefaultFileChunker()
+            node1, _ = await chunker.chunk(empty_path)
+            node2, _ = await chunker.chunk(fm_only_path)
             assert node1.links == []
             assert node2.links == []
             print("✓ test_parse_links_empty_when_no_content passed")
@@ -354,8 +354,8 @@ def test_chunk_does_not_split_wikilink_at_boundary():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
+            _, chunks = await chunker.chunk(temp_path)
             # The first chunk must NOT contain a partial link.
             first = chunks[0].text
             assert "[[" not in first or "]]" in first, f"first chunk has dangling '[[': {first!r}"
@@ -383,8 +383,8 @@ def test_chunk_does_not_split_wikilink_in_overlap():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=20)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=20)
+            _, chunks = await chunker.chunk(temp_path)
             # No chunk should start mid-link.
             for c in chunks:
                 t = c.text
@@ -413,8 +413,8 @@ def test_chunk_falls_back_for_oversize_link():
             temp_path = f.name
 
         try:
-            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
-            _, chunks = await parser.parse(temp_path)
+            chunker = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
+            _, chunks = await chunker.chunk(temp_path)
             # Must terminate (not hang) and cover the whole file.
             assert len(chunks) >= 2
             print("✓ test_chunk_falls_back_for_oversize_link passed")
@@ -429,9 +429,9 @@ def test_min_chunk_and_overlap_size():
 
     async def run():
         # These values should be clamped to minimums
-        parser = DefaultFileChunker(chunk_byte_size=1, overlap_byte_size=0)
-        assert parser.chunk_byte_size == 100  # minimum
-        assert parser.overlap_byte_size == 4  # minimum
+        chunker = DefaultFileChunker(chunk_byte_size=1, overlap_byte_size=0)
+        assert chunker.chunk_byte_size == 100  # minimum
+        assert chunker.overlap_byte_size == 4  # minimum
 
         content = "test"
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
@@ -439,7 +439,7 @@ def test_min_chunk_and_overlap_size():
             temp_path = f.name
 
         try:
-            _, chunks = await parser.parse(temp_path)
+            _, chunks = await chunker.chunk(temp_path)
             assert len(chunks) == 1
             print("✓ test_min_chunk_and_overlap_size passed")
         finally:
