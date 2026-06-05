@@ -67,6 +67,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         if output_schema := kwargs.get("output_schema"):
             messages = [SystemMsg(name="system", content=system_prompt), inputs]
+            assert isinstance(output_schema, dict),  "Output schema must be a dict."
             res = await model.generate_structured_output(messages=messages, structured_model=output_schema)
             return agent.state.session_id, res.content
 

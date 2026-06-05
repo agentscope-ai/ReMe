@@ -3,6 +3,8 @@
 from abc import abstractmethod
 from typing import Any, TYPE_CHECKING
 
+from pydantic import BaseModel
+
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
 
@@ -25,8 +27,10 @@ class BaseAgentWrapper(BaseComponent):
         self.kwargs.setdefault("tools", []).extend(tools)
         return self
 
-    def set_output_schema(self, schema: dict) -> "BaseAgentWrapper":
-        """Set a JSON schema for structured output. Returns self for chaining."""
+    def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
+        """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            schema = schema.model_json_schema()
         self.kwargs["output_schema"] = schema
         return self
 
