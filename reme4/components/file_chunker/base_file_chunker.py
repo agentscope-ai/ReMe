@@ -1,4 +1,4 @@
-"""Abstract base for file parsers."""
+"""Abstract base for file chunkers."""
 
 from abc import abstractmethod
 from pathlib import Path
@@ -8,10 +8,10 @@ from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 
 
-class BaseFileParser(BaseComponent):
-    """Abstract base for file parsers. Subclasses implement `parse`."""
+class BaseFileChunker(BaseComponent):
+    """Abstract base for file chunkers. Subclasses implement `parse`."""
 
-    component_type = ComponentEnum.FILE_PARSER
+    component_type = ComponentEnum.FILE_CHUNKER
 
     def __init__(self, supported_extensions: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)

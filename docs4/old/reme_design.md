@@ -123,7 +123,7 @@ traverse path=xxx direction=xxx depth=xxx
 | 主题dream  + 生成链接 @sen    | daily/xxx     | knowledge/xxx                                 | /dream                      | 把 daily 目录的内容按主题聚类合并到 topic 目录, 主动在文档中建立 [[link]] 关联 |
 | 主动proactive     @wangce | daily / topic | proactive_query                               | pre_query                   | 思考 daily / topic 信息，主动决定推送给用户的消息                     |
 
-2. file_parser
+2. file_chunker
    a. 抽象基类 parse: @jinli
    ⅰ. 输入是path：相对路径
    ⅱ. 输出是FileMetadata & list[FileChunks] & list[FileEdge]

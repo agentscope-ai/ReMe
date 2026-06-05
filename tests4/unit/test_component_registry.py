@@ -10,7 +10,7 @@ from reme4.enumeration import ComponentEnum
 
 
 class _DummyComponent(BaseComponent):
-    component_type = ComponentEnum.FILE_PARSER
+    component_type = ComponentEnum.FILE_CHUNKER
 
 
 class _AnotherComponent(BaseComponent):
@@ -31,13 +31,13 @@ class _BaseComponentType(BaseComponent):
 def test_register_direct_with_explicit_name():
     reg = ComponentRegistry()
     reg.register(_DummyComponent, "my_parser")
-    assert reg.get(ComponentEnum.FILE_PARSER, "my_parser") is _DummyComponent
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "my_parser") is _DummyComponent
 
 
 def test_register_direct_defaults_to_class_name():
     reg = ComponentRegistry()
     reg.register(_DummyComponent)
-    assert reg.get(ComponentEnum.FILE_PARSER, "_DummyComponent") is _DummyComponent
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "_DummyComponent") is _DummyComponent
 
 
 def test_register_decorator():
@@ -45,16 +45,16 @@ def test_register_decorator():
 
     @reg.register("alias")
     class MyParser(BaseComponent):
-        component_type = ComponentEnum.FILE_PARSER
+        component_type = ComponentEnum.FILE_CHUNKER
 
-    assert reg.get(ComponentEnum.FILE_PARSER, "alias") is MyParser
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "alias") is MyParser
 
 
 def test_register_overwrite_warns(caplog):
     reg = ComponentRegistry()
     reg.register(_DummyComponent, "dup")
     reg.register(_DummyComponent, "dup")
-    assert reg.get(ComponentEnum.FILE_PARSER, "dup") is _DummyComponent
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "dup") is _DummyComponent
 
 
 def test_register_rejects_missing_component_type():
@@ -83,7 +83,7 @@ def test_get_all_returns_copy():
     reg.register(_DummyComponent, "a")
     reg.register(_AnotherComponent, "b")
 
-    parsers = reg.get_all(ComponentEnum.FILE_PARSER)
+    parsers = reg.get_all(ComponentEnum.FILE_CHUNKER)
     assert parsers == {"a": _DummyComponent}
 
     indexes = reg.get_all(ComponentEnum.KEYWORD_INDEX)
@@ -91,7 +91,7 @@ def test_get_all_returns_copy():
 
     # Mutating the copy doesn't affect the registry.
     parsers["hacked"] = _DummyComponent
-    assert "hacked" not in reg.get_all(ComponentEnum.FILE_PARSER)
+    assert "hacked" not in reg.get_all(ComponentEnum.FILE_CHUNKER)
 
 
 def test_get_all_unknown_type_returns_empty():
@@ -104,7 +104,7 @@ def test_get_all_unknown_type_returns_empty():
 
 def test_get_nonexistent_returns_none():
     reg = ComponentRegistry()
-    assert reg.get(ComponentEnum.FILE_PARSER, "nope") is None
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "nope") is None
 
 
 # -- unregister ---------------------------------------------------------------
@@ -113,13 +113,13 @@ def test_get_nonexistent_returns_none():
 def test_unregister_existing():
     reg = ComponentRegistry()
     reg.register(_DummyComponent, "x")
-    assert reg.unregister(ComponentEnum.FILE_PARSER, "x") is True
-    assert reg.get(ComponentEnum.FILE_PARSER, "x") is None
+    assert reg.unregister(ComponentEnum.FILE_CHUNKER, "x") is True
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "x") is None
 
 
 def test_unregister_missing_returns_false():
     reg = ComponentRegistry()
-    assert reg.unregister(ComponentEnum.FILE_PARSER, "nope") is False
+    assert reg.unregister(ComponentEnum.FILE_CHUNKER, "nope") is False
 
 
 # -- clear --------------------------------------------------------------------
@@ -130,7 +130,7 @@ def test_clear():
     reg.register(_DummyComponent, "a")
     reg.register(_AnotherComponent, "b")
     reg.clear()
-    assert not reg.get_all(ComponentEnum.FILE_PARSER)
+    assert not reg.get_all(ComponentEnum.FILE_CHUNKER)
     assert not reg.get_all(ComponentEnum.KEYWORD_INDEX)
 
 

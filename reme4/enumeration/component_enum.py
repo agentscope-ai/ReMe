@@ -14,7 +14,7 @@ class ComponentEnum(str, Enum):
 
     EMBEDDING_STORE = "embedding_store"
 
-    FILE_PARSER = "file_parser"
+    FILE_CHUNKER = "file_chunker"
 
     FILE_STORE = "file_store"
 

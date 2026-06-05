@@ -15,7 +15,7 @@ ReMe新版本V4
    - 支持memory-self-evolving
      - [❌ 待补充] 没有发现自进化相关的 step/job 实现，目前只有基础的 search/reindex 等 common steps（`reme4/steps/common/`）。需要新增 auto-memory/auto-dream 等 step。
    - 支持markdown之间的链接，构建graph，更好的渐进式展开
-     - [✅ 已实现 → `reme4/components/file_parser/linked_file_parser.py`（wikilink 解析 + Dataview 谓词）、`reme4/components/file_graph/`（local/nx/neo4j 三种 graph 后端）]
+     - [✅ 已实现 → `reme4/components/file_chunker/markdown_file_chunker.py`（wikilink 解析 + Dataview 谓词）、`reme4/components/file_graph/`（local/nx/neo4j 三种 graph 后端）]
      - [✅ 已实现 → `reme4/steps/common/search.py:109` `_expand_links`、`reme4/config/default.yaml:86` `expand_links` 参数（搜索结果可附 outlinks/inlinks 邻居元数据）]
 3. 工程实现：
    1. components
@@ -71,21 +71,21 @@ ReMe新版本V4
 5. Markdown 格式 & Build Graph
    1. obsidian格式的Markdown文件格式
       - front matter格式
-        - [✅ 已实现 → `reme4/components/file_parser/linked_file_parser.py:313` `frontmatter.loads(...)`；`reme4/schema/file_front_matter.py`]
+        - [✅ 已实现 → `reme4/components/file_chunker/markdown_file_chunker.py:313` `frontmatter.loads(...)`；`reme4/schema/file_front_matter.py`]
       - file link格式 4种格式
-        - [⚠️ 部分实现] `linked_file_parser.py:88` `_WIKILINK_RE` 已支持 `[[target]]` / `[[target#anchor]]` / `[[target|alias]]` / `![[target]]`（嵌入），并支持 Dataview `predicate:: [[X]]` 与 inline `[predicate:: [[X]]]`。但 [❌ 待补充] 标准 Markdown `[text](url.md)` 链接尚未被解析为 graph 边。
+        - [⚠️ 部分实现] `markdown_file_chunker.py:88` `_WIKILINK_RE` 已支持 `[[target]]` / `[[target#anchor]]` / `[[target|alias]]` / `![[target]]`（嵌入），并支持 Dataview `predicate:: [[X]]` 与 inline `[predicate:: [[X]]]`。但 [❌ 待补充] 标准 Markdown `[text](url.md)` 链接尚未被解析为 graph 边。
    2. 更好的文件chunking机制
       - 旧版 类似rag 带overlap的chunking机制
         - [📌 历史] V3 旧逻辑，对照说明用，无需在 reme4 中实现。
       - 解析 Markdown Ast
-        - [✅ 已实现 → `linked_file_parser.py:308` 使用 `mistletoe` 的 `Document`/`MarkdownRenderer`；`:335` `_build_tree` 把扁平 children 折叠成 section 嵌套树（`MdNode`）]
+        - [✅ 已实现 → `markdown_file_chunker.py:308` 使用 `mistletoe` 的 `Document`/`MarkdownRenderer`；`:335` `_build_tree` 把扁平 children 折叠成 section 嵌套树（`MdNode`）]
       - 每一个chunk都带全部标题
-        - [✅ 已实现 → `linked_file_parser.py:381` `_chunk_node`（`before` 累积已经过的标题、`after` 拼剩余 desc_toc）；`:712` `_make_chunk` 用 `_toc_join(before, content, after)` 把全文目录骨架前后包裹]
+        - [✅ 已实现 → `markdown_file_chunker.py:381` `_chunk_node`（`before` 累积已经过的标题、`after` 拼剩余 desc_toc）；`:712` `_make_chunk` 用 `_toc_join(before, content, after)` 把全文目录骨架前后包裹]
    3. 通过link构建graph索引，同时构建反向link索引
       - [✅ 已实现 → `reme4/components/file_graph/base_file_graph.py`、`reme4/components/file_graph/local_file_graph.py`（含 `get_outlinks`、`get_inlinks` 双向索引）；nx/neo4j 后端同 API；`reme4/steps/common/search.py:114-129` 使用双向 link]
    4. link的生成有两种，一种是主agent在生成link；另一种是通过后台任务，自动构建文档之间的link
       - 介绍如何auto-link
-        - [⚠️ 部分实现] 主 agent 显式写 `[[link]]` 已经会被 parser 抓为边（`linked_file_parser.py:152` `_extract_links`）。但 [❌ 待补充] "后台任务自动补 link" 的实现（实体抽取 / 候选文档相似度匹配 / link 写回 markdown）尚不存在，需要单独的 step/job。
+        - [⚠️ 部分实现] 主 agent 显式写 `[[link]]` 已经会被 parser 抓为边（`markdown_file_chunker.py:152` `_extract_links`）。但 [❌ 待补充] "后台任务自动补 link" 的实现（实体抽取 / 候选文档相似度匹配 / link 写回 markdown）尚不存在，需要单独的 step/job。
 6. 如何做memory自进化
 Auto-memory
 auto-dream
@@ -120,7 +120,7 @@ V4更加高效的底层记忆索引
   - 不支持关键词检索，这里需要Keyword倒排索引，对中文的支持较差
   - [📌 历史] 描述 V3 痛点，不需要代码。
 - V4版本我们重写了file parser，file store，file graph，file watcher，手写了支持增量更新倒排索引
-  - file parser → [✅ `reme4/components/file_parser/`（base/default/chunked/linked 四种）]
+  - file parser → [✅ `reme4/components/file_chunker/`（base/default/chunked/linked 四种）]
   - file store → [✅ `reme4/components/file_store/local_file_store.py`]
   - file graph → [✅ `reme4/components/file_graph/`（local/nx/neo4j）]
   - file watcher → [✅ `reme4/components/file_watcher/lite_file_watcher.py` 基于 watchfiles awatch；`base_file_watcher.py` 抽象接口]
@@ -146,7 +146,7 @@ xxxx
 1. **组件框架**：backend 注册（`component_registry.py`）、生命周期（`base_component.py`）、依赖声明 + 拓扑启动（`application.py:80`）。
 2. **Job/Step 体系**：`components/job/base_job.py`、`components/job/stream_job.py`、`steps/base_step.py` 与 `steps/common/*`。
 3. **服务/客户端**：HTTP（`service/http_service.py` + `client/http_client.py`）、MCP（`service/mcp_service.py` + `client/mcp_client.py`），CLI 入口 `reme.py:main`。
-4. **Markdown 解析**：`file_parser/linked_file_parser.py`，含 frontmatter、wikilink + Dataview 谓词、AST 树、带全标题骨架的 chunking。
+4. **Markdown 解析**：`file_chunker/markdown_file_chunker.py`，含 frontmatter、wikilink + Dataview 谓词、AST 树、带全标题骨架的 chunking。
 5. **Graph**：`file_graph/{local,nx,neo4j}_file_graph.py`，双向链接索引。
 6. **存储 / 索引**：`file_store/local_file_store.py` + `keyword_index/bm25_index.py`（增量 BM25）+ `tokenizer/{regex,jieba}_tokenizer.py`。
 7. **文件监听**：`file_watcher/lite_file_watcher.py`（watchfiles 轮询）。

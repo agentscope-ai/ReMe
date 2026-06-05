@@ -40,7 +40,7 @@
 │   search · auto_memory · auto_dream · auto_link …       │
 ├─────────────────────────────────────────────────────────┤
 │        Markdown 知识内核（本地文件即数据库）              │
-│   FileParser · FileStore · FileGraph · FileWatcher      │
+│   FileChunker · FileStore · FileGraph · FileWatcher      │
 │   BM25 倒排 · 向量索引 · Wiki Link 图谱                 │
 ├─────────────────────────────────────────────────────────┤
 │        文件目录约定                                      │
@@ -377,7 +377,7 @@ ReMe 自研增量 BM25 倒排索引，配合 jieba 中文分词：
 ReMe 把所有能力封装为 Component：
 
 ```
-embedding · file_store · file_graph · file_parser · file_watcher
+embedding · file_store · file_graph · file_chunker · file_watcher
 tokenizer · keyword_index · LLM 适配 · service · client
 ```
 
@@ -909,7 +909,7 @@ type: personalization
 
 新版本重写了记忆引擎的核心模块：
 
-- **file parser** —— Markdown AST + 章节切片 + wikilink 抽取
+- **file chunker** —— Markdown AST + 章节切片 + wikilink 抽取
 - **file store** —— 内存 chunk 字典 + JSONL 持久化
 - **file graph** —— 双向链接索引，多 backend
 - **file watcher** —— 基于 watchfiles 的轻量监听

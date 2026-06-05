@@ -1,7 +1,7 @@
 """Tests for background steps: ScanStoreChangesStep + WatchChangesStep.
 
 Both steps are subclasses of BaseStep. To exercise them without spinning up the
-full ApplicationContext, we pass real (started) file_store/file_parser via the
+full ApplicationContext, we pass real (started) file_store/file_chunker via the
 step's kwargs (so the BaseStep _resolve() machinery returns them).
 
 ScanStoreChangesStep writes its result into ``context["changes"]`` for a downstream
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from watchfiles import Change
 
-from reme4.components.file_parser import ChunkedFileParser
+from reme4.components.file_chunker import DefaultFileChunker
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
 from reme4.steps import ScanStoreChangesStep, WatchChangesStep
@@ -65,13 +65,13 @@ async def _make_scan_step(
     recursive: bool = True,
 ) -> tuple[ScanStoreChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
     fs = LocalFileStore(name="test_store", embedding_store="")
-    parser = ChunkedFileParser()
+    parser = DefaultFileChunker()
     await fs.start()
     await parser.start()
     step = ScanStoreChangesStep(
         recursive=recursive,
         file_store=fs,
-        file_parser=parser,
+        file_chunker=parser,
     )
     context = RuntimeContext(
         watch_paths=watch_paths,
@@ -80,7 +80,7 @@ async def _make_scan_step(
     return step, context, fs, parser
 
 
-async def _teardown(fs: LocalFileStore, parser: ChunkedFileParser) -> None:
+async def _teardown(fs: LocalFileStore, parser: DefaultFileChunker) -> None:
     await parser.close()
     await fs.close()
 

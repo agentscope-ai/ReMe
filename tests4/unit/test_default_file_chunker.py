@@ -1,10 +1,10 @@
-"""Tests for ChunkedFileParser."""
+"""Tests for DefaultFileChunker."""
 
 import asyncio
 import os
 import tempfile
 
-from reme4.components.file_parser import ChunkedFileParser
+from reme4.components.file_chunker import DefaultFileChunker
 from reme4.utils.wikilink_handler import WikilinkHandler
 
 
@@ -19,7 +19,7 @@ def test_parse_empty_file():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser()
+            parser = DefaultFileChunker()
             file_node, chunks = await parser.parse(temp_path)
             assert file_node.path == temp_path
             assert len(chunks) == 0
@@ -40,7 +40,7 @@ def test_parse_small_file():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=10000)
+            parser = DefaultFileChunker(chunk_byte_size=10000)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
@@ -64,7 +64,7 @@ def test_parse_multiline_file():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=10000)
+            parser = DefaultFileChunker(chunk_byte_size=10000)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) == 1
             assert chunks[0].start_line == 1
@@ -88,7 +88,7 @@ def test_parse_chunked_file():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=5000, overlap_byte_size=100)
+            parser = DefaultFileChunker(chunk_byte_size=5000, overlap_byte_size=100)
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
             # Verify overlap by checking that consecutive chunks share some content
@@ -110,7 +110,7 @@ def test_parse_with_custom_encoding():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(encoding="utf-8")
+            parser = DefaultFileChunker(encoding="utf-8")
             _, chunks = await parser.parse(temp_path)
             assert len(chunks) >= 1
             assert "你好世界" in chunks[0].text
@@ -131,7 +131,7 @@ def test_file_node_properties():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser()
+            parser = DefaultFileChunker()
             file_node, _ = await parser.parse(temp_path)
             assert hasattr(file_node, "path")
             assert hasattr(file_node, "st_mtime")
@@ -153,7 +153,7 @@ def test_file_chunk_properties():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser()
+            parser = DefaultFileChunker()
             _, chunks = await parser.parse(temp_path)
             chunk = chunks[0]
             assert hasattr(chunk, "path")
@@ -298,7 +298,7 @@ def test_parse_links_in_file():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser()
+            parser = DefaultFileChunker()
             file_node, _ = await parser.parse(temp_path)
             triples = {(link.predicate, link.target_path, link.target_anchor) for link in file_node.links}
             assert (None, "alpha", None) in triples
@@ -326,7 +326,7 @@ def test_parse_links_empty_when_no_content():
             fm_only_path = f.name
 
         try:
-            parser = ChunkedFileParser()
+            parser = DefaultFileChunker()
             node1, _ = await parser.parse(empty_path)
             node2, _ = await parser.parse(fm_only_path)
             assert node1.links == []
@@ -354,7 +354,7 @@ def test_chunk_does_not_split_wikilink_at_boundary():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
             _, chunks = await parser.parse(temp_path)
             # The first chunk must NOT contain a partial link.
             first = chunks[0].text
@@ -383,7 +383,7 @@ def test_chunk_does_not_split_wikilink_in_overlap():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=20)
+            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=20)
             _, chunks = await parser.parse(temp_path)
             # No chunk should start mid-link.
             for c in chunks:
@@ -413,7 +413,7 @@ def test_chunk_falls_back_for_oversize_link():
             temp_path = f.name
 
         try:
-            parser = ChunkedFileParser(chunk_byte_size=100, overlap_byte_size=10)
+            parser = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
             _, chunks = await parser.parse(temp_path)
             # Must terminate (not hang) and cover the whole file.
             assert len(chunks) >= 2
@@ -429,7 +429,7 @@ def test_min_chunk_and_overlap_size():
 
     async def run():
         # These values should be clamped to minimums
-        parser = ChunkedFileParser(chunk_byte_size=1, overlap_byte_size=0)
+        parser = DefaultFileChunker(chunk_byte_size=1, overlap_byte_size=0)
         assert parser.chunk_byte_size == 100  # minimum
         assert parser.overlap_byte_size == 4  # minimum
 

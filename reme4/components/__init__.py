@@ -6,7 +6,7 @@ from . import embedding
 from . import embedding_store
 from . import file_catalog
 from . import file_graph
-from . import file_parser
+from . import file_chunker
 from . import file_store
 from . import job
 from . import keyword_index
@@ -33,7 +33,7 @@ __all__ = [
     "embedding_store",
     "file_catalog",
     "file_graph",
-    "file_parser",
+    "file_chunker",
     "file_store",
     "job",
     "keyword_index",

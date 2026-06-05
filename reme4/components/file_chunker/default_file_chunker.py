@@ -1,4 +1,4 @@
-"""File parser with byte-based overlapping chunking."""
+"""Default file chunker — byte-based overlapping chunking."""
 
 from bisect import bisect_right
 from pathlib import Path
@@ -6,15 +6,15 @@ from pathlib import Path
 import aiofiles
 import yaml
 
-from .base_file_parser import BaseFileParser
+from .base_file_chunker import BaseFileChunker
 from ..component_registry import R
 from ...schema import FileChunk, FileFrontMatter, FileNode
 from ...utils.wikilink_handler import WikilinkHandler
 
 
-@R.register("chunked")
-class ChunkedFileParser(BaseFileParser):
-    """Parser that splits files into byte-based overlapping chunks."""
+@R.register("default")
+class DefaultFileChunker(BaseFileChunker):
+    """Default chunker that splits files into byte-based overlapping chunks."""
 
     def __init__(self, encoding: str = "utf-8", chunk_byte_size: int = 10000, overlap_byte_size: int = 100, **kwargs):
         super().__init__(**kwargs)

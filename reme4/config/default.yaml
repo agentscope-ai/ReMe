@@ -14,6 +14,7 @@ jobs:
     suffix_filters: [ "md" ]
     steps:
       - backend: scan_store_changes_step
+        recursive: true
       - backend: update_index_step
         persist: true
       - backend: watch_changes_step
@@ -491,15 +492,13 @@ components:
     default:
       backend: local
 
-  file_parser:
-    linked:
-      backend: linked
+  file_chunker:
+    markdown:
+      backend: markdown
       supported_extensions: [ "md" ]
-    chunked:
-      backend: chunked
-      supported_extensions: [ "txt", "html", "json", "jsonl", "yaml", "py" ]
     default:
       backend: default
+      supported_extensions: [ "txt", "html", "json", "jsonl", "yaml", "py" ]
 
   keyword_index:
     default:

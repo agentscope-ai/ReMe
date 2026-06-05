@@ -1,4 +1,4 @@
-"""Markdown file parser — frontmatter + wikilink graph + AST tree chunks.
+"""Markdown file chunker — frontmatter + wikilink graph + AST tree chunks.
 
 Each chunk carries the **complete heading skeleton** of the document
 with its content inlined under the section that owns it; other sections
@@ -21,7 +21,7 @@ from typing import Any
 import frontmatter
 
 
-from .base_file_parser import BaseFileParser
+from .base_file_chunker import BaseFileChunker
 from ..component_registry import R
 from ...schema import (
     FileChunk,
@@ -103,12 +103,12 @@ def _subtree_toc(n: MdNode) -> str:
     return f"{heading}\n\n{n.desc_toc}" if n.desc_toc else heading
 
 
-# -- Parser ---------------------------------------------------------------
+# -- Chunker --------------------------------------------------------------
 
 
-@R.register("linked")
-class LinkedFileParser(BaseFileParser):
-    """Markdown parser: frontmatter + wikilink edges + full-skeleton chunks."""
+@R.register("markdown")
+class MarkdownFileChunker(BaseFileChunker):
+    """Markdown chunker: frontmatter + wikilink edges + full-skeleton chunks."""
 
     def __init__(
         self,

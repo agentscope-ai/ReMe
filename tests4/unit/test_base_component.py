@@ -16,7 +16,7 @@ from reme4.enumeration import ComponentEnum
 
 
 class StubComponent(BaseComponent):
-    component_type = ComponentEnum.FILE_PARSER
+    component_type = ComponentEnum.FILE_CHUNKER
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -42,18 +42,18 @@ class RequiredDepTarget(BaseComponent):
 
 
 def test_dependency_repr_optional():
-    dep = Dependency(ComponentEnum.FILE_PARSER, "my_parser", optional=True)
+    dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser", optional=True)
     assert "?" in repr(dep)
-    assert "file_parser" in repr(dep)
+    assert "file_chunker" in repr(dep)
 
 
 def test_dependency_repr_required():
-    dep = Dependency(ComponentEnum.FILE_PARSER, "my_parser", optional=False)
+    dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser", optional=False)
     assert "?" not in repr(dep)
 
 
 def test_dependency_getattr_raises():
-    dep = Dependency(ComponentEnum.FILE_PARSER, "my_parser")
+    dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser")
     with pytest.raises(RuntimeError, match="accessed before start"):
         _ = dep.some_method
 
@@ -312,7 +312,7 @@ def test_vault_metadata_path_no_context():
 
 def test_component_metadata_path():
     comp = StubComponent()
-    assert comp.component_metadata_path.name == ComponentEnum.FILE_PARSER.value
+    assert comp.component_metadata_path.name == ComponentEnum.FILE_CHUNKER.value
 
 
 if __name__ == "__main__":
