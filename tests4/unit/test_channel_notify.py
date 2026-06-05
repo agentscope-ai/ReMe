@@ -6,7 +6,7 @@ from pathlib import Path
 from reme4.components.application_context import ApplicationContext
 from reme4.components.service.mcp_service import ChannelSink
 from reme4.components.runtime_context import RuntimeContext
-from reme4.steps.index.channel_notify import ChannelNotifyStep
+from reme4.steps.channel.channel_notify import ChannelNotifyStep
 
 
 class _StubSession:

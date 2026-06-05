@@ -86,7 +86,7 @@ class DailyCreateStep(BaseStep):
             if err:
                 self._fail(err)
                 return None
-            path_rel = f"{daily_dir}/{day}/{session_id}.md"
+            path_rel = f"{daily_dir}/{day}/session_agent_{session_id}.md"
             name = session_id
         else:
             path_rel = f"{daily_dir}/{day}.md"

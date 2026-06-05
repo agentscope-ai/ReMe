@@ -24,8 +24,8 @@ from .file_io.read import ReadStep
 from .file_io.read_image import ReadImageStep
 from .file_io.stat import StatStep
 from .file_io.write import WriteStep
-from .index.channel_notify import ChannelNotifyStep
-from .index.claim_channel import ClaimChannelStep
+from .channel.channel_notify import ChannelNotifyStep
+from .channel.claim_channel import ClaimChannelStep
 from .index.clear_and_scan import ClearAndScanStep
 from .index.node_search import NodeSearchStep
 from .index.scan_changes import ScanCatalogChangesStep, ScanStoreChangesStep
@@ -68,9 +68,10 @@ __all__ = [
     "FrontmatterDeleteStep",
     "FrontmatterReadStep",
     "FrontmatterUpdateStep",
-    # index
+    # channel
     "ChannelNotifyStep",
     "ClaimChannelStep",
+    # index
     "ClearAndScanStep",
     "NodeSearchStep",
     "ScanCatalogChangesStep",
