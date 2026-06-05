@@ -53,10 +53,12 @@ async def _test_stream_llm_basic_chat():
             queue: asyncio.Queue = asyncio.Queue()
             chunks: list[StreamChunk] = []
 
-            task = asyncio.create_task(step(
-                stream_queue=queue,
-                query="Explain step by step how to compute 1 + 1, and give the final answer.",
-            ))
+            task = asyncio.create_task(
+                step(
+                    stream_queue=queue,
+                    query="Explain step by step how to compute 1 + 1, and give the final answer.",
+                ),
+            )
 
             print("\n[stream_basic] streaming output:")
             async for raw in execute_stream_task(queue, task, output_format="chunk"):
@@ -95,12 +97,14 @@ async def _test_stream_llm_with_tool():
             queue: asyncio.Queue = asyncio.Queue()
             chunks: list[StreamChunk] = []
 
-            task = asyncio.create_task(step(
-                stream_queue=queue,
-                query="Use the add tool to compute 21 + 21 and report the result.",
-                sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
-                use_add_tool=True,
-            ))
+            task = asyncio.create_task(
+                step(
+                    stream_queue=queue,
+                    query="Use the add tool to compute 21 + 21 and report the result.",
+                    sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
+                    use_add_tool=True,
+                ),
+            )
 
             print("\n[stream_tool] streaming output:")
             async for raw in execute_stream_task(queue, task, output_format="chunk"):
@@ -146,10 +150,12 @@ async def _test_stream_llm_fallback_no_stream():
             queue: asyncio.Queue = asyncio.Queue()
             chunks: list[StreamChunk] = []
 
-            task = asyncio.create_task(step(
-                stream_queue=queue,
-                query="Explain step by step how to compute 1 + 1, and give the final answer.",
-            ))
+            task = asyncio.create_task(
+                step(
+                    stream_queue=queue,
+                    query="Explain step by step how to compute 1 + 1, and give the final answer.",
+                ),
+            )
 
             print("\n[fallback_stream] streaming output:")
             async for raw in execute_stream_task(queue, task, output_format="chunk"):
@@ -201,11 +207,13 @@ async def _demo_stream_print():
                 "Include the chain rule, gradient descent, and give a concrete example with numbers."
             )
 
-            task = asyncio.create_task(step(
-                stream_queue=queue,
-                query=query,
-                sys_prompt="You are a knowledgeable AI teacher. Explain concepts thoroughly.",
-            ))
+            task = asyncio.create_task(
+                step(
+                    stream_queue=queue,
+                    query=query,
+                    sys_prompt="You are a knowledgeable AI teacher. Explain concepts thoroughly.",
+                ),
+            )
 
             async for raw in execute_stream_task(queue, task, output_format="chunk"):
                 chunk: StreamChunk = raw  # type: ignore[assignment]

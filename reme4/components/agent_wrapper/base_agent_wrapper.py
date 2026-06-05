@@ -35,6 +35,8 @@ class BaseAgentWrapper(BaseComponent):
         self.kwargs["output_schema"] = schema
         return self
 
+    # TODO add skills
+
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> tuple[str, Any]:
         """Send inputs to the agent and return (session_id, last_message)."""
