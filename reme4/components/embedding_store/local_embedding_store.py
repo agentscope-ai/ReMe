@@ -18,19 +18,19 @@ Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 class LocalEmbeddingStore(BaseEmbeddingStore):
     """Embedding store with LRU cache, disk persistence, and serial batching.
 
-    Delegates actual embedding computation to a bound ``embedding`` component.
+    Delegates actual embedding computation to a bound ``as_embedding`` component.
     """
 
     def __init__(
         self,
-        embedding: str = "default",
+        as_embedding: str = "default",
         max_cache_size: int = 10000,
         enable_cache: bool = True,
         cache_version: str = "v1",
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.embedding = self.bind(embedding, BaseAsEmbedding, optional=False)
+        self.as_embedding = self.bind(as_embedding, BaseAsEmbedding, optional=False)
         self.max_cache_size = max_cache_size
         self.enable_cache = enable_cache
         self.cache_version = cache_version
@@ -40,8 +40,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     @property
     def dimensions(self) -> int:
         """Return the embedding dimension size."""
-        assert self.embedding is not None, "embedding component not bound"
-        return self.embedding.dimensions
+        assert self.as_embedding is not None, "embedding component not bound"
+        return self.as_embedding.dimensions
 
     @property
     def cache_path(self) -> Path:
@@ -58,7 +58,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     async def health_check(self, timeout: float = 2.0) -> bool:
         tag = f"[EMBEDDING HEALTH CHECK] name={self.name}"
         try:
-            result = await asyncio.wait_for(self.embedding(["ping"]), timeout=timeout)
+            result = await asyncio.wait_for(self.as_embedding(["ping"]), timeout=timeout)
             if not result or result[0] is None:
                 raise RuntimeError("empty embedding")
             self.is_healthy = True
@@ -121,7 +121,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     async def _call_with_retry(self, texts: list[str], **kwargs) -> list[list[float] | None] | None:
         for attempt in range(self.max_retries):
             try:
-                result = await self.embedding(texts, **kwargs)
+                result = await self.as_embedding(texts, **kwargs)
                 if result and len(result) == len(texts):
                     return result
             except (TimeoutError, ConnectionError, OSError):

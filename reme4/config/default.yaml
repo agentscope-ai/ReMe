@@ -468,7 +468,7 @@ components:
   embedding_store:
     default:
       backend: local
-      embedding: default
+      as_embedding: default
 
   as_llm:
     default:
