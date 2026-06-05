@@ -137,5 +137,8 @@ class AutoResourceStep(BaseStep):
             await self._handle_delete(date_str, session_id)
         else:
             await self._handle_upsert(
-                file_path, date_str, session_id, created=change == Change.added
+                file_path,
+                date_str,
+                session_id,
+                created=change == Change.added,
             )

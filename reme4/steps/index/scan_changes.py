@@ -20,10 +20,8 @@ from pathlib import Path
 from typing import Iterable
 
 from ._watch_rules import WatchRule, build_watch_rules, collect_existing
-from ..base_step import BaseStep, Ref
+from ..base_step import BaseStep
 from ...components import R
-from ...components.file_catalog import BaseFileCatalog
-from ...enumeration import ComponentEnum
 from ...schema import FileNode
 
 

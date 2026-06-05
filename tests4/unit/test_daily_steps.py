@@ -447,7 +447,7 @@ def test_day_index_lists_each_note():
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
             assert "[[daily/2026-05-18/session_agent_alpha.md]]" in text
-            assert "[[daily/2026-05-18/beta.md]]" in text
+            assert "[[daily/2026-05-18/session_agent_beta.md]]" in text
             assert "Alpha Project" in text
             assert "Beta Project" in text
             await store.close()
@@ -474,13 +474,19 @@ def test_day_index_includes_note_descriptions():
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
             # name + description inline on the same line as the wikilink
-            assert "[[daily/2026-05-18/session_agent_alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件" in text
-            assert "[[daily/2026-05-18/beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响" in text
-            # gamma has no description → only name is emitted, no trailing `description:` cruft
-            assert "[[daily/2026-05-18/gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
-                "[[daily/2026-05-18/gamma.md]] name: Gamma",
+            assert (
+                "[[daily/2026-05-18/session_agent_alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件"
+                in text
             )
-            assert "description:" not in text.split("[[daily/2026-05-18/gamma.md]]")[1].split("\n")[0]
+            assert (
+                "[[daily/2026-05-18/session_agent_beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响"
+                in text
+            )
+            # gamma has no description → only name is emitted, no trailing `description:` cruft
+            assert "[[daily/2026-05-18/session_agent_gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
+                "[[daily/2026-05-18/session_agent_gamma.md]] name: Gamma",
+            )
+            assert "description:" not in text.split("[[daily/2026-05-18/session_agent_gamma.md]]")[1].split("\n")[0]
             await store.close()
         print("✓ test_day_index_includes_note_descriptions passed")
 
@@ -534,7 +540,7 @@ def test_day_index_preserves_user_content_outside_marker():
             assert "MY HAND-WRITTEN NOTE" in after
             assert "这是我手写的备忘" in after
             assert "## 我的笔记" in after
-            assert "[[daily/2026-05-18/beta.md]]" in after
+            assert "[[daily/2026-05-18/session_agent_beta.md]]" in after
             await store.close()
         print("✓ test_day_index_preserves_user_content_outside_marker passed")
 
@@ -569,7 +575,7 @@ def test_daily_reindex_returns_write_view():
 
             text = _day_index_text(tmp, "2026-05-18")
             assert "[[daily/2026-05-18/session_agent_alpha.md]]" in text
-            assert "[[daily/2026-05-18/beta.md]]" in text
+            assert "[[daily/2026-05-18/session_agent_beta.md]]" in text
             await store.close()
         print("✓ test_daily_reindex_returns_write_view passed")
 

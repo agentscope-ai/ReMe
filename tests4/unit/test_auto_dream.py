@@ -100,7 +100,7 @@ def test_scans_date_md_and_date_folder():
             _touch(vault / "daily" / today / "session-a.md")
             _touch(vault / "daily" / today / "session-b.md")
             step = _make_step(vault, today)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             seen: list[str] = []
 
@@ -132,7 +132,7 @@ def test_resource_dir_is_not_scanned():
             _touch(vault / "resource" / today / "spec.pdf")
             step = _make_step(vault, today)
             step.app_context.app_config.resource_dir = "resource"
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=True, path=rel, summary="ok")
@@ -158,7 +158,7 @@ def test_unchanged_files_skipped_via_catalog_mtime():
             mtime = note.stat().st_mtime
             existing = [FileNode(path=f"daily/{today}/note.md", st_mtime=mtime)]
             step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             with patch.object(step, "dream_one") as dream_mock:
                 resp = await step(ctx)
@@ -186,7 +186,7 @@ def test_changed_file_dreamed_and_catalog_updated():
             stale = mtime - 999.0
             existing = [FileNode(path=f"daily/{today}/note.md", st_mtime=stale)]
             step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=True, path=rel, summary="ok")
@@ -218,7 +218,7 @@ def test_deleted_file_dropped_from_catalog():
             # No on-disk files for today; catalog has a stale entry for today.
             existing = [FileNode(path=f"daily/{today}/gone.md", st_mtime=123.0)]
             step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             with patch.object(step, "dream_one") as dream_mock:
                 resp = await step(ctx)
@@ -246,7 +246,7 @@ def test_other_days_catalog_entries_untouched():
             # Today: nothing on disk. Catalog has yesterday's entry.
             existing = [FileNode(path=f"daily/{yesterday}/note.md", st_mtime=99.0)]
             step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             resp = await step(ctx)
 
@@ -269,7 +269,7 @@ def test_failure_does_not_upsert():
             today = "2026-06-04"
             _touch(vault / "daily" / today / "note.md")
             step = _make_step(vault, today)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=False, path=rel, error="boom")
@@ -297,7 +297,7 @@ def test_phase1_empty_still_upserts():
             note = _touch(vault / "daily" / today / "note.md")
             mtime = note.stat().st_mtime
             step = _make_step(vault, today)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             async def _fake_dream(rel, _hint):
                 return DreamResult(used_llm=True, path=rel, skipped=True, summary="empty")
@@ -325,7 +325,7 @@ def test_partial_failure_does_not_block_other_files():
             _touch(vault / "daily" / today / "a.md")
             _touch(vault / "daily" / today / "b.md")
             step = _make_step(vault, today)
-            ctx = RuntimeContext()
+            ctx = RuntimeContext(date=today)
 
             async def _fake_dream(rel, _hint):
                 if rel.endswith("a.md"):
