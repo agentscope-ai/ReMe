@@ -12,12 +12,12 @@ Input is a single optional ``date`` (``YYYY-MM-DD``); falls back
 to today.
 """
 
-from datetime import date as _date
 from pathlib import Path
 
 from ._daily_index import scan_notes
 from ..base_step import BaseStep
 from ...components import R
+from ...steps.evolve import now
 
 
 @R.register("daily_list_step")
@@ -27,7 +27,8 @@ class DailyListStep(BaseStep):
     def _collect_params(self) -> tuple[str, str, Path]:
         """Read ``date`` (default today, ``YYYY-MM-DD``), resolve ``daily_dir``, locate the vault root on disk."""
         assert self.context is not None
-        day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
         vault_dir = Path(self.file_store.vault_path or ".").resolve()
         return day, daily_dir, vault_dir

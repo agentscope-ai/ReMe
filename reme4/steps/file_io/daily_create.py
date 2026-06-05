@@ -24,7 +24,6 @@ Outputs:
     metadata = {date, session_id, path, created, index?}
 """
 
-from datetime import date as _date
 from pathlib import Path
 
 import frontmatter
@@ -33,6 +32,7 @@ from ._daily_index import refresh_day_index, validate_session_id
 from ._file_io import write_file_safe
 from ..base_step import BaseStep
 from ...components import R
+from ...steps.evolve import now
 
 
 @R.register("daily_create_step")
@@ -51,7 +51,8 @@ class DailyCreateStep(BaseStep):
         """Read ``session_id`` + ``date`` from context; default ``date`` today, ``daily_dir`` from app config."""
         assert self.context is not None
         session_id = self.context.get("session_id", "")
-        day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
         return session_id, day, daily_dir
 

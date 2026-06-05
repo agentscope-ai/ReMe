@@ -19,11 +19,10 @@ today.
 Always idempotent and safe to re-run.
 """
 
-from datetime import date as _date
-
 from ._daily_index import refresh_day_index
 from ..base_step import BaseStep
 from ...components import R
+from ...steps.evolve import now
 
 
 @R.register("daily_reindex_step")
@@ -33,7 +32,8 @@ class DailyReindexStep(BaseStep):
     def _collect_params(self) -> tuple[str, str]:
         """Read ``date`` (default today) and ``daily_dir`` (default ``daily``) from context/app config."""
         assert self.context is not None
-        day = self.context.get("date", "") or _date.today().strftime("%Y-%m-%d")
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
         daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
         return day, daily_dir
 
