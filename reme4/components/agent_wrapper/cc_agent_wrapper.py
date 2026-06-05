@@ -23,7 +23,7 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         return SdkMcpTool(name=job.name, description=job.description, input_schema=job.parameters, handler=run_job)
 
-    async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
+    async def reply(self, inputs: Any, **kwargs) -> tuple[str, Any]:
         from claude_agent_sdk import query, ResultMessage, create_sdk_mcp_server
         from claude_agent_sdk.types import ClaudeAgentOptions
 
@@ -31,13 +31,10 @@ class CcAgentWrapper(BaseAgentWrapper):
             kwargs.setdefault(k, v)
 
         opts = ClaudeAgentOptions()
-        opts.system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
-        opts.model = kwargs["model"]
-        opts.permission_mode = kwargs.get("permission_mode", None)
-        opts.max_turns = kwargs.get("max_turns", 50)
-        if session_id:
-            opts.session_id = session_id
-            opts.fork_session = True
+        skip_keys = {"tools", "output_schema"}
+        for k, v in kwargs.items():
+            if k not in skip_keys and hasattr(opts, k):
+                setattr(opts, k, v)
 
         tools: list["BaseJob"] = kwargs.get("tools", [])
         if tools:

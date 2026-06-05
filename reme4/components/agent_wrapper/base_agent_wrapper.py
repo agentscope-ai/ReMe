@@ -36,14 +36,14 @@ class BaseAgentWrapper(BaseComponent):
         return self
 
     @abstractmethod
-    async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
+    async def reply(self, inputs: Any, **kwargs) -> tuple[str, Any]:
         """Send inputs to the agent and return (session_id, last_message)."""
 
-    async def reply_stream(self, inputs: Any, session_id: str | None = None, **kwargs) -> AsyncGenerator[Any, None]:
+    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[Any, None]:
         """Stream agent events. Yields backend-specific event objects.
 
         Subclasses may override to provide streaming support.
         Default implementation falls back to non-streaming reply and yields the final message.
         """
-        _, msg = await self.reply(inputs, session_id=session_id, **kwargs)
+        _, msg = await self.reply(inputs, **kwargs)
         yield msg

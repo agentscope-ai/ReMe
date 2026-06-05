@@ -72,7 +72,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return agent, inputs
 
-    async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
+    async def reply(self, inputs: Any, **kwargs) -> tuple[str, Any]:
         agent, inputs = self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)
@@ -91,7 +91,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return agent.state.session_id, last_msg
 
-    async def reply_stream(self, inputs: Any, session_id: str | None = None, **kwargs) -> AsyncGenerator[Any, None]:
+    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[Any, None]:
         """Stream agent events via AgentScope's reply_stream API."""
         agent, inputs = self._build_agent(inputs, **kwargs)
 

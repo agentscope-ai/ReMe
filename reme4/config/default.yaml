@@ -500,8 +500,9 @@ components:
     claude_code:
       backend: claude_code
       model: ${LLM_MODEL_NAME:-claude-opus-4-6}
+      system_prompt: "You are a helpful assistant."
       permission_mode: bypassPermissions
-      max_turns: 10
+      max_turns: 50
 
   file_graph:
     default:
