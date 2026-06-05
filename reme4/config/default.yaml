@@ -1,7 +1,7 @@
 vault_dir: .reme
 daily_dir: daily
 digest_dir: digest
-resource_dir: ""
+resource_dir: resource
 # language: zh
 
 service:

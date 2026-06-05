@@ -61,7 +61,7 @@ Documentation = "https://reme.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]
-reme4 = "reme4.reme:main"
+reme = "reme4.reme:main"
 
 [tool.setuptools]
 packages = { find = { where = [".."], include = ["reme4*"] } }
