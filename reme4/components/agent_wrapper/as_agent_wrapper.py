@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
-from agentscope.message import TextBlock, ToolResultState, UserMsg, SystemMsg
+from agentscope.message import TextBlock, ToolResultState, UserMsg
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, ToolChunk, Toolkit
-from pydantic import BaseModel
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM

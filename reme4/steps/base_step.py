@@ -5,9 +5,7 @@ from abc import abstractmethod, ABC
 from pathlib import Path
 from typing import TypeVar, TYPE_CHECKING
 
-from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
-from agentscope.tool import Toolkit, FunctionTool, ToolChunk
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from ..components.base_component import ComponentMixin
@@ -213,25 +211,3 @@ class BaseStep(ComponentMixin, ABC):
         if job is None:
             raise RuntimeError(f"Job {name} not found")
         return await job(**kwargs)
-
-    def add_as_tool(self, toolkit: Toolkit, job_name: str, **kwargs) -> None:
-        """Add the step as a tool to the toolkit."""
-        job: "BaseJob | None" = self.get_job(job_name)
-        if job is None:
-            raise RuntimeError(f"Job {job_name} not found")
-
-        async def run_job(**_kwargs) -> ToolChunk:
-            response = await job(**{**_kwargs, **kwargs})
-            return ToolChunk(
-                content=[TextBlock(text=str(response.answer))],
-                state="success" if response.success else "error",
-            )
-
-        tool = FunctionTool(
-            func=run_job,
-            name=job_name,
-            description=job.description,
-        )
-        if job.parameters:
-            tool.input_schema = job.parameters
-        toolkit.tool_groups[0].tools.append(tool)

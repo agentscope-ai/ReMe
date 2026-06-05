@@ -47,18 +47,12 @@ Invocation form (CLI / MCP):
     reme dream path=resource/2026-05-28/spec.pdf hint="focus on auth"
 """
 
-import datetime
-import zoneinfo
 from pathlib import Path
 from typing import Literal
 
-from agentscope.agent import Agent
-from agentscope.message import Msg, TextBlock
-from agentscope.permission import PermissionContext, PermissionMode
-from agentscope.state import AgentState
-from agentscope.tool import Toolkit
 from pydantic import BaseModel, Field
 
+from ._evolve import now
 from ..base_step import BaseStep
 from ...components import R
 
@@ -245,24 +239,6 @@ class DreamStep(BaseStep):
         reme dream path=daily/2026-05-28/auth-refactor/auth-refactor.md
     """
 
-    def __init__(
-        self,
-        toolkit: Toolkit | None = None,
-        timezone: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.toolkit = toolkit
-        self.timezone = timezone
-
-    def _now(self) -> datetime.datetime:
-        if self.timezone:
-            try:
-                return datetime.datetime.now(zoneinfo.ZoneInfo(self.timezone))
-            except Exception as e:
-                self.logger.error(f"Invalid timezone: {self.timezone}, error={e}")
-        return datetime.datetime.now()
-
     def _vault_dir(self) -> Path:
         vr = getattr(self.file_store, "vault_path", None)
         return Path(vr).resolve() if vr else Path.cwd().resolve()
@@ -273,25 +249,6 @@ class DreamStep(BaseStep):
         except Exception:
             return False
 
-    def _build_extract_toolkit(self) -> Toolkit:
-        """Read-only toolkit for the extract agent. Sub-units come back via
-        :class:`ExtractedUnits` structured output, not via a tool call."""
-        toolkit = Toolkit()
-        for job_name in _EXTRACT_TOOLS:
-            self.add_as_tool(toolkit, job_name)
-        return toolkit
-
-    def _build_integrate_toolkit(self) -> Toolkit:
-        """Full read + canonical write/edit/frontmatter_update toolkit for
-        the integrate agent. All tools are registered via :meth:`add_as_tool`
-        — same as every other step in this codebase. Outcome tracking is
-        driven by the agent's :class:`IntegrateOutcome` structured emission,
-        not by per-tool callbacks."""
-        toolkit = self.toolkit or Toolkit()
-        for job_name in _INTEGRATE_TOOLS:
-            self.add_as_tool(toolkit, job_name)
-        return toolkit
-
     async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> tuple[list[dict], str]:
         """Phase 1: one ReAct invocation — read material + emit ExtractedUnits.
 
@@ -300,37 +257,27 @@ class DreamStep(BaseStep):
         and ``llm_summary`` is whatever free-form text the agent produced
         alongside its structured emission.
         """
-        toolkit = self._build_extract_toolkit()
-        agent = Agent(
-            name="reme_dreamer_extract",
-            model=self.as_llm,
+        tools = [self.get_job(name) for name in _EXTRACT_TOOLS]
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        user_message = self.prompt_format(
+            "extract_user_message",
+            today=now(tz).strftime("%Y-%m-%d"),
+            hint=hint or "(none)",
+            material_blob=material_blob,
+        )
+        _, result = await self.agent_wrapper.reply(
+            user_message,
             system_prompt=self.prompt_format(
                 "extract_system_prompt",
                 vault_dir=str(vault_dir),
                 buckets=", ".join(BUCKETS),
             ),
-            toolkit=toolkit,
-            state=AgentState(
-                permission_context=PermissionContext(
-                    mode=PermissionMode.BYPASS,
-                ),
-            ),
-        )
-        user_message = self.prompt_format(
-            "extract_user_message",
-            today=self._now().strftime("%Y-%m-%d"),
-            hint=hint or "(none)",
-            material_blob=material_blob,
-        )
-        msg = await agent.reply(
-            Msg(name="reme", role="user", content=[TextBlock(text=user_message)]),
+            tools=tools,
+            output_schema=ExtractedUnits,
         )
 
-        structured_resp = await self.as_llm.generate_structured_output(
-            agent.state.context,
-            structured_model=ExtractedUnits,
-        )
-        meta = structured_resp.content if isinstance(structured_resp.content, dict) else {}
+        msg = result["message"]
+        meta = result["structured_output"] if isinstance(result["structured_output"], dict) else {}
         cleaned: list[dict] = []
         for raw in meta.get("units") or []:
             if not isinstance(raw, dict):
@@ -341,8 +288,6 @@ class DreamStep(BaseStep):
             if not name or not summary:
                 continue
             if bucket not in BUCKETS:
-                # Defensive: structured_model should already reject this,
-                # but if it slips through we route to wiki (the catch-all).
                 self.logger.warning(
                     f"[{self.name}] unit {name!r} emitted bucket {bucket!r} "
                     f"not in {list(BUCKETS)}; routing to 'wiki'",
@@ -358,24 +303,8 @@ class DreamStep(BaseStep):
         single source of truth for what got written (action +
         target_path)."""
         bucket = unit.get("bucket") or "wiki"
-        toolkit = self._build_integrate_toolkit()
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
-        agent = Agent(
-            name=f"reme_dreamer_integrate_{unit.get('name', 'unit')}",
-            model=self.as_llm,
-            system_prompt=self.prompt_format(
-                f"integrate_system_prompt_{bucket}",
-                vault_dir=str(vault_dir),
-                digest_dir=digest_dir,
-                bucket=bucket,
-            ),
-            toolkit=toolkit,
-            state=AgentState(
-                permission_context=PermissionContext(
-                    mode=PermissionMode.BYPASS,
-                ),
-            ),
-        )
+        tools = [self.get_job(name) for name in _INTEGRATE_TOOLS]
         user_message = self.prompt_format(
             "integrate_user_message",
             hint=hint or "(none)",
@@ -384,14 +313,18 @@ class DreamStep(BaseStep):
             unit_summary=unit.get("summary", ""),
             material_blob=material_blob,
         )
-        await agent.reply(
-            Msg(name="reme", role="user", content=[TextBlock(text=user_message)]),
+        _, result = await self.agent_wrapper.reply(
+            user_message,
+            system_prompt=self.prompt_format(
+                f"integrate_system_prompt_{bucket}",
+                vault_dir=str(vault_dir),
+                digest_dir=digest_dir,
+                bucket=bucket,
+            ),
+            tools=tools,
+            output_schema=IntegrateOutcome,
         )
-        structured_resp = await self.as_llm.generate_structured_output(
-            agent.state.context,
-            structured_model=IntegrateOutcome,
-        )
-        return IntegrateOutcome.model_validate(structured_resp.content)
+        return IntegrateOutcome.model_validate(result["structured_output"])
 
     async def dream_one(self, path: str, hint: str = "") -> DreamResult:
         """Run the full extract + integrate pipeline on one vault-relative

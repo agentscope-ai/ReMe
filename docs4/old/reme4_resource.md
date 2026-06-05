@@ -44,7 +44,7 @@
 
 hook任务：
 - auto-memory：在上下文满/每隔多少轮/session_end
-    - qwenpaw：直接传message session_id date，直接append session_{session_id}.jsonl @jinli
+    - qwenpaw：直接传message session_id date，直接append session_agent_{session_id}.jsonl @jinli
     - cc：给出新的path，对比我们保存的session_{session_id}.jsonl，看到增量msg，接着解析path的内容，保存到session_{session_id}.jsonl @sen
     - 注意保存的时候截断工具调用结构，防止太长
 

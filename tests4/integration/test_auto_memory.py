@@ -28,7 +28,7 @@ from reme4.utils import load_env
 
 load_env()
 
-DUMP_DIR = Path(__file__).resolve().parent
+DUMP_DIR = Path(__file__).resolve().parent / "agent_logs"
 
 SEED_STEM = "auth-middleware-rewrite"
 SEED_BODY = """---
@@ -200,6 +200,7 @@ class _AgentMemoryRecorder:
 
     async def dump(self) -> list[Path]:
         """Dump all agent context histories."""
+        self.dump_dir.mkdir(parents=True, exist_ok=True)
         for stale in self.dump_dir.glob(f"{self.prefix}_*.jsonl"):
             stale.unlink()
 

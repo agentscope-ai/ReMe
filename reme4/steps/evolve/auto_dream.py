@@ -49,6 +49,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from ._evolve import now
 from .dream import DreamStep, DreamResult
 from ..base_step import Ref
 from ...components import R
@@ -92,7 +93,8 @@ class AutoDreamStep(DreamStep):
         cfg = self.app_context.app_config if self.app_context is not None else None
         daily_dir = (cfg.daily_dir if cfg else "") or "daily"
 
-        today = date_input or self._now().strftime("%Y-%m-%d")
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        today = date_input or now(tz).strftime("%Y-%m-%d")
         vault = self._vault_dir()
         files = _scan_today_files(vault, today, daily_dir)
 

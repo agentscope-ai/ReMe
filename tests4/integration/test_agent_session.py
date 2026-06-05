@@ -56,7 +56,7 @@ async def _run_session_persistence() -> None:
             sid = "test-persist-session"
 
             # First call: establish session
-            session_id_1, msg_1 = await wrapper.reply(
+            _, msg_1 = await wrapper.reply(
                 "My favorite color is blue. Remember that.",
                 session_id=sid,
                 system_prompt="You are a helpful assistant. Keep answers short.",
@@ -72,7 +72,7 @@ async def _run_session_persistence() -> None:
             assert sid in files_after_1[0].name
 
             # Second call: same session_id — agent should have previous context
-            session_id_2, msg_2 = await wrapper.reply(
+            _, msg_2 = await wrapper.reply(
                 "What is my favorite color?",
                 session_id=sid,
                 system_prompt="You are a helpful assistant. Keep answers short.",
@@ -119,7 +119,9 @@ async def _run_fork_session() -> None:
             # Verify: original file still exists + new forked file created
             files_after_fork = _find_session_files(vault_root)
             print(f"[fork_session] session files after fork: {[f.name for f in files_after_fork]}")
-            assert len(files_after_fork) == 2, f"Expected 2 session files (original + fork), got {len(files_after_fork)}"
+            assert (
+                len(files_after_fork) == 2
+            ), f"Expected 2 session files (original + fork), got {len(files_after_fork)}"
 
             # Forked session_id should differ from the original
             assert forked_sid != sid, f"Forked session_id should differ from original, got {forked_sid!r}"

@@ -15,11 +15,13 @@ _META_KEYS = ("session_id", "reply_id", "cur_iter")
 
 
 class AsStateHandler:
+    """Serialize / deserialize AgentState to a JSONL file."""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
 
     async def dump(self, state: AgentState) -> Path:
+        """Write *state* to ``self.path`` in JSONL format."""
         header = UserMsg(
             name="__state__",
             content=state.summary or "",
@@ -32,6 +34,7 @@ class AsStateHandler:
         return self.path
 
     async def load(self) -> AgentState:
+        """Read an AgentState back from ``self.path``."""
         async with aiofiles.open(self.path, encoding="utf-8") as f:
             lines = (await f.read()).splitlines()
         if not lines:
@@ -47,5 +50,5 @@ class AsStateHandler:
         return AgentState(
             **{k: header.metadata.get(k, d) for k, d in [("session_id", ""), ("reply_id", ""), ("cur_iter", 0)]},
             summary=summary,
-            context=[Msg.model_validate_json(l) for l in lines[1:] if l.strip()],
+            context=[Msg.model_validate_json(line) for line in lines[1:] if line.strip()],
         )
