@@ -2,8 +2,10 @@
 
 from typing import Any, TYPE_CHECKING
 
-from agentscope.agent import Agent
+from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
 from agentscope.message import TextBlock, ToolResultState, UserMsg, SystemMsg
+from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, ToolChunk, Toolkit
 
 from .base_agent_wrapper import BaseAgentWrapper
@@ -16,14 +18,7 @@ if TYPE_CHECKING:
 
 @R.register("agentscope")
 class AsAgentWrapper(BaseAgentWrapper):
-    """Agent wrapper backed by AgentScope framework.
-
-    Args:
-        as_llm: Name of the bound as_llm component (resolved via app_context).
-    Kwargs:
-        system_prompt: System prompt for the agent.
-        tools: list[BaseJob] to register as agent wrapper tools.
-    """
+    """Agent wrapper backed by AgentScope framework."""
 
     def __init__(self, as_llm: str = "default", **kwargs):
         super().__init__(**kwargs)
@@ -33,10 +28,8 @@ class AsAgentWrapper(BaseAgentWrapper):
     def _make_tool(job: "BaseJob") -> FunctionTool:
         async def run_job(**kwargs) -> ToolChunk:
             response = await job(**kwargs)
-            return ToolChunk(
-                content=[TextBlock(text=str(response.answer))],
-                state=ToolResultState.SUCCESS if response.success else ToolResultState.ERROR,
-            )
+            state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
+            return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
 
         tool = FunctionTool(func=run_job, name=job.name, description=job.description)
         if job.parameters:
@@ -51,32 +44,30 @@ class AsAgentWrapper(BaseAgentWrapper):
         for k, v in self.kwargs.items():
             kwargs.setdefault(k, v)
 
-        output_schema: dict | None = kwargs.get("output_schema")
-
+        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         tools: list["BaseJob"] = kwargs.get("tools", [])
         toolkit = Toolkit(tools=[self._make_tool(job) for job in tools]) if tools else Toolkit()
 
-        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
+        perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
+        state = AgentState(permission_context=PermissionContext(mode=perm_mode))
 
         agent = Agent(
             name=self.name,
             system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
+            state=state,
+            model_config=ModelConfig(**(kwargs.get("model_config") or {})),
+            context_config=ContextConfig(**(kwargs.get("context_config") or {})),
+            react_config=ReActConfig(**(kwargs.get("react_config") or {})),
         )
 
         if isinstance(inputs, str):
             inputs = UserMsg(name="user", content=inputs)
 
-        if output_schema:
-            messages = [
-                SystemMsg(name="system", content=system_prompt),
-                inputs,
-            ]
-            res = await model.generate_structured_output(
-                messages=messages,
-                structured_model=output_schema,
-            )
+        if output_schema := kwargs.get("output_schema"):
+            messages = [SystemMsg(name="system", content=system_prompt), inputs]
+            res = await model.generate_structured_output(messages=messages, structured_model=output_schema)
             return agent.state.session_id, res.content
 
         await agent.observe(inputs)

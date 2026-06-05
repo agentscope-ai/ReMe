@@ -488,6 +488,15 @@ components:
     default:
       backend: agentscope
       as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 3000
+      model_config:
+        max_retries: 1
     claude_code:
       backend: claude_code
       model: ${LLM_MODEL_NAME:-claude-opus-4-6}

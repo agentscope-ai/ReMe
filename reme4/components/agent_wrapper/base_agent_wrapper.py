@@ -11,11 +11,7 @@ if TYPE_CHECKING:
 
 
 class BaseAgentWrapper(BaseComponent):
-    """Abstract base for agent wrapper components with swappable backends.
-
-    Subclasses implement reply() which returns (session_id, last_message).
-    Supports fluent configuration via set_system_prompt() and add_tools().
-    """
+    """Abstract base for agent wrapper components with swappable backends."""
 
     component_type = ComponentEnum.AGENT_WRAPPER
 

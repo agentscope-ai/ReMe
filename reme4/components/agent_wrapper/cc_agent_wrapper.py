@@ -11,15 +11,7 @@ if TYPE_CHECKING:
 
 @R.register("claude_code")
 class CcAgentWrapper(BaseAgentWrapper):
-    """Agent wrapper backed by Claude Code SDK.
-
-    Kwargs:
-        system_prompt: System prompt for the agent.
-        model: Claude model to use.
-        permission_mode: Permission mode for tool execution.
-        max_turns: Maximum conversation turns.
-        tools: list[BaseJob] to register as agent wrapper tools.
-    """
+    """Agent wrapper backed by Claude Code SDK."""
 
     @staticmethod
     def _make_tool(job: "BaseJob"):
@@ -27,17 +19,9 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         async def run_job(args):
             response = await job(**args)
-            return {
-                "content": [{"type": "text", "text": str(response.answer)}],
-                "is_error": not response.success,
-            }
+            return {"content": [{"type": "text", "text": str(response.answer)}], "is_error": not response.success}
 
-        return SdkMcpTool(
-            name=job.name,
-            description=job.description,
-            input_schema=job.parameters,
-            handler=run_job,
-        )
+        return SdkMcpTool(name=job.name, description=job.description, input_schema=job.parameters, handler=run_job)
 
     async def reply(self, inputs: Any, session_id: str | None = None, **kwargs) -> tuple[str, Any]:
         from claude_agent_sdk import query, ResultMessage, create_sdk_mcp_server
@@ -59,23 +43,17 @@ class CcAgentWrapper(BaseAgentWrapper):
         if tools:
             sdk_tools = [self._make_tool(job) for job in tools]
             server = create_sdk_mcp_server(name="reme_tools", tools=sdk_tools)
-            if isinstance(opts.mcp_servers, dict):
-                opts.mcp_servers["reme"] = server
-            else:
-                opts.mcp_servers = {"reme": server}
+            opts.mcp_servers = (opts.mcp_servers if isinstance(opts.mcp_servers, dict) else {}) | {"reme": server}
             opts.allowed_tools.extend(job.name for job in tools)
 
-        output_schema = kwargs.get("output_schema")
-        if output_schema:
+        if output_schema := kwargs.get("output_schema"):
             opts.output_format = {"type": "json_schema", "schema": output_schema}
 
-        if isinstance(inputs, str):
-            prompt = inputs
-        else:
+        if not isinstance(inputs, str):
             raise NotImplementedError("Only string input is supported for Claude Code.")
 
         last_msg = None
-        async for msg in query(prompt=prompt, options=opts):
+        async for msg in query(prompt=inputs, options=opts):
             if isinstance(msg, ResultMessage):
                 last_msg = msg
 

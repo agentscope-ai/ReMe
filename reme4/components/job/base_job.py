@@ -31,8 +31,6 @@ class BaseJob(BaseComponent):
         self.parameters = parameters or {}
         self.step_configs = steps or []
         self.enable_serve = enable_serve
-        # Resolved at start: (cls, params) pairs. Steps are re-instantiated per call so they stay
-        # stateless across runs and concurrent invocations don't share mutable step state.
         self.step_specs: list[tuple[type["BaseStep"], dict]] = []
 
     async def _start(self) -> None:
