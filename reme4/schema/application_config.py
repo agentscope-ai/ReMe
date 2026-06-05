@@ -34,7 +34,7 @@ class ApplicationConfig(BaseModel):
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
-    timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone (e.g. 'Asia/Shanghai'); None uses local time")
+    timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
     language: str = Field(default="", description="Default language for LLM interactions")
     log_to_console: bool = Field(default=True, description="Log to console")
     log_to_file: bool = Field(default=True, description="Log to file")

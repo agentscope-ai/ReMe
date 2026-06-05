@@ -1,11 +1,7 @@
-"""Demo step that drives an Agent via BaseStep.as_llm."""
+"""Demo step that drives an Agent via the agent_wrapper component."""
 
 from typing import Type
 
-from agentscope.agent import Agent
-from agentscope.state import AgentState
-from agentscope.message import Msg, TextBlock
-from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.tool import FunctionTool, Toolkit
 from pydantic import BaseModel
 
@@ -25,7 +21,7 @@ def add(a: float, b: float) -> str:
 
 @R.register("llm_demo_step")
 class LLMDemoStep(BaseStep):
-    """Drive an Agent powered by ``self.as_llm``.
+    """Drive an Agent powered by the ``agent_wrapper`` component.
 
     Inputs (from RuntimeContext):
         query     (str, required): user message content.
@@ -52,31 +48,24 @@ class LLMDemoStep(BaseStep):
 
         toolkit = Toolkit(tools=[FunctionTool(add)]) if use_add_tool else Toolkit()
 
-        agent = Agent(
-            name=self.name,
-            system_prompt=sys_prompt,
-            model=self.as_llm,
-            toolkit=toolkit,
-            state=AgentState(
-                permission_context=PermissionContext(
-                    mode=PermissionMode.BYPASS,
-                ),
-            ),
-        )
+        wrapper_kwargs = {
+            "system_prompt": sys_prompt,
+            "toolkit": toolkit,
+        }
+        if structured_model is not None:
+            wrapper_kwargs["output_schema"] = structured_model
 
-        response: Msg = await agent.reply(
-            Msg(name="user", role="user", content=[TextBlock(text=query)]),
-        )
-        text = (response.get_text_content() or "").strip()
-        self.logger.info(f"[{self.name}] response: {text!r}")
+        _, result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
 
         structured_content: dict | None = None
-        if structured_model is not None:
-            structured_resp = await self.as_llm.generate_structured_output(
-                agent.state.context,
-                structured_model=structured_model,
-            )
-            structured_content = structured_resp.content
+        if isinstance(result, dict) and "message" in result:
+            msg = result["message"]
+            structured_content = result["structured_output"]
+        else:
+            msg = result
+
+        text = (msg.get_text_content() or "").strip()
+        self.logger.info(f"[{self.name}] response: {text!r}")
 
         self.context.response.success = True
         self.context.response.answer = text

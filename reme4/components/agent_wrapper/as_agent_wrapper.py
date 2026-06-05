@@ -7,6 +7,7 @@ from agentscope.message import TextBlock, ToolResultState, UserMsg, SystemMsg
 from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import FunctionTool, ToolChunk, Toolkit
+from pydantic import BaseModel
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
@@ -46,7 +47,9 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         tools: list["BaseJob"] = kwargs.get("tools", [])
-        toolkit = Toolkit(tools=[self._make_tool(job) for job in tools]) if tools else Toolkit()
+        toolkit = kwargs.get("toolkit") or (
+            Toolkit(tools=[self._make_tool(job) for job in tools]) if tools else Toolkit()
+        )
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = AgentState(permission_context=PermissionContext(mode=perm_mode))
@@ -65,12 +68,17 @@ class AsAgentWrapper(BaseAgentWrapper):
         if isinstance(inputs, str):
             inputs = UserMsg(name="user", content=inputs)
 
-        if output_schema := kwargs.get("output_schema"):
-            messages = [SystemMsg(name="system", content=system_prompt), inputs]
-            assert isinstance(output_schema, dict),  "Output schema must be a dict."
-            res = await model.generate_structured_output(messages=messages, structured_model=output_schema)
-            return agent.state.session_id, res.content
-
         await agent.observe(inputs)
         await agent.reply()
-        return agent.state.session_id, agent.state.context[-1]
+        last_msg = agent.state.context[-1]
+
+        output_schema = kwargs.get("output_schema")
+        if output_schema is not None:
+            if isinstance(output_schema, type) and issubclass(output_schema, BaseModel):
+                output_schema = output_schema.model_json_schema()
+            res = await model.generate_structured_output(
+                messages=agent.state.context, structured_model=output_schema,
+            )
+            return agent.state.session_id, {"message": last_msg, "structured_output": res.content}
+
+        return agent.state.session_id, last_msg

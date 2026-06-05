@@ -9,6 +9,7 @@ from agentscope.message import TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.tool import Toolkit, FunctionTool, ToolChunk
 
+from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from ..components.base_component import ComponentMixin
 from ..components.file_chunker import BaseFileChunker
 from ..components.file_store import BaseFileStore
@@ -103,6 +104,7 @@ class BaseStep(ComponentMixin, ABC):
     component_type = ComponentEnum.STEP
 
     as_llm: ChatModelBase = Ref(ChatModelBase, ComponentEnum.AS_LLM, "model")
+    agent_wrapper: BaseAgentWrapper = Ref(BaseAgentWrapper, ComponentEnum.AGENT_WRAPPER, optional=True)
     file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
 
     def __new__(cls, *args, **kwargs):
