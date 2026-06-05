@@ -63,7 +63,7 @@ async def _make_scan_step(
     watch_paths: list[str] | str = "vault",
     suffix_filters: list[str] | None = None,
     recursive: bool = True,
-) -> tuple[ScanStoreChangesStep, RuntimeContext, LocalFileStore, ChunkedFileParser]:
+) -> tuple[ScanStoreChangesStep, RuntimeContext, LocalFileStore, DefaultFileChunker]:
     fs = LocalFileStore(name="test_store", embedding_store="")
     parser = DefaultFileChunker()
     await fs.start()
