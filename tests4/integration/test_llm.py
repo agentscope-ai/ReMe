@@ -5,42 +5,19 @@ environment or a .env file at the repo root. Hits the real Anthropic API.
 """
 
 import asyncio
-import os
-import tempfile
+import sys
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.steps.common.llm_demo import LLMDemoStep
-from reme4.utils import load_env
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-load_env()
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
-
-class _temp_chdir:
-    """chdir to path for the duration of the block; restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    """Build and start an Application from the default config (LLM wired via env vars)."""
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
+from reme4.steps.common.llm_demo import LLMDemoStep  # noqa: E402
 
 
 class MathResult(BaseModel):
@@ -65,7 +42,7 @@ class SentimentAnalysis(BaseModel):
     )
 
 
-async def _run_basic_chat(app: Application) -> None:
+async def _run_basic_chat(app) -> None:
     step = LLMDemoStep(app_context=app.context)
     response = await step(
         query="What is 1 + 1? Reply with just the number.",
@@ -77,7 +54,7 @@ async def _run_basic_chat(app: Application) -> None:
     print("✓ test_llm_demo_step_basic_chat passed")
 
 
-async def _run_with_tool(app: Application) -> None:
+async def _run_with_tool(app) -> None:
     step = LLMDemoStep(app_context=app.context)
     response = await step(
         query="Use the add tool to compute 21 + 21 and report the result.",
@@ -90,7 +67,7 @@ async def _run_with_tool(app: Application) -> None:
     print("✓ test_llm_demo_step_with_tool passed")
 
 
-async def _run_structured_output(app: Application) -> None:
+async def _run_structured_output(app) -> None:
     step = LLMDemoStep(app_context=app.context)
     response = await step(
         query="What is 15 multiplied by 7? Show your work.",
@@ -107,7 +84,7 @@ async def _run_structured_output(app: Application) -> None:
     print("✓ test_llm_demo_step_structured_output passed")
 
 
-async def _run_structured_output_enum(app: Application) -> None:
+async def _run_structured_output_enum(app) -> None:
     step = LLMDemoStep(app_context=app.context)
     response = await step(
         query="Analyze the sentiment: 'I absolutely love this product! It exceeded all my expectations.'",
@@ -125,15 +102,15 @@ async def _run_structured_output_enum(app: Application) -> None:
 
 
 async def _run_all() -> None:
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
             await _run_basic_chat(app)
             await _run_with_tool(app)
             await _run_structured_output(app)
             await _run_structured_output_enum(app)
         finally:
-            await app.close()
+            await env.close_all()
 
 
 if __name__ == "__main__":

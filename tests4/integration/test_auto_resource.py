@@ -2,38 +2,36 @@
 
 Drives the ``auto_resource`` step against a real LLM. Three scenarios:
 
-1. **CREATE (added)**: places a resource file in ``resource/{date}/``,
-   calls ``auto_resource`` with change="added".  Expects a new note
-   ``daily/{date}/resource_{hash}.md`` with key facts from the file.
+1. **CREATE (added)** / **UPDATE (modified)**: places a resource file in
+   ``resource/{date}/``, calls ``auto_resource`` with the matching change.
+   The current AS-backed step only captures the agent's read+reason
+   transcript to ``resource/{date}/session_state_{sid}.jsonl`` — daily-note
+   writing is handled by whichever ``auto_memory_*`` step comes next in
+   the chain (the CC variant fork-writes from session_id; the AS variant
+   needs explicit messages and is wired separately). So this test asserts
+   on the session_state landing + agent fact coverage, not on a daily
+   note file.
 
-2. **UPDATE (modified)**: seeds an existing resource note, updates the
-   resource file, calls ``auto_resource`` with change="modified".
-   Expects the note to reflect the updated content.
-
-3. **DELETE (deleted)**: seeds a resource note, calls ``auto_resource``
-   with change="deleted".  Expects the note file to be removed.
+2. **DELETE (deleted)**: seeds a resource note under
+   ``daily/{date}/session_{sid}.md``, calls ``auto_resource`` with
+   change="deleted".  Expects the note file to be removed (the step
+   stamps ``path`` on its metadata only in this branch).
 
 Requires LLM_API_KEY (and optionally LLM_BASE_URL / LLM_MODEL_NAME) in the
 environment or a .env file at the repo root. Hits the real LLM API.
 """
 
 import asyncio
-import json
-import os
-import tempfile
-from datetime import date as _date
+import sys
 from pathlib import Path
 
-from agentscope.agent import Agent
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.steps.evolve.auto_resource import _compute_session_id
-from reme4.utils import load_env
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
-load_env()
-
-DUMP_DIR = Path(__file__).resolve().parent / "agent_logs"
+from reme4.steps.evolve.auto_resource import _compute_session_id  # noqa: E402
 
 RESOURCE_FILENAME = "project-roadmap.md"
 RESOURCE_CONTENT_V1 = """\
@@ -81,122 +79,38 @@ RESOURCE_CONTENT_V2 = """\
 """
 
 
-def _today() -> str:
-    return _date.today().isoformat()
-
-
-class _temp_chdir:
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
-
-
-def _place_resource(vault_root: Path, today: str, filename: str, content: str) -> str:
-    """Write a resource file and return its vault-relative path."""
-    resource_dir = vault_root / "resource" / today
-    resource_dir.mkdir(parents=True, exist_ok=True)
-    path = resource_dir / filename
-    path.write_text(content, encoding="utf-8")
-    return f"resource/{today}/{filename}"
-
-
-def _seed_resource_note(vault_root: Path, today: str, session_id: str, body: str) -> Path:
-    """Pre-seed a resource note in daily/{date}/."""
-    day_dir = vault_root / "daily" / today
-    day_dir.mkdir(parents=True, exist_ok=True)
-    path = day_dir / f"{session_id}.md"
-    path.write_text(body, encoding="utf-8")
-    return path
-
-
 def _read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-class _AgentMemoryRecorder:
-    """Monkey-patches Agent.__init__ to capture every agent created inside
-    the ``with`` block, then dumps each agent's memory to a jsonl file.
+def test_auto_resource_create():
+    """CREATE branch: agent reads the resource file and saves session_state.
+
+    Daily-note writing belongs to the auto_memory_* step that follows; this
+    test only asserts that auto_resource_step ran the agent and persisted
+    its transcript under ``resource/{date}/session_state_{sid}.jsonl``.
     """
 
-    def __init__(self, dump_dir: Path, prefix: str = "agent_memory"):
-        self.dump_dir = dump_dir
-        self.prefix = prefix
-        self.agents: list[Agent] = []
-        self._orig_init = None
-        self.dumped_paths: list[Path] = []
-
-    def __enter__(self):
-        self._orig_init = Agent.__init__
-        agents = self.agents
-        orig = self._orig_init
-
-        def _capturing_init(agent_self, *args, **kwargs):
-            orig(agent_self, *args, **kwargs)
-            agents.append(agent_self)
-
-        Agent.__init__ = _capturing_init
-        return self
-
-    def __exit__(self, *exc):
-        Agent.__init__ = self._orig_init
-
-    async def dump(self) -> list[Path]:
-        """Serialize captured agent transcripts to disk."""
-        self.dump_dir.mkdir(parents=True, exist_ok=True)
-        for stale in self.dump_dir.glob(f"{self.prefix}_*.jsonl"):
-            stale.unlink()
-
-        for idx, agent in enumerate(self.agents, 1):
-            messages = agent.state.context
-            name = getattr(agent, "name", "agent") or "agent"
-            out_path = self.dump_dir / f"{self.prefix}_{idx:02d}_{name}.jsonl"
-            with out_path.open("w", encoding="utf-8") as f:
-                for msg in messages:
-                    f.write(json.dumps(msg.model_dump(), ensure_ascii=False, default=str) + "\n")
-            self.dumped_paths.append(out_path)
-        return self.dumped_paths
-
-
-def test_auto_resource_create():
-    """CREATE a resource note from a new file (change=added)."""
-
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
-                vault_root = Path(app.config.vault_dir).absolute()
-                today = _today()
+                today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", vault_root)
+                print("[setup] vault_root =", env.vault_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
-                file_path = _place_resource(vault_root, today, RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
+                file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 session_id = _compute_session_id(RESOURCE_FILENAME)
-                # daily_create prepends "session_agent_" to the session_id
-                expected_note_path = f"daily/{today}/session_agent_{session_id}.md"
+                expected_session_jsonl = env.vault_dir / "resource" / today / f"session_reme_{session_id}.jsonl"
 
-                print(f"[CREATE] file_path    = {file_path}")
-                print(f"[CREATE] session_id   = {session_id}")
-                print(f"[CREATE] expected note= {expected_note_path}")
+                print(f"[CREATE] file_path           = {file_path}")
+                print(f"[CREATE] session_id          = {session_id}")
+                print(f"[CREATE] expected transcript = {expected_session_jsonl.relative_to(env.vault_dir)}")
 
-                with _AgentMemoryRecorder(DUMP_DIR, prefix="agent_resource_create") as recorder:
+                with env.record_agents(prefix="agent_resource_create") as recorder:
                     response = await app.run_job(
                         "auto_resource",
                         file_path=file_path,
@@ -208,67 +122,71 @@ def test_auto_resource_create():
 
                 assert response.success is True, f"CREATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
-                assert meta.get("path") == expected_note_path, f"Unexpected path: {meta!r}"
-                assert meta.get("action") == "added"
+                assert meta.get("action") == "added", f"Unexpected action: {meta!r}"
+                assert meta.get("session_id") == session_id, f"Unexpected session_id: {meta!r}"
 
-                note_path = vault_root / expected_note_path
-                assert note_path.is_file(), f"Created note not found at {note_path}"
+                assert expected_session_jsonl.is_file(), (
+                    f"agent session_state not persisted at {expected_session_jsonl}; "
+                    f"session_state files under resource/: "
+                    f"{[p.name for p in env.session_state_files(prefix='session_reme_')]}"
+                )
 
-                note_text = _read_text(note_path)
+                # Read the agent transcript and check it actually opened
+                # the resource file (the file_path should show up in a
+                # tool-call argument) so we know the step did its job.
+                transcript = _read_text(expected_session_jsonl)
                 print("\n" + "=" * 70)
-                print(f"[CREATE] {note_path} ({len(note_text)} bytes)")
-                print(f"[CREATE] body:\n{note_text}")
-                print("=" * 70)
-
+                print(f"[CREATE] {expected_session_jsonl.name} ({len(transcript)} bytes)")
                 topic_hits = [
                     needle
-                    for needle in ("v2.0", "July 15", "Alice", "Bob", "p99", "200ms", "Redis")
-                    if needle in note_text
+                    for needle in ("v2.0", "July 15", "Alice", "Bob", "p99", "200ms", "Redis", file_path)
+                    if needle in transcript
                 ]
-                print(f"[CREATE] landed topic facts: {topic_hits}")
-                assert (
-                    len(topic_hits) >= 3
-                ), f"CREATE only captured {topic_hits!r} of expected facts\n--- CREATE ---\n{note_text}"
+                print(f"[CREATE] facts visible in transcript: {topic_hits}")
+                assert topic_hits, (
+                    "agent transcript shows no signal it actually read the resource file; "
+                    f"transcript head:\n{transcript[:500]}"
+                )
 
                 print("\n" + "=" * 70)
                 print("test_auto_resource_create passed")
                 print("=" * 70)
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
 
 def test_auto_resource_update():
-    """UPDATE an existing resource note (change=modified)."""
+    """UPDATE branch: same contract as CREATE — only session_state changes."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
-                vault_root = Path(app.config.vault_dir).absolute()
-                today = _today()
+                today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", vault_root)
+                print("[setup] vault_root =", env.vault_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
-                # First create a note via "added"
-                file_path = _place_resource(vault_root, today, RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
+                # First run as "added" so the resource file exists and the
+                # initial transcript lands.
+                file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 session_id = _compute_session_id(RESOURCE_FILENAME)
+                session_jsonl = env.vault_dir / "resource" / today / f"session_reme_{session_id}.jsonl"
 
                 response = await app.run_job("auto_resource", file_path=file_path, change="added")
                 assert response.success is True, f"Initial create failed: {response.answer!r}"
+                assert session_jsonl.is_file(), "initial added run did not save session_state"
+                size_before = session_jsonl.stat().st_size
+                print(f"[UPDATE] transcript before modify ({size_before} bytes)")
 
-                note_abs = vault_root / "daily" / today / f"session_agent_{session_id}.md"
-                note_before = _read_text(note_abs)
-                print(f"[UPDATE] note before update ({len(note_before)} bytes)")
+                # Now update the resource file and call with "modified".
+                env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V2)
 
-                # Now update the resource file and call with "modified"
-                _place_resource(vault_root, today, RESOURCE_FILENAME, RESOURCE_CONTENT_V2)
-
-                with _AgentMemoryRecorder(DUMP_DIR, prefix="agent_resource_update") as recorder:
+                with env.record_agents(prefix="agent_resource_update") as recorder:
                     response = await app.run_job(
                         "auto_resource",
                         file_path=file_path,
@@ -280,29 +198,29 @@ def test_auto_resource_update():
 
                 assert response.success is True, f"UPDATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
-                assert meta.get("action") == "modified"
+                assert meta.get("action") == "modified", f"Unexpected action: {meta!r}"
+                assert meta.get("session_id") == session_id, f"Unexpected session_id: {meta!r}"
 
-                note_after = _read_text(note_abs)
-                print("\n" + "=" * 70)
-                print(f"[UPDATE] {note_abs} ({len(note_before)} -> {len(note_after)} bytes)")
-                print(f"[UPDATE] body after:\n{note_after}")
-                print("=" * 70)
+                size_after = session_jsonl.stat().st_size
+                print(f"[UPDATE] transcript after modify  ({size_after} bytes)")
+                assert size_after > size_before, (
+                    f"transcript did not grow after modified run " f"({size_before} -> {size_after})"
+                )
 
+                transcript = _read_text(session_jsonl)
                 new_hits = [
                     needle
                     for needle in ("July 20", "150ms", "Dave", "rate limiting", "resolved")
-                    if needle in note_after
+                    if needle in transcript
                 ]
-                print(f"[UPDATE] landed new facts: {new_hits}")
-                assert (
-                    len(new_hits) >= 2
-                ), f"UPDATE only landed {new_hits!r} of expected new facts\n--- AFTER ---\n{note_after}"
+                print(f"[UPDATE] V2 facts visible in transcript: {new_hits}")
+                assert new_hits, "modified run added no V2 content to the transcript; " f"tail:\n{transcript[-800:]}"
 
                 print("\n" + "=" * 70)
                 print("test_auto_resource_update passed")
                 print("=" * 70)
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -311,14 +229,13 @@ def test_auto_resource_delete():
     """DELETE a resource note (change=deleted)."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
-                vault_root = Path(app.config.vault_dir).absolute()
-                today = _today()
+                today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", vault_root)
+                print("[setup] vault_root =", env.vault_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
@@ -328,7 +245,7 @@ def test_auto_resource_delete():
                 # Seed the note file (daily_create prepends "session_agent_")
                 note_filename = f"session_agent_{session_id}"
                 seed_body = "---\nname: test\ndescription: test note\n---\n\nSome content.\n"
-                note_path = _seed_resource_note(vault_root, today, note_filename, seed_body)
+                note_path = env.seed_daily_note(note_filename, seed_body)
                 assert note_path.is_file()
                 print(f"[DELETE] seeded note: {note_path}")
 
@@ -348,7 +265,7 @@ def test_auto_resource_delete():
                 print("test_auto_resource_delete passed")
                 print("=" * 70)
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 

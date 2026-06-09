@@ -1,4 +1,4 @@
-"""AutoDreamStep — daily-tick wrapper around :class:`DreamStep`.
+"""AutoDreamStep — daily-tick wrapper that dispatches per-file to the ``dream`` job.
 
 Each tick scans today's two surfaces under ``<daily_dir>/``:
 
@@ -17,6 +17,11 @@ prefix so we never disturb entries from other days), then:
 * ``indexed`` keys not in ``existing``       → **deleted**, drop from catalog
 * mtime match                                 → **unchanged**, skip
 
+For every to-dream file, the step calls the configured ``dispatch_job``
+(default ``"dream"``) via :meth:`BaseStep.run_job`. The dispatch job's
+``Response`` carries a ``DreamResult`` payload in ``metadata``;
+AutoDream re-hydrates that for its per-file aggregate.
+
 After dreaming, successful (and Phase 1 vacuously-skipped) files
 upsert their current ``st_mtime`` so the next tick re-dreams only
 what actually changed. Failures leave the catalog untouched and will
@@ -32,17 +37,24 @@ work — invoke it from a system cron, ``reme auto-dream date=...``,
 or any other catch-up trigger when ``auto_dream_loop`` missed a file
 (e.g. process crashed before the watcher fired).
 
+**Backend-agnostic.** Because dispatch goes through the configured
+``dream`` job, the per-file dream implementation is decided by the
+YAML config — whichever step the ``dream`` job's ``backend`` resolves
+to. AutoDream itself doesn't care which backend runs underneath.
+
 Inputs (RuntimeContext):
     date (str, optional): YYYY-MM-DD to scan. Defaults to today
         in the dreamer's timezone.
     hint (str, optional): passed through to each per-file dream.
 
 Step kwargs (from yaml ``backend: auto_dream_step``):
+    dispatch_job (str, default "dream"): name of the job to call
+        per file. Override only if the deployment renamed the dream
+        job. The dispatched job must accept ``path`` and ``hint``
+        kwargs and return a ``Response`` whose ``metadata`` matches
+        :class:`DreamResult`.
     persist (bool, default True): when True, ``file_catalog.dump()``
         is called after the batch so progress survives a restart.
-
-The outer loop reuses ``DreamStep``'s prompt mounting via MRO — no
-separate YAML; ``dream.yaml`` is found through the parent class.
 """
 
 from pathlib import Path
@@ -50,7 +62,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ._evolve import now
-from .dream import DreamStep, DreamResult
+from .dream import DreamResult
+from ..base_step import BaseStep
 from ...components import R
 from ...schema import FileNode
 
@@ -70,13 +83,56 @@ class AutoDreamResult(BaseModel):
 
 
 @R.register("auto_dream_step")
-class AutoDreamStep(DreamStep):
-    """Scan ``daily/<today>.md`` + ``daily/<today>/`` and dream each file
-    whose ``st_mtime`` doesn't already match its ``file_catalog`` entry."""
+class AutoDreamStep(BaseStep):
+    """Scan ``daily/<today>.md`` + ``daily/<today>/`` and dispatch to the
+    configured ``dream`` job for each file whose ``st_mtime`` doesn't
+    already match its ``file_catalog`` entry."""
 
-    def __init__(self, persist: bool = True, **kwargs):
+    def __init__(self, dispatch_job: str = "dream", persist: bool = True, **kwargs):
         super().__init__(**kwargs)
+        self.dispatch_job: str = dispatch_job
         self.persist: bool = persist
+
+    def _vault_dir(self) -> Path:
+        """Vault root as an absolute path (mirrors :meth:`DreamStep._vault_dir`)."""
+        vr = getattr(self.file_store, "vault_path", None)
+        return Path(vr).resolve() if vr else Path.cwd().resolve()
+
+    async def _dispatch_dream(self, rel_path: str, hint: str) -> DreamResult:
+        """Call the configured ``dispatch_job`` once and re-hydrate its
+        ``Response.metadata`` into a :class:`DreamResult`.
+
+        On dispatch failure (job raises) returns a ``DreamResult`` with
+        ``error`` populated so the caller's accounting stays uniform.
+        """
+        try:
+            resp = await self.run_job(self.dispatch_job, path=rel_path, hint=hint)
+        except Exception as e:  # pylint: disable=broad-except
+            self.logger.error(
+                f"[{self.name}] dispatch {self.dispatch_job!r} failed on {rel_path}: " f"{type(e).__name__}: {e}",
+            )
+            return DreamResult(path=rel_path, error=f"{type(e).__name__}: {e}")
+
+        # The dream job's execute() does context.response.metadata.update(result.model_dump()),
+        # so metadata carries every DreamResult field. extra keys are
+        # ignored by pydantic v2 default (extra='ignore').
+        md = dict(resp.metadata or {})
+        try:
+            dr = DreamResult.model_validate(md)
+        except Exception as e:  # noqa: BLE001
+            self.logger.error(
+                f"[{self.name}] dispatch {self.dispatch_job!r} returned non-DreamResult metadata "
+                f"for {rel_path}: {type(e).__name__}: {e}",
+            )
+            return DreamResult(path=rel_path, error=f"bad dispatch metadata: {type(e).__name__}: {e}")
+
+        # If the underlying step set success=False, treat as failure even
+        # if metadata didn't carry an error string (defensive).
+        if not resp.success and not dr.error:
+            dr.error = resp.answer or "dispatch returned success=False"
+        if not dr.path:
+            dr.path = rel_path
+        return dr
 
     async def execute(self):
         assert self.context is not None
@@ -127,7 +183,7 @@ class AutoDreamStep(DreamStep):
         self.logger.info(
             f"[{self.name}] auto-dream tick date={today} scanned={len(existing)} "
             f"unchanged={len(unchanged)} todo={len(to_dream)} deleted={len(to_delete)} "
-            f"under {daily_dir}/{today}{{.md,/}}",
+            f"under {daily_dir}/{today}{{.md,/}} dispatch={self.dispatch_job!r}",
         )
 
         # Drop catalog entries for files no longer on disk first. Cheap, no
@@ -141,21 +197,13 @@ class AutoDreamStep(DreamStep):
                     f"[{self.name}] file_catalog.delete failed: {type(e).__name__}: {e}",
                 )
 
-        # Dream + upsert per-file. Single-file granularity means an LLM
+        # Dispatch + upsert per-file. Single-file granularity means a job
         # failure on file N doesn't block files N+1..K from advancing their
-        # catalog mtime.
+        # catalog mtime. The dispatch decouples backend choice (AS / CC)
+        # from this loop — the configured ``dream`` job picks the runner.
         upsert_nodes: list[FileNode] = []
         for rel_path, mtime in to_dream:
-            try:
-                dr = await self.dream_one(rel_path, hint)
-            except Exception as e:  # pylint: disable=broad-except
-                self.logger.error(
-                    f"[{self.name}] dream_one failed on {rel_path}: {type(e).__name__}: {e}",
-                )
-                dr = DreamResult(
-                    path=rel_path,
-                    error=f"{type(e).__name__}: {e}",
-                )
+            dr = await self._dispatch_dream(rel_path, hint)
             result.per_file.append(dr)
             if dr.error:
                 # Failures leave the catalog untouched — next tick retries.

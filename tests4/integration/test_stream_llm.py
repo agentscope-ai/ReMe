@@ -5,49 +5,25 @@ environment or a .env file at the repo root. Hits the real LLM API.
 """
 
 import asyncio
-import os
 import sys
-import tempfile
+from pathlib import Path
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.enumeration import ChunkEnum
-from reme4.schema import StreamChunk
-from reme4.steps.common.stream_llm_demo import StreamLLMDemoStep
-from reme4.utils import load_env
-from reme4.utils.common_utils import execute_stream_task
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-load_env()
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
-
-class _temp_chdir:
-    """chdir to path for the duration of the block; restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    """Build and start an Application from the default config."""
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
+from reme4.enumeration import ChunkEnum  # noqa: E402
+from reme4.schema import StreamChunk  # noqa: E402
+from reme4.steps.common.stream_llm_demo import StreamLLMDemoStep  # noqa: E402
+from reme4.utils.common_utils import execute_stream_task  # noqa: E402
 
 
 async def _test_stream_llm_basic_chat():
     """StreamLLMDemoStep streams text chunks via add_stream_string."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -85,13 +61,13 @@ async def _test_stream_llm_basic_chat():
             assert streamed_text.strip() == text, f"Stream text mismatch: {streamed_text!r} vs {text!r}"
             print("✓ test_stream_llm_basic_chat passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _test_stream_llm_with_tool():
     """StreamLLMDemoStep streams tool call events when tools are used."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -138,13 +114,13 @@ async def _test_stream_llm_with_tool():
             assert "42" in text, f"Expected '42' in response, got: {text!r}"
             print("✓ test_stream_llm_with_tool passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _test_stream_llm_fallback_no_stream():
     """Without stream_queue, still uses streaming under the hood for real-time output."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -176,7 +152,7 @@ async def _test_stream_llm_fallback_no_stream():
             assert "2" in text, f"Expected '2' in response, got: {text!r}"
             print("✓ test_stream_llm_fallback_no_stream passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 def test_stream_llm_basic_chat():
@@ -196,8 +172,8 @@ def test_stream_llm_fallback_no_stream():
 
 async def _demo_stream_print():
     """Real-time streaming print demo — ask a longer question to see chunked output."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -231,7 +207,7 @@ async def _demo_stream_print():
                     sys.stdout.flush()
             print()
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _run_all():

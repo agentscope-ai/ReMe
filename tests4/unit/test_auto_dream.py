@@ -13,7 +13,8 @@ Successful dreams (and Phase 1 vacuous skips) upsert the current
 ``st_mtime`` so the next tick re-dreams only what actually changed.
 Failures leave the catalog untouched.
 
-We mock ``dream_one`` (needs an LLM) and inject a fake ``file_catalog``
+We mock ``run_job`` (the dispatch hop that calls the configured
+``dream`` job — needs an LLM) and inject a fake ``file_catalog``
 recording every get / upsert / delete / dump.
 """
 
@@ -28,12 +29,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from reme4.components.file_catalog import BaseFileCatalog
 from reme4.components.runtime_context import RuntimeContext
-from reme4.schema import FileNode
+from reme4.schema import FileNode, Response
 from reme4.steps import AutoDreamStep
 from reme4.steps.evolve.dream import DreamResult
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+
+
+def _dream_response(path: str, **dream_fields) -> Response:
+    """Wrap a DreamResult as the dispatched job would return it.
+
+    Mirrors what DreamStep.execute does:
+        self.context.response.metadata.update(result.model_dump())
+    """
+    dr = DreamResult(path=path, **dream_fields)
+    success = not dr.error
+    return Response(success=success, answer=dr.summary or "ok", metadata=dr.model_dump())
 
 
 class temp_chdir:
@@ -104,11 +116,12 @@ def test_scans_date_md_and_date_folder():
 
             seen: list[str] = []
 
-            async def _fake_dream(rel, _hint):
-                seen.append(rel)
-                return DreamResult(used_llm=True, path=rel, summary="ok")
+            async def _fake_run_job(name, **kwargs):
+                assert name == "dream", f"expected dispatch to 'dream' job, got {name!r}"
+                seen.append(kwargs["path"])
+                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "run_job", side_effect=_fake_run_job):
                 resp = await step(ctx)
 
             assert resp.success
@@ -134,13 +147,13 @@ def test_resource_dir_is_not_scanned():
             step.app_context.app_config.resource_dir = "resource"
             ctx = RuntimeContext(date=today)
 
-            async def _fake_dream(rel, _hint):
-                return DreamResult(used_llm=True, path=rel, summary="ok")
+            async def _fake_run_job(_name, **kwargs):
+                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream) as dream_mock:
+            with patch.object(step, "run_job", side_effect=_fake_run_job) as run_job_mock:
                 await step(ctx)
 
-            paths = [c.args[0] for c in dream_mock.call_args_list]
+            paths = [c.kwargs["path"] for c in run_job_mock.call_args_list]
             assert paths == [f"daily/{today}.md"]
         print("✓ test_resource_dir_is_not_scanned passed")
 
@@ -160,9 +173,9 @@ def test_unchanged_files_skipped_via_catalog_mtime():
             step = _make_step(vault, today, existing_nodes=existing)
             ctx = RuntimeContext(date=today)
 
-            with patch.object(step, "dream_one") as dream_mock:
+            with patch.object(step, "run_job") as run_job_mock:
                 resp = await step(ctx)
-                dream_mock.assert_not_called()
+                run_job_mock.assert_not_called()
 
             assert resp.success
             assert resp.metadata["files_unchanged"] == 1
@@ -188,10 +201,10 @@ def test_changed_file_dreamed_and_catalog_updated():
             step = _make_step(vault, today, existing_nodes=existing)
             ctx = RuntimeContext(date=today)
 
-            async def _fake_dream(rel, _hint):
-                return DreamResult(used_llm=True, path=rel, summary="ok")
+            async def _fake_run_job(_name, **kwargs):
+                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "run_job", side_effect=_fake_run_job):
                 resp = await step(ctx)
 
             assert resp.success
@@ -220,9 +233,9 @@ def test_deleted_file_dropped_from_catalog():
             step = _make_step(vault, today, existing_nodes=existing)
             ctx = RuntimeContext(date=today)
 
-            with patch.object(step, "dream_one") as dream_mock:
+            with patch.object(step, "run_job") as run_job_mock:
                 resp = await step(ctx)
-                dream_mock.assert_not_called()
+                run_job_mock.assert_not_called()
 
             assert resp.success
             assert resp.metadata["files_deleted"] == 1
@@ -271,10 +284,10 @@ def test_failure_does_not_upsert():
             step = _make_step(vault, today)
             ctx = RuntimeContext(date=today)
 
-            async def _fake_dream(rel, _hint):
-                return DreamResult(used_llm=False, path=rel, error="boom")
+            async def _fake_run_job(_name, **kwargs):
+                return _dream_response(kwargs["path"], used_llm=False, error="boom")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "run_job", side_effect=_fake_run_job):
                 resp = await step(ctx)
 
             assert not resp.success
@@ -299,10 +312,10 @@ def test_phase1_empty_still_upserts():
             step = _make_step(vault, today)
             ctx = RuntimeContext(date=today)
 
-            async def _fake_dream(rel, _hint):
-                return DreamResult(used_llm=True, path=rel, skipped=True, summary="empty")
+            async def _fake_run_job(_name, **kwargs):
+                return _dream_response(kwargs["path"], used_llm=True, skipped=True, summary="empty")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "run_job", side_effect=_fake_run_job):
                 resp = await step(ctx)
 
             assert resp.success
@@ -327,12 +340,12 @@ def test_partial_failure_does_not_block_other_files():
             step = _make_step(vault, today)
             ctx = RuntimeContext(date=today)
 
-            async def _fake_dream(rel, _hint):
-                if rel.endswith("a.md"):
-                    return DreamResult(used_llm=False, path=rel, error="boom")
-                return DreamResult(used_llm=True, path=rel, summary="ok")
+            async def _fake_run_job(_name, **kwargs):
+                if kwargs["path"].endswith("a.md"):
+                    return _dream_response(kwargs["path"], used_llm=False, error="boom")
+                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
 
-            with patch.object(step, "dream_one", side_effect=_fake_dream):
+            with patch.object(step, "run_job", side_effect=_fake_run_job):
                 resp = await step(ctx)
 
             assert not resp.success

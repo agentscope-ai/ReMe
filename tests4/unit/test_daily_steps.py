@@ -79,7 +79,7 @@ async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> Local
         day_dir = Path.cwd() / "daily" / day
         day_dir.mkdir(parents=True, exist_ok=True)
         text = f"---\nname: {session_id}\n---\n{body}\n"
-        (day_dir / f"session_agent_{session_id}.md").write_text(text, encoding="utf-8")
+        (day_dir / f"session_{session_id}.md").write_text(text, encoding="utf-8")
     return store
 
 
@@ -95,7 +95,7 @@ async def _seed_note(date: str, session_id: str, name: str = "", description: st
     if description:
         fm_lines.append(f"description: {description}")
     text = "---\n" + "\n".join(fm_lines) + "\n---\nbody\n"
-    (day_dir / f"session_agent_{session_id}.md").write_text(text, encoding="utf-8")
+    (day_dir / f"session_{session_id}.md").write_text(text, encoding="utf-8")
 
 
 # -- daily_list_step ----------------------------------------------------------
@@ -119,8 +119,8 @@ def test_daily_list_default_date_is_today():
             assert payload["date"] == _today()
             assert payload["count"] == 2
             answer = step.context.response.answer
-            assert f"daily/{_today()}/session_agent_today-a.md" in answer
-            assert f"daily/{_today()}/session_agent_today-b.md" in answer
+            assert f"daily/{_today()}/session_today-a.md" in answer
+            assert f"daily/{_today()}/session_today-b.md" in answer
             await store.close()
         print("✓ test_daily_list_default_date_is_today passed")
 
@@ -144,7 +144,7 @@ def test_daily_list_filters_by_date():
             assert payload["date"] == "2026-05-18"
             assert payload["count"] == 1
             answer = step.context.response.answer
-            assert "daily/2026-05-18/session_agent_a.md" in answer
+            assert "daily/2026-05-18/session_a.md" in answer
             await store.close()
         print("✓ test_daily_list_filters_by_date passed")
 
@@ -169,7 +169,7 @@ def test_daily_list_returns_path_session_id_metadata():
             payload = _metadata(step)
             assert payload["count"] == 1
             answer = step.context.response.answer
-            assert "daily/2026-05-18/session_agent_alpha.md" in answer
+            assert "daily/2026-05-18/session_alpha.md" in answer
             assert "Alpha Project" in answer
             assert "JWT auth migration" in answer
             await store.close()
@@ -200,7 +200,7 @@ def test_daily_list_ignores_subdirectories():
             payload = _metadata(step)
             assert payload["count"] == 1
             answer = step.context.response.answer
-            assert "daily/2026-05-18/session_agent_main.md" in answer
+            assert "daily/2026-05-18/session_main.md" in answer
             await store.close()
         print("✓ test_daily_list_ignores_subdirectories passed")
 
@@ -285,9 +285,9 @@ def test_daily_create_provisions_note_and_refreshes_index():
             assert payload["created"] is True
             assert payload["date"] == "2026-05-18"
             assert payload["session_id"] == "kickoff"
-            assert payload["path"] == "daily/2026-05-18/session_agent_kickoff.md"
+            assert payload["path"] == "daily/2026-05-18/session_kickoff.md"
 
-            note = Path(tmp) / "daily" / "2026-05-18" / "session_agent_kickoff.md"
+            note = Path(tmp) / "daily" / "2026-05-18" / "session_kickoff.md"
             text = note.read_text(encoding="utf-8")
             assert "name: kickoff" in text
             # Body is empty — file is frontmatter + trailing newline.
@@ -295,7 +295,7 @@ def test_daily_create_provisions_note_and_refreshes_index():
 
             index = Path(tmp) / "daily" / "2026-05-18.md"
             assert index.is_file()
-            assert "[[daily/2026-05-18/session_agent_kickoff.md]]" in index.read_text(encoding="utf-8")
+            assert "[[daily/2026-05-18/session_kickoff.md]]" in index.read_text(encoding="utf-8")
             await store.close()
         print("✓ test_daily_create_provisions_note_and_refreshes_index passed")
 
@@ -310,7 +310,7 @@ def test_daily_create_is_idempotent_on_existing():
             store = await _make_store_with_dailies(
                 [("2026-05-18", "ongoing", "old body")],
             )
-            file_path = Path(tmp) / "daily" / "2026-05-18" / "session_agent_ongoing.md"
+            file_path = Path(tmp) / "daily" / "2026-05-18" / "session_ongoing.md"
             before = file_path.read_text(encoding="utf-8")
 
             step = daily_create_step.DailyCreateStep(file_store=store)
@@ -319,7 +319,7 @@ def test_daily_create_is_idempotent_on_existing():
 
             assert step.context.response.success is True
             assert payload["created"] is False
-            assert payload["path"] == "daily/2026-05-18/session_agent_ongoing.md"
+            assert payload["path"] == "daily/2026-05-18/session_ongoing.md"
             assert file_path.read_text(encoding="utf-8") == before
             assert payload["index"]["path"] == "daily/2026-05-18.md"
             await store.close()
@@ -338,7 +338,7 @@ def test_daily_create_default_date_is_today():
             await step(session_id="today-task")
             payload = _metadata(step)
             assert payload["date"] == _today()
-            assert payload["path"] == f"daily/{_today()}/session_agent_today-task.md"
+            assert payload["path"] == f"daily/{_today()}/session_today-task.md"
             assert payload["created"] is True
             await store.close()
         print("✓ test_daily_create_default_date_is_today passed")
@@ -355,7 +355,7 @@ def test_daily_create_default_frontmatter_uses_session_id_as_name():
             step = daily_create_step.DailyCreateStep(file_store=store)
             await step(session_id="auth-refactor", date="2026-05-18")
 
-            note = Path(tmp) / "daily" / "2026-05-18" / "session_agent_auth-refactor.md"
+            note = Path(tmp) / "daily" / "2026-05-18" / "session_auth-refactor.md"
             text = note.read_text(encoding="utf-8")
             assert "name: auth-refactor" in text
             assert "description:" in text
@@ -414,7 +414,7 @@ def test_daily_create_then_skip_round_trip():
             first = _metadata(step)
             assert first["created"] is True
 
-            note = Path(tmp) / "daily" / "2026-05-18" / "session_agent_probe.md"
+            note = Path(tmp) / "daily" / "2026-05-18" / "session_probe.md"
             before = note.read_text(encoding="utf-8")
 
             await step(session_id="probe", date="2026-05-18")
@@ -446,8 +446,8 @@ def test_day_index_lists_each_note():
 
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
-            assert "[[daily/2026-05-18/session_agent_alpha.md]]" in text
-            assert "[[daily/2026-05-18/session_agent_beta.md]]" in text
+            assert "[[daily/2026-05-18/session_alpha.md]]" in text
+            assert "[[daily/2026-05-18/session_beta.md]]" in text
             assert "Alpha Project" in text
             assert "Beta Project" in text
             await store.close()
@@ -474,19 +474,13 @@ def test_day_index_includes_note_descriptions():
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
             # name + description inline on the same line as the wikilink
-            assert (
-                "[[daily/2026-05-18/session_agent_alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件"
-                in text
-            )
-            assert (
-                "[[daily/2026-05-18/session_agent_beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响"
-                in text
-            )
+            assert "[[daily/2026-05-18/session_alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件" in text
+            assert "[[daily/2026-05-18/session_beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响" in text
             # gamma has no description → only name is emitted, no trailing `description:` cruft
-            assert "[[daily/2026-05-18/session_agent_gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
-                "[[daily/2026-05-18/session_agent_gamma.md]] name: Gamma",
+            assert "[[daily/2026-05-18/session_gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
+                "[[daily/2026-05-18/session_gamma.md]] name: Gamma",
             )
-            assert "description:" not in text.split("[[daily/2026-05-18/session_agent_gamma.md]]")[1].split("\n")[0]
+            assert "description:" not in text.split("[[daily/2026-05-18/session_gamma.md]]")[1].split("\n")[0]
             await store.close()
         print("✓ test_day_index_includes_note_descriptions passed")
 
@@ -540,7 +534,7 @@ def test_day_index_preserves_user_content_outside_marker():
             assert "MY HAND-WRITTEN NOTE" in after
             assert "这是我手写的备忘" in after
             assert "## 我的笔记" in after
-            assert "[[daily/2026-05-18/session_agent_beta.md]]" in after
+            assert "[[daily/2026-05-18/session_beta.md]]" in after
             await store.close()
         print("✓ test_day_index_preserves_user_content_outside_marker passed")
 
@@ -574,8 +568,8 @@ def test_daily_reindex_returns_write_view():
             assert payload["notes_count"] == 2
 
             text = _day_index_text(tmp, "2026-05-18")
-            assert "[[daily/2026-05-18/session_agent_alpha.md]]" in text
-            assert "[[daily/2026-05-18/session_agent_beta.md]]" in text
+            assert "[[daily/2026-05-18/session_alpha.md]]" in text
+            assert "[[daily/2026-05-18/session_beta.md]]" in text
             await store.close()
         print("✓ test_daily_reindex_returns_write_view passed")
 

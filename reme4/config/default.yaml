@@ -48,6 +48,14 @@ jobs:
       - backend: watch_changes_step
         dispatch_step: log_changes_step
 
+  # auto_dream_cron:
+  #   backend: background
+  #   steps:
+  #     - backend: cron_step
+  #       dispatch_job: auto_dream
+  #       cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
+  #       run_on_start: false
+
   version:
     backend: base
     description: "return reme package version"
@@ -436,7 +444,7 @@ jobs:
     steps:
       - backend: dream_step
 
-  auto-dream:
+  auto_dream:
     backend: base
     description: "Auto-dream: scan today's day-index <daily_dir>/<today>.md and session notes under <daily_dir>/<today>/*.md — run dream on each (Phase 1 extract+classify, Phase 2 per-bucket integrate)."
     parameters:
@@ -471,10 +479,6 @@ jobs:
         memory_hint:
           type: string
           description: "optional hint"
-        timezone:
-          type: string
-          description: "IANA timezone, e.g. Asia/Shanghai"
-          default: "Asia/Shanghai"
       required:
         - messages
     steps:

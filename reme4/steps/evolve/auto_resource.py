@@ -60,7 +60,7 @@ class AutoResourceStep(BaseStep):
 
         self.context.response.success = True
         self.context.response.answer = f"Deleted resource note: {note_rel}"
-        self.context.response.metadata.update({"path": note_rel, "action": "deleted"})
+        self.context.response.metadata.update({"path": note_rel, "session_id": session_id, "action": "deleted"})
 
     async def _handle_upsert(self, file_path: str, date_str: str, session_id: str, created: bool) -> None:
         create_response = await self.run_job("daily_create", session_id=session_id, date=date_str)
@@ -97,12 +97,18 @@ class AutoResourceStep(BaseStep):
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
             tools=tools,
+            session_id=session_id,
         )
 
         self.context.response.success = True
         self.context.response.answer = (msg.get_text_content() or "").strip()
         self.context.response.metadata.update(
-            {"path": note_path, "created": note_created, "action": "added" if created else "modified"},
+            {
+                "path": note_path,
+                "created": note_created,
+                "session_id": session_id,
+                "action": "added" if created else "modified",
+            },
         )
         self.logger.info(f"[{self.name}] done {note_path}")
 

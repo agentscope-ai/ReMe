@@ -14,21 +14,14 @@ environment or a .env file at the repo root. Hits the real LLM API.
 """
 
 import asyncio
-import json
-import os
-import tempfile
-from datetime import date as _date
+import sys
 from pathlib import Path
 
-from agentscope.agent import Agent
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.utils import load_env
-
-load_env()
-
-DUMP_DIR = Path(__file__).resolve().parent / "agent_logs"
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
 SEED_STEM = "auth-middleware-rewrite"
 SEED_BODY = """---
@@ -54,40 +47,6 @@ description: JWT auth middleware rewrite driven by legal/compliance requirements
 - 卡点：暂无
 - 下一步：完成 refresh token 写入流程
 """
-
-
-def _today() -> str:
-    return _date.today().isoformat()
-
-
-class _temp_chdir:
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
-
-
-def _seed_note(vault_root: Path, today: str) -> Path:
-    """Write the existing auth-middleware-rewrite note under today's daily folder."""
-    day_dir = vault_root / "daily" / today
-    day_dir.mkdir(parents=True, exist_ok=True)
-    path = day_dir / f"{SEED_STEM}.md"
-    path.write_text(SEED_BODY, encoding="utf-8")
-    return path
 
 
 def _auth_messages() -> list[dict]:
@@ -167,71 +126,25 @@ def _read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-class _AgentMemoryRecorder:
-    """Monkey-patches Agent.__init__ to capture every agent created inside
-    the ``with`` block, then dumps each agent's memory to a jsonl file in
-    DUMP_DIR on exit.
-    """
-
-    def __init__(self, dump_dir: Path, prefix: str = "agent_memory"):
-        """init"""
-        self.dump_dir = dump_dir
-        self.prefix = prefix
-        self.agents: list[Agent] = []
-        self._orig_init = None
-        self.dumped_paths: list[Path] = []
-
-    def __enter__(self):
-        """Monkey-patch Agent.__init__."""
-        self._orig_init = Agent.__init__
-        agents = self.agents
-        orig = self._orig_init
-
-        def _capturing_init(agent_self, *args, **kwargs):
-            orig(agent_self, *args, **kwargs)
-            agents.append(agent_self)
-
-        Agent.__init__ = _capturing_init
-        return self
-
-    def __exit__(self, *exc):
-        """Restore the original __init__."""
-        Agent.__init__ = self._orig_init
-
-    async def dump(self) -> list[Path]:
-        """Dump all agent context histories."""
-        self.dump_dir.mkdir(parents=True, exist_ok=True)
-        for stale in self.dump_dir.glob(f"{self.prefix}_*.jsonl"):
-            stale.unlink()
-
-        for idx, agent in enumerate(self.agents, 1):
-            messages = agent.state.context
-            name = getattr(agent, "name", "agent") or "agent"
-            out_path = self.dump_dir / f"{self.prefix}_{idx:02d}_{name}.jsonl"
-            with out_path.open("w", encoding="utf-8") as f:
-                for msg in messages:
-                    f.write(json.dumps(msg.model_dump(), ensure_ascii=False, default=str) + "\n")
-            self.dumped_paths.append(out_path)
-        return self.dumped_paths
-
-
 def test_auto_memory_create():
     """CREATE a new note from scratch with a fresh session_id."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
-                vault_root = Path(app.config.vault_dir).absolute()
-                today = _today()
+                today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", vault_root)
+                print("[setup] vault_root =", env.vault_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
                 pytorch_session_id = "pytorch-distributed-training"
-                with _AgentMemoryRecorder(DUMP_DIR, prefix="agent_create") as recorder:
+                # daily_create stamps the file as ``session_<session_id>.md``,
+                # so the path metadata daily_create returns carries the prefix.
+                expected_stem = f"session_{pytorch_session_id}"
+                with env.record_agents(prefix="agent_create") as recorder:
                     response = await app.run_job(
                         "auto_memory",
                         messages=_pytorch_messages(),
@@ -244,9 +157,9 @@ def test_auto_memory_create():
                 assert response.success is True, f"CREATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
                 assert meta.get("created") is True, f"Expected created=True, got {meta!r}"
-                assert meta.get("path") == f"daily/{today}/{pytorch_session_id}.md"
+                assert meta.get("path") == f"daily/{today}/{expected_stem}.md"
 
-                pytorch_path = vault_root / meta["path"]
+                pytorch_path = env.vault_dir / meta["path"]
                 assert pytorch_path.is_file(), f"created note not found at {pytorch_path}"
 
                 pytorch_text = _read_text(pytorch_path)
@@ -274,7 +187,7 @@ def test_auto_memory_create():
                 print("test_auto_memory_create passed")
                 print("=" * 70)
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -283,22 +196,25 @@ def test_auto_memory_update():
     """UPDATE an existing note — old facts must survive, new facts must land."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
-                vault_root = Path(app.config.vault_dir).absolute()
-                today = _today()
-                seed_path = _seed_note(vault_root, today)
+                today = env.today
+                # daily_create resolves session_id=SEED_STEM to file stem
+                # ``session_<SEED_STEM>`` — seed at that exact stem so the
+                # UPDATE branch finds the existing note rather than CREATE.
+                expected_stem = f"session_{SEED_STEM}"
+                seed_path = env.seed_daily_note(expected_stem, SEED_BODY)
                 seed_before = _read_text(seed_path)
                 assert "legal/compliance" in seed_before
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", vault_root)
+                print("[setup] vault_root =", env.vault_dir)
                 print("[setup] today      =", today)
                 print("[setup] seed_path  =", seed_path)
                 print("=" * 70)
 
-                with _AgentMemoryRecorder(DUMP_DIR, prefix="agent_update") as recorder:
+                with env.record_agents(prefix="agent_update") as recorder:
                     response = await app.run_job(
                         "auto_memory",
                         messages=_auth_messages(),
@@ -311,7 +227,7 @@ def test_auto_memory_update():
                 assert response.success is True, f"UPDATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
                 assert meta.get("created") is False, f"Expected created=False, got {meta!r}"
-                assert meta.get("path") == f"daily/{today}/{SEED_STEM}.md"
+                assert meta.get("path") == f"daily/{today}/{expected_stem}.md"
 
                 seed_after = _read_text(seed_path)
                 print("\n" + "=" * 70)
@@ -338,7 +254,7 @@ def test_auto_memory_update():
                 print("test_auto_memory_update passed")
                 print("=" * 70)
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 

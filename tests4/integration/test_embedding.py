@@ -6,50 +6,28 @@ Hits the real embedding API.
 """
 
 import asyncio
-import os
-import tempfile
+import sys
+from pathlib import Path
 
 import numpy as np
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.enumeration import ComponentEnum
-from reme4.schema import EmbNode
-from reme4.utils import cosine_similarity, load_env
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-load_env()
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
-
-class _temp_chdir:
-    """chdir to path for the duration of the block; restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    """Build and start an Application from the default config."""
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
+from reme4.enumeration import ComponentEnum  # noqa: E402
+from reme4.schema import EmbNode  # noqa: E402
+from reme4.utils import cosine_similarity  # noqa: E402
 
 
 def test_embedding_health_check():
     """health_check() returns True with a working API key."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 result = await store.health_check(timeout=10.0)
@@ -57,7 +35,7 @@ def test_embedding_health_check():
                 assert store.is_healthy is True
                 print("✓ test_embedding_health_check passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -66,8 +44,8 @@ def test_embedding_single_text():
     """Single text produces a valid embedding vector."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 emb = await store.get_embedding("Hello, world!")
@@ -78,7 +56,7 @@ def test_embedding_single_text():
                 print(f"\n  [single] len={len(emb)}, first5={emb[:5].tolist()}")
                 print("✓ test_embedding_single_text passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -87,8 +65,8 @@ def test_embedding_multiple_texts():
     """Batch embedding returns correct count and shapes."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 texts = ["cat", "dog", "house"]
@@ -101,7 +79,7 @@ def test_embedding_multiple_texts():
                     print(f"\n  [{texts[i]}] len={len(emb)}, first5={emb[:5].tolist()}")
                 print("✓ test_embedding_multiple_texts passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -110,8 +88,8 @@ def test_embedding_cache_hit():
     """Same text returns cached result on second call."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 text = "test caching behavior"
@@ -127,7 +105,7 @@ def test_embedding_cache_hit():
                 print(f"\n  [cache] len={len(emb1)}, first5={emb1[:5].tolist()}")
                 print("✓ test_embedding_cache_hit passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -136,8 +114,8 @@ def test_embedding_similarity():
     """Semantically similar texts have higher cosine similarity."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 text_a = "The cat sat on the mat"
@@ -157,7 +135,7 @@ def test_embedding_similarity():
                 assert sim_ab > sim_ac, f"similar pair ({sim_ab:.4f}) not > dissimilar ({sim_ac:.4f})"
                 print("✓ test_embedding_similarity passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 
@@ -166,8 +144,8 @@ def test_embedding_node_embeddings():
     """get_node_embeddings fills embedding field on EmbNode objects."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-            app = await _make_app()
+        with vault_env() as env:
+            app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
                 nodes = [
@@ -182,7 +160,7 @@ def test_embedding_node_embeddings():
                     print(f"\n  [node{i}] len={len(node.embedding)}, first5={node.embedding[:5].tolist()}")
                 print("✓ test_embedding_node_embeddings passed")
             finally:
-                await app.close()
+                await env.close_all()
 
     asyncio.run(run())
 

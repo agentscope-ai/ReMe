@@ -42,7 +42,6 @@ from reme4.steps.file_io import (
     stat as crud_stat,
     write as crud_write,
 )
-from reme4.steps.transfer import download as crud_download
 from reme4.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -198,42 +197,9 @@ def test_list_respects_limit_and_non_recursive():
 
 
 # -- download ------------------------------------------------------------
-
-
-def test_download_to_explicit_path():
-    """download copies the vault file to dst_path."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store({"topics/a.md": "alpha"})
-            target = Path(tmp) / "out" / "a.md"
-            step = crud_download.DownloadStep(file_store=store)
-            await step(src_path="topics/a.md", dst_path=str(target))
-            payload = _metadata(step)
-            assert "error" not in payload
-            assert payload["dst_path"] == str(target)
-            assert target.read_text(encoding="utf-8") == "alpha"
-            await store.close()
-        print("✓ test_download_to_explicit_path passed")
-
-    asyncio.run(run())
-
-
-def test_download_to_temp_when_dst_path_empty():
-    """Without dst_path, download lands the file in a temp file and returns the path."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store({"topics/a.md": "alpha"})
-            step = crud_download.DownloadStep(file_store=store)
-            await step(src_path="topics/a.md")
-            payload = _metadata(step)
-            assert "error" not in payload
-            assert Path(payload["dst_path"]).read_text(encoding="utf-8") == "alpha"
-            await store.close()
-        print("✓ test_download_to_temp_when_dst_path_empty passed")
-
-    asyncio.run(run())
+#
+# DownloadStep lives in reme_cc (the local plugin overlay), not reme4
+# main-line. See reme_cc/tests/ for its coverage.
 
 
 # -- move ----------------------------------------------------------------
@@ -1122,13 +1088,11 @@ def test_all_read_cases_one_store():
 
 if __name__ == "__main__":
     print("\n=== crud step tests (opaque-byte surface) ===")
-    # stat / list / download / move / delete
+    # stat / list / move / delete
     test_stat_indexed_file()
     test_stat_directory_fallback()
     test_list_lists_files()
     test_list_respects_limit_and_non_recursive()
-    test_download_to_explicit_path()
-    test_download_to_temp_when_dst_path_empty()
     test_move_relocates_within_vault()
     test_move_refuses_overwrite_without_flag()
     test_move_default_retargets_inbound_links()

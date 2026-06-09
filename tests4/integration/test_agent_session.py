@@ -5,52 +5,23 @@ environment or a .env file at the repo root. Hits the real LLM API.
 """
 
 import asyncio
-import os
-import tempfile
+import sys
 from pathlib import Path
 
-from reme4 import Application
-from reme4.config import resolve_app_config
-from reme4.enumeration import ComponentEnum
-from reme4.utils import load_env
+INTEGRATION_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(INTEGRATION_DIR))
 
-load_env()
+# pylint: disable=wrong-import-position
+from _vault_fixture import vault_env  # noqa: E402
 
-
-class _temp_chdir:
-    def __init__(self, path):
-        self.path = path
-        self._old = None
-
-    def __enter__(self):
-        self._old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self._old)
-
-
-async def _make_app() -> Application:
-    cfg = resolve_app_config(log_to_console=False, log_to_file=False, enable_logo=False)
-    app = Application(**cfg)
-    await app.start()
-    return app
-
-
-def _find_session_files(vault_root: Path, prefix: str = "session_reme_") -> list[Path]:
-    resource_dir = vault_root / "resource"
-    if not resource_dir.exists():
-        return []
-    return sorted(resource_dir.rglob(f"{prefix}*.jsonl"))
+from reme4.enumeration import ComponentEnum  # noqa: E402
 
 
 async def _run_session_persistence() -> None:
     """Two consecutive replies with the same session_id should share context."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
-            vault_root = Path(app.config.vault_dir).absolute()
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
             sid = "test-persist-session"
@@ -66,7 +37,7 @@ async def _run_session_persistence() -> None:
             assert text_1, "Empty first reply"
 
             # Verify session file was created
-            files_after_1 = _find_session_files(vault_root)
+            files_after_1 = env.session_state_files()
             print(f"[session_persist] session files after reply 1: {files_after_1}")
             assert len(files_after_1) == 1, f"Expected 1 session file, got {len(files_after_1)}"
             assert sid in files_after_1[0].name
@@ -83,15 +54,14 @@ async def _run_session_persistence() -> None:
 
             print("✓ test_session_persistence passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _run_fork_session() -> None:
     """fork_session=True should create a new session file with a new session_id."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
-            vault_root = Path(app.config.vault_dir).absolute()
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
             sid = "test-fork-origin"
@@ -102,7 +72,7 @@ async def _run_fork_session() -> None:
                 session_id=sid,
                 system_prompt="You are a helpful assistant. Keep answers short.",
             )
-            files_before_fork = _find_session_files(vault_root)
+            files_before_fork = env.session_state_files()
             assert len(files_before_fork) == 1
 
             # Fork the session
@@ -117,7 +87,7 @@ async def _run_fork_session() -> None:
             assert "42" in text_fork, f"Forked session should recall '42', got: {text_fork!r}"
 
             # Verify: original file still exists + new forked file created
-            files_after_fork = _find_session_files(vault_root)
+            files_after_fork = env.session_state_files()
             print(f"[fork_session] session files after fork: {[f.name for f in files_after_fork]}")
             assert (
                 len(files_after_fork) == 2
@@ -126,20 +96,19 @@ async def _run_fork_session() -> None:
             # Forked session_id should differ from the original
             assert forked_sid != sid, f"Forked session_id should differ from original, got {forked_sid!r}"
 
-            original_file = vault_root / "resource" / files_before_fork[0].relative_to(vault_root / "resource")
+            original_file = files_before_fork[0]
             assert original_file.exists(), "Original session file should still exist after fork"
 
             print("✓ test_fork_session passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _run_no_session_id() -> None:
     """When session_id is empty, no session file should be created."""
-    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
-        app = await _make_app()
+    with vault_env() as env:
+        app = await env.make_app()
         try:
-            vault_root = Path(app.config.vault_dir).absolute()
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
 
             _, msg = await wrapper.reply(
@@ -150,12 +119,12 @@ async def _run_no_session_id() -> None:
             print(f"\n[no_session] reply: {text!r}")
             assert text, "Empty reply"
 
-            files = _find_session_files(vault_root)
+            files = env.session_state_files()
             assert len(files) == 0, f"No session files should be created without session_id, found {files}"
 
             print("✓ test_no_session_id passed")
         finally:
-            await app.close()
+            await env.close_all()
 
 
 async def _run_all() -> None:
