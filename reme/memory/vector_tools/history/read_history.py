@@ -39,20 +39,38 @@ class ReadHistory(BaseMemoryTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "history_id": {
+                            "type": "string",
+                            "description": "Single history ID to read",
+                        },
                         "history_ids": {
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "List of history IDs to read",
                         },
                     },
-                    "required": ["history_ids"],
+                    "required": [],
                 },
             },
         )
 
     async def execute(self):
         """Execute the tool call"""
-        history_ids = self.context.history_ids if self.enable_multiple else [self.context.history_id]
+        if self.enable_multiple:
+            if "history_ids" in self.context:
+                raw_history_ids = self.context.history_ids
+                if isinstance(raw_history_ids, str):
+                    history_ids = [raw_history_ids]
+                else:
+                    history_ids = list(raw_history_ids)
+            elif "history_id" in self.context:
+                history_ids = [self.context.history_id]
+            else:
+                history_ids = []
+        else:
+            history_ids = [self.context.history_id]
+
+        history_ids = [history_id for history_id in history_ids if history_id]
 
         if not history_ids or (len(history_ids) == 1 and not history_ids[0]):
             output = "No history_ids provided."
