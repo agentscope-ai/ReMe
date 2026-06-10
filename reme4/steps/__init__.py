@@ -1,7 +1,6 @@
 """steps"""
 
 from .base_step import BaseStep
-from .common.cron import CronStep
 from .common.demo import DemoEchoStep1, DemoEchoStep2
 from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
@@ -42,7 +41,6 @@ from .index.watch_changes import WatchChangesStep
 __all__ = [
     "BaseStep",
     # common
-    "CronStep",
     "DemoEchoStep1",
     "DemoEchoStep2",
     "HealthCheckStep",

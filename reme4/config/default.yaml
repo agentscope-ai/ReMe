@@ -49,12 +49,10 @@ jobs:
         dispatch_step: log_changes_step
 
   # auto_dream_cron:
-  #   backend: background
-  #   steps:
-  #     - backend: cron_step
-  #       dispatch_job: auto_dream
-  #       cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
-  #       run_on_start: false
+  #   backend: cron
+  #   dispatch_job: auto_dream
+  #   cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
+  #   run_on_start: false
 
   version:
     backend: base

@@ -1,12 +1,13 @@
-"""Unit tests for cron_step — schedule math + dispatch wiring.
+"""Unit tests for the ``cron`` job — schedule math + dispatch wiring.
 
 Strategy:
 
 * ``_parse_hh_mm`` / ``_next_fire_delay`` are exercised directly without
   the BackgroundJob supervisor. Avoids wall-clock waits.
-* ``execute`` is tested with ``stop_event`` pre-set so the loop runs at
-  most one iteration with a tiny ``interval_seconds`` — verifies the
-  fire path actually dispatches the downstream step exactly once.
+* ``__call__`` is tested by driving the job's own ``_stop_event``: the
+  loop runs at most one iteration with a tiny ``interval_seconds`` and
+  ``run_on_start=True`` — verifies the fire path actually dispatches the
+  downstream step exactly once.
 * The dispatch target is a tiny in-test counter step registered into
   the same step registry the production code uses, so we exercise the
   real ``R.get(ComponentEnum.STEP, name) → instantiate → __call__``
@@ -27,9 +28,9 @@ from pathlib import Path
 
 from reme4 import Application
 from reme4.components import R
+from reme4.components.job.cron_job import CronJob
 from reme4.config import resolve_app_config
 from reme4.steps.base_step import BaseStep
-from reme4.steps.common.cron import CronStep
 
 
 @R.register("test_cron_counter_step")
@@ -55,24 +56,24 @@ def _temp_chdir(path: Path):
         os.chdir(old)
 
 
-def _make_step(**kwargs) -> CronStep:
+def _make_job(**kwargs) -> CronJob:
     # Default to a known-registered step so most tests can ignore dispatch wiring.
     kwargs.setdefault("dispatch_step", "version_step")
-    return CronStep(**kwargs)
+    return CronJob(**kwargs)
 
 
 def _test_parse_hh_mm_valid() -> None:
-    step = _make_step(daily_at="03:00")
-    assert step._fire_hour == 3 and step._fire_minute == 0
-    step = _make_step(daily_at="23:59")
-    assert step._fire_hour == 23 and step._fire_minute == 59
+    job = _make_job(daily_at="03:00")
+    assert job._fire_hour == 3 and job._fire_minute == 0
+    job = _make_job(daily_at="23:59")
+    assert job._fire_hour == 23 and job._fire_minute == 59
     print("OK parse_hh_mm_valid")
 
 
 def _test_parse_hh_mm_invalid() -> None:
     for bad in ["24:00", "03:60", "abc", "3", "03:", ":00"]:
         try:
-            _make_step(daily_at=bad)
+            _make_job(daily_at=bad)
         except ValueError:
             continue
         raise AssertionError(f"expected ValueError for daily_at={bad!r}")
@@ -82,7 +83,7 @@ def _test_parse_hh_mm_invalid() -> None:
 def _test_requires_dispatch_step() -> None:
     # neither dispatch_step nor dispatch_steps → ValueError
     try:
-        CronStep(daily_at="03:00")
+        CronJob(daily_at="03:00")
     except ValueError:
         print("OK requires_dispatch_step")
         return
@@ -92,21 +93,32 @@ def _test_requires_dispatch_step() -> None:
 def _test_dispatch_steps_list() -> None:
     # Mirrors watch_changes_step: dispatch_steps takes priority over dispatch_step,
     # both forms accepted, defaults coalesce.
-    step1 = CronStep(dispatch_step="version_step", interval_seconds=60)
-    assert step1.dispatch_steps == ["version_step"]
+    job1 = CronJob(dispatch_step="version_step", interval_seconds=60)
+    assert job1.dispatch_steps == ["version_step"]
 
-    step2 = CronStep(dispatch_steps=["a", "b"], interval_seconds=60)
-    assert step2.dispatch_steps == ["a", "b"]
+    job2 = CronJob(dispatch_steps=["a", "b"], interval_seconds=60)
+    assert job2.dispatch_steps == ["a", "b"]
 
-    step3 = CronStep(dispatch_step="x", dispatch_steps=["y", "z"], interval_seconds=60)
-    assert step3.dispatch_steps == ["y", "z"]
+    job3 = CronJob(dispatch_step="x", dispatch_steps=["y", "z"], interval_seconds=60)
+    assert job3.dispatch_steps == ["y", "z"]
     print("OK dispatch_steps_list")
+
+
+def _test_dispatch_jobs_list() -> None:
+    # dispatch_job / dispatch_jobs coalesce the same way and satisfy the
+    # "at least one dispatch target" requirement on their own.
+    job1 = CronJob(dispatch_job="auto_dream", interval_seconds=60)
+    assert job1.dispatch_jobs == ["auto_dream"] and job1.dispatch_steps == []
+
+    job2 = CronJob(dispatch_jobs=["a", "b"], interval_seconds=60)
+    assert job2.dispatch_jobs == ["a", "b"]
+    print("OK dispatch_jobs_list")
 
 
 def _test_requires_exactly_one_schedule() -> None:
     # none of the three set
     try:
-        _make_step()
+        _make_job()
     except ValueError:
         pass
     else:
@@ -119,13 +131,13 @@ def _test_requires_exactly_one_schedule() -> None:
     ]
     for kw in pairs:
         try:
-            _make_step(**kw)
+            _make_job(**kw)
         except ValueError:
             continue
         raise AssertionError(f"expected ValueError when two schedules set: {kw}")
     # all three
     try:
-        _make_step(daily_at="03:00", interval_seconds=60, cron="0 3 * * *")
+        _make_job(daily_at="03:00", interval_seconds=60, cron="0 3 * * *")
     except ValueError:
         pass
     else:
@@ -135,8 +147,8 @@ def _test_requires_exactly_one_schedule() -> None:
 
 def _test_cron_expression_valid() -> None:
     for expr in ["0 3 * * *", "*/15 * * * *", "0 */6 * * *", "0 3 * * 1-5", "30 2 1 * *"]:
-        step = _make_step(cron=expr)
-        assert step.cron == expr
+        job = _make_job(cron=expr)
+        assert job.cron == expr
     print("OK cron_expression_valid")
 
 
@@ -145,15 +157,15 @@ def _test_cron_expression_invalid() -> None:
     # so a typo fails at app start rather than at 3am.
     for bad in ["not a cron", "0 25 * * *", "60 * * * *", "* * * 13 *", ""]:
         try:
-            _make_step(cron=bad)
+            _make_job(cron=bad)
         except ValueError:
             continue
         raise AssertionError(f"expected ValueError for cron={bad!r}")
     print("OK cron_expression_invalid")
 
 
-class _FrozenStep(CronStep):
-    """CronStep subclass with deterministic 'now' for daily_at / cron delay math."""
+class _FrozenJob(CronJob):
+    """CronJob subclass with deterministic 'now' for daily_at / cron delay math."""
 
     def __init__(self, frozen_now: datetime.datetime, **kwargs):
         kwargs.setdefault("dispatch_step", "version_step")
@@ -181,27 +193,27 @@ class _FrozenStep(CronStep):
 
 def _test_next_fire_delay_before_target() -> None:
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
-    step = _FrozenStep(
+    job = _FrozenJob(
         frozen_now=datetime.datetime(2026, 6, 7, 2, 0, 0, tzinfo=tz),
         daily_at="03:00",
     )
-    assert step._next_fire_delay() == 3600
+    assert job._next_fire_delay() == 3600
     print("OK next_fire_delay_before_target")
 
 
 def _test_next_fire_delay_after_target() -> None:
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
-    step = _FrozenStep(
+    job = _FrozenJob(
         frozen_now=datetime.datetime(2026, 6, 7, 4, 0, 0, tzinfo=tz),
         daily_at="03:00",
     )
-    assert step._next_fire_delay() == 23 * 3600
+    assert job._next_fire_delay() == 23 * 3600
     print("OK next_fire_delay_after_target")
 
 
 def _test_next_fire_delay_interval() -> None:
-    step = _make_step(interval_seconds=30)
-    assert step._next_fire_delay() == 30.0
+    job = _make_job(interval_seconds=30)
+    assert job._next_fire_delay() == 30.0
     print("OK next_fire_delay_interval")
 
 
@@ -209,11 +221,11 @@ def _test_next_fire_delay_cron_daily() -> None:
     # cron "0 3 * * *" is exactly equivalent to daily_at "03:00" — same math,
     # but exercised via the croniter path.
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
-    step = _FrozenStep(
+    job = _FrozenJob(
         frozen_now=datetime.datetime(2026, 6, 7, 2, 0, 0, tzinfo=tz),
         cron="0 3 * * *",
     )
-    assert step._next_fire_delay() == 3600
+    assert job._next_fire_delay() == 3600
     print("OK next_fire_delay_cron_daily")
 
 
@@ -221,11 +233,11 @@ def _test_next_fire_delay_cron_every_6h() -> None:
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
     # "0 */6 * * *" fires at 00:00 / 06:00 / 12:00 / 18:00. At 02:00,
     # next fire is 06:00 → 4 hours out.
-    step = _FrozenStep(
+    job = _FrozenJob(
         frozen_now=datetime.datetime(2026, 6, 7, 2, 0, 0, tzinfo=tz),
         cron="0 */6 * * *",
     )
-    assert step._next_fire_delay() == 4 * 3600
+    assert job._next_fire_delay() == 4 * 3600
     print("OK next_fire_delay_cron_every_6h")
 
 
@@ -233,11 +245,11 @@ def _test_next_fire_delay_cron_weekday_only() -> None:
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
     # 2026-06-07 is a Sunday. "0 3 * * 1-5" → next fire is Mon 2026-06-08 03:00.
     # From Sun 02:00, that's 25 hours.
-    step = _FrozenStep(
+    job = _FrozenJob(
         frozen_now=datetime.datetime(2026, 6, 7, 2, 0, 0, tzinfo=tz),
         cron="0 3 * * 1-5",
     )
-    assert step._next_fire_delay() == 25 * 3600
+    assert job._next_fire_delay() == 25 * 3600
     print("OK next_fire_delay_cron_weekday_only")
 
 
@@ -250,22 +262,21 @@ async def _drive_one_fire(_tmp: Path) -> int:
 
     _CounterStep.fires = 0
     try:
-        step = CronStep(
+        job = CronJob(
             dispatch_step="test_cron_counter_step",
             interval_seconds=1,
             run_on_start=True,
         )
-        step.app_context = app.context
+        job.app_context = app.context
+        # The BackgroundJob supervisor normally creates this in _start(); here we
+        # drive __call__ directly, so wire up the stop_event by hand.
+        job._stop_event = asyncio.Event()
 
-        from reme4.components.runtime_context import RuntimeContext
-
-        stop = asyncio.Event()
-        ctx = RuntimeContext(stop_event=stop)
         # Fire once on start, then signal stop so the loop exits before the
         # next interval elapses.
-        task = asyncio.create_task(step(ctx))
+        task = asyncio.create_task(job())
         await asyncio.sleep(0.3)  # let run_on_start fire propagate
-        stop.set()
+        job._stop_event.set()
         await asyncio.wait_for(task, timeout=5.0)
         return _CounterStep.fires
     finally:
@@ -280,12 +291,13 @@ def _test_run_on_start_dispatches_once() -> None:
 
 
 def main() -> None:
-    """Entry point for the cron_step unit tests."""
-    print("=== cron_step unit tests ===")
+    """Entry point for the cron job unit tests."""
+    print("=== cron job unit tests ===")
     _test_parse_hh_mm_valid()
     _test_parse_hh_mm_invalid()
     _test_requires_dispatch_step()
     _test_dispatch_steps_list()
+    _test_dispatch_jobs_list()
     _test_requires_exactly_one_schedule()
     _test_cron_expression_valid()
     _test_cron_expression_invalid()

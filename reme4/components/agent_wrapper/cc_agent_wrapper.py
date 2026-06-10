@@ -65,10 +65,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             opts.allowed_tools.extend(job.name for job in tools)
 
         if output_schema := kwargs.get("output_schema"):
-            schema_dict = (
-                output_schema.model_json_schema() if hasattr(output_schema, "model_json_schema") else output_schema
-            )
-            opts.output_format = {"type": "json_schema", "schema": schema_dict}
+            opts.output_format = {"type": "json_schema", "schema": output_schema}
 
         if not isinstance(inputs, str):
             raise NotImplementedError("Only string input is supported for Claude Code.")
@@ -80,7 +77,7 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         if last_msg is None:
             raise ValueError("No message received from Claude Code.")
-        
+
         if output_schema:
             structured = last_msg.structured_output or {}
             return last_msg.session_id or "", {"message": last_msg, "structured_output": structured}

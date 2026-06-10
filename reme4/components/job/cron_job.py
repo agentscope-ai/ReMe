@@ -1,22 +1,31 @@
-"""``cron_step`` — periodically dispatch downstream step(s) or job(s) from a BackgroundJob.
+"""``cron`` — a supervised background job that periodically dispatches
+downstream job(s) and/or step(s) on a schedule.
 
-Long-running step. Sleeps until the next fire time, dispatches its
-configured downstream step(s) or job(s), loops. Exits when
-``context.stop_event`` is set, so the surrounding ``BackgroundJob``
-supervisor can shut it down cleanly.
+A ``CronJob`` is a :class:`BackgroundJob` whose body is a scheduler loop
+rather than a fixed list of steps: it sleeps until the next fire time,
+dispatches its configured downstream job(s) and/or step(s), and loops.
+It exits when ``self._stop_event`` is set, so the surrounding
+``Application`` shutdown / supervisor can stop it cleanly.
+
+Declared directly under ``jobs:`` in YAML (no step wrapper)::
+
+    auto_dream_cron:
+      backend: cron
+      dispatch_job: auto_dream
+      cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
+      run_on_start: false
 
 Two dispatch modes — pick one (or both, executed in order: jobs first,
 then steps):
 
-* ``dispatch_job`` / ``dispatch_jobs`` — invoke a **registered job**
-  by name through ``self.run_job(name, **extra)``. Goes through the
-  job's parameter validation and context construction, identical to a
-  CLI / MCP invocation. Prefer this when the periodic task already
-  has a job wrapping it (e.g. ``auto_dream``).
+* ``dispatch_job`` / ``dispatch_jobs`` — invoke a **registered job** by
+  name through ``self.app_context.jobs``. Goes through the job's own
+  parameter validation and context construction, identical to a CLI /
+  MCP invocation. Prefer this when the periodic task already has a job
+  wrapping it (e.g. ``auto_dream``).
 * ``dispatch_step`` / ``dispatch_steps`` — instantiate a **registered
-  step** by name and invoke it directly with the inherited
-  ``context.data`` (sans ``stop_event``). Use for steps that don't
-  have a job wrapper.
+  step** by name and invoke it directly. Use for steps that don't have a
+  job wrapper.
 
 Three schedule modes (mutually exclusive — exactly one must be set):
 
@@ -29,28 +38,29 @@ Three schedule modes (mutually exclusive — exactly one must be set):
 * ``interval_seconds: int`` — fire every N seconds since launch. Useful
   for tests and for time-zone-independent sub-minute cadence.
 
-Per-dispatch exceptions are caught and logged — a failed downstream
-job or step never kills the cron loop. ``run_on_start: true`` triggers
-one immediate dispatch on launch (default ``false``, to avoid a burst
-when ``Application.start`` brings several cron jobs up at once).
+Per-dispatch exceptions are caught and logged — a failed downstream job
+or step never kills the cron loop (so the ``BackgroundJob`` supervisor is
+reserved for genuine scheduler-loop crashes). ``run_on_start: true``
+triggers one immediate dispatch on launch (default ``false``, to avoid a
+burst when ``Application.start`` brings several cron jobs up at once).
 
 Cron expressions are evaluated via ``croniter`` and validated eagerly at
 construction time, so a typo fails at app start rather than at 3 a.m.
 """
 
-import asyncio
 import datetime
 import zoneinfo
 
 from croniter import croniter
 
-from ..base_step import BaseStep
-from ...components import R, BaseComponent
+from .background_job import BackgroundJob
+from ..component_registry import R
 from ...enumeration import ComponentEnum
+from ...schema import Response
 
 
-@R.register("cron_step")
-class CronStep(BaseStep):
+@R.register("cron")
+class CronJob(BackgroundJob):
     """Dispatch downstream step(s) and/or job(s) on a schedule until ``stop_event`` fires."""
 
     def __init__(
@@ -75,14 +85,14 @@ class CronStep(BaseStep):
 
         if not self.dispatch_steps and not self.dispatch_jobs:
             raise ValueError(
-                "cron_step requires at least one of 'dispatch_step'/'dispatch_steps' "
+                "cron job requires at least one of 'dispatch_step'/'dispatch_steps' "
                 "or 'dispatch_job'/'dispatch_jobs'",
             )
 
         schedules_set = sum(bool(x) for x in (self.cron, self.daily_at, self.interval_seconds))
         if schedules_set != 1:
             raise ValueError(
-                "cron_step requires exactly one of "
+                "cron job requires exactly one of "
                 "'cron' (5-field expression), 'daily_at' (HH:MM), "
                 "or 'interval_seconds' (int)",
             )
@@ -135,26 +145,16 @@ class CronStep(BaseStep):
             target = target + datetime.timedelta(days=1)
         return (target - now).total_seconds()
 
-    async def _wait_or_stop(self, delay: float, stop_event: asyncio.Event) -> bool:
-        """Sleep up to ``delay`` seconds. Returns True if stop_event fired."""
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=delay)
-        except asyncio.TimeoutError:
-            return False
-        return True
-
-    async def _fire(self, dispatch_classes: list[type[BaseComponent]]) -> None:
-        """Dispatch each downstream job (via run_job) and step (class-level), in that order;
-        swallow exceptions per-dispatch so a single failure doesn't break the loop."""
-        assert self.context is not None
-        # Inherit cron_step's own context data so downstream callees can read
-        # shared bits, except stop_event (each runs its own lifecycle).
-        extra = {k: v for k, v in self.context.data.items() if k != "stop_event"}
-
+    async def _fire(self, dispatch_classes: list[type]) -> None:
+        """Dispatch each downstream job (via the registry) and step (class-level), in that
+        order; swallow exceptions per-dispatch so a single failure doesn't break the loop."""
         # Jobs first — they're the higher-level invocation path (matches CLI / MCP).
         for name in self.dispatch_jobs:
             try:
-                await self.run_job(name, **extra)
+                job = self.app_context.jobs.get(name) if self.app_context else None
+                if job is None:
+                    raise RuntimeError(f"Job {name!r} not found")
+                await job()
                 self.logger.info(f"[{self.name}] dispatched job {name!r}")
             except Exception as exc:
                 self.logger.exception(f"[{self.name}] dispatch job {name!r} raised: {exc}")
@@ -162,18 +162,21 @@ class CronStep(BaseStep):
         for cls in dispatch_classes:
             try:
                 s = cls(app_context=self.app_context)
-                await s(**extra)
+                await s()
                 self.logger.info(f"[{self.name}] dispatched step {cls.__name__}")
             except Exception as exc:
                 self.logger.exception(f"[{self.name}] dispatch step {cls.__name__} raised: {exc}")
 
-    async def execute(self):
-        assert self.context is not None
-        if self.context.stop_event is None:
-            raise RuntimeError("cron_step requires 'stop_event' on context")
-        stop_event: asyncio.Event = self.context.stop_event
+    async def __call__(self, **kwargs) -> Response:
+        """Scheduler body: loop dispatching downstream jobs/steps until ``stop_event`` fires.
 
-        dispatch_classes: list[type[BaseComponent]] = []
+        Per-dispatch exceptions are swallowed in ``_fire``, so this body only propagates
+        genuine scheduler-loop failures to the ``BackgroundJob`` supervisor for restart.
+        """
+        assert self._stop_event is not None
+        stop_event = self._stop_event
+
+        dispatch_classes: list[type] = []
         for name in self.dispatch_steps:
             cls = R.get(ComponentEnum.STEP, name)
             if cls is None:
@@ -198,11 +201,12 @@ class CronStep(BaseStep):
         while not stop_event.is_set():
             delay = self._next_fire_delay()
             self.logger.info(f"[{self.name}] next fire in {delay:.0f}s")
-            stopped = await self._wait_or_stop(delay, stop_event)
-            if stopped:
+            await self._wait_or_stop(delay)
+            if stop_event.is_set():
                 break
             await self._fire(dispatch_classes)
 
-        self.context.response.success = True
-        self.context.response.answer = f"cron_step jobs={self.dispatch_jobs!r} steps={self.dispatch_steps!r} stopped"
-        return self.context.response
+        response = Response()
+        response.success = True
+        response.answer = f"cron job jobs={self.dispatch_jobs!r} steps={self.dispatch_steps!r} stopped"
+        return response

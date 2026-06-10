@@ -115,10 +115,7 @@ class WatchChangesStep(BaseStep):
             ]
             if changes:
                 self.logger.info(f"Detected {len(changes)} change(s)")
-                # Exclude `changes` from the carried context: we pass it
-                # explicitly below, and a prior dispatch round may have left
-                # the previous batch on context.data — `s(changes=..., **extra)`
-                # would otherwise raise "multiple values for keyword argument".
+                # TODO @jinli
                 extra = {k: v for k, v in self.context.data.items() if k not in ("stop_event", "changes")}
                 for cls in dispatch_classes:
                     s = cls(app_context=self.app_context)
