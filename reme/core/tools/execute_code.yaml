@@ -1,5 +1,0 @@
-tool: |
-  Execute python code can be used in scenarios such as analysis or calculation, and the final result can be printed using the `print` function.
-
-tool_zh: |
-  执行 Python 代码可用于分析或计算等场景，最终结果可以使用 print 函数输出。

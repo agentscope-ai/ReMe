@@ -1,7 +1,0 @@
-tool: |
-  A tool capable of executing shell commands can use `pwd` to check the current location, `cd` to navigate to a new directory, `ls` to view the contents of a directory, and execute scripts.
-  Note that the starting directory is always the same each time the tool is invoked. If you need to perform multiple operations within a specific directory, you must include the full path in each command, for example: `cd aa/bb && bash xxx`.
-
-tool_zh: |
-  一个能够执行 Shell 命令的工具可以使用 pwd 查看当前所在位置，使用 cd 切换到新目录，使用 ls 查看目录内容，并可执行脚本。
-  请注意，每次调用该工具时，起始目录始终相同。如果你需要在某个特定目录中执行多个操作，必须在每条命令中包含完整路径，例如：cd aa/bb && bash xxx。

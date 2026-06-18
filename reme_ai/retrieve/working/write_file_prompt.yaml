@@ -1,9 +1,0 @@
-tool_desc: |
-  Writes content to a specified file in the local filesystem. If the file doesn't exist, it will be created. If parent directories don't exist, they will be created automatically. If the file already exists, it will be overwritten with the new content.
-
-file_path: |
-  The absolute path to the file to write to (e.g., '/home/user/project/file.txt'). Relative paths are not supported. You must provide an absolute path.
-
-content: |
-  The content to write to the file.
-

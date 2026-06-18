@@ -1,1 +1,0 @@
-cat bench_results/reme/Martin\ Mark/session* | grep '"result_type": "' | awk -F'"' '{total++; if($4=="Correct") count++} END {printf "Correct Rate: %.2f%% (%d/%d)\n", (count/total)*100, count, total}'

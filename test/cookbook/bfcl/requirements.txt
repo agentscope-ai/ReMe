@@ -1,5 +1,0 @@
-jinja2
-loguru
-openai
-ray
-pandas

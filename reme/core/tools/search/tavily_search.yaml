@@ -1,6 +1,0 @@
-tool: |
-  Use search keywords to retrieve relevant information from the internet.
-  If you have multiple keywords, please call this tool separately for each one.
-
-tool_zh: |
-  使用搜索关键词从互联网检索相关信息。如果您有多个关键词，请分别为每个关键词单独调用此工具。
