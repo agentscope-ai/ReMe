@@ -16,6 +16,8 @@ from pathlib import Path
 
 import frontmatter
 
+from ._file_io import get_path_lock
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -31,18 +33,24 @@ class FrontmatterUpdateStep(BaseStep):
         metadata = self.context.get("metadata") or {}
         assert isinstance(metadata, dict), "metadata must be a dict"
 
-        target = (Path(self.file_store.vault_path or ".") / path).resolve()
-        if not target.is_file():
-            payload: dict = {"path": path, "error": "not found"}
-        elif target.suffix != ".md":
-            payload = {"path": path, "error": "not markdown"}
-        elif not metadata:
-            payload = {"path": path, "error": "no fields to update"}
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        target, err = resolve_path(vault_dir, path)
+        if err or target is None:
+            payload: dict = {"path": path, "error": err or "invalid path"}
         else:
-            post = frontmatter.loads(target.read_text(encoding="utf-8"))
-            post.metadata.update(metadata)
-            target.write_text(frontmatter.dumps(post), encoding="utf-8")
-            payload = {"path": path, "updated": metadata}
+            lock = await get_path_lock(target)
+            async with lock:
+                if not target.is_file():
+                    payload = {"path": path, "error": "not found"}
+                elif target.suffix != ".md":
+                    payload = {"path": path, "error": "not markdown"}
+                elif not metadata:
+                    payload = {"path": path, "error": "no fields to update"}
+                else:
+                    post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                    post.metadata.update(metadata)
+                    target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    payload = {"path": path, "updated": metadata}
 
         if "error" in payload:
             self.context.response.success = False

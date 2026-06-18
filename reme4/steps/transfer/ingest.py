@@ -181,7 +181,8 @@ class IngestStep(BaseStep):
             # both surface the conflict rather than getting silently clobbered.
             on_disk = {p.name for p in bucket.iterdir() if p.is_file()}
             existing_names = {Path(e.path).name for e in existing_entries} | on_disk
-            if final_name in existing_names:
+            existing_names_folded = {name.casefold() for name in existing_names}
+            if final_name.casefold() in existing_names_folded:
                 raise _DuplicateIngest(
                     f"duplicate: {final_name!r} already exists in {resource_dir}/{date}/",
                 )
@@ -413,7 +414,7 @@ def _assemble_day_md(entries: list[FileNode], date: str) -> str:
     lines: list[str] = [
         "---",
         f"name: {date}",
-        f"assets: [{', '.join(names)}]",
+        f"assets: {json.dumps(names, ensure_ascii=False)}",
         "---",
         "",
         f"# {date} resources",

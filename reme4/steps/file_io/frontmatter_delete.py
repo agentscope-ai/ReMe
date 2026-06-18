@@ -13,6 +13,8 @@ from pathlib import Path
 
 import frontmatter
 
+from ._file_io import get_path_lock
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -30,31 +32,37 @@ class FrontmatterDeleteStep(BaseStep):
             keys = [keys]
         keys = list(keys)
 
-        target = (Path(self.file_store.vault_path or ".") / path).resolve()
-        if not target.is_file():
-            payload: dict = {"path": path, "error": "not found"}
-        elif target.suffix != ".md":
-            payload = {"path": path, "error": "not markdown"}
-        elif not keys:
-            payload = {"path": path, "error": "keys is empty"}
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        target, err = resolve_path(vault_dir, path)
+        if err or target is None:
+            payload: dict = {"path": path, "error": err or "invalid path"}
         else:
-            post = frontmatter.loads(target.read_text(encoding="utf-8"))
-            deleted: list[str] = []
-            missing: list[str] = []
-            for k in keys:
-                if k in post.metadata:
-                    del post.metadata[k]
-                    deleted.append(k)
+            lock = await get_path_lock(target)
+            async with lock:
+                if not target.is_file():
+                    payload = {"path": path, "error": "not found"}
+                elif target.suffix != ".md":
+                    payload = {"path": path, "error": "not markdown"}
+                elif not keys:
+                    payload = {"path": path, "error": "keys is empty"}
                 else:
-                    missing.append(k)
-            if deleted:
-                target.write_text(frontmatter.dumps(post), encoding="utf-8")
-            payload = {
-                "path": path,
-                "deleted": deleted,
-                "missing": missing,
-                "frontmatter": dict(post.metadata),
-            }
+                    post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                    deleted: list[str] = []
+                    missing: list[str] = []
+                    for k in keys:
+                        if k in post.metadata:
+                            del post.metadata[k]
+                            deleted.append(k)
+                        else:
+                            missing.append(k)
+                    if deleted:
+                        target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                    payload = {
+                        "path": path,
+                        "deleted": deleted,
+                        "missing": missing,
+                        "frontmatter": dict(post.metadata),
+                    }
 
         if "error" in payload:
             self.context.response.success = False

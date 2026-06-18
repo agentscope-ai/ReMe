@@ -32,6 +32,7 @@ original is still removed in that case (move semantics, not copy).
 import shutil
 from pathlib import Path
 
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -65,9 +66,13 @@ class MoveStep(BaseStep):
         self.context.response.metadata.update(payload)
 
     async def _move(self, src_path: str, dst_path: str, overwrite: bool, retarget: bool) -> dict:
-        vault_dir = Path(self.file_store.vault_path or ".")
-        src_abs = (vault_dir / src_path).resolve() if src_path else None
-        dst_abs = (vault_dir / dst_path).resolve() if not Path(dst_path).is_absolute() else None
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        src_abs, src_err = resolve_path(vault_dir, src_path) if src_path else (None, "src_path is required")
+        dst_abs, dst_err = resolve_path(vault_dir, dst_path) if dst_path else (None, "dst_path is required")
+        if src_err:
+            return {"src_path": src_path, "error": src_err}
+        if dst_err:
+            return {"dst_path": dst_path, "error": dst_err}
         precheck_error = _precheck_move(src_path, dst_path, src_abs, dst_abs, overwrite)
         if precheck_error:
             return precheck_error

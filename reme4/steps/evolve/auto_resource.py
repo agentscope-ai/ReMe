@@ -8,6 +8,7 @@ import aiofiles
 from watchfiles import Change
 
 from ..base_step import BaseStep
+from ..file_io import refresh_day_index
 from ...components import R
 
 
@@ -63,10 +64,13 @@ class AutoResourceStep(BaseStep):
             self.logger.info(f"[{self.name}] Deleted file: {note_rel}")
 
         await self.file_store.delete([note_rel])
+        index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
 
         self.context.response.success = True
         self.context.response.answer = f"Deleted resource note: {note_rel}"
-        self.context.response.metadata.update({"path": note_rel, "session_id": session_id, "action": "deleted"})
+        self.context.response.metadata.update(
+            {"path": note_rel, "session_id": session_id, "action": "deleted", "index": index_payload},
+        )
 
     async def _handle_upsert(self, file_path: str, date_str: str, session_id: str, created: bool) -> None:
         create_response = await self.run_job("daily_create", session_id=session_id, date=date_str)
@@ -105,6 +109,8 @@ class AutoResourceStep(BaseStep):
             job_tools=self.agent_tools,
             session_id=agent_session_id,
         )
+        daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
+        index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
 
         self.context.response.success = True
         self.context.response.answer = (result.get("result") or "").strip()
@@ -115,6 +121,7 @@ class AutoResourceStep(BaseStep):
                 "session_id": session_id,
                 "agent_session_id": agent_session_id,
                 "action": "added" if created else "modified",
+                "index": index_payload,
             },
         )
         self.logger.info(f"[{self.name}] done {note_path}")

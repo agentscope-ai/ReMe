@@ -64,6 +64,7 @@ from pydantic import BaseModel, Field
 from ._evolve import now
 from .dream import DreamResult
 from ..base_step import BaseStep
+from ..file_io import refresh_day_index
 from ...components import R
 from ...schema import FileNode
 
@@ -165,6 +166,7 @@ class AutoDreamStep(BaseStep):
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         today = date_input or now(tz).strftime("%Y-%m-%d")
         vault = self._vault_dir()
+        await refresh_day_index(self.file_store, today, daily_dir)
         topic_rel = f"{daily_dir}/{today}/session_agent_{self.topic_session_id}.md"
         files = [rel for rel in _scan_today_files(vault, today, daily_dir) if rel != topic_rel]
 

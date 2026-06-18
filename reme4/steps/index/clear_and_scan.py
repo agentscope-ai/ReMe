@@ -14,7 +14,10 @@ class ClearAndScanStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        suffixes = tuple("." + s.strip(".") for s in self.context.get("suffix_filters", ["md"]))
+        suffix_filters = self.context.get("suffix_filters", None)
+        if suffix_filters is None:
+            suffix_filters = self.context.get("watch_suffixes", ["md", "jsonl"])
+        suffixes = tuple("." + s.strip(".") for s in suffix_filters)
 
         await self.file_store.clear()
         paths = [

@@ -47,7 +47,7 @@ def test_expand_env_vars_converts_expanded_scalar_types(monkeypatch):
             "zip": "${ZIP:-007}",
             "url": "http://${HOST:-localhost}:${PORT}",
             "string_bool": '${STRING_BOOL:-"false"}',
-        }
+        },
     )
 
     assert expanded == {

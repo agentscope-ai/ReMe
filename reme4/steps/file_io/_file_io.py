@@ -113,6 +113,32 @@ async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> tup
     return _decode_known_file(data, Path(file_path).suffix)
 
 
+async def read_file_lines_safe(
+    file_path,
+    start_line: int,
+    end_line: int | None,
+    *,
+    max_collect_bytes: int = DEFAULT_MAX_BYTES * 2,
+) -> tuple[str, int, str]:
+    """Read a 1-based inclusive line range without loading the full file.
+
+    Returns ``(text, total_lines, encoding)``.
+    """
+    encoding = await detect_file_encoding(file_path)
+    lines: list[str] = []
+    collected_bytes = 0
+    total = 0
+    async with aiofiles.open(str(file_path), "r", encoding=encoding, errors="replace") as f:
+        async for line in f:
+            total += 1
+            if total >= start_line and (end_line is None or total <= end_line):
+                if collected_bytes < max_collect_bytes:
+                    cleaned = line.rstrip("\n")
+                    lines.append(cleaned)
+                    collected_bytes += len(cleaned.encode(encoding, errors="replace")) + 1
+    return "\n".join(lines), total, encoding
+
+
 async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
     """Detect the encoding of an existing file so writes can preserve it."""
     try:

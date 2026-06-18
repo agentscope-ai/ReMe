@@ -21,6 +21,24 @@ jobs:
       - backend: demo_echo_step1
       - backend: demo_echo_step2
 
+  add:
+    backend: base
+    description: "add two numbers"
+    parameters:
+      type: object
+      properties:
+        a:
+          type: number
+          description: "first addend"
+        b:
+          type: number
+          description: "second addend"
+      required:
+        - a
+        - b
+    steps:
+      - backend: add_step
+
   stream_demo:
     backend: stream
     description: "stream demo job: repeat query 10x and stream char-by-char"

@@ -7,6 +7,7 @@ from agentscope.message import Msg
 
 from ._evolve import format_history, now
 from ..base_step import BaseStep
+from ..file_io import refresh_day_index
 from ...components import R
 
 _TOOL_OUTPUT_MAX = 2048
@@ -175,9 +176,12 @@ class AutoMemoryStep(BaseStep):
             job_tools=self.agent_tools,
         )
 
+        daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
+        index_payload = await refresh_day_index(self.file_store, create_response.metadata["date"], daily_dir)
+
         self.context.response.success = True
         self.context.response.answer = (result.get("result") or "").strip()
         self.context.response.metadata.update(
-            {"path": note_path, "created": created, "n_messages": len(messages)},
+            {"path": note_path, "created": created, "n_messages": len(messages), "index": index_payload},
         )
         self.logger.info(f"[{self.name}] done {note_path}")

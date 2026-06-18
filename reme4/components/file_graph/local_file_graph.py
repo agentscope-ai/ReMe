@@ -140,5 +140,9 @@ class LocalFileGraph(BaseFileGraph):
         if scope in (LinkScopeEnum.VIRTUAL, LinkScopeEnum.ALL):
             sources |= self._pending.get(path, set())
         return [
-            link for src in sorted(sources) if src in self._nodes for link in self._nodes[src].links if link.target_path == path
+            link
+            for src in sorted(sources)
+            if src in self._nodes
+            for link in self._nodes[src].links
+            if link.target_path == path
         ]

@@ -114,6 +114,7 @@ class PromptHandler:
         `validate` is kept for backward-compatible call signatures; formatting
         errors are raised by ``str.format``.
         """
+        _ = validate
         prompt = self.get_prompt(prompt_name)
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
         formats = {k: v for k, v in kwargs.items() if not isinstance(v, bool)}

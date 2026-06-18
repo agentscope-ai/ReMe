@@ -1,3 +1,5 @@
+"""Tests for local file graph link scope filtering."""
+
 import pytest
 
 from reme4.components.file_graph.local_file_graph import LocalFileGraph
@@ -15,6 +17,7 @@ def _node(path: str, *targets: str) -> FileNode:
 
 @pytest.mark.asyncio
 async def test_local_file_graph_accepts_string_scope_for_outlinks():
+    """String link scopes should filter outlinks."""
     graph = LocalFileGraph(name="test_scope_outlinks")
     await graph.upsert_nodes([_node("A.md", "B.md", "Missing.md"), _node("B.md")])
 
@@ -25,13 +28,16 @@ async def test_local_file_graph_accepts_string_scope_for_outlinks():
 
 @pytest.mark.asyncio
 async def test_local_file_graph_accepts_string_scope_and_orders_inlinks():
+    """String link scopes should filter and order inlinks."""
     graph = LocalFileGraph(name="test_scope_inlinks")
-    await graph.upsert_nodes([
-        _node("B.md", "Target.md"),
-        _node("A.md", "Target.md"),
-        _node("C.md", "Missing.md"),
-        _node("Target.md"),
-    ])
+    await graph.upsert_nodes(
+        [
+            _node("B.md", "Target.md"),
+            _node("A.md", "Target.md"),
+            _node("C.md", "Missing.md"),
+            _node("Target.md"),
+        ],
+    )
 
     assert [link.source_path for link in await graph.get_inlinks("Target.md", "real")] == ["A.md", "B.md"]
     assert [link.source_path for link in await graph.get_inlinks("Missing.md", "virtual")] == ["C.md"]
@@ -39,6 +45,7 @@ async def test_local_file_graph_accepts_string_scope_and_orders_inlinks():
 
 @pytest.mark.asyncio
 async def test_local_file_graph_scope_enum_still_filters_virtual_inlinks():
+    """Enum link scopes should continue to filter virtual inlinks."""
     graph = LocalFileGraph(name="test_scope_enum_inlinks")
     await graph.upsert_nodes([_node("A.md", "Missing.md")])
 

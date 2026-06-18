@@ -35,7 +35,6 @@ class UploadStep(BaseStep):
         src_path: str = self.context.get("src_path", "") or ""
         dst_path: str = self.context.get("dst_path", "") or ""
         overwrite: bool = bool(self.context.get("overwrite", False))
-        assert src_path and dst_path, "src_path and dst_path are required"
         payload = await self._upload(src_path, dst_path, overwrite)
         if "error" in payload:
             self.context.response.success = False
@@ -51,8 +50,19 @@ class UploadStep(BaseStep):
             )
         self.context.response.metadata.update(payload)
 
-    async def _upload(self, src_path: str, dst_path: str, overwrite: bool) -> dict:
-        src_abs = Path(src_path)
+    async def _upload(
+        self,
+        src_path: str,
+        dst_path: str,
+        overwrite: bool,
+    ) -> dict:  # pylint: disable=too-many-return-statements
+        # pylint: disable=too-many-return-statements
+        if not src_path:
+            return {"src_path": src_path, "error": "src_path is required"}
+        if not dst_path:
+            return {"dst_path": dst_path, "error": "dst_path is required"}
+
+        src_abs = Path(src_path).resolve()
         if not src_abs.is_file():
             return {"src_path": src_path, "error": "not found"}
         if "/" not in dst_path:
@@ -60,10 +70,18 @@ class UploadStep(BaseStep):
                 "dst_path": dst_path,
                 "error": "dst_path must be relative to the vault with a directory component",
             }
-        vault_dir = Path(self.file_store.vault_path or ".")
-        dst_abs = (vault_dir / dst_path).resolve() if not Path(dst_path).is_absolute() else None
-        if dst_abs is None:
+        if Path(dst_path).is_absolute():
             return {"dst_path": dst_path, "error": "dst_path must be relative to the vault"}
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        dst_abs = (vault_dir / dst_path).resolve()
+        try:
+            dst_abs.relative_to(vault_dir)
+        except ValueError:
+            return {"dst_path": dst_path, "error": "dst_path must stay inside the vault"}
+        if dst_abs == src_abs:
+            return {"src_path": src_path, "dst_path": dst_path, "error": "src_path and dst_path are the same"}
+        if dst_abs.is_dir():
+            return {"dst_path": dst_path, "error": "destination is a directory"}
         if dst_abs.exists() and not overwrite:
             return {
                 "src_path": src_path,

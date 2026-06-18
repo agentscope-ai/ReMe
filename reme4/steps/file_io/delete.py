@@ -24,6 +24,7 @@ citing prose, or accept dangling.
 import shutil
 from pathlib import Path
 
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -70,7 +71,9 @@ class DeleteStep(BaseStep):
         if not path:
             return {"path": path, "error": "not found"}
         vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target = (vault_dir / path).resolve()
+        target, err = resolve_path(vault_dir, path)
+        if err or target is None:
+            return {"path": path, "error": err or "invalid path"}
         if target.is_file():
             inbound = await WikilinkHandler.find_inbound(self.file_store, target=path)
             target.unlink()

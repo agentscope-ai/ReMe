@@ -22,7 +22,7 @@ from watchfiles import Change
 from reme4.components.file_chunker import DefaultFileChunker
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
-from reme4.steps import ForeachDispatchStep, LogChangesStep, ScanStoreChangesStep, WatchChangesStep
+from reme4.steps import ClearAndScanStep, ForeachDispatchStep, LogChangesStep, ScanStoreChangesStep, WatchChangesStep
 from reme4.steps.index._watch_rules import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -157,6 +157,32 @@ def test_collect_existing_filters():
 # ---------------------------------------------------------------------------
 # ScanStoreChangesStep
 # ---------------------------------------------------------------------------
+
+
+def test_clear_and_scan_defaults_include_jsonl():
+    """Full reindex should include jsonl files when no explicit suffix filter is passed."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            write_file(cwd / "daily" / "note.md", "alpha")
+            write_file(cwd / "resource" / "events.jsonl", '{"a": 1}\n')
+            write_file(cwd / "resource" / "ignore.txt", "skip")
+
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            try:
+                step = ClearAndScanStep(file_store=fs, app_context=_make_app_context(cwd))
+                ctx = RuntimeContext()
+                resp = await step(ctx)
+                paths = {Path(item["path"]).name for item in ctx["changes"]}
+                assert resp.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
+                assert paths == {"note.md", "events.jsonl"}
+            finally:
+                await fs.close()
+        print("✓ test_clear_and_scan_defaults_include_jsonl passed")
+
+    asyncio.run(run())
 
 
 async def _make_scan_step(vault_path: Path, watch_dirs=None, watch_suffixes=None, recursive=True):
@@ -491,6 +517,7 @@ if __name__ == "__main__":
     test_match_file_no_suffix_filter()
     test_collect_existing_filters()
     # ScanStoreChangesStep
+    test_clear_and_scan_defaults_include_jsonl()
     test_scan_changes_initial_all_added()
     test_scan_changes_no_changes()
     test_scan_changes_detect_modify_delete()

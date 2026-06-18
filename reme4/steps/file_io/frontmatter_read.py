@@ -13,6 +13,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -26,7 +27,14 @@ class FrontmatterReadStep(BaseStep):
         path: str = self.context.get("path") or ""
         assert path, "path is required"
 
-        target = (Path(self.file_store.vault_path or ".") / path).resolve()
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        target, err = resolve_path(vault_dir, path)
+        if err or target is None:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {err or 'invalid path'}"
+            self.context.response.metadata.update({"path": path, "exists": False, "error": err or "invalid path"})
+            self.logger.info(f"[{self.name}] path={path} error={err!r}")
+            return
         if not target.is_file():
             self.context.response.success = False
             self.context.response.answer = f"Error: {path} not found"

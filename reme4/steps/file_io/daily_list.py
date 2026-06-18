@@ -15,6 +15,7 @@ to today.
 from pathlib import Path
 
 from ._daily_index import scan_notes
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...steps.evolve import now
@@ -57,6 +58,13 @@ class DailyListStep(BaseStep):
         """Scan ``<daily_dir>/<date>/`` and emit one projected record per note."""
         assert self.context is not None
         day, daily_dir, vault_dir = self._collect_params()
+        _target_dir, err = resolve_path(vault_dir, f"{daily_dir}/{day}")
+        if err:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {err}"
+            self.context.response.metadata.update({"date": day, "error": err})
+            self.logger.info(f"[{self.name}] date={day} error={err!r}")
+            return
         notes = [self._project(n) for n in scan_notes(vault_dir, day, daily_dir)]
         self.context.response.success = True
         lines = [self._format_note_line(n) for n in notes]

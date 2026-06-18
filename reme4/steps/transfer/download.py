@@ -45,7 +45,6 @@ class DownloadStep(BaseStep):
         src_path: str = self.context.get("src_path", "") or ""
         dst_path: str = self.context.get("dst_path", "") or ""
         overwrite: bool = bool(self.context.get("overwrite", False))
-        assert src_path, "src_path is required"
         payload = await self._download(src_path, dst_path, overwrite)
         if "error" in payload:
             self.context.response.success = False
@@ -60,15 +59,34 @@ class DownloadStep(BaseStep):
             )
         self.context.response.metadata.update(payload)
 
-    async def _download(self, src_path: str, dst_path: str, overwrite: bool) -> dict:
+    async def _download(
+        self,
+        src_path: str,
+        dst_path: str,
+        overwrite: bool,
+    ) -> dict:  # pylint: disable=too-many-return-statements
+        # pylint: disable=too-many-return-statements
         if not src_path:
-            return {"src_path": src_path, "error": "not found"}
-        src_abs = (Path(self.file_store.vault_path or ".") / src_path).resolve()
+            return {"src_path": src_path, "error": "src_path is required"}
+        vault_dir = Path(self.file_store.vault_path or ".").resolve()
+        src_abs = (vault_dir / src_path).resolve()
+        try:
+            src_abs.relative_to(vault_dir)
+        except ValueError:
+            return {"src_path": src_path, "error": "src_path must stay inside the vault"}
         if not src_abs.is_file():
             return {"src_path": src_path, "error": "not found"}
 
         if dst_path:
-            dst_abs = Path(dst_path)
+            dst_abs = Path(dst_path).expanduser()
+            if not dst_abs.is_absolute():
+                return {
+                    "src_path": src_path,
+                    "dst_path": dst_path,
+                    "error": "dst_path must be an absolute filesystem path",
+                }
+            if dst_abs.is_dir():
+                return {"src_path": src_path, "dst_path": dst_path, "error": "destination is a directory"}
             if dst_abs.exists() and not overwrite:
                 return {
                     "src_path": src_path,

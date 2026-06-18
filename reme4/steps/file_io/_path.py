@@ -38,11 +38,13 @@ _RESERVED_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 
-
+# pylint: disable=too-many-return-statements
 def validate_filename_component(name: str, *, kind: str = "filename") -> str | None:
     """Return an error message, or ``None`` when ``name`` is a safe filename component."""
     if not name:
         return f"{kind} is required"
+    if name in (".", ".."):
+        return f"{kind} cannot be '.' or '..': {name!r}"
     if name != name.strip():
         return f"{kind} cannot have leading or trailing whitespace: {name!r}"
     if _INVALID_CHARS.search(name):
@@ -54,25 +56,43 @@ def validate_filename_component(name: str, *, kind: str = "filename") -> str | N
     return None
 
 
-def resolve_path(vault_path: Path, raw: str) -> tuple[Path | None, str | None]:
+def is_relative_to(path: Path, parent: Path) -> bool:
+    """Return True when ``path`` is equal to or nested under ``parent``."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+# pylint: disable=too-many-return-statements
+def resolve_path(
+    vault_path: Path,
+    raw: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[Path | None, str | None]:
     """Resolve a `path=` argument against ``vault_path``.
 
     Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
     """
     if not raw or not str(raw).strip():
+        if allow_empty:
+            return vault_path.resolve(), None
         return None, "`path` is required"
     s = str(raw).strip()
     p = Path(s)
+    if p.is_absolute():
+        logger.info("absolute path detected, recommending relative paths")
+        return p.resolve(), None
     for part in p.parts:
-        if part == p.anchor:
-            continue
         err = validate_filename_component(part, kind="path component")
         if err:
             return None, err
-    if p.is_absolute():
-        logger.info("absolute path detected, recommending relative paths")
-        return p, None
-    return vault_path / p, None
+    vault = vault_path.resolve()
+    target = (vault / p).resolve()
+    if not is_relative_to(target, vault):
+        return None, "`path` must stay inside the vault"
+    return target, None
 
 
 def gate_md(target: Path) -> tuple[Path, bool]:

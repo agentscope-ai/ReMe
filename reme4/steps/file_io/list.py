@@ -16,6 +16,7 @@ should iterate the result and call ``frontmatter_read`` per candidate.
 from pathlib import Path
 from typing import Iterable
 
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -49,14 +50,6 @@ class ListStep(BaseStep):
         return path, recursive, limit if limit > 0 else DEFAULT_LIMIT
 
     @staticmethod
-    def _resolve_target_dir(vault_dir: Path, path: str) -> Path:
-        """Empty → vault root; absolute → as-is; relative → joined under vault_dir."""
-        if not path:
-            return vault_dir
-        candidate = Path(path)
-        return candidate.resolve() if candidate.is_absolute() else (vault_dir / candidate).resolve()
-
-    @staticmethod
     def _walk_files(target_dir: Path, recursive: bool, limit: int) -> list[Path]:
         """Return up to ``limit`` regular files under ``target_dir``; short-circuits at the cap."""
         entries: Iterable[Path] = target_dir.rglob("*") if recursive else target_dir.iterdir()
@@ -84,7 +77,10 @@ class ListStep(BaseStep):
         assert self.context is not None
         path, recursive, limit = self._collect_params()
         vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target_dir = self._resolve_target_dir(vault_dir, path)
+        target_dir, err = resolve_path(vault_dir, path, allow_empty=True)
+        if err or target_dir is None:
+            self._fail(err or "invalid path", path=path)
+            return None
 
         if not target_dir.exists():
             self._fail(f"directory {target_dir} does not exist", path=str(target_dir))

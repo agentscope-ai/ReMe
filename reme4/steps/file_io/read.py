@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from ._file_io import read_file_safe, truncate_text_output
+from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
 from ._path import NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
+from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
 from ...utils import expand_links, render_expansion_lines
 
 
@@ -88,6 +89,7 @@ class ReadStep(BaseStep):
             self._fail(f"read failed: {e}", path=str(target))
             return None
 
+    # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
         raw = str(self.context.get("path") or "")
@@ -104,23 +106,40 @@ class ReadStep(BaseStep):
         if not self._check_file(target):
             return None
 
-        content = await self._load_content(target)
-        if content is None:
-            return None
+        if target.stat().st_size <= MAX_FILE_READ_BYTES:
+            content = await self._load_content(target)
+            if content is None:
+                return None
 
-        all_lines = content.split("\n")
-        total = len(all_lines)
-        bounds = self._resolve_range(total, start_line, end_line, target)
-        if bounds is None:
-            return None
-        s, e = bounds
+            all_lines = content.split("\n")
+            total = len(all_lines)
+            bounds = self._resolve_range(total, start_line, end_line, target)
+            if bounds is None:
+                return None
+            s, e = bounds
+            excerpt = "\n".join(all_lines[s - 1 : e])
+        else:
+            s = max(1, int(start_line) if start_line is not None else 1)
+            requested_end = int(end_line) if end_line is not None else None
+            if requested_end is not None and s > requested_end:
+                self._fail(f"start_line ({s}) > end_line ({requested_end})", path=str(target))
+                return None
+            try:
+                excerpt, total, _encoding = await read_file_lines_safe(
+                    target,
+                    s,
+                    requested_end,
+                    max_collect_bytes=DEFAULT_MAX_BYTES * 2,
+                )
+            except Exception as e:  # pylint: disable=broad-except
+                self._fail(f"read failed: {e}", path=str(target))
+                return None
+            if s > total:
+                self._fail(f"start_line {s} exceeds file length ({total} lines)", path=str(target), total_lines=total)
+                return None
+            e = min(total, requested_end if requested_end is not None else total)
 
-        text = truncate_text_output(
-            "\n".join(all_lines[s - 1 : e]),
-            start_line=s,
-            total_lines=total,
-            file_path=str(target),
-        )
+        text = truncate_text_output(excerpt, start_line=s, total_lines=total, file_path=str(target))
 
         self.context.response.success = True
         self.context.response.answer = text

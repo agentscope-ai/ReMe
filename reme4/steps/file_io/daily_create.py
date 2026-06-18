@@ -30,6 +30,7 @@ import frontmatter
 
 from ._daily_index import refresh_day_index, validate_session_id
 from ._file_io import write_file_safe
+from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...steps.evolve import now
@@ -92,7 +93,10 @@ class DailyCreateStep(BaseStep):
             path_rel = f"{daily_dir}/{day}.md"
             name = day
 
-        path_abs = (self.vault_path / path_rel).resolve()
+        path_abs, err = resolve_path(self.vault_path, path_rel)
+        if err or path_abs is None:
+            self._fail(err or "invalid path", date=day, session_id=session_id, path=path_rel)
+            return None
         try:
             created = await self._create_if_missing(path_abs, name)
         except Exception as e:  # pylint: disable=broad-except
