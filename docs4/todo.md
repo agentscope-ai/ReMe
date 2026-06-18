@@ -22,7 +22,7 @@
   - message 应该会 会保存到 reme_session/dialog/{session_id}.jsonl
   - 通过 message 更新 daily/YYYY-MM-DD/{session_id}.md
 - auto-resource
-  - 会保存到 resource/YYYY-MM-DD/resource_{hash(resouce_name)}.md
+  - 会保存到 daily/YYYY-MM-DD/{resource_stem}.md
 - auto-dream
   - 读取所有的md
   - 会生成link auto-link

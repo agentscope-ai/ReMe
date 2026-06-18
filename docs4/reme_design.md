@@ -24,7 +24,7 @@
   - YYYY-MM-DD.md
   - YYYY-MM-DD/
     - session_{session_id}.md
-    - resource_{hash(resouce_name)}.md
+    - {resource_stem}.md
 - digest/
   - personal/
   - procedure/
