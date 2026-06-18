@@ -704,6 +704,8 @@ if __name__ == "__main__":
     test_scan_changes_detect_modify_delete()
     test_scan_changes_missing_dir_skipped()
     test_scan_changes_resource_dir()
+    test_index_update_loop_init_dispatch_updates_store_across_batches()
+    test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs()
     # WatchChangesStep
     test_watch_changes_default_low_power_timing()
     test_watch_changes_requires_stop_event()
