@@ -3,13 +3,18 @@
 # pylint: disable=protected-access,missing-function-docstring,missing-class-docstring,no-self-argument,unused-argument
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from reme4.application import Application
 from reme4.components.component_registry import ComponentRegistry
 from reme4.components.job.background_job import BackgroundJob
 from reme4.components.job.base_job import BaseJob
+from reme4.components.job.cron_job import CronJob
+from reme4.components.job.stream_job import StreamJob
+from reme4.components.job import cron_job as cron_job_module
 from reme4.schema import ComponentConfig
 
 
@@ -82,6 +87,46 @@ def test_call_runs_steps_in_order():
         response = await job()
         assert response.success is True
         assert call_order == ["s1", "s2"]
+
+    asyncio.run(run())
+
+
+def test_base_job_merges_config_kwargs_into_context():
+    async def run():
+        seen = {}
+
+        async def step(ctx):
+            seen.update(ctx.data)
+
+        job = BaseJob(name="j", default_value="from-config")
+        job.app_context = MagicMock()
+        job.step_specs = []
+        job._build_steps = lambda: [step]
+
+        response = await job(default_value="from-call", call_only=True)
+        assert response.success is True
+        assert seen == {"default_value": "from-call", "call_only": True}
+
+    asyncio.run(run())
+
+
+def test_stream_job_merges_config_kwargs_into_context():
+    async def run():
+        seen = {}
+
+        async def step(ctx):
+            seen.update(ctx.data)
+
+        queue = asyncio.Queue()
+        job = StreamJob(name="j", default_value="from-config")
+        job.app_context = MagicMock()
+        job.step_specs = []
+        job._build_steps = lambda: [step]
+
+        await job(stream_queue=queue)
+        done = await queue.get()
+        assert done.done is True
+        assert seen["default_value"] == "from-config"
 
     asyncio.run(run())
 
@@ -224,6 +269,52 @@ def test_shutdown_task_cancels_on_timeout():
         job._task = asyncio.create_task(hang_forever())
         await job._shutdown_task()
         assert job._task is None
+
+    asyncio.run(run())
+
+
+def test_cron_uses_configured_timezone(monkeypatch):
+    from zoneinfo import ZoneInfo
+
+    seen = {}
+
+    def zone_info(name):
+        seen["timezone"] = name
+        return ZoneInfo(name)
+
+    monkeypatch.setattr(cron_job_module, "ZoneInfo", zone_info)
+
+    job = CronJob(cron="0 0 * * *")
+    job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone="America/New_York"))
+    delay = job._next_fire_delay()
+
+    assert delay > 0
+    assert seen["timezone"] == "America/New_York"
+
+
+def test_application_starts_jobs_base_stream_background_cron():
+    async def run():
+        order = []
+        app = object.__new__(Application)
+        app.context = SimpleNamespace(
+            app_config=SimpleNamespace(thread_pool_max_workers=0),
+            jobs={
+                "cron": CronJob(cron="* * * * *", name="cron"),
+                "background": BackgroundJob(name="background"),
+                "stream": StreamJob(name="stream"),
+                "base": BaseJob(name="base"),
+            },
+            thread_pool=None,
+        )
+        app._topological_order = lambda: []
+
+        async def start_one(component):
+            order.append(component.name)
+
+        app._start_one = start_one
+
+        await Application._start(app)
+        assert order == ["base", "stream", "background", "cron"]
 
     asyncio.run(run())
 

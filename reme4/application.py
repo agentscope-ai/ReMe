@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
 from .components import BaseComponent, ApplicationContext
-from .components.job import BaseJob
+from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
 from .enumeration import ComponentEnum
 from .schema import ComponentConfig, Response, StreamChunk
@@ -168,23 +168,24 @@ class Application(BaseComponent):
     # ----- Lifecycle -----------------------------------------------------
 
     async def _start(self) -> None:
-        """Start components in dependency order, then jobs (background last)."""
+        """Start components, then jobs as base > stream > background > cron."""
         pool_size = self.config.thread_pool_max_workers
         if pool_size > 0:
             self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
             self.logger.info(f"Thread pool created with max_workers={pool_size}")
         components = self._topological_order()
         jobs = list(self.context.jobs.values())
-        # Background jobs come last so they observe a fully wired system.
-        foreground = [j for j in jobs if j.backend != "background"]
-        background = [j for j in jobs if j.backend == "background"]
-        for c in components + foreground + background:
+        base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
+        stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
+        background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
+        cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
+        for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
             await self._start_one(c)
 
     async def _start_one(self, c: BaseComponent) -> None:
         """Start one component and record it for ordered shutdown; log and swallow failures."""
         try:
-            if c.backend == "background":
+            if isinstance(c, BackgroundJob):
                 self.logger.info(f"Starting background job: {c.name}")
             await c.start()
             self._started_components.append(c)

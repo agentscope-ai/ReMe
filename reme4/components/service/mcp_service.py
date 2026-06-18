@@ -136,10 +136,10 @@ class MCPService(BaseService):
             lifespan=self._lifespan(app, self.host, self.port),
         )
 
-    def add_job(self, job: BaseJob) -> None:
+    def add_job(self, job: BaseJob) -> bool:
         """Register a non-stream job as an MCP tool; StreamJobs are unsupported."""
         if isinstance(job, StreamJob):
-            return
+            return False
 
         async def execute_tool(**kwargs):
             response = await job(**kwargs)
@@ -150,9 +150,10 @@ class MCPService(BaseService):
                 name=job.name,
                 description=job.description,
                 fn=execute_tool,
-                parameters=job.parameters or None,
+                parameters=job.parameters or {},
             ),
         )
+        return True
 
     def start_service(self, app: "Application") -> None:
         """Run the MCP server; bind host/port only for network transports."""

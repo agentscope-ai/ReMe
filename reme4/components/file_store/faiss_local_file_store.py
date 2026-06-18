@@ -132,9 +132,18 @@ class FaissLocalFileStore(LocalFileStore):
             id_map = list(data.get("id_map", []))
             if len(id_map) != index.ntotal:
                 raise ValueError(f"id_map size {len(id_map)} != index ntotal {index.ntotal}")
+            tombstones = {int(row) for row in data.get("tombstones", [])}
+            if any(row < 0 or row >= len(id_map) for row in tombstones):
+                raise ValueError("FAISS tombstones contain out-of-range rows")
+            live_ids = [cid for i, cid in enumerate(id_map) if i not in tombstones]
+            if len(live_ids) != len(set(live_ids)):
+                raise ValueError("FAISS id_map contains duplicate live chunk ids")
+            expected_ids = {cid for cid, chunk in self.file_chunks.items() if chunk.embedding is not None}
+            if set(live_ids) != expected_ids:
+                raise ValueError("FAISS sidecar live ids do not match persisted chunks")
             self._faiss_index = index
             self._id_map = id_map
-            self._tombstones = set(data.get("tombstones", []))
+            self._tombstones = tombstones
             self._id_to_row = {cid: i for i, cid in enumerate(self._id_map) if i not in self._tombstones}
             self.logger.info(f"Loaded FAISS index: {index.ntotal} vectors from {self.faiss_path}")
             return True
@@ -175,19 +184,25 @@ class FaissLocalFileStore(LocalFileStore):
         assert self.file_graph is not None
 
         # Snapshot pre-upsert chunk_ids so we can diff against the post-upsert state.
-        old_ids_by_path = {
-            n.path: set(n.chunk_ids) for n in await self.file_graph.get_nodes([node.path for node, _ in files])
+        old_nodes = await self.file_graph.get_nodes([node.path for node, _ in files])
+        old_ids_by_path = {n.path: set(n.chunk_ids) for n in old_nodes}
+        old_text_by_id = {
+            cid: chunk.text
+            for n in old_nodes
+            for cid in n.chunk_ids
+            if (chunk := self.file_chunks.get(cid)) is not None
         }
         await super().upsert(files)
 
         if self._faiss_index is None or self.embedding_store is None:
             return
-        self._sync_index_after_upsert(files, old_ids_by_path)
+        self._sync_index_after_upsert(files, old_ids_by_path, old_text_by_id)
 
     def _sync_index_after_upsert(
         self,
         files: list[tuple[FileNode, list[FileChunk]]],
         old_ids_by_path: dict[str, set[str]],
+        old_text_by_id: dict[str, str],
     ) -> None:
         """Apply add/tombstone deltas to FAISS based on chunk_id set differences."""
         existing = set(self._id_to_row)
@@ -196,9 +211,15 @@ class FaissLocalFileStore(LocalFileStore):
             new_ids = set(node.chunk_ids)
             for cid in old_ids_by_path.get(node.path, set()) - new_ids:
                 self._tombstone(cid)
-            for cid in new_ids - existing:
+            for cid in new_ids:
                 chunk = self.file_chunks.get(cid)
-                if chunk is not None and chunk.embedding is not None:
+                if chunk is None or chunk.embedding is None:
+                    continue
+                if cid in existing and old_text_by_id.get(cid) == chunk.text:
+                    continue
+                if cid in existing:
+                    self._tombstone(cid)
+                if cid not in existing or old_text_by_id.get(cid) != chunk.text:
                     to_add.append(chunk)
 
         if to_add:
@@ -245,11 +266,20 @@ class FaissLocalFileStore(LocalFileStore):
 
         # Over-fetch by len(tombstones) so dropped rows can't starve the result set.
         q = self._prepare(query_embedding)
-        k = min(self._faiss_index.ntotal, limit + len(self._tombstones))
+        if search_filter:
+            k = self._faiss_index.ntotal
+        else:
+            k = min(self._faiss_index.ntotal, limit + len(self._tombstones))
         scores, rows = self._faiss_index.search(q, k)
-        return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit)
+        return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
 
-    def _collect_hits(self, rows: list[int], scores: list[float], limit: int) -> list[FileChunk]:
+    def _collect_hits(
+        self,
+        rows: list[int],
+        scores: list[float],
+        limit: int,
+        search_filter: dict | None = None,
+    ) -> list[FileChunk]:
         """Map raw FAISS rows back to chunks, skipping tombstones and stale ids."""
         results: list[FileChunk] = []
         for raw_row, score in zip(rows, scores):
@@ -257,7 +287,7 @@ class FaissLocalFileStore(LocalFileStore):
             if row < 0 or row in self._tombstones or row >= len(self._id_map):
                 continue
             chunk = self.file_chunks.get(self._id_map[row])
-            if chunk is None:
+            if chunk is None or not self._matches_search_filter(chunk, search_filter):
                 continue
             results.append(chunk.model_copy(update={"scores": {"vector": float(score), "score": float(score)}}))
             if len(results) >= limit:

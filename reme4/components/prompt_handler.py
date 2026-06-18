@@ -4,7 +4,6 @@ import inspect
 import json
 import re
 from pathlib import Path
-from string import Formatter
 
 import yaml
 
@@ -112,7 +111,8 @@ class PromptHandler:
         """Render a prompt: strip inactive ``[flag]`` lines, then ``str.format`` it.
 
         Boolean kwargs are treated as flag toggles; the rest are format variables.
-        With ``validate=True``, any missing ``{var}`` placeholder raises ``ValueError``.
+        `validate` is kept for backward-compatible call signatures; formatting
+        errors are raised by ``str.format``.
         """
         prompt = self.get_prompt(prompt_name)
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
@@ -120,8 +120,6 @@ class PromptHandler:
 
         if flags:
             prompt = self._apply_flag_filter(prompt, flags)
-        if validate:
-            self._check_required_vars(prompt, formats, prompt_name)
 
         return prompt.format(**formats).strip() if formats else prompt
 
@@ -135,15 +133,6 @@ class PromptHandler:
             if not active_flags or any(flags.get(f, False) for f in active_flags):
                 lines.append(cleaned)
         return "\n".join(lines)
-
-    @staticmethod
-    def _check_required_vars(prompt: str, formats: dict, prompt_name: str) -> None:
-        """Raise when any ``{var}`` placeholder lacks a corresponding kwarg."""
-        required = {f for _, f, _, _ in Formatter().parse(prompt) if f is not None}
-        if missing := required - set(formats.keys()):
-            raise ValueError(
-                f"Missing format variables for '{prompt_name}': {sorted(missing)}",
-            )
 
     def __repr__(self) -> str:
         return f"PromptHandler(language='{self.language}', num_prompts={len(self.data)})"

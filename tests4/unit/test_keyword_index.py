@@ -137,7 +137,8 @@ def test_index_file_path_includes_tokenizer_and_version():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             bm25 = await create_bm25()
             path = str(bm25.index_file)
-            assert "bm25_regex_v1.pkl" in path
+            assert "bm25_BM25Index_regex_" in path
+            assert path.endswith("_v1.pkl")
             await bm25.close()
 
     run(go())
@@ -731,6 +732,82 @@ def test_load_corrupt_file_resets_index():
     run(go())
 
 
+def test_index_file_isolated_by_component_name():
+    """Different BM25Index names must not share one persisted pickle."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            alpha = BM25Index(name="alpha")
+            alpha_tokenizer = RegexTokenizer(filter_stopwords=False)
+            alpha.tokenizer = alpha_tokenizer
+            alpha._owned.append(alpha_tokenizer)
+            await alpha.start()
+
+            beta = BM25Index(name="beta")
+            beta_tokenizer = RegexTokenizer(filter_stopwords=False)
+            beta.tokenizer = beta_tokenizer
+            beta._owned.append(beta_tokenizer)
+            await beta.start()
+
+            assert alpha.index_file != beta.index_file
+
+            await alpha.add_docs({"d1": "alpha only"})
+            await alpha.dump()
+            await alpha.close()
+
+            assert beta.n_docs == 0
+            assert await beta.retrieve("alpha", limit=1) == {}
+            await beta.close()
+
+    run(go())
+
+
+def test_index_file_isolated_by_tokenizer_config():
+    """Tokenizer settings that affect tokens must map to different index files."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            unfiltered = BM25Index()
+            unfiltered_tokenizer = RegexTokenizer(filter_stopwords=False)
+            unfiltered.tokenizer = unfiltered_tokenizer
+            unfiltered._owned.append(unfiltered_tokenizer)
+            await unfiltered.start()
+
+            filtered = BM25Index()
+            filtered_tokenizer = RegexTokenizer(filter_stopwords=True)
+            filtered.tokenizer = filtered_tokenizer
+            filtered._owned.append(filtered_tokenizer)
+            await filtered.start()
+
+            assert unfiltered.index_file != filtered.index_file
+
+            await unfiltered.close()
+            await filtered.close()
+
+    run(go())
+
+
+def test_dump_failure_is_not_silent():
+    """A failed write must be observable by callers."""
+
+    async def go():
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            bm25 = await create_bm25()
+            await bm25.add_docs({"d1": "hello"})
+            with patch("builtins.open", side_effect=OSError("disk full")):
+                try:
+                    await bm25.dump()
+                except OSError:
+                    pass
+                else:
+                    raise AssertionError("expected dump() to raise OSError")
+            await bm25.close()
+
+    run(go())
+
+
 # --------------------------------------------------------------------------- #
 # clear / optimize / reset_index                                              #
 # --------------------------------------------------------------------------- #
@@ -755,6 +832,7 @@ def test_clear_wipes_everything():
             assert bm25._idf_cache == {}
             assert not bm25.index_file.exists()
             await bm25.close()
+            assert not bm25.index_file.exists()
 
     run(go())
 

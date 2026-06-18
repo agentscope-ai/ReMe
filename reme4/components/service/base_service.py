@@ -32,8 +32,12 @@ class BaseService(BaseComponent):
         """Instantiate and configure the underlying server framework."""
 
     @abstractmethod
-    def add_job(self, job: BaseJob) -> None:
-        """Register a single job as a callable endpoint or tool."""
+    def add_job(self, job: BaseJob) -> bool:
+        """Register a single job as a callable endpoint or tool.
+
+        Returns True when the job is exposed, False when the service intentionally
+        skips it (for example, unsupported job types).
+        """
 
     @abstractmethod
     def start_service(self, app: "Application") -> None:
@@ -65,8 +69,10 @@ class BaseService(BaseComponent):
             if not job.enable_serve:
                 continue
             try:
-                self.add_job(job)
-                self.logger.info(f"Added job: {name}")
+                if self.add_job(job):
+                    self.logger.info(f"Added job: {name}")
+                else:
+                    self.logger.warning(f"Skipped job: {name}")
             except Exception as e:
                 self.logger.error(f"Failed to add job {name}: {e}")
 

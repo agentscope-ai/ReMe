@@ -220,10 +220,23 @@ class BaseComponent(ComponentMixin, ABC):
         async with self._lock:
             if not self._is_started:
                 return
-            await self._close()
-            for owned in reversed(self._owned):
-                await owned.close()
-            self._is_started = False
+            first_error: BaseException | None = None
+            try:
+                await self._close()
+            except BaseException as exc:
+                first_error = exc
+            finally:
+                for owned in reversed(self._owned):
+                    try:
+                        await owned.close()
+                    except BaseException as exc:
+                        if first_error is None:
+                            first_error = exc
+                        else:
+                            self.logger.exception(f"Failed to close owned component {owned.name}: {exc}")
+                self._is_started = False
+            if first_error is not None:
+                raise first_error
 
     async def restart(self) -> None:
         """Close then start the component."""

@@ -12,7 +12,8 @@ class StreamJob(BaseJob):
 
     async def __call__(self, **kwargs) -> None:
         """Run steps; emit failures as ERROR chunks, then a terminal DONE marker."""
-        context = RuntimeContext(**kwargs)
+        merged = {**self.kwargs, **kwargs}
+        context = RuntimeContext(**merged)
         try:
             for step in self._build_steps():
                 await step(context)

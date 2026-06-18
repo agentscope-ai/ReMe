@@ -70,6 +70,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "*" = ["py.typed", "**/*.yaml", "**/*.json"]
+"reme4.components.tokenizer" = ["stopwords"]
 
 [tool.setuptools.dynamic]
 version = { attr = "reme4.__version__" }

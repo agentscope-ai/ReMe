@@ -12,6 +12,8 @@ from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
 
+CachedEmbedding = tuple[str, np.ndarray]
+
 
 @R.register("local")
 class LocalFileStore(BaseFileStore):
@@ -113,10 +115,13 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
+        old_chunk_ids = {cid for n in old_map.values() for cid in n.chunk_ids}
         new_nodes, needs_embed, keyword_docs = self._stage_upsert(files, old_map)
 
         await self.file_graph.upsert_nodes(new_nodes)
         await self._embed_pending(needs_embed)
+        if self.keyword_index and old_chunk_ids:
+            await self.keyword_index.delete_docs(list(old_chunk_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
 
@@ -143,29 +148,29 @@ class LocalFileStore(BaseFileStore):
             new_nodes.append(node)
         return new_nodes, needs_embed, keyword_docs
 
-    def _evict_prior_chunks(self, old_node: FileNode | None) -> dict[str, np.ndarray]:
+    def _evict_prior_chunks(self, old_node: FileNode | None) -> dict[str, CachedEmbedding]:
         """Drop chunks for the path being re-upserted; keep their embeddings around so
-        a new chunk reusing the same id avoids a redundant embedding call.
+        a new chunk reusing the same id and text avoids a redundant embedding call.
         """
-        cached: dict[str, np.ndarray] = {}
-        if not (old_node and self.embedding_store):
+        cached: dict[str, CachedEmbedding] = {}
+        if old_node is None:
             return cached
         for cid in old_node.chunk_ids:
             old = self.file_chunks.pop(cid, None)
-            if old and old.embedding is not None:
-                cached[cid] = old.embedding
+            if self.embedding_store and old and old.embedding is not None:
+                cached[cid] = (old.text, old.embedding)
         return cached
 
     def _reuse_or_queue_embedding(
         self,
         chunk: FileChunk,
-        cached: dict[str, np.ndarray],
+        cached: dict[str, CachedEmbedding],
         needs_embed: list[FileChunk],
     ) -> None:
         if not self.embedding_store or chunk.embedding is not None:
             return
-        if chunk.id in cached:
-            chunk.embedding = cached[chunk.id]
+        if chunk.id in cached and cached[chunk.id][0] == chunk.text:
+            chunk.embedding = cached[chunk.id][1]
         elif chunk.text:
             needs_embed.append(chunk)
 
@@ -232,7 +237,11 @@ class LocalFileStore(BaseFileStore):
         if query_embedding is None:
             return []
 
-        candidates = [c for c in self.file_chunks.values() if c.embedding is not None]
+        candidates = [
+            c
+            for c in self.file_chunks.values()
+            if c.embedding is not None and self._matches_search_filter(c, search_filter)
+        ]
         if not candidates:
             return []
 
@@ -254,16 +263,69 @@ class LocalFileStore(BaseFileStore):
         if not query:
             return []
 
-        doc_id_score_dict = await self.keyword_index.retrieve(query, limit=limit)
+        retrieve_limit = limit
+        if search_filter:
+            retrieve_limit = max(limit, getattr(self.keyword_index, "n_docs", limit))
+        doc_id_score_dict = await self.keyword_index.retrieve(query, limit=retrieve_limit)
         results = []
         for doc_id, score in doc_id_score_dict.items():
             chunk = self.file_chunks.get(doc_id)
-            if chunk:
+            if chunk and self._matches_search_filter(chunk, search_filter):
                 results.append(chunk.model_copy(update={"scores": {"keyword": score, "score": score}}))
+                if len(results) >= limit:
+                    break
 
         return results
 
     # -- extensions -----------------------------------------------------------
+
+    @staticmethod
+    def _as_filter_values(value) -> set:
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return set(value)
+        return {value}
+
+    @classmethod
+    def _value_matches(cls, actual, expected) -> bool:
+        if isinstance(expected, (list, tuple, set, frozenset)):
+            return actual in set(expected)
+        return actual == expected
+
+    @classmethod
+    def _matches_search_filter(cls, chunk: FileChunk, search_filter: dict | None) -> bool:
+        """Conservative post-filter shared by vector and keyword search."""
+        if not search_filter:
+            return True
+
+        exact_paths = set()
+        for key in ("path", "paths"):
+            if key in search_filter:
+                exact_paths.update(cls._as_filter_values(search_filter[key]))
+        if exact_paths and chunk.path not in exact_paths:
+            return False
+
+        prefixes = []
+        for key in ("path_prefix", "path_prefixes", "prefix", "prefixes"):
+            if key in search_filter:
+                prefixes.extend(str(v) for v in cls._as_filter_values(search_filter[key]))
+        if prefixes and not any(chunk.path.startswith(prefix) for prefix in prefixes):
+            return False
+
+        metadata_filter = dict(search_filter.get("metadata") or {})
+        reserved = {
+            "path",
+            "paths",
+            "path_prefix",
+            "path_prefixes",
+            "prefix",
+            "prefixes",
+            "metadata",
+        }
+        for key, value in search_filter.items():
+            if key not in reserved:
+                metadata_filter[key] = value
+
+        return all(cls._value_matches(chunk.metadata.get(key), value) for key, value in metadata_filter.items())
 
     async def rebuild_links(self) -> None:
         """Rebuild graph links via the underlying file graph."""

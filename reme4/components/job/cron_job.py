@@ -1,6 +1,7 @@
 """Cron-scheduled background job that runs its configured steps."""
 
 import datetime
+from zoneinfo import ZoneInfo
 
 from .background_job import BackgroundJob
 from ..component_registry import R
@@ -24,7 +25,10 @@ class CronJob(BackgroundJob):
         await super()._start()
 
     def _next_fire_delay(self) -> float:
-        now = datetime.datetime.now()
+        tz_name = None
+        if self.app_context is not None:
+            tz_name = self.app_context.app_config.timezone
+        now = datetime.datetime.now(ZoneInfo(tz_name)) if tz_name else datetime.datetime.now()
         from croniter import croniter
 
         nxt = croniter(self.cron_expr, now).get_next(datetime.datetime)

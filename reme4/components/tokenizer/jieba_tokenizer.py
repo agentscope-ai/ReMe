@@ -40,4 +40,6 @@ class JiebaTokenizer(BaseTokenizer):
         self.logger.info(f"JiebaTokenizer using backend: {self.backend}")
 
     def _tokenize_one(self, text: str, **kwargs) -> list[str]:
+        if self._cut is None:
+            raise RuntimeError("Tokenizer not initialized. Call start() first.")
         return list(self._cut(text))

@@ -55,12 +55,13 @@ class HttpService(BaseService):
             allow_headers=["*"],
         )
 
-    def add_job(self, job: BaseJob) -> None:
+    def add_job(self, job: BaseJob) -> bool:
         """Dispatch to streaming or non-streaming registration based on job type."""
         if isinstance(job, StreamJob):
             self._add_stream_job(job)
         else:
             self._add_json_job(job)
+        return True
 
     def start_service(self, app: "Application") -> None:
         """Run uvicorn, suppressing unrelated websocket deprecation noise."""

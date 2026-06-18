@@ -15,8 +15,11 @@ lists keep the stale entries until `optimize_index` rewrites them. Updating an
 existing doc_id retires the old slot first, then allocates a fresh idx.
 """
 
+import hashlib
+import json
 import math
 import pickle
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -53,11 +56,43 @@ class BM25Index(BaseKeywordIndex):
 
     @property
     def index_file(self) -> Path:
-        """Path of the persisted index, namespaced by tokenizer and version."""
+        """Path of the persisted index, namespaced by component/tokenizer config."""
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer not initialized. Call start() first.")
         name = type(self.tokenizer).__name__.replace("Tokenizer", "").lower()
-        return self.component_metadata_path / f"bm25_{name}_{self.index_version}.pkl"
+        component_name = self._safe_filename_part(self.name)
+        fingerprint = self._tokenizer_fingerprint()
+        return self.component_metadata_path / f"bm25_{component_name}_{name}_{fingerprint}_{self.index_version}.pkl"
+
+    @staticmethod
+    def _safe_filename_part(value: str) -> str:
+        """Make a short, stable filename segment from a component/config value."""
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._")
+        return safe or "default"
+
+    def _tokenizer_config(self) -> dict:
+        """Return the tokenizer settings that affect token output."""
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer not initialized. Call start() first.")
+
+        config = {
+            "class": type(self.tokenizer).__qualname__,
+            "filter_stopwords": getattr(self.tokenizer, "filter_stopwords", None),
+        }
+        stopwords_path = getattr(self.tokenizer, "stopwords_path", None)
+        if stopwords_path is not None:
+            path = Path(stopwords_path)
+            config["stopwords_path"] = str(path)
+            if path.exists() and path.is_file():
+                config["stopwords_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            else:
+                config["stopwords_sha256"] = None
+        return config
+
+    def _tokenizer_fingerprint(self) -> str:
+        """Compact digest for tokenizer settings used in the index filename."""
+        payload = json.dumps(self._tokenizer_config(), sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
     @property
     def n_docs(self) -> int:
@@ -276,6 +311,8 @@ class BM25Index(BaseKeywordIndex):
     def _snapshot(self) -> dict:
         """Bundle every persistent field; mirrors `_restore`."""
         return {
+            "tokenizer_config": self._tokenizer_config(),
+            "tokenizer_fingerprint": self._tokenizer_fingerprint(),
             "vocab": self.vocab,
             "doc_ids": self._doc_ids,
             "doc_id_to_idx": self._doc_id_to_idx,
@@ -290,6 +327,10 @@ class BM25Index(BaseKeywordIndex):
 
     def _restore(self, data: dict) -> None:
         """Restore index state from a `_snapshot` dict."""
+        expected = self._tokenizer_fingerprint()
+        actual = data.get("tokenizer_fingerprint")
+        if actual is not None and actual != expected:
+            raise ValueError(f"Tokenizer fingerprint mismatch: expected {expected}, got {actual}")
         self.vocab = data["vocab"]
         self._doc_ids = data["doc_ids"]
         self._doc_id_to_idx = data["doc_id_to_idx"]
@@ -304,7 +345,11 @@ class BM25Index(BaseKeywordIndex):
 
     async def dump(self) -> None:
         """Persist the index via temp file + atomic rename to avoid torn writes."""
+        if self.n_docs == 0 and not self.vocab:
+            self.index_file.unlink(missing_ok=True)
+            return
         try:
+            self.index_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.index_file.with_suffix(".tmp")
             with open(tmp, "wb") as f:
                 pickle.dump(self._snapshot(), f)

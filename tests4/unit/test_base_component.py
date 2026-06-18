@@ -38,6 +38,12 @@ class RequiredDepTarget(BaseComponent):
     component_type = ComponentEnum.FILE_GRAPH
 
 
+class FailCloseComponent(StubComponent):
+    async def _close(self):
+        await super()._close()
+        raise RuntimeError("close failed")
+
+
 # -- Dependency ---------------------------------------------------------------
 
 
@@ -157,6 +163,27 @@ def test_async_context_manager():
             assert c is comp
             assert comp.is_started is True
         assert comp.is_started is False
+
+    asyncio.run(run())
+
+
+def test_close_closes_owned_when_parent_close_fails():
+    async def run():
+        owned = StubComponent(name="owned")
+        parent = FailCloseComponent(name="parent")
+        parent.dep = BaseComponent.bind(
+            "sub",
+            StubComponent,
+            default_factory=lambda: owned,
+        )
+        await parent.start()
+
+        with pytest.raises(RuntimeError, match="close failed"):
+            await parent.close()
+
+        assert owned.is_started is False
+        assert owned.close_count == 1
+        assert parent.is_started is False
 
     asyncio.run(run())
 
@@ -330,6 +357,7 @@ if __name__ == "__main__":
     test_start_close_idempotent()
     test_restart()
     test_async_context_manager()
+    test_close_closes_owned_when_parent_close_fails()
     test_resolve_standalone_optional_becomes_none()
     test_resolve_standalone_with_default_factory()
     test_resolve_standalone_required_no_factory_keeps_placeholder()

@@ -157,6 +157,17 @@ def test_tokenizer_lifecycle():
     asyncio.run(run())
 
 
+def test_jieba_tokenizer_requires_start():
+    """JiebaTokenizer should fail clearly when used before startup."""
+    tokenizer = JiebaTokenizer(filter_stopwords=False)
+    try:
+        tokenizer.tokenize(["hello 世界"])
+    except RuntimeError as exc:
+        assert "Call start() first" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when JiebaTokenizer is used before start()")
+
+
 if __name__ == "__main__":
     print("\n=== Tokenizer Tests ===")
     test_basic_chinese()
@@ -166,4 +177,5 @@ if __name__ == "__main__":
     test_with_stopwords()
     test_multiple_texts()
     test_tokenizer_lifecycle()
+    test_jieba_tokenizer_requires_start()
     print("\n所有测试通过!")

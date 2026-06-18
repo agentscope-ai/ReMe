@@ -211,9 +211,9 @@ def test_format_variables():
 
 def test_format_missing_variable_raises():
     ph = PromptHandler()
-    ph.load_prompt_dict({"p": "Hello {name}"})
-    with pytest.raises(ValueError, match="Missing format variables"):
-        ph.prompt_format("p")
+    ph.load_prompt_dict({"p": "Hello {name}, welcome to {place}"})
+    with pytest.raises(KeyError, match="place"):
+        ph.prompt_format("p", name="Alice")
 
 
 def test_format_missing_variable_no_validate():
