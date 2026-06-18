@@ -1,0 +1,129 @@
+"""Daily interests.yaml step."""
+
+import json
+from pathlib import Path
+
+from ...base_step import BaseStep
+from ...file_io import refresh_day_index
+from ....components import R
+from .utils import (
+    load_yaml_topics,
+    llm_available,
+    normalize_topic,
+    parse_structured_reply,
+    previous_dates,
+    state_from_context,
+    store_state,
+    vault_dir,
+    write_yaml,
+)
+
+
+@R.register("dream_topics_step")
+class DreamTopicsStep(BaseStep):
+    """Write ``daily/<date>/interests.yaml`` with same-day and recent de-dup."""
+
+    def __init__(self, topic_count: int = 3, topic_diversity_days: int = 7, **kwargs):
+        super().__init__(**kwargs)
+        self.topic_count = topic_count
+        self.topic_diversity_days = topic_diversity_days
+
+    async def execute(self):
+        assert self.context is not None
+        state = state_from_context(self)
+        topic_count = int(self.context.get("topic_count", self.topic_count) or self.topic_count)
+        raw_days = self.context.get("topic_diversity_days", self.topic_diversity_days)
+        diversity_days = int(raw_days or self.topic_diversity_days)
+        vault = Path(state.vault).resolve() if state.vault else vault_dir(self)
+        rel_path = f"{state.daily_dir}/{state.date}/interests.yaml"
+        abs_path = vault / state.daily_dir / state.date / "interests.yaml"
+        same_day = load_yaml_topics(abs_path)
+
+        if not state.topics:
+            state.interests_path = rel_path if abs_path.is_file() else ""
+            state.topics_written = len(same_day)
+            answer = f"Kept {len(same_day)} existing interest topic(s) at {rel_path}"
+            answer = answer if abs_path.is_file() else "Skipped interests.yaml write: no new topic candidates"
+            return self._finish(state, True, answer)
+
+        recent = [
+            topic
+            for day in previous_dates(state.date, diversity_days)
+            for topic in load_yaml_topics(vault / state.daily_dir / day / "interests.yaml")
+        ]
+        try:
+            topics, _used_llm = await self._select_topics(state, same_day, recent, topic_count, diversity_days)
+            payload = {
+                "date": state.date,
+                "topic_count": topic_count,
+                "diversity_days": diversity_days,
+                "topics": topics,
+            }
+            write_yaml(abs_path, payload)
+            await refresh_day_index(self.file_store, state.date, state.daily_dir)
+            state.interests_path, state.topics_written = rel_path, len(topics)
+            return self._finish(state, True, f"Wrote {len(topics)} interest topic(s) to {rel_path}")
+        except Exception as e:  # noqa: BLE001
+            state.topic_error = f"{type(e).__name__}: {e}"
+            state.errors.append(state.topic_error)
+            return self._finish(state, False, f"Error: {state.topic_error}")
+
+    async def _select_topics(self, state, same_day: list[dict], recent: list[dict], count: int, days: int):
+        if not state.topics:
+            return self._dedupe([], same_day, recent, count), False
+        if not llm_available(self):
+            return self._dedupe(state.topics, same_day, recent, count), False
+        result = await self.agent_wrapper.reply(
+            self.prompt_format(
+                "topics_user_message",
+                date=state.date,
+                topic_count=count,
+                diversity_days=days,
+                candidates_json=json.dumps(state.topics, ensure_ascii=False, indent=2),
+                same_day_json=json.dumps(same_day, ensure_ascii=False, indent=2),
+                recent_topics_json=json.dumps(recent, ensure_ascii=False, indent=2),
+            ),
+            system_prompt=self.prompt_format("topics_system_prompt"),
+        )
+        meta = parse_structured_reply(str(result.get("result") or ""))
+        return self._dedupe([self._clean_topic(t) for t in meta.get("topics") or []], same_day, recent, count), True
+
+    @staticmethod
+    def _clean_topic(raw) -> dict:
+        if not isinstance(raw, dict):
+            return {}
+        title, reason = str(raw.get("title") or "").strip(), str(raw.get("reason") or "").strip()
+        if not title or not reason:
+            return {}
+        keywords, paths = raw.get("keywords") or [], raw.get("paths") or []
+        cleaned_keywords = [str(k).strip() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
+        cleaned_paths = [str(p).strip() for p in paths if str(p).strip()] if isinstance(paths, list) else []
+        return {
+            "title": title,
+            "reason": reason,
+            "evidence": str(raw.get("evidence") or "").strip(),
+            "keywords": cleaned_keywords,
+            "paths": cleaned_paths,
+        }
+
+    @staticmethod
+    def _dedupe(topics: list[dict], same_day: list[dict], recent: list[dict], count: int) -> list[dict]:
+        recent_norm = {normalize_topic(t.get("title", "")) for t in recent}
+        seen = {normalize_topic(t.get("title", "")) for t in same_day}
+        out = list(same_day)
+        for topic in [t for t in topics if t]:
+            title_norm = normalize_topic(topic.get("title", ""))
+            if title_norm and title_norm not in seen and title_norm not in recent_norm:
+                seen.add(title_norm)
+                out.append(topic)
+            if len(out) >= count:
+                break
+        return out[:count]
+
+    def _finish(self, state, success: bool, answer: str):
+        assert self.context is not None
+        state.summary = answer
+        store_state(self, state)
+        self.context.response.success = success
+        self.context.response.answer = answer
+        return self.context.response

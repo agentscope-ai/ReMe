@@ -1,373 +1,91 @@
-"""Tests for AutoDreamStep — daily-tick + file_catalog dedup.
-
-AutoDreamStep walks ``daily/<today>.md`` + ``daily/<today>/**`` and
-diffs the result against ``file_catalog`` (same shape as
-``scan_catalog_changes_step``):
-
-* on-disk path missing from catalog          → dream
-* on-disk mtime != catalog mtime             → dream (modified)
-* on-disk mtime == catalog mtime             → skip (unchanged)
-* catalog entry under today's prefix missing → drop from catalog (deleted)
-
-Successful dreams (and Phase 1 vacuous skips) upsert the current
-``st_mtime`` so the next tick re-dreams only what actually changed.
-Failures leave the catalog untouched.
-
-We mock ``run_job`` (the dispatch hop that calls the configured
-``dream`` job — needs an LLM) and inject a fake ``file_catalog``
-recording every get / upsert / delete / dump.
-"""
-
-# pylint: disable=protected-access
+"""Unit tests for the refactored dream package."""
 
 import asyncio
-import os
 import tempfile
-import warnings
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from reme4.components.file_catalog import BaseFileCatalog
 from reme4.components.runtime_context import RuntimeContext
-from reme4.schema import FileNode, Response
-from reme4.steps.evolve import AutoDreamStep
-from reme4.steps.evolve.dream import DreamResult
-
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+from reme4.steps.evolve.dream.finish import DreamFinishStep
+from reme4.steps.evolve.dream.schema import DreamState
+from reme4.steps.evolve.dream.utils import parse_structured_reply, scan_day_files
 
 
-def _dream_response(path: str, **dream_fields) -> Response:
-    """Wrap a DreamResult as the dispatched job would return it.
-
-    Mirrors what DreamStep.execute does:
-        self.context.response.metadata.update(result.model_dump())
-    """
-    dr = DreamResult(path=path, **dream_fields)
-    success = not dr.error
-    return Response(success=success, answer=dr.summary or "ok", metadata=dr.model_dump())
-
-
-class temp_chdir:
-    """Context manager that temporarily ``chdir``s into a directory and restores cwd on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
-
-
-def _touch(path: Path, content: str = "x") -> Path:
+def _touch(path: Path, text: str = "x") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     return path
 
 
-def _make_step(vault: Path, today: str, existing_nodes: list[FileNode] | None = None) -> AutoDreamStep:
-    """AutoDreamStep with vault forced, daily_dir='daily', and a fake catalog."""
-    fake_catalog = MagicMock(spec=BaseFileCatalog)
-    fake_catalog.get_nodes = AsyncMock(return_value=list(existing_nodes or []))
-    fake_catalog.upsert = AsyncMock()
-    fake_catalog.delete = AsyncMock()
-    fake_catalog.dump = AsyncMock()
+class _Catalog(BaseFileCatalog):
+    def __init__(self):
+        super().__init__()
+        self.upserts = []
+        self.dumps = 0
 
-    class _Fixed(AutoDreamStep):
-        @property
-        def vault_path(self):
-            return vault
+    async def upsert(self, nodes):
+        self.upserts.extend(nodes)
 
-        def _vault_dir(self):
-            return vault
+    async def delete(self, path):
+        return None
 
-        def _now(self):
-            import datetime
+    async def get_nodes(self, paths=None):
+        return []
 
-            return datetime.datetime.fromisoformat(f"{today}T00:00:00")
-
-    step = _Fixed(file_catalog=fake_catalog, persist=True)
-    cfg = MagicMock()
-    cfg.daily_dir = "daily"
-    cfg.resource_dir = ""
-    step.app_context = MagicMock()
-    step.app_context.app_config = cfg
-    return step
+    async def dump(self):
+        self.dumps += 1
 
 
-def test_scans_date_md_and_date_folder():
-    """Both ``daily/<today>.md`` and files under ``daily/<today>/`` are picked up;
-    date.md is dreamed first so the day-index leads."""
+def test_scan_day_files_includes_nested_md_and_excludes_interests():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        _touch(vault / "daily" / "2026-05-28.md")
+        _touch(vault / "daily" / "2026-05-28" / "session.md")
+        _touch(vault / "daily" / "2026-05-28" / "auth-refactor" / "notes.md")
+        _touch(vault / "daily" / "2026-05-28" / "interests.yaml")
 
+        assert scan_day_files(vault, "2026-05-28", "daily") == [
+            "daily/2026-05-28.md",
+            "daily/2026-05-28/auth-refactor/notes.md",
+            "daily/2026-05-28/session.md",
+        ]
+
+
+def test_parse_structured_reply_handles_fenced_yaml_and_scalar_fallback():
+    data = parse_structured_reply(
+        '```yaml\n'
+        "action: REFINE\n"
+        "target_path: digest/personal/no-trailing-summary.md\n"
+        'note: Extended node. Core rule unchanged: answer directly and stop.\n'
+        "```",
+    )
+    assert data["action"] == "REFINE"
+    assert data["target_path"] == "digest/personal/no-trailing-summary.md"
+    assert data["note"].startswith("Extended node")
+
+
+def test_finish_does_not_checkpoint_failed_changed_paths():
     async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            _touch(vault / "daily" / f"{today}.md")
-            _touch(vault / "daily" / today / "session-a.md")
-            _touch(vault / "daily" / today / "session-b.md")
-            step = _make_step(vault, today)
-            ctx = RuntimeContext(date=today)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = Path(tmp)
+            ok = _touch(vault / "daily" / "2026-05-28" / "ok.md")
+            failed = _touch(vault / "daily" / "2026-05-28" / "failed.md")
+            interests = _touch(vault / "daily" / "2026-05-28" / "interests.yaml")
+            state = DreamState(
+                date="2026-05-28",
+                vault=str(vault),
+                changed_paths=[str(ok.relative_to(vault)), str(failed.relative_to(vault))],
+                failed_paths=[str(failed.relative_to(vault))],
+                interests_path=str(interests.relative_to(vault)),
+            )
+            step, catalog = DreamFinishStep(), _Catalog()
+            resp = await step(RuntimeContext(dream=state.model_dump(), file_catalog=catalog))
 
-            seen: list[str] = []
-
-            async def _fake_run_job(name, **kwargs):
-                assert name == "dream", f"expected dispatch to 'dream' job, got {name!r}"
-                seen.append(kwargs["path"])
-                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job):
-                resp = await step(ctx)
-
-            assert resp.success
-            assert resp.metadata["files_scanned"] == 3
-            assert resp.metadata["files_dreamed"] == 3
-            assert seen[0] == f"daily/{today}.md"
-            assert seen[1:] == [f"daily/{today}/session-a.md", f"daily/{today}/session-b.md"]
-        print("✓ test_scans_date_md_and_date_folder passed")
+            upserted = [n.path for n in catalog.upserts]
+            assert resp.success is True
+            assert str(ok.relative_to(vault)) in upserted
+            assert str(failed.relative_to(vault)) not in upserted
+            assert str(interests.relative_to(vault)) in upserted
+            assert catalog.dumps == 1
 
     asyncio.run(run())
-
-
-def test_resource_dir_is_not_scanned():
-    """resource/<today>/ files are NOT picked up by AutoDreamStep anymore."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            _touch(vault / "daily" / f"{today}.md")
-            _touch(vault / "resource" / today / "spec.pdf")
-            step = _make_step(vault, today)
-            step.app_context.app_config.resource_dir = "resource"
-            ctx = RuntimeContext(date=today)
-
-            async def _fake_run_job(_name, **kwargs):
-                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job) as run_job_mock:
-                await step(ctx)
-
-            paths = [c.kwargs["path"] for c in run_job_mock.call_args_list]
-            assert paths == [f"daily/{today}.md"]
-        print("✓ test_resource_dir_is_not_scanned passed")
-
-    asyncio.run(run())
-
-
-def test_unchanged_files_skipped_via_catalog_mtime():
-    """A file whose catalog mtime matches on-disk mtime is NOT dreamed."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            note = _touch(vault / "daily" / today / "note.md")
-            mtime = note.stat().st_mtime
-            existing = [FileNode(path=f"daily/{today}/note.md", st_mtime=mtime)]
-            step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext(date=today)
-
-            with patch.object(step, "run_job") as run_job_mock:
-                resp = await step(ctx)
-                run_job_mock.assert_not_called()
-
-            assert resp.success
-            assert resp.metadata["files_unchanged"] == 1
-            assert resp.metadata["files_dreamed"] == 0
-            step.file_catalog.upsert.assert_not_awaited()
-            step.file_catalog.dump.assert_not_awaited()
-        print("✓ test_unchanged_files_skipped_via_catalog_mtime passed")
-
-    asyncio.run(run())
-
-
-def test_changed_file_dreamed_and_catalog_updated():
-    """Stale catalog mtime → file is dreamed + catalog upserts new mtime."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            note = _touch(vault / "daily" / today / "note.md")
-            mtime = note.stat().st_mtime
-            stale = mtime - 999.0
-            existing = [FileNode(path=f"daily/{today}/note.md", st_mtime=stale)]
-            step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext(date=today)
-
-            async def _fake_run_job(_name, **kwargs):
-                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job):
-                resp = await step(ctx)
-
-            assert resp.success
-            assert resp.metadata["files_dreamed"] == 1
-            assert resp.metadata["files_unchanged"] == 0
-            step.file_catalog.upsert.assert_awaited_once()
-            (nodes,), _ = step.file_catalog.upsert.call_args
-            assert len(nodes) == 1
-            assert nodes[0].path == f"daily/{today}/note.md"
-            assert nodes[0].st_mtime == mtime  # post-dream mtime, not stale
-            step.file_catalog.dump.assert_awaited_once()
-        print("✓ test_changed_file_dreamed_and_catalog_updated passed")
-
-    asyncio.run(run())
-
-
-def test_deleted_file_dropped_from_catalog():
-    """Catalog entry under today's prefix with no on-disk file → catalog.delete."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            # No on-disk files for today; catalog has a stale entry for today.
-            existing = [FileNode(path=f"daily/{today}/gone.md", st_mtime=123.0)]
-            step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext(date=today)
-
-            with patch.object(step, "run_job") as run_job_mock:
-                resp = await step(ctx)
-                run_job_mock.assert_not_called()
-
-            assert resp.success
-            assert resp.metadata["files_deleted"] == 1
-            step.file_catalog.delete.assert_awaited_once_with([f"daily/{today}/gone.md"])
-            step.file_catalog.upsert.assert_not_awaited()
-            step.file_catalog.dump.assert_awaited_once()
-        print("✓ test_deleted_file_dropped_from_catalog passed")
-
-    asyncio.run(run())
-
-
-def test_other_days_catalog_entries_untouched():
-    """Catalog entries OUTSIDE today's prefix must not be dropped, even if
-    they don't appear in today's on-disk scan."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            yesterday = "2026-06-03"
-            # Today: nothing on disk. Catalog has yesterday's entry.
-            existing = [FileNode(path=f"daily/{yesterday}/note.md", st_mtime=99.0)]
-            step = _make_step(vault, today, existing_nodes=existing)
-            ctx = RuntimeContext(date=today)
-
-            resp = await step(ctx)
-
-            assert resp.success
-            assert resp.metadata["files_scanned"] == 0
-            assert resp.metadata["files_deleted"] == 0
-            step.file_catalog.delete.assert_not_awaited()
-            step.file_catalog.upsert.assert_not_awaited()
-        print("✓ test_other_days_catalog_entries_untouched passed")
-
-    asyncio.run(run())
-
-
-def test_failure_does_not_upsert():
-    """A dream error must leave the catalog untouched so the next tick retries."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            _touch(vault / "daily" / today / "note.md")
-            step = _make_step(vault, today)
-            ctx = RuntimeContext(date=today)
-
-            async def _fake_run_job(_name, **kwargs):
-                return _dream_response(kwargs["path"], used_llm=False, error="boom")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job):
-                resp = await step(ctx)
-
-            assert not resp.success
-            assert resp.metadata["files_failed"] == 1
-            step.file_catalog.upsert.assert_not_awaited()
-            step.file_catalog.dump.assert_not_awaited()
-        print("✓ test_failure_does_not_upsert passed")
-
-    asyncio.run(run())
-
-
-def test_phase1_empty_still_upserts():
-    """Phase 1 skipped (no abstractions) is still success — still catalogued so
-    the next tick doesn't redo Phase 1 unnecessarily."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            note = _touch(vault / "daily" / today / "note.md")
-            mtime = note.stat().st_mtime
-            step = _make_step(vault, today)
-            ctx = RuntimeContext(date=today)
-
-            async def _fake_run_job(_name, **kwargs):
-                return _dream_response(kwargs["path"], used_llm=True, skipped=True, summary="empty")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job):
-                resp = await step(ctx)
-
-            assert resp.success
-            assert resp.metadata["files_skipped"] == 1
-            step.file_catalog.upsert.assert_awaited_once()
-            (nodes,), _ = step.file_catalog.upsert.call_args
-            assert nodes[0].st_mtime == mtime
-        print("✓ test_phase1_empty_still_upserts passed")
-
-    asyncio.run(run())
-
-
-def test_partial_failure_does_not_block_other_files():
-    """One file's failure must not stop other files from being dreamed + catalogued."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            vault = Path(tmpdir).resolve()
-            today = "2026-06-04"
-            _touch(vault / "daily" / today / "a.md")
-            _touch(vault / "daily" / today / "b.md")
-            step = _make_step(vault, today)
-            ctx = RuntimeContext(date=today)
-
-            async def _fake_run_job(_name, **kwargs):
-                if kwargs["path"].endswith("a.md"):
-                    return _dream_response(kwargs["path"], used_llm=False, error="boom")
-                return _dream_response(kwargs["path"], used_llm=True, summary="ok")
-
-            with patch.object(step, "run_job", side_effect=_fake_run_job):
-                resp = await step(ctx)
-
-            assert not resp.success
-            assert resp.metadata["files_dreamed"] == 1
-            assert resp.metadata["files_failed"] == 1
-            step.file_catalog.upsert.assert_awaited_once()
-            (nodes,), _ = step.file_catalog.upsert.call_args
-            assert [n.path for n in nodes] == [f"daily/{today}/b.md"]
-        print("✓ test_partial_failure_does_not_block_other_files passed")
-
-    asyncio.run(run())
-
-
-if __name__ == "__main__":
-    print("\n=== AutoDreamStep Tests ===")
-    test_scans_date_md_and_date_folder()
-    test_resource_dir_is_not_scanned()
-    test_unchanged_files_skipped_via_catalog_mtime()
-    test_changed_file_dreamed_and_catalog_updated()
-    test_deleted_file_dropped_from_catalog()
-    test_other_days_catalog_entries_untouched()
-    test_failure_does_not_upsert()
-    test_phase1_empty_still_upserts()
-    test_partial_failure_does_not_block_other_files()
-    print("\n所有测试通过!")
