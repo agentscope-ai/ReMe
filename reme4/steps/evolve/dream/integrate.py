@@ -28,7 +28,7 @@ class DreamIntegrateStep(BaseStep):
             return self._finish(state, False, err)
 
         vault = Path(state.vault).resolve() if state.vault else vault_dir(self)
-        digest_dir = getattr(self.app_context.app_config, "digest_dir", "") if self.app_context is not None else ""
+        digest_dir = self.config_value("digest_dir")
         for i, unit in enumerate(state.units, start=1):
             await self._integrate_one(state, unit, i, vault, digest_dir)
         state.failed_paths = sorted(set(state.failed_paths))

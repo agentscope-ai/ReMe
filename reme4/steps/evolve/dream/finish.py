@@ -51,6 +51,7 @@ class DreamFinishStep(BaseStep):
 
 
 def render_summary(state: DreamState) -> str:
+    """Render summary."""
     lines = [
         f"[AutoDream] date={state.date} scanned={state.files_scanned} changed={state.files_changed} "
         f"unchanged={state.files_unchanged} deleted={state.files_deleted}",

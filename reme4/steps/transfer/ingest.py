@@ -155,10 +155,8 @@ class IngestStep(BaseStep):
         self.context.response.metadata.update(payload)
 
     def _resource_dir_name(self) -> str:
-        """Configured ``resource_dir`` subdir name; defaults to ``"resource"`` outside an app context."""
-        if self.app_context is None:
-            return "resource"
-        return self.app_context.app_config.resource_dir
+        """Configured ``resource_dir`` subdir name."""
+        return self.config_value("resource_dir")
 
     def _vault_dir(self) -> Path:
         vr = getattr(self.file_store, "vault_path", None)

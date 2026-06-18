@@ -72,7 +72,7 @@ class NodeSearchStep(BaseStep):
             return self.context.response
         assert limit > 0, f"limit must be positive, got {limit}"
 
-        digest_dir = getattr(self.app_context.app_config, "digest_dir", "digest") or "digest"
+        digest_dir = self.config_value("digest_dir")
         digest_prefix = digest_dir.rstrip("/") + "/"
 
         # Over-fetch — digest filter drops a lot of raw hits.

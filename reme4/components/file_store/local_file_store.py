@@ -1,6 +1,5 @@
-"""In-memory file store with JSONL persistence on close."""
+"""In-memory file store with compressed JSONL persistence on close."""
 
-import aiofiles
 import numpy as np
 
 from .base_file_store import BaseFileStore
@@ -11,6 +10,7 @@ from ..keyword_index import BaseKeywordIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
+from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 CachedEmbedding = tuple[str, np.ndarray]
 
@@ -51,7 +51,7 @@ class LocalFileStore(BaseFileStore):
         self.encoding = encoding
         self.store_version = store_version
         self.file_chunks: dict[str, FileChunk] = {}
-        self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl"
+        self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -82,12 +82,11 @@ class LocalFileStore(BaseFileStore):
         if not self.chunks_path.exists():
             return
         try:
-            async with aiofiles.open(self.chunks_path, encoding=self.encoding) as f:
-                async for line in f:
-                    line = line.strip()
-                    if line:
-                        chunk = FileChunk.model_validate_json(line)
-                        self.file_chunks[chunk.id] = chunk
+            for line in read_jsonl_zst(self.chunks_path, self.encoding):
+                line = line.strip()
+                if line:
+                    chunk = FileChunk.model_validate_json(line)
+                    self.file_chunks[chunk.id] = chunk
             self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
@@ -96,10 +95,7 @@ class LocalFileStore(BaseFileStore):
         """Atomically rewrite the JSONL, then cascade dump into keyword_index and file_graph."""
         assert self.file_graph is not None
         try:
-            tmp = self.chunks_path.with_suffix(".tmp")
-            async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
-                await f.write("\n".join(c.model_dump_json() for c in self.file_chunks.values()))
-            tmp.replace(self.chunks_path)
+            write_jsonl_zst(self.chunks_path, (c.model_dump_json() for c in self.file_chunks.values()), self.encoding)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")

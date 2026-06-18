@@ -158,9 +158,7 @@ def test_auto_dream_and_proactive():
                 # in the markdown they just created or updated.
                 graph_links = _file_graph_links(env)
                 note_links = [
-                    link.get("target_path")
-                    for link in graph_links.get(DREAM_INPUT_PATH, [])
-                    if isinstance(link, dict)
+                    link.get("target_path") for link in graph_links.get(DREAM_INPUT_PATH, []) if isinstance(link, dict)
                 ]
                 print(f"[wikilink] {DREAM_INPUT_PATH} -> {note_links}")
                 assert note_links, (
@@ -168,8 +166,7 @@ def test_auto_dream_and_proactive():
                     f"file_graph links: {graph_links}"
                 )
                 assert any(
-                    str(target).lstrip("!").startswith("digest/")
-                    for target in note_links
+                    str(target).lstrip("!").startswith("digest/") for target in note_links
                 ), f"daily note did not link out to any digest node: {note_links}"
 
                 target_paths = [
@@ -178,13 +175,9 @@ def test_auto_dream_and_proactive():
                     if result.get("target_path")
                 ]
                 target_texts = {
-                    rel: _read_text(env.vault_dir / rel)
-                    for rel in target_paths
-                    if (env.vault_dir / rel).is_file()
+                    rel: _read_text(env.vault_dir / rel) for rel in target_paths if (env.vault_dir / rel).is_file()
                 }
-                digest_wikilinks = [
-                    rel for rel, text in target_texts.items() if "[[digest/" in text
-                ]
+                digest_wikilinks = [rel for rel, text in target_texts.items() if "[[digest/" in text]
                 provenance_links = [
                     rel for rel, text in target_texts.items() if f"derived_from:: [[{DREAM_INPUT_PATH}]]" in text
                 ]
@@ -197,8 +190,7 @@ def test_auto_dream_and_proactive():
                     f"targets: {target_paths}"
                 )
                 assert digest_wikilinks, (
-                    "no digest↔digest wikilink found in integrated target markdown\n"
-                    f"targets: {target_paths}"
+                    "no digest↔digest wikilink found in integrated target markdown\n" f"targets: {target_paths}"
                 )
 
                 interests_text = _print_text_file("interests.yaml", interests)

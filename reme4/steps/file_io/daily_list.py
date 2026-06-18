@@ -30,7 +30,7 @@ class DailyListStep(BaseStep):
         assert self.context is not None
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
-        daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
+        daily_dir = self.config_value("daily_dir")
         vault_dir = Path(self.file_store.vault_path or ".").resolve()
         return day, daily_dir, vault_dir
 

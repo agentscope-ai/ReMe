@@ -357,6 +357,7 @@ class BM25Index(BaseKeywordIndex):
             self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.index_file}: {e}")
+            raise
 
     async def load(self) -> None:
         """Load from disk; missing file is a no-op, corrupt file resets state."""

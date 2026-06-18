@@ -1,13 +1,11 @@
-"""Local file catalog backend: in-memory dict persisted as JSONL."""
+"""Local file catalog backend: in-memory dict persisted as compressed JSONL."""
 
 import asyncio
-import uuid
-
-import aiofiles
 
 from .base_file_catalog import BaseFileCatalog
 from ..component_registry import R
 from ...schema import FileNode
+from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 @R.register("local")
@@ -20,7 +18,7 @@ class LocalFileCatalog(BaseFileCatalog):
         self._nodes: dict[str, FileNode] = {}
         self._io_lock = asyncio.Lock()
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
-        self._catalog_file = self.component_metadata_path / f"{self.name}.jsonl"
+        self._catalog_file = self.component_metadata_path / f"{self.name}.jsonl.zst"
 
     async def load(self) -> None:
         async with self._io_lock:
@@ -52,14 +50,10 @@ class LocalFileCatalog(BaseFileCatalog):
             return [self._nodes[p] for p in paths if p in self._nodes]
 
     async def _read_jsonl(self) -> None:
-        async with aiofiles.open(self._catalog_file, encoding=self.encoding) as f:
-            async for line in f:
-                if stripped := line.strip():
-                    node = FileNode.model_validate_json(stripped)
-                    self._nodes[node.path] = node
+        for line in read_jsonl_zst(self._catalog_file, self.encoding):
+            if stripped := line.strip():
+                node = FileNode.model_validate_json(stripped)
+                self._nodes[node.path] = node
 
     async def _write_jsonl(self) -> None:
-        tmp = self._catalog_file.with_name(f"{self._catalog_file.name}.{uuid.uuid4().hex}.tmp")
-        async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
-            await f.write("\n".join(n.model_dump_json() for n in self._nodes.values()))
-        tmp.replace(self._catalog_file)
+        write_jsonl_zst(self._catalog_file, (n.model_dump_json() for n in self._nodes.values()), self.encoding)

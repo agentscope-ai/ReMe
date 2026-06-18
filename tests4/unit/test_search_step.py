@@ -140,6 +140,6 @@ def test_search_step_empty_query_fails_before_store_calls():
 
         assert resp.success is False
         assert resp.answer == "Error: query cannot be empty"
-        assert store.calls == []
+        assert not store.calls
 
     asyncio.run(run())

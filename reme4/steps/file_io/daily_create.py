@@ -54,7 +54,7 @@ class DailyCreateStep(BaseStep):
         session_id = self.context.get("session_id", "")
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
-        daily_dir = self.app_context.app_config.daily_dir if self.app_context is not None else "daily"
+        daily_dir = self.config_value("daily_dir")
         return session_id, day, daily_dir
 
     @staticmethod

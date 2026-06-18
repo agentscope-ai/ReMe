@@ -37,6 +37,7 @@ class _Catalog(BaseFileCatalog):
 
 
 def test_scan_day_files_includes_nested_md_and_excludes_interests():
+    """Scan day files."""
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         _touch(vault / "daily" / "2026-05-28.md")
@@ -52,11 +53,12 @@ def test_scan_day_files_includes_nested_md_and_excludes_interests():
 
 
 def test_parse_structured_reply_handles_fenced_yaml_and_scalar_fallback():
+    """Parse a JSON/YAML object from an agent reply, including fenced blocks."""
     data = parse_structured_reply(
-        '```yaml\n'
+        "```yaml\n"
         "action: REFINE\n"
         "target_path: digest/personal/no-trailing-summary.md\n"
-        'note: Extended node. Core rule unchanged: answer directly and stop.\n'
+        "note: Extended node. Core rule unchanged: answer directly and stop.\n"
         "```",
     )
     assert data["action"] == "REFINE"
@@ -65,6 +67,8 @@ def test_parse_structured_reply_handles_fenced_yaml_and_scalar_fallback():
 
 
 def test_finish_does_not_checkpoint_failed_changed_paths():
+    """Finish does not checkpoint failed changed paths."""
+
     async def run():
         with tempfile.TemporaryDirectory() as tmp:
             vault = Path(tmp)

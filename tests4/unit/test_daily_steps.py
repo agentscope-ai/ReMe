@@ -474,14 +474,8 @@ def test_day_index_includes_note_descriptions():
             await daily_reindex_step.DailyReindexStep(file_store=store)(date="2026-05-18")
             text = _day_index_text(tmp, "2026-05-18")
             # name + description inline on the same line as the wikilink
-            assert (
-                "[[daily/2026-05-18/alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件"
-                in text
-            )
-            assert (
-                "[[daily/2026-05-18/beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响"
-                in text
-            )
+            assert "[[daily/2026-05-18/alpha.md]] name: Alpha Project description: 实现 JWT auth 中间件" in text
+            assert "[[daily/2026-05-18/beta.md]] name: beta description: 调研增值税新政对 SaaS 的影响" in text
             # gamma has no description → only name is emitted, no trailing `description:` cruft
             assert "[[daily/2026-05-18/gamma.md]] name: Gamma\n" in text or text.rstrip().endswith(
                 "[[daily/2026-05-18/gamma.md]] name: Gamma",

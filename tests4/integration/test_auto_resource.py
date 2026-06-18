@@ -154,7 +154,9 @@ def test_auto_resource_create():
                     if needle in note_text
                 ]
                 print(f"[CREATE] landed note facts: {note_hits}")
-                assert len(note_hits) >= 3, f"CREATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
+                assert (
+                    len(note_hits) >= 3
+                ), f"CREATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
 
                 transcript = _read_text(expected_session_jsonl)
                 topic_hits = [
@@ -240,7 +242,9 @@ def test_auto_resource_update():
                     if needle in note_text
                 ]
                 print(f"[UPDATE] landed note facts: {note_hits}")
-                assert len(note_hits) >= 2, f"UPDATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
+                assert (
+                    len(note_hits) >= 2
+                ), f"UPDATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
 
                 transcript = _read_text(session_jsonl)
                 new_hits = [

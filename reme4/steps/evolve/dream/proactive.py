@@ -18,7 +18,7 @@ class ProactiveStep(BaseStep):
         assert self.context is not None
         day = today(self, str(self.context.get("date", "") or ""))
         include_content = bool(self.context.get("include_content", self.include_content))
-        daily = (self.app_context.app_config.daily_dir if self.app_context is not None else "") or "daily"
+        daily = self.config_value("daily_dir")
         rel_path, abs_path = f"{daily}/{day}/interests.yaml", vault_dir(self) / daily / day / "interests.yaml"
         result = ProactiveResult(date=day, path=rel_path)
 

@@ -65,7 +65,7 @@ class DreamState(BaseModel):
 
     date: str = ""
     hint: str = ""
-    daily_dir: str = "daily"
+    daily_dir: str = ""
     vault: str = ""
     files_scanned: int = 0
     files_unchanged: int = 0

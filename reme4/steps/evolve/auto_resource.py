@@ -53,7 +53,7 @@ class AutoResourceStep(BaseStep):
         return None
 
     async def _handle_delete(self, date_str: str, note_stem: str) -> None:
-        daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
+        daily_dir = self.config_value("daily_dir")
         note_rel = f"{daily_dir}/{date_str}/{note_stem}.md"
         note_abs = self.vault_path / note_rel
 
@@ -107,7 +107,7 @@ class AutoResourceStep(BaseStep):
             job_tools=self.agent_tools,
             session_id=agent_session_id,
         )
-        daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
+        daily_dir = self.config_value("daily_dir")
         index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
 
         self.context.response.success = True
@@ -138,7 +138,7 @@ class AutoResourceStep(BaseStep):
             self.context.response.answer = f"Invalid change type: {raw_change}"
             return {"success": False, "path": file_path, "change": raw_change, "answer": self.context.response.answer}
 
-        resource_dir = self.app_context.app_config.resource_dir if self.app_context else "resource"
+        resource_dir = self.config_value("resource_dir")
         date_str, filename = _parse_resource_path(file_path, resource_dir)
 
         if not date_str or not filename:

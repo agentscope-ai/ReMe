@@ -12,12 +12,17 @@ from .schema import DreamState
 
 
 def state_from_context(step: BaseStep) -> DreamState:
+    """Get dream state from context."""
     assert step.context is not None
     raw = step.context.get("dream") or step.context.response.metadata.get("dream") or {}
-    return DreamState.model_validate(raw)
+    state = DreamState.model_validate(raw)
+    if not state.daily_dir:
+        state.daily_dir = step.config_value("daily_dir")
+    return state
 
 
 def store_state(step: BaseStep, state: DreamState) -> None:
+    """Store dream state in context."""
     assert step.context is not None
     data = state.model_dump()
     step.context["dream"] = data
@@ -25,16 +30,18 @@ def store_state(step: BaseStep, state: DreamState) -> None:
 
 
 def vault_dir(step: BaseStep) -> Path:
+    """Get vault directory."""
     vr = getattr(step.file_store, "vault_path", None)
     return Path(vr).resolve() if vr else Path.cwd().resolve()
 
 
 def daily_dir(step: BaseStep) -> str:
-    cfg = step.app_context.app_config if step.app_context is not None else None
-    return (cfg.daily_dir if cfg else "") or "daily"
+    """Get daily directory."""
+    return step.config_value("daily_dir")
 
 
 def today(step: BaseStep, explicit: str = "") -> str:
+    """Get today's date."""
     if explicit.strip():
         return explicit.strip()
     tz = step.app_context.app_config.timezone if step.app_context is not None else None
@@ -42,6 +49,7 @@ def today(step: BaseStep, explicit: str = "") -> str:
 
 
 def llm_available(step: BaseStep) -> bool:
+    """Check if LLM is available."""
     try:
         return step.as_llm is not None and step.agent_wrapper is not None
     except Exception:
@@ -49,6 +57,7 @@ def llm_available(step: BaseStep) -> bool:
 
 
 def scan_day_files(vault: Path, day: str, daily: str, interests_name: str = "interests.yaml") -> list[str]:
+    """Scan day files."""
     out: list[str] = []
     day_index = vault / daily / f"{day}.md"
     if day_index.is_file():
@@ -60,6 +69,7 @@ def scan_day_files(vault: Path, day: str, daily: str, interests_name: str = "int
 
 
 def pack_paths(vault: Path, paths: list[str], *, limit_per_file: int = 60000) -> str:
+    """Pack paths into a single string."""
     blocks: list[str] = []
     for rel in paths:
         target = vault / rel
@@ -77,6 +87,7 @@ def pack_paths(vault: Path, paths: list[str], *, limit_per_file: int = 60000) ->
 
 
 def clean_paths(raw_paths, allowed: set[str]) -> list[str]:
+    """Clean paths."""
     if not isinstance(raw_paths, list):
         return []
     out: list[str] = []
@@ -88,10 +99,12 @@ def clean_paths(raw_paths, allowed: set[str]) -> list[str]:
 
 
 def normalize_topic(text: str) -> str:
+    """Normalize topic."""
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", text.lower()).strip()
 
 
 def previous_dates(day: str, n_days: int) -> list[str]:
+    """Get previous dates."""
     try:
         base = dt.date.fromisoformat(day)
     except ValueError:
@@ -100,6 +113,7 @@ def previous_dates(day: str, n_days: int) -> list[str]:
 
 
 def load_yaml_topics(path: Path) -> list[dict]:
+    """Load YAML topics."""
     if not path.is_file():
         return []
     try:
@@ -113,6 +127,7 @@ def load_yaml_topics(path: Path) -> list[dict]:
 
 
 def clean_topic(raw: dict) -> dict:
+    """Clean topic."""
     title, reason = str(raw.get("title") or "").strip(), str(raw.get("reason") or "").strip()
     if not title or not reason:
         return {}
@@ -128,6 +143,7 @@ def clean_topic(raw: dict) -> dict:
 
 
 def write_yaml(path: Path, payload: dict) -> None:
+    """Write YAML."""
     path.parent.mkdir(parents=True, exist_ok=True)
     rendered = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
     path.write_text(rendered if rendered.endswith("\n") else f"{rendered}\n", encoding="utf-8")
@@ -150,6 +166,7 @@ def parse_structured_reply(text: str) -> dict:
 
 
 def _parse_scalar_mapping(raw: str) -> dict:
+    """Parse a scalar mapping."""
     out: dict[str, str] = {}
     for line in raw.splitlines():
         if match := re.match(r"^\s*(action|target_path|note)\s*:\s*(.+?)\s*$", line):
