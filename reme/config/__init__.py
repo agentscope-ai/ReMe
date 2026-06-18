@@ -1,5 +1,8 @@
-"""config"""
+"""Config"""
 
-from .reme_config_parser import ReMeConfigParser
+from .config_parser import parse_args, resolve_app_config
 
-__all__ = ["ReMeConfigParser"]
+__all__ = [
+    "parse_args",
+    "resolve_app_config",
+]

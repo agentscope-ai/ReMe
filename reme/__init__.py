@@ -1,23 +1,26 @@
-"""ReMe"""
+"""ReMe CLI package."""
+
+__version__ = "0.4.0.0"
 
 from . import config
-from . import core
-from . import extension
-from . import memory
+from . import constants
+from . import enumeration
+from . import schema
+from . import steps
+from . import utils
+from .application import Application
+from .components import BaseComponent
 from .reme import ReMe
 
-__version__ = "0.3.1.10"
-
 __all__ = [
-    "config",
-    "core",
-    "extension",
-    "memory",
+    "Application",
+    "BaseComponent",
     "ReMe",
+    # submodules
+    "config",
+    "constants",
+    "enumeration",
+    "schema",
+    "steps",
+    "utils",
 ]
-
-"""
-conda create -n fl_test2 python=3.10
-conda activate fl_test2
-conda env remove -n fl_test2
-"""
