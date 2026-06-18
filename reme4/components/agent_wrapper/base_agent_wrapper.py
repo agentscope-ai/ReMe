@@ -38,7 +38,7 @@ class BaseAgentWrapper(BaseComponent):
     @property
     def project_path(self) -> Path:
         """Project root that contains shared assets such as skills."""
-        return self.vault_path.parent if self.vault_path.name == ".reme" else self.vault_path
+        return self.vault_path
 
     @property
     def project_skills_root(self) -> Path:
@@ -79,10 +79,4 @@ class BaseAgentWrapper(BaseComponent):
         """Send inputs to the agent and return a dict with session_id and last_message."""
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream agent events as unified StreamChunk objects.
-
-        Subclasses may override to provide streaming support.
-        Default implementation falls back to non-streaming reply and yields the final message.
-        """
-        result = await self.reply(inputs, **kwargs)
-        yield self._chunk(chunk=str(result))
+        """Stream agent events as unified StreamChunk objects."""

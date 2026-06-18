@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -89,9 +90,11 @@ class BypassAnalysisBash(Bash):
 class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
 
-    def __init__(self, as_llm: str = "default", **kwargs):
+    def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
+        self.session_retention_days = int(session_retention_days)
+        self._session_cleanup_done = False
 
     @staticmethod
     def _make_tool(job: "BaseJob") -> FunctionTool:
@@ -122,6 +125,33 @@ class AsAgentWrapper(BaseAgentWrapper):
         if not _UUID_RE.match(session_id):
             raise ValueError(f"{field} must be a valid UUID: {session_id!r}")
         return session_id.lower()
+
+    def _cleanup_expired_sessions(self) -> None:
+        """Delete persisted session files older than ``session_retention_days``."""
+        if self._session_cleanup_done or self.session_retention_days <= 0:
+            self._session_cleanup_done = True
+            return
+
+        session_path = self.session_path
+        if not session_path.is_dir():
+            self._session_cleanup_done = True
+            return
+
+        cutoff = time.time() - self.session_retention_days * 24 * 60 * 60
+        removed = 0
+        for path in session_path.glob("*.jsonl"):
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError as exc:
+                self.logger.warning(f"Failed to clean expired AgentScope session {path}: {exc}")
+
+        if removed:
+            self.logger.info(
+                f"Cleaned {removed} AgentScope session(s) older than {self.session_retention_days} day(s)",
+            )
+        self._session_cleanup_done = True
 
     async def _load_state(self, kwargs: dict[str, Any], perm_mode: PermissionMode) -> AgentState:
         resume = kwargs.get("resume") or ""
@@ -179,6 +209,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
         kwargs = self._merged_kwargs(kwargs)
+        self._cleanup_expired_sessions()
         self._load_tool_env()
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
