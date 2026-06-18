@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import frontmatter
+import yaml
+from pydantic import ValidationError
 
 
 from .base_file_chunker import BaseFileChunker
@@ -128,26 +129,51 @@ class MarkdownFileChunker(BaseFileChunker):
 
         file_path = Path(path)
         rel_path = self.to_vault_relative(path)
-        post = frontmatter.loads(file_path.read_text(encoding=self.encoding))
+        front_matter, content, line_offset = self._parse_front_matter(file_path.read_text(encoding=self.encoding))
 
         chunks: list[FileChunk] = []
-        if post.content and post.content.strip():
+        if content and content.strip():
             with MarkdownRenderer() as renderer:
-                tree = self._build_tree(Document(post.content), renderer)
+                tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
 
-        links = WikilinkHandler.extract_links(post.content, rel_path) if post.content else []
+        links = WikilinkHandler.extract_links(content, rel_path) if content else []
 
         node = FileNode(
             path=rel_path,
             st_mtime=file_path.stat().st_mtime,
             chunk_ids=[chunk.id for chunk in chunks],
             links=links,
-            front_matter=FileFrontMatter(**dict(post.metadata)),
+            front_matter=front_matter,
         )
         return node, chunks
 
-    def _build_tree(self, doc: Any, renderer) -> MdNode:
+    @staticmethod
+    def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str, int]:
+        """Parse YAML frontmatter, returning 1-based line offset for body AST lines.
+
+        Invalid YAML is ignored so a single bad frontmatter block does not
+        prevent indexing the markdown body.
+        """
+        lines = text.splitlines(keepends=True)
+        if not lines or lines[0].strip() != "---":
+            return FileFrontMatter(), text, 0
+
+        close_idx = next((i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+        if close_idx is None:
+            return FileFrontMatter(), text, 0
+
+        front_matter = FileFrontMatter()
+        try:
+            data = yaml.safe_load("".join(lines[1:close_idx]).strip()) or {}
+            if isinstance(data, dict):
+                front_matter = FileFrontMatter(**data)
+        except (yaml.YAMLError, TypeError, ValidationError):
+            front_matter = FileFrontMatter()
+
+        return front_matter, "".join(lines[close_idx + 1 :]), close_idx + 1
+
+    def _build_tree(self, doc: Any, renderer, line_offset: int = 0) -> MdNode:
         """Heading-level stack folds mistletoe's flat children into nested
         sections; non-headings attach as ``body`` to the current section
         (or root before the first heading)."""
@@ -157,12 +183,13 @@ class MarkdownFileChunker(BaseFileChunker):
             SetextHeading,
         )
 
-        root = MdNode(kind="root", start_line=1, end_line=1)
+        root = MdNode(kind="root", start_line=line_offset + 1, end_line=line_offset + 1)
         stack: list[MdNode] = [root]
         for child in doc.children or []:
             if isinstance(child, BlankLine):
                 continue
-            line = getattr(child, "line_number", None) or stack[-1].start_line
+            raw_line = getattr(child, "line_number", None)
+            line = raw_line + line_offset if raw_line is not None else stack[-1].start_line
             if isinstance(child, (Heading, SetextHeading)):
                 level = max(1, getattr(child, "level", 1))
                 while len(stack) > 1 and stack[-1].level >= level:
@@ -369,10 +396,11 @@ class MarkdownFileChunker(BaseFileChunker):
         lines = body.text.split("\n")
         header, data = "\n".join(lines[:2]), lines[2:]
         rows = [r for r in (body.block.children or []) if isinstance(r, TableRow)]
+        line_offset = body.start_line - (getattr(body.block, "line_number", None) or body.start_line)
         base = body.start_line + 2
 
         def line_of(i: int) -> int:
-            return rows[i].line_number if i < len(rows) and rows[i].line_number else base + i
+            return rows[i].line_number + line_offset if i < len(rows) and rows[i].line_number else base + i
 
         units = [(text, line_of(i), line_of(i)) for i, text in enumerate(data)]
         return self._emit_packed(
@@ -426,11 +454,12 @@ class MarkdownFileChunker(BaseFileChunker):
         if not items:
             return self._split_lines(body, before, after, path)
         units: list[tuple[str, int, int]] = []
+        line_offset = body.start_line - (getattr(body.block, "line_number", None) or body.start_line)
         for it in items:
             text = renderer.render(it).rstrip("\n")
             if not text:
                 continue
-            line = it.line_number or body.start_line
+            line = it.line_number + line_offset if it.line_number else body.start_line
             units.append((text, line, line + text.count("\n")))
         return self._emit_packed(
             units,

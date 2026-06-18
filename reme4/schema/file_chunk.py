@@ -9,8 +9,8 @@ class FileChunk(EmbNode):
     """A chunk of a file with positional info and per-stage retrieval scores."""
 
     path: str = Field(default="", description="Path relative to the vault")
-    start_line: int = Field(default=0, description="Inclusive start line (0-based)")
-    end_line: int = Field(default=0, description="Exclusive end line")
+    start_line: int = Field(default=0, description="Inclusive start line (1-based)")
+    end_line: int = Field(default=0, description="Inclusive end line (1-based)")
     scores: dict[str, float] = Field(default_factory=dict, description="Retrieval scores keyed by stage")
 
     @property

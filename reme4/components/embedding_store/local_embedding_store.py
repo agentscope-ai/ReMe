@@ -172,17 +172,17 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     def _load_sync(self) -> None:
         try:
-            data = np.load(self.cache_path)
+            with np.load(self.cache_path) as data:
+                for key, emb in zip(data["keys"], data["embeddings"]):
+                    if len(emb) != self.dimensions:
+                        continue
+                    if len(self._cache) >= self.max_cache_size:
+                        break
+                    self._cache[str(key)] = emb.astype(np.float16)
         except Exception:
             self.logger.exception("Failed to load embedding cache, removing")
             self.cache_path.unlink(missing_ok=True)
             return
-        for key, emb in zip(data["keys"], data["embeddings"]):
-            if len(emb) != self.dimensions:
-                continue
-            if len(self._cache) >= self.max_cache_size:
-                break
-            self._cache[str(key)] = emb.astype(np.float16)
         self.logger.info(f"Loaded {len(self._cache)} embeddings from {self.cache_path}")
 
     async def dump(self) -> None:

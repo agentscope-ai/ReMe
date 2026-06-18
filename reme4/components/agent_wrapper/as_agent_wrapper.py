@@ -241,6 +241,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         return agent, inputs
 
     async def reply(self, inputs: Any, **kwargs) -> dict:
+        kwargs = self._merged_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)

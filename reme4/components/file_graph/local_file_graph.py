@@ -67,7 +67,12 @@ class LocalFileGraph(BaseFileGraph):
                 if not srcs:
                     del bucket[target]
 
-    def _scope_match(self, target: str, scope: LinkScopeEnum) -> bool:
+    @staticmethod
+    def _normalize_scope(scope: LinkScopeEnum | str) -> LinkScopeEnum:
+        return scope if isinstance(scope, LinkScopeEnum) else LinkScopeEnum(scope)
+
+    def _scope_match(self, target: str, scope: LinkScopeEnum | str) -> bool:
+        scope = self._normalize_scope(scope)
         if scope is LinkScopeEnum.ALL:
             return True
         is_real = target in self._nodes
@@ -120,18 +125,20 @@ class LocalFileGraph(BaseFileGraph):
 
     # -- Link access -------------------------------------------------------
 
-    async def get_outlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
+    async def get_outlinks(self, path: str, scope: LinkScopeEnum | str = LinkScopeEnum.REAL) -> list[FileLink]:
+        scope = self._normalize_scope(scope)
         node = self._nodes.get(path)
         if node is None:
             return []
         return [lnk for lnk in node.links if lnk.target_path and self._scope_match(lnk.target_path, scope)]
 
-    async def get_inlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
+    async def get_inlinks(self, path: str, scope: LinkScopeEnum | str = LinkScopeEnum.REAL) -> list[FileLink]:
+        scope = self._normalize_scope(scope)
         sources: set[str] = set()
         if scope in (LinkScopeEnum.REAL, LinkScopeEnum.ALL):
             sources |= self._inverse.get(path, set())
         if scope in (LinkScopeEnum.VIRTUAL, LinkScopeEnum.ALL):
             sources |= self._pending.get(path, set())
         return [
-            link for src in sources if src in self._nodes for link in self._nodes[src].links if link.target_path == path
+            link for src in sorted(sources) if src in self._nodes for link in self._nodes[src].links if link.target_path == path
         ]

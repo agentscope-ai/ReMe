@@ -218,6 +218,59 @@ def test_parse_embed_toc_prefixes_chunk_text():
     asyncio.run(run())
 
 
+def test_parse_frontmatter_preserves_original_line_numbers():
+    """Chunk line ranges are 1-based and refer to the original file, including frontmatter."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            body = "---\nname: t\n---\n# H\nline 1\nline 2\n"
+            path = _write_md(tmp, "front-lines.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=500)
+            _, chunks = await chunker.chunk(path)
+            assert len(chunks) == 1
+            assert chunks[0].start_line == 4
+            assert chunks[0].end_line == 6
+        print("✓ test_parse_frontmatter_preserves_original_line_numbers passed")
+
+    asyncio.run(run())
+
+
+def test_parse_frontmatter_offsets_split_table_rows():
+    """Split table row ranges include the YAML frontmatter line offset."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            rows = "".join(f"| {i} | {i} |\n" for i in range(12))
+            body = "---\nname: t\n---\n| A | B |\n|---|---|\n" + rows
+            path = _write_md(tmp, "front-table.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=100)
+            _, chunks = await chunker.chunk(path)
+            assert len(chunks) > 1
+            assert chunks[0].start_line == 6
+            assert chunks[0].end_line >= chunks[0].start_line
+        print("✓ test_parse_frontmatter_offsets_split_table_rows passed")
+
+    asyncio.run(run())
+
+
+def test_parse_bad_frontmatter_does_not_abort_chunking():
+    """Invalid YAML frontmatter is ignored while the markdown body still chunks."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            body = "---\nname: [\n---\n# H\nbody\n"
+            path = _write_md(tmp, "bad-frontmatter.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=500)
+            node, chunks = await chunker.chunk(path)
+            assert node.front_matter.name == ""
+            assert len(chunks) == 1
+            assert chunks[0].start_line == 4
+            assert "body" in chunks[0].text
+        print("✓ test_parse_bad_frontmatter_does_not_abort_chunking passed")
+
+    asyncio.run(run())
+
+
 if __name__ == "__main__":
     print("\n=== MarkdownFileChunker tests ===")
     test_parse_empty_file()
@@ -231,4 +284,7 @@ if __name__ == "__main__":
     test_parse_links_deduped()
     test_parse_min_chunk_chars_clamped()
     test_parse_embed_toc_prefixes_chunk_text()
+    test_parse_frontmatter_preserves_original_line_numbers()
+    test_parse_frontmatter_offsets_split_table_rows()
+    test_parse_bad_frontmatter_does_not_abort_chunking()
     print("\n所有测试通过!")
