@@ -8,9 +8,9 @@ Each tick scans today's two surfaces under ``<daily_dir>/``:
 * ``<daily_dir>/<today>/**/*.md`` — event notes for the day.
 
 The diff vs ``file_catalog`` follows the same shape as
-:class:`ScanCatalogChangesStep`: build ``existing`` (on-disk ``rel → mtime``)
-and ``indexed`` (catalog ``rel → mtime``, restricted to today's
-prefix so we never disturb entries from other days), then:
+``init_changes_step(store=file_catalog)``: build ``existing`` (on-disk
+``rel → mtime``) and ``indexed`` (catalog ``rel → mtime``, restricted to
+today's prefix so we never disturb entries from other days), then:
 
 * ``existing`` keys not in ``indexed``      → **added**, dream
 * mtime mismatch                              → **modified**, dream

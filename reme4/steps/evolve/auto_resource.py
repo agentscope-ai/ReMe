@@ -2,7 +2,7 @@
 
 import hashlib
 import uuid
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import aiofiles
 from watchfiles import Change
@@ -126,21 +126,19 @@ class AutoResourceStep(BaseStep):
         )
         self.logger.info(f"[{self.name}] done {note_path}")
 
-    async def execute(self):
+    async def _handle_change(self, file_path: str, raw_change) -> dict:
         assert self.context is not None
-        file_path: str = self.context.get("file_path", "")
-        raw_change = self.context.get("change", "")
-
+        file_path = self.to_vault_relative(file_path) if file_path and Path(file_path).is_absolute() else file_path
         if not file_path:
             self.context.response.success = False
             self.context.response.answer = "Missing file_path"
-            return
+            return {"success": False, "path": file_path, "change": raw_change, "answer": self.context.response.answer}
 
         change = self._normalize_change(raw_change)
         if change is None:
             self.context.response.success = False
             self.context.response.answer = f"Invalid change type: {raw_change}"
-            return
+            return {"success": False, "path": file_path, "change": raw_change, "answer": self.context.response.answer}
 
         resource_dir = self.app_context.app_config.resource_dir if self.app_context else "resource"
         date_str, filename = _parse_resource_path(file_path, resource_dir)
@@ -148,7 +146,7 @@ class AutoResourceStep(BaseStep):
         if not date_str or not filename:
             self.context.response.success = False
             self.context.response.answer = f"Cannot parse date/filename from: {file_path}"
-            return
+            return {"success": False, "path": file_path, "change": change.name, "answer": self.context.response.answer}
 
         session_id = _compute_session_id(filename)
         self.logger.info(f"[{self.name}] {change.name} file_path={file_path} session_id={session_id}")
@@ -162,3 +160,29 @@ class AutoResourceStep(BaseStep):
                 session_id,
                 created=change == Change.added,
             )
+        return {
+            "success": self.context.response.success,
+            "path": file_path,
+            "change": change.name,
+            "answer": self.context.response.answer,
+            "metadata": dict(self.context.response.metadata),
+        }
+
+    async def execute(self):
+        assert self.context is not None
+        changes: list[dict] = self.context.get("changes") or []
+        if changes:
+            results = [
+                await self._handle_change(item.get("path") or item.get("file_path", ""), item.get("change", ""))
+                for item in changes
+                if isinstance(item, dict)
+            ]
+            success_count = sum(1 for item in results if item.get("success"))
+            self.context.response.success = success_count == len(changes)
+            self.context.response.answer = f"Processed {success_count}/{len(changes)} resource change(s)"
+            self.context.response.metadata["processed"] = len(results)
+            self.context.response.metadata["results"] = results
+            return self.context.response
+
+        await self._handle_change(self.context.get("file_path", ""), self.context.get("change", ""))
+        return self.context.response

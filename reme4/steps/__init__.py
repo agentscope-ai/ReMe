@@ -1,96 +1,14 @@
 """steps"""
 
+from . import channel, common, evolve, file_io, index, transfer
 from .base_step import BaseStep
-from .common.add import AddStep
-from .common.demo import DemoEchoStep1, DemoEchoStep2
-from .common.health_check import HealthCheckStep
-from .common.help import HelpStep
-from .common.llm_demo import LLMDemoStep
-from .common.stream_demo import StreamDemoStep1, StreamDemoStep2
-from .common.version import VersionStep
-from .evolve.auto_dream import AutoDreamStep
-from .evolve.auto_memory import AutoMemoryStep
-from .evolve.auto_resource import AutoResourceStep
-from .evolve.daily_topics import DailyTopicsStep
-from .evolve.dream import DreamStep
-from .evolve.proactive import ProactiveStep
-from .file_io.daily_create import DailyCreateStep
-from .file_io.daily_list import DailyListStep
-from .file_io.daily_reindex import DailyReindexStep
-from .file_io.delete import DeleteStep
-from .file_io.edit import EditStep
-from .file_io.frontmatter_delete import FrontmatterDeleteStep
-from .file_io.frontmatter_read import FrontmatterReadStep
-from .file_io.frontmatter_update import FrontmatterUpdateStep
-from .file_io.list import ListStep
-from .file_io.move import MoveStep
-from .file_io.read import ReadStep
-from .file_io.read_image import ReadImageStep
-from .file_io.stat import StatStep
-from .file_io.write import WriteStep
-from .channel.channel_notify import ChannelNotifyStep
-from .channel.claim_channel import ClaimChannelStep
-from .index.clear_and_scan import ClearAndScanStep
-from .index.node_search import NodeSearchStep
-from .index.scan_changes import ScanCatalogChangesStep, ScanStoreChangesStep
-from .index.search import SearchStep
-from .index.traverse import TraverseStep
-from .index.update_catalog import UpdateCatalogStep
-from .index.update_index import UpdateIndexStep
-from .index.foreach_dispatch import ForeachDispatchStep
-from .index.log_changes import LogChangesStep
-from .index.watch_changes import WatchChangesStep
 
 __all__ = [
     "BaseStep",
-    # common
-    "AddStep",
-    "DemoEchoStep1",
-    "DemoEchoStep2",
-    "HealthCheckStep",
-    "HelpStep",
-    "LLMDemoStep",
-    "StreamDemoStep1",
-    "StreamDemoStep2",
-    "VersionStep",
-    # evolve
-    "AutoMemoryStep",
-    "AutoResourceStep",
-    "ProactiveStep",
-    # file_io
-    "DeleteStep",
-    "EditStep",
-    "ListStep",
-    "MoveStep",
-    "ReadStep",
-    "ReadImageStep",
-    "StatStep",
-    "WriteStep",
-    # file_io (daily)
-    "DailyCreateStep",
-    "DailyListStep",
-    "DailyReindexStep",
-    # file_io.frontmatter
-    "FrontmatterDeleteStep",
-    "FrontmatterReadStep",
-    "FrontmatterUpdateStep",
-    # channel
-    "ChannelNotifyStep",
-    "ClaimChannelStep",
-    # index
-    "ClearAndScanStep",
-    "ForeachDispatchStep",
-    "LogChangesStep",
-    "NodeSearchStep",
-    "ScanCatalogChangesStep",
-    "ScanStoreChangesStep",
-    "SearchStep",
-    "TraverseStep",
-    "UpdateCatalogStep",
-    "UpdateIndexStep",
-    "WatchChangesStep",
-    # evolve (dream)
-    "AutoDreamStep",
-    "DailyTopicsStep",
-    "DreamStep",
+    "channel",
+    "common",
+    "evolve",
+    "file_io",
+    "index",
+    "transfer",
 ]

@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from reme4.components.file_catalog import BaseFileCatalog
 from reme4.components.runtime_context import RuntimeContext
 from reme4.schema import FileNode, Response
-from reme4.steps import AutoDreamStep
+from reme4.steps.evolve import AutoDreamStep
 from reme4.steps.evolve.dream import DreamResult
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")

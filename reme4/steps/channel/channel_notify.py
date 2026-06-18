@@ -1,6 +1,6 @@
 """``channel_notify_step`` — push a debounced batch of vault changes as one channel event.
 
-Designed to be slotted into ``watch_changes_step.dispatch_step`` next to
+Designed to be slotted into ``watch_changes_step.dispatch_steps`` next to
 ``update_index_step``: when the watcher emits a batch of changes, this
 step forwards a single human-readable summary to
 ``ApplicationContext.metadata["channel_sink"]``. The Claude Code main

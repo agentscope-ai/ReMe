@@ -11,20 +11,24 @@
 ### 1.1 目录结构
 
 ```
-- resource/【原始素材】                      # 外部渠道摄入 / 手动放入
-  - YYYY-MM-DD/                              # 按日期归档
-    - session_{id}.jsonl                     # 对话原始记录
-    - {channel}_{xxxx}.html                  # 网页抓取、邮件等
-    - {channel}_{xxxx}.md                    # Markdown 资料
-- daily/【日记，浅加工】                      # auto-memory 自动写入
-  - YYYY-MM-DD.md                            # 当天索引页，汇总所有事件
+- reme_session/
+  - agentscope|claude_code / # 使用内置的agent wrapper，session会保存在这里
+    {session_id}.jsonl UUID格式要求  # /Users/yuli/workspace/ReMe/reme4/components/agent_wrapper
+  - dialog/
+    {session_id}.jsonl  # auto memory保存  可以监控可以被检索【可选】
+- resource/
   - YYYY-MM-DD/
-    - session_{id}.md                        # 按 session 拆分的日志
-    - resource_{id}.md                       # 对素材的加工笔记
-- digest/【深加工】                           # auto-dream 持续打磨
-  - personal/                                # 用户偏好、习惯、身份
-  - procedure/                               # 方法论、步骤、工作流
-  - wiki/                                    # 通用知识、决策先例
+    - {channel}_{xxxx}.html
+    - {channel}_{xxxx}.md
+- daily/【日记，浅加工】
+  - YYYY-MM-DD.md
+  - YYYY-MM-DD/
+    - session_{session_id}.md
+    - resource_{hash(resouce_name)}.md
+- digest/
+  - personal/
+  - procedure/
+  - wiki/
 ```
 
 ### 1.2 分层详解

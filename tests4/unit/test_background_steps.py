@@ -4,7 +4,7 @@ Both scan steps are subclasses of BaseStep. To exercise them without spinning up
 the full ApplicationContext, we pass real (started) file_store/file_chunker via
 the step's kwargs (so the BaseStep _resolve() machinery returns them).
 
-ScanStoreChangesStep writes its result into ``context["changes"]`` for a
+InitChangesStep writes its result into ``context["changes"]`` for a
 downstream ``update_index_step`` to consume; tests assert against that key.
 """
 
@@ -15,14 +15,27 @@ import os
 import tempfile
 import warnings
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from watchfiles import Change
 
 from reme4.components.file_chunker import DefaultFileChunker
+from reme4.components.file_catalog import LocalFileCatalog
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
-from reme4.steps import ClearAndScanStep, ForeachDispatchStep, LogChangesStep, ScanStoreChangesStep, WatchChangesStep
+from reme4.enumeration import ComponentEnum
+from reme4.steps.evolve.auto_resource import AutoResourceStep, _compute_session_id
+from reme4.steps.index import (
+    DEFAULT_LOW_POWER_POLL_MS,
+    DEFAULT_WATCH_DEBOUNCE_MS,
+    DEFAULT_WATCH_STEP_MS,
+    ClearStoreStep,
+    InitChangesStep,
+    LogChangesStep,
+    UpdateCatalogStep,
+    WatchChangesStep,
+)
+from reme4.steps.index._change_batch import bucket_changes
 from reme4.steps.index._watch_rules import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -155,7 +168,7 @@ def test_collect_existing_filters():
 
 
 # ---------------------------------------------------------------------------
-# ScanStoreChangesStep
+# InitChangesStep
 # ---------------------------------------------------------------------------
 
 
@@ -172,9 +185,11 @@ def test_clear_and_scan_defaults_include_jsonl():
             fs = LocalFileStore(name="test_store", embedding_store="")
             await fs.start()
             try:
-                step = ClearAndScanStep(file_store=fs, app_context=_make_app_context(cwd))
-                ctx = RuntimeContext()
-                resp = await step(ctx)
+                clear_step = ClearStoreStep(file_store=fs, app_context=_make_app_context(cwd))
+                scan_step = InitChangesStep(store="file_store", file_store=fs, app_context=_make_app_context(cwd))
+                ctx = RuntimeContext(watch_dirs=["daily_dir", "resource_dir"], watch_suffixes=["md", "jsonl"])
+                await clear_step(ctx)
+                resp = await scan_step(ctx)
                 paths = {Path(item["path"]).name for item in ctx["changes"]}
                 assert resp.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
                 assert paths == {"note.md", "events.jsonl"}
@@ -191,7 +206,13 @@ async def _make_scan_step(vault_path: Path, watch_dirs=None, watch_suffixes=None
     await fs.start()
     await chunker.start()
     app_ctx = _make_app_context(vault_path)
-    step = ScanStoreChangesStep(recursive=recursive, file_store=fs, file_chunker=chunker, app_context=app_ctx)
+    step = InitChangesStep(
+        store="file_store",
+        recursive=recursive,
+        file_store=fs,
+        file_chunker=chunker,
+        app_context=app_ctx,
+    )
     context = RuntimeContext(
         watch_dirs=watch_dirs or ["daily_dir", "digest_dir"],
         watch_suffixes=watch_suffixes or ["md"],
@@ -325,9 +346,218 @@ def test_scan_changes_resource_dir():
     asyncio.run(run())
 
 
+def test_init_changes_named_file_catalog_monitor():
+    """monitor_type/monitor_name selects the requested file_catalog component."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            write_file(cwd / "resource" / "2026-01-01" / "a.md", "alpha")
+
+            catalog = LocalFileCatalog(name="resource")
+            await catalog.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CATALOG: {"resource": catalog}}
+                step = InitChangesStep(monitor_type="file_catalog", monitor_name="resource", app_context=app_ctx)
+                ctx = RuntimeContext(watch_dirs=["resource_dir"], watch_suffixes=["md"])
+                resp = await step(ctx)
+
+                assert resp.metadata["counts"] == {"added": 1, "modified": 0, "deleted": 0}
+                assert ctx["changes"][0]["change"] == "added"
+            finally:
+                await catalog.close()
+        print("✓ test_init_changes_named_file_catalog_monitor passed")
+
+    asyncio.run(run())
+
+
+def test_bucket_changes_coalesces_by_final_file_state():
+    """A delete+add replacement batch for an existing file becomes one modified event."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        p = write_file(Path(tmpdir) / "daily" / "a.md", "alpha")
+        buckets = bucket_changes(
+            [
+                {"change": "deleted", "path": str(p)},
+                {"change": "added", "path": str(p)},
+            ],
+        )
+
+        assert buckets[Change.modified] == [str(p)]
+        assert buckets[Change.added] == []
+        assert buckets[Change.deleted] == []
+    print("✓ test_bucket_changes_coalesces_by_final_file_state passed")
+
+
+def test_update_catalog_relative_path_uses_vault():
+    """update_catalog_step resolves vault-relative change paths against vault_path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            write_file(cwd / "daily" / "a.md", "alpha")
+
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            try:
+                step = UpdateCatalogStep(file_catalog=catalog, app_context=_make_app_context(cwd))
+                ctx = RuntimeContext(changes=[{"change": "added", "path": "daily/a.md"}])
+                resp = await step(ctx)
+
+                assert resp.success is True
+                nodes = await catalog.get_nodes()
+                assert [n.path for n in nodes] == ["daily/a.md"]
+            finally:
+                await catalog.close()
+        print("✓ test_update_catalog_relative_path_uses_vault passed")
+
+    asyncio.run(run())
+
+
+def test_index_update_loop_init_dispatch_updates_store_across_batches():
+    """index_update_loop init scan dispatches to update_index_step and preserves final store state."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            daily_a = write_file(cwd / "daily" / "a.md", "alpha\n[[digest/report.md]]\n")
+            write_file(cwd / "digest" / "report.md", "# Report\nbeta\n")
+            write_file(cwd / "daily" / "ignore.txt", "skip")
+
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker()
+            await fs.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {
+                    ComponentEnum.FILE_STORE: {"default": fs},
+                    ComponentEnum.FILE_CHUNKER: {"default": chunker},
+                }
+                ctx = RuntimeContext(watch_dirs=["daily_dir", "digest_dir"], watch_suffixes=["md"])
+                init_step = InitChangesStep(
+                    monitor_type="file_store",
+                    monitor_name="default",
+                    dispatch_steps=["update_index_step"],
+                    app_context=app_ctx,
+                )
+
+                first = await init_step(ctx)
+                assert first.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
+                nodes = {n.path: n for n in await fs.get_nodes()}
+                assert set(nodes) == {"daily/a.md", "digest/report.md"}
+                assert all(nodes[p].chunk_ids for p in nodes)
+
+                daily_a.write_text("alpha v2\n[[digest/report.md]]\n", encoding="utf-8")
+                os.utime(daily_a, (9_999_999_999, 9_999_999_999))
+                (cwd / "digest" / "report.md").unlink()
+                write_file(cwd / "daily" / "c.md", "gamma\n")
+
+                second = await init_step(ctx)
+                assert second.metadata["counts"] == {"added": 1, "modified": 1, "deleted": 1}
+                assert {(c["change"], Path(c["path"]).name) for c in ctx["changes"]} == {
+                    ("modified", "a.md"),
+                    ("deleted", "report.md"),
+                    ("added", "c.md"),
+                }
+
+                nodes = {n.path: n for n in await fs.get_nodes()}
+                assert set(nodes) == {"daily/a.md", "daily/c.md"}
+                assert all(nodes[p].chunk_ids for p in nodes)
+                assert all(chunk.path in nodes for chunk in fs.file_chunks.values())
+            finally:
+                await chunker.close()
+                await fs.close()
+        print("✓ test_index_update_loop_init_dispatch_updates_store_across_batches passed")
+
+    asyncio.run(run())
+
+
+def test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs():
+    """digest_watch_loop style config updates the digest catalog without touching resource/default catalogs."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            daily = write_file(cwd / "daily" / "2026-01-01.md", "day one")
+            digest = write_file(cwd / "digest" / "week.md", "weekly")
+            write_file(cwd / "resource" / "asset.md", "not watched by digest loop")
+
+            digest_catalog = LocalFileCatalog(name="digest")
+            resource_catalog = LocalFileCatalog(name="resource")
+            await digest_catalog.start()
+            await resource_catalog.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {
+                    ComponentEnum.FILE_CATALOG: {
+                        "digest": digest_catalog,
+                        "resource": resource_catalog,
+                    },
+                }
+                ctx = RuntimeContext(watch_dirs=["daily_dir", "digest_dir"], watch_suffixes=["md"])
+                init_step = InitChangesStep(
+                    monitor_type="file_catalog",
+                    monitor_name="digest",
+                    dispatch_steps=[
+                        {"backend": "update_catalog_step", "file_catalog": "digest"},
+                        {"backend": "log_changes_step"},
+                    ],
+                    app_context=app_ctx,
+                )
+
+                first = await init_step(ctx)
+                assert first.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
+                assert {n.path for n in await digest_catalog.get_nodes()} == {
+                    "daily/2026-01-01.md",
+                    "digest/week.md",
+                }
+                assert await resource_catalog.get_nodes() == []
+
+                daily.write_text("day two", encoding="utf-8")
+                os.utime(daily, (9_999_999_999, 9_999_999_999))
+                digest.unlink()
+                write_file(cwd / "daily" / "2026-01-02.md", "next day")
+
+                second = await init_step(ctx)
+                assert second.metadata["counts"] == {"added": 1, "modified": 1, "deleted": 1}
+                assert {(c["change"], Path(c["path"]).name) for c in ctx["changes"]} == {
+                    ("modified", "2026-01-01.md"),
+                    ("deleted", "week.md"),
+                    ("added", "2026-01-02.md"),
+                }
+                assert {n.path for n in await digest_catalog.get_nodes()} == {
+                    "daily/2026-01-01.md",
+                    "daily/2026-01-02.md",
+                }
+                assert await resource_catalog.get_nodes() == []
+            finally:
+                await resource_catalog.close()
+                await digest_catalog.close()
+        print("✓ test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs passed")
+
+    asyncio.run(run())
+
+
 # ---------------------------------------------------------------------------
 # WatchChangesStep
 # ---------------------------------------------------------------------------
+
+
+def test_watch_changes_default_low_power_timing():
+    """Default watcher timing favors lower resource use."""
+    step = WatchChangesStep()
+
+    assert step.debounce == DEFAULT_WATCH_DEBOUNCE_MS
+    assert step.step == DEFAULT_WATCH_STEP_MS
+    assert step.poll_delay_ms == DEFAULT_LOW_POWER_POLL_MS
+
+    custom = WatchChangesStep(debounce=1000, step=250, poll_delay_ms=3000)
+    assert custom.debounce == 1000
+    assert custom.step == 250
+    assert custom.poll_delay_ms == 3000
+
+    print("✓ test_watch_changes_default_low_power_timing passed")
 
 
 def test_watch_changes_requires_stop_event():
@@ -394,97 +624,48 @@ def test_watch_changes_filter_matches_rules():
 
 
 def test_watch_changes_dispatch_steps_list():
-    """dispatch_steps config properly merges dispatch_step and dispatch_steps."""
-    step1 = WatchChangesStep(dispatch_step="update_index_step")
-    assert step1.dispatch_steps == ["update_index_step"]
-
-    step2 = WatchChangesStep(dispatch_steps=["update_catalog_step", "foreach_dispatch_step"])
-    assert step2.dispatch_steps == ["update_catalog_step", "foreach_dispatch_step"]
-
-    step3 = WatchChangesStep(dispatch_step="a", dispatch_steps=["b", "c"])
-    assert step3.dispatch_steps == ["b", "c"]  # dispatch_steps takes priority
+    """dispatch_steps config is stored by BaseStep."""
+    step = WatchChangesStep(dispatch_steps=["update_catalog_step", "auto_resource_step"])
+    assert step.dispatch_step_specs == ["update_catalog_step", "auto_resource_step"]
 
     print("✓ test_watch_changes_dispatch_steps_list passed")
 
 
-# ---------------------------------------------------------------------------
-# ForeachDispatchStep
-# ---------------------------------------------------------------------------
-
-
-def test_foreach_dispatch_no_job():
-    """Without dispatch_job, step logs warning and returns success."""
+def test_auto_resource_batch_deleted_changes():
+    """AutoResourceStep accepts a batch of change dicts from dispatch_steps."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             cwd = Path.cwd()
             app_ctx = _make_app_context(cwd)
-            step = ForeachDispatchStep(app_context=app_ctx)
-            ctx = RuntimeContext(changes=[{"change": "added", "path": "/x/y.md"}])
-            resp = await step(ctx)
-            assert resp.success is True
-            assert resp.metadata.get("dispatched") is None  # skipped early
-        print("✓ test_foreach_dispatch_no_job passed")
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            try:
+                filename = "file.md"
+                session_id = _compute_session_id(filename)
+                note_path = cwd / "daily" / "2026-01-01" / f"session_agent_{session_id}.md"
+                write_file(note_path, "---\nname: test\n---\nbody\n")
+
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                ctx = RuntimeContext(
+                    changes=[
+                        {"change": "deleted", "path": str(cwd / "resource" / "2026-01-01" / filename)},
+                    ],
+                )
+                resp = await step(ctx)
+
+                assert resp.success is True
+                assert resp.answer == "Processed 1/1 resource change(s)"
+                assert resp.metadata["processed"] == 1
+                assert resp.metadata["results"][0]["path"] == "resource/2026-01-01/file.md"
+                assert not note_path.exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_batch_deleted_changes passed")
 
     asyncio.run(run())
 
 
-def test_foreach_dispatch_calls_job():
-    """ForeachDispatchStep calls run_job for each change."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            step = ForeachDispatchStep(app_context=app_ctx)
-            changes = [
-                {"change": "added", "path": str(cwd / "resource/2026-01-01/file.md")},
-                {"change": "modified", "path": str(cwd / "resource/2026-01-01/data.json")},
-            ]
-            ctx = RuntimeContext(changes=changes, dispatch_job="auto_resource")
-
-            mock_job = AsyncMock()
-            app_ctx.jobs = {"auto_resource": mock_job}
-            resp = await step(ctx)
-            assert resp.success is True
-            assert resp.metadata["dispatched"] == 2
-            assert mock_job.call_count == 2
-            # Verify vault-relative paths were passed
-            calls = mock_job.call_args_list
-            assert calls[0].kwargs["file_path"] == "resource/2026-01-01/file.md"
-            assert calls[0].kwargs["change"] == "added"
-            assert calls[1].kwargs["file_path"] == "resource/2026-01-01/data.json"
-            assert calls[1].kwargs["change"] == "modified"
-        print("✓ test_foreach_dispatch_calls_job passed")
-
-    asyncio.run(run())
-
-
-def test_foreach_dispatch_handles_error():
-    """ForeachDispatchStep continues on job failure."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            step = ForeachDispatchStep(app_context=app_ctx)
-            changes = [
-                {"change": "added", "path": str(cwd / "resource/a.md")},
-                {"change": "added", "path": str(cwd / "resource/b.md")},
-            ]
-            ctx = RuntimeContext(changes=changes, dispatch_job="failing_job")
-
-            mock_job = AsyncMock(side_effect=RuntimeError("boom"))
-            app_ctx.jobs = {"failing_job": mock_job}
-            resp = await step(ctx)
-            assert resp.success is True  # still succeeds
-            assert mock_job.call_count == 2  # tried both
-        print("✓ test_foreach_dispatch_handles_error passed")
-
-    asyncio.run(run())
-
-
-# ---------------------------------------------------------------------------
 # LogChangesStep
 # ---------------------------------------------------------------------------
 
@@ -516,7 +697,7 @@ if __name__ == "__main__":
     test_match_file_suffix()
     test_match_file_no_suffix_filter()
     test_collect_existing_filters()
-    # ScanStoreChangesStep
+    # InitChangesStep
     test_clear_and_scan_defaults_include_jsonl()
     test_scan_changes_initial_all_added()
     test_scan_changes_no_changes()
@@ -524,14 +705,12 @@ if __name__ == "__main__":
     test_scan_changes_missing_dir_skipped()
     test_scan_changes_resource_dir()
     # WatchChangesStep
+    test_watch_changes_default_low_power_timing()
     test_watch_changes_requires_stop_event()
     test_watch_changes_raises_no_valid_paths()
     test_watch_changes_filter_matches_rules()
     test_watch_changes_dispatch_steps_list()
-    # ForeachDispatchStep
-    test_foreach_dispatch_no_job()
-    test_foreach_dispatch_calls_job()
-    test_foreach_dispatch_handles_error()
+    test_auto_resource_batch_deleted_changes()
     # LogChangesStep
     test_log_changes_step()
     print("\n所有测试通过!")

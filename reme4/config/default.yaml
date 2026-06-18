@@ -10,49 +10,53 @@ service:
 jobs:
   index_update_loop:
     backend: background
-    watch_dirs: [daily_dir, digest_dir, resource_dir]
-    watch_suffixes: [md, jsonl]
+    # watch_dirs: [daily_dir, digest_dir, resource_dir]
+    watch_dirs: [daily_dir, digest_dir]
+    # watch_suffixes: [md, jsonl]
+    watch_suffixes: [md]
     steps:
-      - backend: scan_store_changes_step
-        recursive: true
-      - backend: update_index_step
-        persist: true
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
       - backend: watch_changes_step
-        dispatch_step: update_index_step
+        dispatch_steps: [update_index_step]
 
   resource_watch_loop:
     backend: background
     watch_dirs: [resource_dir]
     watch_suffixes: [md, txt, json, jsonl, csv, yaml, html]
-    dispatch_job: auto_resource
-    persist: true
     steps:
-      - backend: scan_catalog_changes_step
-        recursive: true
-      - backend: update_catalog_step
-        persist: true
-      - backend: foreach_dispatch_step
+      - backend: init_changes_step
+        monitor_type: file_catalog
+        monitor_name: resource
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: resource
+          - backend: auto_resource_step
       - backend: watch_changes_step
-        dispatch_steps: [update_catalog_step, foreach_dispatch_step]
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: resource
+          - backend: auto_resource_step
 
   digest_watch_loop:
     backend: background
     watch_dirs: [daily_dir, digest_dir]
     watch_suffixes: [md]
-    persist: true
     steps:
-      - backend: scan_catalog_changes_step
-        recursive: true
-      - backend: update_catalog_step
-        persist: true
+      - backend: init_changes_step
+        monitor_type: file_catalog
+        monitor_name: digest
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: digest
+          - backend: log_changes_step
       - backend: watch_changes_step
-        dispatch_step: log_changes_step
-
-  # auto_dream_cron:
-  #   backend: cron
-  #   cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
-  #   steps:
-  #     - backend: auto_dream_step
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: digest
+          - backend: log_changes_step
 
   version:
     backend: base
@@ -109,13 +113,17 @@ jobs:
   reindex:
     backend: base
     description: "wipe the file store and rebuild it from the existing files"
+    watch_dirs: [daily_dir, digest_dir, resource_dir]
+    watch_suffixes: [md, jsonl]
     parameters:
       type: object
       properties: { }
     steps:
-      - backend: clear_and_scan_step
-      - backend: update_index_step
-        persist: true
+      - backend: clear_store_step
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
 
   search:
     backend: base
@@ -572,15 +580,25 @@ jobs:
     parameters:
       type: object
       properties:
+        changes:
+          type: array
+          description: "resource change batch, each item has path/file_path and change"
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              file_path:
+                type: string
+              change:
+                type: string
+                description: "added/modified/deleted"
         file_path:
           type: string
           description: "vault-relative resource file path, e.g. resource/2026-06-06/report.pdf"
         change:
           type: string
           description: "added/modified/deleted"
-      required:
-        - file_path
-        - change
     steps:
       - backend: auto_resource_step
 
@@ -642,6 +660,10 @@ components:
 
   file_catalog:
     default:
+      backend: local
+    resource:
+      backend: local
+    digest:
       backend: local
 
   file_chunker:

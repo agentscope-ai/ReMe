@@ -2,12 +2,13 @@
 
 import copy
 from abc import abstractmethod, ABC
-from typing import TypeVar, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from agentscope.model import ChatModelBase
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from ..components.base_component import ComponentMixin
+from ..components.component_registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
 from ..components.prompt_handler import PromptHandler
@@ -19,9 +20,8 @@ if TYPE_CHECKING:
     from ..components import ApplicationContext
     from ..components.job import BaseJob
 
-T = TypeVar("T")
-
 _UNSET = object()
+_DispatchStep = str | dict[str, Any]
 
 
 class Ref:
@@ -41,14 +41,7 @@ class Ref:
 
     __slots__ = ("base_cls", "comp_enum", "attr", "optional", "key", "_cache_attr")
 
-    def __init__(
-        self,
-        base_cls: type,
-        comp_enum: ComponentEnum,
-        attr: str | None = None,
-        *,
-        optional: bool = False,
-    ) -> None:
+    def __init__(self, base_cls: type, comp_enum: ComponentEnum, attr: str | None = None, *, optional: bool = False):
         self.base_cls = base_cls
         self.comp_enum = comp_enum
         self.attr = attr
@@ -108,8 +101,7 @@ class BaseStep(ComponentMixin, ABC):
     def __new__(cls, *args, **kwargs):
         # Snapshot init args so copy() can rebuild an equivalent instance later.
         instance = object.__new__(cls)
-        instance._init_args = copy.copy(args)
-        instance._init_kwargs = copy.copy(kwargs)
+        instance._init_args, instance._init_kwargs = copy.copy(args), copy.copy(kwargs)
         return instance
 
     def __init__(
@@ -121,14 +113,14 @@ class BaseStep(ComponentMixin, ABC):
         prompt_dict: dict[str, str] | None = None,
         input_mapping: dict[str, str] | None = None,
         output_mapping: dict[str, str] | None = None,
+        dispatch_steps: list[_DispatchStep] | None = None,
         **kwargs,
     ):
         super().__init__(name=name, backend=backend, app_context=app_context, **kwargs)
-        self.language: str = language
-        if not self.language and self.app_context is not None:
-            self.language = self.app_context.app_config.language
+        self.language = language or (self.app_context.app_config.language if self.app_context is not None else "")
         self.input_mapping = input_mapping
         self.output_mapping = output_mapping
+        self.dispatch_step_specs = list(dispatch_steps or [])
         self.context: RuntimeContext | None = None
 
         # Load class-level prompts first, then overlay caller-provided overrides.
@@ -181,3 +173,36 @@ class BaseStep(ComponentMixin, ABC):
         if job is None:
             raise RuntimeError(f"Job {name} not found")
         return await job(**kwargs)
+
+    def _resolve_dispatch_step(self, raw: _DispatchStep):
+        """Resolve a dispatch step spec to (step class, init params)."""
+        if isinstance(raw, str):
+            params: dict[str, Any] = {"backend": raw}
+        elif isinstance(raw, dict):
+            params = dict(raw)
+        else:
+            raise TypeError(f"Invalid dispatch step spec: {raw!r}")
+
+        backend = params.get("backend", "")
+        if not backend:
+            raise ValueError("Dispatch step is missing the required 'backend' field")
+        step_cls = R.get(ComponentEnum.STEP, backend)
+        if step_cls is None:
+            raise RuntimeError(f"Unregistered step '{backend}'")
+        params["app_context"] = self.app_context
+        return step_cls, params
+
+    async def dispatch_steps(self, dispatch_steps: list[_DispatchStep], **kwargs) -> list[Response]:
+        """Run dispatch steps against the current context.
+
+        Callers pass producer-specific values, usually ``changes=...``. Existing
+        context data is preserved for downstream handlers.
+        """
+        if self.context is None:
+            raise RuntimeError("Cannot dispatch steps without a runtime context")
+
+        responses: list[Response] = []
+        for raw in dispatch_steps:
+            step_cls, params = self._resolve_dispatch_step(raw)
+            responses.append(await step_cls(**params)(self.context, **kwargs))
+        return responses
