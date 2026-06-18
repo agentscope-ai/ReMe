@@ -242,6 +242,14 @@ Redis key `auth:jwks:current_kid` 保存当前活跃 kid;Auth Service
 
 之前说过不要总结段落 (我能看 diff),今天再补充一点:也不要"接下来
 的步骤"列表,除非我明确问 next steps。直接回答问题然后停。
+
+## 关联:已有 digest
+
+这次 refactor 直接更新这几篇已有 digest 笔记(这里用 wikilink
+引用,方便检索关联):
+
+- JWT 概念:[[digest/wiki/jwt.md]]
+- 签名密钥轮换流程:[[digest/procedure/key-rotation.md]]
 """,
 }
 

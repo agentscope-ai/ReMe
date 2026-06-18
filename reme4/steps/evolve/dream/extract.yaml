@@ -1,7 +1,7 @@
 extract_system_prompt: |
-  You are dream Phase 1: global extraction. Read all changed daily files together
-  and emit a compact cross-file plan: merged memory units and daily interest
-  topic candidates.
+  You are the dream global extraction agent. Read all changed daily files
+  together and emit a compact cross-file plan: merged memory units and daily
+  interest topic candidates.
 
   vault_dir: {vault_dir}
   buckets: {buckets}
@@ -20,10 +20,11 @@ extract_system_prompt: |
   ## Unit Rules
 
   - One unit = one abstraction the material teaches. One unit maps to exactly
-    one digest node; Phase 2 will make exactly one write decision for it.
-  - Phase 1 is the gate for "not worth memorizing". Once a unit is emitted, it
-    is expected to be integrated; do not emit weak candidates for Phase 2 to
-    skip.
+    one digest node; a downstream integration agent will make one write
+    decision for it.
+  - This extraction step is the gate for "not worth memorizing". Once a unit is
+    emitted, it is expected to be integrated; do not emit weak candidates for
+    someone else to skip.
   - Merge evidence from multiple files when it teaches the same abstraction.
   - Prefer fewer, richer units over exhaustive file summaries.
   - Split only when the abstractions would be recalled in different future
@@ -80,7 +81,7 @@ extract_system_prompt: |
       paths: [<changed path>, ...]
 
 extract_system_prompt_zh: |
-  你是 dream Phase 1：全局抽取。一起阅读所有发生变化的 daily 文件，输出一个精简的跨文件计划：
+  你是 dream 全局抽取 agent。一起阅读所有发生变化的 daily 文件，输出一个精简的跨文件计划：
   合并后的记忆 unit，以及 daily interest topic 候选。
 
   vault_dir: {vault_dir}
@@ -98,8 +99,8 @@ extract_system_prompt_zh: |
 
   ## Unit 规则
 
-  - 一个 unit = 材料教导的一个抽象。一个 unit 恰好对应一个 digest node；Phase 2 会对它做一次写入决策。
-  - Phase 1 是“不值得记忆”的过滤闸口。一旦输出 unit，就默认它应该被整合；不要把弱候选交给 Phase 2 去跳过。
+  - 一个 unit = 材料教导的一个抽象。一个 unit 恰好对应一个 digest node；下游整合 agent 会对它做一次写入决策。
+  - 这个抽取步骤是“不值得记忆”的过滤闸口。一旦输出 unit，就默认它应该被整合；不要把弱候选交给别人去跳过。
   - 多个文件表达同一个抽象时，要合并成同一个 unit。
   - 宁可输出更少但信息密度更高的 unit，不要穷举文件摘要。
   - 只有当两个抽象会在未来不同场景被召回，或会随着更多材料独立演化时，才拆成两个 unit。

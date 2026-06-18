@@ -23,6 +23,9 @@ topics_system_prompt: |
   - Keep reason grounded in candidate evidence.
   - Keep keywords short and retrieval-friendly.
   - Keep paths limited to the paths supplied by the candidates.
+  - Quote scalar strings that contain punctuation such as `:` or use block
+    scalars (`>`). Write paths as block lists, not flow lists, so
+    `daily/<date>/...` stays parseable.
 
   Return only one YAML or JSON object:
   topics:
@@ -54,6 +57,8 @@ topics_system_prompt_zh: |
   - reason 要基于候选证据。
   - keywords 要短，方便检索。
   - paths 只能使用候选中提供的 paths。
+  - 如果字符串包含 `:` 等标点，要加引号或使用 block scalar (`>`)。
+    paths 使用 block list，不要用 flow list，避免 `daily/<date>/...` 解析失败。
 
   只返回一个 YAML 或 JSON object：
   topics:

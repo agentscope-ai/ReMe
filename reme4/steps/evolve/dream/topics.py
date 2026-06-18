@@ -86,7 +86,10 @@ class DreamTopicsStep(BaseStep):
             system_prompt=self.prompt_format("topics_system_prompt"),
         )
         meta = parse_structured_reply(str(result.get("result") or ""))
-        return self._dedupe([self._clean_topic(t) for t in meta.get("topics") or []], same_day, recent, count), True
+        selected = [self._clean_topic(t) for t in meta.get("topics") or []]
+        if not any(selected):
+            selected = state.topics
+        return self._dedupe(selected, same_day, recent, count), True
 
     @staticmethod
     def _clean_topic(raw) -> dict:

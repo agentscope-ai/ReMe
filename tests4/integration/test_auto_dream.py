@@ -82,6 +82,21 @@ def _all_digest_text(env) -> str:
     return "\n\n".join(_read_text(p) for p in env.digest_files())
 
 
+def _file_graph_links(env) -> dict[str, list[dict]]:
+    """Map ``path -> links`` from every ``reme_metadata/file_graph/*.jsonl``."""
+    out: dict[str, list[dict]] = {}
+    graph_dir = env.vault_dir / "reme_metadata" / "file_graph"
+    if not graph_dir.is_dir():
+        return out
+    for graph_path in sorted(graph_dir.glob("*.jsonl")):
+        for line in graph_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            node = json.loads(line)
+            out[node.get("path", "")] = node.get("links") or []
+    return out
+
+
 def test_auto_dream_and_proactive():
     """Run auto_dream end to end, save transcripts/results, then read interests via proactive."""
 
@@ -136,6 +151,55 @@ def test_auto_dream_and_proactive():
                 ]
                 print(f"[dream] new digest signals: {new_signal}")
                 assert len(new_signal) >= 2, f"digest missed expected new signal\n--- digest ---\n{after_digest}"
+
+                # wikilink: the seeded daily note cites existing digest nodes, so it
+                # should have outbound wikilink edges in the file_graph, and the dream
+                # integrate agents should emit provenance and digest↔digest wikilinks
+                # in the markdown they just created or updated.
+                graph_links = _file_graph_links(env)
+                note_links = [
+                    link.get("target_path")
+                    for link in graph_links.get(DREAM_INPUT_PATH, [])
+                    if isinstance(link, dict)
+                ]
+                print(f"[wikilink] {DREAM_INPUT_PATH} -> {note_links}")
+                assert note_links, (
+                    f"seeded daily note produced no wikilink out-edges in file_graph\n"
+                    f"file_graph links: {graph_links}"
+                )
+                assert any(
+                    str(target).lstrip("!").startswith("digest/")
+                    for target in note_links
+                ), f"daily note did not link out to any digest node: {note_links}"
+
+                target_paths = [
+                    str(result.get("target_path") or "")
+                    for result in dream.get("integrate_results", [])
+                    if result.get("target_path")
+                ]
+                target_texts = {
+                    rel: _read_text(env.vault_dir / rel)
+                    for rel in target_paths
+                    if (env.vault_dir / rel).is_file()
+                }
+                digest_wikilinks = [
+                    rel for rel, text in target_texts.items() if "[[digest/" in text
+                ]
+                provenance_links = [
+                    rel for rel, text in target_texts.items() if f"derived_from:: [[{DREAM_INPUT_PATH}]]" in text
+                ]
+                print(f"[wikilink] integrated targets: {target_paths}")
+                print(f"[wikilink] integrated targets with [[digest/...]] links: {digest_wikilinks}")
+                print(f"[wikilink] integrated targets with derived_from source links: {provenance_links}")
+                assert target_texts, f"no integrated target files found: {target_paths}"
+                assert provenance_links, (
+                    "no derived_from wikilink back to the changed daily note in integrated targets\n"
+                    f"targets: {target_paths}"
+                )
+                assert digest_wikilinks, (
+                    "no digest↔digest wikilink found in integrated target markdown\n"
+                    f"targets: {target_paths}"
+                )
 
                 interests_text = _print_text_file("interests.yaml", interests)
                 interests_data = yaml.safe_load(interests_text) or {}
