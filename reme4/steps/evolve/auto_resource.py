@@ -1,6 +1,5 @@
-"""auto_resource — interpret resource files into daily notes via an agent."""
+"""auto_resource — interpret resource files into same-name daily notes via an agent."""
 
-import hashlib
 import uuid
 from pathlib import Path, PurePosixPath
 
@@ -12,15 +11,14 @@ from ..file_io import refresh_day_index
 from ...components import R
 
 
-def _compute_session_id(filename: str) -> str:
-    """Return 'resource_' + first 8 hex chars of MD5(filename)."""
-    digest = hashlib.md5(filename.encode()).hexdigest()[:8]
-    return f"resource_{digest}"
-
-
-def _compute_agent_session_id(filename: str) -> str:
+def _compute_agent_session_id(path: str) -> str:
     """Return a stable UUID session id for agent backends."""
-    return str(uuid.UUID(hashlib.md5(filename.encode()).hexdigest()))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, path))
+
+
+def _compute_note_stem(filename: str) -> str:
+    """Return the daily note stem for a resource filename."""
+    return PurePosixPath(filename).stem
 
 
 def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
@@ -54,9 +52,9 @@ class AutoResourceStep(BaseStep):
             return Change.__members__.get(raw)
         return None
 
-    async def _handle_delete(self, date_str: str, session_id: str) -> None:
+    async def _handle_delete(self, date_str: str, note_stem: str) -> None:
         daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
-        note_rel = f"{daily_dir}/{date_str}/{session_id}.md"
+        note_rel = f"{daily_dir}/{date_str}/{note_stem}.md"
         note_abs = self.vault_path / note_rel
 
         if note_abs.is_file():
@@ -69,11 +67,11 @@ class AutoResourceStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = f"Deleted resource note: {note_rel}"
         self.context.response.metadata.update(
-            {"path": note_rel, "session_id": session_id, "action": "deleted", "index": index_payload},
+            {"path": note_rel, "session_id": note_stem, "action": "deleted", "index": index_payload},
         )
 
-    async def _handle_upsert(self, file_path: str, date_str: str, session_id: str, created: bool) -> None:
-        create_response = await self.run_job("daily_create", session_id=session_id, date=date_str)
+    async def _handle_upsert(self, file_path: str, date_str: str, note_stem: str, created: bool) -> None:
+        create_response = await self.run_job("daily_create", session_id=note_stem, date=date_str)
         if not create_response.success:
             self.context.response.success = False
             self.context.response.answer = f"daily_create failed: {create_response.answer}"
@@ -118,7 +116,7 @@ class AutoResourceStep(BaseStep):
             {
                 "path": note_path,
                 "created": note_created,
-                "session_id": session_id,
+                "session_id": note_stem,
                 "agent_session_id": agent_session_id,
                 "action": "added" if created else "modified",
                 "index": index_payload,
@@ -148,16 +146,16 @@ class AutoResourceStep(BaseStep):
             self.context.response.answer = f"Cannot parse date/filename from: {file_path}"
             return {"success": False, "path": file_path, "change": change.name, "answer": self.context.response.answer}
 
-        session_id = _compute_session_id(filename)
-        self.logger.info(f"[{self.name}] {change.name} file_path={file_path} session_id={session_id}")
+        note_stem = _compute_note_stem(filename)
+        self.logger.info(f"[{self.name}] {change.name} file_path={file_path} note_stem={note_stem}")
 
         if change == Change.deleted:
-            await self._handle_delete(date_str, session_id)
+            await self._handle_delete(date_str, note_stem)
         else:
             await self._handle_upsert(
                 file_path,
                 date_str,
-                session_id,
+                note_stem,
                 created=change == Change.added,
             )
         return {
@@ -170,19 +168,20 @@ class AutoResourceStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        changes: list[dict] = self.context.get("changes") or []
-        if changes:
-            results = [
-                await self._handle_change(item.get("path") or item.get("file_path", ""), item.get("change", ""))
-                for item in changes
-                if isinstance(item, dict)
-            ]
-            success_count = sum(1 for item in results if item.get("success"))
-            self.context.response.success = success_count == len(changes)
-            self.context.response.answer = f"Processed {success_count}/{len(changes)} resource change(s)"
-            self.context.response.metadata["processed"] = len(results)
-            self.context.response.metadata["results"] = results
+        changes = self.context.get("changes")
+        if not isinstance(changes, list):
+            self.context.response.success = False
+            self.context.response.answer = "AutoResourceStep requires changes: list[dict]"
             return self.context.response
 
-        await self._handle_change(self.context.get("file_path", ""), self.context.get("change", ""))
+        results = [
+            await self._handle_change(item.get("path") or item.get("file_path", ""), item.get("change", ""))
+            for item in changes
+            if isinstance(item, dict)
+        ]
+        success_count = sum(1 for item in results if item.get("success"))
+        self.context.response.success = success_count == len(changes)
+        self.context.response.answer = f"Processed {success_count}/{len(changes)} resource change(s)"
+        self.context.response.metadata["processed"] = len(results)
+        self.context.response.metadata["results"] = results
         return self.context.response

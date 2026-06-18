@@ -587,12 +587,8 @@ jobs:
               change:
                 type: string
                 description: "added/modified/deleted"
-        file_path:
-          type: string
-          description: "vault-relative resource file path, e.g. resource/2026-06-06/report.pdf"
-        change:
-          type: string
-          description: "added/modified/deleted"
+      required:
+        - changes
     steps:
       - backend: auto_resource_step
 

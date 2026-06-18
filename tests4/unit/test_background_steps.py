@@ -24,7 +24,7 @@ from reme4.components.file_catalog import LocalFileCatalog
 from reme4.components.file_store import LocalFileStore
 from reme4.components.runtime_context import RuntimeContext
 from reme4.enumeration import ComponentEnum
-from reme4.steps.evolve.auto_resource import AutoResourceStep, _compute_session_id
+from reme4.steps.evolve.auto_resource import AutoResourceStep, _compute_note_stem
 from reme4.steps.index import (
     DEFAULT_LOW_POWER_POLL_MS,
     DEFAULT_WATCH_DEBOUNCE_MS,
@@ -642,8 +642,8 @@ def test_auto_resource_batch_deleted_changes():
             await fs.start()
             try:
                 filename = "file.md"
-                session_id = _compute_session_id(filename)
-                note_path = cwd / "daily" / "2026-01-01" / f"{session_id}.md"
+                note_stem = _compute_note_stem(filename)
+                note_path = cwd / "daily" / "2026-01-01" / f"{note_stem}.md"
                 write_file(note_path, "---\nname: test\n---\nbody\n")
 
                 step = AutoResourceStep(app_context=app_ctx, file_store=fs)

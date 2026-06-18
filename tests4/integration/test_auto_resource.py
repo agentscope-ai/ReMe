@@ -3,19 +3,12 @@
 Drives the ``auto_resource`` step against a real LLM. Three scenarios:
 
 1. **CREATE (added)** / **UPDATE (modified)**: places a resource file in
-   ``resource/{date}/``, calls ``auto_resource`` with the matching change.
-   The current AS-backed step only captures the agent's read+reason
-   transcript to ``resource/{date}/session_state_{sid}.jsonl`` — daily-note
-   writing is handled by whichever ``auto_memory_*`` step comes next in
-   the chain (the CC variant fork-writes from session_id; the AS variant
-   needs explicit messages and is wired separately). So this test asserts
-   on the session_state landing + agent fact coverage, not on a daily
-   note file.
+   ``resource/{date}/``, calls ``auto_resource`` with a ``changes`` batch,
+   and expects the agent to write/update the same-name daily note.
 
 2. **DELETE (deleted)**: seeds a resource note under
-   ``daily/{date}/{sid}.md``, calls ``auto_resource`` with
-   change="deleted".  Expects the note file to be removed (the step
-   stamps ``path`` on its metadata only in this branch).
+   ``daily/{date}/{resource_stem}.md``, calls ``auto_resource`` with a
+   deleted change, and expects the note file to be removed.
 
 Requires LLM_API_KEY (and optionally LLM_BASE_URL / LLM_MODEL_NAME) in the
 environment or a .env file at the repo root. Hits the real LLM API.
@@ -31,7 +24,7 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 # pylint: disable=wrong-import-position
 from _vault_fixture import vault_env  # noqa: E402
 
-from reme4.steps.evolve.auto_resource import _compute_session_id  # noqa: E402
+from reme4.steps.evolve.auto_resource import _compute_agent_session_id, _compute_note_stem  # noqa: E402
 
 RESOURCE_FILENAME = "project-roadmap.md"
 RESOURCE_CONTENT_V1 = """\
@@ -83,13 +76,29 @@ def _read_text(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
-def test_auto_resource_create():
-    """CREATE branch: agent reads the resource file and saves session_state.
+def _print_text_file(label: str, path: Path) -> str:
+    text = _read_text(path)
+    print("\n" + "=" * 70)
+    print(f"[{label}] {path} ({len(text)} bytes)")
+    print(f"[{label}] body:\n{text}")
+    print("=" * 70)
+    return text
 
-    Daily-note writing belongs to the auto_memory_* step that follows; this
-    test only asserts that auto_resource_step ran the agent and persisted
-    its transcript under ``resource/{date}/session_state_{sid}.jsonl``.
-    """
+
+def _print_message_files(label: str, paths: list[Path]) -> None:
+    for idx, path in enumerate(paths, 1):
+        if not path.is_file():
+            print(f"[{label}] message file missing: {path}")
+            continue
+        text = _read_text(path)
+        print("\n" + "=" * 70)
+        print(f"[{label}] message {idx}: {path} ({len(text)} bytes)")
+        print(text)
+        print("=" * 70)
+
+
+def test_auto_resource_create():
+    """CREATE branch: agent writes the same-name daily note and saves its AgentScope session."""
 
     async def run():
         with vault_env() as env:
@@ -103,18 +112,19 @@ def test_auto_resource_create():
                 print("=" * 70)
 
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
-                session_id = _compute_session_id(RESOURCE_FILENAME)
-                expected_session_jsonl = env.vault_dir / "resource" / today / f"session_reme_{session_id}.jsonl"
+                note_stem = _compute_note_stem(RESOURCE_FILENAME)
+                agent_session_id = _compute_agent_session_id(file_path)
+                expected_session_jsonl = env.vault_dir / "reme_session" / "agentscope" / f"{agent_session_id}.jsonl"
 
                 print(f"[CREATE] file_path           = {file_path}")
-                print(f"[CREATE] session_id          = {session_id}")
+                print(f"[CREATE] note_stem           = {note_stem}")
+                print(f"[CREATE] agent_session_id    = {agent_session_id}")
                 print(f"[CREATE] expected transcript = {expected_session_jsonl.relative_to(env.vault_dir)}")
 
                 with env.record_agents(prefix="agent_resource_create") as recorder:
                     response = await app.run_job(
                         "auto_resource",
-                        file_path=file_path,
-                        change="added",
+                        changes=[{"path": file_path, "change": "added"}],
                     )
                 dumped = await recorder.dump()
                 for p in dumped:
@@ -122,21 +132,31 @@ def test_auto_resource_create():
 
                 assert response.success is True, f"CREATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
-                assert meta.get("action") == "added", f"Unexpected action: {meta!r}"
-                assert meta.get("session_id") == session_id, f"Unexpected session_id: {meta!r}"
+                result_meta = (meta.get("results") or [{}])[0].get("metadata") or {}
+                assert result_meta.get("action") == "added", f"Unexpected action: {meta!r}"
+                assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
+                assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
+                note_path = env.vault_dir / "daily" / today / f"{note_stem}.md"
+                assert note_path.is_file()
 
                 assert expected_session_jsonl.is_file(), (
-                    f"agent session_state not persisted at {expected_session_jsonl}; "
-                    f"session_state files under resource/: "
-                    f"{[p.name for p in env.session_state_files(prefix='session_reme_')]}"
+                    f"agent session not persisted at {expected_session_jsonl}; "
+                    f"AgentScope files: "
+                    f"{[p.name for p in (env.vault_dir / 'reme_session' / 'agentscope').glob('*.jsonl')]}"
                 )
 
-                # Read the agent transcript and check it actually opened
-                # the resource file (the file_path should show up in a
-                # tool-call argument) so we know the step did its job.
+                note_text = _print_text_file("CREATE result.md", note_path)
+                _print_message_files("CREATE intermediate messages", [*dumped, expected_session_jsonl])
+
+                note_hits = [
+                    needle
+                    for needle in ("v2.0", "July 15", "Alice", "Bob", "p99", "200ms", "Redis")
+                    if needle in note_text
+                ]
+                print(f"[CREATE] landed note facts: {note_hits}")
+                assert len(note_hits) >= 3, f"CREATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
+
                 transcript = _read_text(expected_session_jsonl)
-                print("\n" + "=" * 70)
-                print(f"[CREATE] {expected_session_jsonl.name} ({len(transcript)} bytes)")
                 topic_hits = [
                     needle
                     for needle in ("v2.0", "July 15", "Alice", "Bob", "p99", "200ms", "Redis", file_path)
@@ -158,7 +178,7 @@ def test_auto_resource_create():
 
 
 def test_auto_resource_update():
-    """UPDATE branch: same contract as CREATE — only session_state changes."""
+    """UPDATE branch: agent updates the same-name daily note and appends to its AgentScope session."""
 
     async def run():
         with vault_env() as env:
@@ -174,12 +194,13 @@ def test_auto_resource_update():
                 # First run as "added" so the resource file exists and the
                 # initial transcript lands.
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
-                session_id = _compute_session_id(RESOURCE_FILENAME)
-                session_jsonl = env.vault_dir / "resource" / today / f"session_reme_{session_id}.jsonl"
+                note_stem = _compute_note_stem(RESOURCE_FILENAME)
+                agent_session_id = _compute_agent_session_id(file_path)
+                session_jsonl = env.vault_dir / "reme_session" / "agentscope" / f"{agent_session_id}.jsonl"
 
-                response = await app.run_job("auto_resource", file_path=file_path, change="added")
+                response = await app.run_job("auto_resource", changes=[{"path": file_path, "change": "added"}])
                 assert response.success is True, f"Initial create failed: {response.answer!r}"
-                assert session_jsonl.is_file(), "initial added run did not save session_state"
+                assert session_jsonl.is_file(), "initial added run did not save the AgentScope session"
                 size_before = session_jsonl.stat().st_size
                 print(f"[UPDATE] transcript before modify ({size_before} bytes)")
 
@@ -189,8 +210,7 @@ def test_auto_resource_update():
                 with env.record_agents(prefix="agent_resource_update") as recorder:
                     response = await app.run_job(
                         "auto_resource",
-                        file_path=file_path,
-                        change="modified",
+                        changes=[{"path": file_path, "change": "modified"}],
                     )
                 dumped = await recorder.dump()
                 for p in dumped:
@@ -198,14 +218,29 @@ def test_auto_resource_update():
 
                 assert response.success is True, f"UPDATE job failed: {response.answer!r}"
                 meta = response.metadata or {}
-                assert meta.get("action") == "modified", f"Unexpected action: {meta!r}"
-                assert meta.get("session_id") == session_id, f"Unexpected session_id: {meta!r}"
+                result_meta = (meta.get("results") or [{}])[0].get("metadata") or {}
+                assert result_meta.get("action") == "modified", f"Unexpected action: {meta!r}"
+                assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
+                assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
+                note_path = env.vault_dir / "daily" / today / f"{note_stem}.md"
+                assert note_path.is_file()
 
                 size_after = session_jsonl.stat().st_size
                 print(f"[UPDATE] transcript after modify  ({size_after} bytes)")
                 assert size_after > size_before, (
                     f"transcript did not grow after modified run " f"({size_before} -> {size_after})"
                 )
+
+                note_text = _print_text_file("UPDATE result.md", note_path)
+                _print_message_files("UPDATE intermediate messages", [*dumped, session_jsonl])
+
+                note_hits = [
+                    needle
+                    for needle in ("July 20", "150ms", "Dave", "rate limiting", "resolved")
+                    if needle in note_text
+                ]
+                print(f"[UPDATE] landed note facts: {note_hits}")
+                assert len(note_hits) >= 2, f"UPDATE note missed expected facts {note_hits!r}\n--- NOTE ---\n{note_text}"
 
                 transcript = _read_text(session_jsonl)
                 new_hits = [
@@ -239,24 +274,23 @@ def test_auto_resource_delete():
                 print("[setup] today      =", today)
                 print("=" * 70)
 
-                session_id = _compute_session_id(RESOURCE_FILENAME)
+                note_stem = _compute_note_stem(RESOURCE_FILENAME)
                 file_path = f"resource/{today}/{RESOURCE_FILENAME}"
 
-                note_filename = session_id
                 seed_body = "---\nname: test\ndescription: test note\n---\n\nSome content.\n"
-                note_path = env.seed_daily_note(note_filename, seed_body)
+                note_path = env.seed_daily_note(note_stem, seed_body)
                 assert note_path.is_file()
                 print(f"[DELETE] seeded note: {note_path}")
 
                 response = await app.run_job(
                     "auto_resource",
-                    file_path=file_path,
-                    change="deleted",
+                    changes=[{"path": file_path, "change": "deleted"}],
                 )
 
                 assert response.success is True, f"DELETE job failed: {response.answer!r}"
                 meta = response.metadata or {}
-                assert meta.get("action") == "deleted"
+                result_meta = (meta.get("results") or [{}])[0].get("metadata") or {}
+                assert result_meta.get("action") == "deleted"
                 assert not note_path.is_file(), f"Note file still exists after delete: {note_path}"
 
                 print(f"[DELETE] note removed: {note_path}")
