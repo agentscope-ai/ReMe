@@ -40,7 +40,7 @@ dependencies = [
 
 [project.optional-dependencies]
 core = [
-    "agentscope>=2.0.0",
+    "agentscope>=2.0.2",
     "faiss-cpu>=1.13.2",
     "jieba>=0.42.1",
     "rjieba>=0.2.1",
