@@ -39,31 +39,39 @@ class FakeEmbeddingStore:
             return np.array([0.0, 1.0], dtype=np.float16)
         return np.array([1.0, 0.0], dtype=np.float16)
 
-    async def health_check(self, timeout: float = 2.0) -> bool:
+    async def health_check(self, _timeout: float = 2.0) -> bool:
+        """Report the fake embedding service as healthy."""
         return True
 
-    async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray:
+    async def get_embedding(self, input_text: str, **_kwargs) -> np.ndarray:
+        """Return a deterministic embedding for a single text."""
         return self._embed(input_text)
 
-    async def get_node_embeddings(self, nodes: list[FileChunk], **kwargs) -> list[FileChunk]:
-        for node in nodes:
-            node.embedding = self._embed(node.text)
+    async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
+        """Attach deterministic embeddings to file chunks."""
+        for chunk_node in nodes:
+            chunk_node.embedding = self._embed(chunk_node.text)
         return nodes
 
 
 def run(coro):
+    """Run an async test body."""
     return asyncio.run(coro)
 
 
 def node(path: str) -> FileNode:
+    """Build a minimal file node."""
     return FileNode(path=path, st_mtime=1.0)
 
 
 def chunk(chunk_id: str, path: str, text: str, **metadata) -> FileChunk:
+    """Build a minimal file chunk."""
     return FileChunk(id=chunk_id, path=path, text=text, start_line=1, end_line=1, metadata=metadata)
 
 
 def test_keyword_only_upsert_removes_old_chunks_and_docs():
+    """Keyword-only upsert removes stale chunks and keyword documents."""
+
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = LocalFileStore(name="t_keyword_only", embedding_store="")
@@ -83,6 +91,8 @@ def test_keyword_only_upsert_removes_old_chunks_and_docs():
 
 
 def test_same_chunk_id_with_changed_text_gets_new_embedding():
+    """Changing a chunk text refreshes its embedding."""
+
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = LocalFileStore(name="t_embedding_reuse", embedding_store="")
@@ -101,6 +111,8 @@ def test_same_chunk_id_with_changed_text_gets_new_embedding():
 
 
 def test_search_filter_applies_to_vector_and_keyword_results():
+    """Search filters apply consistently to vector and keyword results."""
+
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = LocalFileStore(name="t_filter", embedding_store="")
@@ -123,6 +135,8 @@ def test_search_filter_applies_to_vector_and_keyword_results():
 
 
 def test_faiss_rebuilds_stale_sidecar_and_updates_same_id_text():
+    """FAISS sidecar rebuilds when persisted rows no longer match chunks."""
+
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             try:

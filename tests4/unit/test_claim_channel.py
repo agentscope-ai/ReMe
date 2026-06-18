@@ -19,6 +19,7 @@ class _StubSession:
         self.sent: list = []
 
     async def send_message(self, message) -> None:
+        """Record a message sent by the channel sink."""
         self.sent.append(message)
 
 

@@ -6,7 +6,7 @@ import sys
 import numpy as np
 import pytest
 
-import reme4.utils.common_utils as common_utils
+from reme4.utils import common_utils
 from reme4.utils.similarity_utils import batch_cosine_similarity, cosine_similarity
 
 
@@ -39,12 +39,16 @@ def test_mock_reme_server_uses_reme4_entrypoint(monkeypatch):
     captured: dict[str, list[str]] = {}
 
     class DummyProcess:
+        """Process stub returned by the patched Popen."""
+
         stdout = None
 
         def poll(self):
+            """Return a successful process status."""
             return 0
 
     def fake_popen(cmd, **_kwargs):
+        """Capture the spawned command."""
         captured["cmd"] = cmd
         return DummyProcess()
 

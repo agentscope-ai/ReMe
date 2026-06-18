@@ -154,7 +154,7 @@ async def mock_reme_server(
     cmd: list[str] = [
         sys.executable,
         "-m",
-        "reme.reme",
+        "reme4.reme",
         "start",
         f"service.host={host}",
         f"service.port={port}",

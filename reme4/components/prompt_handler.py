@@ -107,14 +107,11 @@ class PromptHandler:
 
     # ----- Formatting ----------------------------------------------------
 
-    def prompt_format(self, prompt_name: str, validate: bool = True, **kwargs) -> str:
+    def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Render a prompt: strip inactive ``[flag]`` lines, then ``str.format`` it.
 
         Boolean kwargs are treated as flag toggles; the rest are format variables.
-        `validate` is kept for backward-compatible call signatures; formatting
-        errors are raised by ``str.format``.
         """
-        _ = validate
         prompt = self.get_prompt(prompt_name)
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
         formats = {k: v for k, v in kwargs.items() if not isinstance(v, bool)}

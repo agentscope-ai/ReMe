@@ -38,6 +38,7 @@ _RESERVED_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 
+
 # pylint: disable=too-many-return-statements
 def validate_filename_component(name: str, *, kind: str = "filename") -> str | None:
     """Return an error message, or ``None`` when ``name`` is a safe filename component."""
@@ -63,6 +64,7 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
 
 # pylint: disable=too-many-return-statements
 def resolve_path(

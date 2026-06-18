@@ -355,7 +355,7 @@ def test_application_start_failure_propagates_and_closes_started_components():
             await Application._start(app)
 
         assert good.closed is True
-        assert app._started_components == []
+        assert not app._started_components
 
     asyncio.run(run())
 

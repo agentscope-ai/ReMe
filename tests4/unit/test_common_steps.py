@@ -252,6 +252,8 @@ def test_file_graph_health_reports_neo4j_cached_counts():
     """Neo4j file graph health should not be reported as an empty local graph."""
 
     class FakeNeo4jGraph:
+        """Minimal Neo4j graph stub with cached health counters."""
+
         is_started = True
         _driver = object()
         _uri = "bolt://example"

@@ -4,9 +4,12 @@ from reme4 import reme as reme_module
 
 
 def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
+    """CLI helper forwards connection options to the selected client."""
     seen = {}
 
     class FakeClient:
+        """Async client stub that records call arguments."""
+
         def __init__(self, **kwargs):
             seen["client_kwargs"] = kwargs
 
