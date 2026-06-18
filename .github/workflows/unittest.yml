@@ -32,11 +32,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e "./reme4[dev,core]"
+          pip install -e ".[dev,core]"
 
-      - name: Run tests4 unit tests
+      - name: Run unit tests
         run: |
-          pytest tests4/unit \
+          pytest tests/unit \
             -v \
             --tb=long \
             -s \

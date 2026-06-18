@@ -1,134 +1,62 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "reme_ai"
+name = "reme"
 dynamic = ["version"]
 description = "Remember Me, Refine Me."
-authors = [
-    { name = "jinli.yl", email = "jinli.yl@alibaba-inc.com" },
-    { name = "dengjiaji.djj", email = "dengjiaji.djj@alibaba-inc.com" },
-    { name = "caozouying.czy", email = "caozouying.czy@alibaba-inc.com" },
-    { name = "weikangzhou.zwk", email = "weikangzhou.zwk@alibaba-inc.com" },
-]
-license = { file = "LICENSE" }
 readme = "README.md"
-requires-python = ">=3.10"
+authors = [
+    { name = "EconML team of Alibaba Tongyi Lab", email = "jinli.yl@alibaba-inc.com" },
+]
+license = "Apache-2.0"
+requires-python = ">=3.11"
+keywords = ["llm", "memory", "agent", "agentscope", "ai", "mcp", "reme"]
 
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
-    "Typing :: Typed",
 ]
 
-keywords = ["llm", "memory", "experience", "memoryscope", "ai", "mcp", "http", "reme", "personal"]
-
 dependencies = [
-    "sqlite-vec>=0.1.6",
-    "prompt_toolkit>=3.0.52",
-    "rich>=14.2.0",
-    "asyncpg>=0.31.0",
-    "chromadb>=1.5.7",
-    "dashscope>=1.25.1",
-    "elasticsearch>=9.2.0",
-    "fastapi>=0.121.3",
-    "fastmcp>=2.14.1",
+    "aiofiles>=24.1.0",
+    "croniter>=2.0",
+    "fastapi>=0.135.1",
+    "fastmcp>=3.1.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
-    "mcp>=1.25.0",
+    "mistletoe>=1.5.1",
     "numpy>=2.2.6",
-    "openai>=2.8.1",
-    "pandas>=2.3.3",
-    "pydantic>=2.12.4",
-    "qdrant-client>=1.16.0",
-    "tavily-python>=0.7.13",
-    "tiktoken>=0.12.0",
-    "tqdm>=4.67.1",
-    "transformers>=4.57.3",
-    "uvicorn>=0.40.0",
-    "watchfiles>=1.1.1",
+    "openai>=2.26.0",
+    "pydantic>=2.12.5",
+    "python-frontmatter>=1.1.0",
     "pyyaml>=6.0.3",
+    "rich>=14.3.3",
+    "uvicorn>=0.41.0",
+    "watchfiles>=1.1.1",
+    "zstandard>=0.23.0",
 ]
 
 [project.optional-dependencies]
-obvec = [
-    "pyobvector>=0.1.20",
-    "sqlalchemy>=2.0",
-    # pyobvector imports Expression from sqlglot; removed from sqlglot 30+ top-level API
-    "sqlglot>=25,<30",
+core = [
+    "agentscope>=2.0.2",
+    "faiss-cpu>=1.13.2",
+    "jieba>=0.42.1",
+    "rjieba>=0.2.1",
+    "neo4j>=6.2.0",
+    "networkx>=3.4.2",
 ]
-
-seekdb = [
-    # pyseekdb 1.2+ requires Python >=3.11 (no wheels on 3.10)
-    "pyseekdb>=1.2.0; python_version >= '3.11'",
-]
-
-zvec = [
-    "zvec",
-]
-
-ray = [
-    "ray",
-]
-
 dev = [
-    "jupyter-book",
-    "ghp-import",
-    "myst-nb",
-    "sphinxcontrib-bibtex",
-    "furo",
-    "sphinxcontrib-mermaid",
     "pre-commit",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
-
 full = [
-    "reme_ai[dev,ray,light]",
+    "reme[core]",
+    "reme[dev]",
 ]
-
-litellm = [
-    "litellm==1.80.0",
-]
-
-light = [
-    "agentscope==1.0.20",
-    "flowllm[reme]>=0.2.0.10",
-]
-
-core = [
-    "agentscope==1.0.20",
-]
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["reme_ai*", "reme*"]
-exclude = ["test*", "cookbook*", "doc*", "library*", "dist*"]
-
-[tool.setuptools.package-data]
-reme_ai = [
-    "**/*.yaml",
-    "**/*.py",
-    "**/*.json",
-]
-
-reme = [
-    "**/*.yaml",
-    "**/*.py",
-    "**/*.json",
-]
-
-[tool.setuptools.dynamic]
-version = { attr = "reme.__version__" }
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/ReMe"
@@ -136,17 +64,25 @@ Documentation = "https://reme.agentscope.io/"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]
-reme = "reme_ai.main:main"
-reme2 = "reme.reme:main"
-remecli = "reme.reme_cli:main"
+reme = "reme.reme:main"
+
+[tool.setuptools]
+packages = { find = { where = ["."], include = ["reme*"] } }
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["py.typed", "**/*.yaml", "**/*.json"]
+"reme.components.tokenizer" = ["stopwords"]
+
+[tool.setuptools.dynamic]
+version = { attr = "reme.__version__" }
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
-# Script-style tests that need to be run with `python test_*.py`
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-# Exclude script-style tests that require manual execution
-addopts = "--ignore=tests/test_embedding.py --ignore=tests/test_embedding_cache.py --ignore=tests/test_embedding_sync.py --ignore=tests/test_file_store.py"
-
-# python -m build && twine upload dist/*

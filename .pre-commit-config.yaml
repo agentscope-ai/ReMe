@@ -3,7 +3,6 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-ast
-        exclude: ^(test/|cookbook/|reme_ai/)
       - id: check-yaml
       - id: check-xml
       - id: check-toml
@@ -14,18 +13,15 @@ repos:
     rev: v4.0.0
     hooks:
       - id: add-trailing-comma
-        exclude: ^(test/|cookbook/|reme_ai/)
   - repo: https://github.com/psf/black
     rev: 25.9.0
     hooks:
     - id: black
-      exclude: ^(test/|cookbook/|reme_ai/)
       args: [--line-length=120]
   - repo: https://github.com/PyCQA/flake8
     rev: 7.3.0
     hooks:
       - id: flake8
-        exclude: ^(test/|cookbook/|reme_ai/)
         args: [
           "--extend-ignore=E203",
           "--max-line-length=120"
@@ -37,14 +33,11 @@ repos:
         exclude:
             (?x)(
                 ^docs
-                | ^test/
-                | ^cookbook/
                 | pb2\.py$
                 | grpc\.py$
                 | \.demo$
                 | \.md$
                 | \.html$
-                | reme_ai/
           )
         args: [
           --disable=W0511,
