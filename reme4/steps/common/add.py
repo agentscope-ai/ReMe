@@ -18,8 +18,13 @@ class AddStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        a: float = self.context.get("a", 0.0)
-        b: float = self.context.get("b", 0.0)
+        try:
+            a = float(self.context.get("a", 0.0))
+            b = float(self.context.get("b", 0.0))
+        except (TypeError, ValueError) as exc:
+            self.context.response.success = False
+            self.context.response.answer = f"Invalid add arguments: {exc}"
+            return self.context.response
 
         result = a + b
         self.logger.info(f"[{self.name}] add({a}, {b}) = {result}")

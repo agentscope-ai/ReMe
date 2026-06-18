@@ -16,7 +16,6 @@ class StreamLLMDemoStep(BaseStep):
     Inputs (from RuntimeContext):
         query      (str, required): user message content.
         sys_prompt (str, optional): system prompt for the agent.
-        use_add_tool (bool, optional): register the ``add`` tool when True.
 
     Output (written to context.response.answer):
         The agent's final reply text.
@@ -28,7 +27,6 @@ class StreamLLMDemoStep(BaseStep):
         assert self.context is not None
         query: str = self.context.get("query", "")
         sys_prompt: str = self.context.get("sys_prompt") or self.DEFAULT_SYS_PROMPT
-        use_add_tool: bool = bool(self.context.get("use_add_tool", False))
 
         if not query:
             self.context.response.success = False
@@ -37,7 +35,7 @@ class StreamLLMDemoStep(BaseStep):
 
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["add"] if use_add_tool else [],
+            "job_tools": ["add"],
         }
 
         if self.context.stream:
@@ -54,7 +52,6 @@ class StreamLLMDemoStep(BaseStep):
             {
                 "query": query,
                 "sys_prompt": sys_prompt,
-                "use_add_tool": use_add_tool,
                 "response": text,
             },
         )

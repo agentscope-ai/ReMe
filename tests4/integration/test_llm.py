@@ -59,7 +59,6 @@ async def _run_with_tool(app) -> None:
     response = await step(
         query="Use the add tool to compute 21 + 21 and report the result.",
         sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
-        use_add_tool=True,
     )
     text = (response.answer or "").strip()
     print(f"\n[with_tool] response: {text!r}")

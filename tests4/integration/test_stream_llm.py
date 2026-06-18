@@ -78,7 +78,6 @@ async def _test_stream_llm_with_tool():
                     stream_queue=queue,
                     query="Use the add tool to compute 21 + 21 and report the result.",
                     sys_prompt="Use the `add` tool whenever the user asks to add numbers.",
-                    use_add_tool=True,
                 ),
             )
 

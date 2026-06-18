@@ -15,7 +15,6 @@ class LLMDemoStep(BaseStep):
     Inputs (from RuntimeContext):
         query     (str, required): user message content.
         sys_prompt (str, optional): system prompt for the agent.
-        use_add_tool (bool, optional): register the ``add`` tool when True.
 
     Output (written to context.response.answer):
         The agent's final reply text.
@@ -27,7 +26,6 @@ class LLMDemoStep(BaseStep):
         assert self.context is not None
         query: str = self.context.get("query", "")
         sys_prompt: str = self.context.get("sys_prompt") or self.DEFAULT_SYS_PROMPT
-        use_add_tool: bool = bool(self.context.get("use_add_tool", False))
         structured_model: Type[BaseModel] | None = self.context.get("structured_model")
 
         if not query:
@@ -37,7 +35,7 @@ class LLMDemoStep(BaseStep):
 
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["add"] if use_add_tool else [],
+            "job_tools": ["add"],
         }
         if structured_model is not None:
             wrapper_kwargs["output_schema"] = structured_model
@@ -54,7 +52,6 @@ class LLMDemoStep(BaseStep):
             {
                 "query": query,
                 "sys_prompt": sys_prompt,
-                "use_add_tool": use_add_tool,
                 "response": text,
                 "structured_output": structured_content,
             },

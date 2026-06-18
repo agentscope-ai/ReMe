@@ -97,9 +97,30 @@ def _file_graph_local_status(comp) -> dict:
     }
 
 
+def _file_graph_neo4j_status(comp) -> dict:
+    """Neo4j backend: counts are cached on the async component for sync health checks."""
+    return {
+        "is_started": comp.is_started,
+        "n_nodes": getattr(comp, "_n_nodes", 0),
+        "n_edges": getattr(comp, "_n_edges", 0),
+        "n_virtual": getattr(comp, "_n_virtual", 0),
+        "memory": _mb_str(
+            getattr(comp, "_uri", ""),
+            getattr(comp, "_database", ""),
+            getattr(comp, "_n_nodes", 0),
+            getattr(comp, "_n_edges", 0),
+            getattr(comp, "_n_virtual", 0),
+        ),
+    }
+
+
 def _file_graph_status(comp) -> dict:
     graph = getattr(comp, "_graph", None)
-    return _file_graph_nx_status(comp, graph) if graph is not None else _file_graph_local_status(comp)
+    if graph is not None:
+        return _file_graph_nx_status(comp, graph)
+    if hasattr(comp, "_driver"):
+        return _file_graph_neo4j_status(comp)
+    return _file_graph_local_status(comp)
 
 
 def _file_store_status(comp) -> dict:

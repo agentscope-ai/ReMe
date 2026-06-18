@@ -88,6 +88,9 @@ class Neo4jFileGraph(BaseFileGraph):
             )
         self._database: str = database
         self._driver = None
+        self._n_nodes = 0
+        self._n_virtual = 0
+        self._n_edges = 0
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -107,11 +110,11 @@ class Neo4jFileGraph(BaseFileGraph):
             await session.run(
                 "CREATE CONSTRAINT file_path_unique IF NOT EXISTS FOR (f:File) REQUIRE f.path IS UNIQUE",
             )
-            real, virtual, edges = await self._counts(session)
+            await self._refresh_counts(session)
         self.logger.info(
             f"Neo4jFileGraph '{self.name}' connected at "
             f"{self._uri}/{self._database}: "
-            f"{real} nodes, {edges} edges, {virtual} virtual",
+            f"{self._n_nodes} nodes, {self._n_edges} edges, {self._n_virtual} virtual",
         )
 
     async def _close(self) -> None:
@@ -140,6 +143,17 @@ class Neo4jFileGraph(BaseFileGraph):
             return 0, 0, 0
         return int(row["real"] or 0), int(row["virtual"] or 0), int(row["edges"] or 0)
 
+    async def _refresh_counts(self, session=None) -> None:
+        """Refresh cached counts for synchronous health reporting."""
+        if session is not None:
+            real, virtual, edges = await self._counts(session)
+        else:
+            async with self._session() as new_session:
+                real, virtual, edges = await self._counts(new_session)
+        self._n_nodes = real
+        self._n_virtual = virtual
+        self._n_edges = edges
+
     # -- Node CRUD ---------------------------------------------------------
 
     async def upsert_nodes(self, nodes: list[FileNode]) -> None:
@@ -167,6 +181,7 @@ class Neo4jFileGraph(BaseFileGraph):
         ]
         async with self._session() as session:
             await session.execute_write(self._upsert_nodes_tx, payload)
+            await self._refresh_counts(session)
 
     @staticmethod
     async def _upsert_nodes_tx(tx, payload):
@@ -209,6 +224,7 @@ class Neo4jFileGraph(BaseFileGraph):
             return
         async with self._session() as session:
             await session.execute_write(self._delete_nodes_tx, list(paths))
+            await self._refresh_counts(session)
 
     @staticmethod
     async def _delete_nodes_tx(tx, paths):
@@ -308,6 +324,7 @@ class Neo4jFileGraph(BaseFileGraph):
 
         async with self._session() as session:
             await session.execute_write(self._rebuild_links_tx, payload)
+            await self._refresh_counts(session)
 
     @staticmethod
     async def _rebuild_links_tx(tx, payload):
@@ -333,6 +350,7 @@ class Neo4jFileGraph(BaseFileGraph):
         """Remove every node and edge in the configured database."""
         async with self._session() as session:
             await session.run("MATCH (f:File) DETACH DELETE f")
+            await self._refresh_counts(session)
 
     # -- Link access -------------------------------------------------------
 
