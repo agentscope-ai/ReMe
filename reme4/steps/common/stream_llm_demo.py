@@ -1,32 +1,8 @@
 """Demo step that drives an Agent via the agent_wrapper component with streaming output."""
 
-import json
-
-from agentscope.event import (
-    TextBlockDeltaEvent,
-    ThinkingBlockDeltaEvent,
-    ToolCallStartEvent,
-    ToolCallDeltaEvent,
-    ToolResultTextDeltaEvent,
-    ModelCallEndEvent,
-    ReplyStartEvent,
-)
-from agentscope.message import Msg
-from agentscope.tool import FunctionTool, Toolkit
-
 from ..base_step import BaseStep
 from ...components import R
 from ...enumeration import ChunkEnum
-
-
-def add(a: float, b: float) -> str:
-    """Add two numbers and return the sum.
-
-    Args:
-        a: first addend
-        b: second addend
-    """
-    return str(a + b)
 
 
 @R.register("stream_llm_demo_step")
@@ -59,18 +35,16 @@ class StreamLLMDemoStep(BaseStep):
             self.context.response.answer = "Skipped: empty query"
             return self.context.response
 
-        toolkit = Toolkit(tools=[FunctionTool(add)]) if use_add_tool else Toolkit()
-
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "toolkit": toolkit,
+            "job_tools": ["add"] if use_add_tool else [],
         }
 
         if self.context.stream:
             text = await self._stream_reply(query, **wrapper_kwargs)
         else:
-            _, msg = await self.agent_wrapper.reply(query, **wrapper_kwargs)
-            text = (msg.get_text_content() or "").strip()
+            result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
+            text = (result.get("result") or "").strip()
 
         self.logger.debug(f"[{self.name}] response: {text!r}")
 
@@ -87,38 +61,17 @@ class StreamLLMDemoStep(BaseStep):
         return self.context.response
 
     async def _stream_reply(self, query: str, **wrapper_kwargs) -> str:
-        """Stream agent reply events to the context stream queue."""
+        """Stream unified chunks to the context stream queue."""
         assert self.context is not None
-        reply_msg: Msg | None = None
+        text_parts: list[str] = []
 
-        async for event in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
-            if isinstance(event, ReplyStartEvent):
-                reply_msg = Msg(
-                    id=event.reply_id,
-                    name=event.name,
-                    role=event.role,
-                    content=[],
-                )
-            elif isinstance(event, TextBlockDeltaEvent):
-                await self.context.add_stream_string(event.delta, ChunkEnum.CONTENT)
-            elif isinstance(event, ThinkingBlockDeltaEvent):
-                await self.context.add_stream_string(event.delta, ChunkEnum.THINK)
-            elif isinstance(event, ToolCallStartEvent):
-                payload = json.dumps({"name": event.tool_call_name, "id": event.tool_call_id})
-                await self.context.add_stream_string(payload, ChunkEnum.TOOL_CALL)
-            elif isinstance(event, ToolCallDeltaEvent):
-                await self.context.add_stream_string(event.delta, ChunkEnum.TOOL_CALL)
-            elif isinstance(event, ToolResultTextDeltaEvent):
-                await self.context.add_stream_string(event.delta, ChunkEnum.TOOL_RESULT)
-            elif isinstance(event, ModelCallEndEvent):
-                usage = json.dumps(
-                    {"input_tokens": event.input_tokens, "output_tokens": event.output_tokens},
-                )
-                await self.context.add_stream_string(usage, ChunkEnum.USAGE)
+        async for chunk in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
+            await self.context.add_stream_string(chunk.chunk, chunk.chunk_type)
 
-            if reply_msg is not None:
-                reply_msg.append_event(event)
+            if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str):
+                text_parts.append(chunk.chunk)
 
-        if reply_msg is not None:
-            return (reply_msg.get_text_content() or "").strip()
-        return ""
+            if chunk.session_id:
+                self.context.response.metadata["session_id"] = chunk.session_id
+
+        return "".join(text_parts).strip()

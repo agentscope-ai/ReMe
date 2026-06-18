@@ -107,6 +107,20 @@ class LocalFileStore(BaseFileStore):
         except Exception as e:
             logger.error(f"Failed to save file metadata to {self._metadata_file}: {e}")
 
+    async def _persist(self) -> None:
+        """Persist all in-memory indexes after mutations."""
+        await self._save_metadata()
+        await self._save_chunks()
+
+    def _delete_file_in_memory(self, path: str, source: MemorySource) -> None:
+        """Delete file data from memory without flushing to disk."""
+        to_delete = [cid for cid, chunk in self._chunks.items() if chunk.path == path and chunk.source == source]
+        for cid in to_delete:
+            del self._chunks[cid]
+
+        if source.value in self._files:
+            self._files[source.value].pop(path, None)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -146,7 +160,7 @@ class LocalFileStore(BaseFileStore):
             return
 
         # Remove existing chunks for this file/source first
-        await self.delete_file(file_meta.path, source)
+        self._delete_file_in_memory(file_meta.path, source)
 
         # Batch generate embeddings (base class returns mock embeddings when vector_enabled=False)
         chunks = await self.get_chunk_embeddings(chunks)
@@ -163,15 +177,12 @@ class LocalFileStore(BaseFileStore):
             path=file_meta.path,
             chunk_count=len(chunks),
         )
+        await self._persist()
 
     async def delete_file(self, path: str, source: MemorySource) -> None:
         """Delete file and all its chunks."""
-        to_delete = [cid for cid, chunk in self._chunks.items() if chunk.path == path and chunk.source == source]
-        for cid in to_delete:
-            del self._chunks[cid]
-
-        if source.value in self._files:
-            self._files[source.value].pop(path, None)
+        self._delete_file_in_memory(path, source)
+        await self._persist()
 
     async def delete_file_chunks(self, path: str, chunk_ids: list[str]) -> None:
         """Delete specific chunks for a file."""
@@ -187,6 +198,7 @@ class LocalFileStore(BaseFileStore):
                 source_meta[path].chunk_count = sum(
                     1 for chunk in self._chunks.values() if chunk.path == path and chunk.source.value == source_key
                 )
+        await self._persist()
 
     async def upsert_chunks(
         self,
@@ -201,6 +213,7 @@ class LocalFileStore(BaseFileStore):
 
         for chunk in chunks:
             self._chunks[chunk.id] = chunk
+        await self._persist()
 
     # ------------------------------------------------------------------
     # Read operations
@@ -230,6 +243,7 @@ class LocalFileStore(BaseFileStore):
             path=file_meta.path,
             chunk_count=file_meta.chunk_count,
         )
+        await self._persist()
 
     async def get_file_chunks(
         self,
@@ -456,6 +470,5 @@ class LocalFileStore(BaseFileStore):
         """Clear all indexed data from memory and disk."""
         self._chunks.clear()
         self._files.clear()
-        await self._save_chunks()
-        await self._save_metadata()
+        await self._persist()
         logger.info(f"Cleared all data from LocalFileStore '{self.store_name}'")

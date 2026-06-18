@@ -117,6 +117,13 @@ extract_system_prompt: |
   cites it as provenance without re-reading. Field shapes are
   enforced by the structured-output schema.
 
+  Also emit a small set of `topic_candidates`: topics this material
+  suggests the user may be interested in. These are candidates only;
+  a later daily aggregation step will choose the final daily topics
+  and remove duplicates against recent days. Keep each title specific
+  enough to be useful, include a grounded reason, and avoid generic
+  buckets like "AI", "coding", or "notes".
+
   You have read-only access (`read` for inline `[[resource/...]]`
   references that genuinely matter); no recall, no writing.
 
@@ -129,8 +136,11 @@ extract_user_message: |
   {material_blob}
 
   Identify the abstractions this material teaches, classify each
-  into one of {{procedure, personal, wiki}}, and emit via the
-  structured output schema. Empty list if nothing new is taught.
+  into one of {{procedure, personal, wiki}}, and emit them via the
+  structured output schema. Also emit user-interest topic candidates
+  grounded in this material. Empty `units` if nothing new is taught;
+  `topic_candidates` may still be non-empty if the material suggests
+  useful user-interest topics.
 
 
 # ============================================================
@@ -579,6 +589,11 @@ extract_system_prompt_zh: |
   里支撑证据所在 —— Phase 2 直接引用做溯源,不必重读。字段形
   态由结构化输出 schema 强制约束。
 
+  同时输出少量 `topic_candidates`: 这份材料暗示用户可能感兴趣
+  的主题。这里只是候选;之后的每日聚合步骤会选择最终主题,并
+  和最近几天去重。标题要具体、有用,reason 要有材料依据,避免
+  "AI"、"coding"、"notes" 这类泛泛分类。
+
   你只有只读访问(`read` 用于打开内联 `[[resource/...]]` 引
   用,确实需要时);没有召回,没有写入。
 
@@ -592,7 +607,9 @@ extract_user_message_zh: |
 
   识别这份材料教导的 **抽象**,为每个 unit 分类到
   {{procedure, personal, wiki}} 之一,通过结构化输出 schema
-  提交。没有新抽象时使用空 unit 列表。
+  提交。同时输出基于这份材料的用户兴趣 topic 候选。没有新抽
+  象时使用空 unit 列表;如果材料仍暗示有用兴趣主题,
+  `topic_candidates` 可以非空。
 
 
 integrate_system_prompt_procedure_zh: |

@@ -1,6 +1,7 @@
 """auto_resource — interpret resource files into daily notes via an agent."""
 
 import hashlib
+import uuid
 from pathlib import PurePosixPath
 
 import aiofiles
@@ -14,6 +15,11 @@ def _compute_session_id(filename: str) -> str:
     """Return 'resource_' + first 8 hex chars of MD5(filename)."""
     digest = hashlib.md5(filename.encode()).hexdigest()[:8]
     return f"resource_{digest}"
+
+
+def _compute_agent_session_id(filename: str) -> str:
+    """Return a stable UUID session id for agent backends."""
+    return str(uuid.UUID(hashlib.md5(filename.encode()).hexdigest()))
 
 
 def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
@@ -92,21 +98,22 @@ class AutoResourceStep(BaseStep):
             date=date_str,
         )
 
-        tools = [self.get_job(name) for name in self.agent_tools]
-        _, msg = await self.agent_wrapper.reply(
+        agent_session_id = _compute_agent_session_id(file_path)
+        result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
-            tools=tools,
-            session_id=session_id,
+            job_tools=self.agent_tools,
+            session_id=agent_session_id,
         )
 
         self.context.response.success = True
-        self.context.response.answer = (msg.get_text_content() or "").strip()
+        self.context.response.answer = (result.get("result") or "").strip()
         self.context.response.metadata.update(
             {
                 "path": note_path,
                 "created": note_created,
                 "session_id": session_id,
+                "agent_session_id": agent_session_id,
                 "action": "added" if created else "modified",
             },
         )

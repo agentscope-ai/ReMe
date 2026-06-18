@@ -79,6 +79,9 @@ class AutoDreamResult(BaseModel):
     files_failed: int = 0
     files_deleted: int = 0
     per_file: list[DreamResult] = Field(default_factory=list)
+    topics_path: str = ""
+    topics_written: int = 0
+    topics_error: str = ""
     summary: str = ""
 
 
@@ -88,10 +91,25 @@ class AutoDreamStep(BaseStep):
     configured ``dream`` job for each file whose ``st_mtime`` doesn't
     already match its ``file_catalog`` entry."""
 
-    def __init__(self, dispatch_job: str = "dream", persist: bool = True, **kwargs):
+    def __init__(
+        self,
+        dispatch_job: str = "dream",
+        persist: bool = True,
+        emit_topics: bool = True,
+        topic_dispatch_job: str = "daily_topics",
+        topic_count: int = 3,
+        topic_diversity_days: int = 7,
+        topic_session_id: str = "interests",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.dispatch_job: str = dispatch_job
         self.persist: bool = persist
+        self.emit_topics: bool = emit_topics
+        self.topic_dispatch_job: str = topic_dispatch_job
+        self.topic_count: int = topic_count
+        self.topic_diversity_days: int = topic_diversity_days
+        self.topic_session_id: str = topic_session_id
 
     def _vault_dir(self) -> Path:
         """Vault root as an absolute path (mirrors :meth:`DreamStep._vault_dir`)."""
@@ -147,7 +165,8 @@ class AutoDreamStep(BaseStep):
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         today = date_input or now(tz).strftime("%Y-%m-%d")
         vault = self._vault_dir()
-        files = _scan_today_files(vault, today, daily_dir)
+        topic_rel = f"{daily_dir}/{today}/session_agent_{self.topic_session_id}.md"
+        files = [rel for rel in _scan_today_files(vault, today, daily_dir) if rel != topic_rel]
 
         # existing: today's on-disk paths → st_mtime. Insertion order = scan
         # order (date.md first, then sorted event notes); preserved through
@@ -166,7 +185,9 @@ class AutoDreamStep(BaseStep):
         today_dir = f"{daily_dir}/{today}/"
         all_nodes = await self.file_catalog.get_nodes()
         indexed: dict[str, float] = {
-            n.path: n.st_mtime for n in all_nodes if n.path == today_md or n.path.startswith(today_dir)
+            n.path: n.st_mtime
+            for n in all_nodes
+            if (n.path == today_md or n.path.startswith(today_dir)) and n.path != topic_rel
         }
 
         # Diff — same vocabulary as scan_*_changes_step (added/modified/deleted).
@@ -202,9 +223,11 @@ class AutoDreamStep(BaseStep):
         # catalog mtime. The dispatch decouples backend choice (AS / CC)
         # from this loop — the configured ``dream`` job picks the runner.
         upsert_nodes: list[FileNode] = []
+        topic_candidates: list[dict] = []
         for rel_path, mtime in to_dream:
             dr = await self._dispatch_dream(rel_path, hint)
             result.per_file.append(dr)
+            topic_candidates.extend(dr.topic_candidates or [])
             if dr.error:
                 # Failures leave the catalog untouched — next tick retries.
                 result.files_failed += 1
@@ -225,6 +248,38 @@ class AutoDreamStep(BaseStep):
                     f"[{self.name}] file_catalog.upsert failed: {type(e).__name__}: {e}",
                 )
 
+        if self.emit_topics and topic_candidates:
+            try:
+                topic_resp = await self.run_job(
+                    self.topic_dispatch_job,
+                    date=today,
+                    candidates=topic_candidates,
+                    topic_count=self.topic_count,
+                    diversity_days=self.topic_diversity_days,
+                    session_id=self.topic_session_id,
+                )
+                if not topic_resp.success:
+                    result.topics_error = topic_resp.answer or "daily_topics returned success=False"
+                else:
+                    result.topics_path = str(topic_resp.metadata.get("path") or "")
+                    result.topics_written = len(topic_resp.metadata.get("topics") or [])
+                    topic_upserts: list[FileNode] = []
+                    for rel in [result.topics_path, f"{daily_dir}/{today}.md"]:
+                        if not rel:
+                            continue
+                        try:
+                            topic_upserts.append(FileNode(path=rel, st_mtime=(vault / rel).stat().st_mtime))
+                        except OSError:
+                            continue
+                    if topic_upserts:
+                        await self.file_catalog.upsert(topic_upserts)
+                        upsert_nodes.extend(topic_upserts)
+            except Exception as e:  # noqa: BLE001
+                result.topics_error = f"{type(e).__name__}: {e}"
+                self.logger.exception(
+                    f"[{self.name}] {self.topic_dispatch_job!r} failed: {type(e).__name__}: {e}",
+                )
+
         if self.persist and (upsert_nodes or to_delete):
             try:
                 await self.file_catalog.dump()
@@ -234,7 +289,7 @@ class AutoDreamStep(BaseStep):
                 )
 
         result.summary = _render_auto_dream_summary(result)
-        self.context.response.success = result.files_failed == 0
+        self.context.response.success = result.files_failed == 0 and not result.topics_error
         self.context.response.answer = result.summary
         self.context.response.metadata.update(result.model_dump())
         return self.context.response
@@ -283,4 +338,8 @@ def _render_auto_dream_summary(r: AutoDreamResult) -> str:
         else:
             status = f"OK (+{len(dr.nodes_created)} created, ~{len(dr.nodes_updated)} updated)"
         lines.append(f"  - {dr.path}: {status}")
+    if r.topics_error:
+        lines.append(f"  - topics: ERROR ({r.topics_error})")
+    elif r.topics_path:
+        lines.append(f"  - topics: OK ({r.topics_written} written to {r.topics_path})")
     return "\n".join(lines)

@@ -514,17 +514,17 @@ class Application:
             logger.warning("Application is not started")
             return True
 
-        for name, vector_store in self.service_context.vector_stores.items():
-            logger.info(f"Closing vector store: {name}")
-            await vector_store.close()
+        for name, file_watcher in self.service_context.file_watchers.items():
+            logger.info(f"Closing file watcher: {name}")
+            await file_watcher.close()
 
         for name, file_store in self.service_context.file_stores.items():
             logger.info(f"Closing file store: {name}")
             await file_store.close()
 
-        for name, file_watcher in self.service_context.file_watchers.items():
-            logger.info(f"Closing file watcher: {name}")
-            await file_watcher.close()
+        for name, vector_store in self.service_context.vector_stores.items():
+            logger.info(f"Closing vector store: {name}")
+            await vector_store.close()
 
         for name, llm in self.service_context.llms.items():
             logger.info(f"Closing LLM: {name}")

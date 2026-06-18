@@ -140,6 +140,18 @@ class MemoryUnit(BaseModel):
     )
 
 
+class TopicCandidate(BaseModel):
+    """One candidate topic the user may be interested in."""
+
+    title: str = Field(description="Short topic title, specific but not file-local.")
+    reason: str = Field(description="Why this topic may interest the user, grounded in the material.")
+    evidence: str = Field(description="Brief pointer to supporting evidence in the material.")
+    keywords: list[str] = Field(
+        default_factory=list,
+        description="Short keywords useful for de-duplication and comparison.",
+    )
+
+
 class ExtractedUnits(BaseModel):
     """Structured output emitted by Phase 1's extract agent."""
 
@@ -150,6 +162,14 @@ class ExtractedUnits(BaseModel):
             "abstractions (principles / patterns / precedents) worth "
             "lifting into long-term memory. Each is tagged with its "
             "bucket. Empty list = nothing worth lifting (Phase 2 is skipped)."
+        ),
+    )
+    topic_candidates: list[TopicCandidate] = Field(
+        default_factory=list,
+        description=(
+            "Optional user-interest topic candidates surfaced while reading "
+            "this material. These are NOT written by DreamStep; AutoDream "
+            "aggregates and de-duplicates candidates across the day."
         ),
     )
 
@@ -210,6 +230,7 @@ class DreamResult(BaseModel):
     skipped: bool = False
     path: str = ""
     units: list[dict] = Field(default_factory=list)
+    topic_candidates: list[dict] = Field(default_factory=list)
     nodes_created: list[str] = Field(default_factory=list)
     nodes_updated: list[str] = Field(default_factory=list)
     summary: str = ""
@@ -249,15 +270,15 @@ class DreamStep(BaseStep):
         except Exception:
             return False
 
-    async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> tuple[list[dict], str]:
+    async def _extract(self, material_blob: str, hint: str, vault_dir: Path) -> tuple[list[dict], list[dict], str]:
         """Phase 1: one ReAct invocation — read material + emit ExtractedUnits.
 
-        Returns ``(units, llm_summary)`` where ``units`` is the cleaned
-        sub-unit list (each entry has ``name`` / ``bucket`` / ``summary``)
-        and ``llm_summary`` is whatever free-form text the agent produced
-        alongside its structured emission.
+        Returns ``(units, topic_candidates, llm_summary)`` where ``units`` is
+        the cleaned sub-unit list (each entry has ``name`` / ``bucket`` /
+        ``summary``), ``topic_candidates`` is the cleaned interest-candidate
+        list, and ``llm_summary`` is whatever free-form text the agent
+        produced alongside its structured emission.
         """
-        tools = [self.get_job(name) for name in _EXTRACT_TOOLS]
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         user_message = self.prompt_format(
             "extract_user_message",
@@ -265,19 +286,18 @@ class DreamStep(BaseStep):
             hint=hint or "(none)",
             material_blob=material_blob,
         )
-        _, result = await self.agent_wrapper.reply(
+        result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format(
                 "extract_system_prompt",
                 vault_dir=str(vault_dir),
                 buckets=", ".join(BUCKETS),
             ),
-            tools=tools,
+            job_tools=list(_EXTRACT_TOOLS),
             output_schema=ExtractedUnits,
         )
 
-        msg = result["message"]
-        meta = result["structured_output"] if isinstance(result["structured_output"], dict) else {}
+        meta = result.get("structured_output") if isinstance(result.get("structured_output"), dict) else {}
         cleaned: list[dict] = []
         for raw in meta.get("units") or []:
             if not isinstance(raw, dict):
@@ -294,7 +314,30 @@ class DreamStep(BaseStep):
                 )
                 bucket = "wiki"
             cleaned.append({"name": name, "summary": summary, "bucket": bucket})
-        return cleaned, (msg.get_text_content() or "").strip()
+
+        topic_candidates: list[dict] = []
+        for raw in meta.get("topic_candidates") or []:
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or "").strip()
+            reason = str(raw.get("reason") or "").strip()
+            evidence = str(raw.get("evidence") or "").strip()
+            if not title or not reason:
+                continue
+            keywords_raw = raw.get("keywords") or []
+            keywords = (
+                [str(k).strip() for k in keywords_raw if str(k).strip()] if isinstance(keywords_raw, list) else []
+            )
+            topic_candidates.append(
+                {
+                    "title": title,
+                    "reason": reason,
+                    "evidence": evidence,
+                    "keywords": keywords[:8],
+                    "source_path": "",
+                },
+            )
+        return cleaned, topic_candidates, (result.get("result") or "").strip()
 
     async def _integrate_unit(self, unit: dict, material_blob: str, hint: str, vault_dir: Path) -> IntegrateOutcome:
         """One ReAct invocation per memory sub-unit, dispatched to the
@@ -304,7 +347,6 @@ class DreamStep(BaseStep):
         target_path)."""
         bucket = unit.get("bucket") or "wiki"
         digest_dir = getattr(self.app_context.app_config, "digest_dir", "")
-        tools = [self.get_job(name) for name in _INTEGRATE_TOOLS]
         user_message = self.prompt_format(
             "integrate_user_message",
             hint=hint or "(none)",
@@ -313,7 +355,7 @@ class DreamStep(BaseStep):
             unit_summary=unit.get("summary", ""),
             material_blob=material_blob,
         )
-        _, result = await self.agent_wrapper.reply(
+        result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format(
                 f"integrate_system_prompt_{bucket}",
@@ -321,10 +363,10 @@ class DreamStep(BaseStep):
                 digest_dir=digest_dir,
                 bucket=bucket,
             ),
-            tools=tools,
+            job_tools=list(_INTEGRATE_TOOLS),
             output_schema=IntegrateOutcome,
         )
-        return IntegrateOutcome.model_validate(result["structured_output"])
+        return IntegrateOutcome.model_validate(result.get("structured_output"))
 
     async def dream_one(self, path: str, hint: str = "") -> DreamResult:
         """Run the full extract + integrate pipeline on one vault-relative
@@ -355,12 +397,15 @@ class DreamStep(BaseStep):
         # Phase 1 — extract (light). Agent emits ExtractedUnits structured output to commit the
         # memory sub-units worth lifting. Each unit carries its own bucket.
         self.logger.info(f"[{self.name}] extract phase: path={path!r}")
-        units, extract_summary = await self._extract(material_blob, hint, vault_dir)
+        units, topic_candidates, extract_summary = await self._extract(material_blob, hint, vault_dir)
+        for candidate in topic_candidates:
+            candidate["source_path"] = path
 
         if not units:
             return DreamResult(
                 used_llm=True,
                 path=path,
+                topic_candidates=topic_candidates,
                 summary=extract_summary or "no memory sub-units declared",
                 skipped=True,
             )
@@ -404,6 +449,7 @@ class DreamStep(BaseStep):
             used_llm=True,
             path=path,
             units=units,
+            topic_candidates=topic_candidates,
             nodes_created=nodes_created,
             nodes_updated=nodes_updated,
             summary=summary,

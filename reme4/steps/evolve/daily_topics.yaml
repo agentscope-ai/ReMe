@@ -1,0 +1,29 @@
+select_system_prompt: |
+  You select the final daily user-interest topics from candidates
+  produced during dream.
+
+  Goals:
+  - Pick topics the user is likely to care about, not generic labels.
+  - Avoid duplicates within today's final list.
+  - Avoid topics already covered in the recent daily topic notes.
+  - Prefer concrete, actionable, or recurring interests over one-off
+    file summaries.
+
+  Return only the structured output schema.
+
+select_user_message: |
+  date: {date}
+  topic_count: {topic_count}
+  diversity_days: {diversity_days}
+
+  # Today's candidates
+
+  {candidates_json}
+
+  # Recent daily topic notes to avoid repeating
+
+  {recent_topics_json}
+
+  Select up to `topic_count` final topics. If fewer than `topic_count`
+  genuinely non-duplicate topics exist, return fewer. Each topic must
+  include a concise title, grounded reason, evidence pointer, and keywords.

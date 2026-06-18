@@ -39,6 +39,33 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 from _vault_fixture import DREAM_INPUT_PATH, vault_env  # noqa: E402
 
 
+def _assert_dream_output(env, resp, rel_input: str) -> None:
+    """Check the response metadata matches concrete files written to digest/."""
+    assert resp.success is True, resp.answer
+    assert resp.answer
+    meta = resp.metadata or {}
+    assert meta.get("used_llm") is True
+    assert meta.get("skipped") is False, meta
+    assert meta.get("path") == rel_input
+    assert not meta.get("error"), meta.get("error")
+
+    units = meta.get("units") or []
+    created = meta.get("nodes_created") or []
+    updated = meta.get("nodes_updated") or []
+    topic_candidates = meta.get("topic_candidates") or []
+    assert units, "dream should declare at least one memory sub-unit"
+    assert created or updated, "dream should create or update at least one digest node"
+    assert topic_candidates, "dream should emit topic candidates for auto_dream aggregation"
+    assert "Declared" in resp.answer
+
+    for rel_path in [*created, *updated]:
+        assert isinstance(rel_path, str) and rel_path.startswith("digest/"), rel_path
+        target = env.vault_dir / rel_path
+        assert target.is_file(), f"dream reported {rel_path!r}, but the file does not exist"
+        text = target.read_text(encoding="utf-8")
+        assert text.strip(), f"dream output file is empty: {rel_path}"
+
+
 async def main() -> None:
     """Seed a vault, reindex it, run ``dream`` on the seeded daily note."""
     rel_input = sys.argv[1] if len(sys.argv) > 1 else DREAM_INPUT_PATH
@@ -76,6 +103,7 @@ async def main() -> None:
                     print(f"  {k}: list({len(v)} items) head={v[:3]!r}")
                 else:
                     print(f"  {k}: {v!r}")
+            _assert_dream_output(env, resp, rel_input)
         finally:
             await env.close_all()
 

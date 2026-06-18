@@ -1,6 +1,7 @@
 """steps"""
 
 from .base_step import BaseStep
+from .common.add import AddStep
 from .common.demo import DemoEchoStep1, DemoEchoStep2
 from .common.health_check import HealthCheckStep
 from .common.help import HelpStep
@@ -10,7 +11,9 @@ from .common.version import VersionStep
 from .evolve.auto_dream import AutoDreamStep
 from .evolve.auto_memory import AutoMemoryStep
 from .evolve.auto_resource import AutoResourceStep
+from .evolve.daily_topics import DailyTopicsStep
 from .evolve.dream import DreamStep
+from .evolve.proactive import ProactiveStep
 from .file_io.daily_create import DailyCreateStep
 from .file_io.daily_list import DailyListStep
 from .file_io.daily_reindex import DailyReindexStep
@@ -41,6 +44,7 @@ from .index.watch_changes import WatchChangesStep
 __all__ = [
     "BaseStep",
     # common
+    "AddStep",
     "DemoEchoStep1",
     "DemoEchoStep2",
     "HealthCheckStep",
@@ -52,6 +56,7 @@ __all__ = [
     # evolve
     "AutoMemoryStep",
     "AutoResourceStep",
+    "ProactiveStep",
     # file_io
     "DeleteStep",
     "EditStep",
@@ -86,5 +91,6 @@ __all__ = [
     "WatchChangesStep",
     # evolve (dream)
     "AutoDreamStep",
+    "DailyTopicsStep",
     "DreamStep",
 ]

@@ -426,7 +426,31 @@ jobs:
 
   dream:
     backend: base
-    description: "Dream: lift atomic units from one daily/resource file into digest/ (LLM)."
+    description: "Dream: lift atomic units from one daily/resource file into digest/ (LLM), then write discovered interest topics to today's daily topic note."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "vault-relative path of one daily-event note or resource file"
+        hint:
+          type: string
+          description: "caller guidance to the dreamer LLM"
+          default: ""
+      required:
+        - path
+    steps:
+      - backend: dream_step
+      - backend: daily_topics_step
+        topic_count: 3
+        diversity_days: 7
+        session_id: interests
+        preserve_response: true
+        metadata_key: daily_topics
+
+  dream_extract:
+    backend: base
+    description: "Dream extract: internal single-file dream step used by auto_dream before daily topic aggregation."
     parameters:
       type: object
       properties:
@@ -458,6 +482,66 @@ jobs:
           default: ""
     steps:
       - backend: auto_dream_step
+        dispatch_job: dream_extract
+        emit_topics: true
+        topic_dispatch_job: daily_topics
+        topic_count: 3
+        topic_diversity_days: 7
+        topic_session_id: interests
+
+  daily_topics:
+    backend: base
+    description: "Daily topics: select non-duplicate user-interest topics from dream candidates and write them to today's daily note."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD to write; defaults to today in the dreamer's timezone"
+          default: ""
+        candidates:
+          type: array
+          description: "topic candidates emitted by dream"
+          default: []
+        topic_count:
+          type: integer
+          description: "maximum number of final topics"
+          default: 3
+        diversity_days:
+          type: integer
+          description: "number of previous days whose topics should not be repeated"
+          default: 7
+        session_id:
+          type: string
+          description: "daily note session id suffix; writes session_agent_<session_id>.md"
+          default: interests
+    steps:
+      - backend: daily_topics_step
+        topic_count: 3
+        diversity_days: 7
+        session_id: interests
+
+  proactive:
+    backend: base
+    description: "Proactive: read the daily topics markdown produced by daily_topics and expose the latest user-interest topics."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD to read; defaults to today in the dreamer's timezone"
+          default: ""
+        session_id:
+          type: string
+          description: "daily note session id suffix; reads session_agent_<session_id>.md"
+          default: interests
+        include_content:
+          type: boolean
+          description: "whether to include the raw markdown content in response metadata"
+          default: true
+    steps:
+      - backend: proactive_step
+        session_id: interests
 
   auto_memory:
     backend: base
@@ -520,17 +604,17 @@ components:
 
   as_llm:
     default:
-      backend: ${LLM_BACKEND:-anthropic}
-      model: ${LLM_MODEL_NAME:-glm-5.1}
+      backend: ${LLM_BACKEND:-dashscope}
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
       stream: true
       context_size: 200000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}
-        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       parameters:
         max_tokens: 65536
-        thinking_enable: true
+        thinking_enable: false
 
   agent_wrapper:
     default:
@@ -542,15 +626,15 @@ components:
       context_config:
         trigger_ratio: 0.8
         reserve_ratio: 0.1
-        tool_result_limit: 3000
+        tool_result_limit: 50000
       model_config:
         max_retries: 1
     claude_code:
       backend: claude_code
-      model: ${LLM_MODEL_NAME:-claude-opus-4-6}
-      system_prompt: "You are a helpful assistant."
+      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.1}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
-      max_turns: 50
 
   file_graph:
     default:

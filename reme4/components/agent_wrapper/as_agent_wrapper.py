@@ -1,25 +1,103 @@
 """AgentScope backend for the unified agent wrapper."""
 
-import datetime
-import uuid
-import zoneinfo
+import json
+import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+from uuid import uuid4
 
-from agentscope.agent import Agent, ContextConfig, ModelConfig, ReActConfig
+from agentscope.agent import Agent, ContextConfig, ReActConfig
+from agentscope.agent._config import ModelConfig
+from agentscope.event import (
+    DataBlockDeltaEvent,
+    DataBlockEndEvent,
+    DataBlockStartEvent,
+    ExceedMaxItersEvent,
+    ModelCallEndEvent,
+    ModelCallStartEvent,
+    ReplyEndEvent,
+    ReplyStartEvent,
+    ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
+    ThinkingBlockStartEvent,
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolResultDataDeltaEvent,
+    ToolResultEndEvent,
+    ToolResultStartEvent,
+    ToolResultTextDeltaEvent,
+)
 from agentscope.message import TextBlock, ToolResultState, UserMsg
-from agentscope.permission import PermissionContext, PermissionMode
+from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
-from agentscope.tool import FunctionTool, ToolChunk, Toolkit
+from agentscope.tool import (
+    Bash,
+    Edit,
+    FunctionTool,
+    Glob,
+    Grep,
+    Read,
+    ToolBase,
+    ToolChunk,
+    Toolkit,
+    Write,
+)
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
+from ...enumeration import ChunkEnum
+from ...schema import StreamChunk
 from ...utils import AsStateHandler
+from ...utils.env_utils import load_env
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+_INLINE_SKILL_INSTRUCTION = """<agent-skills>
+The selected skill instructions are already included below. Use them directly.
+Do not call the `{{ skill_viewer }}` tool only to read these skills again.
+
+{% for skill in skills %}<skill>
+<name>{{ skill.name }}</name>
+<description>{{ skill.description }}</description>
+<dir>{{ skill.dir }}</dir>
+<instructions>
+{{ skill.markdown }}
+</instructions>
+</skill>
+{% endfor %}</agent-skills>
+"""
+
+
+class BypassAnalysisBash(Bash):
+    """Bash variant that delegates permission decisions to PermissionEngine.
+
+    AgentScope's built-in Bash performs bypass-immune static analysis before
+    the engine can apply `permission_mode: bypass`. For this app we want the
+    configured permission mode to be authoritative.
+    """
+
+    async def check_permissions(
+        self,
+        _tool_input: dict[str, Any],
+        _context: PermissionContext,
+    ) -> PermissionDecision:
+        """Bypass Bash static analysis and let the permission engine decide."""
+        return PermissionDecision(
+            behavior=PermissionBehavior.PASSTHROUGH,
+            message="Bash static analysis skipped; delegating to permission engine.",
+        )
 
 
 @R.register("agentscope")
@@ -42,23 +120,95 @@ class AsAgentWrapper(BaseAgentWrapper):
             tool.input_schema = job.parameters
         return tool
 
-    def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
+    @classmethod
+    def _builtin_tools(cls) -> list[ToolBase]:
+        """Return built-in tools expected by local skills."""
+        return [BypassAnalysisBash(), Edit(), Glob(), Grep(), Read(), Write()]
+
+    @property
+    def session_path(self) -> Path:
+        """Directory used for persisted AgentScope sessions."""
+        if self.app_context is None:
+            return self.vault_path / "session" / "agentscope"
+        return self.vault_path / self.app_context.app_config.session_dir / "agentscope"
+
+    @staticmethod
+    def _validate_session_id(session_id: str, field: str = "session_id") -> str:
+        if not _UUID_RE.match(session_id):
+            raise ValueError(f"{field} must be a valid UUID: {session_id!r}")
+        return session_id.lower()
+
+    async def _load_state(self, kwargs: dict[str, Any], perm_mode: PermissionMode) -> AgentState:
+        resume = kwargs.get("resume") or ""
+        session_id = kwargs.get("session_id") or ""
+        fork_session = bool(kwargs.get("fork_session", False))
+        if resume:
+            resume = self._validate_session_id(resume, "resume")
+        if session_id:
+            session_id = self._validate_session_id(session_id)
+
+        if session_id and resume and not fork_session:
+            raise ValueError("session_id cannot be used with resume unless fork_session=True")
+
+        if resume:
+            handler = AsStateHandler.for_session(self.session_path, resume)
+            state = await handler.load_or_none()
+            if state is None:
+                raise FileNotFoundError(f"AgentScope session not found: {resume}")
+            state.permission_context = PermissionContext(mode=perm_mode)
+            state.session_id = resume
+            if fork_session:
+                forked = AgentState(
+                    session_id=session_id or str(uuid4()),
+                    summary=state.summary,
+                    context=list(state.context),
+                    permission_context=PermissionContext(mode=perm_mode),
+                )
+                return forked
+            return state
+
+        return AgentState(session_id=session_id or str(uuid4()), permission_context=PermissionContext(mode=perm_mode))
+
+    async def _dump_state(self, state: AgentState) -> None:
+        await AsStateHandler.for_session(self.session_path, state.session_id).dump(state)
+
+    def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
+        """Resolve configured skill names to AgentScope local skill directories."""
+        if skills is None:
+            return []
+        if skills == "all":
+            return [str(self.project_skills_root)]
+        if isinstance(skills, str):
+            skills = [skills]
+        return [str(self.project_skills_root / skill) for skill in skills]
+
+    def _load_tool_env(self) -> dict[str, str]:
+        """Load project environment variables for tools spawned by AgentScope."""
+        project_env = self.project_path / ".env"
+        return load_env(project_env) if project_env.exists() else load_env()
+
+    async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
-        for k, v in self.kwargs.items():
-            kwargs.setdefault(k, v)
+        kwargs = self._merged_kwargs(kwargs)
+        self._load_tool_env()
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
-        tools: list["BaseJob"] = kwargs.get("tools", [])
-        toolkit = kwargs.get("toolkit") or (
-            Toolkit(tools=[self._make_tool(job) for job in tools]) if tools else Toolkit()
+        job_tools: list[str] = kwargs.get("job_tools", [])
+        resolved_jobs = self._resolve_job_tools(job_tools)
+        skills = self._resolve_skills(kwargs.get("skills"))
+        skill_instruction_template = kwargs.get("skill_instruction_template", _INLINE_SKILL_INSTRUCTION)
+        toolkit = kwargs.get("toolkit") or Toolkit(
+            tools=[*self._builtin_tools(), *(self._make_tool(job) for job in resolved_jobs)],
+            skills_or_loaders=skills,
+            skill_instruction_template=skill_instruction_template,
         )
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
-        state = AgentState(permission_context=PermissionContext(mode=perm_mode))
+        state = await self._load_state(kwargs, perm_mode)
 
         agent = Agent(
             name=self.name,
@@ -76,48 +226,19 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return agent, inputs
 
-    def _session_path(self, session_id: str) -> Path:
-        tz_name = self.app_context.app_config.timezone if self.app_context else None
-        if tz_name:
-            try:
-                dt = datetime.datetime.now(zoneinfo.ZoneInfo(tz_name))
-            except Exception:
-                dt = datetime.datetime.now()
-        else:
-            dt = datetime.datetime.now()
-        date_str = dt.strftime("%Y-%m-%d")
-        resource = self.app_context.app_config.resource_dir if self.app_context else "resource"
-        return self.vault_path / resource / date_str / f"session_reme_{session_id}.jsonl"
-
-    async def reply(self, inputs: Any, **kwargs) -> tuple[str, Any]:
-        session_id: str = kwargs.pop("session_id", "")
-        fork_session: bool = kwargs.pop("fork_session", False)
-
-        agent, inputs = self._build_agent(inputs, **kwargs)
-
-        if session_id:
-            path = self._session_path(session_id)
-            if path.exists():
-                loaded = await AsStateHandler(path).load()
-                agent.state.session_id = loaded.session_id
-                agent.state.summary = loaded.summary
-                agent.state.context = loaded.context
-                agent.state.reply_id = loaded.reply_id
-                agent.state.cur_iter = loaded.cur_iter
+    async def reply(self, inputs: Any, **kwargs) -> dict:
+        agent, inputs = await self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)
         await agent.reply()
+        await self._dump_state(agent.state)
         last_msg = agent.state.context[-1]
 
-        if session_id:
-            if fork_session:
-                new_sid = uuid.uuid4().hex
-                agent.state.session_id = new_sid
-                save_path = self._session_path(new_sid)
-            else:
-                save_path = self._session_path(session_id)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            await AsStateHandler(save_path).dump(agent.state)
+        result = {
+            "session_id": agent.state.session_id,
+            "last_message": last_msg.model_dump(),
+            "result": last_msg.get_text_content(),
+        }
 
         output_schema: dict | None = kwargs.get("output_schema")
         if output_schema is not None:
@@ -128,13 +249,107 @@ class AsAgentWrapper(BaseAgentWrapper):
                 messages=agent.state.context,
                 structured_model=output_schema,
             )
-            return agent.state.session_id, {"message": last_msg, "structured_output": res.content}
+            result["structured_output"] = res.content
 
-        return agent.state.session_id, last_msg
+        return result
 
-    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[Any, None]:
-        """Stream agent events via AgentScope's reply_stream API."""
-        agent, inputs = self._build_agent(inputs, **kwargs)
+    # ----- StreamChunk conversion -------------------------------------------
+
+    @classmethod
+    # pylint: disable=too-many-return-statements
+    def _event_to_chunk(cls, event: Any) -> StreamChunk | None:
+        """Convert an AgentScope event to a unified StreamChunk.
+
+        Returns ``None`` for events that should be silently skipped
+        (e.g. ``RequireUserConfirmEvent``).
+        """
+        if isinstance(event, ReplyStartEvent):
+            meta = {"reply_id": event.reply_id, "name": event.name, "role": event.role}
+            return cls._chunk(ChunkEnum.REPLY_START, session_id=event.session_id, chunk="", metadata=meta)
+        if isinstance(event, ReplyEndEvent):
+            return cls._chunk(
+                ChunkEnum.REPLY_END,
+                session_id=event.session_id,
+                chunk="",
+                metadata={"reply_id": event.reply_id},
+            )
+
+        for event_cls, chunk_type, attr in (
+            (TextBlockStartEvent, ChunkEnum.CONTENT, None),
+            (TextBlockDeltaEvent, ChunkEnum.CONTENT, "delta"),
+            (TextBlockEndEvent, ChunkEnum.CONTENT, None),
+            (ThinkingBlockStartEvent, ChunkEnum.THINK, None),
+            (ThinkingBlockDeltaEvent, ChunkEnum.THINK, "delta"),
+            (ThinkingBlockEndEvent, ChunkEnum.THINK, None),
+            (DataBlockStartEvent, ChunkEnum.DATA, None),
+            (DataBlockDeltaEvent, ChunkEnum.DATA, "data"),
+            (DataBlockEndEvent, ChunkEnum.DATA, None),
+        ):
+            if isinstance(event, event_cls):
+                kwargs = {"block_id": event.block_id, "chunk": getattr(event, attr) if attr else ""}
+                if isinstance(event, (DataBlockStartEvent, DataBlockDeltaEvent)):
+                    kwargs["media_type"] = event.media_type
+                return cls._chunk(chunk_type, **kwargs)
+
+        if isinstance(event, ToolCallStartEvent):
+            payload = {"name": event.tool_call_name, "id": event.tool_call_id}
+            return cls._chunk(
+                ChunkEnum.TOOL_CALL,
+                tool_call_id=event.tool_call_id,
+                tool_call_name=event.tool_call_name,
+                chunk=json.dumps(payload),
+            )
+        if isinstance(event, ToolCallDeltaEvent):
+            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk=event.delta)
+        if isinstance(event, ToolCallEndEvent):
+            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk="")
+        if isinstance(event, ToolResultStartEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                tool_call_name=event.tool_call_name,
+                chunk="",
+            )
+        if isinstance(event, ToolResultTextDeltaEvent):
+            return cls._chunk(ChunkEnum.TOOL_RESULT, tool_call_id=event.tool_call_id, chunk=event.delta)
+        if isinstance(event, ToolResultDataDeltaEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                chunk=event.data,
+                media_type=event.media_type,
+                metadata={"url": event.url} if event.url else {},
+            )
+        if isinstance(event, ToolResultEndEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                chunk="",
+                metadata={"state": str(event.state)},
+            )
+        if isinstance(event, ModelCallStartEvent):
+            return cls._chunk(ChunkEnum.USAGE, chunk="", metadata={"model_name": getattr(event, "model_name", None)})
+        if isinstance(event, ModelCallEndEvent):
+            usage = {"input_tokens": event.input_tokens, "output_tokens": event.output_tokens}
+            return cls._chunk(
+                ChunkEnum.USAGE,
+                chunk=json.dumps(usage),
+                input_tokens=event.input_tokens,
+                output_tokens=event.output_tokens,
+                metadata={"model_name": getattr(event, "model_name", None)},
+            )
+        if isinstance(event, ExceedMaxItersEvent):
+            return cls._chunk(ChunkEnum.ERROR, chunk="Exceeded max iterations")
+        return None
+
+    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+        """Stream agent events as unified StreamChunk objects."""
+        agent, inputs = await self._build_agent(inputs, **kwargs)
 
         async for event in agent.reply_stream(inputs):
-            yield event
+            chunk = self._event_to_chunk(event)
+            if chunk is not None:
+                chunk.session_id = chunk.session_id or agent.state.session_id
+                yield chunk
+
+        await self._dump_state(agent.state)

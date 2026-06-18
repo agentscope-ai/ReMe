@@ -2,21 +2,10 @@
 
 from typing import Type
 
-from agentscope.tool import FunctionTool, Toolkit
 from pydantic import BaseModel
 
 from ..base_step import BaseStep
 from ...components import R
-
-
-def add(a: float, b: float) -> str:
-    """Add two numbers and return the sum.
-
-    Args:
-        a: first addend
-        b: second addend
-    """
-    return str(a + b)
 
 
 @R.register("llm_demo_step")
@@ -46,25 +35,17 @@ class LLMDemoStep(BaseStep):
             self.context.response.answer = "Skipped: empty query"
             return self.context.response
 
-        toolkit = Toolkit(tools=[FunctionTool(add)]) if use_add_tool else Toolkit()
-
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "toolkit": toolkit,
+            "job_tools": ["add"] if use_add_tool else [],
         }
         if structured_model is not None:
             wrapper_kwargs["output_schema"] = structured_model
 
-        _, result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
+        result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
 
-        structured_content: dict | None = None
-        if isinstance(result, dict) and "message" in result:
-            msg = result["message"]
-            structured_content = result["structured_output"]
-        else:
-            msg = result
-
-        text = (msg.get_text_content() or "").strip()
+        structured_content = result.get("structured_output")
+        text = (result.get("result") or "").strip()
         self.logger.info(f"[{self.name}] response: {text!r}")
 
         self.context.response.success = True

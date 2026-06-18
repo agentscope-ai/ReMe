@@ -169,15 +169,14 @@ class AutoMemoryStep(BaseStep):
             history=format_history(messages),
         )
 
-        tools = [self.get_job(name) for name in self.agent_tools]
-        _, msg = await self.agent_wrapper.reply(
+        result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
-            tools=tools,
+            job_tools=self.agent_tools,
         )
 
         self.context.response.success = True
-        self.context.response.answer = (msg.get_text_content() or "").strip()
+        self.context.response.answer = (result.get("result") or "").strip()
         self.context.response.metadata.update(
             {"path": note_path, "created": created, "n_messages": len(messages)},
         )

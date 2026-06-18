@@ -7,7 +7,7 @@ from .common_utils import (
     call_action,
     call_and_check,
 )
-from .env_utils import load_env
+from .env_utils import load_env, parse_env_file
 from .link_expansion import expand_links, render_expansion_lines
 from .logger_utils import get_logger
 from .logo_utils import print_logo
@@ -23,6 +23,7 @@ __all__ = [
     "call_action",
     "call_and_check",
     "load_env",
+    "parse_env_file",
     "expand_links",
     "render_expansion_lines",
     "get_logger",
