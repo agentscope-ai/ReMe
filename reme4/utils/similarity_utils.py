@@ -20,6 +20,10 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 
 def batch_cosine_similarity(nd_array1: np.ndarray, nd_array2: np.ndarray) -> np.ndarray:
     """Pairwise cosine similarity matrix between two batches; output shape (N1, N2)."""
+    if nd_array1.ndim != 2 or nd_array2.ndim != 2:
+        raise ValueError(
+            f"Expected 2D arrays, got shapes {nd_array1.shape} and {nd_array2.shape}",
+        )
     if nd_array1.shape[1] != nd_array2.shape[1]:
         raise ValueError(
             f"Embedding dimensions must match: {nd_array1.shape[1]} != {nd_array2.shape[1]}",

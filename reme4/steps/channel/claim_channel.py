@@ -25,24 +25,28 @@ class ClaimChannelStep(BaseStep):
     """Bind the current MCP session as the ``<channel>`` recipient."""
 
     async def execute(self):
-        assert self.context is not None
+        if self.context is None:
+            raise RuntimeError("claim_channel_step requires 'context'")
 
         try:
             from fastmcp.server.dependencies import get_context
 
             ctx = get_context()
             session = ctx.session
-            assert session is not None, "FastMCP context has no ServerSession"
-            assert self.app_context is not None, "claim_channel requires an application context"
+            if session is None:
+                raise RuntimeError("FastMCP context has no ServerSession")
+            if self.app_context is None:
+                raise RuntimeError("claim_channel requires an application context")
             sink = self.app_context.metadata.get("channel_sink")
-            assert sink is not None, "channel_sink not configured on application context metadata"
+            if sink is None:
+                raise RuntimeError("channel_sink not configured on application context metadata")
+            session_id = ctx.session_id or "<unknown>"
+            sink.bind(session)
         except Exception as e:
             self.context.response.answer = {"claimed": False, "reason": f"{type(e).__name__}: {e}"}
             self.context.response.metadata["claimed"] = False
             return self.context.response
 
-        sink.bind(session)
-        session_id = ctx.session_id or "<unknown>"
         self.logger.info(f"[claim_channel] channel bound to session={session_id}")
         self.context.response.answer = {
             "claimed": True,

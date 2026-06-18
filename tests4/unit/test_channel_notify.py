@@ -54,7 +54,7 @@ def test_emits_one_event_per_batch_with_relative_paths(tmp_path):
     app_ctx, _ = _app_ctx_with_sink(vault, stub)
 
     step = ChannelNotifyStep(app_context=app_ctx)
-    _run(
+    response = _run(
         step(
             context=_ctx(
                 [
@@ -65,6 +65,7 @@ def test_emits_one_event_per_batch_with_relative_paths(tmp_path):
         ),
     )
 
+    assert response.success is True
     assert len(stub.sent) == 1
     params = stub.sent[0].message.root.params
     assert params["meta"] == {"kind": "vault_change", "count": "2"}
@@ -77,7 +78,8 @@ def test_noop_when_no_changes(tmp_path):
     stub = _StubSession()
     app_ctx, _ = _app_ctx_with_sink(tmp_path, stub)
     step = ChannelNotifyStep(app_context=app_ctx)
-    _run(step(context=_ctx([])))
+    response = _run(step(context=_ctx([])))
+    assert response.success is True
     assert not stub.sent
 
 
@@ -86,7 +88,8 @@ def test_noop_when_sink_not_bound(tmp_path):
     app_ctx, _ = _app_ctx_with_sink(tmp_path, None)
     step = ChannelNotifyStep(app_context=app_ctx)
     # Should run without raising even though channel_sink is absent from metadata
-    _run(step(context=_ctx([{"change": "added", "path": "/tmp/x.md"}])))
+    response = _run(step(context=_ctx([{"change": "added", "path": "/tmp/x.md"}])))
+    assert response.success is True
 
 
 def test_path_outside_vault_passes_through_as_is(tmp_path):

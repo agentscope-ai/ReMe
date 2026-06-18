@@ -32,7 +32,8 @@ def _repl(m: re.Match) -> str:
 def _expand_env_vars(value: Any) -> Any:
     """Recursively expand `${VAR}` / `${VAR:-default}` placeholders in strings."""
     if isinstance(value, str):
-        return _ENV_VAR_RE.sub(_repl, value)
+        expanded = _ENV_VAR_RE.sub(_repl, value)
+        return _convert_value(expanded) if expanded != value else value
     if isinstance(value, dict):
         return {k: _expand_env_vars(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -65,6 +66,8 @@ def parse_dot_notation(dot_list: list[str]) -> dict:
             raise ValueError(f"Invalid dot notation format (missing '='): {item}")
         key_path, value_str = item.split("=", 1)
         keys = key_path.split(".")
+        if not key_path or any(not key for key in keys):
+            raise ValueError(f"Invalid dot notation key: {key_path!r}")
         current = result
         for key in keys[:-1]:
             if key in current and not isinstance(current[key], dict):
@@ -127,9 +130,13 @@ def _load_config(name_or_path: str, encoding: str = "utf-8") -> dict:
     # 2. Treat as file path
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
-        if not p.exists():
-            raise FileNotFoundError(f"Config file not found: {p}")
-        return _read_config_file(p, encoding)
+        candidates = [p]
+        if not p.is_absolute():
+            candidates.append(_CONFIG_DIR / p)
+        for candidate in candidates:
+            if candidate.exists():
+                return _read_config_file(candidate, encoding)
+        raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
     raise FileNotFoundError(f"Config file not found: {name_or_path}. Available: {known}")
@@ -144,6 +151,8 @@ def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
             result = yaml.safe_load(f)
     if result is None:
         return {}
+    if not isinstance(result, dict):
+        raise ValueError(f"Config root must be a mapping/object: {path}")
     return _expand_env_vars(result)
 
 
@@ -185,6 +194,8 @@ def parse_args(*args) -> tuple[str, dict]:
         arg = _strip_arg_dashes(raw)
         if "=" in arg:
             kvs.append(arg)
+        else:
+            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
 
     parsed = parse_dot_notation(kvs) if kvs else {}
     return first, parsed

@@ -173,17 +173,21 @@ class Application(BaseComponent):
         if pool_size > 0:
             self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
             self.logger.info(f"Thread pool created with max_workers={pool_size}")
-        components = self._topological_order()
-        jobs = list(self.context.jobs.values())
-        base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
-        stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
-        background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
-        cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
-        for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
-            await self._start_one(c)
+        try:
+            components = self._topological_order()
+            jobs = list(self.context.jobs.values())
+            base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
+            stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
+            background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
+            cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
+            for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
+                await self._start_one(c)
+        except Exception:
+            await self._close()
+            raise
 
     async def _start_one(self, c: BaseComponent) -> None:
-        """Start one component and record it for ordered shutdown; log and swallow failures."""
+        """Start one component and record it for ordered shutdown."""
         try:
             if isinstance(c, BackgroundJob):
                 self.logger.info(f"Starting background job: {c.name}")
@@ -191,6 +195,7 @@ class Application(BaseComponent):
             self._started_components.append(c)
         except Exception as e:
             self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
+            raise
 
     async def _close(self) -> None:
         """Close in reverse start order so every peer outlives its dependents."""

@@ -9,6 +9,8 @@ from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
 from .utils import cli_find_reme, load_env, precheck_start
 
+_CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args"}
+
 
 class ReMe(Application):
     """ReMe memory management application."""
@@ -17,10 +19,11 @@ class ReMe(Application):
 async def call_server(action: str, **kwargs):
     """Call the appropriate server component."""
     backend: str = kwargs.pop("backend", "http")
+    client_kwargs = {key: kwargs.pop(key) for key in list(kwargs) if key in _CLIENT_KWARGS}
     client_cls = R.get(ComponentEnum.CLIENT, backend)
     if client_cls is None:
         raise ValueError(f"Unknown client backend: {backend!r}")
-    async with client_cls() as client:
+    async with client_cls(**client_kwargs) as client:
         async for chunk in client(action=action, **kwargs):
             print(chunk, end="", flush=True)
         print()

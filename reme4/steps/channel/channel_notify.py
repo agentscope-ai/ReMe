@@ -34,11 +34,11 @@ class ChannelNotifyStep(BaseStep):
     async def execute(self):
         sink = self.app_context.metadata.get("channel_sink") if self.app_context is not None else None
         if sink is None:
-            return
+            return self.context.response if self.context is not None else None
 
         changes = (self.context.get("changes", []) if self.context is not None else []) or []
         if not changes:
-            return
+            return self.context.response if self.context is not None else None
 
         # Render paths vault-relative so the agent can pass them directly to
         # slash commands like /dream <path>. Absolute paths that fall outside
@@ -58,10 +58,11 @@ class ChannelNotifyStep(BaseStep):
             lines.append(f"{change.get('change', '?')}: {shown}")
 
         if not lines:
-            return
+            return self.context.response if self.context is not None else None
 
         self.logger.info(f"[channel_notify] emit batch count={len(lines)}")
         await sink.emit(
             content="Vault 变更:\n" + "\n".join(lines),
             meta={"kind": "vault_change", "count": str(len(lines))},
         )
+        return self.context.response if self.context is not None else None

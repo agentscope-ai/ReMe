@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from reme4.enumeration import ComponentEnum
 from reme4.application import Application
+from reme4.components.base_component import BaseComponent
 from reme4.components.component_registry import ComponentRegistry
 from reme4.components.job.background_job import BackgroundJob
 from reme4.components.job.base_job import BaseJob
@@ -315,6 +317,45 @@ def test_application_starts_jobs_base_stream_background_cron():
 
         await Application._start(app)
         assert order == ["base", "stream", "background", "cron"]
+
+    asyncio.run(run())
+
+
+def test_application_start_failure_propagates_and_closes_started_components():
+    async def run():
+        class GoodComponent(BaseComponent):
+            component_type = ComponentEnum.TOKENIZER
+
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.closed = False
+
+            async def _close(self):
+                self.closed = True
+
+        class BrokenComponent(BaseComponent):
+            component_type = ComponentEnum.FILE_STORE
+
+            async def _start(self):
+                raise RuntimeError("boom")
+
+        good = GoodComponent(name="good")
+        bad = BrokenComponent(name="bad")
+        app = object.__new__(Application)
+        app.context = SimpleNamespace(
+            app_config=SimpleNamespace(thread_pool_max_workers=0),
+            jobs={},
+            thread_pool=None,
+        )
+        app._started_components = []
+        app._topological_order = lambda: [good, bad]
+        app.logger = MagicMock()
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await Application._start(app)
+
+        assert good.closed is True
+        assert app._started_components == []
 
     asyncio.run(run())
 
