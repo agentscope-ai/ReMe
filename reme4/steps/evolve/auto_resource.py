@@ -56,7 +56,7 @@ class AutoResourceStep(BaseStep):
 
     async def _handle_delete(self, date_str: str, session_id: str) -> None:
         daily_dir = self.app_context.app_config.daily_dir if self.app_context else "daily"
-        note_rel = f"{daily_dir}/{date_str}/session_agent_{session_id}.md"
+        note_rel = f"{daily_dir}/{date_str}/{session_id}.md"
         note_abs = self.vault_path / note_rel
 
         if note_abs.is_file():

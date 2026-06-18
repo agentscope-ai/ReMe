@@ -10,8 +10,7 @@ from pydantic import BaseModel, Field
 
 from ._evolve import now
 from ..base_step import BaseStep
-from ..file_io._daily_index import refresh_day_index, validate_session_id
-from ..file_io._file_io import write_file_safe
+from ..file_io import refresh_day_index, validate_session_id, write_file_safe
 from ...components import R
 
 
@@ -145,7 +144,7 @@ class DailyTopicsStep(BaseStep):
         vault = self._vault_dir()
         out: list[dict] = []
         for previous in _previous_dates(day, n_days):
-            rel = f"{daily_dir}/{previous}/session_agent_{session_id}.md"
+            rel = f"{daily_dir}/{previous}/{session_id}.md"
             abs_path = vault / rel
             if not abs_path.is_file():
                 continue
@@ -269,7 +268,7 @@ class DailyTopicsStep(BaseStep):
         result.used_llm = used_llm
         result.topics = topics
 
-        rel_path = f"{daily_dir}/{day}/session_agent_{session_id}.md"
+        rel_path = f"{daily_dir}/{day}/{session_id}.md"
         result.path = rel_path
         abs_path = self._vault_dir() / rel_path
         await write_file_safe(abs_path, _render_topics_note(day, topics, topic_count, diversity_days), encoding="utf-8")

@@ -1,9 +1,3 @@
-vault_dir: .reme
-daily_dir: daily
-digest_dir: digest
-resource_dir: resource
-# language: zh
-
 service:
   backend: http
 
@@ -521,7 +515,7 @@ jobs:
           default: 7
         session_id:
           type: string
-          description: "daily note session id suffix; writes session_agent_<session_id>.md"
+          description: "daily note session id suffix; writes <session_id>.md"
           default: interests
     steps:
       - backend: daily_topics_step
@@ -541,7 +535,7 @@ jobs:
           default: ""
         session_id:
           type: string
-          description: "daily note session id suffix; reads session_agent_<session_id>.md"
+          description: "daily note session id suffix; reads <session_id>.md"
           default: interests
         include_content:
           type: boolean
@@ -622,14 +616,14 @@ components:
 
   as_llm:
     default:
-      backend: ${LLM_BACKEND:-dashscope}
+      backend: ${LLM_BACKEND:-openai}
       model: ${LLM_MODEL_NAME:-qwen3.7-plus}
       stream: true
       context_size: 200000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}
-        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+        base_url: ${LLM_BASE_URL:-}
       parameters:
         max_tokens: 65536
         thinking_enable: false

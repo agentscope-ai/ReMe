@@ -141,9 +141,7 @@ def test_auto_memory_create():
                 print("=" * 70)
 
                 pytorch_session_id = "pytorch-distributed-training"
-                # daily_create stamps the file as ``session_<session_id>.md``,
-                # so the path metadata daily_create returns carries the prefix.
-                expected_stem = f"session_{pytorch_session_id}"
+                expected_stem = pytorch_session_id
                 with env.record_agents(prefix="agent_create") as recorder:
                     response = await app.run_job(
                         "auto_memory",
@@ -200,10 +198,7 @@ def test_auto_memory_update():
             app = await env.make_app()
             try:
                 today = env.today
-                # daily_create resolves session_id=SEED_STEM to file stem
-                # ``session_<SEED_STEM>`` — seed at that exact stem so the
-                # UPDATE branch finds the existing note rather than CREATE.
-                expected_stem = f"session_{SEED_STEM}"
+                expected_stem = SEED_STEM
                 seed_path = env.seed_daily_note(expected_stem, SEED_BODY)
                 seed_before = _read_text(seed_path)
                 assert "legal/compliance" in seed_before

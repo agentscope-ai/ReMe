@@ -7,7 +7,7 @@ from agentscope.message import Msg
 
 from ._evolve import format_history, now
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index
+from ..file_io import refresh_day_index, validate_session_id
 from ...components import R
 
 _TOOL_OUTPUT_MAX = 2048
@@ -74,17 +74,14 @@ class AutoMemoryStep(BaseStep):
         super().__init__(**kwargs)
         self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
-    def _session_path(self, session_id: str, tz: str | None) -> Path:
-        current = now(tz)
-        date_str = current.strftime("%Y-%m-%d")
-        resource = self.app_context.app_config.resource_dir if self.app_context else "resource"
-        return self.file_store.vault_path / resource / date_str / f"session_agent_{session_id}.jsonl"
+    def _session_path(self, session_id: str) -> Path:
+        return self.file_store.vault_path / "reme_session" / "dialog" / f"{session_id}.jsonl"
 
-    async def _save_session_messages(self, session_id: str, messages: list[Msg], tz: str | None) -> None:
+    async def _save_session_messages(self, session_id: str, messages: list[Msg]) -> None:
         if not session_id or not messages:
             return
 
-        path = self._session_path(session_id, tz)
+        path = self._session_path(session_id)
 
         existing: list[Msg] = []
         if path.exists():
@@ -140,7 +137,12 @@ class AutoMemoryStep(BaseStep):
 
         messages: list[Msg] = [self._to_msg(item) for item in raw_messages]
 
-        await self._save_session_messages(session_id, messages, tz)
+        if session_id and (err := validate_session_id(session_id)):
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {err}"
+            return
+
+        await self._save_session_messages(session_id, messages)
 
         if not messages:
             self.context.response.success = True

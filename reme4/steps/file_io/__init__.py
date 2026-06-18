@@ -1,6 +1,7 @@
 """File I/O step helpers."""
 
-from ._daily_index import refresh_day_index
+from ._daily_index import refresh_day_index, validate_session_id
+from ._file_io import write_file_safe
 from .daily_create import DailyCreateStep
 from .daily_list import DailyListStep
 from .daily_reindex import DailyReindexStep
@@ -18,6 +19,8 @@ from .write import WriteStep
 
 __all__ = [
     "refresh_day_index",
+    "validate_session_id",
+    "write_file_safe",
     "DailyCreateStep",
     "DailyListStep",
     "DailyReindexStep",

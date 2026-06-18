@@ -643,7 +643,7 @@ def test_auto_resource_batch_deleted_changes():
             try:
                 filename = "file.md"
                 session_id = _compute_session_id(filename)
-                note_path = cwd / "daily" / "2026-01-01" / f"session_agent_{session_id}.md"
+                note_path = cwd / "daily" / "2026-01-01" / f"{session_id}.md"
                 write_file(note_path, "---\nname: test\n---\nbody\n")
 
                 step = AutoResourceStep(app_context=app_ctx, file_store=fs)

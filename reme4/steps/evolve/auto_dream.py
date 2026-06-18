@@ -167,7 +167,7 @@ class AutoDreamStep(BaseStep):
         today = date_input or now(tz).strftime("%Y-%m-%d")
         vault = self._vault_dir()
         await refresh_day_index(self.file_store, today, daily_dir)
-        topic_rel = f"{daily_dir}/{today}/session_agent_{self.topic_session_id}.md"
+        topic_rel = f"{daily_dir}/{today}/{self.topic_session_id}.md"
         files = [rel for rel in _scan_today_files(vault, today, daily_dir) if rel != topic_rel]
 
         # existing: today's on-disk paths → st_mtime. Insertion order = scan

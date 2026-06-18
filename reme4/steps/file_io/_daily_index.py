@@ -56,11 +56,8 @@ def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
     if not date_dir.is_dir():
         return []
     out: list[dict] = []
-    prefix = "session_agent_"
-    for md_path in sorted(
-        p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md" and p.stem.startswith(prefix)
-    ):
-        session_id = md_path.stem[len(prefix) :]
+    for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md"):
+        session_id = md_path.stem
         try:
             post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
         except Exception:
@@ -116,9 +113,9 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
         post = frontmatter.loads(existing_text)
         new_body = _rebuild_body(post.content, notes_block)
         merged = dict(post.metadata or {})
-        for key, value in fm.items():
-            if not merged.get(key):
-                merged[key] = value
+        if not merged.get("name"):
+            merged["name"] = fm["name"]
+        merged["description"] = fm["description"]
         fm = merged
         was_created = False
     else:

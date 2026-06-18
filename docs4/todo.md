@@ -10,8 +10,8 @@
 - daily/【日记，浅加工】
   - YYYY-MM-DD.md
   - YYYY-MM-DD/
-    - session_{session_id}.md
-    - resource_{hash(resouce_name)}.md
+    - {session_id}.md
+    - {和resource同名}.md
 - digest/
   - personal/
   - procedure/
@@ -20,7 +20,7 @@
 函数接口：
 - auto_memory
   - message 应该会 会保存到 reme_session/dialog/{session_id}.jsonl
-  - 通过 message 更新 daily/YYYY-MM-DD/session_{session_id}.md
+  - 通过 message 更新 daily/YYYY-MM-DD/{session_id}.md
 - auto-resource
   - 会保存到 resource/YYYY-MM-DD/resource_{hash(resouce_name)}.md
 - auto-dream

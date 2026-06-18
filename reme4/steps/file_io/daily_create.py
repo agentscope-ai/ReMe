@@ -15,7 +15,7 @@ The caller fills the body via ``file_write`` / ``file_edit`` /
 does not accept a body.
 
 Inputs:
-    session_id (optional) — the note's session identifier (also the file stem);
+    session_id (optional) — the note's session identifier;
                empty string → day-level file
     date       (optional, ``YYYY-MM-DD``; empty = today)
 
@@ -87,8 +87,8 @@ class DailyCreateStep(BaseStep):
             if err:
                 self._fail(err)
                 return None
-            path_rel = f"{daily_dir}/{day}/session_agent_{session_id}.md"
             name = session_id
+            path_rel = f"{daily_dir}/{day}/{session_id}.md"
         else:
             path_rel = f"{daily_dir}/{day}.md"
             name = day

@@ -13,7 +13,7 @@ Drives the ``auto_resource`` step against a real LLM. Three scenarios:
    note file.
 
 2. **DELETE (deleted)**: seeds a resource note under
-   ``daily/{date}/session_{sid}.md``, calls ``auto_resource`` with
+   ``daily/{date}/{sid}.md``, calls ``auto_resource`` with
    change="deleted".  Expects the note file to be removed (the step
    stamps ``path`` on its metadata only in this branch).
 
@@ -242,8 +242,7 @@ def test_auto_resource_delete():
                 session_id = _compute_session_id(RESOURCE_FILENAME)
                 file_path = f"resource/{today}/{RESOURCE_FILENAME}"
 
-                # Seed the note file (daily_create prepends "session_agent_")
-                note_filename = f"session_agent_{session_id}"
+                note_filename = session_id
                 seed_body = "---\nname: test\ndescription: test note\n---\n\nSome content.\n"
                 note_path = env.seed_daily_note(note_filename, seed_body)
                 assert note_path.is_file()

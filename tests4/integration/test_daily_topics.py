@@ -3,7 +3,7 @@
 This test deliberately disables the agent wrapper for the step so it
 uses the deterministic fallback selector instead of a live LLM.  The
 assertions check the final response metadata and the note written under
-``daily/<date>/session_agent_interests.md``.
+``daily/<date>/interests.md``.
 """
 
 import asyncio
@@ -88,7 +88,7 @@ async def _run_daily_topics_output() -> None:
 
     with vault_env() as env:
         env.seed_daily_note(
-            f"session_agent_{SESSION_ID}",
+            SESSION_ID,
             """---
 name: interests
 description: previous interests
@@ -118,9 +118,9 @@ description: previous interests
             await env.close_all()
 
         assert resp.success is True
-        assert resp.answer == f"Wrote 2 interest topic(s) to daily/{DAY}/session_agent_{SESSION_ID}.md"
+        assert resp.answer == f"Wrote 2 interest topic(s) to daily/{DAY}/{SESSION_ID}.md"
         assert resp.metadata["date"] == DAY
-        assert resp.metadata["path"] == f"daily/{DAY}/session_agent_{SESSION_ID}.md"
+        assert resp.metadata["path"] == f"daily/{DAY}/{SESSION_ID}.md"
         assert resp.metadata["candidates_seen"] == 4
         assert resp.metadata["used_llm"] is False
         assert resp.metadata["skipped"] is False
@@ -148,11 +148,11 @@ description: previous interests
 
         day_index = env.vault_dir / "daily" / f"{DAY}.md"
         assert day_index.is_file()
-        assert f"daily/{DAY}/session_agent_{SESSION_ID}.md" in day_index.read_text(encoding="utf-8")
+        assert f"daily/{DAY}/{SESSION_ID}.md" in day_index.read_text(encoding="utf-8")
 
         assert proactive_resp.success is True
-        assert proactive_resp.answer == f"Read 2 proactive topic(s) from daily/{DAY}/session_agent_{SESSION_ID}.md"
-        assert proactive_resp.metadata["path"] == f"daily/{DAY}/session_agent_{SESSION_ID}.md"
+        assert proactive_resp.answer == f"Read 2 proactive topic(s) from daily/{DAY}/{SESSION_ID}.md"
+        assert proactive_resp.metadata["path"] == f"daily/{DAY}/{SESSION_ID}.md"
         assert proactive_resp.metadata["topics"] == resp.metadata["topics"]
         assert "Small PR review discipline" in proactive_resp.metadata["content"]
 

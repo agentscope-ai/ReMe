@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from ._evolve import now
 from ..base_step import BaseStep
-from ..file_io._daily_index import validate_session_id
+from ..file_io import validate_session_id
 from ...components import R
 
 
@@ -87,7 +87,7 @@ class ProactiveStep(BaseStep):
             self.context.response.metadata.update(result.model_dump())
             return self.context.response
 
-        rel_path = f"{self._daily_dir()}/{day}/session_agent_{session_id}.md"
+        rel_path = f"{self._daily_dir()}/{day}/{session_id}.md"
         result.path = rel_path
         abs_path = self._vault_dir() / rel_path
         if not abs_path.is_file():
