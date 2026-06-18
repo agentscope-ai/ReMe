@@ -50,9 +50,9 @@ jobs:
 
   # auto_dream_cron:
   #   backend: cron
-  #   dispatch_job: auto_dream
   #   cron: "0 3 * * *"           # daily at 03:00; "0 */6 * * *" = every 6h
-  #   run_on_start: false
+  #   steps:
+  #     - backend: auto_dream_step
 
   version:
     backend: base

@@ -211,6 +211,20 @@ class Application(BaseComponent):
             raise KeyError(f"Job '{name}' not found")
         return await self.context.jobs[name](**kwargs)
 
+    async def update_component(self, component_enum: ComponentEnum | str, name: str, /, **kwargs) -> BaseComponent:
+        """Update an existing component by type/name; never creates missing components."""
+        component_enum = ComponentEnum(component_enum)
+        group = self.context.components.get(component_enum)
+        if not group or name not in group:
+            raise KeyError(f"Component '{name}' not found in {component_enum.value}")
+
+        component = group[name]
+        for key, value in kwargs.items():
+            if not hasattr(component, key):
+                raise AttributeError(f"Component {component_enum.value}:{name} has no attribute '{key}'")
+            setattr(component, key, value)
+        return component
+
     async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job, yielding chunks as they are produced."""
         if name not in self.context.jobs:

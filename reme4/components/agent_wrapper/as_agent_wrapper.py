@@ -64,21 +64,6 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
-_INLINE_SKILL_INSTRUCTION = """<agent-skills>
-The selected skill instructions are already included below. Use them directly.
-Do not call the `{{ skill_viewer }}` tool only to read these skills again.
-
-{% for skill in skills %}<skill>
-<name>{{ skill.name }}</name>
-<description>{{ skill.description }}</description>
-<dir>{{ skill.dir }}</dir>
-<instructions>
-{{ skill.markdown }}
-</instructions>
-</skill>
-{% endfor %}</agent-skills>
-"""
-
 
 class BypassAnalysisBash(Bash):
     """Bash variant that delegates permission decisions to PermissionEngine.
@@ -200,11 +185,9 @@ class AsAgentWrapper(BaseAgentWrapper):
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
-        skill_instruction_template = kwargs.get("skill_instruction_template", _INLINE_SKILL_INSTRUCTION)
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=[*self._builtin_tools(), *(self._make_tool(job) for job in resolved_jobs)],
             skills_or_loaders=skills,
-            skill_instruction_template=skill_instruction_template,
         )
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))

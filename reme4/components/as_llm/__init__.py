@@ -32,15 +32,14 @@ class BaseAsLLM(BaseComponent):
         self.model: ChatModelBase | None = None
 
     async def _start(self) -> None:
+        if self.model is not None:
+            return
         kwargs = dict(self.kwargs)
         credential = self.credential_cls(**kwargs.pop("credential", {}))
         model_cls = credential.get_chat_model_class()
         params_dict = kwargs.pop("parameters", None)
         parameters = model_cls.Parameters(**params_dict) if params_dict else None
         self.model = model_cls(credential=credential, parameters=parameters, **kwargs)
-
-    async def _close(self) -> None:
-        self.model = None
 
 
 @R.register("openai")

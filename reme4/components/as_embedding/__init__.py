@@ -18,6 +18,7 @@ class BaseAsEmbedding(BaseComponent):
     """Base wrapper for AgentScope embedding models. Builds ``self.model`` in ``_start``."""
 
     component_type = ComponentEnum.AS_EMBEDDING
+    model_cls: type[EmbeddingModelBase]
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -34,53 +35,44 @@ class BaseAsEmbedding(BaseComponent):
         response = await self.model(text, **kwargs)  # pylint: disable=not-callable
         return response.embeddings
 
-    async def _close(self) -> None:
-        self.model = None
+    async def _start(self) -> None:
+        if self.model is None:
+            self.model = self.model_cls(**self.kwargs)
 
 
 @R.register("openai")
 class OpenAIAsEmbedding(BaseAsEmbedding):
     """OpenAI embedding model wrapper."""
 
-    async def _start(self) -> None:
-        self.model = OpenAITextEmbedding(**self.kwargs)
-
-    async def _close(self) -> None:
-        if self.model is not None:
-            assert isinstance(self.model, OpenAITextEmbedding)
-            await self.model.client.close()
+    model_cls = OpenAITextEmbedding
 
 
 @R.register("dashscope")
 class DashScopeAsEmbedding(BaseAsEmbedding):
     """DashScope text embedding model wrapper."""
 
-    async def _start(self) -> None:
-        self.model = DashScopeTextEmbedding(**self.kwargs)
+    model_cls = DashScopeTextEmbedding
 
 
 @R.register("dashscope_multimodal")
 class DashScopeMultiModalAsEmbedding(BaseAsEmbedding):
     """DashScope multimodal embedding model wrapper."""
 
-    async def _start(self) -> None:
-        self.model = DashScopeMultiModalEmbedding(**self.kwargs)
+    model_cls = DashScopeMultiModalEmbedding
 
 
 @R.register("gemini")
 class GeminiAsEmbedding(BaseAsEmbedding):
     """Gemini embedding model wrapper."""
 
-    async def _start(self) -> None:
-        self.model = GeminiTextEmbedding(**self.kwargs)
+    model_cls = GeminiTextEmbedding
 
 
 @R.register("ollama")
 class OllamaAsEmbedding(BaseAsEmbedding):
     """Ollama embedding model wrapper."""
 
-    async def _start(self) -> None:
-        self.model = OllamaTextEmbedding(**self.kwargs)
+    model_cls = OllamaTextEmbedding
 
 
 __all__ = [
