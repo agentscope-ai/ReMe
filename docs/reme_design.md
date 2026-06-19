@@ -1,80 +1,64 @@
 # ReMe 设计文档
 
+> 本文按 `reme/` 目录最新代码整理，重点描述当前实现，而不是历史设想。
+
 ## 整体定位
 
-> 一句话总结：**自进化的个人知识库**——你只管往里扔东西和对话，它自己长成一张知识图谱。
+一句话总结：**面向 Agent 的、文件优先的自进化记忆系统**。
 
-## 特性1：记忆分层
+ReMe 把记忆落在一个可读、可编辑、可复制的 vault 目录里，用 Markdown、front matter、wikilink、BM25 倒排索引和后台 Agent 管线，把原始材料逐步沉淀为可检索、可追溯、可演化的长期记忆。
 
-记忆按"原始 → 浅加工 → 深加工"三层组织：
+核心原则：
 
-### 1.1 目录结构
+- **文件即记忆**：长期状态主要是 vault 下的文件和 `reme_metadata/` 中的索引快照。
+- **Agent 可操作**：所有能力通过 Job 暴露，Agent 可以用 HTTP、MCP 或 Python 直接调用。
+- **渐进加工**：对话和资源先进入 `daily/`，再由 `auto_dream` 提炼到 `digest/`。
+- **Obsidian 兼容**：Markdown、YAML front matter、`[[wikilink]]`、Dataview 风格属性都按文本文件保存。
 
-```
-- reme_session/
-  - agentscope|claude_code / # 使用内置的agent wrapper，session会保存在这里
-    {session_id}.jsonl UUID格式要求  # /Users/yuli/workspace/ReMe/reme/components/agent_wrapper
-  - dialog/
-    {session_id}.jsonl  # auto memory保存  可以监控可以被检索【可选】
-- resource/
-  - YYYY-MM-DD/
-    - {channel}_{xxxx}.html
-    - {channel}_{xxxx}.md
-- daily/【日记，浅加工】
-  - YYYY-MM-DD.md
-  - YYYY-MM-DD/
-    - session_{session_id}.md
-    - {resource_stem}.md
-- digest/
-  - personal/
-  - procedure/
-  - wiki/
-```
+## 1. Vault 与记忆分层
 
-### 1.2 分层详解
+默认目录来自 `ApplicationConfig`：
 
-| 目录                  | 存什么            | 谁写入         | 举例                                |
-|---------------------|----------------|-------------|-----------------------------------|
-| `resource/`         | 原始文件（研报、网页、邮件） | upload / 手动 | PDF 研报、对话 JSONL                   |
-| `daily/`            | 每天的事件记录        | auto-memory | "调试登录 CSS"、"与 Alice 聚餐"           |
-| `digest/procedure/` | 方法论、步骤         | auto-dream  | "webpack 编译卡死排查路径"                |
-| `digest/personal/`  | 用户画像、偏好        | auto-dream  | "用户不爱写注释"、"用户喜欢 pnpm"             |
-| `digest/wiki/`      | 通用知识、决策先例      | auto-dream  | "光伏产业链"、"React Server Components" |
-
-`resource/` 和 `daily/` 是只增不删的流水账；`digest/` 下三个桶是反复消费的精华层，各桶有独立的整合 prompt。
-
-## 特性2：Obsidian 兼容的 Markdown 格式
-
-所有笔记都是标准 Markdown + Obsidian 语法，可以直接用 Obsidian 打开浏览：
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  一个 .md 文件的完整结构                                       │
-├─────────────────────────────────────────────────────────────┤
-│  ---                                                        │
-│  name: 宁德时代                     ← YAML front matter      │
-│  description: 全球动力电池龙头                                │
-│  tags: [新能源, 电池]                                        │
-│  ---                                                        │
-├─────────────────────────────────────────────────────────────┤
-│  所属行业:: [[新能源]]               ← 语义化链接（Dataview）   │
-│  竞争对手:: [[比亚迪]]                                        │
-│                                                             │
-│  # 基本面                            ← Markdown 正文         │
-│  全球动力电池出货量第一，核心技术为                              │
-│  [[CTP]] 和 [[钠离子电池]]……         ← 标准 wikilink         │
-│                                                             │
-│  参考 ![[2026Q1调研纪要]]            ← 嵌入引用               │
-├─────────────────────────────────────────────────────────────┤
-│          ↓ AST 语义分块 ↓                                    │
-│  chunk 1: [标题骨架] + 正文片段                               │
-│  chunk 2: [标题骨架] + 正文片段                               │
-└─────────────────────────────────────────────────────────────┘
+```text
+<vault_dir>/
+  reme_metadata/          # ReMe 索引、图谱、catalog 等持久状态
+  reme_session/           # Agent session 与原始对话
+    dialog/
+      <session_id>.jsonl  # auto_memory 保存的对话消息
+    agentscope/           # AgentScope wrapper session
+    claude_code/          # Claude Code wrapper session
+  resource/               # 外部原始材料
+    YYYY-MM-DD/
+      <resource>.<ext>
+  daily/                  # 浅加工记忆
+    YYYY-MM-DD.md         # 当天索引页
+    YYYY-MM-DD/
+      <session_id>.md     # 对话或资源加工后的 daily note
+      interests.yaml      # auto_dream 产出的主动兴趣主题
+  digest/                 # 深加工记忆
+    personal/
+    procedure/
+    wiki/
 ```
 
-### 2.1 YAML front matter
+分层含义：
 
-每个笔记头部的元数据：
+| 层级 | 内容 | 主要写入方 | 说明 |
+| --- | --- | --- | --- |
+| `resource/` | 原始文本材料 | 手动、外部同步 | 当前 `auto_resource` 支持文本类资源读取：`md/txt/json/jsonl/csv/yaml/html` |
+| `reme_session/dialog/` | 原始对话 JSONL | `auto_memory` | 对话消息按 `session_id` 去重、合并、持久化，并在 daily note front matter 中溯源 |
+| `daily/` | 日记、资源解读、当天索引、兴趣主题 | `daily_create`、`auto_memory`、`auto_resource`、`auto_dream` | 浅加工层，保留当天发生的事实和材料 |
+| `digest/personal/` | 用户画像、偏好、长期个人事实 | `auto_dream` | 深加工记忆桶之一 |
+| `digest/procedure/` | 方法论、流程、操作经验 | `auto_dream` | 深加工记忆桶之一 |
+| `digest/wiki/` | 通用知识、概念、决策先例 | `auto_dream` | 深加工记忆桶之一 |
+
+启动时 `Application` 会确保 vault 根目录和上述主要子目录存在。
+
+## 2. Markdown 与图谱格式
+
+### 2.1 Front Matter
+
+Markdown 文件可带 YAML front matter：
 
 ```markdown
 ---
@@ -84,306 +68,419 @@ tags: [新能源, 光伏, 产业链]
 ---
 ```
 
-`name` / `description` 是约定字段，其余键值对全部保留，不会丢弃任何自定义字段。
+当前 `FileFrontMatter` 约定 `name`、`description` 等字段；写入类 Job 会保留并合并 metadata。索引时，front matter 会进入 `FileNode.front_matter`，供 `node_search`、图展开和 Agent 判断使用。
 
-### 2.2 四种 wikilink 写法
+### 2.2 Wikilink
 
-| 写法   | 示例             | 语义       |
-|------|----------------|----------|
-| 标准链接 | `[[光伏产业链]]`    | 指向目标文件   |
-| 锚点链接 | `[[钴#应用]]`     | 指向特定章节   |
-| 别名链接 | `[[宁德时代\|宁德]]` | 自定义显示文本  |
-| 嵌入引用 | `![[钴]]`       | 内联嵌入目标内容 |
+`WikilinkHandler` 是系统唯一的 wikilink 解析和改写入口。支持：
 
-### 2.3 语义化链接（Dataview 风格）
+| 写法 | 示例 | 含义 |
+| --- | --- | --- |
+| 标准链接 | `[[digest/wiki/光伏.md]]` | 指向 vault-relative 目标 |
+| 锚点链接 | `[[digest/wiki/钴.md#应用]]` | 指向目标章节 |
+| 别名链接 | `[[digest/wiki/宁德时代.md\|宁德]]` | 显示别名，目标不变 |
+| 嵌入引用 | `![[resource/2026-06-01/report.md]]` | 作为 wikilink 记录边 |
+| 行级属性 | `industry:: [[digest/wiki/新能源.md]]` | 提取 predicate |
+| 内联属性 | `[competitor:: [[digest/wiki/比亚迪.md]]]` | 提取 predicate |
 
-普通 wikilink 只说"A 提到了 B"，语义化链接还能表达"A 和 B 是什么关系"：
+当前实现采取**字面路径语义**：`[[X]]` 的 target 就是 `X`，不会自动补 `.md`，不会做 basename 搜索，也不会做 folder note 解析。推荐使用带扩展名的 vault-relative 路径。
 
-```markdown
-所属行业:: [[新能源]]            ← 行级属性（独占一行）
-总部:: [[宁德]]
-[竞争对手:: [[比亚迪]]]          ← 内联属性（嵌入正文中）
+### 2.3 图谱边
+
+Markdown chunker 会从正文提取 `FileLink`：
+
+```text
+source_path    # 源文件
+target_path    # wikilink 里的字面目标
+target_anchor  # # 后的锚点，可为空
+predicate      # Dataview 风格关系名，可为空
 ```
 
-`WikilinkHandler` 是全系统唯一的 wikilink 解析入口，确保 parser、graph、search 各层规则一致。
+`file_graph` 维护：
 
-### 2.4 AST 感知的语义分块
+- 节点：`FileNode(path, st_mtime, links, chunk_ids, front_matter)`
+- 正向边：文件里的 outlinks
+- 反向边：谁指向当前节点
+- pending 边：目标文件暂不存在时先保留为 virtual link，目标出现后自动提升为 real link
 
-传统 RAG 按固定 token 长度切片，经常切坏文档结构。ReMe 基于 Markdown AST 做语义分块：
+`move` 默认会调用 `WikilinkHandler.retarget_links`，把入边来源文件中的 `[[src]]` 字面链接改写为 `[[dst]]`；`delete` 会返回仍然存在的入边，提示调用方清理引用。
 
-- 按 H1/H2/H3 章节嵌套建树，递归分块
-- **每个 chunk 保留完整标题骨架**——检索到片段后一眼看出它在哪个章节下
-- 表格自动重复表头、代码块保留 fence、列表按项打包
+## 3. 语义分块与索引
 
-```
-示例 chunk：
-─────────────────────
-# 光伏产业链
-## 上游：硅料
-### 多晶硅工艺
-[chunk 正文]          ← 实际内容
-## 中游：硅片          ← 骨架（只有标题）
-## 下游：组件
-─────────────────────
-```
+### 3.1 Markdown AST 分块
 
-## 特性3：自进化
+`MarkdownFileChunker` 使用 `mistletoe` 构建 Markdown AST，再按标题层级折叠成树：
 
-> **ReMe 的记忆不是被动存的，是主动长成知识图谱的。**
-
-```
-用户对话 / 外部素材
-      │
-      ├───────────────────────────────────┐
-      ▼                                   ▼
-┌────────────┐                     ┌────────────┐
-│ auto-memory│                     │auto-resource│
-│ 对话→日记   │                     │ 素材→解析   │
-└─────┬──────┘                     └──────┬─────┘
-      │                                   │
-      ▼                                   ▼
-┌─────────────────────────────────────────────────┐
-│                   daily/                         │
-│          (事件日记 + resource 加工笔记)            │
-└─────────────────────┬───────────────────────────┘
-                      │
-                      ▼  定时触发
-               ┌─────────────┐
-               │  auto-dream │
-               │ 提炼 + 建图谱 │
-               └──────┬──────┘
-                      │
-                      ▼
-┌─────────────────────────────────────────────────┐
-│                  digest/                         │
-│    (知识卡片 + wikilink 互联 = 知识图谱)          │
-└─────────────────────────────────────────────────┘
+```text
+Document AST
+  -> MdNode root
+    -> section H1
+      -> body paragraph/list/table/code
+      -> section H2
 ```
 
-用户什么都不用做，Agent 在后台让笔记自己长出结构。
+分块策略：
 
-### 3.1 auto-resource
+- 按 H1/H2/H3 等章节递归分块。
+- 每个 chunk 默认包含完整标题骨架，检索命中后能看到片段在文档中的位置。
+- 表格拆分时重复表头和分隔行。
+- 代码块拆分时重复 fence opener/closer。
+- 列表按 item 打包。
+- 过长叶子节点按行或内部单元拆分，并加 `[Part X/N]`。
+- `chunk_chars` 默认 10000，`embed_toc` 默认开启。
 
-监控 `resource/` 目录，新文件进来后自动解析内容、整理为结构化笔记写入 `daily/` 下。
+`DefaultFileChunker` 用于非 Markdown 的默认文本切块，默认配置中主要覆盖 `jsonl`。
 
-### 3.2 auto-memory
+### 3.2 FileStore 组合
 
-对话进行时，ReMe 在后台把上下文自动写入当天日记。不是简单的对话摘要——而是一个拥有完整读写能力的 LLM
-Agent，自己决定记什么、怎么组织、合并还是新增。
+`LocalFileStore` 是当前默认文件索引协调层，组合：
 
-### 3.3 auto-dream + auto-link：睡眠式记忆整理
+| 子组件 | 默认后端 | 功能 |
+| --- | --- | --- |
+| `file_graph` | `local` | 节点、wikilink 正反向图谱 |
+| `keyword_index` | `bm25` | BM25 全文检索 |
 
-借鉴人在睡眠中巩固记忆的机制——把日记和素材提炼成知识卡片，并自动织出图谱关系：
+默认 `reme/config/default.yaml` 中：
 
-```
-                        ┌───────────────────────────┐
-                        │  daily/2026-05-28/xxx.md  │  ← 一篇日记或素材
-                        └─────────────┬─────────────┘
-                                      │
-                    ╔═════════════════════════════════════╗
-                    ║  Phase 1 — Extract（一个 Agent）     ║
-                    ║  "这份材料教了什么道理？"               ║
-                    ║                                     ║
-                    ║  输出 N 个抽象单元，各带 bucket 标签    ║
-                    ║  (空 → 结束，没东西值得记)              ║
-                    ╚══════════╤══════════╤═══════════════╝
-                               │          │
-                 ┌─────────────┘          └──────────────┐
-                 ▼                                       ▼
-  ╔══════════════════════════════╗     ╔══════════════════════════════╗
-  ║  Phase 2 — Integrate        ║     ║  Phase 2 — Integrate        ║
-  ║  (每个 unit 独立一个 Agent)   ║     ║  (每个 unit 独立一个 Agent)   ║
-  ║                              ║     ║                              ║
-  ║  1. search + traverse 召回   ║     ║  1. search + traverse 召回   ║
-  ║  2. 决策: CREATE / UPDATE    ║     ║  2. 决策: CREATE / UPDATE    ║
-  ║  3. 写入 + 自动织链接         ║     ║  3. 写入 + 自动织链接         ║
-  ╚══════════════╤═══════════════╝     ╚══════════════╤═══════════════╝
-                 │                                     │
-                 ▼                                     ▼
-  ┌──────────────────────────────────────────────────────────────┐
-  │  digest/                                                     │
-  │    procedure/key-rotation.md  ←─ derived_from:: [[daily/..]] │
-  │    wiki/credential-compliance.md ─ relates_to:: [[...]]      │
-  │    personal/user-pr-pref.md                                  │
-  └──────────────────────────────────────────────────────────────┘
-                         知识图谱自动生长
+```yaml
+file_store:
+  default:
+    backend: local
+    keyword_index: default
+    file_graph: default
 ```
 
-**Phase 1 筛选**——多个事实说明同一个道理就合并为一个 unit，分到三个桶：`procedure`（怎么做）/ `personal`（用户偏好）/ `wiki`
-（通用知识）。没东西值得记则流程结束。
+因此最新默认行为是：**BM25 + 图谱**。
 
-**Phase 2 先搜后写**——先搜已有 digest，再决策：新建（CREATE）、追加佐证（CORROBORATE）、补充精度（REFINE）、修正矛盾（CORRECT）。
+### 3.3 BM25 Index
 
-**auto-link 是写入的副产品**——写 digest 时自动加 `derived_from:: [[素材]]` 溯源 + `relates_to::` 概念互联，图谱随每次
-dream 自动变密。
+`BM25Index` 是 numpy 实现的倒排索引：
 
-**CronDreamer 定时批跑**——每天扫描当天所有 daily + resource 文件，逐个执行上述管线。
+- tokenizer 默认是 `regex`。
+- 文档级 lazy delete，更新时先退休旧 doc slot，再追加新 slot。
+- 持久化到 `reme_metadata/keyword_index/bm25_<name>_<tokenizer>_<fingerprint>_v1.pkl`。
+- tokenizer 配置和 stopwords 指纹进入索引文件名，避免不同分词配置复用错误索引。
 
-## 特性4：混合索引 + 渐进式展开
+### 3.4 Search
 
-```
-用户提问: "宁德时代的电池技术？"
-         │
-         ├──────────────────────┬──────────────────────────┐
-         ▼                      ▼                          │
-  ┌─────────────────┐   ┌──────────────────┐              │
-  │ 全文倒排索引     │   │ 向量索引          │              │
-  │ (numpy + jieba) │   │ (faiss)          │              │
-  │                 │   │                  │              │
-  │ "宁德时代" 精确  │   │ "动力电池龙头"    │              │
-  │  命中           │   │  语义近似命中      │              │
-  └────────┬────────┘   └────────┬─────────┘              │
-           │  text_weight=0.3    │  vector_weight=0.7      │
-           └──────────┬──────────┘                         │
-                      ▼                                    │
-              ┌───────────────┐                            │
-              │  RRF 融合排序  │                            │
-              │  score = Σ(w/(k+rank))                     │
-              └───────┬───────┘                            │
-                      ▼                                    │
-  ┌──────────────────────────────────────┐                 │
-  │  第一跳：Top-K chunk 全文 + 评分       │                 │
-  └───────────────────┬──────────────────┘                 │
-                      ▼                                    │
-  ┌──────────────────────────────────────┐                 │
-  │  第二跳：邻居目录（只有标题，不展开正文）│  ← wikilink 图谱 │
-  └───────────────────┬──────────────────┘                 │
-                      ▼                                    │
-  ┌──────────────────────────────────────┐                 │
-  │  第 N 跳：Agent 按需追问，展开正文     │                 │
-  └──────────────────────────────────────┘                 │
-```
+`search` Job 当前实现：
 
-### 4.1 混合索引构建
+1. 读取 query、limit、min_score、search_filter。
+2. 默认配置下执行 `keyword_search`，返回 BM25 命中的 chunk。
+3. 按 `min_score` 过滤并截断到 limit。
+4. 对命中的唯一 path 做 link expansion，默认每个方向最多 10 条。
+5. 返回 chunk 正文、行号、分数和出入链目录。
 
-两套索引并行维护，各擅其长：
+### 3.5 Node Search
 
-- **全文倒排索引**（基于numpy）——精确匹配专有名词，搜"宁德时代"必须命中。支持增量更新索引，无原生扩展依赖。
-- **向量索引**（基于faiss）——语义相似度，搜"锂电正极原料"能命中"钴"。
+`node_search` 是给 `auto_dream` Phase 2 使用的专用召回：
 
-### 4.2 基于 RRF 的混合检索
+- 只返回 `digest/` 下节点。
+- 以 path 聚合 chunk 结果，一篇 digest 只返回一行。
+- 返回 path、score、front matter 中的 name/description。
+- 不返回正文，不做 link expansion。
+- 供集成 Agent 判断是 CREATE、CORROBORATE、REFINE 还是 CORRECT。
 
-两条通路并行跑（`asyncio.gather`），用 RRF（Reciprocal Rank Fusion）融合排序：
+外部问答 Agent 应使用 `search`；dream 集成应使用 `node_search`。
 
-```
-融合分 = Σ( weight_i / (k + rank_i) )    k=60, vector_weight=0.7, text_weight=0.3
+## 4. 自进化管线
+
+### 4.1 Auto Memory
+
+`auto_memory` 输入对话 messages 和可选 `session_id`：
+
+1. 把 messages 标准化为 AgentScope `Msg`。
+2. 如有 `session_id`，保存到 `reme_session/dialog/<session_id>.jsonl`。
+3. 调用 `daily_create` 创建或复用 `daily/<date>/<session_id>.md`，空 session 时使用 `daily/<date>.md`。
+4. 通过 `agent_wrapper` 调用 LLM Agent，工具集为 `read`、`edit`、`frontmatter_update`、`write`。
+5. 如果有 `session_id`，在 note front matter 写入 `source_conversation: [[reme_session/dialog/<session_id>.jsonl]]`。
+6. 刷新当天索引页 `daily/<date>.md`。
+
+保存对话时会去掉 base64 数据块，并截断超长 tool result，避免 session JSONL 过大。
+
+### 4.2 Auto Resource
+
+`auto_resource` 处理 `resource/` 下的变更批次。默认后台 `resource_watch_loop` 监听：
+
+```yaml
+watch_dirs: [resource_dir]
+watch_suffixes: [md, txt, json, jsonl, csv, yaml, html]
 ```
 
-为什么要两路？纯向量容易错配名词（"苹果公司"≈"水果"），纯关键词抓不到同义改写——融合互补盲区。
+资源路径约定为：
 
-### 4.3 渐进式链接展开
-
-传统 RAG 一次性把 Top-K 全塞进上下文，token 浪费且噪音多。ReMe 分跳展开，按需深入：
-
-**第一跳** — 返回命中 chunk 全文 + 分数明细
-
-**第二跳** — 展开 wikilink 邻居的"目录"（只有标题，不展开正文）：
-
-```
-========== digest/wiki/宁德时代.md:5-22 [score=0.0247 vector=0.0156 keyword=0.0091] ==========
-# 宁德时代
-全球动力电池出货量第一，核心技术为 CTP（Cell to Pack）和钠离子电池……
-
-  outlinks (2):
-    → digest/wiki/磷酸铁锂.md  name="磷酸铁锂正极路线"  description="磷酸铁锂与三元路线对比"  via predicate=相关技术
-    → digest/wiki/固态电池.md  name="固态电池技术路线"  description="全固态与半固态进展"  via predicate=技术演进
-  inlinks (2):
-    ← daily/2026-03-18/宁德调研.md  name="宁德时代调研纪要"  description="2026Q1产能与订单跟踪"  via plain
-    ← digest/wiki/新能源产业链.md  name="新能源产业链全景"  description="从锂矿到整车的全链条"  via predicate=下游应用
+```text
+resource/YYYY-MM-DD/<filename>
 ```
 
-**第 N 跳** — Agent 看过"目录"后，自己决定哪些邻居值得深入，再发起 read 拿正文。
+处理逻辑：
 
-二跳目录每条只占一行（最多 10 outlink + 10 inlink），Agent 拥有全局视野却不撑爆上下文。
+- `added/modified`：读取原始资源文本，创建或更新 `daily/YYYY-MM-DD/<resource_stem>.md`，再由 Agent 解读资源内容并写入 daily note。
+- `deleted`：删除对应 daily note，更新 file_store，并刷新当天索引页。
+- Agent session id 使用资源路径的 UUID5，保证同一资源重复处理时会话稳定。
 
-## 特性5：多 Agent 框架集成
+### 4.3 Auto Dream
 
-ReMe 不做独立 Agent 产品，而是作为**能力层**被任意框架调用：
+`auto_dream` 是最新代码中的四步 Job：
 
-| 集成路径                | 适用对象                 | 方式                                          |
-|---------------------|----------------------|---------------------------------------------|
-| SDK 深度集成            | AgentScope / Qwenpaw | middleware 注册 tools + prompt，hook 注册 auto-* |
-| MCP Tool + skill.md | Claude Code          | MCP 注册 Tool，配 skill.md 开箱即用，hook 注册 auto-*  |
-| HTTP API + CLI      | 通用方案                 | skill.md + CLI 调用                           |
-
----
-
-# 二、工程架构
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Service 层（HTTP / MCP 双协议）                                  │
-│  FastAPI + FastMCP，同一套 Job 同时暴露为 REST 和 MCP Tool         │
-├─────────────────────────────────────────────────────────────────┤
-│  Application 层                                                  │
-│  配置加载 → 组件初始化 → Job 注册 → start() / close() 生命周期     │
-├─────────────────────────────────────────────────────────────────┤
-│  Job 层（编排）                                                   │
-│  每个 Job = 一组 Step 的有序管线，YAML 声明式配置                   │
-├─────────────────────────────────────────────────────────────────┤
-│  Step 层（业务逻辑）                                              │
-│  原子操作单元，按功能域分组：file_io / index / evolve / common      │
-├─────────────────────────────────────────────────────────────────┤
-│  Component 层（可插拔基础设施）                                    │
-│  统一注册表 R，一行配置切换实现                                     │
-│  file_store / embedding / keyword_index / llm / file_graph       │
-└─────────────────────────────────────────────────────────────────┘
+```yaml
+auto_dream:
+  steps:
+    - dream_extract_step
+    - dream_integrate_step
+    - dream_topics_step
+    - dream_finish_step
 ```
 
-## 2.1 服务层
+它的目标是扫描某天 daily 输入，把值得长期保留的抽象记忆写入 `digest/`，同时生成当天的 `interests.yaml`。
 
-每个 Job 同时暴露为两种协议，写一次逻辑、两种方式调用：
+#### Phase 1: Extract
 
-| 协议            | 传输方式                          | 适用场景                         |
-|---------------|-------------------------------|------------------------------|
-| HTTP（FastAPI） | JSON POST / SSE               | REST 调用、Web 前端               |
-| MCP（FastMCP）  | stdio / SSE / streamable-http | Claude Code、Cursor 等 MCP 客户端 |
+`dream_extract_step`：
 
-- **按需拉起**：Agent 检测到服务未运行时自动后台启动，用户无感知
-- **服务发现**：通过 `REME_SERVICE_INFO` 环境变量广播地址，`find_reme` 一键探活
+- 刷新当天索引页。
+- 扫描 `daily/<date>.md` 和 `daily/<date>/` 下文件，但排除 `interests.yaml`。
+- 用 `file_catalog:dream` 对比 mtime，只处理 changed paths。
+- 如果没有变化，直接结束。
+- 调用 Agent 读取 changed material，输出：
+  - `units`: 需要进入 digest 的抽象记忆单元。
+  - `topics`: 主动兴趣主题候选。
+- unit bucket 限定为 `procedure`、`personal`、`wiki`，未知 bucket 会路由到 `wiki`。
 
-## 2.2 组件系统（Component）
+#### Phase 2: Integrate
 
-统一注册表 `R`，所有基础设施都是可插拔的——改一行配置就能切换后端：
+`dream_integrate_step` 对每个 unit 独立调用 Agent：
 
-| 组件              | 干什么           | 可选后端                  |
-|-----------------|---------------|-----------------------|
-| file_store      | 文件存储 + 索引协调   | local                 |
-| file_graph      | wikilink 双向图谱 | local / nx / neo4j    |
-| keyword_index   | 全文倒排索引        | bm25（numpy + jieba）   |
-| embedding_store | 向量存储与检索       | local（faiss）          |
-| embedding       | 文本转向量         | openai 兼容接口           |
-| llm             | 大模型调用         | anthropic / openai 兼容 |
-| tokenizer       | 分词            | regex / jieba         |
+- Agent 可用工具：`node_search`、`read`、`frontmatter_read`、`write`、`edit`、`frontmatter_update`。
+- 先召回 digest 中可能相同或相关的节点。
+- 决策结果是结构化 `IntegrateOutcome`：
 
-## 2.3 Job 列表
+| action | 含义 |
+| --- | --- |
+| `CREATE` | 新建 digest 节点 |
+| `CORROBORATE` | 给已有节点追加佐证 |
+| `REFINE` | 补充更精确的表述 |
+| `CORRECT` | 修正旧记忆中的矛盾或过时内容 |
 
-**Job** 是 ReMe 暴露给外部的操作单元——同一个 Job 可以作为 Python 函数直接调用、作为 MCP Tool 被 Agent 使用、也可以作为 CLI
-命令执行。
+失败 unit 会记录到 `failed_units` 和 `failed_paths`，不会被 checkpoint，后续运行会重试。
 
-| 类别   | Job                       | 功能                               |
-|------|---------------------------|----------------------------------|
-| 检索   | `search`                  | 混合检索（向量 + BM25 + RRF）+ 渐进式图展开    |
-| 检索   | `traverse`                | 从指定路径遍历 wikilink 图谱              |
-| 文件读写 | `read`                    | 读取 markdown 文件内容                 |
-| 文件读写 | `read_image`              | 读取图片文件（base64）                   |
-| 文件读写 | `write`                   | 新建或覆写 markdown 文件（含 frontmatter） |
-| 文件读写 | `edit`                    | 文件内查找替换                          |
-| 文件读写 | `delete`                  | 删除文件，返回残留入边                      |
-| 文件读写 | `move`                    | 移动 / 重命名，自动重写 wikilink           |
-| 文件读写 | `list`                    | 列出目录下文件                          |
-| 文件读写 | `stat`                    | 文件元信息（大小、修改时间）                   |
-| 文件读写 | `frontmatter_read`        | 读取 frontmatter                   |
-| 文件读写 | `frontmatter_update`      | 合并更新 frontmatter                 |
-| 文件读写 | `frontmatter_delete`      | 删除 frontmatter 字段                |
-| 日记管理 | `daily_create`            | 幂等创建当天日记文件                       |
-| 日记管理 | `daily_list`              | 列出某天的所有日记                        |
-| 日记管理 | `daily_reindex`           | 重建当天索引页                          |
-| 索引维护 | `reindex`                 | 清空并全量重建索引                        |
-| 索引维护 | `update_store_index_loop` | 后台监听文件变更，增量更新                    |
-| 自进化  | `auto_memory`             | 对话记录写入日记（LLM Agent）              |
-| 自进化  | `dream`                   | 单文件记忆提炼到 digest（LLM Agent）       |
-| 自进化  | `auto-dream`              | 批量扫描当天文件，逐个 dream                |
-| 系统   | `health_check`            | 组件健康检查                           |
-| 系统   | `version`                 | 返回版本号                            |
-| 系统   | `help`                    | 列出所有已注册 Job                      |
+#### Phase 3: Topics
+
+`dream_topics_step` 写入：
+
+```text
+daily/<date>/interests.yaml
+```
+
+默认最多保留 3 个 topic，并参考过去 7 天的 `interests.yaml` 做去重，避免每天重复推送同类兴趣。若 LLM 不可用，会退化为本地去重选择。
+
+#### Phase 4: Finish
+
+`dream_finish_step`：
+
+- 把成功处理的 changed paths、`interests.yaml` 和当天索引页写入 `file_catalog:dream`。
+- 删除 catalog 中已经不存在的 daily 输入。
+- 持久化 catalog 到 `reme_metadata/file_catalog/dream.jsonl.zst`。
+- 返回本次扫描、抽取、集成、topic 和 checkpoint 的摘要。
+
+### 4.4 Proactive
+
+`proactive` 读取当天或指定日期的：
+
+```text
+daily/<date>/interests.yaml
+```
+
+返回 topics 和可选 YAML 原文，供调用方读取当天兴趣主题。
+
+## 5. Job、Step 与组件架构
+
+### 5.1 分层
+
+```text
+Service 层
+  HTTP / MCP，把 Job 暴露为外部接口
+
+Application 层
+  加载配置，初始化 service、component、job，按依赖拓扑启动组件
+
+Job 层
+  BaseJob / StreamJob / BackgroundJob / CronJob，按 YAML 顺序执行 Step
+
+Step 层
+  默认 Job 使用的原子业务操作：file_io / index / evolve / common
+
+Component 层
+  可插拔基础设施：store、graph、index、catalog、LLM、agent wrapper、tokenizer
+```
+
+### 5.2 Registry 与依赖注入
+
+所有后端通过全局注册表 `R` 注册：
+
+```python
+@R.register("local")
+class LocalFileStore(BaseFileStore):
+    ...
+```
+
+配置中的 `backend` 会通过 `(ComponentEnum, backend)` 找到类。组件依赖通过 `BaseComponent.bind(name, BaseClass)` 声明，`Application` 会按依赖拓扑顺序启动组件，并在关闭时反序关闭。
+
+### 5.3 Job 类型
+
+| Job 后端 | 类 | 行为 |
+| --- | --- | --- |
+| `base` | `BaseJob` | 请求触发，按步骤顺序执行，返回 `Response` |
+| `stream` | `StreamJob` | SSE/流式输出 chunk |
+| `background` | `BackgroundJob` | 应用启动后后台运行，失败时可 supervisor 重启 |
+| `cron` | `CronJob` | 按 cron 表达式定时执行步骤 |
+
+后台 Job 强制 `enable_serve=False`，不会暴露成 HTTP endpoint 或 MCP tool。
+
+### 5.4 默认 Job 列表
+
+默认配置中的主要 Job：
+
+| 类别 | Job | 说明 |
+| --- | --- | --- |
+| 后台索引 | `index_update_loop` | 监听 `daily/`、`digest/` 的 Markdown 变更，增量更新 file_store |
+| 后台资源 | `resource_watch_loop` | 监听 `resource/` 文本资源，更新 resource catalog 并触发 `auto_resource_step` |
+| 后台 catalog | `digest_watch_loop` | 监听 `daily/`、`digest/`，更新 digest catalog 并记录变更 |
+| 系统 | `version` | 返回包版本 |
+| 系统 | `health_check` | 返回组件健康快照 |
+| 系统 | `help` | 列出已注册 Job |
+| 检索 | `search` | chunk 级 BM25 检索和 link expansion |
+| 检索 | `node_search` | digest 节点级召回，供 dream 集成使用 |
+| 图谱 | `traverse` | 从指定 path 遍历 wikilink 图 |
+| 索引维护 | `reindex` | 清空 file_store 并从文件重新建索引 |
+| 日记 | `daily_create` | 幂等创建当天 day-level 或 session-level note |
+| 日记 | `daily_list` | 列出某天 daily notes |
+| 日记 | `daily_reindex` | 重建当天索引页 |
+| 文件读写 | `read` | 读取 vault 内 Markdown 文件，可指定行号 |
+| 文件读写 | `read_image` | 读取图片为 base64，默认上限 5MB |
+| 文件读写 | `write` | 写 Markdown 文件和 front matter |
+| 文件读写 | `edit` | 全量 find-and-replace |
+| 文件读写 | `delete` | 删除文件或目录，返回残留入边 |
+| 文件读写 | `move` | 移动或重命名文件，默认改写入边 wikilink |
+| 文件读写 | `list` | 列目录 |
+| 文件读写 | `stat` | 返回路径元信息 |
+| Front Matter | `frontmatter_read` | 读取 front matter |
+| Front Matter | `frontmatter_update` | 合并更新 front matter |
+| Front Matter | `frontmatter_delete` | 删除 front matter 字段 |
+| 自进化 | `auto_memory` | 对话写入 daily note |
+| 自进化 | `auto_resource` | 资源文件解读为 daily note |
+| 自进化 | `auto_dream` | daily -> digest + interests.yaml |
+| 主动记忆 | `proactive` | 读取 `interests.yaml` |
+
+## 6. 服务、客户端与 CLI
+
+### 6.1 HTTP Service
+
+`HttpService` 使用 FastAPI：
+
+- 非 stream Job 注册为 `POST /<job.name>`，请求体是 `Request`，响应是 `Response`。
+- StreamJob 注册为 `POST /<job.name>`，返回 `text/event-stream`。
+- CORS 默认开放。
+- lifespan 中启动/关闭整个 `Application`。
+
+### 6.2 MCP Service
+
+`MCPService` 使用 FastMCP：
+
+- 非 stream Job 注册为 MCP tool。
+- 支持 `stdio`、`sse`、`streamable-http` 等 transport。
+- StreamJob 当前不注册为 MCP tool。
+
+### 6.3 Client 与 CLI
+
+入口是：
+
+```bash
+reme start
+reme find_reme
+reme <job_name> key=value ...
+```
+
+行为：
+
+- `reme start`：加载 `.env`，解析配置，启动服务。
+- `reme find_reme`：从环境或默认地址探活。
+- 其他 action：通过 client 调用已运行服务，默认 HTTP，也可指定 `backend=mcp`。
+
+配置解析支持：
+
+- 默认加载 `reme/config/default.yaml`。
+- `config=<name-or-path>` 指定配置文件。
+- dot notation 覆盖，如 `service.port=8090`。
+- `${ENV_VAR:-default}` 环境变量展开。
+
+服务启动后会把地址写到环境变量 `REME_SERVICE_INFO`，HTTP client 会优先使用显式 host/port，其次使用该环境变量，最后回落到默认 host/port。
+
+## 7. 默认组件后端
+
+默认配置中的组件：
+
+| ComponentEnum | 名称 | 后端 | 说明 |
+| --- | --- | --- | --- |
+| `service` | - | `http` | 默认服务协议 |
+| `tokenizer` | `default` | `regex` | BM25 分词 |
+| `as_llm` | `default` | `${LLM_BACKEND:-openai}` | OpenAI 兼容 LLM，默认模型 `qwen3.7-plus` |
+| `agent_wrapper` | `default` | `agentscope` | AgentScope ReAct wrapper |
+| `agent_wrapper` | `claude_code` | `claude_code` | Claude Code wrapper |
+| `file_graph` | `default` | `local` | 纯 Python 图谱 |
+| `file_catalog` | `default/resource/digest/dream` | `local` | JSONL.zst catalog |
+| `file_chunker` | `markdown` | `markdown` | Markdown AST chunker |
+| `file_chunker` | `default` | `default` | 默认文本 chunker |
+| `keyword_index` | `default` | `bm25` | numpy BM25 |
+| `file_store` | `default` | `local` | graph + keyword |
+
+## 8. 持久化状态
+
+除 vault 正文文件外，ReMe 会在 `reme_metadata/` 下保存组件状态：
+
+| 组件 | 持久化内容 |
+| --- | --- |
+| `file_store` | `file_chunks_<name>_v1.jsonl.zst`，保存 chunk 元数据 |
+| `file_graph` | `<name>.jsonl.zst`，保存 `FileNode` 和 links |
+| `keyword_index` | `bm25_*.pkl`，保存 vocab、posting list、doc meta |
+| `file_catalog` | `<catalog_name>.jsonl.zst`，保存已处理文件 mtime checkpoint |
+
+`Application.close()` 会反序关闭组件，`LocalFileStore.close()` 会触发 chunk、keyword index、file graph dump。后台 catalog/dream finish 也会按需 dump catalog。
+
+## 9. 关键数据模型
+
+```text
+Response
+  success: bool
+  answer: str
+  metadata: dict
+
+FileNode
+  path: str
+  st_mtime: float
+  links: list[FileLink]
+  chunk_ids: list[str]
+  front_matter: FileFrontMatter
+
+FileChunk
+  id: str                  # hash(path, start_line, end_line, text)
+  path: str
+  start_line: int
+  end_line: int
+  text: str
+  metadata: dict
+  scores: dict[str, float]
+
+FileLink
+  source_path: str
+  target_path: str
+  target_anchor: str | None
+  predicate: str | None
+
+DreamState
+  date / changed_paths / unchanged_paths / deleted_paths
+  units / topics
+  integrate_results / failed_units / failed_paths
+  interests_path / topics_written
+  checkpoint_paths / errors / summary
+```
