@@ -1,6 +1,6 @@
 ---
 name: qwenpaw_memory
-description: 记录、检索、更新重要信息
+description: qwenpaw_memory
 ---
 
 ## 记忆

@@ -140,45 +140,55 @@ reme version
 curl -s http://127.0.0.1:23333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
+#### 接入方式
+
+ReMe 不绑定具体 Agent 框架，启动服务后可以按三种方式接入：
+
+| 方式                    | 适用场景                                  | 使用说明                                                                                                                                |
+|-----------------------|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `skill.md + cli`      | 任意支持读取 skill/system prompt 的 Agent 框架 | 将 [reme_memory skill](reme/skills/reme_memory/SKILL.md) 加入 Agent，并允许 Agent 调用 `reme search/read/write/auto_memory/proactive` 等 CLI。 |
+| `background` / `cron` | 索引更新、资源监听、定时 dream 等自动流程              | 执行 `reme start` 后自动运行，无需在 Agent 侧手动调用。                                                                                              |
+| `hook`                | 需要把对话、资源或主动主题接入 Agent 生命周期的流程         | 在 Agent 框架中手动加入 `auto_memory`、`auto_resource`、`auto_dream`、`proactive` 调用点。                                                         |
+
+QwenPaw 2.0 将会集成新版 ReMe；未来也会推出 Claude Code plugin，降低手动接入成本。
+
 更多细节见 [快速开始](docs/zh/quick_start.md)。
 
 ---
 
 ## 核心能力
 
-| 能力                                          | 说明                                                                            |
-|---------------------------------------------|-------------------------------------------------------------------------------|
-| [Memory as File](docs/zh/memory_as_file.md) | 用 vault 目录、Markdown、frontmatter 和 wikilink 表达记忆分层与文件关系。                       |
-| [Memory Search](docs/zh/memory_search.md)   | 持续索引 `daily/`、`digest/`、`resource/`，支持 BM25、可选向量召回和链接展开。                      |
-| [Auto Memory](docs/zh/auto_memory.md)       | 将对话按 `session_id` 保存为原始 JSONL，并整理成 daily 记忆卡片。                                |
-| [Auto Resource](docs/zh/auto_resource.md)   | 将 `resource/` 中的外部资料解读为 daily 资源卡片，保留原始资料出处。                                  |
-| [Auto Dream](docs/zh/auto_dream.md)         | 从 daily 输入中抽取长期记忆单元，沉淀到 `digest/personal`、`digest/procedure` 和 `digest/wiki`。 |
-| [Auto Link](docs/zh/auto_link.md)           | 在写入 digest 时召回相关节点，完成去重、来源链接和 digest 之间的 wikilink 织入。                         |
-| [Proactive](docs/zh/proactive.md)           | 读取 `auto_dream` 生成的 `interests.yaml`，向上层 Agent 暴露当天值得主动关注的主题。                 |
-
-### Memory as File
-
-<p align="center">
-  <img src="docs/figure/memory-as-file.svg" alt="Memory as File model" width="78%">
-</p>
-
-### Auto Memory & Auto Resource(BETA)
-
-<p align="center">
-  <img src="docs/figure/auto-memory-resource.svg" alt="Auto Memory and Auto Resource flow" width="78%">
-</p>
-
-### Auto Dream & Auto Link & Proactive
-
-<p align="center">
-  <img src="docs/figure/auto-dream.svg" alt="Auto Dream flow" width="78%">
-</p>
-
-### Memory Search
-
-<p align="center">
-  <img src="docs/figure/memory-search.svg" alt="Memory Search flow" width="78%">
-</p>
+| 类型         | name                                        | 描述                                                                        | 参数                                                     |
+|------------|---------------------------------------------|---------------------------------------------------------------------------|--------------------------------------------------------|
+| background | `index_update_loop`                         | 后台监听 `daily/`、`digest/`、`resource/` 中的 Markdown/JSONL 变化，并持续更新检索索引。       | 配置项：`watch_dirs`、`watch_suffixes`                      |
+| background | `resource_watch_loop`                       | 后台监听 `resource/` 资料变化，更新 resource catalog，并触发资源解读。                        | 配置项：`watch_dirs`、`watch_suffixes`                      |
+| background | `digest_watch_loop`                         | 后台监听 `daily/` 与 `digest/` 的 Markdown 变化，更新 digest catalog 并记录变化。          | 配置项：`watch_dirs`、`watch_suffixes`                      |
+| cron       | `dream_cron`                                | 每天 23:00 定时执行 dream 流程：抽取长期记忆、整合 digest、生成兴趣主题并持久化 catalog。               | 配置项：`cron`                                             |
+| hook       | [`auto_dream`](docs/zh/auto_dream.md)       | 扫描当天 day-index 与 daily notes，抽取并整合长期记忆单元，写入 `interests.yaml`。             | `date`、`hint`、`topic_count`、`topic_diversity_days`     |
+| hook       | [`auto_memory`](docs/zh/auto_memory.md)     | 将对话消息记录并整理为 daily 记忆卡片。                                                   | 必填：`messages`；可选：`session_id`、`memory_hint`            |
+| hook       | [`auto_resource`](docs/zh/auto_resource.md) | 将 resource 文件变更批次解读为 daily 资源卡片。                                          | 必填：`changes`；每项可含 `path`、`file_path`、`change`          |
+| hook       | [`proactive`](docs/zh/proactive.md)         | 读取 `daily/<date>/interests.yaml`，向上层 Agent 暴露最新用户兴趣主题。                    | `date`、`include_content`                               |
+| cli        | `version`                                   | 返回 ReMe 包版本。                                                              | 无                                                      |
+| cli        | `health_check`                              | 返回 ReMe 组件健康检查摘要。                                                         | 无                                                      |
+| cli        | `help`                                      | 列出已注册 jobs 及其 metadata。                                                   | 无                                                      |
+| cli        | `traverse`                                  | 从指定路径出发遍历 wikilink 图谱。                                                    | 必填：`path`；可选：`depth`、`direction`                       |
+| cli        | `reindex`                                   | 清空 file store，并基于现有文件重建索引。                                                | 配置项：`watch_dirs`、`watch_suffixes`                      |
+| cli        | [`search`](docs/zh/memory_search.md)        | 在 vault 中执行混合检索，结合向量召回、BM25 和 RRF 融合。                                     | 必填：`query`；可选：`limit`、`min_score`                      |
+| cli        | `node_search`                               | 根据候选抽象的名称与描述，召回相似 digest 节点用于去重或关联。                                       | 必填：`query`；可选：`limit`                                  |
+| cli        | `daily_create`                              | 创建 daily session note：`daily/<date>/<session_id>.md` 或 `daily/<date>.md`。 | `session_id`、`date`                                    |
+| cli        | `daily_list`                                | 列出某一天的 notes。                                                             | `date`                                                 |
+| cli        | `daily_reindex`                             | 重建 day-index 页面 `daily/<date>.md`。                                        | `date`                                                 |
+| cli        | `frontmatter_delete`                        | 删除文件 frontmatter 中的指定 keys。                                               | 必填：`path`、`keys`                                       |
+| cli        | `frontmatter_read`                          | 读取文件 frontmatter。                                                         | 必填：`path`                                              |
+| cli        | `frontmatter_update`                        | 合并 key-values 到文件 frontmatter。                                            | 必填：`path`、`metadata`                                   |
+| cli        | `stat`                                      | 获取 vault 路径状态，包括大小、mtime、是否存在、是否目录或文件。                                    | 必填：`path`                                              |
+| cli        | `list`                                      | 列出 vault 路径下的文件。                                                          | `path`、`recursive`、`limit`                             |
+| cli        | `move`                                      | 移动或重命名 vault 文件，并默认重写入站 wikilink。                                         | 必填：`src_path`、`dst_path`；可选：`overwrite`、`retarget`     |
+| cli        | `delete`                                    | 删除 vault 文件或文件夹，并返回仍存在的入站 wikilink。                                       | 必填：`path`                                              |
+| cli        | `read`                                      | 读取 vault 下的 Markdown 文件。                                                  | 必填：`path`；可选：`start_line`、`end_line`                   |
+| cli        | `read_image`                                | 读取 vault 下的图片文件并返回 base64。                                                | 必填：`path`                                              |
+| cli        | `write`                                     | 创建或覆盖 Markdown 文件，并写入 name/description frontmatter。                       | 必填：`path`、`name`、`description`、`content`；可选：`metadata` |
+| cli        | `edit`                                      | 对 Markdown 文件执行全文 find-and-replace。                                       | 必填：`path`、`old`、`new`                                  |
 
 ---
 
