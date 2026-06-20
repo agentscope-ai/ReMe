@@ -2,7 +2,9 @@
 
 ReMe 的核心思想是：**Memory as File, File as Memory**。
 
-![Memory as File model](../figure/memory-as-file.svg)
+<p align="center">
+  <img src="../figure/memory-as-file.svg" alt="ReMe Memory as File 文件化记忆模型" width="92%">
+</p>
 
 **Memory as File**：长期记忆不是藏在黑盒数据库里，而是落在 vault 目录中的 Markdown 文件、资源文件和索引快照里。用户和 Agent
 都可以直接读、写、移动、删除这些文件。

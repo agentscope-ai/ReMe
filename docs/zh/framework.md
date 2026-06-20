@@ -5,7 +5,9 @@
 ReMe 的运行时可以理解为：**配置驱动的 Application 把组件和 Job 装配起来，Service 把可服务的 Job 暴露给 CLI、HTTP 或 MCP，Job
 再按顺序执行 Step**。
 
-![ReMe 代码框架结构](../figure/framework-structure.svg)
+<p align="center">
+  <img src="../figure/framework-structure.svg" alt="ReMe 代码框架结构：CLI、Service、Application、Job、Step 与 Component" width="92%">
+</p>
 
 如果只想先运行和使用 ReMe，见 [快速开始](./quick_start.md)。vault 文件语义见 [Memory as File](./memory_as_file.md)；检索、
 自动记忆和主动读取的用户侧说明分别见 [Memory Search](./memory_search.md)、[Auto Memory](./auto_memory.md)、

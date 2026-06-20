@@ -3,6 +3,10 @@
 Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先按日期进入 `resource/`，再被解读成同名 daily
 资源卡片，最后由当天的 `YYYY-MM-DD.md` 统一索引。
 
+<p align="center">
+  <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
+</p>
+
 关于 vault 分层、`resource/` 和 `daily/` 的通用文件语义，见 [Memory as File](./memory_as_file.md)。对话进入 daily 的流程见
 [Auto Memory](./auto_memory.md)。
 

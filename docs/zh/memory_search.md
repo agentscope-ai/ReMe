@@ -3,7 +3,9 @@
 Memory Search 是 ReMe 的记忆检索入口。它先把 `daily/`、`digest/`、`resource/` 里的文件持续构建成可搜索的 chunk 索引和
 wikilink 图谱；查询时先召回最相关的片段，再沿着片段所在文件的双向链接展开上下文。
 
-![Memory Search 索引与检索流程](../figure/memory-search.svg)
+<p align="center">
+  <img src="../figure/memory-search.svg" alt="ReMe Memory Search 索引、召回、融合与链接展开流程" width="92%">
+</p>
 
 文件分层、frontmatter、wikilink 和 chunking 的通用语义见 [Memory as File](./memory_as_file.md)。这里重点说明索引维护和查询执行。
 

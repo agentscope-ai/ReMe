@@ -3,7 +3,9 @@
 `auto_dream` 是 ReMe 的 daily 到 digest 的长期记忆沉淀流程。它扫描指定日期的 daily 输入，只处理相对上次 dream
 发生变化的文件，把值得长期保留的内容抽取成 memory units，整合进 `digest/`，再生成当天可供主动提醒使用的 `interests.yaml`。
 
-![Auto Dream flow](../figure/auto-dream.svg)
+<p align="center">
+  <img src="../figure/auto-dream.svg" alt="ReMe Auto Dream 从 daily 到 digest 的长期记忆沉淀流程" width="92%">
+</p>
 
 它消费的 daily 输入通常来自 [Auto Memory](./auto_memory.md) 和 [Auto Resource](./auto_resource.md)。`digest/`、`derived_from::`
 和 wikilink 的文件语义见 [Memory as File](./memory_as_file.md)；Integrate 阶段的链接策略详见 [Auto Link](./auto_link.md)。

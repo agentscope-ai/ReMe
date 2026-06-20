@@ -3,6 +3,10 @@
 Auto Memory 是 ReMe 的对话记忆入口：每段对话先按 `session_id` 沉淀成一张 daily 记忆卡片，再由当天的 `YYYY-MM-DD.md`
 统一索引。它负责把“聊过”变成“记住”，并把原始对话留好出处。
 
+<p align="center">
+  <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
+</p>
+
 关于 `daily/`、`reme_session/`、frontmatter 和 wikilink 的通用文件语义，见 [Memory as File](./memory_as_file.md)。
 
 ```text
