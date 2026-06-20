@@ -31,9 +31,9 @@
 ## ✨ 核心创新
 
 - **Memory as files**：以带 frontmatter 和 wikilink 的 Markdown 作为记忆节点，让人和 Agent 都能直接读写。
-- **自进化知识库**：记忆从原始输入进入 daily 浅加工，再沉淀为 digest 深加工长期知识。
-- **渐进式混合搜索**：先用关键词和语义召回定位片段，再沿 wikilink 图谱展开上下文。
-- **Agent 友好集成**：用文件、索引和工具接口组织记忆，方便不同 Agent 接入、维护和复用。
+- **自进化知识库**：通过 Auto Memory、Auto Resource、Auto Dream 和 Auto Link，把对话与资料渐进加工、梦境整理为长期 Markdown 记忆，并自动构建 wikilink 关系。
+- **渐进式混合搜索**：构建 BM25 + embedding 的混合检索，先召回片段，再通过 wikilink 支持正向和反向的上下文展开。
+- **Agent 友好集成**：通过文件、索引、工具接口、CLI 模型接入和 MCP 接入组织记忆，方便不同 Agent 维护和复用。
 
 ## 🧩 适用场景
 
@@ -46,15 +46,7 @@
 
 > Memory as files, files as memory.
 
-ReMe 将**记忆视为文件**：原始对话和外部资料先进入输入层，再加工成 daily note，最后沉淀为可长期复用的 digest 记忆。
-
-### 记忆分层
-
-| 层级   | 目录                          | 内容                      |
-|------|-----------------------------|-------------------------|
-| 原始输入 | `reme_session/`、`resource/` | 原始对话、Agent session、外部资料 |
-| 浅加工  | `daily/`                    | 当天事实、对话摘要、资源解读、兴趣主题     |
-| 深加工  | `digest/`                   | 用户画像、长期事实、流程经验、知识节点     |
+ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/` 中可长期复用的知识节点。
 
 ### Vault 目录结构
 
