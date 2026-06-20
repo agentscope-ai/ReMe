@@ -26,9 +26,7 @@
 > [0.2.x](https://github.com/agentscope-ai/ReMe/tree/v0.2.0.6) ·
 > [MemoryScope](https://github.com/agentscope-ai/ReMe/tree/memoryscope_branch)
 
-# 🧠 ReMe
-
-ReMe 是一个面向 **AI 智能体** 的记忆管理工具，将对话、资料和长期知识沉淀为可读、可编辑、可检索的文件化记忆。
+🧠 ReMe 是一个面向 **AI 智能体** 的记忆管理工具，将对话、资料和长期知识沉淀为可读、可编辑、可检索的文件化记忆。
 
 ## ✨ 核心创新
 
