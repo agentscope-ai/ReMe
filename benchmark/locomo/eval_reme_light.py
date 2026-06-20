@@ -27,7 +27,7 @@ import re
 import shutil
 import time
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Any
 
@@ -79,7 +79,7 @@ class DataLoader:
         for idx, turn in enumerate(dialogue):
             role = "user" if turn["speaker"] == speaker_a else "assistant"
             ts = (base_timestamp + timedelta(seconds=idx * time_interval)).strftime(
-                "%Y-%m-%d %H:%M:%S"
+                "%Y-%m-%d %H:%M:%S",
             )
             msg = Msg(
                 name=turn["speaker"],
@@ -113,10 +113,7 @@ class FileManager:
 
     def user_has_cache(self, user_name: str) -> bool:
         user_dir = self.get_user_dir(user_name)
-        has_sessions = any(
-            f.name.startswith("session_") and f.suffix == ".json"
-            for f in user_dir.iterdir()
-        )
+        has_sessions = any(f.name.startswith("session_") and f.suffix == ".json" for f in user_dir.iterdir())
         has_questions = (user_dir / "questions.json").exists()
         return has_sessions and has_questions
 
@@ -128,8 +125,7 @@ class FileManager:
                     continue
 
                 session_files = sorted(
-                    f for f in user_dir.iterdir()
-                    if f.name.startswith("session_") and f.suffix == ".json"
+                    f for f in user_dir.iterdir() if f.name.startswith("session_") and f.suffix == ".json"
                 )
                 if not session_files:
                     continue
@@ -176,6 +172,7 @@ class ReMeLightMemoryProcessor:
     async def _wait_for_index(self, reme: ReMeLight, timeout: int = 10):
         """Poll file_store until indexed files appear, instead of blind sleep."""
         from reme.core.enumeration import MemorySource
+
         fs = reme.service_context.file_stores["default"]
         for _ in range(timeout * 2):  # 每 0.5 秒检查一次
             files = await fs.list_files(MemorySource.MEMORY)
@@ -217,7 +214,10 @@ class ReMeLightMemoryProcessor:
 
     # LLM 生成 4 个变体问题，逐个搜，按 (path, line) 去重合并
     async def _multi_query_search(
-        self, reme: ReMeLight, question: str, top_k: int
+        self,
+        reme: ReMeLight,
+        question: str,
+        top_k: int,
     ) -> list[dict]:
         """Generate multiple query variations and merge search results."""
         llm = reme.service_context.as_llms.get("default")
@@ -228,12 +228,10 @@ class ReMeLightMemoryProcessor:
         prompt = _QUERY_VARIATIONS_PROMPT.format(question=question, n=4)
         try:
             resp = await asyncio.wait_for(
-                llm(messages=[{"role": "user", "content": prompt}]), timeout=30
+                llm(messages=[{"role": "user", "content": prompt}]),
+                timeout=30,
             )
-            text = "".join(
-                b["text"] if isinstance(b, dict) else getattr(b, "text", "")
-                for b in (resp.content or [])
-            )
+            text = "".join(b["text"] if isinstance(b, dict) else getattr(b, "text", "") for b in (resp.content or []))
             # 按行解析变体
             variations = [q.strip("- ").strip() for q in text.split("\n") if q.strip("- ").strip()]
         except Exception:
@@ -250,7 +248,7 @@ class ReMeLightMemoryProcessor:
             try:
                 sr = await reme.memory_search(query=q, max_results=top_k, min_score=0.1)
                 for r in _parse_search_results(sr):
-                    key = f"{r.get('path','')}:{r.get('start_line','')}"
+                    key = f"{r.get('path', '')}:{r.get('start_line', '')}"
                     if key not in seen:
                         seen.add(key)
                         merged[key] = r
@@ -262,7 +260,11 @@ class ReMeLightMemoryProcessor:
 
     # 多轮检索 最多 3 轮, LLM 判断信息够不够，不够生成新查询再搜
     async def _multi_round_search(
-        self, reme: ReMeLight, question: str, top_k: int, max_rounds: int = 3
+        self,
+        reme: ReMeLight,
+        question: str,
+        top_k: int,
+        max_rounds: int = 3,
     ) -> list[dict]:
         """Multi-round retrieval: search, check sufficiency, refine query if needed."""
         all_results = await self._multi_query_search(reme, question, top_k)
@@ -274,20 +276,21 @@ class ReMeLightMemoryProcessor:
             return all_results
 
         # 后续轮次
-        seen_keys = {f"{r.get('path','')}:{r.get('start_line','')}" for r in all_results}
+        seen_keys = {f"{r.get('path', '')}:{r.get('start_line', '')}" for r in all_results}
         for round_idx in range(1, max_rounds):
             # LLM 判断是否足够，不够则给新查询
             context = _format_search_results_for_prompt(all_results[:10])
             check_prompt = _SUFFICIENCY_CHECK_PROMPT.format(
-                question=question, context=context
+                question=question,
+                context=context,
             )
             try:
                 resp = await asyncio.wait_for(
-                    llm(messages=[{"role": "user", "content": check_prompt}]), timeout=60
+                    llm(messages=[{"role": "user", "content": check_prompt}]),
+                    timeout=60,
                 )
                 text = "".join(
-                    b["text"] if isinstance(b, dict) else getattr(b, "text", "")
-                    for b in (resp.content or [])
+                    b["text"] if isinstance(b, dict) else getattr(b, "text", "") for b in (resp.content or [])
                 )
             except Exception:
                 break
@@ -308,7 +311,7 @@ class ReMeLightMemoryProcessor:
             logger.info(f"  Round {round_idx + 1}: refined query -> {new_query[:60]}...")
             new_results = await self._multi_query_search(reme, new_query, top_k // 2)
             for r in new_results:
-                key = f"{r.get('path','')}:{r.get('start_line','')}"
+                key = f"{r.get('path', '')}:{r.get('start_line', '')}"
                 if key not in seen_keys:
                     seen_keys.add(key)
                     all_results.append(r)
@@ -380,7 +383,7 @@ async def _answer_question_with_memories(
     reme: ReMeLight,
     question: str,
     search_results: list[dict],
-    model_name: str = "qwen3-max",
+    _model_name: str = "qwen3-max",
 ) -> dict:
     # 把搜索结果格式化成 prompt 上下文
     memories_text = _format_search_results_for_prompt(search_results)
@@ -399,7 +402,7 @@ async def _answer_question_with_memories(
             timeout=120,  # 2 minutes per LLM call
         )
         text = ""
-        for b in (response.content or []):
+        for b in response.content or []:
             t = b["text"] if isinstance(b, dict) else getattr(b, "text", "")
             if t:
                 text += t
@@ -415,13 +418,14 @@ async def _answer_question_with_memories(
         logger.error(f"LLM answer generation failed: {e}")
         return {"reasoning": str(e), "answer": ""}
 
+
 # 每个问题被裁判两次: 1. LLM 整理后的回答 vs 标准答案; 2.原始搜出来的记忆片段 vs 标准答案（衡量检索本身的质量）
 async def _evaluation_for_question(
     reme: ReMeLight,
     question: str,
-    golden_answer: str, # 数据集标准答案
-    generated_answer: str, # LLM 生成的回答
-    model_name: str = "qwen3-max",
+    golden_answer: str,  # 数据集标准答案
+    generated_answer: str,  # LLM 生成的回答
+    _model_name: str = "qwen3-max",
 ) -> dict:
     """LLM-as-Judge: compare generated answer with golden answer."""
     await asyncio.sleep(2)  # Rate limiting
@@ -439,15 +443,17 @@ async def _evaluation_for_question(
     try:
         # 调 LLM 当裁判，2 分钟超时
         response = await asyncio.wait_for(
-            llm(messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ]),
+            llm(
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            ),
             timeout=120,
         )
 
         content = ""
-        for b in (response.content or []):
+        for b in response.content or []:
             t = b["text"] if isinstance(b, dict) else getattr(b, "text", "")
             if t:
                 content += t
@@ -587,12 +593,10 @@ class QuestionAnsweringEvaluator:
 
             logger.info(f"  QA {qi+1}/{total}: {qa['question'][:80]}...")
             print(f"  QA {qi+1}/{total}: {qa['question'][:60]}...", flush=True)
-            answer_dict, raw_results, duration_ms = (
-                await self.memory_processor.search_memory(
-                    reme=reme,
-                    query=qa["question"],
-                    top_k=top_k,
-                )
+            answer_dict, raw_results, duration_ms = await self.memory_processor.search_memory(
+                reme=reme,
+                query=qa["question"],
+                top_k=top_k,
             )
 
             system_answer = answer_dict.get("answer", "")
@@ -640,7 +644,8 @@ class MetricsAggregator:
 
     @staticmethod
     def _compute_single_metric(
-        qa_records: list[dict], result_key: str
+        qa_records: list[dict],
+        result_key: str,
     ) -> dict[str, Any]:
         total = len(qa_records)
         if total == 0:
@@ -680,9 +685,7 @@ class MetricsAggregator:
             "qa_num": total,
         }
         for cat in (1, 2, 3, 4):
-            metrics[f"category_{cat}_accuracy"] = (
-                cat_correct[cat] / cat_total[cat] if cat_total[cat] > 0 else 0.0
-            )
+            metrics[f"category_{cat}_accuracy"] = cat_correct[cat] / cat_total[cat] if cat_total[cat] > 0 else 0.0
 
         return metrics
 
@@ -690,10 +693,12 @@ class MetricsAggregator:
     def compute_qa_metrics(qa_records: list[dict]) -> dict[str, Any]:
         return {
             "with_llm_answer": MetricsAggregator._compute_single_metric(
-                qa_records, "result_type"
+                qa_records,
+                "result_type",
             ),
             "with_original_memories": MetricsAggregator._compute_single_metric(
-                qa_records, "original_result_type"
+                qa_records,
+                "original_result_type",
             ),
         }
 
@@ -710,7 +715,8 @@ class MetricsAggregator:
                 for session in user_data.get("sessions", []):
                     add_duration += session.get("add_dialogue_duration_ms", 0)
                 for qa in user_data.get("evaluation_results", {}).get(
-                    "question_answering_records", []
+                    "question_answering_records",
+                    [],
                 ):
                     search_duration += qa.get("search_duration_ms", 0)
 
@@ -760,17 +766,17 @@ class LocomoReMeLightEvaluator:
     async def create_reme(self, working_dir: str) -> ReMeLight:
         """Create a ReMeLight instance with eval configuration."""
         reme = ReMeLight(
-            working_dir=working_dir, # 每个用户独立目录
+            working_dir=working_dir,  # 每个用户独立目录
             default_as_llm_config={  # 摘要用的 LLM
                 "model_name": self.config.reme_model_name,
                 "backend": "openai",
                 "stream": False,
             },
-            default_embedding_model_config={ # embedding
+            default_embedding_model_config={  # embedding
                 "model_name": "text-embedding-v4",
                 "backend": "openai",
             },
-            default_file_store_config={ # 开启混合搜索
+            default_file_store_config={  # 开启混合搜索
                 "fts_enabled": True,
                 "vector_enabled": True,
             },
@@ -791,7 +797,7 @@ class LocomoReMeLightEvaluator:
         user_file_name = f"{speaker_a}_{speaker_b}"
 
         working_dir = str(
-            Path(self.config.output_dir) / "working_dirs" / user_file_name
+            Path(self.config.output_dir) / "working_dirs" / user_file_name,
         )
 
         if self.config.resume:
@@ -806,22 +812,18 @@ class LocomoReMeLightEvaluator:
         # 初始化 ReMeLight，配 LLM + Embedding + FileWatcher
         reme = await self.create_reme(working_dir)
 
-        session_num = (
-            19 if uuid == "Caroline_Melanie"
-            else int(len(conv) / 2 - 1)
-        )
+        session_num = 19 if uuid == "Caroline_Melanie" else int(len(conv) / 2 - 1)
         time_interval = 60
 
         logger.info(
-            f"Processing user {user_name}: {session_num} sessions, "
-            f"working_dir={working_dir}"
+            f"Processing user {user_name}: {session_num} sessions, " f"working_dir={working_dir}",
         )
 
         if not self.config.resume:
             # 循环 19 个 session: 调 summary_memory() 写 memory/*.md
             for idx in range(session_num):
                 logger.info(
-                    f"  Session {idx + 1}/{session_num} for {user_file_name}"
+                    f"  Session {idx + 1}/{session_num} for {user_file_name}",
                 )
                 session_data = {
                     "uuid": uuid,
@@ -836,7 +838,10 @@ class LocomoReMeLightEvaluator:
                     base_timestamp = datetime(2023, 1, 1)
 
                 formatted_messages = self.data_loader.format_dialogue_messages(
-                    dialogue, speaker_a, base_timestamp, time_interval
+                    dialogue,
+                    speaker_a,
+                    base_timestamp,
+                    time_interval,
                 )
 
                 # 调 summary_memory() 写 memory/*.md
@@ -846,11 +851,13 @@ class LocomoReMeLightEvaluator:
                     batch_size=self.config.batch_size,
                 )
 
-                session_data.update({
-                    "dialogue": dialogue,
-                    "summary_text": summary_text,
-                    "add_dialogue_duration_ms": duration_ms,
-                })
+                session_data.update(
+                    {
+                        "dialogue": dialogue,
+                        "summary_text": summary_text,
+                        "add_dialogue_duration_ms": duration_ms,
+                    },
+                )
 
                 self.file_manager.save_session(user_file_name, idx, session_data)
 
@@ -893,10 +900,7 @@ class LocomoReMeLightEvaluator:
 
         async def process_with_cache(idx: int, user_data: dict):
             async with semaphore:
-                user_name = (
-                    f"{user_data['conversation']['speaker_a']}_"
-                    f"{user_data['conversation']['speaker_b']}"
-                )
+                user_name = f"{user_data['conversation']['speaker_a']}_" f"{user_data['conversation']['speaker_b']}"
 
                 if self.file_manager.user_has_cache(user_name):
                     logger.info(f"[{idx}/{len(users_to_process)}] Skipping {user_name} (cached)")
@@ -909,10 +913,7 @@ class LocomoReMeLightEvaluator:
                 await self._trigger_update()
                 return result
 
-        tasks = [
-            process_with_cache(idx, user)
-            for idx, user in enumerate(users_to_process, 1)
-        ]
+        tasks = [process_with_cache(idx, user) for idx, user in enumerate(users_to_process, 1)]
         await asyncio.gather(*tasks, return_exceptions=True)
 
         elapsed = time.time() - start_time
@@ -941,7 +942,7 @@ class LocomoReMeLightEvaluator:
                     user_data = json.loads(line)
                     eval_results = user_data.get("evaluation_results", {})
                     qa_records.extend(
-                        eval_results.get("question_answering_records", [])
+                        eval_results.get("question_answering_records", []),
                     )
         except (json.JSONDecodeError, KeyError):
             return
@@ -976,7 +977,7 @@ class LocomoReMeLightEvaluator:
                 user_data = json.loads(line)
                 eval_results = user_data.get("evaluation_results", {})
                 qa_records.extend(
-                    eval_results.get("question_answering_records", [])
+                    eval_results.get("question_answering_records", []),
                 )
 
         qa_metrics = MetricsAggregator.compute_qa_metrics(qa_records)
@@ -1076,7 +1077,7 @@ def main(
             output_dir=output_dir,
             index_wait_seconds=index_wait_seconds,
             resume=resume,
-        )
+        ),
     )
 
 
@@ -1084,7 +1085,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="ReMeLight (file-based) evaluation on LoCoMo benchmark"
+        description="ReMeLight (file-based) evaluation on LoCoMo benchmark",
     )
     parser.add_argument(
         "--data_path",
@@ -1093,13 +1094,22 @@ if __name__ == "__main__":
         help="Path to LoCoMo data file (default: benchmark/locomo/data/locomo10.json)",
     )
     parser.add_argument(
-        "--top_k", type=int, default=20, help="Max memory search results (default: 20)"
+        "--top_k",
+        type=int,
+        default=20,
+        help="Max memory search results (default: 20)",
     )
     parser.add_argument(
-        "--user_num", type=int, default=1, help="Number of users to evaluate"
+        "--user_num",
+        type=int,
+        default=1,
+        help="Number of users to evaluate",
     )
     parser.add_argument(
-        "--max_concurrency", type=int, default=2, help="Max concurrent users"
+        "--max_concurrency",
+        type=int,
+        default=2,
+        help="Max concurrent users",
     )
     parser.add_argument(
         "--reme_model_name",
@@ -1145,6 +1155,7 @@ if __name__ == "__main__":
         print("Or specify a custom path:")
         print("  python benchmark/locomo/eval_reme_light.py --data_path /path/to/locomo10.json\n")
         import sys
+
         sys.exit(1)
 
     main(
