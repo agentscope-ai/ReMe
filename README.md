@@ -30,7 +30,7 @@
 
 ## ✨ 核心创新
 
-- **Markdown as Memory**：以带 frontmatter 和 wikilink 的 Markdown 作为记忆节点，让人和 Agent 都能直接读写。
+- **Memory as files**：以带 frontmatter 和 wikilink 的 Markdown 作为记忆节点，让人和 Agent 都能直接读写。
 - **自进化知识库**：记忆从原始输入进入 daily 浅加工，再沉淀为 digest 深加工长期知识。
 - **渐进式混合搜索**：先用关键词和语义召回定位片段，再沿 wikilink 图谱展开上下文。
 - **Agent 友好集成**：用文件、索引和工具接口组织记忆，方便不同 Agent 接入、维护和复用。
