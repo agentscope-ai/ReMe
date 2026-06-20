@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">ReMe memory as file model</title>
+  <desc id="desc">A diagram showing ReMe vault files as both a human readable memory interface and an agent operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .section-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .section-subtitle { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .chip-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #253246; }
+      .chip-text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #627087; }
+      .note { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5d6a7d; }
+      .label { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .panel { fill: #ffffff; stroke: #d7dde7; stroke-width: 1.2; rx: 10; ry: 10; }
+      .chip { fill: #f9fafc; stroke: #dfe5ee; stroke-width: 1; rx: 8; ry: 8; }
+      .badge { fill: #44546a; }
+      .soft { fill: #eef2f7; stroke: #d7dde7; stroke-width: 1; rx: 8; ry: 8; }
+      .arrow { stroke: #8794a8; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow-soft); }
+      .line { stroke: #e1e6ee; stroke-width: 1; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8794a8"/>
+    </marker>
+    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a3adbd"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="680"/>
+  <text class="title" x="600" y="54" text-anchor="middle">Memory as File</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Vault files are the readable memory surface and the operable graph/index substrate.</text>
+
+  <rect class="panel" x="72" y="124" width="280" height="168"/>
+  <rect class="badge" x="102" y="150" width="94" height="24" rx="12" ry="12"/>
+  <text class="label" x="149" y="167" text-anchor="middle">Human</text>
+  <text class="section-title" x="102" y="202">Read and edit files</text>
+  <text class="section-subtitle" x="102" y="226">Markdown, YAML, JSONL, resources</text>
+  <rect class="chip" x="102" y="248" width="220" height="28"/>
+  <text class="chip-text" x="212" y="267" text-anchor="middle">open, revise, move, delete</text>
+
+  <rect class="panel" x="460" y="120" width="280" height="176"/>
+  <text class="section-title" x="600" y="152" text-anchor="middle">Vault directory</text>
+  <text class="section-subtitle" x="600" y="176" text-anchor="middle">the shared memory interface</text>
+  <rect class="soft" x="504" y="204" width="192" height="30"/>
+  <text class="chip-title" x="600" y="224" text-anchor="middle">Memory as File</text>
+  <rect class="soft" x="504" y="248" width="192" height="30"/>
+  <text class="chip-title" x="600" y="268" text-anchor="middle">File as Memory</text>
+
+  <rect class="panel" x="848" y="124" width="280" height="168"/>
+  <rect class="badge" x="878" y="150" width="94" height="24" rx="12" ry="12"/>
+  <text class="label" x="925" y="167" text-anchor="middle">Agent</text>
+  <text class="section-title" x="878" y="202">Parse and operate graph</text>
+  <text class="section-subtitle" x="878" y="226">frontmatter, chunks, wikilinks</text>
+  <rect class="chip" x="878" y="248" width="220" height="28"/>
+  <text class="chip-text" x="988" y="267" text-anchor="middle">search, link, rewrite, index</text>
+
+  <path class="arrow" d="M352 208 H460"/>
+  <path class="arrow" d="M740 208 H848"/>
+  <path class="soft-arrow" d="M848 250 C740 326 460 326 352 250"/>
+  <text class="note" x="600" y="336" text-anchor="middle">people and agents see the same file tree, so edits and evidence links stay inspectable</text>
+
+  <rect class="panel" x="54" y="398" width="224" height="144"/>
+  <circle class="badge" cx="88" cy="432" r="15"/>
+  <text class="label" x="88" y="436" text-anchor="middle">1</text>
+  <text class="section-title" x="116" y="438">Raw input</text>
+  <text class="section-subtitle" x="82" y="468">keep the original scene</text>
+  <rect class="chip" x="82" y="494" width="168" height="28"/>
+  <text class="chip-text" x="166" y="513" text-anchor="middle">reme_session/ + resource/</text>
+
+  <rect class="panel" x="326" y="398" width="224" height="144"/>
+  <circle class="badge" cx="360" cy="432" r="15"/>
+  <text class="label" x="360" y="436" text-anchor="middle">2</text>
+  <text class="section-title" x="388" y="438">Daily</text>
+  <text class="section-subtitle" x="354" y="468">shallow working memory</text>
+  <rect class="chip" x="354" y="494" width="168" height="28"/>
+  <text class="chip-text" x="438" y="513" text-anchor="middle">daily/YYYY-MM-DD/*.md</text>
+
+  <rect class="panel" x="598" y="398" width="224" height="144"/>
+  <circle class="badge" cx="632" cy="432" r="15"/>
+  <text class="label" x="632" y="436" text-anchor="middle">3</text>
+  <text class="section-title" x="660" y="438">Digest</text>
+  <text class="section-subtitle" x="626" y="468">long-term reusable nodes</text>
+  <rect class="chip" x="626" y="494" width="168" height="28"/>
+  <text class="chip-text" x="710" y="513" text-anchor="middle">personal / procedure / wiki</text>
+
+  <rect class="panel" x="870" y="398" width="224" height="144"/>
+  <circle class="badge" cx="904" cy="432" r="15"/>
+  <text class="label" x="904" y="436" text-anchor="middle">4</text>
+  <text class="section-title" x="932" y="438">Metadata</text>
+  <text class="section-subtitle" x="898" y="468">system state and indexes</text>
+  <rect class="chip" x="898" y="494" width="168" height="28"/>
+  <text class="chip-text" x="982" y="513" text-anchor="middle">catalog + chunks + links</text>
+
+  <path class="arrow" d="M278 470 H326"/>
+  <path class="arrow" d="M550 470 H598"/>
+  <path class="arrow" d="M822 470 H870"/>
+  <path class="soft-arrow" d="M982 398 C982 356 710 356 710 398"/>
+  <path class="soft-arrow" d="M982 542 C982 592 438 592 438 542"/>
+
+  <rect class="panel" x="126" y="594" width="948" height="46"/>
+  <text class="note" x="176" y="622">Stable paths</text>
+  <line class="line" x1="308" y1="606" x2="308" y2="628"/>
+  <text class="chip-text" x="360" y="622">vault-relative wikilinks</text>
+  <line class="line" x1="548" y1="606" x2="548" y2="628"/>
+  <text class="chip-text" x="600" y="622">derived_from evidence edges</text>
+  <line class="line" x1="814" y1="606" x2="814" y2="628"/>
+  <text class="chip-text" x="862" y="622">search expands structure and links</text>
+</svg>

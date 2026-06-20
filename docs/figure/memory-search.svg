@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
+  <title id="title">ReMe memory search flow</title>
+  <desc id="desc">A concise left-to-right memory search flow from watched vault files to progressive link expansion.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .step-num { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .step-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .step-subtitle { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .chip-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #253246; }
+      .chip-text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #627087; }
+      .note { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5d6a7d; }
+      .panel { fill: #ffffff; stroke: #d7dde7; stroke-width: 1.2; rx: 10; ry: 10; }
+      .chip { fill: #f9fafc; stroke: #dfe5ee; stroke-width: 1; rx: 8; ry: 8; }
+      .badge { fill: #44546a; }
+      .arrow { stroke: #8794a8; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow-soft); }
+      .line { stroke: #e1e6ee; stroke-width: 1; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8794a8"/>
+    </marker>
+    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a3adbd"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="640"/>
+  <text class="title" x="600" y="54" text-anchor="middle">Memory Search</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Index file changes continuously, recall relevant chunks, then expand nearby wikilink context.</text>
+
+  <rect class="panel" x="64" y="150" width="232" height="260"/>
+  <circle class="badge" cx="100" cy="188" r="15"/>
+  <text class="step-num" x="100" y="192" text-anchor="middle">1</text>
+  <text class="step-title" x="128" y="194">Watch memory</text>
+  <text class="step-subtitle" x="92" y="224">index_update_loop</text>
+  <rect class="chip" x="92" y="250" width="176" height="44"/>
+  <text class="chip-title" x="180" y="269" text-anchor="middle">daily / digest / resource</text>
+  <text class="chip-text" x="180" y="287" text-anchor="middle">md and jsonl files</text>
+  <rect class="chip" x="92" y="314" width="176" height="44"/>
+  <text class="chip-title" x="180" y="333" text-anchor="middle">init + watch changes</text>
+  <text class="chip-text" x="180" y="351" text-anchor="middle">added / modified / deleted</text>
+
+  <rect class="panel" x="348" y="150" width="232" height="260"/>
+  <circle class="badge" cx="384" cy="188" r="15"/>
+  <text class="step-num" x="384" y="192" text-anchor="middle">2</text>
+  <text class="step-title" x="412" y="194">Build index</text>
+  <text class="step-subtitle" x="376" y="224">update_index_step</text>
+  <rect class="chip" x="376" y="250" width="176" height="44"/>
+  <text class="chip-title" x="464" y="269" text-anchor="middle">chunk file</text>
+  <text class="chip-text" x="464" y="287" text-anchor="middle">FileNode + FileChunk[]</text>
+  <rect class="chip" x="376" y="314" width="176" height="44"/>
+  <text class="chip-title" x="464" y="333" text-anchor="middle">store structures</text>
+  <text class="chip-text" x="464" y="351" text-anchor="middle">BM25 + graph + chunks</text>
+
+  <rect class="panel" x="632" y="150" width="232" height="260"/>
+  <circle class="badge" cx="668" cy="188" r="15"/>
+  <text class="step-num" x="668" y="192" text-anchor="middle">3</text>
+  <text class="step-title" x="696" y="194">Recall chunks</text>
+  <text class="step-subtitle" x="660" y="224">search_step</text>
+  <rect class="chip" x="660" y="250" width="176" height="44"/>
+  <text class="chip-title" x="748" y="269" text-anchor="middle">BM25 search</text>
+  <text class="chip-text" x="748" y="287" text-anchor="middle">keyword-ranked chunks</text>
+  <rect class="chip" x="660" y="314" width="176" height="44"/>
+  <text class="chip-title" x="748" y="333" text-anchor="middle">optional vector search</text>
+  <text class="chip-text" x="748" y="351" text-anchor="middle">RRF fusion when enabled</text>
+
+  <rect class="panel" x="916" y="150" width="220" height="260"/>
+  <circle class="badge" cx="952" cy="188" r="15"/>
+  <text class="step-num" x="952" y="192" text-anchor="middle">4</text>
+  <text class="step-title" x="980" y="194">Expand context</text>
+  <text class="step-subtitle" x="944" y="224">expand_links</text>
+  <rect class="chip" x="944" y="250" width="164" height="44"/>
+  <text class="chip-title" x="1026" y="269" text-anchor="middle">top chunks</text>
+  <text class="chip-text" x="1026" y="287" text-anchor="middle">path + line range</text>
+  <rect class="chip" x="944" y="314" width="164" height="44"/>
+  <text class="chip-title" x="1026" y="333" text-anchor="middle">outlinks + inlinks</text>
+  <text class="chip-text" x="1026" y="351" text-anchor="middle">name, description, via</text>
+
+  <path class="arrow" d="M296 280 H348"/>
+  <path class="arrow" d="M580 280 H632"/>
+  <path class="arrow" d="M864 280 H916"/>
+
+  <rect class="panel" x="142" y="484" width="916" height="76"/>
+  <text class="note" x="190" y="514">Default path</text>
+  <text class="chip-text" x="190" y="536">BM25 first, vector optional.</text>
+  <line class="line" x1="410" y1="500" x2="410" y2="544"/>
+  <text class="chip-title" x="454" y="514">BM25 is enabled by default</text>
+  <text class="chip-text" x="454" y="536">embedding_store is empty unless configured.</text>
+  <line class="line" x1="720" y1="500" x2="720" y2="544"/>
+  <text class="chip-title" x="764" y="514">Results stay compact first</text>
+  <text class="chip-text" x="764" y="536">Use read or traverse for deeper expansion.</text>
+
+  <path class="soft-arrow" d="M1026 410 C1026 456 748 452 748 410"/>
+  <text class="note" x="888" y="454" text-anchor="middle">link expansion is contextual, not a full-vault dump</text>
+</svg>

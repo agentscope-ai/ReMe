@@ -4,10 +4,10 @@ service:
 jobs:
   index_update_loop:
     backend: background
-    # watch_dirs: [daily_dir, digest_dir, resource_dir]
-    watch_dirs: [daily_dir, digest_dir]
-    # watch_suffixes: [md, jsonl]
-    watch_suffixes: [md]
+    watch_dirs: [daily_dir, digest_dir, resource_dir]
+#    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md, jsonl]
+#    watch_suffixes: [md]
     steps:
       - backend: init_changes_step
         monitor_type: file_store

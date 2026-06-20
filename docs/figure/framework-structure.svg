@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="title desc">
+  <title id="title">ReMe framework structure</title>
+  <desc id="desc">An architectural map of ReMe from file-backed vault storage through knowledge kernel, workflows, application wiring, and external service surfaces.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbfaf6"/>
+      <stop offset="0.55" stop-color="#f5f7fb"/>
+      <stop offset="1" stop-color="#eef7f4"/>
+    </linearGradient>
+    <linearGradient id="serviceGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9f3ec"/>
+      <stop offset="1" stop-color="#dcecf7"/>
+    </linearGradient>
+    <linearGradient id="appGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e5e8fb"/>
+      <stop offset="1" stop-color="#f1e4f5"/>
+    </linearGradient>
+    <linearGradient id="jobGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fae4d8"/>
+      <stop offset="1" stop-color="#f4eccd"/>
+    </linearGradient>
+    <linearGradient id="kernelGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9f1f4"/>
+      <stop offset="1" stop-color="#e1e8f7"/>
+    </linearGradient>
+    <linearGradient id="vaultGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f0e5d3"/>
+      <stop offset="1" stop-color="#e3efd9"/>
+    </linearGradient>
+    <filter id="softShadow" x="-8%" y="-18%" width="116%" height="145%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#1c2b3a" flood-opacity="0.13"/>
+    </filter>
+    <filter id="nodeShadow" x="-15%" y="-30%" width="130%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#1c2b3a" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .bg { fill: url(#paper); }
+      .grain { fill: none; stroke: #d9ded8; stroke-width: 1; opacity: 0.38; }
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+      .title { font-size: 30px; font-weight: 800; fill: #172033; }
+      .subtitle { font-size: 14px; fill: #667489; }
+      .layer-title { font-size: 18px; font-weight: 800; fill: #263548; }
+      .layer-note { font-size: 13px; fill: rgba(38,53,72,0.72); }
+      .section-label { font-size: 11px; font-weight: 800; fill: #647187; letter-spacing: 1.8px; }
+      .node-title { font-size: 14px; font-weight: 700; fill: #1d2838; }
+      .node-text { font-size: 12px; fill: #667489; }
+      .micro { font-size: 11px; fill: #728096; }
+      .plate { filter: url(#softShadow); }
+      .plate-bg { fill: #ffffff; stroke: rgba(52, 65, 84, 0.12); stroke-width: 1; }
+      .side { opacity: 0.18; }
+      .node { fill: #ffffff; stroke: rgba(90, 105, 128, 0.22); stroke-width: 1; filter: url(#nodeShadow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1200" height="920"/>
+  <path class="grain" d="M98 138 C246 104 337 155 475 121 C616 86 752 124 890 96 C1019 70 1082 98 1136 126"/>
+  <path class="grain" d="M64 768 C218 720 374 790 514 742 C660 692 812 740 966 706 C1066 684 1118 708 1146 732"/>
+
+  <text class="title" x="600" y="56" text-anchor="middle">ReMe Framework Structure</text>
+  <text class="subtitle" x="600" y="83" text-anchor="middle">File-backed memory, searchable knowledge kernel, composable jobs, app wiring, and public service surfaces.</text>
+
+  <g class="plate" transform="translate(0,0)">
+    <path class="side" d="M126 196 L1074 196 L1042 226 L158 226 Z" fill="#83cbbb"/>
+    <rect class="plate-bg" x="126" y="128" width="948" height="96" rx="18"/>
+    <rect x="126" y="128" width="280" height="96" rx="18" fill="url(#serviceGrad)"/>
+    <text class="layer-title" x="178" y="166">Service</text>
+    <text class="layer-note" x="178" y="188">Public interfaces</text>
+
+    <rect class="node" x="436" y="151" width="138" height="50" rx="13"/>
+    <text class="node-title" x="505" y="172" text-anchor="middle">HTTP API</text>
+    <text class="node-text" x="505" y="190" text-anchor="middle">server routes</text>
+    <rect class="node" x="626" y="151" width="138" height="50" rx="13"/>
+    <text class="node-title" x="695" y="172" text-anchor="middle">MCP Tools</text>
+    <text class="node-text" x="695" y="190" text-anchor="middle">agent actions</text>
+    <rect class="node" x="816" y="151" width="138" height="50" rx="13"/>
+    <text class="node-title" x="885" y="172" text-anchor="middle">CLI Client</text>
+    <text class="node-text" x="885" y="190" text-anchor="middle">local access</text>
+  </g>
+
+  <g class="plate" transform="translate(0,0)">
+    <path class="side" d="M94 336 L1106 336 L1074 366 L126 366 Z" fill="#aab5ec"/>
+    <rect class="plate-bg" x="94" y="264" width="1012" height="100" rx="18"/>
+    <rect x="94" y="264" width="280" height="100" rx="18" fill="url(#appGrad)"/>
+    <text class="layer-title" x="146" y="303">Application</text>
+    <text class="layer-note" x="146" y="325">Config, wiring, lifecycle</text>
+
+    <rect class="node" x="424" y="290" width="122" height="48" rx="12"/>
+    <text class="node-title" x="485" y="319" text-anchor="middle">Context</text>
+    <rect class="node" x="574" y="290" width="122" height="48" rx="12"/>
+    <text class="node-title" x="635" y="319" text-anchor="middle">Wiring</text>
+    <rect class="node" x="724" y="290" width="122" height="48" rx="12"/>
+    <text class="node-title" x="785" y="319" text-anchor="middle">Lifecycle</text>
+    <rect class="node" x="874" y="290" width="122" height="48" rx="12"/>
+    <text class="node-title" x="935" y="319" text-anchor="middle">Job APIs</text>
+  </g>
+
+  <g class="plate" transform="translate(0,0)">
+    <path class="side" d="M126 500 L1074 500 L1042 530 L158 530 Z" fill="#e9ad8f"/>
+    <rect class="plate-bg" x="126" y="404" width="948" height="124" rx="18"/>
+    <rect x="126" y="404" width="280" height="124" rx="18" fill="url(#jobGrad)"/>
+    <text class="layer-title" x="178" y="448">Steps / Jobs</text>
+    <text class="layer-note" x="178" y="470">Composable workflows</text>
+
+    <rect class="node" x="424" y="428" width="232" height="76" rx="14"/>
+    <text class="node-title" x="448" y="456">Jobs</text>
+    <text class="node-text" x="448" y="479">base · stream · background · cron</text>
+    <rect class="node" x="704" y="428" width="300" height="76" rx="14"/>
+    <text class="node-title" x="728" y="456">Step Modules</text>
+    <text class="node-text" x="728" y="479">file_io · index · evolve · transfer · channel · common</text>
+  </g>
+
+  <g class="plate" transform="translate(0,0)">
+    <path class="side" d="M94 674 L1106 674 L1074 704 L126 704 Z" fill="#8fcbd5"/>
+    <rect class="plate-bg" x="94" y="568" width="1012" height="134" rx="18"/>
+    <rect x="94" y="568" width="280" height="134" rx="18" fill="url(#kernelGrad)"/>
+    <text class="layer-title" x="146" y="615">Knowledge Kernel</text>
+    <text class="layer-note" x="146" y="637">Index, watch, schema</text>
+
+    <rect class="node" x="424" y="594" width="228" height="82" rx="14"/>
+    <text class="node-title" x="448" y="623">Index Stores</text>
+    <text class="node-text" x="448" y="646">file_store · keyword_index</text>
+    <text class="node-text" x="448" y="664">embedding_store · file_graph</text>
+    <rect class="node" x="698" y="594" width="172" height="82" rx="14"/>
+    <text class="node-title" x="722" y="623">File Watcher</text>
+    <text class="node-text" x="722" y="646">scanner · chunker</text>
+    <text class="node-text" x="722" y="664">catalog</text>
+    <rect class="node" x="916" y="594" width="142" height="82" rx="14"/>
+    <text class="node-title" x="940" y="623">Memory</text>
+    <text class="node-text" x="940" y="646">FileNode</text>
+    <text class="node-text" x="940" y="664">FileChunk · FileLink</text>
+  </g>
+
+  <g class="plate" transform="translate(0,0)">
+    <path class="side" d="M126 818 L1074 818 L1042 848 L158 848 Z" fill="#d0b98f"/>
+    <rect class="plate-bg" x="126" y="738" width="948" height="108" rx="18"/>
+    <rect x="126" y="738" width="280" height="108" rx="18" fill="url(#vaultGrad)"/>
+    <text class="layer-title" x="178" y="777">Vault Layout</text>
+    <text class="layer-note" x="178" y="799">File-backed memory</text>
+
+    <rect class="node" x="424" y="767" width="126" height="50" rx="13"/>
+    <text class="node-title" x="487" y="788" text-anchor="middle">daily/</text>
+    <text class="node-text" x="487" y="806" text-anchor="middle">working notes</text>
+    <rect class="node" x="584" y="767" width="126" height="50" rx="13"/>
+    <text class="node-title" x="647" y="788" text-anchor="middle">digest/</text>
+    <text class="node-text" x="647" y="806" text-anchor="middle">long-term</text>
+    <rect class="node" x="744" y="767" width="126" height="50" rx="13"/>
+    <text class="node-title" x="807" y="788" text-anchor="middle">resource/</text>
+    <text class="node-text" x="807" y="806" text-anchor="middle">resources</text>
+    <rect class="node" x="904" y="767" width="126" height="50" rx="13"/>
+    <text class="node-title" x="967" y="788" text-anchor="middle">metadata/</text>
+    <text class="node-text" x="967" y="806" text-anchor="middle">state</text>
+  </g>
+
+  <text class="section-label" x="92" y="118">EXTERNAL SURFACES</text>
+  <text class="section-label" x="92" y="734">PERSISTENT MEMORY BASE</text>
+  <text class="micro" x="600" y="878" text-anchor="middle">Structure reads bottom-up during boot and top-down during use.</text>
+  <text class="micro" x="600" y="896" text-anchor="middle">Vault files feed the kernel; workflows compose operations; application wiring exposes stable service entry points.</text>
+</svg>
