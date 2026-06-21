@@ -64,6 +64,7 @@ class DataLoader:
 
     @staticmethod
     def load_json(file_path: str) -> dict:
+        """Load and parse a JSON file."""
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
@@ -99,19 +100,23 @@ class FileManager:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def get_user_dir(self, user_name: str) -> Path:
+        """Get or create the output directory for a user."""
         user_dir = self.base_dir / user_name
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
 
     def get_session_file(self, user_name: str, session_id: int) -> Path:
+        """Get the file path for a session result."""
         return self.get_user_dir(user_name) / f"session_{session_id}.json"
 
     def save_session(self, user_name: str, session_id: int, data: dict):
+        """Save session evaluation data to a JSON file."""
         file_path = self.get_session_file(user_name, session_id)
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
     def user_has_cache(self, user_name: str) -> bool:
+        """Check if cached evaluation data exists for a user."""
         user_dir = self.get_user_dir(user_name)
         has_sessions = any(f.name.startswith("session_") and f.suffix == ".json" for f in user_dir.iterdir())
         has_questions = (user_dir / "questions.json").exists()
@@ -339,7 +344,7 @@ class ReMeLightMemoryProcessor:
             reme=reme,
             question=query,
             search_results=raw_results,
-            model_name=self.eval_model_name,
+            _model_name=self.eval_model_name,
         )
 
         duration_ms = (time.time() - start) * 1000
@@ -419,7 +424,9 @@ async def _answer_question_with_memories(
         return {"reasoning": str(e), "answer": ""}
 
 
-# 每个问题被裁判两次: 1. LLM 整理后的回答 vs 标准答案; 2.原始搜出来的记忆片段 vs 标准答案（衡量检索本身的质量）
+# 每个问题被裁判两次:
+# 1. LLM 整理后的回答 vs 标准答案
+# 2. 原始搜出来的记忆片段 vs 标准答案（衡量检索本身的质量）
 async def _evaluation_for_question(
     reme: ReMeLight,
     question: str,
@@ -482,32 +489,38 @@ async def _evaluation_for_question(
 
 # ==================== Evaluation Prompt Templates ====================
 
-_SYSTEM_PROMPT = (
-    "You are an expert grader that determines if answers to questions "
-    "match a gold standard answer"
+_SYSTEM_PROMPT = "You are an expert grader that determines if answers to questions match a gold standard answer"
+
+_USER_PROMPT_TEMPLATE = (
+    "Your task is to label an answer to a question as 'CORRECT' or 'WRONG'."
+    " You will be given the following data:\n"
+    "  (1) a question (posed by one user to another user),\n"
+    "  (2) a 'gold' (ground truth) answer,\n"
+    "  (3) a generated answer\n"
+    "which you will score as CORRECT/WRONG.\n"
+    "\n"
+    "The point of the question is to ask about something one user should know "
+    "about the other user based on their prior conversations.\n"
+    "The gold answer will usually be a concise and short answer that includes "
+    "the referenced topic.\n"
+    "\n"
+    "For time related questions, the gold answer will be a specific date, "
+    "month, year, etc. The generated answer might be much longer or use "
+    "relative time references, but you should be generous with your grading "
+    "- as long as it refers to the same date or time period as the gold "
+    "answer, it should be counted as CORRECT.\n"
+    "\n"
+    "Now it's time for the real question:\n"
+    "Question: {question}\n"
+    "Gold answer: {golden_answer}\n"
+    "Generated answer: {generated_answer}\n"
+    "\n"
+    "First, provide a short (one sentence) explanation of your reasoning, "
+    "then finish with CORRECT or WRONG.\n"
+    "Do NOT include both CORRECT and WRONG in your response.\n"
+    "\n"
+    'Just return the label CORRECT or WRONG in a json format with the key as "label".'
 )
-
-_USER_PROMPT_TEMPLATE = """Your task is to label an answer to a question as 'CORRECT' or 'WRONG'. You will be given the following data:
-  (1) a question (posed by one user to another user),
-  (2) a 'gold' (ground truth) answer,
-  (3) a generated answer
-which you will score as CORRECT/WRONG.
-
-The point of the question is to ask about something one user should know about the other user based on their prior conversations.
-The gold answer will usually be a concise and short answer that includes the referenced topic.
-
-For time related questions, the gold answer will be a specific date, month, year, etc. The generated answer might be much longer or use relative time references, but you should be generous with your grading - as long as it refers to the same date or time period as the gold answer, it should be counted as CORRECT.
-
-Now it's time for the real question:
-Question: {question}
-Gold answer: {golden_answer}
-Generated answer: {generated_answer}
-
-First, provide a short (one sentence) explanation of your reasoning, then finish with CORRECT or WRONG.
-Do NOT include both CORRECT and WRONG in your response.
-
-Just return the label CORRECT or WRONG in a json format with the key as "label"."""
-
 _PROMPT_MEMZERO_JSON = """# CONTEXT:
 {context}
 
@@ -538,27 +551,34 @@ Please provide your response in the following JSON format:
 }}
 ```"""
 
-_QUERY_VARIATIONS_PROMPT = """Generate {n} search query variations for the question below. Each variation should use different wording, focus on different entities, or approach from a different angle. Output one query per line, starting with "- ".
+_QUERY_VARIATIONS_PROMPT = (
+    "Generate {n} search query variations for the question below. Each variation "
+    "should use different wording, focus on different entities, or approach from "
+    'a different angle. Output one query per line, starting with "- ".\n'
+    "\n"
+    "Question: {question}\n"
+    "\n"
+    "Queries:"
+)
 
-Question: {question}
-
-Queries:"""
-
-_SUFFICIENCY_CHECK_PROMPT = """You are evaluating whether retrieved memories contain enough information to answer a question.
-
-Question: {question}
-
-Retrieved memories:
-{context}
-
-If the memories contain sufficient information to answer the question, reply:
-SUFFICIENT
-
-If more information is needed, reply:
-INSUFFICIENT
-NEW_QUERY: <a refined search query to find the missing information>
-
-Reply:"""
+_SUFFICIENCY_CHECK_PROMPT = (
+    "You are evaluating whether retrieved memories contain enough information "
+    "to answer a question.\n"
+    "\n"
+    "Question: {question}\n"
+    "\n"
+    "Retrieved memories:\n"
+    "{context}\n"
+    "\n"
+    "If the memories contain sufficient information to answer the question, reply:\n"
+    "SUFFICIENT\n"
+    "\n"
+    "If more information is needed, reply:\n"
+    "INSUFFICIENT\n"
+    "NEW_QUERY: <a refined search query to find the missing information>\n"
+    "\n"
+    "Reply:"
+)
 
 
 # ==================== Evaluation Classes ====================
@@ -579,7 +599,7 @@ class QuestionAnsweringEvaluator:
         self,
         reme: ReMeLight,
         questions: list[dict],
-        user_name: str,
+        user_name: str,  # pylint: disable=unused-argument
         uuid: str,
         top_k: int = 20,
     ) -> list[dict]:
@@ -608,7 +628,7 @@ class QuestionAnsweringEvaluator:
                 question=qa["question"],
                 golden_answer=qa["answer"],
                 generated_answer=system_answer,
-                model_name=self.eval_model_name,
+                _model_name=self.eval_model_name,
             )
 
             # Also evaluate raw search results
@@ -618,7 +638,7 @@ class QuestionAnsweringEvaluator:
                 question=qa["question"],
                 golden_answer=qa["answer"],
                 generated_answer=raw_memories_text,
-                model_name=self.eval_model_name,
+                _model_name=self.eval_model_name,
             )
 
             qa_result = {
@@ -691,6 +711,7 @@ class MetricsAggregator:
 
     @staticmethod
     def compute_qa_metrics(qa_records: list[dict]) -> dict[str, Any]:
+        """Compute QA accuracy metrics grouped by evaluation type."""
         return {
             "with_llm_answer": MetricsAggregator._compute_single_metric(
                 qa_records,
@@ -704,6 +725,7 @@ class MetricsAggregator:
 
     @staticmethod
     def compute_time_metrics(eval_results_file: str) -> dict[str, float]:
+        """Compute time-based metrics from evaluation results."""
         add_duration = 0
         search_duration = 0
 
@@ -1039,6 +1061,7 @@ async def main_async(
     index_wait_seconds: int = 5,
     resume: bool = False,
 ):
+    """Async entry point for the LoCoMo ReMeLight evaluation."""
     config = EvalConfig(
         data_path=data_path,
         top_k=top_k,
@@ -1066,6 +1089,7 @@ def main(
     index_wait_seconds: int = 5,
     resume: bool = False,
 ):
+    """Entry point for the LoCoMo ReMeLight evaluation."""
     asyncio.run(
         main_async(
             data_path=data_path,
