@@ -46,42 +46,6 @@
 - **任务自动化**：复用历史任务中的成功路径、失败教训和操作流程。
 </details>
 
-## 📁 记忆系统
-
-> Memory as File, File as Memory.
-
-ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
-中可长期复用的知识节点。
-
-### 目录结构
-
-```text
-<vault_dir>/
-├── reme_metadata/       # 系统索引、图谱、catalog 等持久状态
-├── reme_session/        # 原始对话和 Agent session
-│   ├── dialog/
-│   │   └── <session_id>.jsonl
-│   ├── agentscope/
-│   └── claude_code/
-├── resource/            # 外部原始材料
-│   └── YYYY-MM-DD/
-│       └── <resource>.<ext>
-├── daily/               # 浅加工记忆：当天事实、对话摘要、资源解读
-│   ├── YYYY-MM-DD.md
-│   └── YYYY-MM-DD/
-│       ├── <session_id>.md
-│       ├── <resource_stem>.md
-│       └── interests.yaml
-└── digest/              # 长期记忆：个人事实、流程经验、知识节点
-    ├── personal/
-    ├── procedure/
-    └── wiki/
-```
-
-<p align="center">
-  <img src="docs/figure/reme-overview.svg" alt="ReMe 文件化记忆系统总览" width="92%">
-</p>
-
 ## 🚀 快速开始
 
 ### 安装
@@ -135,21 +99,53 @@ reme version
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
-更多细节见 [快速开始](docs/zh/quick_start.md)。
-
-## 🔌 接入 ReMe
-
 ReMe 通过 SKILL.md + CLI + hook（可选）接入支持的 Agent 框架：
 
 - 为 Agent 加入 [reme_memory](reme/skills/reme_memory/SKILL.md) skill，并允许它调用
   `reme search/read/write/auto_memory/proactive` 等 CLI
-- 在 Agent 的 after-reply hook 中调用 `auto_memory`
+- 在Agent hook中调用 `auto_memory` 和  `proactive`
+- `auto_index` / `auto_resource` 通过文件监控自动触发
+- `auto_dream` 通过定时任务自动触发
 
 QwenPaw 2.0 将会集成新版 ReMe；未来也会推出 Claude Code plugin，降低手动接入成本。
 
-## 🧰 能力介绍
+更多细节见 [快速开始](docs/zh/quick_start.md)。
 
-ReMe 的能力可以分为两类：自动记忆流程和 Vault 操作接口。
+## 📁 记忆系统
+
+> Memory as File, File as Memory.
+
+ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
+中可长期复用的知识节点。
+
+### 目录结构
+
+```text
+<vault_dir>/
+├── reme_metadata/       # 系统索引、图谱、catalog 等持久状态
+├── reme_session/        # 原始对话和 Agent session
+│   ├── dialog/
+│   │   └── <session_id>.jsonl
+│   ├── agentscope/
+│   └── claude_code/
+├── resource/            # 外部原始材料
+│   └── YYYY-MM-DD/
+│       └── <resource>.<ext>
+├── daily/               # 浅加工记忆：当天事实、对话摘要、资源解读
+│   ├── YYYY-MM-DD.md
+│   └── YYYY-MM-DD/
+│       ├── <session_id>.md
+│       ├── <resource_stem>.md
+│       └── interests.yaml
+└── digest/              # 长期记忆：个人事实、流程经验、知识节点
+    ├── personal/
+    ├── procedure/
+    └── wiki/
+```
+
+<p align="center">
+  <img src="docs/figure/reme-overview.svg" alt="ReMe 文件化记忆系统总览" width="92%">
+</p>
 
 ### 自动记忆流程
 

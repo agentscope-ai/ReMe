@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">ReMe overview</title>
-  <desc id="desc">A hand-drawn style overview of ReMe, showing Auto Memory, Auto Resource, Auto Dream, Memory Search, and Memory as File.</desc>
+  <desc id="desc">A hand-drawn style overview of ReMe, showing Auto Memory plus Auto Resource, Auto Dream plus Proactive, Auto Index plus Memory Search, and Memory as File.</desc>
   <defs>
     <style>
       .bg { fill: #fffdf8; }
@@ -40,34 +40,48 @@
   <text class="subtitle" x="600" y="68" text-anchor="middle">A file-native memory loop: capture, consolidate, link, search, and proactively surface what matters.</text>
 
   <!-- Top workflow -->
-  <g transform="translate(40 124)">
-    <rect class="blue ink thin" x="0" y="0" width="300" height="110" rx="16"/>
-    <text class="head" x="150" y="27" text-anchor="middle">Auto Memory</text>
-    <rect class="box ink thin step" x="38" y="48" width="100" height="42" rx="10"/>
-    <text class="label" x="88" y="67" text-anchor="middle">Capture</text>
-    <text class="tiny" x="88" y="82" text-anchor="middle">conversation</text>
-    <rect class="yellow ink thin step" x="162" y="48" width="100" height="42" rx="10"/>
-    <text class="label" x="212" y="67" text-anchor="middle">Write</text>
-    <text class="tiny" x="212" y="82" text-anchor="middle">daily card</text>
-    <path class="arrow" d="M140 69 H160"/>
-  </g>
+  <g transform="translate(40 120)">
+    <rect class="blue ink thin" x="0" y="0" width="300" height="260" rx="18"/>
+    <text class="head" x="150" y="31" text-anchor="middle">Auto Memory + Auto Resource</text>
+    <text class="text" x="150" y="56" text-anchor="middle">Capture sessions and resources into daily cards.</text>
 
-  <g transform="translate(40 260)">
-    <rect class="green ink thin" x="0" y="0" width="300" height="110" rx="16"/>
-    <text class="head" x="150" y="27" text-anchor="middle">Auto Resource</text>
-    <rect class="box ink thin step" x="38" y="48" width="100" height="42" rx="10"/>
-    <text class="label" x="88" y="67" text-anchor="middle">Read</text>
-    <text class="tiny" x="88" y="82" text-anchor="middle">resource file</text>
-    <rect class="yellow ink thin step" x="162" y="48" width="100" height="42" rx="10"/>
-    <text class="label" x="212" y="67" text-anchor="middle">Write</text>
-    <text class="tiny" x="212" y="82" text-anchor="middle">daily card</text>
-    <path class="arrow" d="M140 69 H160"/>
+    <g transform="translate(24 78)">
+      <rect class="blue ink thin dash" x="0" y="0" width="252" height="64" rx="13"/>
+      <text class="label" x="54" y="27" text-anchor="middle">Auto</text>
+      <text class="label" x="54" y="45" text-anchor="middle">Memory</text>
+
+      <rect class="box ink thin step" x="100" y="12" width="62" height="40" rx="9"/>
+      <text class="label" x="131" y="29" text-anchor="middle">Capture</text>
+      <text class="tiny" x="131" y="44" text-anchor="middle">chat</text>
+
+      <rect class="yellow ink thin step" x="178" y="12" width="56" height="40" rx="9"/>
+      <text class="label" x="206" y="29" text-anchor="middle">Write</text>
+      <text class="tiny" x="206" y="44" text-anchor="middle">daily</text>
+
+      <path class="arrow" d="M164 32 H176"/>
+    </g>
+
+    <g transform="translate(24 162)">
+      <rect class="green ink thin dash" x="0" y="0" width="252" height="64" rx="13"/>
+      <text class="label" x="54" y="27" text-anchor="middle">Auto</text>
+      <text class="label" x="54" y="45" text-anchor="middle">Resource</text>
+
+      <rect class="box ink thin step" x="100" y="12" width="62" height="40" rx="9"/>
+      <text class="label" x="131" y="29" text-anchor="middle">Read</text>
+      <text class="tiny" x="131" y="44" text-anchor="middle">source</text>
+
+      <rect class="yellow ink thin step" x="178" y="12" width="56" height="40" rx="9"/>
+      <text class="label" x="206" y="29" text-anchor="middle">Write</text>
+      <text class="tiny" x="206" y="44" text-anchor="middle">daily</text>
+
+      <path class="arrow" d="M164 32 H176"/>
+    </g>
   </g>
 
   <g transform="translate(380 120)">
     <rect class="yellow ink thin" x="0" y="0" width="320" height="260" rx="18"/>
-    <text class="head" x="160" y="32" text-anchor="middle">Auto Dream</text>
-    <text class="text" x="160" y="58" text-anchor="middle">Daily notes -> durable digest</text>
+    <text class="head" x="160" y="32" text-anchor="middle">Auto Dream + Proactive</text>
+    <text class="text" x="160" y="58" text-anchor="middle">Consolidate notes, link knowledge, surface interests.</text>
 
     <rect class="box ink thin step" x="38" y="84" width="112" height="56" rx="12"/>
     <text class="label" x="94" y="108" text-anchor="middle">Extract</text>
@@ -93,39 +107,43 @@
 
   <g transform="translate(730 120)">
     <rect class="violet ink thin" x="0" y="0" width="430" height="260" rx="18"/>
-    <text class="head" x="230" y="31" text-anchor="middle">Memory Search</text>
-    <text class="text" x="230" y="56" text-anchor="middle">Ask the vault, then follow the graph.</text>
+    <text class="head" x="215" y="31" text-anchor="middle">Auto Index + Memory Search</text>
+    <text class="text" x="215" y="56" text-anchor="middle">Keep indexes fresh, recall chunks, then follow links.</text>
 
-    <g transform="translate(44 96)">
-      <rect class="blue ink thin step" x="0" y="0" width="96" height="92" rx="13"/>
-      <text class="label" x="48" y="28" text-anchor="middle">Hybrid</text>
-      <text class="label" x="48" y="46" text-anchor="middle">Index</text>
-      <text class="tiny" x="48" y="67" text-anchor="middle">chunks</text>
-      <text class="tiny" x="48" y="82" text-anchor="middle">+ wikilinks</text>
+    <g transform="translate(24 86)">
+      <rect class="blue ink thin dash" x="0" y="0" width="178" height="136" rx="14"/>
+      <text class="label" x="89" y="24" text-anchor="middle">Auto Index</text>
+
+      <rect class="box ink thin step" x="18" y="46" width="64" height="58" rx="10"/>
+      <text class="label" x="50" y="70" text-anchor="middle">Watch</text>
+      <text class="tiny" x="50" y="88" text-anchor="middle">changes</text>
+
+      <rect class="yellow ink thin step" x="98" y="46" width="64" height="58" rx="10"/>
+      <text class="label" x="130" y="70" text-anchor="middle">Build</text>
+      <text class="tiny" x="130" y="88" text-anchor="middle">index</text>
+
+      <path class="arrow" d="M84 75 H96"/>
     </g>
 
-    <g transform="translate(166 96)">
-      <rect class="green ink thin step" x="0" y="0" width="96" height="92" rx="13"/>
-      <text class="label" x="48" y="28" text-anchor="middle">Hybrid</text>
-      <text class="label" x="48" y="46" text-anchor="middle">Retrieval</text>
-      <text class="tiny" x="48" y="67" text-anchor="middle">BM25</text>
-      <text class="tiny" x="48" y="82" text-anchor="middle">+ vectors</text>
+    <g transform="translate(228 86)">
+      <rect class="green ink thin dash" x="0" y="0" width="178" height="136" rx="14"/>
+      <text class="label" x="89" y="24" text-anchor="middle">Memory Search</text>
+
+      <rect class="box ink thin step" x="18" y="46" width="64" height="58" rx="10"/>
+      <text class="label" x="50" y="70" text-anchor="middle">Recall</text>
+      <text class="tiny" x="50" y="88" text-anchor="middle">BM25 + vec</text>
+
+      <rect class="mint ink thin step" x="98" y="46" width="64" height="58" rx="10"/>
+      <text class="label" x="130" y="70" text-anchor="middle">Expand</text>
+      <text class="tiny" x="130" y="88" text-anchor="middle">links</text>
+
+      <path class="arrow" d="M84 75 H96"/>
     </g>
 
-    <g transform="translate(288 96)">
-      <rect class="mint ink thin step" x="0" y="0" width="96" height="92" rx="13"/>
-      <text class="label" x="48" y="28" text-anchor="middle">Progressive</text>
-      <text class="label" x="48" y="46" text-anchor="middle">Expansion</text>
-      <text class="tiny" x="48" y="67" text-anchor="middle">outlinks</text>
-      <text class="tiny" x="48" y="82" text-anchor="middle">+ inlinks</text>
-    </g>
-
-    <path class="arrow" d="M140 142 H164"/>
-    <path class="arrow" d="M262 142 H286"/>
+    <path class="arrow" d="M204 161 H226"/>
   </g>
 
-  <path class="arrow" d="M340 179 H380"/>
-  <path class="arrow" d="M340 315 H380"/>
+  <path class="arrow" d="M340 272 H380"/>
 
   <!-- Bottom foundation -->
   <rect class="box ink" x="40" y="408" width="1120" height="202" rx="24"/>
@@ -180,7 +198,7 @@
     <text class="tiny" x="106" y="39">long-term knowledge nodes</text>
   </g>
 
-  <path class="soft-arrow" d="M190 370 V408"/>
+  <path class="soft-arrow" d="M190 380 V408"/>
   <path class="soft-arrow" d="M540 380 V408"/>
   <path class="soft-arrow" d="M945 380 V408"/>
 </svg>
