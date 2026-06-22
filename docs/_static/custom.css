@@ -1,0 +1,78 @@
+/* Heading sizes — tighten furo's defaults */
+h1, .bd-article h1 {
+  font-size: 1.8rem !important;
+}
+
+h2, .bd-article h2 {
+  font-size: 1.5rem !important;
+}
+
+h3, .bd-article h3 {
+  font-size: 1.25rem !important;
+}
+
+h4, .bd-article h4 {
+  font-size: 1.1rem !important;
+}
+
+h5, .bd-article h5 {
+  font-size: 1rem !important;
+}
+
+h6, .bd-article h6 {
+  font-size: 0.9rem !important;
+}
+
+/* Centered brand in the sidebar */
+.sidebar-brand {
+  text-align: center;
+}
+
+.sidebar-brand .sidebar-logo {
+  max-width: 60%;
+  margin: 0 auto;
+}
+
+/* Language switcher (injected by switcher.js) */
+.lang-switch {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: center;
+  margin: 0.4rem 0 0.9rem;
+}
+
+.lang-switch a {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  padding: 0.12rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-background-border);
+  color: var(--color-foreground-secondary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lang-switch a:hover {
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary);
+}
+
+.lang-switch a.active {
+  background: var(--color-brand-primary);
+  border-color: var(--color-brand-primary);
+  color: #fff;
+  cursor: default;
+}
+
+.lang-switch--float {
+  position: fixed;
+  top: 0.6rem;
+  right: 0.8rem;
+  z-index: 50;
+  margin: 0;
+  background: var(--color-background-primary);
+  padding: 0.3rem 0.4rem;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
