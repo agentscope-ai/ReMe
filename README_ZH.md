@@ -31,23 +31,13 @@
 ## ✨ 核心创新
 
 - **Memory as File**：以带 frontmatter 和 wikilink 的 Markdown 作为记忆节点，让用户和 Agent 都能直接读写。
-- **自进化知识库**：通过 Auto Memory、Auto Resource 和 Auto Dream，把对话与资料逐步加工为长期 Markdown
-  记忆，并自动建立 wikilink 关系。
+- **自进化知识库**：通过 Auto Memory、Auto Resource 和 Auto Dream，把对话与资料逐步加工为长期 Markdown 记忆，并自动建立 wikilink 关系。
 - **渐进式混合搜索**：融合 wikilink、BM25 和 embedding，支持从关键词匹配到语义召回、关系扩展的混合检索。
 - **Agent 友好集成**：通过 SKILL.md + CLI 接入，方便不同 Agent 读写、维护与复用记忆。
 
-## 🧭 设计理念
-
-ReMe 的设计围绕三件事展开：把记忆落到可读写的文件中，把知识从原始材料渐进抽象为长期记忆，再用显式链接把知识组织成可供 Agent
-展开和推理的关系图。
-
-- **基础：Memory as File**。ReMe 不把长期记忆锁在黑盒数据库或隐式 prompt 中，而是使用 Markdown、JSONL、YAML
-  和资源文件承载记忆。文件既是用户可直接检查、修改和迁移的知识资产，也是 Agent 可读写、可索引、可链接的操作界面。
-- **核心：渐进式知识抽象**。原始对话和资料先保存在 `session/` 与 `resource/` 中，`auto_memory` 和 `auto_resource` 将它们加工为
-  `daily/` 中的浅层记忆，再由 `auto_dream` 抽取、合并和修正为 `digest/` 中的长期知识。这个过程不是一次性总结，而是从原始材料到浅加工记忆、再到深加工知识的持续沉淀。
-- **创新：从语义相似到关系图谱**。ReMe 使用 wikilink 表达显式知识关系，让记忆之间不再只依赖 embedding
-  的语义相似性，还能表达因果、上下游、来源、依赖、竞争等结构化关系。例如在金融场景中，可以把企业、行业、商品和事件连接成上游、下游、影响和风险链路，支持
-  Agent 从一个命中节点沿图谱渐进展开上下文。
+<p align="center">
+  <img src="docs/figure/design-philosophy.svg" alt="ReMe 设计理念" width="92%">
+</p>
 
 <details>
 <summary><b>适用场景</b></summary>

@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">ReMe design philosophy</title>
+  <desc id="desc">A simple diagram showing ReMe's design philosophy: file-native memory, progressive abstraction, and explicit relationship graph for agents.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 30px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .panel { fill: #ffffff; stroke: #d8dee8; stroke-width: 1.2; }
+      .panel-blue { fill: #eef7ff; stroke: #bfd8f2; stroke-width: 1.2; }
+      .panel-green { fill: #effaf4; stroke: #bfdcc9; stroke-width: 1.2; }
+      .panel-yellow { fill: #fff7e5; stroke: #ead59a; stroke-width: 1.2; }
+      .label { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .small { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .tiny { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #66758a; }
+      .chip { fill: #ffffff; stroke: #dfe5ee; stroke-width: 1; }
+      .chip-text { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .arrow { stroke: #8996aa; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a8b2c2; stroke-width: 1.8; fill: none; stroke-dasharray: 6 6; marker-end: url(#arrow-soft); }
+      .node { fill: #ffffff; stroke: #64748b; stroke-width: 1.7; }
+      .link { stroke: #93a0b2; stroke-width: 1.5; fill: none; }
+      .file-line { stroke: #c9d3df; stroke-width: 1.4; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8996aa"/>
+    </marker>
+    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a8b2c2"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="520"/>
+  <text class="title" x="600" y="54" text-anchor="middle">ReMe Design Philosophy</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">File-native memory, progressive abstraction, and explicit links for reusable agent context.</text>
+
+  <rect class="panel-blue" x="64" y="134" width="304" height="220" rx="14"/>
+  <text class="label" x="216" y="170" text-anchor="middle">Foundation: Memory as File</text>
+  <text class="small" x="216" y="196" text-anchor="middle">Readable, editable knowledge assets</text>
+  <g transform="translate(126 224)">
+    <rect class="panel" x="0" y="0" width="120" height="82" rx="8"/>
+    <path class="file-line" d="M22 26 H98"/>
+    <path class="file-line" d="M22 43 H86"/>
+    <path class="file-line" d="M22 60 H72"/>
+    <rect class="chip" x="136" y="6" width="96" height="28" rx="8"/>
+    <text class="chip-text" x="184" y="25" text-anchor="middle">Markdown</text>
+    <rect class="chip" x="136" y="48" width="96" height="28" rx="8"/>
+    <text class="chip-text" x="184" y="67" text-anchor="middle">YAML/JSONL</text>
+  </g>
+  <text class="tiny" x="216" y="332" text-anchor="middle">Human-readable. Agent-operable.</text>
+
+  <rect class="panel-yellow" x="448" y="134" width="304" height="220" rx="14"/>
+  <text class="label" x="600" y="170" text-anchor="middle">Core: Progressive Abstraction</text>
+  <text class="small" x="600" y="196" text-anchor="middle">From raw material to durable memory</text>
+  <g transform="translate(472 235)">
+    <rect class="chip" x="0" y="0" width="66" height="42" rx="10"/>
+    <text class="chip-text" x="33" y="26" text-anchor="middle">Raw</text>
+    <rect class="chip" x="95" y="0" width="66" height="42" rx="10"/>
+    <text class="chip-text" x="128" y="26" text-anchor="middle">Daily</text>
+    <rect class="chip" x="190" y="0" width="66" height="42" rx="10"/>
+    <text class="chip-text" x="223" y="26" text-anchor="middle">Digest</text>
+    <path class="arrow" d="M68 21 H89"/>
+    <path class="arrow" d="M163 21 H184"/>
+  </g>
+  <text class="tiny" x="600" y="310" text-anchor="middle">session/ + resource/ -> daily/ -> digest/</text>
+  <text class="tiny" x="600" y="332" text-anchor="middle">Continuous consolidation, not one-shot summary.</text>
+
+  <rect class="panel-green" x="832" y="134" width="304" height="220" rx="14"/>
+  <text class="label" x="984" y="170" text-anchor="middle">Innovation: Link Graph</text>
+  <text class="small" x="984" y="196" text-anchor="middle">Explicit links expand context</text>
+  <g transform="translate(930 207) scale(0.74)">
+    <path class="link" d="M74 40 L26 90"/>
+    <path class="link" d="M74 40 L130 84"/>
+    <path class="link" d="M26 90 L130 84"/>
+    <path class="link" d="M74 40 L152 26"/>
+    <circle class="node" cx="74" cy="40" r="24"/>
+    <circle class="node" cx="26" cy="90" r="20"/>
+    <circle class="node" cx="130" cy="84" r="20"/>
+    <circle class="node" cx="152" cy="26" r="18"/>
+    <text class="chip-text" x="74" y="38" text-anchor="middle">[[ ]]</text>
+    <text class="tiny" x="74" y="55" text-anchor="middle">Node</text>
+    <text class="tiny" x="26" y="95" text-anchor="middle">Src</text>
+    <text class="tiny" x="130" y="89" text-anchor="middle">Risk</text>
+    <text class="tiny" x="152" y="31" text-anchor="middle">Dep</text>
+  </g>
+  <text class="tiny" x="984" y="318" text-anchor="middle">Beyond similarity: source, cause, dependency, risk.</text>
+  <text class="tiny" x="984" y="338" text-anchor="middle">Wikilinks guide expansion across nodes.</text>
+
+  <path class="arrow" d="M368 244 H448"/>
+  <path class="arrow" d="M752 244 H832"/>
+
+  <rect class="panel" x="220" y="414" width="760" height="56" rx="14"/>
+  <text class="small" x="600" y="438" text-anchor="middle">One shared file tree acts as both memory store and operating surface.</text>
+  <text class="chip-text" x="600" y="460" text-anchor="middle">capture -> refine -> link -> retrieve -> expand</text>
+  <path class="soft-arrow" d="M216 354 C216 392 428 392 454 414"/>
+  <path class="soft-arrow" d="M600 354 V414"/>
+  <path class="soft-arrow" d="M984 354 C984 392 772 392 746 414"/>
+</svg>

@@ -35,13 +35,9 @@
 - **Progressive hybrid search**: ReMe combines wikilinks, BM25, and embeddings for hybrid retrieval across keyword matching, semantic recall, and relationship expansion.
 - **Agent-friendly integration**: SKILL.md + CLI integration makes it easy for different agents to read, write, maintain, and reuse memory.
 
-## 🧭 Design Philosophy
-
-ReMe is built around three principles: store memory in readable and writable files, progressively abstract knowledge from raw materials into long-term memory, and organize knowledge with explicit links so agents can expand and reason over a relationship graph.
-
-- **Foundation: Memory as File**. ReMe does not lock long-term memory inside a black-box database or implicit prompt. It uses Markdown, JSONL, YAML, and resource files as the memory substrate. Files are knowledge assets that users can inspect, edit, and migrate, and they are also an operational interface that agents can read, write, index, and link.
-- **Core: progressive knowledge abstraction**. Raw conversations and resources are first stored in `session/` and `resource/`. `auto_memory` and `auto_resource` process them into shallow memories under `daily/`, and `auto_dream` then extracts, merges, and corrects them into long-term knowledge under `digest/`. This is not a one-shot summary; it is continuous accumulation from raw material, to lightly processed memory, to deeper knowledge.
-- **Innovation: from semantic similarity to relationship graphs**. ReMe uses wikilinks to express explicit knowledge relationships, so memories no longer depend only on embedding-based semantic similarity. They can also represent structured relationships such as causality, upstream/downstream links, sources, dependencies, and competition. For example, in financial scenarios, companies, industries, commodities, and events can be connected into upstream, downstream, impact, and risk chains, allowing agents to expand context from one matched node through the graph.
+<p align="center">
+  <img src="docs/figure/design-philosophy.svg" alt="ReMe Design Philosophy" width="92%">
+</p>
 
 <details>
 <summary><b>Use Cases</b></summary>
