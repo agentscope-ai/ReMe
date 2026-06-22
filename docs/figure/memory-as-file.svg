@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">ReMe memory as file model</title>
   <desc id="desc">A diagram showing ReMe vault files as both a human readable memory interface and an agent operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.</desc>
   <defs>
@@ -28,7 +28,7 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1200" height="680"/>
+  <rect class="bg" x="0" y="0" width="1200" height="640"/>
   <text class="title" x="600" y="54" text-anchor="middle">Memory as File</text>
   <text class="subtitle" x="600" y="80" text-anchor="middle">Vault files are the readable memory surface and the operable graph/index substrate.</text>
 

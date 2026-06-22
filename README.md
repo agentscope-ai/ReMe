@@ -99,15 +99,16 @@ reme version
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
-ReMe 通过 SKILL.md + CLI + hook（可选）接入支持的 Agent 框架：
+### 快速接入
+ReMe 通过 **SKILL.md + CLI + hook（可选）** 接入支持的 Agent 框架。典型接入方式如下：
 
-- 为 Agent 加入 [reme_memory](reme/skills/reme_memory/SKILL.md) skill，并允许它调用
-  `reme search/read/write/auto_memory/proactive` 等 CLI
-- 在Agent hook中调用 `auto_memory` 和  `proactive`
-- `auto_index` / `auto_resource` 通过文件监控自动触发
-- `auto_dream` 通过定时任务自动触发
+- 为 Agent 添加 [reme_memory](reme/skills/reme_memory/SKILL.md) skill，并授予其调用
+  `reme search/read/write/auto_memory/proactive` 等 CLI 的权限。
+- 在 Agent hook 中按需调用 `auto_memory` 和 `proactive`，让对话自动沉淀为 daily 记忆，并在合适时机读取主动提醒。
+- `auto_index` 与 `auto_resource` 由文件监控自动触发，负责索引维护和资源加工。
+- `auto_dream` 由定时任务触发，将 daily 记忆进一步整理为可长期复用的 digest 记忆。
 
-QwenPaw 2.0 将会集成新版 ReMe；未来也会推出 Claude Code plugin，降低手动接入成本。
+QwenPaw 2.0 将集成新版 ReMe；后续也会推出 Claude Code plugin，进一步降低手动接入成本。
 
 更多细节见 [快速开始](docs/zh/quick_start.md)。
 
@@ -149,6 +150,13 @@ ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session
 
 ### 自动记忆流程
 
+ReMe 的自动记忆流程把原始对话和资料逐步加工成可检索、可追溯、可长期复用的文件化记忆。常规运行时，索引与资源处理由后台监听维护，对话记忆由 Agent hook 触发，长期整理与主动提醒则通过定时任务或按需调用完成。
+
+<details>
+<summary><b>查看自动记忆能力表</b></summary>
+
+<br>
+
 | 能力                                          | 运行方式                          | 作用                                                                                                      | 主要参数                                               |
 |---------------------------------------------|-------------------------------|---------------------------------------------------------------------------------------------------------|----------------------------------------------------|
 | [`auto_index`](docs/zh/memory_search.md)    | 后台维护；对应 `index_update_loop`   | 启动时扫描并持续监听 `daily/`、`digest/`、`resource/` 中的 Markdown/JSONL 变化，更新 chunk、BM25、embedding 与 wikilink 图谱索引。 | 配置项：`watch_dirs`、`watch_suffixes`                  |
@@ -156,6 +164,8 @@ ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session
 | [`auto_resource`](docs/zh/auto_resource.md) | 资源监听自动触发；也可按需调用               | 解读 `resource/<date>/` 下的资源变更，生成或更新同名 daily 资源卡片。                                                        | 必填：`changes`；每项可含 `path`、`file_path`、`change`      |
 | [`auto_dream`](docs/zh/auto_dream.md)       | 定时任务 `dream_cron`；也可按需调用      | 扫描指定日期的 daily 输入，抽取长期记忆单元并整合进 `digest/`，同时写入 `daily/<date>/interests.yaml`。                             | `date`、`hint`、`topic_count`、`topic_diversity_days` |
 | [`proactive`](docs/zh/proactive.md)         | Agent 主动提醒前按需读取               | 读取 `auto_dream` 生成的 `interests.yaml`，把当天值得关注的主题暴露给上层 Agent；是否提醒用户由调用方决定。                                | `date`、`include_content`                           |
+
+</details>
 
 <table>
   <tr>
@@ -177,6 +187,13 @@ ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session
 </table>
 
 ### Vault 操作接口
+
+ReMe 通过统一的 CLI / service job 接口操作 vault。Agent 通常只需要使用检索读取、写入编辑和自动记忆相关命令；更底层的索引、frontmatter 和文件操作接口主要用于维护、调试或高级集成。
+
+<details>
+<summary><b>查看 Vault 操作接口表</b></summary>
+
+<br>
 
 | 分类    | name                                 | 描述                                                                        | 参数                                                     |
 |-------|--------------------------------------|---------------------------------------------------------------------------|--------------------------------------------------------|
@@ -201,6 +218,8 @@ ReMe 将**记忆视为文件**，让原始对话和外部资料从 `reme_session
 | 文件操作  | `edit`                               | 对 Markdown 文件执行全文 find-and-replace。                                       | 必填：`path`、`old`、`new`                                  |
 | 文件操作  | `move`                               | 移动或重命名 vault 文件，并默认重写入站 wikilink。                                         | 必填：`src_path`、`dst_path`；可选：`overwrite`、`retarget`     |
 | 文件操作  | `delete`                             | 删除 vault 文件或文件夹，并返回仍存在的入站 wikilink。                                       | 必填：`path`                                              |
+
+</details>
 
 ## 🤝 社区与支持
 
