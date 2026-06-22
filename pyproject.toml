@@ -1,5 +1,5 @@
 [project]
-name = "reme"
+name = "reme-ai"
 dynamic = ["version"]
 description = "Remember Me, Refine Me."
 readme = "README.md"
@@ -54,8 +54,8 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 full = [
-    "reme[core]",
-    "reme[dev]",
+    "reme-ai[core]",
+    "reme-ai[dev]",
 ]
 
 [project.urls]
