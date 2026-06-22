@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
-  <title id="title">ReMe memory search flow</title>
-  <desc id="desc">A concise left-to-right memory search flow from watched vault files to progressive link expansion.</desc>
+  <title id="title">ReMe auto index and memory search flow</title>
+  <desc id="desc">A concise left-to-right flow from automatic vault indexing to memory search and progressive link expansion.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8fb; }
@@ -28,8 +28,8 @@
   </defs>
 
   <rect class="bg" x="0" y="0" width="1200" height="640"/>
-  <text class="title" x="600" y="54" text-anchor="middle">Memory Search</text>
-  <text class="subtitle" x="600" y="80" text-anchor="middle">Index file changes continuously, recall relevant chunks, then expand nearby wikilink context.</text>
+  <text class="title" x="600" y="54" text-anchor="middle">Auto Index and Memory Search</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Keep vault indexes fresh, recall relevant chunks, then expand nearby wikilink context.</text>
 
   <rect class="panel" x="64" y="150" width="232" height="260"/>
   <circle class="badge" cx="100" cy="188" r="15"/>

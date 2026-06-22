@@ -4,7 +4,7 @@
 发生变化的文件，把值得长期保留的内容抽取成 memory units，整合进 `digest/`，再生成当天可供主动提醒使用的 `interests.yaml`。
 
 <p align="center">
-  <img src="../figure/auto-dream.svg" alt="ReMe Auto Dream 从 daily 到 digest 的长期记忆沉淀流程" width="92%">
+  <img src="../figure/auto-dream-and-proactive.svg" alt="ReMe Auto Dream and Proactive 从 daily 到 digest 再到 proactive 的流程" width="92%">
 </p>
 
 它消费的 daily 输入通常来自 [Auto Memory](./auto_memory.md) 和 [Auto Resource](./auto_resource.md)。`digest/`、`derived_from::`

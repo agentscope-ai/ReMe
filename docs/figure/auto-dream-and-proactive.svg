@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">ReMe auto dream and proactive flow</title>
+  <desc id="desc">A left-to-right flow from changed daily notes to digest integration, interest topic writing, catalog checkpointing, and proactive reads.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f8fb; }
+      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .step-num { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .step-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
+      .step-subtitle { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
+      .chip-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #253246; }
+      .chip-text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #627087; }
+      .note { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5d6a7d; }
+      .panel { fill: #ffffff; stroke: #d7dde7; stroke-width: 1.2; rx: 10; ry: 10; }
+      .chip { fill: #f9fafc; stroke: #dfe5ee; stroke-width: 1; rx: 8; ry: 8; }
+      .badge { fill: #44546a; }
+      .arrow { stroke: #8794a8; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow-soft); }
+      .line { stroke: #e1e6ee; stroke-width: 1; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8794a8"/>
+    </marker>
+    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L8,3 z" fill="#a3adbd"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="680"/>
+  <text class="title" x="600" y="54" text-anchor="middle">Auto Dream and Proactive</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Scan changed daily memory, integrate reusable units into digest, then expose proactive topics.</text>
+
+  <rect class="panel" x="38" y="132" width="196" height="300"/>
+  <circle class="badge" cx="72" cy="170" r="15"/>
+  <text class="step-num" x="72" y="174" text-anchor="middle">1</text>
+  <text class="step-title" x="100" y="176">Extract</text>
+  <text class="step-subtitle" x="66" y="206">dream_extract_step</text>
+  <rect class="chip" x="66" y="232" width="140" height="44"/>
+  <text class="chip-title" x="136" y="251" text-anchor="middle">refresh index</text>
+  <text class="chip-text" x="136" y="269" text-anchor="middle">daily/&lt;date&gt;.md</text>
+  <rect class="chip" x="66" y="296" width="140" height="44"/>
+  <text class="chip-title" x="136" y="315" text-anchor="middle">compare catalog</text>
+  <text class="chip-text" x="136" y="333" text-anchor="middle">changed daily</text>
+  <rect class="chip" x="66" y="360" width="140" height="44"/>
+  <text class="chip-title" x="136" y="379" text-anchor="middle">LLM extract</text>
+  <text class="chip-text" x="136" y="397" text-anchor="middle">units + topics</text>
+
+  <rect class="panel" x="270" y="132" width="196" height="300"/>
+  <circle class="badge" cx="304" cy="170" r="15"/>
+  <text class="step-num" x="304" y="174" text-anchor="middle">2</text>
+  <text class="step-title" x="332" y="176">Integrate</text>
+  <text class="step-subtitle" x="298" y="206">dream_integrate_step</text>
+  <rect class="chip" x="298" y="232" width="140" height="44"/>
+  <text class="chip-title" x="368" y="251" text-anchor="middle">node_search</text>
+  <text class="chip-text" x="368" y="269" text-anchor="middle">recall digest</text>
+  <rect class="chip" x="298" y="296" width="140" height="44"/>
+  <text class="chip-title" x="368" y="315" text-anchor="middle">auto link</text>
+  <text class="chip-text" x="368" y="333" text-anchor="middle">dedup + links</text>
+  <rect class="chip" x="298" y="360" width="140" height="44"/>
+  <text class="chip-title" x="368" y="379" text-anchor="middle">write digest</text>
+  <text class="chip-text" x="368" y="397" text-anchor="middle">create / update</text>
+
+  <rect class="panel" x="502" y="132" width="196" height="300"/>
+  <circle class="badge" cx="536" cy="170" r="15"/>
+  <text class="step-num" x="536" y="174" text-anchor="middle">3</text>
+  <text class="step-title" x="564" y="176">Topics</text>
+  <text class="step-subtitle" x="530" y="206">dream_topics_step</text>
+  <rect class="chip" x="530" y="232" width="140" height="44"/>
+  <text class="chip-title" x="600" y="251" text-anchor="middle">merge topics</text>
+  <text class="chip-text" x="600" y="269" text-anchor="middle">same day kept</text>
+  <rect class="chip" x="530" y="296" width="140" height="44"/>
+  <text class="chip-title" x="600" y="315" text-anchor="middle">avoid repeats</text>
+  <text class="chip-text" x="600" y="333" text-anchor="middle">last 7 days</text>
+  <rect class="chip" x="530" y="360" width="140" height="44"/>
+  <text class="chip-title" x="600" y="379" text-anchor="middle">write YAML</text>
+  <text class="chip-text" x="600" y="397" text-anchor="middle">interests.yaml</text>
+
+  <rect class="panel" x="734" y="132" width="196" height="300"/>
+  <circle class="badge" cx="768" cy="170" r="15"/>
+  <text class="step-num" x="768" y="174" text-anchor="middle">4</text>
+  <text class="step-title" x="796" y="176">Finish</text>
+  <text class="step-subtitle" x="762" y="206">dream_finish_step</text>
+  <rect class="chip" x="762" y="232" width="140" height="44"/>
+  <text class="chip-title" x="832" y="251" text-anchor="middle">checkpoint</text>
+  <text class="chip-text" x="832" y="269" text-anchor="middle">skip failures</text>
+  <rect class="chip" x="762" y="296" width="140" height="44"/>
+  <text class="chip-title" x="832" y="315" text-anchor="middle">persist catalog</text>
+  <text class="chip-text" x="832" y="333" text-anchor="middle">file_catalog</text>
+  <rect class="chip" x="762" y="360" width="140" height="44"/>
+  <text class="chip-title" x="832" y="379" text-anchor="middle">return summary</text>
+  <text class="chip-text" x="832" y="397" text-anchor="middle">counts + errors</text>
+
+  <rect class="panel" x="966" y="132" width="196" height="300"/>
+  <circle class="badge" cx="1000" cy="170" r="15"/>
+  <text class="step-num" x="1000" y="174" text-anchor="middle">5</text>
+  <text class="step-title" x="1028" y="176">Proactive</text>
+  <text class="step-subtitle" x="994" y="206">proactive_step</text>
+  <rect class="chip" x="994" y="232" width="140" height="44"/>
+  <text class="chip-title" x="1064" y="251" text-anchor="middle">read YAML</text>
+  <text class="chip-text" x="1064" y="269" text-anchor="middle">interests.yaml</text>
+  <rect class="chip" x="994" y="296" width="140" height="44"/>
+  <text class="chip-title" x="1064" y="315" text-anchor="middle">return topics</text>
+  <text class="chip-text" x="1064" y="333" text-anchor="middle">metadata</text>
+  <rect class="chip" x="994" y="360" width="140" height="44"/>
+  <text class="chip-title" x="1064" y="379" text-anchor="middle">agent decides</text>
+  <text class="chip-text" x="1064" y="397" text-anchor="middle">whether to notify</text>
+
+  <path class="arrow" d="M234 282 H270"/>
+  <path class="arrow" d="M466 282 H502"/>
+  <path class="arrow" d="M698 282 H734"/>
+  <path class="arrow" d="M930 282 H966"/>
+
+  <rect class="panel" x="80" y="502" width="1040" height="82"/>
+  <text class="note" x="126" y="532">Inputs</text>
+  <text class="chip-text" x="126" y="554">daily/&lt;date&gt;.md and daily/&lt;date&gt;/**/*.md</text>
+  <line class="line" x1="358" y1="518" x2="358" y2="566"/>
+  <text class="chip-title" x="402" y="532">Long-term memory</text>
+  <text class="chip-text" x="402" y="554">digest/procedure, digest/personal, digest/wiki</text>
+  <line class="line" x1="704" y1="518" x2="704" y2="566"/>
+  <text class="chip-title" x="748" y="532">Proactive material</text>
+  <text class="chip-text" x="748" y="554">daily/&lt;date&gt;/interests.yaml</text>
+  <line class="line" x1="942" y1="518" x2="942" y2="566"/>
+  <text class="chip-title" x="986" y="532">Boundary</text>
+  <text class="chip-text" x="986" y="554">Read only; caller decides.</text>
+
+  <path class="soft-arrow" d="M1064 432 C1064 476 600 472 600 432"/>
+  <text class="note" x="834" y="474" text-anchor="middle">proactive reads interests.yaml after auto_dream writes it</text>
+</svg>
