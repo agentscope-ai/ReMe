@@ -81,7 +81,9 @@ class DreamExtractStep(BaseStep):
                 material_blob=pack_paths(workspace, changed),
             ),
             system_prompt=self.prompt_format(
-                "extract_system_prompt", workspace_dir=str(workspace), buckets=", ".join(BUCKETS)
+                "extract_system_prompt",
+                workspace_dir=str(workspace),
+                buckets=", ".join(BUCKETS),
             ),
             job_tools=list(_TOOLS),
         )
