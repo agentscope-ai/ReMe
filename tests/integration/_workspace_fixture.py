@@ -1,4 +1,4 @@
-"""Shared integration-test fixture: build a vault test environment.
+"""Shared integration-test fixture: build a workspace test environment.
 
 Every integration test in this directory used to repeat the same
 boilerplate — temp dir, ``chdir``, ``load_env()``, ``_make_app()``,
@@ -8,14 +8,14 @@ boilerplate — temp dir, ``chdir``, ``load_env()``, ``_make_app()``,
 
 This module unifies all of that behind one entry point:
 
-    from _vault_fixture import vault_env
+    from _workspace_fixture import workspace_env
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
-                # env.vault_dir, env.today, env.place_resource(...),
-                # env.seed_daily_note(...), env.seed_dream_vault(),
+                # env.workspace_dir, env.today, env.place_resource(...),
+                # env.seed_daily_note(...), env.seed_dream_workspace(),
                 # env.wait_for_populated(...), env.record_agents(...) ...
                 ...
             finally:
@@ -23,18 +23,18 @@ This module unifies all of that behind one entry point:
 
 ``env.make_app()`` defaults to the standard config; pass
 ``config="cc"`` for the CC SDK wiring, or arbitrary kwargs to deep-merge
-into ``resolve_app_config``. The vault path is fixed to
+into ``resolve_app_config``. The workspace path is fixed to
 ``<tmp_workspace>/.reme`` so seed helpers can write files before the
 app is started.
 
 The dreamer-specific seed (4 pre-existing digest nodes spread across
 the three buckets + 4 daily provenance stubs + a new daily note that
 exercises CREATE and UPDATE in each bucket) is preserved as
-``env.seed_dream_vault()`` / ``DREAM_INPUT_PATH``.
+``env.seed_dream_workspace()`` / ``DREAM_INPUT_PATH``.
 
 Usage as a script (for the dreamer manual run):
 
-    python tests/integration/_vault_fixture.py /tmp/my-vault
+    python tests/integration/_workspace_fixture.py /tmp/my-workspace
 """
 
 from __future__ import annotations
@@ -302,9 +302,9 @@ class AgentMemoryRecorder:
     Used to surface the ReAct trace of Phase 1 / Phase 2 dreams, the
     daily-write fork, the resource-interpret agent, etc. — what tools
     were called in what order, what candidates were recalled, what the
-    LLM decided. Dumps land under ``<vault>/agent_logs/`` by default
-    (created by :meth:`VaultEnv.record_agents`) so they're auto-cleaned
-    with the throwaway vault. Pass an explicit ``dump_dir`` to persist
+    LLM decided. Dumps land under ``<workspace>/agent_logs/`` by default
+    (created by :meth:`WorkspaceEnv.record_agents`) so they're auto-cleaned
+    with the throwaway workspace. Pass an explicit ``dump_dir`` to persist
     them somewhere else for post-mortem inspection.
     """
 
@@ -353,18 +353,18 @@ class AgentMemoryRecorder:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# VaultEnv — the value the ``vault_env()`` context manager yields. Holds the
-# resolved vault path, app construction, seeding, wait helpers, recorder
+# WorkspaceEnv — the value the ``workspace_env()`` context manager yields. Holds the
+# resolved workspace path, app construction, seeding, wait helpers, recorder
 # factory, and tracks any apps the test started so they get closed.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class VaultEnv:
-    """A vault test environment — temp workspace + helpers."""
+class WorkspaceEnv:
+    """A workspace test environment — temp workspace + helpers."""
 
-    def __init__(self, workspace: Path, vault_dir: Path):
+    def __init__(self, workspace: Path, workspace_dir: Path):
         self.workspace = workspace
-        self.vault_dir = vault_dir
+        self.workspace_dir = workspace_dir
         self.today = today()
         self._apps: list[Any] = []
 
@@ -384,7 +384,7 @@ class VaultEnv:
             "log_to_console": False,
             "log_to_file": False,
             "enable_logo": False,
-            "vault_dir": str(self.vault_dir),
+            "workspace_dir": str(self.workspace_dir),
         }
         if config:
             kwargs["config"] = config
@@ -400,7 +400,7 @@ class VaultEnv:
         from reme import ReMe
         from reme.config import resolve_app_config
 
-        kwargs: dict[str, Any] = {"vault_dir": str(self.vault_dir)}
+        kwargs: dict[str, Any] = {"workspace_dir": str(self.workspace_dir)}
         kwargs.update(overrides)
         cfg = resolve_app_config(**kwargs)
         app = ReMe(**cfg)
@@ -418,24 +418,24 @@ class VaultEnv:
 
     def clean(self) -> list[str]:
         """Remove fixture-managed subdirs (``daily/``, ``digest/``, ``resource/``,
-        ``metadata/``) under the vault so the next seed starts clean.
+        ``metadata/``) under the workspace so the next seed starts clean.
         Returns relative paths that were actually removed."""
         removed: list[str] = []
         for rel in _CLEAN_DIRS:
-            target = self.vault_dir / rel
+            target = self.workspace_dir / rel
             if target.exists():
                 shutil.rmtree(target)
                 removed.append(rel)
         return removed
 
-    def seed_dream_vault(self) -> list[str]:
+    def seed_dream_workspace(self) -> list[str]:
         """Write the dreamer preset: pre-existing digest nodes + provenance
         stubs + the new daily note dreamer will be invoked on
         (``DREAM_INPUT_PATH``). Idempotent — skips files that already exist.
         Returns relative paths that were actually written."""
         seeded: list[str] = []
         for rel, body in _DREAM_FILES.items():
-            target = self.vault_dir / rel
+            target = self.workspace_dir / rel
             if target.exists():
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -451,10 +451,10 @@ class VaultEnv:
         date: str | None = None,
     ) -> str:
         """Drop a file under ``resource/<date>/<filename>``. Returns the
-        vault-relative path so the caller can pass it straight to
+        workspace-relative path so the caller can pass it straight to
         ``auto_resource``."""
         d = date or self.today
-        resource_dir = self.vault_dir / "resource" / d
+        resource_dir = self.workspace_dir / "resource" / d
         resource_dir.mkdir(parents=True, exist_ok=True)
         path = resource_dir / filename
         path.write_text(content, encoding="utf-8")
@@ -469,7 +469,7 @@ class VaultEnv:
     ) -> Path:
         """Write a note at ``daily/<date>/<stem>.md`` and return the absolute path."""
         d = date or self.today
-        day_dir = self.vault_dir / "daily" / d
+        day_dir = self.workspace_dir / "daily" / d
         day_dir.mkdir(parents=True, exist_ok=True)
         path = day_dir / f"{stem}.md"
         path.write_text(body, encoding="utf-8")
@@ -480,14 +480,14 @@ class VaultEnv:
     def daily_notes(self, *, date: str | None = None) -> list[Path]:
         """All ``.md`` files under ``daily/<date>/`` (sorted)."""
         d = date or self.today
-        day_dir = self.vault_dir / "daily" / d
+        day_dir = self.workspace_dir / "daily" / d
         if not day_dir.is_dir():
             return []
         return sorted(day_dir.glob("*.md"))
 
     def digest_files(self) -> list[Path]:
         """All ``.md`` files anywhere under ``digest/`` (sorted)."""
-        digest_root = self.vault_dir / "digest"
+        digest_root = self.workspace_dir / "digest"
         if not digest_root.is_dir():
             return []
         return sorted(digest_root.rglob("*.md"))
@@ -495,7 +495,7 @@ class VaultEnv:
     def session_state_files(self, prefix: str = "session_state_") -> list[Path]:
         """All session-state jsonl files (the agent wrapper writes these under
         ``resource/`` whenever a ``session_id`` is provided)."""
-        resource_dir = self.vault_dir / "resource"
+        resource_dir = self.workspace_dir / "resource"
         if not resource_dir.exists():
             return []
         return sorted(resource_dir.rglob(f"{prefix}*.jsonl"))
@@ -576,12 +576,12 @@ class VaultEnv:
     ) -> AgentMemoryRecorder:
         """Context manager that captures every Agent created in its block.
 
-        Dumps default to ``<vault>/agent_logs/`` so they're cleaned up with
-        the throwaway vault. Pass ``dump_dir`` to persist them elsewhere
+        Dumps default to ``<workspace>/agent_logs/`` so they're cleaned up with
+        the throwaway workspace. Pass ``dump_dir`` to persist them elsewhere
         (e.g. for post-mortem inspection of a failing run).
         """
         return AgentMemoryRecorder(
-            dump_dir=dump_dir or self.vault_dir / "agent_logs",
+            dump_dir=dump_dir or self.workspace_dir / "agent_logs",
             prefix=prefix,
         )
 
@@ -592,17 +592,17 @@ class VaultEnv:
 
 
 @contextlib.contextmanager
-def vault_env(
+def workspace_env(
     *,
     chdir: bool = True,
-    vault_name: str = ".reme",
+    workspace_name: str = ".reme",
     load_env_file: bool = True,
-) -> Iterator[VaultEnv]:
-    """Yield a fresh ``VaultEnv`` rooted at a temp workspace.
+) -> Iterator[WorkspaceEnv]:
+    """Yield a fresh ``WorkspaceEnv`` rooted at a temp workspace.
 
-    - Creates ``<tmp>/<vault_name>`` eagerly so seed helpers work before
+    - Creates ``<tmp>/<workspace_name>`` eagerly so seed helpers work before
       ``make_app()``.
-    - chdirs into the temp workspace (so relative vault_dir resolves
+    - chdirs into the temp workspace (so relative workspace_dir resolves
       correctly and any helper that writes under cwd lands inside the
       throwaway tree).
     - Loads ``.env`` once (idempotent — safe to call repeatedly).
@@ -618,9 +618,9 @@ def vault_env(
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         workspace = Path(tmp_dir).resolve()
-        vault = workspace / vault_name
-        vault.mkdir(parents=True, exist_ok=True)
-        env = VaultEnv(workspace=workspace, vault_dir=vault)
+        workspace = workspace / workspace_name
+        workspace.mkdir(parents=True, exist_ok=True)
+        env = WorkspaceEnv(workspace=workspace, workspace_dir=workspace)
 
         if chdir:
             with temp_chdir(workspace):
@@ -637,23 +637,23 @@ def vault_env(
 # pylint: disable=missing-function-docstring
 def main() -> None:
     if len(sys.argv) < 2:
-        print(f"usage: {sys.argv[0]} <vault_dir>", file=sys.stderr)
+        print(f"usage: {sys.argv[0]} <workspace_dir>", file=sys.stderr)
         sys.exit(2)
-    vault = Path(sys.argv[1]).resolve()
-    vault.mkdir(parents=True, exist_ok=True)
+    workspace = Path(sys.argv[1]).resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
 
-    env = VaultEnv(workspace=vault.parent, vault_dir=vault)
+    env = WorkspaceEnv(workspace=workspace.parent, workspace_dir=workspace)
     removed = env.clean()
     if removed:
-        print(f"cleaned {len(removed)} dir(s) under {vault}: {', '.join(removed)}")
-    seeded = env.seed_dream_vault()
+        print(f"cleaned {len(removed)} dir(s) under {workspace}: {', '.join(removed)}")
+    seeded = env.seed_dream_workspace()
     if seeded:
-        print(f"seeded {len(seeded)} file(s) under {vault}:")
+        print(f"seeded {len(seeded)} file(s) under {workspace}:")
         for f in seeded:
             print(f"  + {f}")
     else:
-        print(f"vault {vault} already seeded — no changes")
-    print(f"\nDream this file:\n  {vault}/{DREAM_INPUT_PATH}")
+        print(f"workspace {workspace} already seeded — no changes")
+    print(f"\nDream this file:\n  {workspace}/{DREAM_INPUT_PATH}")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class Application(BaseComponent):
         self.context = ApplicationContext(**kwargs)
         self._started_components: list[BaseComponent] = []
 
-        self._setup_vault_directories()
+        self._setup_workspace_directories()
 
         if self.config.enable_logo:
             print_logo(self.config)
@@ -43,14 +43,14 @@ class Application(BaseComponent):
 
     # ----- Wiring (called once during __init__) --------------------------
 
-    def _setup_vault_directories(self) -> None:
-        """Ensure the vault root and configured subdirectories exist on disk."""
+    def _setup_workspace_directories(self) -> None:
+        """Ensure the workspace root and configured subdirectories exist on disk."""
         cfg = self.config
-        vault_path = Path(cfg.vault_dir).absolute()
-        vault_path.mkdir(parents=True, exist_ok=True)
+        workspace_path = Path(cfg.workspace_dir).absolute()
+        workspace_path.mkdir(parents=True, exist_ok=True)
         for subdir in [cfg.metadata_dir, cfg.session_dir, cfg.resource_dir, cfg.daily_dir, cfg.digest_dir]:
             if subdir:
-                (vault_path / subdir).mkdir(parents=True, exist_ok=True)
+                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
 
     def _init_service(self) -> None:
         """Instantiate the single service backend declared in config.service."""

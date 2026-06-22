@@ -120,7 +120,7 @@ source_event:: [[daily/2026-05-18/2026-05-18-close.md]]
 刚果(金)矿权政策变化可能影响 KFM 矿运营，需联动跟踪洛阳钼业。
 ```
 
-注意：wikilink 是字面路径语义，推荐写完整 vault-relative 路径和 `.md` 扩展名。ReMe 不会自动把 `[[钴]]` 解析成某个文件。
+注意：wikilink 是字面路径语义，推荐写完整 workspace-relative 路径和 `.md` 扩展名。ReMe 不会自动把 `[[钴]]` 解析成某个文件。
 
 ### Day 2：调研信息补充已有节点
 

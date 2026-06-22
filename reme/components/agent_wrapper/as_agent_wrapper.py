@@ -117,8 +117,8 @@ class AsAgentWrapper(BaseAgentWrapper):
     def session_path(self) -> Path:
         """Directory used for persisted AgentScope sessions."""
         if self.app_context is None:
-            return self.vault_path / "session" / "agentscope"
-        return self.vault_path / self.app_context.app_config.session_dir / "agentscope"
+            return self.workspace_path / "session" / "agentscope"
+        return self.workspace_path / self.app_context.app_config.session_dir / "agentscope"
 
     @staticmethod
     def _validate_session_id(session_id: str, field: str = "session_id") -> str:

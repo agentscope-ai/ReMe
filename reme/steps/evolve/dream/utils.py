@@ -29,9 +29,9 @@ def store_state(step: BaseStep, state: DreamState) -> None:
     step.context.response.metadata["dream"] = data
 
 
-def vault_dir(step: BaseStep) -> Path:
-    """Get vault directory."""
-    vr = getattr(step.file_store, "vault_path", None)
+def workspace_dir(step: BaseStep) -> Path:
+    """Get workspace directory."""
+    vr = getattr(step.file_store, "workspace_path", None)
     return Path(vr).resolve() if vr else Path.cwd().resolve()
 
 
@@ -56,23 +56,23 @@ def llm_available(step: BaseStep) -> bool:
         return False
 
 
-def scan_day_files(vault: Path, day: str, daily: str, interests_name: str = "interests.yaml") -> list[str]:
+def scan_day_files(workspace: Path, day: str, daily: str, interests_name: str = "interests.yaml") -> list[str]:
     """Scan day files."""
     out: list[str] = []
-    day_index = vault / daily / f"{day}.md"
+    day_index = workspace / daily / f"{day}.md"
     if day_index.is_file():
-        out.append(str(day_index.relative_to(vault)))
-    daily_root = vault / daily / day
+        out.append(str(day_index.relative_to(workspace)))
+    daily_root = workspace / daily / day
     if daily_root.is_dir():
-        out.extend(str(p.relative_to(vault)) for p in sorted(daily_root.rglob("*.md")) if p.is_file())
+        out.extend(str(p.relative_to(workspace)) for p in sorted(daily_root.rglob("*.md")) if p.is_file())
     return [p for p in out if p != f"{daily}/{day}/{interests_name}"]
 
 
-def pack_paths(vault: Path, paths: list[str], *, limit_per_file: int = 60000) -> str:
+def pack_paths(workspace: Path, paths: list[str], *, limit_per_file: int = 60000) -> str:
     """Pack paths into a single string."""
     blocks: list[str] = []
     for rel in paths:
-        target = vault / rel
+        target = workspace / rel
         if not target.is_file():
             blocks.append(f"### {rel}\n(file not found)\n")
             continue

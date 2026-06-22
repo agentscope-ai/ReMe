@@ -22,7 +22,7 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.steps.evolve.auto_resource import _compute_agent_session_id, _compute_note_stem  # noqa: E402
 
@@ -101,25 +101,25 @@ def test_auto_resource_create():
     """CREATE branch: agent writes the same-name daily note and saves its AgentScope session."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 note_stem = _compute_note_stem(RESOURCE_FILENAME)
                 agent_session_id = _compute_agent_session_id(file_path)
-                expected_session_jsonl = env.vault_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
+                expected_session_jsonl = env.workspace_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
 
                 print(f"[CREATE] file_path           = {file_path}")
                 print(f"[CREATE] note_stem           = {note_stem}")
                 print(f"[CREATE] agent_session_id    = {agent_session_id}")
-                print(f"[CREATE] expected transcript = {expected_session_jsonl.relative_to(env.vault_dir)}")
+                print(f"[CREATE] expected transcript = {expected_session_jsonl.relative_to(env.workspace_dir)}")
 
                 with env.record_agents(prefix="agent_resource_create") as recorder:
                     response = await app.run_job(
@@ -136,13 +136,13 @@ def test_auto_resource_create():
                 assert result_meta.get("action") == "added", f"Unexpected action: {meta!r}"
                 assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
                 assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
-                note_path = env.vault_dir / "daily" / today / f"{note_stem}.md"
+                note_path = env.workspace_dir / "daily" / today / f"{note_stem}.md"
                 assert note_path.is_file()
 
                 assert expected_session_jsonl.is_file(), (
                     f"agent session not persisted at {expected_session_jsonl}; "
                     f"AgentScope files: "
-                    f"{[p.name for p in (env.vault_dir / 'session' / 'agentscope').glob('*.jsonl')]}"
+                    f"{[p.name for p in (env.workspace_dir / 'session' / 'agentscope').glob('*.jsonl')]}"
                 )
 
                 note_text = _print_text_file("CREATE result.md", note_path)
@@ -183,13 +183,13 @@ def test_auto_resource_update():
     """UPDATE branch: agent updates the same-name daily note and appends to its AgentScope session."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
@@ -198,7 +198,7 @@ def test_auto_resource_update():
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 note_stem = _compute_note_stem(RESOURCE_FILENAME)
                 agent_session_id = _compute_agent_session_id(file_path)
-                session_jsonl = env.vault_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
+                session_jsonl = env.workspace_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
 
                 response = await app.run_job("auto_resource", changes=[{"path": file_path, "change": "added"}])
                 assert response.success is True, f"Initial create failed: {response.answer!r}"
@@ -224,7 +224,7 @@ def test_auto_resource_update():
                 assert result_meta.get("action") == "modified", f"Unexpected action: {meta!r}"
                 assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
                 assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
-                note_path = env.vault_dir / "daily" / today / f"{note_stem}.md"
+                note_path = env.workspace_dir / "daily" / today / f"{note_stem}.md"
                 assert note_path.is_file()
 
                 size_after = session_jsonl.stat().st_size
@@ -268,13 +268,13 @@ def test_auto_resource_delete():
     """DELETE a resource note (change=deleted)."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 

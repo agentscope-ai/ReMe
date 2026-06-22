@@ -1,10 +1,10 @@
-"""``channel_notify_step`` — push a debounced batch of vault changes as one channel event.
+"""``channel_notify_step`` — push a debounced batch of workspace changes as one channel event.
 
 Designed to be slotted into ``watch_changes_step.dispatch_steps`` next to
 ``update_index_step``: when the watcher emits a batch of changes, this
 step forwards a single human-readable summary to
 ``ApplicationContext.metadata["channel_sink"]``. The Claude Code main
-session then sees a ``<channel source="reme" kind="vault_change" ...>``
+session then sees a ``<channel source="reme" kind="workspace_change" ...>``
 tag and reacts per the server's ``instructions``.
 
 One event per batch (not per file) — the watcher already de-bounces and
@@ -29,7 +29,7 @@ from ...components import R
 
 @R.register("channel_notify_step")
 class ChannelNotifyStep(BaseStep):
-    """Forward a batch of vault changes to the Claude Code channel."""
+    """Forward a batch of workspace changes to the Claude Code channel."""
 
     async def execute(self):
         sink = self.app_context.metadata.get("channel_sink") if self.app_context is not None else None
@@ -40,11 +40,11 @@ class ChannelNotifyStep(BaseStep):
         if not changes:
             return self.context.response if self.context is not None else None
 
-        # Render paths vault-relative so the agent can pass them directly to
+        # Render paths workspace-relative so the agent can pass them directly to
         # slash commands like /dream <path>. Absolute paths that fall outside
-        # the vault are left as-is rather than erroring — they shouldn't occur,
+        # the workspace are left as-is rather than erroring — they shouldn't occur,
         # but a stray entry shouldn't kill the event.
-        vault = self.vault_path
+        workspace = self.workspace_path
         lines: list[str] = []
         for change in changes:
             try:
@@ -52,7 +52,7 @@ class ChannelNotifyStep(BaseStep):
             except (KeyError, TypeError):
                 continue
             try:
-                shown = str(raw.resolve().relative_to(vault))
+                shown = str(raw.resolve().relative_to(workspace))
             except ValueError:
                 shown = str(raw)
             lines.append(f"{change.get('change', '?')}: {shown}")
@@ -62,7 +62,7 @@ class ChannelNotifyStep(BaseStep):
 
         self.logger.info(f"[channel_notify] emit batch count={len(lines)}")
         await sink.emit(
-            content="Vault 变更:\n" + "\n".join(lines),
-            meta={"kind": "vault_change", "count": str(len(lines))},
+            content="Workspace 变更:\n" + "\n".join(lines),
+            meta={"kind": "workspace_change", "count": str(len(lines))},
         )
         return self.context.response if self.context is not None else None

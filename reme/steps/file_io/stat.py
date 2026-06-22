@@ -1,4 +1,4 @@
-"""``file_stat`` — peek at file metadata under the vault without copying it.
+"""``file_stat`` — peek at file metadata under the workspace without copying it.
 
 Cheap inspection alternative to ``file_download``: the agent gets
 size, mtime, mime type, and (for markdown files) the parsed
@@ -14,8 +14,8 @@ is ``"file"`` / ``"dir"`` (covers event workspace probes too).
 ``frontmatter`` is populated only for ``.md`` files and only when
 parsing succeeds — schema validity is a lint concern.
 
-``path`` accepts a file path or directory path relative to the vault.
-Joined with ``file_store.vault_path`` and inspected on disk.
+``path`` accepts a file path or directory path relative to the workspace.
+Joined with ``file_store.workspace_path`` and inspected on disk.
 """
 
 import mimetypes
@@ -31,15 +31,15 @@ from ...components import R
 
 @R.register("stat_step")
 class StatStep(BaseStep):
-    """Return metadata for a file or directory under the vault."""
+    """Return metadata for a file or directory under the workspace."""
 
     async def execute(self):
         assert self.context is not None
         path: str = self.context.get("path", "") or ""
         assert path, "path is required"
 
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target, err = resolve_path(vault_dir, path)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             self.context.response.success = False
             self.context.response.answer = f"Error: {err or 'invalid path'}"

@@ -55,7 +55,7 @@ class AutoResourceStep(BaseStep):
     async def _handle_delete(self, date_str: str, note_stem: str) -> None:
         daily_dir = self.config_value("daily_dir")
         note_rel = f"{daily_dir}/{date_str}/{note_stem}.md"
-        note_abs = self.vault_path / note_rel
+        note_abs = self.workspace_path / note_rel
 
         if note_abs.is_file():
             note_abs.unlink()
@@ -81,7 +81,7 @@ class AutoResourceStep(BaseStep):
         note_created: bool = create_response.metadata["created"]
 
         # Read resource file content
-        abs_path = self.vault_path / file_path
+        abs_path = self.workspace_path / file_path
         if not abs_path.is_file():
             self.context.response.success = False
             self.context.response.answer = f"Resource file not found: {file_path}"
@@ -93,7 +93,7 @@ class AutoResourceStep(BaseStep):
         template_key = "user_message_create" if created else "user_message_update"
         user_message = self.prompt_format(
             template_key,
-            vault_dir=str(self.vault_path),
+            workspace_dir=str(self.workspace_path),
             note_path=note_path,
             file_path=file_path,
             file_content=file_content,
@@ -126,7 +126,7 @@ class AutoResourceStep(BaseStep):
 
     async def _handle_change(self, file_path: str, raw_change) -> dict:
         assert self.context is not None
-        file_path = self.to_vault_relative(file_path) if file_path and Path(file_path).is_absolute() else file_path
+        file_path = self.to_workspace_relative(file_path) if file_path and Path(file_path).is_absolute() else file_path
         if not file_path:
             self.context.response.success = False
             self.context.response.answer = "Missing file_path"

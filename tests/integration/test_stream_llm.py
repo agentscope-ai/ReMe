@@ -12,7 +12,7 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.enumeration import ChunkEnum  # noqa: E402
 from reme.schema import StreamChunk  # noqa: E402
@@ -22,7 +22,7 @@ from reme.utils.common_utils import execute_stream_task  # noqa: E402
 
 async def _test_stream_llm_basic_chat():
     """StreamLLMDemoStep streams text chunks via add_stream_string."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
@@ -66,7 +66,7 @@ async def _test_stream_llm_basic_chat():
 
 async def _test_stream_llm_with_tool():
     """StreamLLMDemoStep streams tool call events when tools are used."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
@@ -118,7 +118,7 @@ async def _test_stream_llm_with_tool():
 
 async def _test_stream_llm_fallback_no_stream():
     """Without stream_queue, still uses streaming under the hood for real-time output."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)
@@ -171,7 +171,7 @@ def test_stream_llm_fallback_no_stream():
 
 async def _demo_stream_print():
     """Real-time streaming print demo — ask a longer question to see chunked output."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             step = StreamLLMDemoStep(app_context=app.context)

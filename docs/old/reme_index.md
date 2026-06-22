@@ -29,7 +29,7 @@
 
 | 类 | 文件 | 说明 |
 | --- | --- | --- |
-| `ApplicationConfig` / `ComponentConfig` / `JobConfig` | `application_config.py` | 顶层配置模型；包含 service/jobs/components/vault_dir 等字段。 |
+| `ApplicationConfig` / `ComponentConfig` / `JobConfig` | `application_config.py` | 顶层配置模型；包含 service/jobs/components/workspace_dir 等字段。 |
 | `EmbNode` | `emb_node.py` | 文本+embedding 节点基类，`np.ndarray` 序列化为列表存储。 |
 | `FileChunk` | `file_chunk.py` | 文件切片（继承 `EmbNode`）：`path/start_line/end_line/scores`，含 `set_hash_id()`。 |
 | `FileNode` | `file_node.py` | 文件级图节点：`path/st_mtime/links/chunk_ids/front_matter`。 |
@@ -43,7 +43,7 @@
 > 所有组件继承 `BaseComponent`（`reme/components/base_component.py`），提供：
 > - `start/close/restart` 生命周期；
 > - `bind(name, base_cls, default_factory, optional)` 声明依赖（启动时通过拓扑排序解析）；
-> - `vault_path` / `working_metadata_path` 工作目录；
+> - `workspace_path` / `working_metadata_path` 工作目录；
 > - `dump/load` 持久化钩子。
 >
 > 组件通过 `ComponentRegistry`（`R`，`reme/components/component_registry.py`）按 `(ComponentEnum, name)` 注册和查找；上下文容器为 `ApplicationContext`（`application_context.py`），运行期上下文为 `RuntimeContext`（`runtime_context.py`）。

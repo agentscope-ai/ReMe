@@ -1,4 +1,4 @@
-"""``file_delete`` — hard-delete a file or folder under the vault (reports inbound refs).
+"""``file_delete`` — hard-delete a file or folder under the workspace (reports inbound refs).
 
 Removes the file (or folder tree) from disk; the watcher then prunes
 the affected chunks from all projections (vector / keyword / file_graph).
@@ -31,14 +31,14 @@ from ...utils.wikilink_handler import WikilinkHandler
 
 
 def _is_inside(rel: str, folder_rel: str) -> bool:
-    """``rel`` is the same as or nested under ``folder_rel`` (relative to the vault)."""
+    """``rel`` is the same as or nested under ``folder_rel`` (relative to the workspace)."""
     prefix = folder_rel.rstrip("/") + "/"
     return rel == folder_rel or rel.startswith(prefix)
 
 
 @R.register("delete_step")
 class DeleteStep(BaseStep):
-    """Hard-delete the path at ``path`` (file or folder, relative to the vault)."""
+    """Hard-delete the path at ``path`` (file or folder, relative to the workspace)."""
 
     async def execute(self):
         assert self.context is not None
@@ -70,8 +70,8 @@ class DeleteStep(BaseStep):
     async def _delete(self, path: str) -> dict:
         if not path:
             return {"path": path, "error": "not found"}
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target, err = resolve_path(vault_dir, path)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             return {"path": path, "error": err or "invalid path"}
         if target.is_file():
@@ -98,7 +98,7 @@ class DeleteStep(BaseStep):
 
             for md in sorted(target.rglob("*.md")):
                 try:
-                    rel = str(md.relative_to(vault_dir))
+                    rel = str(md.relative_to(workspace_dir))
                 except ValueError:
                     continue
                 deleted_files.append(rel)
@@ -125,7 +125,7 @@ class DeleteStep(BaseStep):
                 if not entry.is_file() or entry.suffix == ".md":
                     continue
                 try:
-                    rel = str(entry.relative_to(vault_dir))
+                    rel = str(entry.relative_to(workspace_dir))
                 except ValueError:
                     continue
                 deleted_files.append(rel)

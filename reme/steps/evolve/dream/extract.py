@@ -15,7 +15,7 @@ from .utils import (
     scan_day_files,
     store_state,
     today,
-    vault_dir,
+    workspace_dir,
 )
 
 _TOOLS = ("read",)
@@ -33,12 +33,12 @@ class DreamExtractStep(BaseStep):
         assert self.context is not None
         day = today(self, str(self.context.get("date", "") or ""))
         hint = str(self.context.get("hint", "") or "").strip()
-        daily, vault = daily_dir(self), vault_dir(self)
+        daily, workspace = daily_dir(self), workspace_dir(self)
         if self.file_catalog is None:
             raise RuntimeError("dream_extract_step requires file_catalog")
         await refresh_day_index(self.file_store, day, daily)
 
-        existing = self._existing(vault, scan_day_files(vault, day, daily, f"{self.topic_session_id}.yaml"))
+        existing = self._existing(workspace, scan_day_files(workspace, day, daily, f"{self.topic_session_id}.yaml"))
         interests_rel = f"{daily}/{day}/{self.topic_session_id}.yaml"
         day_md, day_prefix = f"{daily}/{day}.md", f"{daily}/{day}/"
         nodes = await self.file_catalog.get_nodes()
@@ -46,7 +46,7 @@ class DreamExtractStep(BaseStep):
         indexed = {path: mt for path, mt in indexed_all.items() if path != interests_rel}
         changed = [rel for rel, mt in existing.items() if indexed.get(rel) != mt]
         unchanged = [rel for rel, mt in existing.items() if indexed.get(rel) == mt]
-        protected = set(existing) | ({interests_rel} if (vault / interests_rel).is_file() else set())
+        protected = set(existing) | ({interests_rel} if (workspace / interests_rel).is_file() else set())
         deleted = sorted(indexed_all.keys() - protected)
         if deleted:
             await self.file_catalog.delete(deleted)
@@ -55,7 +55,7 @@ class DreamExtractStep(BaseStep):
             date=day,
             hint=hint,
             daily_dir=daily,
-            vault=str(vault),
+            workspace=str(workspace),
             files_scanned=len(existing),
             files_unchanged=len(unchanged),
             files_changed=len(changed),
@@ -78,9 +78,9 @@ class DreamExtractStep(BaseStep):
                 date=day,
                 hint=hint or "(none)",
                 changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
-                material_blob=pack_paths(vault, changed),
+                material_blob=pack_paths(workspace, changed),
             ),
-            system_prompt=self.prompt_format("extract_system_prompt", vault_dir=str(vault), buckets=", ".join(BUCKETS)),
+            system_prompt=self.prompt_format("extract_system_prompt", workspace_dir=str(workspace), buckets=", ".join(BUCKETS)),
             job_tools=list(_TOOLS),
         )
         meta = parse_structured_reply(str(result.get("result") or ""))
@@ -90,11 +90,11 @@ class DreamExtractStep(BaseStep):
         answer = f"{answer} from {len(changed)} changed file(s)"
         return self._finish(state, True, answer)
 
-    def _existing(self, vault, files: list[str]) -> dict[str, float]:
+    def _existing(self, workspace, files: list[str]) -> dict[str, float]:
         out: dict[str, float] = {}
         for rel in files:
             try:
-                out[rel] = (vault / rel).stat().st_mtime
+                out[rel] = (workspace / rel).stat().st_mtime
             except OSError as e:
                 self.logger.error(f"[{self.name}] stat failed on {rel}: {e}")
         return out

@@ -21,7 +21,7 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 SEED_STEM = "auth-middleware-rewrite"
 SEED_BODY = """---
@@ -130,13 +130,13 @@ def test_auto_memory_create():
     """CREATE a new note from scratch with a fresh session_id."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 today = env.today
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] today      =", today)
                 print("=" * 70)
 
@@ -157,7 +157,7 @@ def test_auto_memory_create():
                 assert meta.get("created") is True, f"Expected created=True, got {meta!r}"
                 assert meta.get("path") == f"daily/{today}/{expected_stem}.md"
 
-                pytorch_path = env.vault_dir / meta["path"]
+                pytorch_path = env.workspace_dir / meta["path"]
                 assert pytorch_path.is_file(), f"created note not found at {pytorch_path}"
 
                 pytorch_text = _read_text(pytorch_path)
@@ -194,7 +194,7 @@ def test_auto_memory_update():
     """UPDATE an existing note — old facts must survive, new facts must land."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 today = env.today
@@ -204,7 +204,7 @@ def test_auto_memory_update():
                 assert "legal/compliance" in seed_before
 
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] today      =", today)
                 print("[setup] seed_path  =", seed_path)
                 print("=" * 70)

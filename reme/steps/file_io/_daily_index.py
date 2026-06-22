@@ -42,14 +42,14 @@ def _rebuild_body(body: str, notes_content: str) -> str:
     return f"{body.rstrip()}\n\n{block}\n" if body.strip() else f"{block}\n"
 
 
-def scan_notes(vault_dir: Path, date: str, daily_dir: str) -> list[dict]:
+def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
     """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.
 
     Returns one dict per note::
 
         {"session_id": str, "path": str, "metadata": dict}
     """
-    date_dir, err = resolve_path(vault_dir, f"{daily_dir}/{date}")
+    date_dir, err = resolve_path(workspace_dir, f"{daily_dir}/{date}")
     if err or date_dir is None:
         logger.info(f"scan_notes skipped invalid daily path date={date!r} daily_dir={daily_dir!r} error={err!r}")
         return []
@@ -77,9 +77,9 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
 
     Returns ``{date, path, notes, created}``.
     """
-    vault_dir = Path(file_store.vault_path or ".").resolve()
+    workspace_dir = Path(file_store.workspace_path or ".").resolve()
     index_rel = f"{daily_dir}/{date}.md"
-    index_abs, err = resolve_path(vault_dir, index_rel)
+    index_abs, err = resolve_path(workspace_dir, index_rel)
     if err or index_abs is None:
         return {
             "date": date,
@@ -89,7 +89,7 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
             "changed": False,
             "error": err or "invalid path",
         }
-    notes = scan_notes(vault_dir, date, daily_dir)
+    notes = scan_notes(workspace_dir, date, daily_dir)
 
     notes_payload = [{"path": n["path"], "session_id": n["session_id"], "metadata": n["metadata"]} for n in notes]
 

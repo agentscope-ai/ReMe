@@ -1,13 +1,13 @@
 # pylint: disable=too-many-lines
-"""Tests for crud steps — the opaque-byte vault_dir surface plus the
+"""Tests for crud steps — the opaque-byte workspace_dir surface plus the
 text-content ops (``read`` / ``write`` / ``edit``).
 
 Every test drives a step directly against a freshly built
 ``LocalFileStore`` (embedding disabled, BM25 kept) with files seeded
 on disk (and, where relevant, registered in the graph so retarget's
 reverse-index lookup finds inbound edges). No app config, no HTTP
-server — the step's ``vault_path`` defaults to ``cwd()`` and tests
-chdir into a tmpdir to scope the vault.
+server — the step's ``workspace_path`` defaults to ``cwd()`` and tests
+chdir into a tmpdir to scope the workspace.
 
 Covers ``stat`` / ``list`` / ``download`` / ``move`` / ``delete``
 plus the text ops ``read`` / ``write`` / ``edit`` (including non-md
@@ -18,7 +18,7 @@ Frontmatter-only ops live in ``test_frontmatter_steps.py``. The
 bucket semantics — tests for it live in ``test_resource_steps.py``.
 
 Path-shape contract (enforced by ``read`` / ``write`` / ``edit``):
-``path=`` is vault-relative by default. A bare path with no suffix
+``path=`` is workspace-relative by default. A bare path with no suffix
 auto-appends ``.md``; non-``.md`` suffix is accepted in degraded mode.
 Absolute paths are accepted with a warning.
 """
@@ -94,8 +94,8 @@ def _run(coro):
     asyncio.run(coro)
 
 
-def _seed_md(vault_dir: Path, rel: str, body: str) -> Path:
-    target = vault_dir / rel
+def _seed_md(workspace_dir: Path, rel: str, body: str) -> Path:
+    target = workspace_dir / rel
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(body, encoding="utf-8")
     return target
@@ -151,7 +151,7 @@ def test_stat_directory_fallback():
 
 
 def test_list_lists_files():
-    """list returns paths relative to the vault for files under the given directory."""
+    """list returns paths relative to the workspace for files under the given directory."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -205,7 +205,7 @@ def test_list_respects_limit_and_non_recursive():
 # -- move ----------------------------------------------------------------
 
 
-def test_move_relocates_within_vault():
+def test_move_relocates_within_workspace():
     """move renames / relocates a file in place."""
 
     async def run():
@@ -218,7 +218,7 @@ def test_move_relocates_within_vault():
             assert not (Path(tmp) / "daily/2026-05-18/foo/foo.md").exists()
             assert (Path(tmp) / "knowledge/foo/foo.md").read_text(encoding="utf-8") == "draft"
             await store.close()
-        print("✓ test_move_relocates_within_vault passed")
+        print("✓ test_move_relocates_within_workspace passed")
 
     asyncio.run(run())
 
@@ -509,7 +509,7 @@ async def _edit(store: LocalFileStore, **kwargs):
 
 
 def test_read_relative_path():
-    """`read path=Templates/Recipe.md` returns the file body from the vault."""
+    """`read path=Templates/Recipe.md` returns the file body from the workspace."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -1093,7 +1093,7 @@ if __name__ == "__main__":
     test_stat_directory_fallback()
     test_list_lists_files()
     test_list_respects_limit_and_non_recursive()
-    test_move_relocates_within_vault()
+    test_move_relocates_within_workspace()
     test_move_refuses_overwrite_without_flag()
     test_move_default_retargets_inbound_links()
     test_move_opt_out_leaves_links_dangling()

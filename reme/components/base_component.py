@@ -15,7 +15,7 @@ T = TypeVar("T", bound="BaseComponent")
 
 
 class ComponentMixin:
-    """Shared state for components and steps: identity, config, vault paths."""
+    """Shared state for components and steps: identity, config, workspace paths."""
 
     component_type = ComponentEnum.BASE
 
@@ -35,17 +35,17 @@ class ComponentMixin:
         self.logger = logger.bind(component=self.name) if hasattr(logger, "bind") else logger
 
     @property
-    def vault_path(self) -> Path:
-        """Absolute vault root directory (cwd when no app_context is attached)."""
+    def workspace_path(self) -> Path:
+        """Absolute workspace root directory (cwd when no app_context is attached)."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.vault_dir).absolute()
+        return Path(self.app_context.app_config.workspace_dir).absolute()
 
-    def to_vault_relative(self, path: str | Path) -> str:
-        """Convert `path` to a vault-relative string; return absolute path when outside."""
+    def to_workspace_relative(self, path: str | Path) -> str:
+        """Convert `path` to a workspace-relative string; return absolute path when outside."""
         abs_path = Path(path).absolute()
         try:
-            return str(abs_path.relative_to(self.vault_path))
+            return str(abs_path.relative_to(self.workspace_path))
         except ValueError:
             return str(abs_path)
 
@@ -174,19 +174,19 @@ class BaseComponent(ComponentMixin, ABC):
         else:
             raise ValueError(f"{dep.ctype.value} '{dep.name}' not found.")
 
-    # ----- Vault path helpers --------------------------------------------
+    # ----- Workspace path helpers --------------------------------------------
 
     @property
-    def vault_metadata_path(self) -> Path:
-        """Vault metadata directory: ``<vault>/<metadata_dir>``."""
+    def workspace_metadata_path(self) -> Path:
+        """Workspace metadata directory: ``<workspace>/<metadata_dir>``."""
         if self.app_context is None:
             return Path.cwd() / "metadata"
-        return self.vault_path / self.app_context.app_config.metadata_dir
+        return self.workspace_path / self.app_context.app_config.metadata_dir
 
     @property
     def component_metadata_path(self) -> Path:
-        """Per-component metadata directory under the vault."""
-        return self.vault_metadata_path / self.component_type.value
+        """Per-component metadata directory under the workspace."""
+        return self.workspace_metadata_path / self.component_type.value
 
     # ----- Lifecycle hooks (override in subclasses) ----------------------
 

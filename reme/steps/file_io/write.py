@@ -37,7 +37,7 @@ class WriteStep(BaseStep):
         content = "" if content is None else str(content)
         metadata_raw = self.context.get("metadata")
 
-        target, err = resolve_path(self.vault_path, raw)
+        target, err = resolve_path(self.workspace_path, raw)
         if err:
             self._fail(err)
             return None

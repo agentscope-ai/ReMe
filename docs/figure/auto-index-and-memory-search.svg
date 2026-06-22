@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">ReMe auto index and memory search flow</title>
-  <desc id="desc">A concise left-to-right flow from automatic vault indexing to memory search and progressive link expansion.</desc>
+  <desc id="desc">A concise left-to-right flow from automatic workspace indexing to memory search and progressive link expansion.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8fb; }
@@ -29,7 +29,7 @@
 
   <rect class="bg" x="0" y="0" width="1200" height="640"/>
   <text class="title" x="600" y="54" text-anchor="middle">Auto Index and Memory Search</text>
-  <text class="subtitle" x="600" y="80" text-anchor="middle">Keep vault indexes fresh, recall relevant chunks, then expand nearby wikilink context.</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Keep workspace indexes fresh, recall relevant chunks, then expand nearby wikilink context.</text>
 
   <rect class="panel" x="64" y="150" width="232" height="260"/>
   <circle class="badge" cx="100" cy="188" r="15"/>
@@ -94,5 +94,5 @@
   <text class="chip-text" x="764" y="536">Use read or traverse for deeper expansion.</text>
 
   <path class="soft-arrow" d="M1026 410 C1026 456 748 452 748 410"/>
-  <text class="note" x="888" y="454" text-anchor="middle">link expansion is contextual, not a full-vault dump</text>
+  <text class="note" x="888" y="454" text-anchor="middle">link expansion is contextual, not a full-workspace dump</text>
 </svg>

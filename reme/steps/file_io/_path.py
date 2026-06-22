@@ -68,18 +68,18 @@ def is_relative_to(path: Path, parent: Path) -> bool:
 
 # pylint: disable=too-many-return-statements
 def resolve_path(
-    vault_path: Path,
+    workspace_path: Path,
     raw: str,
     *,
     allow_empty: bool = False,
 ) -> tuple[Path | None, str | None]:
-    """Resolve a `path=` argument against ``vault_path``.
+    """Resolve a `path=` argument against ``workspace_path``.
 
     Returns ``(abs_path, None)`` on success, or ``(None, error_message)`` on failure.
     """
     if not raw or not str(raw).strip():
         if allow_empty:
-            return vault_path.resolve(), None
+            return workspace_path.resolve(), None
         return None, "`path` is required"
     s = str(raw).strip()
     p = Path(s)
@@ -90,10 +90,10 @@ def resolve_path(
         err = validate_filename_component(part, kind="path component")
         if err:
             return None, err
-    vault = vault_path.resolve()
-    target = (vault / p).resolve()
-    if not is_relative_to(target, vault):
-        return None, "`path` must stay inside the vault"
+    workspace = workspace_path.resolve()
+    target = (workspace / p).resolve()
+    if not is_relative_to(target, workspace):
+        return None, "`path` must stay inside the workspace"
     return target, None
 
 

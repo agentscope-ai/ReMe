@@ -21,7 +21,7 @@ Wikilink convention. Targets are taken **literally** — ``[[X]]`` →
 no folder-note expansion. Anchor and alias survive a rewrite
 verbatim. Image marker (``!``) and Dataview predicate (``pred::``
 outside the brackets) sit outside ``[[...]]`` and are not touched by
-a rewrite. Recommended form: full path relative to the vault with
+a rewrite. Recommended form: full path relative to the workspace with
 extension (``[[topics/x.md]]``).
 
 Stale graph entries are harmless (``scan_and_rewrite`` returns
@@ -183,19 +183,19 @@ class WikilinkHandler:
         if any(ch in dst for ch in cls.FORBIDDEN_IN_NEW):
             return "dst must not contain [ ] # | newline"
         if Path(src).is_absolute() or Path(dst).is_absolute():
-            return "src and dst must be relative to the vault"
+            return "src and dst must be relative to the workspace"
         return None
 
     @staticmethod
     def validate_scope(scope: str) -> str | None:
         """Return an error message for a bad scope, or None when OK."""
         if scope and Path(scope).is_absolute():
-            return "scope must be relative to the vault"
+            return "scope must be relative to the workspace"
         return None
 
     @staticmethod
     def within_scope(rel: str, scope: str) -> bool:
-        """``rel`` (relative to the vault) is inside ``scope`` (empty = anywhere)."""
+        """``rel`` (relative to the workspace) is inside ``scope`` (empty = anywhere)."""
         if not scope:
             return True
         prefix = scope.rstrip("/") + "/"
@@ -270,7 +270,7 @@ class WikilinkHandler:
 
     @classmethod
     async def find_inbound(cls, file_store, target: str, scope: str = "") -> dict:
-        """Count wikilinks across the vault that point at ``target``.
+        """Count wikilinks across the workspace that point at ``target``.
 
         Literal matching: ``[[target]]`` only. The target file itself is
         excluded — self-references don't survive a delete and aren't
@@ -294,12 +294,12 @@ class WikilinkHandler:
         if not target:
             return {"target": target, "error": "target is required"}
         if Path(target).is_absolute():
-            return {"target": target, "error": "target must be relative to the vault"}
+            return {"target": target, "error": "target must be relative to the workspace"}
         err = cls.validate_scope(scope)
         if err is not None:
             return {"target": target, "error": err}
 
-        vault_dir = Path(file_store.vault_path or ".").resolve()
+        workspace_dir = Path(file_store.workspace_path or ".").resolve()
         by_file: list[dict] = []
         total = 0
 
@@ -309,7 +309,7 @@ class WikilinkHandler:
             if not cls.within_scope(rel, scope):
                 continue
             try:
-                text = (vault_dir / rel).read_text(encoding="utf-8")
+                text = (workspace_dir / rel).read_text(encoding="utf-8")
             except Exception:
                 continue
             _, count = cls.scan_and_rewrite(text, old=target, new=None)
@@ -357,14 +357,14 @@ class WikilinkHandler:
         if err is not None:
             return {"src": src, "dst": dst, "error": err}
 
-        vault_dir = Path(file_store.vault_path or ".").resolve()
+        workspace_dir = Path(file_store.workspace_path or ".").resolve()
         by_file: list[dict] = []
         total_changes = 0
 
         for rel in await cls._inbound_sources(file_store, src):
             if not cls.within_scope(rel, scope):
                 continue
-            abs_path = vault_dir / rel
+            abs_path = workspace_dir / rel
             try:
                 text = abs_path.read_text(encoding="utf-8")
             except Exception:

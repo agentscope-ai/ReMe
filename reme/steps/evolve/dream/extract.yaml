@@ -3,7 +3,7 @@ extract_system_prompt: |
   together and emit a compact cross-file plan: merged memory units and daily
   interest topic candidates.
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   buckets: {buckets}
 
   Digest is the abstract memory layer. Raw detail stays in daily notes. Digest
@@ -84,7 +84,7 @@ extract_system_prompt_zh: |
   你是 dream 全局抽取 agent。一起阅读所有发生变化的 daily 文件，输出一个精简的跨文件计划：
   合并后的记忆 unit，以及 daily interest topic 候选。
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   buckets: {buckets}
 
   Digest 是抽象记忆层。原始细节保留在 daily notes 中；digest 只保存未来 agent 应该记住的可复用原则、

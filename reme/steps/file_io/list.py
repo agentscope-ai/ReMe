@@ -1,11 +1,11 @@
-"""``file_list`` — enumerate files under a directory in the vault.
+"""``file_list`` — enumerate files under a directory in the workspace.
 
 Reads directly from the filesystem (``Path.iterdir`` / ``Path.rglob``),
 **not** the file_store index. The store may lag behind disk during
 indexing or after rapid mutations; the on-disk walk is the source of truth.
 
 Parameters:
-    path        — dir to list under (relative to the vault or absolute). Empty = vault root.
+    path        — dir to list under (relative to the workspace or absolute). Empty = workspace root.
     limit       — cap on the number of returned items (default 100, must be > 0).
     recursive   — descend into subdirectories. Default False = direct children only.
 
@@ -20,13 +20,13 @@ from ._path import resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
-# Default cap on returned items so huge vaults don't blow up the response.
+# Default cap on returned items so huge workspaces don't blow up the response.
 DEFAULT_LIMIT = 100
 
 
 @R.register("list_step")
 class ListStep(BaseStep):
-    """Enumerate files under a directory in the vault."""
+    """Enumerate files under a directory in the workspace."""
 
     def _fail(self, message: str, **meta) -> None:
         """Set a failed response (matches the read/edit/... fail envelope)."""
@@ -63,12 +63,12 @@ class ListStep(BaseStep):
         return files
 
     @staticmethod
-    def _format_relative(files: list[Path], vault_dir: Path) -> list[str]:
-        """Render as vault-relative paths; fall back to absolute when outside the vault."""
+    def _format_relative(files: list[Path], workspace_dir: Path) -> list[str]:
+        """Render as workspace-relative paths; fall back to absolute when outside the workspace."""
         out: list[str] = []
         for entry in files:
             try:
-                out.append(str(entry.relative_to(vault_dir)))
+                out.append(str(entry.relative_to(workspace_dir)))
             except ValueError:
                 out.append(str(entry))
         return out
@@ -76,8 +76,8 @@ class ListStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         path, recursive, limit = self._collect_params()
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target_dir, err = resolve_path(vault_dir, path, allow_empty=True)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target_dir, err = resolve_path(workspace_dir, path, allow_empty=True)
         if err or target_dir is None:
             self._fail(err or "invalid path", path=path)
             return None
@@ -89,7 +89,7 @@ class ListStep(BaseStep):
             self._fail(f"path {target_dir} is not a directory", path=str(target_dir))
             return None
 
-        items = self._format_relative(self._walk_files(target_dir, recursive, limit), vault_dir)
+        items = self._format_relative(self._walk_files(target_dir, recursive, limit), workspace_dir)
 
         self.context.response.success = True
         self.context.response.answer = f"Listed {len(items)} file(s) under {path or '.'}"

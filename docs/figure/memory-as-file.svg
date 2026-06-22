@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" role="img" aria-labelledby="title desc">
   <title id="title">ReMe memory as file model</title>
-  <desc id="desc">A diagram showing ReMe vault files as both a human readable memory interface and an agent operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.</desc>
+  <desc id="desc">A diagram showing ReMe workspace files as both a human readable memory interface and an agent operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8fb; }
@@ -30,7 +30,7 @@
 
   <rect class="bg" x="0" y="0" width="1200" height="640"/>
   <text class="title" x="600" y="54" text-anchor="middle">Memory as File</text>
-  <text class="subtitle" x="600" y="80" text-anchor="middle">Vault files are the readable memory surface and the operable graph/index substrate.</text>
+  <text class="subtitle" x="600" y="80" text-anchor="middle">Workspace files are the readable memory surface and the operable graph/index substrate.</text>
 
   <rect class="panel" x="72" y="124" width="280" height="168"/>
   <rect class="badge" x="102" y="150" width="94" height="24" rx="12" ry="12"/>
@@ -41,7 +41,7 @@
   <text class="chip-text" x="212" y="267" text-anchor="middle">open, revise, move, delete</text>
 
   <rect class="panel" x="460" y="120" width="280" height="176"/>
-  <text class="section-title" x="600" y="152" text-anchor="middle">Vault directory</text>
+  <text class="section-title" x="600" y="152" text-anchor="middle">Workspace directory</text>
   <text class="section-subtitle" x="600" y="176" text-anchor="middle">the shared memory interface</text>
   <rect class="soft" x="504" y="204" width="192" height="30"/>
   <text class="chip-title" x="600" y="224" text-anchor="middle">Memory as File</text>
@@ -102,7 +102,7 @@
   <rect class="panel" x="126" y="594" width="948" height="46"/>
   <text class="note" x="176" y="622">Stable paths</text>
   <line class="line" x1="308" y1="606" x2="308" y2="628"/>
-  <text class="chip-text" x="360" y="622">vault-relative wikilinks</text>
+  <text class="chip-text" x="360" y="622">workspace-relative wikilinks</text>
   <line class="line" x1="548" y1="606" x2="548" y2="628"/>
   <text class="chip-text" x="600" y="622">derived_from evidence edges</text>
   <line class="line" x1="814" y1="606" x2="814" y2="628"/>

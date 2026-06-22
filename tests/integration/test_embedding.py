@@ -15,7 +15,7 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.enumeration import ComponentEnum  # noqa: E402
 from reme.schema import EmbNode  # noqa: E402
@@ -26,7 +26,7 @@ def test_embedding_health_check():
     """health_check() returns True with a working API key."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
@@ -44,7 +44,7 @@ def test_embedding_single_text():
     """Single text produces a valid embedding vector."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
@@ -65,7 +65,7 @@ def test_embedding_multiple_texts():
     """Batch embedding returns correct count and shapes."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
@@ -88,7 +88,7 @@ def test_embedding_cache_hit():
     """Same text returns cached result on second call."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
@@ -114,7 +114,7 @@ def test_embedding_similarity():
     """Semantically similar texts have higher cosine similarity."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]
@@ -144,7 +144,7 @@ def test_embedding_node_embeddings():
     """get_node_embeddings fills embedding field on EmbNode objects."""
 
     async def run():
-        with vault_env() as env:
+        with workspace_env() as env:
             app = await env.make_app()
             try:
                 store = app.context.components[ComponentEnum.EMBEDDING_STORE]["default"]

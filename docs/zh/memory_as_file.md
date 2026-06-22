@@ -6,7 +6,7 @@ ReMe 的核心思想是：**Memory as File, File as Memory**。
   <img src="../figure/memory-as-file.svg" alt="ReMe Memory as File 文件化记忆模型" width="92%">
 </p>
 
-**Memory as File**：长期记忆不是藏在黑盒数据库里，而是落在 vault 目录中的 Markdown 文件、资源文件和索引快照里。用户和 Agent
+**Memory as File**：长期记忆不是藏在黑盒数据库里，而是落在 workspace 目录中的 Markdown 文件、资源文件和索引快照里。用户和 Agent
 都可以直接读、写、移动、删除这些文件。
 
 **File as Memory**：每个文件不只是普通文本，也是一个可索引、可链接、可演化的记忆节点。ReMe 会从文件中解析 frontmatter、正文
@@ -20,10 +20,10 @@ ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了
 
 | 目标       | 含义                                                                   |
 |----------|----------------------------------------------------------------------|
-| 可读       | 用户可以直接打开 vault，像读普通笔记一样读 daily、digest 和原始材料。                         |
+| 可读       | 用户可以直接打开 workspace，像读普通笔记一样读 daily、digest 和原始材料。                         |
 | 可编辑      | 用户和 Agent 都能用文件操作修正、补充、移动或删除记忆，不必依赖专用数据库客户端。                    |
 | 可追溯      | digest 中的长期结论可以通过 `derived_from:: [[...]]` 回到 daily、resource 或 session 原文。 |
-| 可迁移      | vault 是普通目录，Markdown、JSONL、YAML 和资源文件可以被备份、同步、版本管理或迁移到其他工具。          |
+| 可迁移      | workspace 是普通目录，Markdown、JSONL、YAML 和资源文件可以被备份、同步、版本管理或迁移到其他工具。          |
 | 可索引      | 文件虽然是普通文本，但 ReMe 会解析 frontmatter、chunk、wikilink，构建检索索引和文件图谱。         |
 | 可协作      | 人负责判断和修正，Agent 负责整理、链接和检索；二者看到和操作的是同一套文件。                       |
 
@@ -31,7 +31,7 @@ ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了
 
 ## 记忆分层
 
-ReMe 的 vault 把记忆分成四层：
+ReMe 的 workspace 把记忆分成四层：
 
 ```text
 raw input      -> session/ + resource/
@@ -64,7 +64,7 @@ ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resourc
 检索这些文件时使用 [Memory Search](./memory_search.md)。
 
 ```text
-<vault_dir>/
+<workspace_dir>/
 ├── metadata/                    # 系统索引层；ReMe 索引、图谱、catalog 等持久状态，不作为人工编辑入口
 ├── session/                     # 原始输入层；原始对话和 Agent session
 │   ├── dialog/
@@ -185,7 +185,7 @@ ReMe 的 wikilink 是**字面路径语义**：
 [[X]]  -> target_path = "X"
 ```
 
-它不会自动补 `.md`，不会按文件名搜索，也不会自动解析 folder note。推荐写完整的 vault 相对路径，并带上扩展名。
+它不会自动补 `.md`，不会按文件名搜索，也不会自动解析 folder note。推荐写完整的 workspace 相对路径，并带上扩展名。
 
 Wikilink 的作用：
 
@@ -237,11 +237,11 @@ contrasts_with:: [[digest/wiki/集中式逆变器.md]]
 
 ## 人工编辑和 Agent 编辑
 
-因为记忆就是文件，用户可以直接在编辑器里改 vault；Agent 也可以通过 ReMe 的文件工具读写同一批文件。两者遵守同一套约定：
+因为记忆就是文件，用户可以直接在编辑器里改 workspace；Agent 也可以通过 ReMe 的文件工具读写同一批文件。两者遵守同一套约定：
 
 | 操作     | 建议                                                                 |
 |--------|--------------------------------------------------------------------|
-| 新增记忆   | 写入合适目录，Markdown 使用 frontmatter，并尽量写完整 vault-relative wikilink。       |
+| 新增记忆   | 写入合适目录，Markdown 使用 frontmatter，并尽量写完整 workspace-relative wikilink。       |
 | 修改正文   | 保留已有来源和关键 wikilink；如果是修正旧结论，在正文里说明新材料如何改变旧判断。                 |
 | 移动文件   | 使用 ReMe 的 move 工具时会默认改写入边中的旧路径；手工移动后建议重新检查入链。                  |
 | 删除文件   | 删除前检查入链；ReMe 的 delete 会返回仍然指向目标的来源文件，方便清理悬空引用。                 |
@@ -252,7 +252,7 @@ digest-to-digest wikilink，是长期记忆可追溯和可扩展的基础。
 
 ## 路径语义
 
-所有文件工具和 wikilink 都以 vault-relative path 为基本单位：
+所有文件工具和 wikilink 都以 workspace-relative path 为基本单位：
 
 ```text
 digest/wiki/光伏.md

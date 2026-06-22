@@ -1,4 +1,4 @@
-"""Read a markdown file from vault_dir, with line-range slicing and byte-truncation."""
+"""Read a markdown file from workspace_dir, with line-range slicing and byte-truncation."""
 
 from pathlib import Path
 
@@ -32,12 +32,12 @@ class ReadStep(BaseStep):
             self.context.response.metadata.update(meta)
 
     def _resolve_target(self, raw: str) -> Path | None:
-        """Resolve ``raw`` under vault and gate the markdown suffix.
+        """Resolve ``raw`` under workspace and gate the markdown suffix.
 
         Non-md suffixes only warn (compatibility mode), not fail. Returns
         the absolute path, or ``None`` when ``raw`` is empty/invalid.
         """
-        target, err = resolve_path(self.vault_path, raw)
+        target, err = resolve_path(self.workspace_path, raw)
         if err:
             self._fail(err)
             return None
@@ -156,9 +156,9 @@ class ReadStep(BaseStep):
         """Append the rendered neighbor block + stash raw expansion in metadata."""
         assert self.context is not None
         try:
-            rel_path = str(target.relative_to(self.vault_path))
+            rel_path = str(target.relative_to(self.workspace_path))
         except ValueError:
-            self.logger.info(f"[{self.name}] skip neighbors: path outside vault_path path={target}")
+            self.logger.info(f"[{self.name}] skip neighbors: path outside workspace_path path={target}")
             return
 
         try:

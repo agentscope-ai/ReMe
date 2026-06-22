@@ -1,4 +1,4 @@
-"""Tests for ``ChannelNotifyStep`` — vault-watcher batch → channel event."""
+"""Tests for ``ChannelNotifyStep`` — workspace-watcher batch → channel event."""
 
 import asyncio
 from pathlib import Path
@@ -32,9 +32,9 @@ def _ctx(changes: list[dict]) -> RuntimeContext:
     return ctx
 
 
-def _app_ctx_with_sink(vault: Path, stub: _StubSession | None) -> tuple[ApplicationContext, ChannelSink | None]:
-    """Build an ``ApplicationContext`` rooted at ``vault``; attach a sink bound to ``stub`` if given."""
-    app_ctx = ApplicationContext(vault_dir=str(vault), app_name="reme-test")
+def _app_ctx_with_sink(workspace: Path, stub: _StubSession | None) -> tuple[ApplicationContext, ChannelSink | None]:
+    """Build an ``ApplicationContext`` rooted at ``workspace``; attach a sink bound to ``stub`` if given."""
+    app_ctx = ApplicationContext(workspace_dir=str(workspace), app_name="reme-test")
     if stub is None:
         return app_ctx, None
     sink = ChannelSink()
@@ -45,13 +45,13 @@ def _app_ctx_with_sink(vault: Path, stub: _StubSession | None) -> tuple[Applicat
 
 def test_emits_one_event_per_batch_with_relative_paths(tmp_path):
     """A batch of changes → exactly one notification with relative paths and a count meta."""
-    vault = tmp_path
-    (vault / "resource" / "2026-06-03").mkdir(parents=True)
-    f1 = vault / "resource" / "2026-06-03" / "a.md"
+    workspace = tmp_path
+    (workspace / "resource" / "2026-06-03").mkdir(parents=True)
+    f1 = workspace / "resource" / "2026-06-03" / "a.md"
     f1.write_text("x")
 
     stub = _StubSession()
-    app_ctx, _ = _app_ctx_with_sink(vault, stub)
+    app_ctx, _ = _app_ctx_with_sink(workspace, stub)
 
     step = ChannelNotifyStep(app_context=app_ctx)
     response = _run(
@@ -68,7 +68,7 @@ def test_emits_one_event_per_batch_with_relative_paths(tmp_path):
     assert response.success is True
     assert len(stub.sent) == 1
     params = stub.sent[0].message.root.params
-    assert params["meta"] == {"kind": "vault_change", "count": "2"}
+    assert params["meta"] == {"kind": "workspace_change", "count": "2"}
     assert "added: resource/2026-06-03/a.md" in params["content"]
     assert "modified: resource/2026-06-03/a.md" in params["content"]
 
@@ -92,8 +92,8 @@ def test_noop_when_sink_not_bound(tmp_path):
     assert response.success is True
 
 
-def test_path_outside_vault_passes_through_as_is(tmp_path):
-    """Paths not under the vault are emitted verbatim instead of crashing."""
+def test_path_outside_workspace_passes_through_as_is(tmp_path):
+    """Paths not under the workspace are emitted verbatim instead of crashing."""
     stub = _StubSession()
     app_ctx, _ = _app_ctx_with_sink(tmp_path, stub)
     step = ChannelNotifyStep(app_context=app_ctx)

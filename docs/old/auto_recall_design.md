@@ -1,6 +1,6 @@
 # auto-recall 设计(Stage 3 检索:信号融合 + 召回增强)
 
-> 本文档:reme 中 **auto-cognition 三阶段** 的 **Stage 3 — 检索阶段** 实现。覆盖 query 到来时如何把 vault 一等公民信号(wikilink 图 / frontmatter)与维护阶段产出信号(centrality / community / recency / archived)融合,生成最终召回。
+> 本文档:reme 中 **auto-cognition 三阶段** 的 **Stage 3 — 检索阶段** 实现。覆盖 query 到来时如何把 workspace 一等公民信号(wikilink 图 / frontmatter)与维护阶段产出信号(centrality / community / recency / archived)融合,生成最终召回。
 >
 > 配套阅读:
 > - `auto_cognition_design.md`:三阶段顶层思想(本文档是 Stage 3)
@@ -12,7 +12,7 @@
 > **核心立场**:
 > - retrieve **不引入新 L4 模块**(`structure.md` ✗-15)—— 三种问法各自由 L3 原子工具(`list_step` / `search_step` / `traverse_step`)直接覆盖
 > - 本文档增强**集中在 `search_step` 内部**:把维护信号融入打分 / 排序 / 过滤;`traverse_step` 仅做小幅参数扩展
-> - retrieve **只读 vault,不写 body / 不写 frontmatter**;唯一写入是 `meta/access_log.json`(命中计数,供下次 recency 计算)
+> - retrieve **只读 workspace,不写 body / 不写 frontmatter**;唯一写入是 `meta/access_log.json`(命中计数,供下次 recency 计算)
 
 ---
 
@@ -64,8 +64,8 @@ semantic 问法当前在 `reme/steps/index/search.py` 实现:
 | **community** | `meta/communities.json` | search_step 启动 lazy load(LRU 缓存,文件 mtime 失效) | 缺失 → 不做同社区 boost |
 | **recency** | `meta/access_log.json` | 同上 | 缺失 → recency_factor = 1.0 |
 | **archived** | `meta/archived.json` | 同上 | 缺失 → 不过滤,所有节点参与 |
-| **wikilink 图** | vault 自身(file_graph) | 实时 | 总在线 |
-| **frontmatter** | vault 自身(`name` / `description`) | chunk 已带 metadata | 总在线 |
+| **wikilink 图** | workspace 自身(file_graph) | 实时 | 总在线 |
+| **frontmatter** | workspace 自身(`name` / `description`) | chunk 已带 metadata | 总在线 |
 
 **version 校验**:`meta/*.json` 加载时检查 `version` 字段,与本文档约定的 schema 版本不匹配 → 走"该信号缺失"降级,日志告警(不崩)。
 
@@ -181,7 +181,7 @@ fused (chunk-level) → group by path → 每组保留 top_chunks_per_path 个
 - agent 需要"再深一层"时显式调 `traverse_step(depth=2)` —— 三种问法分立(R-1)
 - 默认深拉会让"语义召回"变成"图召回",违背 R-1
 
-**何时调 2**:dogfooding 发现 vault 节点平均出度低 / 跨术语关系频繁 → 调到 2(改 search_step 配置,不改协议)。
+**何时调 2**:dogfooding 发现 workspace 节点平均出度低 / 跨术语关系频繁 → 调到 2(改 search_step 配置,不改协议)。
 
 ---
 
@@ -199,7 +199,7 @@ fused (chunk-level) → group by path → 每组保留 top_chunks_per_path 个
 | **(d) HyDE**(LLM 生成假设答案 → 嵌入这个答案而非 query) | LLM 1 次 | 高,文献证实 |
 
 **首版决策**:**(a) 不做**。理由:
-- vault 本身规模 M0 不大,推断增加召回但增 LLM cost 不划算
+- workspace 本身规模 M0 不大,推断增加召回但增 LLM cost 不划算
 - 维护阶段的 community 聚类已部分弥补"跨术语关系"(同社区 boost)
 - 真要做,优先 (d) HyDE,延 M1+ 再启,实施只需加一层 query 预处理
 
@@ -274,7 +274,7 @@ traverse_step 当前不知道 archived 信号。改造:加 `exclude_archived: bo
 | **R-3**(继承)| 拓扑问与层无关 | traverse 跨三层(I-4) |
 | **R-4**(继承)| Provenance 默认 lazy | retrieve 不自动 traverse(R-4);expand_links 是性能优化非语义展开 |
 | **Re-1**(本文档)| retrieve 不引入 L4 模块 | 增强限定在原子 step 内部 |
-| **Re-2**(本文档)| retrieve 只读 vault | 不改 body / frontmatter / 文件位置 |
+| **Re-2**(本文档)| retrieve 只读 workspace | 不改 body / frontmatter / 文件位置 |
 | **Re-3**(本文档)| retrieve 唯一对外写入是 `meta/access_log.json` | 通过 ring buffer + maintain 聚合,不直接写 |
 | **Re-4**(本文档)| 任一维护信号缺失 → 降级不崩 | `meta/*.json` 缺 → 跳过对应因子,系统始终可用 |
 | **Re-5**(本文档)| version 不兼容 → 降级 + warning | 不阻断 retrieve |
@@ -319,5 +319,5 @@ traverse_step 当前不知道 archived 信号。改造:加 `exclude_archived: bo
 - ⏳ **maintain daily 聚合接口**(读 ring → 合并旧 access_log → 写新版)
 
 **性能与回归**:
-- ⏳ **基准测试**:打分公式启用前后的 召回 P@5 / MRR(用合成 vault + ground-truth query)
+- ⏳ **基准测试**:打分公式启用前后的 召回 P@5 / MRR(用合成 workspace + ground-truth query)
 - ⏳ **延迟监控**:维护信号读取 + multi-hop expand 的 p50 / p95

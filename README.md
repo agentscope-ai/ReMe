@@ -93,7 +93,7 @@ The default service address is `127.0.0.1:2333`. If the port is occupied, specif
 
 ```bash
 reme start service.port=8181
-# reme start vault_dir=/tmp/reme-demo service.port=8181
+# reme start workspace_dir=/tmp/reme-demo service.port=8181
 ```
 
 After startup, check the service status. If you use a custom port, replace `2333` in the URL below with that port.
@@ -125,7 +125,7 @@ ReMe treats **memory as files**, progressively processing raw conversations and 
 ### Directory Structure
 
 ```text
-<vault_dir>/
+<workspace_dir>/
 ├── metadata/       # Persistent system state such as indexes, graphs, and catalogs
 ├── session/        # Raw conversations and agent sessions
 │   ├── dialog/
@@ -189,12 +189,12 @@ ReMe's automatic memory flow gradually turns raw conversations and resources int
   </tr>
 </table>
 
-### Vault Operation Interface
+### Workspace Operation Interface
 
-ReMe operates the vault through a unified CLI / Service Job interface. Agents usually only need retrieval, read, write, edit, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands are mainly for maintenance, debugging, or advanced integration.
+ReMe operates the workspace through a unified CLI / Service Job interface. Agents usually only need retrieval, read, write, edit, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands are mainly for maintenance, debugging, or advanced integration.
 
 <details>
-<summary><b>Vault Operation Interface</b></summary>
+<summary><b>Workspace Operation Interface</b></summary>
 
 <br>
 
@@ -203,11 +203,11 @@ ReMe operates the vault through a unified CLI / Service Job interface. Agents us
 | System status  | `version`                            | Returns the ReMe package version.                                           | None                                                   |
 | System status  | `health_check`                       | Returns a health-check summary for ReMe components.                         | None                                                   |
 | System status  | `help`                               | Lists registered jobs and their metadata.                                   | None                                                   |
-| Retrieval/read | [`search`](docs/zh/memory_search.md) | Performs hybrid retrieval in the vault with vector recall, BM25, and RRF fusion. | Required: `query`; optional: `limit`, `min_score`      |
+| Retrieval/read | [`search`](docs/zh/memory_search.md) | Performs hybrid retrieval in the workspace with vector recall, BM25, and RRF fusion. | Required: `query`; optional: `limit`, `min_score`      |
 | Retrieval/read | `node_search`                        | Recalls similar digest nodes by candidate abstraction name and description, mainly for `auto_dream` deduplication or association. | Required: `query`; optional: `limit`                   |
 | Retrieval/read | `traverse`                           | Traverses the wikilink graph from a specified path.                         | Required: `path`; optional: `depth`, `direction`       |
-| Retrieval/read | `read`                               | Reads a Markdown file under the vault.                                      | Required: `path`; optional: `start_line`, `end_line`   |
-| Retrieval/read | `read_image`                         | Reads an image file under the vault and returns base64.                     | Required: `path`                                      |
+| Retrieval/read | `read`                               | Reads a Markdown file under the workspace.                                      | Required: `path`; optional: `start_line`, `end_line`   |
+| Retrieval/read | `read_image`                         | Reads an image file under the workspace and returns base64.                     | Required: `path`                                      |
 | Index          | `reindex`                            | Clears file-store indexes and rebuilds indexes from existing files.         | Config: `watch_dirs`, `watch_suffixes`                 |
 | Daily          | `daily_create`                       | Creates a daily session note: `daily/<date>/<session_id>.md` or `daily/<date>.md`. | `session_id`, `date`                                  |
 | Daily          | `daily_list`                         | Lists notes for a day.                                                      | `date`                                                 |
@@ -215,12 +215,12 @@ ReMe operates the vault through a unified CLI / Service Job interface. Agents us
 | Metadata       | `frontmatter_read`                   | Reads file frontmatter.                                                     | Required: `path`                                      |
 | Metadata       | `frontmatter_update`                 | Merges key-values into file frontmatter.                                    | Required: `path`, `metadata`                           |
 | Metadata       | `frontmatter_delete`                 | Deletes specified keys from file frontmatter.                               | Required: `path`, `keys`                               |
-| File operation | `stat`                               | Gets vault path status, including size, mtime, existence, and file/directory type. | Required: `path`                                      |
-| File operation | `list`                               | Lists files under a vault path.                                             | `path`, `recursive`, `limit`                           |
+| File operation | `stat`                               | Gets workspace path status, including size, mtime, existence, and file/directory type. | Required: `path`                                      |
+| File operation | `list`                               | Lists files under a workspace path.                                             | `path`, `recursive`, `limit`                           |
 | File operation | `write`                              | Creates or overwrites a Markdown file and writes name/description frontmatter. | Required: `path`, `name`, `description`, `content`; optional: `metadata` |
 | File operation | `edit`                               | Performs full-text find-and-replace on a Markdown file.                     | Required: `path`, `old`, `new`                         |
-| File operation | `move`                               | Moves or renames a vault file and rewrites inbound wikilinks by default.    | Required: `src_path`, `dst_path`; optional: `overwrite`, `retarget` |
-| File operation | `delete`                             | Deletes a vault file or folder and returns inbound wikilinks that still exist. | Required: `path`                                      |
+| File operation | `move`                               | Moves or renames a workspace file and rewrites inbound wikilinks by default.    | Required: `src_path`, `dst_path`; optional: `overwrite`, `retarget` |
+| File operation | `delete`                             | Deletes a workspace file or folder and returns inbound wikilinks that still exist. | Required: `path`                                      |
 
 </details>
 

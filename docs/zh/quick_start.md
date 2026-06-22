@@ -1,7 +1,5 @@
 # 快速开始
 
----
-
 ## 安装
 
 ReMe 要求 Python 3.11+。
@@ -59,9 +57,9 @@ reme list
 
 ---
 
-## Vault 目录
+## Workspace 目录
 
-默认 vault 是当前目录下的 `.reme/`，启动时会自动创建：
+默认 workspace 是当前目录下的 `.reme/`，启动时会自动创建：
 
 ```text
 .reme/
@@ -77,7 +75,7 @@ reme list
 也可以启动时指定：
 
 ```bash
-reme start vault_dir=/tmp/reme-demo service.port=8181
+reme start workspace_dir=/tmp/reme-demo service.port=8181
 ```
 
 ---
@@ -96,7 +94,7 @@ ReMe 会索引 daily、digest 和 resource 目录中的 Markdown。
 相关链接：[[digest/wiki/search-demo.md]]"
 ```
 
-`path` 是 vault 内路径；没有后缀时会自动补 `.md`；Markdown 文件会写入 `name` 和 `description` front matter。
+`path` 是 workspace 内路径；没有后缀时会自动补 `.md`；Markdown 文件会写入 `name` 和 `description` front matter。
 
 后台 watcher 会自动建索引；也可以手动重建：
 
@@ -197,7 +195,7 @@ curl -s http://127.0.0.1:2333/search \
 
 ```bash
 reme start \
-  vault_dir=/tmp/reme-demo \
+  workspace_dir=/tmp/reme-demo \
   service.host=127.0.0.1 \
   service.port=8181 \
   enable_logo=false

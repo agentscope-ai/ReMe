@@ -1,6 +1,6 @@
 """Integration test for the 4-step auto_dream job and proactive reader.
 
-Runs against a real LLM. The test seeds a dream vault, runs ``auto_dream`` for
+Runs against a real LLM. The test seeds a dream workspace, runs ``auto_dream`` for
 2026-05-28, verifies digest/interests/catalog effects, then runs ``proactive``.
 Agent messages and generated markdown/yaml/jsonl artifacts are copied to
 ``tests/integration/logs/auto_dream_latest/`` for manual inspection.
@@ -19,7 +19,7 @@ ARTIFACT_DIR = INTEGRATION_DIR / "logs" / "auto_dream_latest"
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import DREAM_INPUT_PATH, vault_env  # noqa: E402
+from _workspace_fixture import DREAM_INPUT_PATH, workspace_env  # noqa: E402
 
 DREAM_DATE = "2026-05-28"
 
@@ -62,7 +62,7 @@ def _copy_outputs(env, message_files: list[Path]) -> list[Path]:
         if dst := _copy_artifact(path, "messages"):
             copied.append(dst)
     for root in ("daily", "digest", "metadata", "session", "agent_logs"):
-        if dst := _copy_artifact(env.vault_dir / root, root):
+        if dst := _copy_artifact(env.workspace_dir / root, root):
             copied.append(dst)
     return copied
 
@@ -85,7 +85,7 @@ def _all_digest_text(env) -> str:
 def _file_graph_links(env) -> dict[str, list[dict]]:
     """Map ``path -> links`` from every ``metadata/file_graph/*.jsonl``."""
     out: dict[str, list[dict]] = {}
-    graph_dir = env.vault_dir / "metadata" / "file_graph"
+    graph_dir = env.workspace_dir / "metadata" / "file_graph"
     if not graph_dir.is_dir():
         return out
     for graph_path in sorted(graph_dir.glob("*.jsonl")):
@@ -102,13 +102,13 @@ def test_auto_dream_and_proactive():
 
     async def run():
         _reset_artifacts()
-        with vault_env() as env:
-            seeded = env.seed_dream_vault()
+        with workspace_env() as env:
+            seeded = env.seed_dream_workspace()
             app = await env.make_app()
             message_files: list[Path] = []
             try:
                 print("\n" + "=" * 70)
-                print("[setup] vault_root =", env.vault_dir)
+                print("[setup] workspace_root =", env.workspace_dir)
                 print("[setup] date       =", DREAM_DATE)
                 print("[setup] seeded     =", json.dumps(seeded, ensure_ascii=False, indent=2))
                 print("=" * 70)
@@ -123,7 +123,7 @@ def test_auto_dream_and_proactive():
                         topic_diversity_days=7,
                     )
                 dumped = await recorder.dump()
-                session_jsonl = sorted((env.vault_dir / "session" / "agentscope").glob("*.jsonl"))
+                session_jsonl = sorted((env.workspace_dir / "session" / "agentscope").glob("*.jsonl"))
                 message_files = [*dumped, *session_jsonl]
                 _print_message_files(message_files)
 
@@ -135,10 +135,10 @@ def test_auto_dream_and_proactive():
                 assert dream.get("integrate_results"), f"integrate produced no results: {dream!r}"
                 assert dream.get("checkpoint_paths"), f"finish did not checkpoint changed paths: {dream!r}"
 
-                day_index = env.vault_dir / "daily" / f"{DREAM_DATE}.md"
-                changed_note = env.vault_dir / DREAM_INPUT_PATH
-                interests = env.vault_dir / "daily" / DREAM_DATE / "interests.yaml"
-                catalog = env.vault_dir / "metadata" / "file_catalog" / "dream.jsonl"
+                day_index = env.workspace_dir / "daily" / f"{DREAM_DATE}.md"
+                changed_note = env.workspace_dir / DREAM_INPUT_PATH
+                interests = env.workspace_dir / "daily" / DREAM_DATE / "interests.yaml"
+                catalog = env.workspace_dir / "metadata" / "file_catalog" / "dream.jsonl"
                 assert changed_note.is_file(), f"changed note missing: {changed_note}"
                 assert interests.is_file(), f"interests.yaml missing: {interests}"
                 assert catalog.is_file(), f"dream catalog missing: {catalog}"
@@ -175,7 +175,7 @@ def test_auto_dream_and_proactive():
                     if result.get("target_path")
                 ]
                 target_texts = {
-                    rel: _read_text(env.vault_dir / rel) for rel in target_paths if (env.vault_dir / rel).is_file()
+                    rel: _read_text(env.workspace_dir / rel) for rel in target_paths if (env.workspace_dir / rel).is_file()
                 }
                 digest_wikilinks = [rel for rel, text in target_texts.items() if "[[digest/" in text]
                 provenance_links = [
@@ -209,7 +209,7 @@ def test_auto_dream_and_proactive():
                     print(f"[day_index] skipped: no direct daily notes, so {day_index} was not created")
                 _print_text_file("changed input.md", changed_note)
                 for path in env.digest_files():
-                    _print_text_file(f"digest {path.relative_to(env.vault_dir)}", path)
+                    _print_text_file(f"digest {path.relative_to(env.workspace_dir)}", path)
                 _print_text_file("dream catalog.jsonl", catalog)
             finally:
                 copied = _copy_outputs(env, message_files)

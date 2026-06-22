@@ -3,7 +3,7 @@
 当前实现中，`auto_link` 不是一个单独注册的 Job，而是 `auto_dream` 的 Integrate 阶段能力：`dream_integrate_step` 在把 memory
 unit 写入 `digest/` 时，同时完成 digest 节点召回、去重判断、来源链接和相关节点 wikilink 织入。
 
-完整 dream 流程见 [Auto Dream](./auto_dream.md)。通用 wikilink、frontmatter 和 vault-relative 路径语义见
+完整 dream 流程见 [Auto Dream](./auto_dream.md)。通用 wikilink、frontmatter 和 workspace-relative 路径语义见
 [Memory as File](./memory_as_file.md)。面向问答的检索能力见 [Memory Search](./memory_search.md)。
 
 ## 所在位置
@@ -29,7 +29,7 @@ Integrate 阶段对每个 unit 独立运行。一个 unit 只落到一个目标 
 | 问题           | 处理方式                                               |
 |--------------|----------------------------------------------------|
 | 已有相同记忆       | 召回后更新旧节点，而不是重复创建。                                  |
-| 新旧材料有关联      | 在正文中写入 vault-relative wikilink。                    |
+| 新旧材料有关联      | 在正文中写入 workspace-relative wikilink。                    |
 | digest 与来源断开 | 用 `derived_from:: [[...]]` 指回 daily/resource 原始材料。 |
 | 节点只有孤立正文     | 在 CREATE 和 UPDATE 时都补充相关 digest 节点链接。              |
 
@@ -93,7 +93,7 @@ derived_from:: [[resource/2026-06-20/paper.md]]
 
 ### 4. 写 digest 关联边
 
-digest 之间的关联也使用完整 vault-relative 路径：
+digest 之间的关联也使用完整 workspace-relative 路径：
 
 ```markdown
 relates_to:: [[digest/wiki/hybrid-search.md]]

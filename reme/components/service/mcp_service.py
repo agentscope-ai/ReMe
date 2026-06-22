@@ -1,6 +1,6 @@
 """MCP service: expose jobs as MCP tools.
 
-Channel binding (the `<channel source="reme" kind="vault_change" ...>`
+Channel binding (the `<channel source="reme" kind="workspace_change" ...>`
 push from background steps to a specific Claude Code window) is uniform
 across transports: a single `ChannelSink` lives on
 `ApplicationContext.metadata["channel_sink"]`, unbound at startup, and any
@@ -89,17 +89,17 @@ class ChannelSink:
 
 _CHANNEL_INSTRUCTIONS = (
     "Events from the reme channel arrive as\n"
-    '  <channel source="reme" kind="vault_change" count="N">\n'
-    "    added|modified|deleted: <vault-relative path>\n"
+    '  <channel source="reme" kind="workspace_change" count="N">\n'
+    "    added|modified|deleted: <workspace-relative path>\n"
     "    ...\n"
     "  </channel>\n"
-    "The vault watcher fires one event per debounced batch of live changes "
+    "The workspace watcher fires one event per debounced batch of live changes "
     "under daily/, digest/, and resource/ (initial-scan diffs at startup are "
     "intentionally NOT replayed).\n"
     "\n"
     "Events are delivered ONLY to the MCP session that called the "
     "`claim_channel` tool last. Call it once per Claude Code window that "
-    "should receive vault-change notifications.\n"
+    "should receive workspace-change notifications.\n"
     "\n"
     "When new files appear under daily/ or resource/, treat it as a suggestion "
     "to run `/dream <path>` on each new path -- unless the user is mid-task and "

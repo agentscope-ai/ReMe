@@ -12,7 +12,7 @@ ReMe 已开源，项目仓库托管于 GitHub：
 修复和新能力开发参与贡献。
 
 如果是第一次本地运行，先看 [快速开始](./quick_start.md)。如果改动涉及运行时分层、Job、Step 或组件，先看
-[ReMe 代码框架](./framework.md)；如果改动涉及 vault 目录、frontmatter、wikilink 或 chunking，先看
+[ReMe 代码框架](./framework.md)；如果改动涉及 workspace 目录、frontmatter、wikilink 或 chunking，先看
 [Memory as File](./memory_as_file.md)。
 
 ### 1. 开始之前
@@ -46,7 +46,7 @@ pre-commit install
 开发 ReMe 代码前，请先阅读 [ReMe 代码框架](./framework.md)。新增或修改核心能力时，应遵照其中描述的分层与调用链：
 
 ```text
-CLI / Client -> Service -> Application -> Job -> Step -> Component / Vault
+CLI / Client -> Service -> Application -> Job -> Step -> Component / Workspace
 ```
 
 也就是说：
@@ -64,7 +64,7 @@ CLI / Client -> Service -> Application -> Job -> Step -> Component / Vault
 - Step 只处理单个业务原子操作；跨步骤流程应放在 Job 配置或专门的编排 Step 中。
 - Job 负责组合 Step，并决定普通、流式、后台或定时执行方式；是否对外暴露由 `enable_serve` 控制。
 - Step 需要组件时优先使用 `BaseStep.Ref`，不要在 Step 内重新构造全局组件或绕过 `ApplicationContext`。
-- 涉及文件、索引、图谱、front matter、wikilink 的行为，应保持 vault-relative 路径语义一致。
+- 涉及文件、索引、图谱、front matter、wikilink 的行为，应保持 workspace-relative 路径语义一致。
 - 新能力应补充 `tests/unit/` 中的快速测试；跨组件、LLM、embedding 或服务行为再放入 `tests/integration/`。
 
 ### 4. 代码与文档修改建议

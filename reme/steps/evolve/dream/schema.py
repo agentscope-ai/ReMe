@@ -14,7 +14,7 @@ class DreamUnit(BaseModel):
     name: str = Field(description="Short kebab-case handle for the abstraction.")
     bucket: str = Field(description="procedure, personal, or wiki; unknown values route to wiki.")
     summary: str = Field(description="Grounded abstraction summary with evidence pointers.")
-    paths: list[str] = Field(default_factory=list, description="Vault-relative source paths.")
+    paths: list[str] = Field(default_factory=list, description="Workspace-relative source paths.")
 
 
 class DreamTopic(BaseModel):
@@ -24,7 +24,7 @@ class DreamTopic(BaseModel):
     reason: str = Field(description="Why this topic may interest the user.")
     evidence: str = Field(description="Grounded evidence pointer.")
     keywords: list[str] = Field(default_factory=list, description="Keywords for de-duplication.")
-    paths: list[str] = Field(default_factory=list, description="Vault-relative source paths.")
+    paths: list[str] = Field(default_factory=list, description="Workspace-relative source paths.")
 
 
 class DreamExtractOutput(BaseModel):
@@ -66,7 +66,7 @@ class DreamState(BaseModel):
     date: str = ""
     hint: str = ""
     daily_dir: str = ""
-    vault: str = ""
+    workspace: str = ""
     files_scanned: int = 0
     files_unchanged: int = 0
     files_changed: int = 0

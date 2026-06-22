@@ -14,7 +14,7 @@ from reme.schema import FileChunk, FileNode
 
 
 class temp_chdir:
-    """Temporarily chdir into a test vault."""
+    """Temporarily chdir into a test workspace."""
 
     def __init__(self, path):
         self.path = path

@@ -219,7 +219,7 @@ def test_traverse_depth_2_expands():
 
 
 def test_traverse_short_seed_yields_empty():
-    """A short (not relative to the vault) seed isn't resolved anymore — BFS simply
+    """A short (not relative to the workspace) seed isn't resolved anymore — BFS simply
     finds no edges from a path that doesn't match any graph node."""
 
     async def run():

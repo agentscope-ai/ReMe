@@ -5,7 +5,7 @@ for the post-frontmatter content slice, or whole-file ``read`` when
 you want both at once. Returns ``{exists: false}`` when the target
 doesn't exist; otherwise ``{exists: true, frontmatter: {...}}``.
 
-``path`` is a path relative to the vault.
+``path`` is a path relative to the workspace.
 """
 
 from pathlib import Path
@@ -27,8 +27,8 @@ class FrontmatterReadStep(BaseStep):
         path: str = self.context.get("path") or ""
         assert path, "path is required"
 
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target, err = resolve_path(vault_dir, path)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             self.context.response.success = False
             self.context.response.answer = f"Error: {err or 'invalid path'}"

@@ -1,7 +1,7 @@
 """Tests for the ``read_image`` step.
 
 Style mirrors ``test_crud_steps.py`` — direct step invocation against a
-freshly built ``LocalFileStore`` with the step's ``vault_path`` rooted at
+freshly built ``LocalFileStore`` with the step's ``workspace_path`` rooted at
 ``cwd()`` via chdir.
 
 Coverage:

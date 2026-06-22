@@ -32,7 +32,7 @@ class InitChangesStep(BaseStep):
     def _get_watch_rules(self) -> list[WatchRule]:
         assert self.context is not None
         app_config = self.app_context.app_config if self.app_context else None
-        return build_context_watch_rules(app_config, self.vault_path, self.context)
+        return build_context_watch_rules(app_config, self.workspace_path, self.context)
 
     async def _load_indexed_nodes(self) -> Iterable[FileNode]:
         if self.monitor_type == "file_store":
@@ -44,13 +44,13 @@ class InitChangesStep(BaseStep):
         raise ValueError("init_changes_step.monitor_type must be 'file_store' or 'file_catalog'")
 
     @staticmethod
-    def diff(existing: dict[str, float], nodes: Iterable[FileNode], vault_path: Path) -> tuple[
+    def diff(existing: dict[str, float], nodes: Iterable[FileNode], workspace_path: Path) -> tuple[
         list[dict],
         dict[str, int],
     ]:
         """Compute added/modified/deleted vs ``nodes`` and return (changes, counts)."""
         indexed: dict[str, float] = {
-            str(Path(n.path) if Path(n.path).is_absolute() else vault_path / n.path): n.st_mtime for n in nodes
+            str(Path(n.path) if Path(n.path).is_absolute() else workspace_path / n.path): n.st_mtime for n in nodes
         }
         to_delete = list(indexed.keys() - existing.keys())
         to_add = list(existing.keys() - indexed.keys())
@@ -68,7 +68,7 @@ class InitChangesStep(BaseStep):
         rules = self._get_watch_rules()
         existing = collect_existing(rules, recursive=self.recursive)
         nodes = await self._load_indexed_nodes()
-        changes, counts = self.diff(existing, nodes, self.vault_path)
+        changes, counts = self.diff(existing, nodes, self.workspace_path)
         changes = coalesce_changes(changes)
         self.context["changes"] = changes
         if changes:

@@ -39,13 +39,13 @@ class _Catalog(BaseFileCatalog):
 def test_scan_day_files_includes_nested_md_and_excludes_interests():
     """Scan day files."""
     with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        _touch(vault / "daily" / "2026-05-28.md")
-        _touch(vault / "daily" / "2026-05-28" / "session.md")
-        _touch(vault / "daily" / "2026-05-28" / "auth-refactor" / "notes.md")
-        _touch(vault / "daily" / "2026-05-28" / "interests.yaml")
+        workspace = Path(tmp)
+        _touch(workspace / "daily" / "2026-05-28.md")
+        _touch(workspace / "daily" / "2026-05-28" / "session.md")
+        _touch(workspace / "daily" / "2026-05-28" / "auth-refactor" / "notes.md")
+        _touch(workspace / "daily" / "2026-05-28" / "interests.yaml")
 
-        assert scan_day_files(vault, "2026-05-28", "daily") == [
+        assert scan_day_files(workspace, "2026-05-28", "daily") == [
             "daily/2026-05-28.md",
             "daily/2026-05-28/auth-refactor/notes.md",
             "daily/2026-05-28/session.md",
@@ -71,25 +71,25 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp)
-            ok = _touch(vault / "daily" / "2026-05-28" / "ok.md")
-            failed = _touch(vault / "daily" / "2026-05-28" / "failed.md")
-            interests = _touch(vault / "daily" / "2026-05-28" / "interests.yaml")
+            workspace = Path(tmp)
+            ok = _touch(workspace / "daily" / "2026-05-28" / "ok.md")
+            failed = _touch(workspace / "daily" / "2026-05-28" / "failed.md")
+            interests = _touch(workspace / "daily" / "2026-05-28" / "interests.yaml")
             state = DreamState(
                 date="2026-05-28",
-                vault=str(vault),
-                changed_paths=[str(ok.relative_to(vault)), str(failed.relative_to(vault))],
-                failed_paths=[str(failed.relative_to(vault))],
-                interests_path=str(interests.relative_to(vault)),
+                workspace=str(workspace),
+                changed_paths=[str(ok.relative_to(workspace)), str(failed.relative_to(workspace))],
+                failed_paths=[str(failed.relative_to(workspace))],
+                interests_path=str(interests.relative_to(workspace)),
             )
             step, catalog = DreamFinishStep(), _Catalog()
             resp = await step(RuntimeContext(dream=state.model_dump(), file_catalog=catalog))
 
             upserted = [n.path for n in catalog.upserts]
             assert resp.success is True
-            assert str(ok.relative_to(vault)) in upserted
-            assert str(failed.relative_to(vault)) not in upserted
-            assert str(interests.relative_to(vault)) in upserted
+            assert str(ok.relative_to(workspace)) in upserted
+            assert str(failed.relative_to(workspace)) not in upserted
+            assert str(interests.relative_to(workspace)) in upserted
             assert catalog.dumps == 1
 
     asyncio.run(run())

@@ -12,14 +12,14 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.enumeration import ComponentEnum  # noqa: E402
 
 
 async def _run_session_persistence() -> None:
     """Two consecutive replies with the same session_id should share context."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
@@ -59,7 +59,7 @@ async def _run_session_persistence() -> None:
 
 async def _run_fork_session() -> None:
     """fork_session=True should create a new session file with a new session_id."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
@@ -106,7 +106,7 @@ async def _run_fork_session() -> None:
 
 async def _run_no_session_id() -> None:
     """When session_id is empty, no session file should be created."""
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]

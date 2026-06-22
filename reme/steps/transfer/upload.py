@@ -1,15 +1,15 @@
-"""``file_upload`` — copy a file from the local filesystem into the vault.
+"""``file_upload`` — copy a file from the local filesystem into the workspace.
 
 Symmetric counterpart to ``file_download``: source is on the local
-filesystem, target is under the vault.
+filesystem, target is under the workspace.
 
 ``src_path`` (filesystem source) is an absolute path on the host
 filesystem (the file to copy in). Returns ``error="not found"``
 when the file isn't on disk.
 
-``dst_path`` is a path relative to the vault, **required**, and must
+``dst_path`` is a path relative to the workspace, **required**, and must
 include a directory component so the caller is always explicit about
-where in the vault the file lands. ``overwrite`` defaults to False —
+where in the workspace the file lands. ``overwrite`` defaults to False —
 callers must opt in to clobber an existing destination.
 
 For the resource-bucket ingest path (channel-tagged, dated under
@@ -28,7 +28,7 @@ from ...components import R
 
 @R.register("upload_step")
 class UploadStep(BaseStep):
-    """Copy ``src_path`` (on local fs) to ``dst_path`` (under the vault)."""
+    """Copy ``src_path`` (on local fs) to ``dst_path`` (under the workspace)."""
 
     async def execute(self):
         assert self.context is not None
@@ -68,16 +68,16 @@ class UploadStep(BaseStep):
         if "/" not in dst_path:
             return {
                 "dst_path": dst_path,
-                "error": "dst_path must be relative to the vault with a directory component",
+                "error": "dst_path must be relative to the workspace with a directory component",
             }
         if Path(dst_path).is_absolute():
-            return {"dst_path": dst_path, "error": "dst_path must be relative to the vault"}
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        dst_abs = (vault_dir / dst_path).resolve()
+            return {"dst_path": dst_path, "error": "dst_path must be relative to the workspace"}
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        dst_abs = (workspace_dir / dst_path).resolve()
         try:
-            dst_abs.relative_to(vault_dir)
+            dst_abs.relative_to(workspace_dir)
         except ValueError:
-            return {"dst_path": dst_path, "error": "dst_path must stay inside the vault"}
+            return {"dst_path": dst_path, "error": "dst_path must stay inside the workspace"}
         if dst_abs == src_abs:
             return {"src_path": src_path, "dst_path": dst_path, "error": "src_path and dst_path are the same"}
         if dst_abs.is_dir():

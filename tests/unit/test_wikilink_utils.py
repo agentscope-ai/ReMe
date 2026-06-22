@@ -3,7 +3,7 @@
 Two pure async helpers used by file_move / file_delete:
 
   * ``retarget_links(src, dst, scope?, dry_run?)`` — rewrite wikilink
-    targets across the vault, using the file_graph's reverse index to
+    targets across the workspace, using the file_graph's reverse index to
     find inbound sources (no fs scan).
   * ``find_inbound(target, scope?)`` — report inbound count without
     rewriting.
@@ -339,7 +339,7 @@ def test_retarget_dst_with_forbidden_chars_errors():
 
 
 def test_retarget_absolute_path_rejected():
-    """Absolute paths in src or dst are rejected (must be relative to the vault)."""
+    """Absolute paths in src or dst are rejected (must be relative to the workspace)."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):

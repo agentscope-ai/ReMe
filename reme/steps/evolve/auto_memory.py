@@ -79,7 +79,7 @@ class AutoMemoryStep(BaseStep):
         return str(self.config_value("session_dir")).strip("/")
 
     def _session_path(self, session_id: str) -> Path:
-        return self.file_store.vault_path / self._session_dir() / "dialog" / f"{session_id}.jsonl"
+        return self.file_store.workspace_path / self._session_dir() / "dialog" / f"{session_id}.jsonl"
 
     def _session_link(self, session_id: str) -> str:
         return f"[[{self._session_dir()}/dialog/{session_id}.jsonl]]"
@@ -173,7 +173,7 @@ class AutoMemoryStep(BaseStep):
         user_message = self.prompt_format(
             template_key,
             today=current.strftime("%Y-%m-%d"),
-            vault_dir=str(self.file_store.vault_path),
+            workspace_dir=str(self.file_store.workspace_path),
             note=memory_hint or "(none)",
             note_path=note_path,
             history=format_history(messages),

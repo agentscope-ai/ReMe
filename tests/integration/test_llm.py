@@ -15,7 +15,7 @@ INTEGRATION_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(INTEGRATION_DIR))
 
 # pylint: disable=wrong-import-position
-from _vault_fixture import vault_env  # noqa: E402
+from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.steps.common.llm_demo import LLMDemoStep  # noqa: E402
 
@@ -101,7 +101,7 @@ async def _run_structured_output_enum(app) -> None:
 
 
 async def _run_all() -> None:
-    with vault_env() as env:
+    with workspace_env() as env:
         app = await env.make_app()
         try:
             await _run_basic_chat(app)

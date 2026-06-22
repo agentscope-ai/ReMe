@@ -232,7 +232,7 @@ jobs:
 
   search:
     backend: base
-    description: "Hybrid vault search (vector + BM25, RRF-fused)."
+    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
     parameters:
       type: object
       properties:
@@ -327,7 +327,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
         keys:
           type: array
           description: "keys to remove"
@@ -347,7 +347,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
       required:
         - path
     steps:
@@ -361,7 +361,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
         metadata:
           type: object
           description: "key-values to merge"
@@ -379,7 +379,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
       required:
         - path
     steps:
@@ -387,13 +387,13 @@ jobs:
 
   list:
     backend: base
-    description: "List files under a vault path."
+    description: "List files under a workspace path."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "vault-relative dir; empty = root"
+          description: "workspace-relative dir; empty = root"
           default: ""
         recursive:
           type: boolean
@@ -408,23 +408,23 @@ jobs:
 
   move:
     backend: base
-    description: "Move / rename a vault file; rewrites inbound wikilinks by default."
+    description: "Move / rename a workspace file; rewrites inbound wikilinks by default."
     parameters:
       type: object
       properties:
         src_path:
           type: string
-          description: "vault-relative source"
+          description: "workspace-relative source"
         dst_path:
           type: string
-          description: "vault-relative destination"
+          description: "workspace-relative destination"
         overwrite:
           type: boolean
           description: "overwrite if dst exists"
           default: false
         retarget:
           type: boolean
-          description: "rewrite [[src]] → [[dst]] across the vault"
+          description: "rewrite [[src]] → [[dst]] across the workspace"
           default: true
       required:
         - src_path
@@ -434,13 +434,13 @@ jobs:
 
   delete:
     backend: base
-    description: "Delete a vault file or folder; returns surviving inbound wikilinks."
+    description: "Delete a workspace file or folder; returns surviving inbound wikilinks."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
       required:
         - path
     steps:
@@ -448,13 +448,13 @@ jobs:
 
   read:
     backend: base
-    description: "Read a markdown file under the vault."
+    description: "Read a markdown file under the workspace."
     parameters:
       type: object
       properties:
         path:
           type: string
-          description: "vault-relative path; markdown only"
+          description: "workspace-relative path; markdown only"
         start_line:
           type: integer
           description: "first line (1-based, inclusive)"
@@ -470,14 +470,14 @@ jobs:
 
   read_image:
     backend: base
-    description: "Read an image file as base64 (vault-relative path)."
+    description: "Read an image file as base64 (workspace-relative path)."
     parameters:
       type: object
       properties:
         path:
           type: string
           description: >-
-            vault-relative path; common image formats supported
+            workspace-relative path; common image formats supported
             (png/jpg/jpeg/webp/gif/bmp/tiff/heic)
       required:
         - path
@@ -493,7 +493,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path; markdown only"
+          description: "workspace-relative path; markdown only"
         name:
           type: string
           description: "frontmatter name"
@@ -522,7 +522,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "vault-relative path"
+          description: "workspace-relative path"
         old:
           type: string
           description: "text to find"

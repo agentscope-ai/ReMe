@@ -30,7 +30,7 @@ def _run(coro):
 
 def test_claim_channel_binds_current_session(tmp_path):
     """The active FastMCP session becomes the sink recipient."""
-    app_ctx = ApplicationContext(vault_dir=str(tmp_path), app_name="reme-test")
+    app_ctx = ApplicationContext(workspace_dir=str(tmp_path), app_name="reme-test")
     sink = ChannelSink()
     app_ctx.metadata["channel_sink"] = sink
     session = _StubSession()
@@ -53,7 +53,7 @@ def test_claim_channel_binds_current_session(tmp_path):
 
 def test_claim_channel_reports_missing_fastmcp_context(tmp_path):
     """Calling outside a FastMCP request reports a clean unclaimed result."""
-    app_ctx = ApplicationContext(vault_dir=str(tmp_path), app_name="reme-test")
+    app_ctx = ApplicationContext(workspace_dir=str(tmp_path), app_name="reme-test")
     app_ctx.metadata["channel_sink"] = ChannelSink()
     step = ClaimChannelStep(app_context=app_ctx)
 
@@ -79,7 +79,7 @@ class Session:
         pass
 
 async def main():
-    app_ctx = ApplicationContext(vault_dir={str(tmp_path)!r}, app_name="reme-test")
+    app_ctx = ApplicationContext(workspace_dir={str(tmp_path)!r}, app_name="reme-test")
     ctx = SimpleNamespace(session=Session(), session_id="sid-optimized")
     token = _current_context.set(ctx)
     try:

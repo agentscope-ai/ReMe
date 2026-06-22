@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920" role="img" aria-labelledby="title desc">
   <title id="title">ReMe framework structure</title>
-  <desc id="desc">An architectural map of ReMe from file-backed vault storage through knowledge kernel, workflows, application wiring, and external service surfaces.</desc>
+  <desc id="desc">An architectural map of ReMe from file-backed workspace storage through knowledge kernel, workflows, application wiring, and external service surfaces.</desc>
   <defs>
     <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#fbfaf6"/>
@@ -23,7 +23,7 @@
       <stop offset="0" stop-color="#d9f1f4"/>
       <stop offset="1" stop-color="#e1e8f7"/>
     </linearGradient>
-    <linearGradient id="vaultGrad" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="workspaceGrad" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#f0e5d3"/>
       <stop offset="1" stop-color="#e3efd9"/>
     </linearGradient>
@@ -133,8 +133,8 @@
   <g class="plate" transform="translate(0,0)">
     <path class="side" d="M126 818 L1074 818 L1042 848 L158 848 Z" fill="#d0b98f"/>
     <rect class="plate-bg" x="126" y="738" width="948" height="108" rx="18"/>
-    <rect x="126" y="738" width="280" height="108" rx="18" fill="url(#vaultGrad)"/>
-    <text class="layer-title" x="178" y="777">Vault Layout</text>
+    <rect x="126" y="738" width="280" height="108" rx="18" fill="url(#workspaceGrad)"/>
+    <text class="layer-title" x="178" y="777">Workspace Layout</text>
     <text class="layer-note" x="178" y="799">File-backed memory</text>
 
     <rect class="node" x="424" y="767" width="126" height="50" rx="13"/>
@@ -154,5 +154,5 @@
   <text class="section-label" x="92" y="118">EXTERNAL SURFACES</text>
   <text class="section-label" x="92" y="734">PERSISTENT MEMORY BASE</text>
   <text class="micro" x="600" y="878" text-anchor="middle">Structure reads bottom-up during boot and top-down during use.</text>
-  <text class="micro" x="600" y="896" text-anchor="middle">Vault files feed the kernel; workflows compose operations; application wiring exposes stable service entry points.</text>
+  <text class="micro" x="600" y="896" text-anchor="middle">Workspace files feed the kernel; workflows compose operations; application wiring exposes stable service entry points.</text>
 </svg>

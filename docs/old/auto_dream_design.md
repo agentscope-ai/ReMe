@@ -68,7 +68,7 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 |---|---|
 | **粒度** | atomic;一个 .md 文件 = 一个原子单元(概念 / 方法 / 实体 / 案例 / 原则 / 主题概览)|
 | **节点角色** | **由 body 内容决定,不由 frontmatter 类型标记**;同一节点扮演"主题概览"还是"具体方法",看它的 body 写了什么 |
-| **身份(ID)** | **vault-relative 路径(含 `.md`)即节点身份** —— `digest/auth/jwt-rotation.md` |
+| **身份(ID)** | **workspace-relative 路径(含 `.md`)即节点身份** —— `digest/auth/jwt-rotation.md` |
 | **`name` frontmatter** | 文件名 basename(不含扩展名),与文件名同步 —— 检索 hint / 人读标签,**不当 ID 用** |
 | **frontmatter 保留字段** | 只有 `name` + `description`(reme 核心保留)|
 | **可选 `kind` 字段** | 例:concept / procedure / preference / observation / ...;**消费层 schema 提示**,reme 核心透明,不读它做结构决策。与 bucket 是不同概念 —— bucket 决定物理归档(三桶)+ Phase 2 prompt 走哪份;`kind` 是更细粒度的 frontmatter 标签,留给消费层自由使用 |
@@ -78,8 +78,8 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 **为什么 atomic + 路径即 ID**:
 - **节点粒度 = retrieve 精度上限** —— semantic 检索召回 "一个原子单元" 远比召回 "一个 5000 字的主题文档" 信噪比高
 - **wikilink 在 atomic 粒度才真有意义** —— `[[digest/auth/jwt-rotation.md]]` 指向"一个具体方法"比指向"auth 主题文档"精确一个数量级
-- F-1 + 平铺 + 下层 immutable 后,slug abstraction 的核心价值(移动鲁棒性)蒸发;路径作 ID 与 `wikilink_handler.py` 默认形态完全对齐(*Recommended form: full path relative to the vault with extension*)
-- provenance wikilink 反指 daily/resource 本来就用路径,统一后整个 vault 一种 wikilink 形态
+- F-1 + 平铺 + 下层 immutable 后,slug abstraction 的核心价值(移动鲁棒性)蒸发;路径作 ID 与 `wikilink_handler.py` 默认形态完全对齐(*Recommended form: full path relative to the workspace with extension*)
+- provenance wikilink 反指 daily/resource 本来就用路径,统一后整个 workspace 一种 wikilink 形态
 
 **"主题概览节点"靠内容识别,不靠前缀 / kind**:`hub__` / `topic__` 前缀**不存在**;文件名自然命名(`auth-fundamentals.md` / `jwt-rotation.md`)。主题概览身份是图位置(中心性 / split parent)+ body 形态共同涌现。
 
@@ -91,7 +91,7 @@ dream 设计回答四个问题:**桶**怎么布局 / **节点**长什么样 / **
 
 | 形态 | 写法 | 说明 |
 |---|---|---|
-| **基础** | `[[<vault-path>.md]]` | literal,不隐含 `.md`,不自动短链补全 |
+| **基础** | `[[<workspace-path>.md]]` | literal,不隐含 `.md`,不自动短链补全 |
 | **alias** | `[[path.md\|display-text]]` | rewrite 时 alias 保持 |
 | **image** | `![[image.png]]` | 资源引用,不是知识边 |
 | **可选谓词** | `predicate:: [[path.md]]`(行级)/ `[predicate:: [[path.md]]]`(内联) | Dataview 风格;谓词在 `[[]]` 外,`[[]]` 内只保留纯目标 |
@@ -220,7 +220,7 @@ Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 
 | 用户 | 用户/外部 agent 的自然语言 query | dream 内部生成的 unit.summary |
 | 结果粒度 | **chunk 级**(可能同一 node 多个 chunk)| **node 级**(同 path 聚合 max score)|
 | 返回信息 | 完整 chunk text + scores | **path + name + description**(frontmatter 内嵌,无 body)|
-| 范围 | 全 vault(daily / resource / digest) | **digest-only**(dream 永远只在 digest 找候选)|
+| 范围 | 全 workspace(daily / resource / digest) | **digest-only**(dream 永远只在 digest 找候选)|
 | expand_links | 默认 `True`(给 agent 更多上下文)| **永远 `False`**(synapse 找的就是未 link 的)|
 | 默认 limit | 5 | **20**(dream 需要宽召覆盖 synapse)|
 
@@ -230,12 +230,12 @@ Phase 2 是单个 ReAct agent 在一个 loop 内完成 4 件事 —— **不拆 
 
 | 维度 | traverse 的本性(retrieve / RAG)| dream 的真实需求(写入)|
 |---|---|---|
-| 方向 | 从已知中心向外扩散 | 从外部新材料找 vault 内相关候选 |
+| 方向 | 从已知中心向外扩散 | 从外部新材料找 workspace 内相关候选 |
 | 输入 | 已知种子节点 | 新材料的 unit.summary |
 | 输出语义 | "X 的子图"(给读者上下文) | "X 应该 link 到哪些 Y" |
 | 图遍历的角色 | 主操作 | 召回兜底(可有可无) |
 
-dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给 query 找相关),不是**遍历**问题(给中心找邻居)。**召回工具 = node_search;遍历工具 = traverse(留给 retrieve / 外部 agent 用)。dream 不需要遍历**。
+dream 写新节点要回答"workspace 中谁跟我相关",这是**召回**问题(给 query 找相关),不是**遍历**问题(给中心找邻居)。**召回工具 = node_search;遍历工具 = traverse(留给 retrieve / 外部 agent 用)。dream 不需要遍历**。
 
 (早期曾实现 `dream_traverse` 准备作为 dream toolkit 一员,后撤销 —— 实测拓扑遍历 vs vector 召回重叠率 ~95%,真正独特贡献 < 2%,且引入 LLM 调用 / 上下文 / 复杂度成本。详 git log。)
 
@@ -249,10 +249,10 @@ dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给
 - `vector_weight=0.7`(默认),vector 主导,BM25 作为兜底(覆盖专有名词 / 缩写等 embedding 可能 struggle 的字面 case)
 - 输出 score 是 RRF 分(0~0.025 量级,不是 cosine);LLM 不依赖具体分数,内化判 same/related/unrelated
 
-**reinforce 并入立场**(对照 `auto_consolidate_design.md` §4 标作废):reinforce 不再是独立的 consolidate 动作 —— 它就是 step 4 的"织突触"。新节点写入瞬间一次性建立关系,vault 不维护"事后周期 batch 补 wikilink"的通道。F-2 自然守住 —— dream 只动新节点 body,不动其它节点。
+**reinforce 并入立场**(对照 `auto_consolidate_design.md` §4 标作废):reinforce 不再是独立的 consolidate 动作 —— 它就是 step 4 的"织突触"。新节点写入瞬间一次性建立关系,workspace 不维护"事后周期 batch 补 wikilink"的通道。F-2 自然守住 —— dream 只动新节点 body,不动其它节点。
 
 **关键约束**(诚实承认):
-- **写入即定型** —— 今天没织的 wikilink 以后没机会再织;vault 单调演化
+- **写入即定型** —— 今天没织的 wikilink 以后没机会再织;workspace 单调演化
 - **一次性 commit,无事后兜底** —— prompt 明示"宁可多织"(false positive 一眼能否决;false negative 永远沉默)
 - **召回深度取决于 prompt 引导 + agent 配合** —— 不引入外部机械召回 step;prompt 已明示 `limit=20-30 × 两轮`,但仍是 ReAct agent 的开放执行
 - **dedup 与 synapse 在一次 LLM 调用内完成** —— 不拆独立 stage,共享召回结果,内化分类是免费的
@@ -277,10 +277,10 @@ dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给
 - **dream 不改其它节点正文**(F-2) —— 只动 subject
 - **dreamer 不做事件级伞节点** —— 材料本身(daily / resource 文件)就是 fan-out 点,每个 sub-unit 的 `derived_from::` 让材料天然聚合到所有派生节点
 - **0 出边节点合法**(没识别到合适邻居),后续 dream 进入时其它节点可以反向链回来 —— 不强求 LLM 一次性给全
-- **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 vault 累积明显重复,由 auto-consolidate 的 dups 检测周期 batch 产报告(`auto_consolidate_design.md` §3)
+- **dream 漏判去重**(同概念建成新节点)→ 不主动兜底,接受重复;若 workspace 累积明显重复,由 auto-consolidate 的 dups 检测周期 batch 产报告(`auto_consolidate_design.md` §3)
 - **召回不做 bucket 粗筛** —— LLM 拥有完整跨桶视野,可识别"概念跨桶同抽象"(例如同一原则在 wiki 已有节点而 Phase 1 把新材料归入 personal,此时 UPDATE wiki 节点而非新建 personal 节点)
 - **reinforce 已并入 dream synapse recall** —— 不存在独立的 reinforce 动作或周期 batch;突触构建(原 `auto_consolidate_design.md` §4 reinforce 的职责)在 dream Phase 2 synapse recall 阶段完成,新节点写入瞬间织全(详 §4.2.2)
-- **vault 不维护事后补 wikilink 通道** —— 上一条的直接推论;cognition §9.2 立场("关系建立在写入瞬间")在此自然守住
+- **workspace 不维护事后补 wikilink 通道** —— 上一条的直接推论;cognition §9.2 立场("关系建立在写入瞬间")在此自然守住
 
 **provenance 写出**:
 - 行文中自然带:"... 该模式最早出现在 [[daily/2026/05/15.md]] 的实践中"
@@ -344,7 +344,7 @@ dream 写新节点要回答"vault 中谁跟我相关",这是**召回**问题(给
 - ✅ **三桶 hard-coded** —— `procedure / personal / wiki`,`BUCKETS` 常量在 `dream.py` 顶部,Phase 1 通过 `MemoryUnit.bucket: Literal[...]` 由 Pydantic 强制约束
 - ✅ **provenance prompt 规范** —— `derived_from:: [[daily/...]]` / `[[resource/...]]` 强制(三桶 prompt 各自重申)
 - ❌ ~~**边守恒校验工具**~~ —— 早期 `digest_edit` 子类的 outbound diff 校验已随子类一并移除(切到 canonical `edit`);E-1 现由 prompt 自律,详 §4.4
-- ❌ ~~**bucket 集合配置外置**~~ —— 撤销:三桶是 dream 模型本身的一部分,不做配置参数(`vault.yaml` 不再承载 `digest.buckets`,`_buckets.md` 视图也不再生成)
+- ❌ ~~**bucket 集合配置外置**~~ —— 撤销:三桶是 dream 模型本身的一部分,不做配置参数(`workspace.yaml` 不再承载 `digest.buckets`,`_buckets.md` 视图也不再生成)
 - 🆕 **Phase 2 召回拆 dedup / synapse**(2026-06-02 沉淀,详 §4.2.2)—— 当前 prompt 共用一次 `search(limit=5)`,既不够 dedup 精度也不够 synapse 覆盖;落地:`dream.yaml` 6 处(en + zh × 3 buckets)Recall 段改写,加 synapse 模式说明 + 写入即定型纪律
 - 🆕 **`file_store.default.embedding_model` 启用**(blocker)—— `default.yaml` 当前 `""`,synapse recall 用 vector_weight=1.0 模式必须开启;否则 `search` 退化为纯 BM25,dedup 也劣化
 - 🆕 **reinforce 并入立场写入**(详 §4.2.2)—— 与 `auto_consolidate_design.md` §4 标作废同步;`hierarchical_summary.md` §13.2 Q4 标解决

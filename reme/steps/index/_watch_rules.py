@@ -19,7 +19,7 @@ class WatchRule:
 
 def build_watch_rules(
     app_config: "ApplicationConfig",
-    vault_path: Path,
+    workspace_path: Path,
     *,
     watch_dirs: list[str],
     watch_suffixes: list[str],
@@ -28,13 +28,13 @@ def build_watch_rules(
     rules: list[WatchRule] = []
     for dir_field in watch_dirs:
         dir_name = getattr(app_config, dir_field, dir_field)
-        rules.append(WatchRule(path=vault_path / dir_name, suffixes=list(watch_suffixes)))
+        rules.append(WatchRule(path=workspace_path / dir_name, suffixes=list(watch_suffixes)))
     return rules
 
 
 def build_context_watch_rules(
     app_config: "ApplicationConfig | None",
-    vault_path: Path,
+    workspace_path: Path,
     context: "RuntimeContext",
 ) -> list[WatchRule]:
     """Build watch rules from context-level watch_dirs/watch_suffixes."""
@@ -44,7 +44,7 @@ def build_context_watch_rules(
     watch_suffixes: list[str] = context.get("watch_suffixes", [])
     if not watch_dirs:
         return []
-    return build_watch_rules(app_config, vault_path, watch_dirs=watch_dirs, watch_suffixes=watch_suffixes)
+    return build_watch_rules(app_config, workspace_path, watch_dirs=watch_dirs, watch_suffixes=watch_suffixes)
 
 
 def collect_existing(rules: list[WatchRule], recursive: bool) -> dict[str, float]:

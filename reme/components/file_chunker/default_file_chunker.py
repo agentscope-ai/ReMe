@@ -40,7 +40,7 @@ class DefaultFileChunker(BaseFileChunker):
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         stat = file_path.stat()
-        rel_path = self.to_vault_relative(path)
+        rel_path = self.to_workspace_relative(path)
 
         async with aiofiles.open(file_path, encoding=self.encoding) as f:
             text = await f.read()

@@ -1,9 +1,9 @@
-"""``file_download`` — copy a file out of the vault to a local path.
+"""``file_download`` — copy a file out of the workspace to a local path.
 
-Symmetric counterpart to ``file_upload``: source is under the vault,
+Symmetric counterpart to ``file_upload``: source is under the workspace,
 target is on the local filesystem.
 
-``src_path`` is a path relative to the vault (the file to copy out).
+``src_path`` is a path relative to the workspace (the file to copy out).
 Returns ``error="not found"`` when the file isn't on disk.
 
 ``dst_path`` (filesystem target) is an absolute path on the host
@@ -38,7 +38,7 @@ def _get_temp_root() -> Path:
 
 @R.register("download_step")
 class DownloadStep(BaseStep):
-    """Copy ``src_path`` (under the vault) to ``dst_path`` (or a temp file if omitted)."""
+    """Copy ``src_path`` (under the workspace) to ``dst_path`` (or a temp file if omitted)."""
 
     async def execute(self):
         assert self.context is not None
@@ -68,12 +68,12 @@ class DownloadStep(BaseStep):
         # pylint: disable=too-many-return-statements
         if not src_path:
             return {"src_path": src_path, "error": "src_path is required"}
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        src_abs = (vault_dir / src_path).resolve()
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        src_abs = (workspace_dir / src_path).resolve()
         try:
-            src_abs.relative_to(vault_dir)
+            src_abs.relative_to(workspace_dir)
         except ValueError:
-            return {"src_path": src_path, "error": "src_path must stay inside the vault"}
+            return {"src_path": src_path, "error": "src_path must stay inside the workspace"}
         if not src_abs.is_file():
             return {"src_path": src_path, "error": "not found"}
 

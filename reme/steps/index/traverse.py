@@ -86,7 +86,7 @@ class TraverseStep(BaseStep):
     """BFS from one or more seed files to explore wikilink relationships.
 
     Parameters:
-        path       — single seed (str) or list of seeds (vault-relative).
+        path       — single seed (str) or list of seeds (workspace-relative).
         direction  — ``forward`` / ``backward`` / ``both`` (or ``out`` / ``in`` / ``both``).
         depth      — hop limit (default 1 = immediate neighbors).
     """

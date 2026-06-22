@@ -9,7 +9,7 @@ ReMe 的运行时可以理解为：**配置驱动的 Application 把组件和 Jo
   <img src="../figure/framework-structure.svg" alt="ReMe 代码框架结构：CLI、Service、Application、Job、Step 与 Component" width="92%">
 </p>
 
-如果只想先运行和使用 ReMe，见 [快速开始](./quick_start.md)。vault 文件语义见 [Memory as File](./memory_as_file.md)；检索、
+如果只想先运行和使用 ReMe，见 [快速开始](./quick_start.md)。workspace 文件语义见 [Memory as File](./memory_as_file.md)；检索、
 自动记忆和主动读取的用户侧说明分别见 [Memory Search](./memory_search.md)、[Auto Memory](./auto_memory.md)、
 [Auto Resource](./auto_resource.md)、[Auto Dream](./auto_dream.md) 和 [Proactive](./proactive.md)。
 
@@ -22,7 +22,7 @@ flowchart LR
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
     Steps --> Components["Components<br/>store / graph / index / llm / agent / catalog"]
-    Components --> Vault["Vault<br/>daily / digest / resource / metadata"]
+    Components --> Workspace["Workspace<br/>daily / digest / resource / metadata"]
 ```
 
 核心分层：
@@ -71,10 +71,10 @@ reme/
     channel/                 # MCP channel 工具
 ```
 
-默认 vault 目录由 `ApplicationConfig` 定义：
+默认 workspace 目录由 `ApplicationConfig` 定义：
 
 ```text
-<vault_dir>/
+<workspace_dir>/
   metadata/     # file_store、file_graph、keyword_index、file_catalog 等持久状态
   session/      # Agent session 与原始对话
   resource/          # 外部资源
@@ -258,7 +258,7 @@ steps:
 ```mermaid
 flowchart LR
     A["Application(**kwargs)"] --> B["ApplicationContext(**kwargs)<br/>解析 ApplicationConfig"]
-    B --> C["_setup_vault_directories()"]
+    B --> C["_setup_workspace_directories()"]
     C --> D["_init_service()"]
     D --> E["_init_components()"]
     E --> F["_init_jobs()"]

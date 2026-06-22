@@ -67,7 +67,7 @@ def _today() -> str:
 
 
 async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> LocalFileStore:
-    """Seed the vault with daily notes.
+    """Seed the workspace with daily notes.
 
     entries: list of (date, session_id, body). Each tuple creates
     ``daily/<date>/<session_id>.md`` with a minimal ``name``-only

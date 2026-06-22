@@ -65,10 +65,10 @@ def write_file(path: Path, content: str = "x") -> Path:
     return path
 
 
-def _make_app_context(vault_path: Path, daily_dir="daily", digest_dir="digest", resource_dir="resource"):
-    """Create a mock app_context with app_config pointing to the given vault."""
+def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="digest", resource_dir="resource"):
+    """Create a mock app_context with app_config pointing to the given workspace."""
     ctx = MagicMock()
-    ctx.app_config.vault_dir = str(vault_path)
+    ctx.app_config.workspace_dir = str(workspace_path)
     ctx.app_config.daily_dir = daily_dir
     ctx.app_config.digest_dir = digest_dir
     ctx.app_config.resource_dir = resource_dir
@@ -86,13 +86,13 @@ def test_build_watch_rules_basic():
     app_config.daily_dir = "daily"
     app_config.digest_dir = "digest"
     app_config.resource_dir = "resource"
-    vault = Path("/fake/vault")
+    workspace = Path("/fake/workspace")
 
-    rules = build_watch_rules(app_config, vault, watch_dirs=["daily_dir", "digest_dir"], watch_suffixes=["md"])
+    rules = build_watch_rules(app_config, workspace, watch_dirs=["daily_dir", "digest_dir"], watch_suffixes=["md"])
     assert len(rules) == 2
-    assert rules[0].path == vault / "daily"
+    assert rules[0].path == workspace / "daily"
     assert rules[0].suffixes == ["md"]
-    assert rules[1].path == vault / "digest"
+    assert rules[1].path == workspace / "digest"
     print("✓ test_build_watch_rules_basic passed")
 
 
@@ -101,11 +101,11 @@ def test_build_watch_rules_multiple_suffixes():
     app_config = MagicMock()
     app_config.daily_dir = "daily"
     app_config.resource_dir = "resource"
-    vault = Path("/fake/vault")
+    workspace = Path("/fake/workspace")
 
     rules = build_watch_rules(
         app_config,
-        vault,
+        workspace,
         watch_dirs=["daily_dir", "resource_dir"],
         watch_suffixes=["md", "jsonl"],
     )
@@ -118,37 +118,37 @@ def test_build_watch_rules_multiple_suffixes():
 def test_build_watch_rules_fallback_literal():
     """Unknown field names are used as literal directory names."""
     app_config = MagicMock(spec=[])  # no attributes
-    vault = Path("/fake/vault")
-    rules = build_watch_rules(app_config, vault, watch_dirs=["custom_dir"], watch_suffixes=["txt"])
-    assert rules[0].path == vault / "custom_dir"
+    workspace = Path("/fake/workspace")
+    rules = build_watch_rules(app_config, workspace, watch_dirs=["custom_dir"], watch_suffixes=["txt"])
+    assert rules[0].path == workspace / "custom_dir"
     print("✓ test_build_watch_rules_fallback_literal passed")
 
 
 def test_match_file_suffix():
     """match_file accepts files matching suffix under rule path."""
-    rules = [WatchRule(path=Path("/vault/daily"), suffixes=["md"])]
-    assert match_file("/vault/daily/2026-01-01.md", rules)
-    assert match_file("/vault/daily/sub/note.md", rules)
-    assert not match_file("/vault/daily/file.txt", rules)
-    assert not match_file("/vault/other/file.md", rules)
+    rules = [WatchRule(path=Path("/workspace/daily"), suffixes=["md"])]
+    assert match_file("/workspace/daily/2026-01-01.md", rules)
+    assert match_file("/workspace/daily/sub/note.md", rules)
+    assert not match_file("/workspace/daily/file.txt", rules)
+    assert not match_file("/workspace/other/file.md", rules)
     print("✓ test_match_file_suffix passed")
 
 
 def test_match_file_no_suffix_filter():
     """Empty suffixes list means all files match."""
-    rules = [WatchRule(path=Path("/vault/resource"), suffixes=[])]
-    assert match_file("/vault/resource/anything.xyz", rules)
-    assert match_file("/vault/resource/sub/deep.pdf", rules)
-    assert not match_file("/vault/other/file.md", rules)
+    rules = [WatchRule(path=Path("/workspace/resource"), suffixes=[])]
+    assert match_file("/workspace/resource/anything.xyz", rules)
+    assert match_file("/workspace/resource/sub/deep.pdf", rules)
+    assert not match_file("/workspace/other/file.md", rules)
     print("✓ test_match_file_no_suffix_filter passed")
 
 
 def test_collect_existing_filters():
     """collect_existing applies suffix rules correctly."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        vault = Path(tmpdir)
-        daily = vault / "daily"
-        resource = vault / "resource"
+        workspace = Path(tmpdir)
+        daily = workspace / "daily"
+        resource = workspace / "resource"
         write_file(daily / "note.md")
         write_file(daily / "ignore.txt")
         write_file(resource / "data.json")
@@ -200,12 +200,12 @@ def test_clear_and_scan_defaults_include_jsonl():
     asyncio.run(run())
 
 
-async def _make_scan_step(vault_path: Path, watch_dirs=None, watch_suffixes=None, recursive=True):
+async def _make_scan_step(workspace_path: Path, watch_dirs=None, watch_suffixes=None, recursive=True):
     fs = LocalFileStore(name="test_store", embedding_store="")
     chunker = DefaultFileChunker()
     await fs.start()
     await chunker.start()
-    app_ctx = _make_app_context(vault_path)
+    app_ctx = _make_app_context(workspace_path)
     step = InitChangesStep(
         store="file_store",
         recursive=recursive,
@@ -389,8 +389,8 @@ def test_bucket_changes_coalesces_by_final_file_state():
     print("✓ test_bucket_changes_coalesces_by_final_file_state passed")
 
 
-def test_update_catalog_relative_path_uses_vault():
-    """update_catalog_step resolves vault-relative change paths against vault_path."""
+def test_update_catalog_relative_path_uses_workspace():
+    """update_catalog_step resolves workspace-relative change paths against workspace_path."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -409,7 +409,7 @@ def test_update_catalog_relative_path_uses_vault():
                 assert [n.path for n in nodes] == ["daily/a.md"]
             finally:
                 await catalog.close()
-        print("✓ test_update_catalog_relative_path_uses_vault passed")
+        print("✓ test_update_catalog_relative_path_uses_workspace passed")
 
     asyncio.run(run())
 
@@ -605,20 +605,20 @@ def test_watch_changes_raises_no_valid_paths():
 def test_watch_changes_filter_matches_rules():
     """The internal filter uses watch rules from context."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        vault = Path(tmpdir)
-        (vault / "daily").mkdir()
-        (vault / "digest").mkdir()
-        (vault / "resource").mkdir()
-        app_ctx = _make_app_context(vault)
+        workspace = Path(tmpdir)
+        (workspace / "daily").mkdir()
+        (workspace / "digest").mkdir()
+        (workspace / "resource").mkdir()
+        app_ctx = _make_app_context(workspace)
 
         step = WatchChangesStep(app_context=app_ctx)
         step.context = RuntimeContext(watch_dirs=["daily_dir", "digest_dir"], watch_suffixes=["md"])
         step._rules = step._get_watch_rules()
 
-        assert step._filter(Change.added, str(vault / "daily/foo.md"))
-        assert step._filter(Change.added, str(vault / "digest/bar.md"))
-        assert not step._filter(Change.added, str(vault / "daily/foo.txt"))
-        assert not step._filter(Change.added, str(vault / "resource/file.md"))
+        assert step._filter(Change.added, str(workspace / "daily/foo.md"))
+        assert step._filter(Change.added, str(workspace / "digest/bar.md"))
+        assert not step._filter(Change.added, str(workspace / "daily/foo.txt"))
+        assert not step._filter(Change.added, str(workspace / "resource/file.md"))
 
     print("✓ test_watch_changes_filter_matches_rules passed")
 
@@ -676,8 +676,8 @@ def test_log_changes_step():
     async def run():
         step = LogChangesStep()
         changes = [
-            {"change": "added", "path": "/vault/daily/note.md"},
-            {"change": "deleted", "path": "/vault/daily/old.md"},
+            {"change": "added", "path": "/workspace/daily/note.md"},
+            {"change": "deleted", "path": "/workspace/daily/old.md"},
         ]
         ctx = RuntimeContext(changes=changes)
         resp = await step(ctx)

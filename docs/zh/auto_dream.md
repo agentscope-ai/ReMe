@@ -190,7 +190,7 @@ jobs:
 `auto_dream` 只消费 daily 输入，不改写 daily 正文。daily 是事实和现场记录，digest 才是抽象后的长期记忆层。
 
 `digest` 不是原文复制。正文应保留可复用抽象，细节通过 `derived_from:: [[daily/<date>/...]]` 指回来源。链接写法遵循
-[Memory as File](./memory_as_file.md) 中的 vault-relative wikilink 语义。
+[Memory as File](./memory_as_file.md) 中的 workspace-relative wikilink 语义。
 
 `auto_dream` 不凭空生成总览。只有 daily 输入中确实出现、并被抽取为 unit 或 topic 的内容，才会进入 digest 或
 `interests.yaml`。

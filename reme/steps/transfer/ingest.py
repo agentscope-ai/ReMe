@@ -10,7 +10,7 @@ This is the only ingest path through ``resource/``. Materials the
 main agent *actively* fetches or generates during a daily task
 belong inside the daily folder as sibling materials, not here.
 
-For generic file copy (local fs → arbitrary vault path) use
+For generic file copy (local fs → arbitrary workspace path) use
 ``upload`` instead.
 
 Bucket layout::
@@ -158,13 +158,13 @@ class IngestStep(BaseStep):
         """Configured ``resource_dir`` subdir name."""
         return self.config_value("resource_dir")
 
-    def _vault_dir(self) -> Path:
-        vr = getattr(self.file_store, "vault_path", None)
+    def _workspace_dir(self) -> Path:
+        vr = getattr(self.file_store, "workspace_path", None)
         return Path(vr).resolve() if vr else Path.cwd().resolve()
 
     def _land(self, src: Path, date: str, final_name: str, entry_fields: dict) -> dict:
         resource_dir = self._resource_dir_name()
-        bucket = self._vault_dir() / resource_dir / date
+        bucket = self._workspace_dir() / resource_dir / date
         bucket.mkdir(parents=True, exist_ok=True)
         meta_path = bucket / "meta.json"
         day_md = bucket / f"{date}.md"

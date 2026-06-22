@@ -5,13 +5,13 @@ description: Use ReMe as a file-native long-term memory system through the reme 
 
 ## ReMe Memory
 
-Use ReMe as the persistent memory layer for this Agent. ReMe stores raw sessions, daily notes, resources, and long-term digest memories in a local vault. Prefer ReMe for information that should survive across conversations.
+Use ReMe as the persistent memory layer for this Agent. ReMe stores raw sessions, daily notes, resources, and long-term digest memories in a local workspace. Prefer ReMe for information that should survive across conversations.
 
 ## Before Use
 
 - ReMe should already be running with `reme start`.
 - If a command fails because the service is not running, tell the user to start ReMe.
-- Use CLI commands directly; do not edit the vault files by hand unless the user explicitly asks.
+- Use CLI commands directly; do not edit the workspace files by hand unless the user explicitly asks.
 
 Useful health checks:
 
@@ -32,14 +32,14 @@ reme search query="<question or keywords>" limit=5
 When search results point to a useful file, read the relevant file or range:
 
 ```bash
-reme read path="<vault-relative-path>"
-reme read path="<vault-relative-path>" start_line=1 end_line=80
+reme read path="<workspace-relative-path>"
+reme read path="<workspace-relative-path>" start_line=1 end_line=80
 ```
 
 Use `traverse` when wikilink neighbors may matter:
 
 ```bash
-reme traverse path="<vault-relative-path>" depth=1 direction=both
+reme traverse path="<workspace-relative-path>" depth=1 direction=both
 ```
 
 ## Writing Memory
@@ -59,7 +59,7 @@ For direct file operations, use ReMe file jobs:
 
 ```bash
 reme write path="daily/<YYYY-MM-DD>/<name>.md" name="<name>" description="<description>" content="<markdown>"
-reme edit path="<vault-relative-path>" old="<old text>" new="<new text>"
+reme edit path="<workspace-relative-path>" old="<old text>" new="<new text>"
 ```
 
 Read before editing, and preserve existing content unless replacing it is explicitly intended.

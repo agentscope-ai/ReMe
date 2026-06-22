@@ -7,7 +7,7 @@ Input shape: ``frontmatter_update_step path=foo.md metadata={"x": "y", "z": "w"}
 — ``metadata`` is an explicit dict whose entries are merged into the
 file's frontmatter (existing keys overwritten, missing keys inserted).
 
-``path`` is a path relative to the vault. Non-markdown targets return
+``path`` is a path relative to the workspace. Non-markdown targets return
 ``error="not markdown"``. An empty or missing ``metadata`` returns
 ``error="no fields to update"``.
 """
@@ -33,8 +33,8 @@ class FrontmatterUpdateStep(BaseStep):
         metadata = self.context.get("metadata") or {}
         assert isinstance(metadata, dict), "metadata must be a dict"
 
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target, err = resolve_path(vault_dir, path)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
         else:

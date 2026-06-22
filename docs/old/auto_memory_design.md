@@ -129,7 +129,7 @@ agent 进程重启 / Service 重启后,如何识别"还有 active event"?
 
 倾向 §1.2 自然路径(进程重启 = LLM 下次判 continue=false 概率高)+ 不维护状态文件,详细 worker recovery 留给 Service 实现。
 
-### 2.3 多 agent 同 vault 的 active event 隔离
+### 2.3 多 agent 同 workspace 的 active event 隔离
 
 I-2 daily 单作者契约在多 agent 场景下需细化。候选:
 - per-agent date subfolder:`daily/<date>/<agent-id>/<event-slug>/`

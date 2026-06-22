@@ -26,7 +26,7 @@ graph from per-node payloads after backend repair / migration.
 Adjacency policy: trusts ``FileLink.path`` directly — no internal
 wikilink resolution. The parser pipeline (with the external
 resolver) produces safe links where ``link.path`` is already a
-target relative to the vault.
+target relative to the workspace.
 
 Conditional dependency: the ``neo4j`` driver loads lazily; the
 import error fires at ``_start`` (boot), not at first call.

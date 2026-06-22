@@ -14,7 +14,7 @@ from .utils import (
     previous_dates,
     state_from_context,
     store_state,
-    vault_dir,
+    workspace_dir,
     write_yaml,
 )
 
@@ -34,9 +34,9 @@ class DreamTopicsStep(BaseStep):
         topic_count = int(self.context.get("topic_count", self.topic_count) or self.topic_count)
         raw_days = self.context.get("topic_diversity_days", self.topic_diversity_days)
         diversity_days = int(raw_days or self.topic_diversity_days)
-        vault = Path(state.vault).resolve() if state.vault else vault_dir(self)
+        workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         rel_path = f"{state.daily_dir}/{state.date}/interests.yaml"
-        abs_path = vault / state.daily_dir / state.date / "interests.yaml"
+        abs_path = workspace / state.daily_dir / state.date / "interests.yaml"
         same_day = load_yaml_topics(abs_path)
 
         if not state.topics:
@@ -49,7 +49,7 @@ class DreamTopicsStep(BaseStep):
         recent = [
             topic
             for day in previous_dates(state.date, diversity_days)
-            for topic in load_yaml_topics(vault / state.daily_dir / day / "interests.yaml")
+            for topic in load_yaml_topics(workspace / state.daily_dir / day / "interests.yaml")
         ]
         try:
             topics, _used_llm = await self._select_topics(state, same_day, recent, topic_count, diversity_days)

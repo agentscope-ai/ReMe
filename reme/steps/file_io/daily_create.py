@@ -7,7 +7,7 @@ Validates the session_id (when non-empty), mkdirs the day folder,
 writes an empty-body note with frontmatter ``{name, description}``
 if (and only if) the file does not already exist, refreshes the day
 index (only when session_id is non-empty), and returns the
-vault-relative path.
+workspace-relative path.
 
 Idempotent: when the note already exists this is a no-op write.
 The caller fills the body via ``file_write`` / ``file_edit`` /
@@ -93,7 +93,7 @@ class DailyCreateStep(BaseStep):
             path_rel = f"{daily_dir}/{day}.md"
             name = day
 
-        path_abs, err = resolve_path(self.vault_path, path_rel)
+        path_abs, err = resolve_path(self.workspace_path, path_rel)
         if err or path_abs is None:
             self._fail(err or "invalid path", date=day, session_id=session_id, path=path_rel)
             return None

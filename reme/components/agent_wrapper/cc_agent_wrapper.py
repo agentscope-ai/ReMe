@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 
 class _CcFileSessionStore:
-    """File-backed Claude Code SessionStore rooted under the ReMe vault."""
+    """File-backed Claude Code SessionStore rooted under the ReMe workspace."""
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -187,8 +187,8 @@ class CcAgentWrapper(BaseAgentWrapper):
     def session_path(self) -> Path:
         """Directory used for persisted Claude Code sessions."""
         if self.app_context is None:
-            return self.vault_path / "session"
-        return self.vault_path / self.app_context.app_config.session_dir
+            return self.workspace_path / "session"
+        return self.workspace_path / self.app_context.app_config.session_dir
 
     def _ensure_claude_skill_dir(self, config_dir: Path) -> None:
         """Expose project skills through Claude Code skill discovery locations."""

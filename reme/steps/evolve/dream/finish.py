@@ -6,7 +6,7 @@ from ...base_step import BaseStep
 from ....components import R
 from ....schema import FileNode
 from .schema import DreamState
-from .utils import state_from_context, store_state, vault_dir
+from .utils import state_from_context, store_state, workspace_dir
 
 
 @R.register("dream_finish_step")
@@ -20,13 +20,13 @@ class DreamFinishStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         state = state_from_context(self)
-        vault = Path(state.vault).resolve() if state.vault else vault_dir(self)
+        workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         if self.file_catalog is None:
             raise RuntimeError("dream_finish_step requires file_catalog")
 
         checkpoint = [p for p in state.changed_paths if p not in set(state.failed_paths)]
         upsert_paths = checkpoint + [p for p in [state.interests_path, f"{state.daily_dir}/{state.date}.md"] if p]
-        upserts = self._nodes(vault, upsert_paths)
+        upserts = self._nodes(workspace, upsert_paths)
         if upserts:
             await self.file_catalog.upsert(upserts)
         if self.persist and (upserts or state.deleted_paths):
@@ -40,11 +40,11 @@ class DreamFinishStep(BaseStep):
         return self.context.response
 
     @staticmethod
-    def _nodes(vault: Path, paths: list[str]) -> list[FileNode]:
+    def _nodes(workspace: Path, paths: list[str]) -> list[FileNode]:
         out: list[FileNode] = []
         for rel in paths:
             try:
-                out.append(FileNode(path=rel, st_mtime=(vault / rel).stat().st_mtime))
+                out.append(FileNode(path=rel, st_mtime=(workspace / rel).stat().st_mtime))
             except OSError:
                 continue
         return out

@@ -6,7 +6,7 @@ from pathlib import Path
 from ...base_step import BaseStep
 from ....components import R
 from .schema import BUCKETS, IntegrateOutcome
-from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, vault_dir
+from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
 
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
@@ -27,15 +27,15 @@ class DreamIntegrateStep(BaseStep):
             state.failed_paths = sorted({p for u in state.units for p in u.get("paths", [])})
             return self._finish(state, False, err)
 
-        vault = Path(state.vault).resolve() if state.vault else vault_dir(self)
+        workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
         for i, unit in enumerate(state.units, start=1):
-            await self._integrate_one(state, unit, i, vault, digest_dir)
+            await self._integrate_one(state, unit, i, workspace, digest_dir)
         state.failed_paths = sorted(set(state.failed_paths))
         answer = f"Integrated {len(state.integrate_results)} unit(s); failed {len(state.failed_units)} unit(s)"
         return self._finish(state, not state.failed_units, answer)
 
-    async def _integrate_one(self, state, unit: dict, index: int, vault: Path, digest_dir: str) -> None:
+    async def _integrate_one(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
         bucket = unit.get("bucket") if unit.get("bucket") in BUCKETS else "wiki"
         paths = [str(p) for p in unit.get("paths", [])]
         try:
@@ -47,11 +47,11 @@ class DreamIntegrateStep(BaseStep):
                     unit_bucket=bucket,
                     unit_summary=unit.get("summary", ""),
                     unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
-                    material_blob=pack_paths(vault, paths),
+                    material_blob=pack_paths(workspace, paths),
                 ),
                 system_prompt=self.prompt_format(
                     f"integrate_system_prompt_{bucket}",
-                    vault_dir=str(vault),
+                    workspace_dir=str(workspace),
                     digest_dir=digest_dir,
                     bucket=bucket,
                 ),

@@ -28,7 +28,7 @@ class ApplicationConfig(BaseModel):
     """Root config for the ReMe application."""
 
     app_name: str = Field(default=os.getenv("APP_NAME", "ReMe"), description="Application display name")
-    vault_dir: str = Field(default=".reme", description="Vault root directory for runtime files")
+    workspace_dir: str = Field(default=".reme", description="Workspace root directory for runtime files")
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")

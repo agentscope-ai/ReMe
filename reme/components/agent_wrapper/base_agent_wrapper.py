@@ -38,7 +38,7 @@ class BaseAgentWrapper(BaseComponent):
     @property
     def project_path(self) -> Path:
         """Project root that contains shared assets such as skills."""
-        return self.vault_path
+        return self.workspace_path
 
     @property
     def project_skills_root(self) -> Path:

@@ -303,38 +303,38 @@ def test_resolve_from_context_required_missing_raises():
 # -- ComponentMixin paths -----------------------------------------------------
 
 
-def test_vault_path_no_context():
+def test_workspace_path_no_context():
     mixin = ComponentMixin()
     from pathlib import Path
 
-    assert mixin.vault_path == Path.cwd()
+    assert mixin.workspace_path == Path.cwd()
 
 
-def test_to_vault_relative_inside_vault():
+def test_to_workspace_relative_inside_workspace():
     with tempfile.TemporaryDirectory() as tmpdir:
         old_cwd = os.getcwd()
         os.chdir(tmpdir)
         try:
             mixin = ComponentMixin()
-            abs_path = mixin.vault_path / "sub" / "file.md"
-            rel = mixin.to_vault_relative(abs_path)
-            assert rel == str(abs_path.relative_to(mixin.vault_path))
+            abs_path = mixin.workspace_path / "sub" / "file.md"
+            rel = mixin.to_workspace_relative(abs_path)
+            assert rel == str(abs_path.relative_to(mixin.workspace_path))
         finally:
             os.chdir(old_cwd)
 
 
-def test_to_vault_relative_outside_vault():
+def test_to_workspace_relative_outside_workspace():
     mixin = ComponentMixin()
-    result = mixin.to_vault_relative("/some/other/path")
+    result = mixin.to_workspace_relative("/some/other/path")
     assert result == "/some/other/path"
 
 
-# -- vault metadata paths -----------------------------------------------------
+# -- workspace metadata paths -----------------------------------------------------
 
 
-def test_vault_metadata_path_no_context():
+def test_workspace_metadata_path_no_context():
     comp = StubComponent()
-    assert comp.vault_metadata_path.name == "metadata"
+    assert comp.workspace_metadata_path.name == "metadata"
 
 
 def test_component_metadata_path():
@@ -365,8 +365,8 @@ if __name__ == "__main__":
     test_resolve_from_context()
     test_resolve_from_context_optional_missing()
     test_resolve_from_context_required_missing_raises()
-    test_vault_path_no_context()
-    test_to_vault_relative_outside_vault()
-    test_vault_metadata_path_no_context()
+    test_workspace_path_no_context()
+    test_to_workspace_relative_outside_workspace()
+    test_workspace_metadata_path_no_context()
     test_component_metadata_path()
     print("\n所有测试通过!")

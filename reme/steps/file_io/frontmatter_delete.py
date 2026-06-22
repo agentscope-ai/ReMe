@@ -6,7 +6,7 @@ a no-op happened. The file is rewritten only when at least one key
 is actually removed — calling delete with all-missing keys is a
 zero-side-effect read.
 
-``path`` is a path relative to the vault.
+``path`` is a path relative to the workspace.
 """
 
 from pathlib import Path
@@ -32,8 +32,8 @@ class FrontmatterDeleteStep(BaseStep):
             keys = [keys]
         keys = list(keys)
 
-        vault_dir = Path(self.file_store.vault_path or ".").resolve()
-        target, err = resolve_path(vault_dir, path)
+        workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
+        target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
         else:

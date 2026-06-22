@@ -3,7 +3,7 @@
 from ...base_step import BaseStep
 from ....components import R
 from .schema import ProactiveResult
-from .utils import load_yaml_topics, today, vault_dir
+from .utils import load_yaml_topics, today, workspace_dir
 
 
 @R.register("proactive_step")
@@ -19,7 +19,7 @@ class ProactiveStep(BaseStep):
         day = today(self, str(self.context.get("date", "") or ""))
         include_content = bool(self.context.get("include_content", self.include_content))
         daily = self.config_value("daily_dir")
-        rel_path, abs_path = f"{daily}/{day}/interests.yaml", vault_dir(self) / daily / day / "interests.yaml"
+        rel_path, abs_path = f"{daily}/{day}/interests.yaml", workspace_dir(self) / daily / day / "interests.yaml"
         result = ProactiveResult(date=day, path=rel_path)
 
         if not abs_path.is_file():

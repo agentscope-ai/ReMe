@@ -5,7 +5,7 @@ integrate_system_prompt_procedure: |
   is 1:1; no SKIP outcome because the incoming unit has already been selected
   as worth remembering.
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest is the abstract memory layer
@@ -73,7 +73,7 @@ integrate_system_prompt_procedure: |
   - Useful predicates include `derived_from::`, `relates_to::`,
     `depends_on::`, and `blocks_on::`; predicates are open and live outside
     the brackets.
-  - Wikilinks must be full vault-relative paths with `.md`.
+  - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/procedure/`. UPDATE may target any
     bucket if recall legitimately found the same abstraction.
   - Use `edit` for body-only changes, and make edits only-add whenever possible:
@@ -92,7 +92,7 @@ integrate_system_prompt_procedure_zh: |
   recipe、runbook、可执行模式。把且只把一个 unit 整合进 digest memory。Unit -> digest node 是 1:1；
   没有 SKIP，因为传入的 unit 已经被判定为值得记忆。
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest 是抽象记忆层
@@ -142,7 +142,7 @@ integrate_system_prompt_procedure_zh: |
     `[[{digest_dir}/wiki/<slug>.md]]`。
   - 常用 predicate：`derived_from::`、`relates_to::`、`depends_on::`、`blocks_on::`；
     predicate 词表开放，写在方括号外。
-  - Wikilink 必须是带 `.md` 的 vault-relative path。
+  - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/procedure/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
   - `frontmatter_update` 才能改 frontmatter，例如 description 或 `kind: procedure`。
@@ -160,7 +160,7 @@ integrate_system_prompt_personal: |
   memory. Unit -> digest node is 1:1; no SKIP outcome because the incoming
   unit has already been selected as worth remembering.
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest is the abstract memory layer
@@ -231,7 +231,7 @@ integrate_system_prompt_personal: |
   - Useful predicates include `derived_from::`, `applies_to::`,
     `relates_to::`, `depends_on::`, and `contradicts::`; predicates are open
     and live outside the brackets.
-  - Wikilinks must be full vault-relative paths with `.md`.
+  - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/personal/`. UPDATE may target any bucket
     if recall legitimately found the same abstraction.
   - Use `edit` for body-only changes, and make edits only-add whenever possible:
@@ -250,7 +250,7 @@ integrate_system_prompt_personal_zh: |
   偏好、约定、avoid-rule、协作风格或约束。把且只把一个 unit 整合进 digest memory。Unit -> digest node
   是 1:1；没有 SKIP，因为传入的 unit 已经被判定为值得记忆。
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest 是抽象记忆层
@@ -303,7 +303,7 @@ integrate_system_prompt_personal_zh: |
     `[[{digest_dir}/wiki/<slug>.md]]`。
   - 常用 predicate：`derived_from::`、`applies_to::`、`relates_to::`、`depends_on::`、
     `contradicts::`；predicate 词表开放，写在方括号外。
-  - Wikilink 必须是带 `.md` 的 vault-relative path。
+  - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/personal/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
   - `frontmatter_update` 才能改 frontmatter，例如 description 或 `kind: preference`。
@@ -322,7 +322,7 @@ integrate_system_prompt_wiki: |
   node is 1:1; no SKIP outcome because the incoming unit has already been
   selected as worth remembering.
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest is the abstract memory layer
@@ -393,7 +393,7 @@ integrate_system_prompt_wiki: |
     `depends_on::`, `relates_to::`, and `contradicts::`; predicates are open
     and live outside the brackets. Most cross-node links can stay bare unless
     the relation has clear semantic weight.
-  - Wikilinks must be full vault-relative paths with `.md`.
+  - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/wiki/`. UPDATE may target any bucket if
     recall legitimately found the same abstraction.
   - Use `edit` for body-only changes, and make edits only-add whenever possible:
@@ -412,7 +412,7 @@ integrate_system_prompt_wiki_zh: |
   事实主张或 mental model。Wiki 也是无法更具体分类时的兜底。把且只把一个 unit 整合进 digest memory。
   Unit -> digest node 是 1:1；没有 SKIP，因为传入的 unit 已经被判定为值得记忆。
 
-  vault_dir: {vault_dir}
+  workspace_dir: {workspace_dir}
   digest_dir: {digest_dir}
 
   ## Digest 是抽象记忆层
@@ -463,7 +463,7 @@ integrate_system_prompt_wiki_zh: |
   - 常用 predicate：`derived_from::`、`is_a::`、`extends::`、`depends_on::`、
     `relates_to::`、`contradicts::`；predicate 词表开放，写在方括号外。有明确语义重量时才加
     predicate，大多数 cross-node link 可以裸写。
-  - Wikilink 必须是带 `.md` 的 vault-relative path。
+  - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/wiki/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
   - `frontmatter_update` 才能改 frontmatter，例如 description、`kind: concept` 或 `kind: observation`。

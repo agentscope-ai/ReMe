@@ -47,7 +47,7 @@ system_prompt_zh: |
 
 user_message_create: |
   Today: {today}
-  Vault directory: {vault_dir}
+  Workspace directory: {workspace_dir}
   Extra hint: {note}
   Target path: {note_path}
 
@@ -82,7 +82,7 @@ user_message_create: |
   - Only operate on one target path: `{note_path}`. Do not touch other notes.
 user_message_create_zh: |
   今天：{today}
-  Vault 目录：{vault_dir}
+  Workspace 目录：{workspace_dir}
   额外提示：{note}
   目标路径：{note_path}
 
@@ -118,7 +118,7 @@ user_message_create_zh: |
 
 user_message_update: |
   Today: {today}
-  Vault directory: {vault_dir}
+  Workspace directory: {workspace_dir}
   Extra hint: {note}
   Target path: {note_path}
 
@@ -174,7 +174,7 @@ user_message_update: |
   - `write` unconditionally overwrites body and frontmatter — use with caution.
 user_message_update_zh: |
   今天：{today}
-  Vault 目录：{vault_dir}
+  Workspace 目录：{workspace_dir}
   额外提示：{note}
   目标路径：{note_path}
 

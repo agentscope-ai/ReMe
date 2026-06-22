@@ -128,7 +128,7 @@ class MarkdownFileChunker(BaseFileChunker):
         from mistletoe.block_token import Document
 
         file_path = Path(path)
-        rel_path = self.to_vault_relative(path)
+        rel_path = self.to_workspace_relative(path)
         front_matter, content, line_offset = self._parse_front_matter(file_path.read_text(encoding=self.encoding))
 
         chunks: list[FileChunk] = []

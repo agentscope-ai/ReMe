@@ -66,7 +66,7 @@ class WatchChangesStep(BaseStep):
     def _get_watch_rules(self) -> list[WatchRule]:
         assert self.context is not None
         app_config = self.app_context.app_config if self.app_context else None
-        return build_context_watch_rules(app_config, self.vault_path, self.context)
+        return build_context_watch_rules(app_config, self.workspace_path, self.context)
 
     def _filter(self, _change: Change, path: str) -> bool:
         return match_file(path, self._rules)

@@ -13,7 +13,7 @@ from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
 @R.register("read_image_step")
 class ReadImageStep(BaseStep):
-    """Read an image file under ``vault_dir`` and return base64 in ``answer``.
+    """Read an image file under ``workspace_dir`` and return base64 in ``answer``.
 
     Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
     not exposed to LLM):
@@ -52,7 +52,7 @@ class ReadImageStep(BaseStep):
             self._fail(f"`max_bytes` must be a positive integer, got {max_bytes_raw!r}")
             return None
 
-        target, err = resolve_path(self.vault_path, raw)
+        target, err = resolve_path(self.workspace_path, raw)
         if err:
             self._fail(err)
             return None

@@ -100,7 +100,7 @@ class ChangeApplyStep(BaseStep):
             return []
         self.logger.info(f"Detected {len(deleted)} deleted file(s)")
         try:
-            await self.delete_paths([self.to_vault_relative(p) for p in deleted])
+            await self.delete_paths([self.to_workspace_relative(p) for p in deleted])
             return [{"change": "deleted", "path": p, "success": True} for p in deleted]
         except Exception as e:
             self.logger.exception(f"Failed to delete {len(deleted)} file(s) from {self.target_name}")
@@ -108,7 +108,7 @@ class ChangeApplyStep(BaseStep):
 
     def _to_abs_path(self, path: str | Path) -> Path:
         p = Path(path)
-        return p if p.is_absolute() else self.vault_path / p
+        return p if p.is_absolute() else self.workspace_path / p
 
 
 @R.register("update_catalog_step")
@@ -119,7 +119,7 @@ class UpdateCatalogStep(ChangeApplyStep):
 
     async def build_item(self, path: Path) -> FileNode:
         stat = path.stat()
-        return FileNode(path=self.to_vault_relative(path), st_mtime=stat.st_mtime)
+        return FileNode(path=self.to_workspace_relative(path), st_mtime=stat.st_mtime)
 
     def item_path(self, item: FileNode) -> str:
         return item.path
