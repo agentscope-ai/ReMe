@@ -80,7 +80,9 @@ class DreamExtractStep(BaseStep):
                 changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
                 material_blob=pack_paths(workspace, changed),
             ),
-            system_prompt=self.prompt_format("extract_system_prompt", workspace_dir=str(workspace), buckets=", ".join(BUCKETS)),
+            system_prompt=self.prompt_format(
+                "extract_system_prompt", workspace_dir=str(workspace), buckets=", ".join(BUCKETS)
+            ),
             job_tools=list(_TOOLS),
         )
         meta = parse_structured_reply(str(result.get("result") or ""))

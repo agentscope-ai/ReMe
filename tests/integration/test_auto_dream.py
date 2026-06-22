@@ -175,7 +175,9 @@ def test_auto_dream_and_proactive():
                     if result.get("target_path")
                 ]
                 target_texts = {
-                    rel: _read_text(env.workspace_dir / rel) for rel in target_paths if (env.workspace_dir / rel).is_file()
+                    rel: _read_text(env.workspace_dir / rel)
+                    for rel in target_paths
+                    if (env.workspace_dir / rel).is_file()
                 }
                 digest_wikilinks = [rel for rel, text in target_texts.items() if "[[digest/" in text]
                 provenance_links = [
