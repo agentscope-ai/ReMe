@@ -78,7 +78,7 @@
 
   <rect class="panel" x="126" y="502" width="948" height="82"/>
   <text class="note" x="176" y="532">Conversation source</text>
-  <text class="chip-text" x="176" y="554">reme_session/dialog/&lt;session_id&gt;.jsonl</text>
+  <text class="chip-text" x="176" y="554">session/dialog/&lt;session_id&gt;.jsonl</text>
   <line class="line" x1="454" y1="518" x2="454" y2="566"/>
   <text class="chip-title" x="498" y="532">Resource source</text>
   <text class="chip-text" x="498" y="554">resource/&lt;date&gt;/&lt;resource_file&gt;</text>

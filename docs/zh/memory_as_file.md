@@ -34,15 +34,15 @@ ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了
 ReMe 的 vault 把记忆分成四层：
 
 ```text
-raw input      -> reme_session/ + resource/
+raw input      -> session/ + resource/
 working memory -> daily/
 long memory    -> digest/
-system state   -> reme_metadata/
+system state   -> metadata/
 ```
 
 这四层解决的是不同问题。
 
-`reme_session/` 和 `resource/` 保存原始输入。它们强调“不要丢现场”：对话、Agent session、上传资料、网页或报告先原样留下，作为以后核对的证据。
+`session/` 和 `resource/` 保存原始输入。它们强调“不要丢现场”：对话、Agent session、上传资料、网页或报告先原样留下，作为以后核对的证据。
 
 `daily/` 是浅加工层。它把当天发生的对话和资源整理成更适合阅读的 daily note：什么事情发生了、有哪些结论、留下了哪些后续任务、对应原文在哪里。
 daily 不追求最终抽象，它更像当天工作台。
@@ -50,14 +50,14 @@ daily 不追求最终抽象，它更像当天工作台。
 `digest/` 是深加工层。这里保存的是可以长期复用的记忆节点，例如用户偏好、项目背景、流程经验、概念知识、决策先例。digest
 不应该只是复制 daily，而应该把多次出现的事实、方法和关系合并成更稳定的表述。
 
-`reme_metadata/` 是系统索引层。它保存 file catalog、chunk 索引、图谱快照等运行状态。用户通常不需要手写这里的内容；真正的人工编辑入口是
+`metadata/` 是系统索引层。它保存 file catalog、chunk 索引、图谱快照等运行状态。用户通常不需要手写这里的内容；真正的人工编辑入口是
 `daily/`、`digest/` 和必要时的 `resource/`。
 
 这个分层让 ReMe 可以同时保留“现场”和“抽象”：daily 负责还原当时发生了什么，digest 负责回答以后还能复用什么。
 
 ## 目录结构
 
-ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resource/` 或 `reme_session/`，再沉淀到 `daily/`，最后由 `auto_dream`
+ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resource/` 或 `session/`，再沉淀到 `daily/`，最后由 `auto_dream`
 整合到 `digest/`。
 
 对应的自动流程分别是 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md) 和 [Auto Dream](./auto_dream.md)。
@@ -65,8 +65,8 @@ ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resourc
 
 ```text
 <vault_dir>/
-├── reme_metadata/                    # 系统索引层；ReMe 索引、图谱、catalog 等持久状态，不作为人工编辑入口
-├── reme_session/                     # 原始输入层；原始对话和 Agent session
+├── metadata/                    # 系统索引层；ReMe 索引、图谱、catalog 等持久状态，不作为人工编辑入口
+├── session/                     # 原始输入层；原始对话和 Agent session
 │   ├── dialog/
 │   │   └── <session_id>.jsonl        # auto_memory 保存的对话消息
 │   ├── agentscope/
@@ -95,7 +95,7 @@ ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resourc
 
 ```text
 对话
-  -> reme_session/dialog/<session_id>.jsonl
+  -> session/dialog/<session_id>.jsonl
   -> daily/YYYY-MM-DD/<session_id>.md
   -> digest/personal | digest/procedure | digest/wiki
 
@@ -137,7 +137,7 @@ Frontmatter 是文件开头的 YAML 块，用 `---` 包住：
 ---
 name: 文档名
 description: 文档描述
-source_conversation: [[reme_session/dialog/abc.jsonl]]
+source_conversation: [[session/dialog/abc.jsonl]]
 ---
 ```
 

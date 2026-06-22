@@ -61,7 +61,7 @@ def _copy_outputs(env, message_files: list[Path]) -> list[Path]:
     for path in message_files:
         if dst := _copy_artifact(path, "messages"):
             copied.append(dst)
-    for root in ("daily", "digest", "reme_metadata", "reme_session", "agent_logs"):
+    for root in ("daily", "digest", "metadata", "session", "agent_logs"):
         if dst := _copy_artifact(env.vault_dir / root, root):
             copied.append(dst)
     return copied
@@ -83,9 +83,9 @@ def _all_digest_text(env) -> str:
 
 
 def _file_graph_links(env) -> dict[str, list[dict]]:
-    """Map ``path -> links`` from every ``reme_metadata/file_graph/*.jsonl``."""
+    """Map ``path -> links`` from every ``metadata/file_graph/*.jsonl``."""
     out: dict[str, list[dict]] = {}
-    graph_dir = env.vault_dir / "reme_metadata" / "file_graph"
+    graph_dir = env.vault_dir / "metadata" / "file_graph"
     if not graph_dir.is_dir():
         return out
     for graph_path in sorted(graph_dir.glob("*.jsonl")):
@@ -123,7 +123,7 @@ def test_auto_dream_and_proactive():
                         topic_diversity_days=7,
                     )
                 dumped = await recorder.dump()
-                session_jsonl = sorted((env.vault_dir / "reme_session" / "agentscope").glob("*.jsonl"))
+                session_jsonl = sorted((env.vault_dir / "session" / "agentscope").glob("*.jsonl"))
                 message_files = [*dumped, *session_jsonl]
                 _print_message_files(message_files)
 
@@ -138,7 +138,7 @@ def test_auto_dream_and_proactive():
                 day_index = env.vault_dir / "daily" / f"{DREAM_DATE}.md"
                 changed_note = env.vault_dir / DREAM_INPUT_PATH
                 interests = env.vault_dir / "daily" / DREAM_DATE / "interests.yaml"
-                catalog = env.vault_dir / "reme_metadata" / "file_catalog" / "dream.jsonl"
+                catalog = env.vault_dir / "metadata" / "file_catalog" / "dream.jsonl"
                 assert changed_note.is_file(), f"changed note missing: {changed_note}"
                 assert interests.is_file(), f"interests.yaml missing: {interests}"
                 assert catalog.is_file(), f"dream catalog missing: {catalog}"

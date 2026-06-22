@@ -58,7 +58,7 @@ index_update_loop:
 2. 把文件解析成一个 `FileNode` 和多个 `FileChunk`。
 3. 对新增或修改的文件，先删除旧 chunk，再 upsert 新 chunk。
 4. 对删除的文件，从 `file_store`、`keyword_index` 和 `file_graph` 清掉对应记录。
-5. 有变化时 dump 到 `reme_metadata/`，让下次启动可以恢复。
+5. 有变化时 dump 到 `metadata/`，让下次启动可以恢复。
 
 Markdown chunker 会解析 YAML frontmatter、标题结构和 `[[...]]`，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
 [Memory as File](./memory_as_file.md#memory-chunking)。

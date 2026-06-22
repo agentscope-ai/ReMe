@@ -67,7 +67,7 @@
   <text class="section-title" x="116" y="438">Raw input</text>
   <text class="section-subtitle" x="82" y="468">keep the original scene</text>
   <rect class="chip" x="82" y="494" width="168" height="28"/>
-  <text class="chip-text" x="166" y="513" text-anchor="middle">reme_session/ + resource/</text>
+  <text class="chip-text" x="166" y="513" text-anchor="middle">session/ + resource/</text>
 
   <rect class="panel" x="326" y="398" width="224" height="144"/>
   <circle class="badge" cx="360" cy="432" r="15"/>

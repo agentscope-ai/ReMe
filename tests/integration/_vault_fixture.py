@@ -253,7 +253,7 @@ Redis key `auth:jwks:current_kid` 保存当前活跃 kid;Auth Service
 """,
 }
 
-_CLEAN_DIRS = ("daily", "digest", "resource", "reme_metadata")
+_CLEAN_DIRS = ("daily", "digest", "resource", "metadata")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -418,7 +418,7 @@ class VaultEnv:
 
     def clean(self) -> list[str]:
         """Remove fixture-managed subdirs (``daily/``, ``digest/``, ``resource/``,
-        ``reme_metadata/``) under the vault so the next seed starts clean.
+        ``metadata/``) under the vault so the next seed starts clean.
         Returns relative paths that were actually removed."""
         removed: list[str] = []
         for rel in _CLEAN_DIRS:

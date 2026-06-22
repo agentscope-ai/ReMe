@@ -71,7 +71,7 @@ daily/<date>/**/*.md
 | `digest/personal/*.md`              | 用户、团队、项目相关的偏好、事实、长期上下文。             |
 | `digest/wiki/*.md`                  | 通用知识、概念、观察、决策先例。                    |
 | `daily/<date>/interests.yaml`       | 当天值得上层 Agent 主动关注的兴趣主题。             |
-| `reme_metadata/file_catalog/dream*` | dream 专用 catalog，用于判断 daily 输入是否变化。 |
+| `metadata/file_catalog/dream*` | dream 专用 catalog，用于判断 daily 输入是否变化。 |
 
 ## 四个阶段
 

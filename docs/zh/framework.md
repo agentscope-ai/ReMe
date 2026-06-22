@@ -22,7 +22,7 @@ flowchart LR
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
     Steps --> Components["Components<br/>store / graph / index / llm / agent / catalog"]
-    Components --> Vault["Vault<br/>daily / digest / resource / reme_metadata"]
+    Components --> Vault["Vault<br/>daily / digest / resource / metadata"]
 ```
 
 核心分层：
@@ -75,8 +75,8 @@ reme/
 
 ```text
 <vault_dir>/
-  reme_metadata/     # file_store、file_graph、keyword_index、file_catalog 等持久状态
-  reme_session/      # Agent session 与原始对话
+  metadata/     # file_store、file_graph、keyword_index、file_catalog 等持久状态
+  session/      # Agent session 与原始对话
   resource/          # 外部资源
   daily/             # 浅加工记忆
   digest/            # 长期 digest 记忆

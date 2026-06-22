@@ -158,7 +158,7 @@
     <text class="label" x="10" y="30" text-anchor="middle">.json</text>
     <line class="ink thin" x1="26" y1="28" x2="50" y2="28"/>
     <line class="ink thin" x1="22" y1="42" x2="52" y2="42"/>
-    <text class="label" x="106" y="19">reme_session/</text>
+    <text class="label" x="106" y="19">session/</text>
     <text class="tiny" x="106" y="39">raw session logs</text>
   </g>
 

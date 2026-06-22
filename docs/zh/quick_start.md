@@ -65,8 +65,8 @@ reme list
 
 ```text
 .reme/
-├── reme_metadata/   # 索引、图谱、catalog 等持久状态
-├── reme_session/    # Agent session 与原始对话
+├── metadata/   # 索引、图谱、catalog 等持久状态
+├── session/    # Agent session 与原始对话
 ├── resource/        # 外部资料
 ├── daily/           # daily note
 └── digest/          # 长期记忆

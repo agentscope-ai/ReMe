@@ -7,13 +7,13 @@ Auto Memory 是 ReMe 的对话记忆入口：每段对话先按 `session_id` 沉
   <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
 </p>
 
-关于 `daily/`、`reme_session/`、frontmatter 和 wikilink 的通用文件语义，见 [Memory as File](./memory_as_file.md)。
+关于 `daily/`、`session/`、frontmatter 和 wikilink 的通用文件语义，见 [Memory as File](./memory_as_file.md)。
 
 ```text
 Conversation
   ├─ step 1: daily/YYYY-MM-DD/<session_id>.md        # 每段对话先成卡片
   ├─ step 2: daily/YYYY-MM-DD.md                     # 当天索引再串起来
-  └─ source: reme_session/dialog/<session_id>.jsonl  # 原始对话
+  └─ source: session/dialog/<session_id>.jsonl  # 原始对话
 ```
 
 ## 它记录什么
@@ -60,7 +60,7 @@ daily/2026-06-20/session-a.md
 Auto Memory 在生成记忆卡片的同时，也会保存原始会话：
 
 ```text
-reme_session/
+session/
   dialog/
     session-a.jsonl
     session-b.jsonl

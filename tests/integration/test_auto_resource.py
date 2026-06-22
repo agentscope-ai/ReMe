@@ -114,7 +114,7 @@ def test_auto_resource_create():
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 note_stem = _compute_note_stem(RESOURCE_FILENAME)
                 agent_session_id = _compute_agent_session_id(file_path)
-                expected_session_jsonl = env.vault_dir / "reme_session" / "agentscope" / f"{agent_session_id}.jsonl"
+                expected_session_jsonl = env.vault_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
 
                 print(f"[CREATE] file_path           = {file_path}")
                 print(f"[CREATE] note_stem           = {note_stem}")
@@ -142,7 +142,7 @@ def test_auto_resource_create():
                 assert expected_session_jsonl.is_file(), (
                     f"agent session not persisted at {expected_session_jsonl}; "
                     f"AgentScope files: "
-                    f"{[p.name for p in (env.vault_dir / 'reme_session' / 'agentscope').glob('*.jsonl')]}"
+                    f"{[p.name for p in (env.vault_dir / 'session' / 'agentscope').glob('*.jsonl')]}"
                 )
 
                 note_text = _print_text_file("CREATE result.md", note_path)
@@ -198,7 +198,7 @@ def test_auto_resource_update():
                 file_path = env.place_resource(RESOURCE_FILENAME, RESOURCE_CONTENT_V1)
                 note_stem = _compute_note_stem(RESOURCE_FILENAME)
                 agent_session_id = _compute_agent_session_id(file_path)
-                session_jsonl = env.vault_dir / "reme_session" / "agentscope" / f"{agent_session_id}.jsonl"
+                session_jsonl = env.vault_dir / "session" / "agentscope" / f"{agent_session_id}.jsonl"
 
                 response = await app.run_job("auto_resource", changes=[{"path": file_path, "change": "added"}])
                 assert response.success is True, f"Initial create failed: {response.answer!r}"
