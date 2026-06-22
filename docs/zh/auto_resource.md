@@ -31,7 +31,7 @@ resource/YYYY-MM-DD/<resource_file>
 
 ## 原始资料入口
 
-Auto Resource 以 `resource/` 作为原始资料入口。资源需要按日期放置，这个日期会决定它进入哪一天的 daily 工作台。
+Auto Resource 以 `resource/` 作为原始资料入口。资源需要按日期放置，这个日期会决定它进入哪一天的 daily 记忆层。
 
 示例目录：
 
@@ -59,7 +59,7 @@ daily/2026-06-20/market-report.md
 
 ## 当天索引
 
-资源卡片会进入和 Auto Memory 相同的 daily 工作台。当天的 `YYYY-MM-DD.md` 会作为索引页，把这些资源卡片组织起来：
+资源卡片会进入和 Auto Memory 相同的 daily 记忆层。当天的 `YYYY-MM-DD.md` 会作为索引页，把这些资源卡片组织起来：
 
 ```text
 daily/

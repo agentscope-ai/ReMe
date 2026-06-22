@@ -42,7 +42,7 @@ vault/
 ```
 
 其中 `daily/2026-06-20/session-a.md`、`daily/2026-06-20/session-b.md` 是不同对话整理出的记忆卡片，
-`daily/2026-06-20.md` 是当天索引页。资源文件也会进入同一个 daily 工作台，见 [Auto Resource](./auto_resource.md)。
+`daily/2026-06-20.md` 是当天索引页。资源文件也会进入同一个 daily 记忆层，见 [Auto Resource](./auto_resource.md)。
 
 当调用时带上 `session_id`，Auto Memory 会按这个 id 单独记录这段对话：
 
