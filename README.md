@@ -102,8 +102,7 @@ curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}
 ### 快速接入
 ReMe 通过 **SKILL.md + CLI + hook（可选）** 接入支持的 Agent 框架。典型接入方式如下：
 
-- 为 Agent 添加 [reme_memory](reme/skills/reme_memory/SKILL.md) skill，并授予其调用
-  `reme search/read/write/auto_memory/proactive` 等 CLI 的权限。
+- 为 Agent 添加 [memory skill](reme/skills/reme_memory/SKILL.md) ，并授予Agent 调用 CLI 的权限。
 - 在 Agent hook 中按需调用 `auto_memory` 和 `proactive`，让对话自动沉淀为 daily 记忆，并在合适时机读取主动提醒。
 - `auto_index` 与 `auto_resource` 由文件监控自动触发，负责索引维护和资源加工。
 - `auto_dream` 由定时任务触发，将 daily 记忆进一步整理为可长期复用的 digest 记忆。
