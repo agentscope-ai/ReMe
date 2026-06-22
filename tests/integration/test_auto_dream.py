@@ -21,6 +21,8 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 # pylint: disable=wrong-import-position
 from _workspace_fixture import DREAM_INPUT_PATH, workspace_env  # noqa: E402
 
+from reme.utils.jsonl_zst import read_jsonl_zst  # noqa: E402
+
 DREAM_DATE = "2026-05-28"
 
 
@@ -83,13 +85,13 @@ def _all_digest_text(env) -> str:
 
 
 def _file_graph_links(env) -> dict[str, list[dict]]:
-    """Map ``path -> links`` from every ``metadata/file_graph/*.jsonl``."""
+    """Map ``path -> links`` from every ``metadata/file_graph/*.jsonl.zst``."""
     out: dict[str, list[dict]] = {}
     graph_dir = env.workspace_dir / "metadata" / "file_graph"
     if not graph_dir.is_dir():
         return out
-    for graph_path in sorted(graph_dir.glob("*.jsonl")):
-        for line in graph_path.read_text(encoding="utf-8").splitlines():
+    for graph_path in sorted(graph_dir.glob("*.jsonl.zst")):
+        for line in read_jsonl_zst(graph_path):
             if not line.strip():
                 continue
             node = json.loads(line)
@@ -138,7 +140,7 @@ def test_auto_dream_and_proactive():
                 day_index = env.workspace_dir / "daily" / f"{DREAM_DATE}.md"
                 changed_note = env.workspace_dir / DREAM_INPUT_PATH
                 interests = env.workspace_dir / "daily" / DREAM_DATE / "interests.yaml"
-                catalog = env.workspace_dir / "metadata" / "file_catalog" / "dream.jsonl"
+                catalog = env.workspace_dir / "metadata" / "file_catalog" / "dream.jsonl.zst"
                 assert changed_note.is_file(), f"changed note missing: {changed_note}"
                 assert interests.is_file(), f"interests.yaml missing: {interests}"
                 assert catalog.is_file(), f"dream catalog missing: {catalog}"
@@ -212,7 +214,11 @@ def test_auto_dream_and_proactive():
                 _print_text_file("changed input.md", changed_note)
                 for path in env.digest_files():
                     _print_text_file(f"digest {path.relative_to(env.workspace_dir)}", path)
-                _print_text_file("dream catalog.jsonl", catalog)
+                catalog_lines = list(read_jsonl_zst(catalog))
+                print("\n" + "=" * 70)
+                print(f"[dream catalog.jsonl.zst] {catalog} ({len(catalog_lines)} node(s))")
+                print("".join(catalog_lines))
+                print("=" * 70)
             finally:
                 copied = _copy_outputs(env, message_files)
                 print("\n" + "=" * 70)

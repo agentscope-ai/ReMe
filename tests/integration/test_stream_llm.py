@@ -19,11 +19,27 @@ from reme.schema import StreamChunk  # noqa: E402
 from reme.steps.common.stream_llm_demo import StreamLLMDemoStep  # noqa: E402
 from reme.utils.common_utils import execute_stream_task  # noqa: E402
 
+# StreamLLMDemoStep always advertises the ``add`` job as a tool. That job only
+# ships in demo.yaml, so inject it into the default config the fixture loads.
+ADD_JOB = {
+    "backend": "base",
+    "description": "add two numbers",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "a": {"type": "number", "description": "first addend"},
+            "b": {"type": "number", "description": "second addend"},
+        },
+        "required": ["a", "b"],
+    },
+    "steps": [{"backend": "add_step"}],
+}
+
 
 async def _test_stream_llm_basic_chat():
     """StreamLLMDemoStep streams text chunks via add_stream_string."""
     with workspace_env() as env:
-        app = await env.make_app()
+        app = await env.make_app(jobs={"add": ADD_JOB})
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -67,7 +83,7 @@ async def _test_stream_llm_basic_chat():
 async def _test_stream_llm_with_tool():
     """StreamLLMDemoStep streams tool call events when tools are used."""
     with workspace_env() as env:
-        app = await env.make_app()
+        app = await env.make_app(jobs={"add": ADD_JOB})
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -119,7 +135,7 @@ async def _test_stream_llm_with_tool():
 async def _test_stream_llm_fallback_no_stream():
     """Without stream_queue, still uses streaming under the hood for real-time output."""
     with workspace_env() as env:
-        app = await env.make_app()
+        app = await env.make_app(jobs={"add": ADD_JOB})
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
@@ -172,7 +188,7 @@ def test_stream_llm_fallback_no_stream():
 async def _demo_stream_print():
     """Real-time streaming print demo — ask a longer question to see chunked output."""
     with workspace_env() as env:
-        app = await env.make_app()
+        app = await env.make_app(jobs={"add": ADD_JOB})
         try:
             step = StreamLLMDemoStep(app_context=app.context)
             queue: asyncio.Queue = asyncio.Queue()
