@@ -32,8 +32,8 @@
 
 - **Memory as files**：以带 frontmatter 和 wikilink 的 Markdown 作为记忆节点，让人和 Agent 都能直接读写。
 - **自进化知识库**：通过 Auto Memory、Auto Resource、Auto Dream 和 Auto Link，把对话与资料渐进加工、梦境整理为长期 Markdown 记忆，并自动构建 wikilink 关系。
-- **渐进式混合搜索**：构建 BM25 + embedding 的混合检索，先召回片段，再通过 wikilink 支持正向和反向的上下文展开。
-- **Agent 友好集成**：通过文件、索引、工具接口、CLI 模型接入和 MCP 接入组织记忆，方便不同 Agent 维护和复用。
+- **渐进式混合搜索**：构建 wikilink + BM25 + embedding 的渐进式混合搜索。
+- **Agent 友好集成**：通过SKILL.md + CLI 接入，方便不同 Agent 维护和复用。
 
 <details>
 <summary><b>适用场景</b></summary>
