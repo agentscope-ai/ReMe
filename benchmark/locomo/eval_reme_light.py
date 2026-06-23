@@ -388,7 +388,7 @@ async def _answer_question_with_memories(
     reme: ReMeLight,
     question: str,
     search_results: list[dict],
-    _model_name: str = "qwen3-max",
+    _model_name: str = "qwen3-30b-a3b-instruct-2507",
 ) -> dict:
     # 把搜索结果格式化成 prompt 上下文
     memories_text = _format_search_results_for_prompt(search_results)
