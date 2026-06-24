@@ -91,8 +91,30 @@ class LocalFileStore(BaseFileStore):
                     self.file_chunks[chunk.id] = chunk
             self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             await self._sync_keyword_index_from_chunks()
+            await self._backfill_missing_embeddings()
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+
+    async def _backfill_missing_embeddings(self) -> None:
+        """Embed persisted chunks that predate embedding being enabled."""
+        if not self.embedding_store or not self.file_chunks:
+            return
+
+        missing = [chunk for chunk in self.file_chunks.values() if chunk.text and chunk.embedding is None]
+        if not missing:
+            return
+
+        self.logger.info(f"{self.name}: backfilling embeddings for {len(missing)} chunks")
+        try:
+            await self.embedding_store.get_node_embeddings(missing)
+        except Exception as e:
+            self._disable_embedding(f"backfill: {type(e).__name__}: {e}")
+            return
+
+        filled = sum(1 for chunk in missing if chunk.embedding is not None)
+        if filled:
+            self.logger.info(f"{self.name}: backfilled embeddings for {filled}/{len(missing)} chunks")
+            await self.dump()
 
     async def _sync_keyword_index_from_chunks(self) -> None:
         """Repair keyword index when its persisted state does not match chunks."""

@@ -140,6 +140,39 @@ def test_same_chunk_id_with_changed_text_gets_new_embedding():
     run(go())
 
 
+def test_load_backfills_missing_embeddings_from_persisted_chunks():
+    """Loading old chunks after enabling embeddings backfills and persists vectors."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            await store.start()
+            await store.upsert(
+                [
+                    (node("a.md"), [chunk("a", "a.md", "alpha text")]),
+                    (node("b.md"), [chunk("b", "b.md", "fresh beta text")]),
+                ],
+            )
+            await store.close()
+
+            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            await store.load()
+
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
+            await store.close()
+
+            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            await store.start()
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
+            await store.close()
+
+    run(go())
+
+
 def test_search_filter_applies_to_vector_and_keyword_results():
     """Search filters apply consistently to vector and keyword results."""
 
