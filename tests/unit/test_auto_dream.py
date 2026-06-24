@@ -9,8 +9,8 @@ import yaml
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
+from reme.schema import DreamState
 from reme.steps.evolve.dream.finish import DreamFinishStep
-from reme.steps.evolve.dream.schema import DreamState
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
 
