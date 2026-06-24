@@ -55,6 +55,7 @@ repos:
           --disable=R0913,
           --disable=R0917,
           --disable=E0401,
+          --disable=E0611,
           --disable=E1101,
           --disable=E1111,
           --disable=C0415,
