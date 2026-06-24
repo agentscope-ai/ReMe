@@ -5,7 +5,8 @@ from pathlib import Path
 
 from ...base_step import BaseStep
 from ....components import R
-from .schema import BUCKETS, IntegrateOutcome
+from ....enumeration import DreamBucketEnum
+from ....schema import IntegrateOutcome
 from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
 
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
@@ -29,6 +30,8 @@ class DreamIntegrateStep(BaseStep):
 
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
+        for bucket in DreamBucketEnum:
+            (workspace / digest_dir / bucket.value).mkdir(parents=True, exist_ok=True)
         for i, unit in enumerate(state.units, start=1):
             await self._integrate_one(state, unit, i, workspace, digest_dir)
         state.failed_paths = sorted(set(state.failed_paths))
@@ -36,7 +39,10 @@ class DreamIntegrateStep(BaseStep):
         return self._finish(state, not state.failed_units, answer)
 
     async def _integrate_one(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
-        bucket = unit.get("bucket") if unit.get("bucket") in BUCKETS else "wiki"
+        try:
+            bucket = DreamBucketEnum(str(unit.get("bucket") or "")).value
+        except ValueError:
+            bucket = DreamBucketEnum.WIKI.value
         paths = [str(p) for p in unit.get("paths", [])]
         try:
             result = await self.agent_wrapper.reply(

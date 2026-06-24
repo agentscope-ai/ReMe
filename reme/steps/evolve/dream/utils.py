@@ -8,7 +8,7 @@ import yaml
 
 from .._evolve import now
 from ...base_step import BaseStep
-from .schema import DreamState
+from ....schema import DreamState
 
 
 def state_from_context(step: BaseStep) -> DreamState:

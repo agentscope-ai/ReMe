@@ -4,8 +4,7 @@ from pathlib import Path
 
 from ...base_step import BaseStep
 from ....components import R
-from ....schema import FileNode
-from .schema import DreamState
+from ....schema import DreamState, FileNode
 from .utils import state_from_context, store_state, workspace_dir
 
 

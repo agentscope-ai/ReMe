@@ -1,18 +1,17 @@
-"""Shared auto-dream schemas."""
+"""Auto-dream schemas."""
 
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-BUCKETS: tuple[str, ...] = ("procedure", "personal", "wiki")
-Bucket = Literal["procedure", "personal", "wiki"]
+from ..enumeration import DreamBucketEnum
 
 
 class DreamUnit(BaseModel):
     """One cross-file memory unit emitted by global extract."""
 
     name: str = Field(description="Short kebab-case handle for the abstraction.")
-    bucket: str = Field(description="procedure, personal, or wiki; unknown values route to wiki.")
+    bucket: DreamBucketEnum = Field(description="Digest bucket; unknown raw values route to wiki before validation.")
     summary: str = Field(description="Grounded abstraction summary with evidence pointers.")
     paths: list[str] = Field(default_factory=list, description="Workspace-relative source paths.")
 
@@ -61,7 +60,7 @@ class ProactiveResult(BaseModel):
 
 
 class DreamState(BaseModel):
-    """Shared state passed across the four dream steps."""
+    """Shared state passed across the dream steps."""
 
     date: str = ""
     dates: list[str] = Field(default_factory=list)

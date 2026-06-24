@@ -2,7 +2,7 @@
 
 from ...base_step import BaseStep
 from ....components import R
-from .schema import ProactiveResult
+from ....schema import ProactiveResult
 from .utils import load_yaml_topics, today, workspace_dir
 
 

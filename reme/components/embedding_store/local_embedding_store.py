@@ -55,8 +55,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     async def _close(self) -> None:
         await self.dump()
 
-    async def health_check(self, timeout: float = 2.0) -> bool:
-        tag = f"[EMBEDDING HEALTH CHECK] name={self.name}"
+    async def health_check(self, timeout: float = 5.0) -> bool:
+        tag = f"[EMBEDDING HEALTH CHECK] name={self.name} workspace_dir={self.workspace_path}"
         try:
             result = await asyncio.wait_for(self.as_embedding(["ping"]), timeout=timeout)
             if not result or result[0] is None:

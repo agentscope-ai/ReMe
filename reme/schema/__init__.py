@@ -1,6 +1,15 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .dream import (
+    DreamExtractOutput,
+    DreamState,
+    DreamTopic,
+    DreamUnit,
+    IntegrateOutcome,
+    ProactiveResult,
+    TopicSelectionOutput,
+)
 from .emb_node import EmbNode
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
@@ -14,12 +23,19 @@ __all__ = [
     "ApplicationConfig",
     "ComponentConfig",
     "JobConfig",
+    "DreamExtractOutput",
+    "DreamState",
+    "DreamTopic",
+    "DreamUnit",
     "EmbNode",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",
     "FileNode",
+    "IntegrateOutcome",
+    "ProactiveResult",
     "Request",
     "Response",
     "StreamChunk",
+    "TopicSelectionOutput",
 ]

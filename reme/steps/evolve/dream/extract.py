@@ -5,7 +5,8 @@ import json
 from ...base_step import BaseStep
 from ...file_io import refresh_day_index
 from ....components import R
-from .schema import BUCKETS, DreamState
+from ....enumeration import DreamBucketEnum
+from ....schema import DreamState
 from .utils import (
     clean_paths,
     daily_dir,
@@ -100,7 +101,7 @@ class DreamExtractStep(BaseStep):
             system_prompt=self.prompt_format(
                 "extract_system_prompt",
                 workspace_dir=str(workspace),
-                buckets=", ".join(BUCKETS),
+                buckets=", ".join(bucket.value for bucket in DreamBucketEnum),
             ),
             job_tools=list(_TOOLS),
         )
@@ -127,13 +128,15 @@ class DreamExtractStep(BaseStep):
                 continue
             name = str(raw.get("name") or "").strip()
             summary = str(raw.get("summary") or "").strip()
-            bucket = str(raw.get("bucket") or "").strip()
+            raw_bucket = str(raw.get("bucket") or "").strip()
             paths = clean_paths(raw.get("paths"), allowed)
             if not name or not summary or not paths:
                 continue
-            if bucket not in BUCKETS:
-                self.logger.warning(f"[{self.name}] unit {name!r} emitted bucket {bucket!r}; routing to wiki")
-                bucket = "wiki"
+            try:
+                bucket = DreamBucketEnum(raw_bucket).value
+            except ValueError:
+                self.logger.warning(f"[{self.name}] unit {name!r} emitted bucket {raw_bucket!r}; routing to wiki")
+                bucket = DreamBucketEnum.WIKI.value
             state.units.append({"name": name, "bucket": bucket, "summary": summary, "paths": paths})
         for raw in meta.get("topics") or []:
             topic = self._clean_topic(raw, allowed)
