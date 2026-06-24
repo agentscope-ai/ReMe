@@ -720,8 +720,10 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
 
             step = AutoResourceStep(app_context=app_ctx)
 
-            async def fake_upsert(file_path, date_str, note_stem, _created):
-                captured.update({"file_path": file_path, "date_str": date_str, "note_stem": note_stem})
+            async def fake_upsert(file_path, date_str, note_stem, created):
+                captured.update(
+                    {"file_path": file_path, "date_str": date_str, "note_stem": note_stem, "created": created},
+                )
                 step.context.response.success = True
                 step.context.response.answer = "ok"
 
@@ -736,6 +738,7 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
                 "file_path": "resource/report.txt",
                 "date_str": today,
                 "note_stem": "report",
+                "created": True,
             }
         print("✓ test_auto_resource_loose_root_resource_keeps_existing_dated_resource passed")
 
