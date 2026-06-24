@@ -5,6 +5,7 @@ extract_system_prompt: |
 
   workspace_dir: {workspace_dir}
   buckets: {buckets}
+  max_units: {max_units}
 
   Digest is the abstract memory layer. Raw detail stays in daily notes. Digest
   keeps reusable principles, patterns, precedents, workflows, conventions, and
@@ -27,6 +28,8 @@ extract_system_prompt: |
     someone else to skip.
   - Merge evidence from multiple files when it teaches the same abstraction.
   - Prefer fewer, richer units over exhaustive file summaries.
+  - Return no more than max_units units. If there are more candidates, keep only
+    the strongest reusable abstractions and drop the weaker ones.
   - Split only when the abstractions would be recalled in different future
     situations, or when they will evolve independently as more material arrives.
   - When in doubt, merge related evidence into one unit or drop the weaker
@@ -86,6 +89,7 @@ extract_system_prompt_zh: |
 
   workspace_dir: {workspace_dir}
   buckets: {buckets}
+  max_units: {max_units}
 
   Digest 是抽象记忆层。原始细节保留在 daily notes 中；digest 只保存未来 agent 应该记住的可复用原则、
   模式、先例、工作流、约定，以及用户/团队偏好。
@@ -103,6 +107,7 @@ extract_system_prompt_zh: |
   - 这个抽取步骤是“不值得记忆”的过滤闸口。一旦输出 unit，就默认它应该被整合；不要把弱候选交给别人去跳过。
   - 多个文件表达同一个抽象时，要合并成同一个 unit。
   - 宁可输出更少但信息密度更高的 unit，不要穷举文件摘要。
+  - 返回的 units 数量不能超过 max_units。如果候选更多，只保留最强、最可复用的抽象，丢掉较弱候选。
   - 只有当两个抽象会在未来不同场景被召回，或会随着更多材料独立演化时，才拆成两个 unit。
   - 不确定时，把相关证据合并成一个 unit，或直接丢掉较弱候选。
   - 每个 unit 必须包含 name、bucket、summary、paths。
@@ -155,6 +160,7 @@ extract_user_message: |
   scan_dates:
   {dates_json}
   hint: {hint}
+  max_units: {max_units}
 
   changed_paths:
   {changed_paths_json}
@@ -170,6 +176,7 @@ extract_user_message_zh: |
   扫描日期：
   {dates_json}
   提示：{hint}
+  max_units: {max_units}
 
   changed_paths:
   {changed_paths_json}

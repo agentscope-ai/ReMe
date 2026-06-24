@@ -4,6 +4,7 @@ import json
 
 from ...base_step import BaseStep
 from ...file_io import refresh_day_index
+from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
 from ....schema import DreamState
@@ -27,23 +28,32 @@ _TOOLS = ("read",)
 class DreamExtractStep(BaseStep):
     """Scan changed daily files and globally extract merged units/topics."""
 
-    def __init__(self, topic_session_id: str = "interests", scan_days: int = 2, **kwargs):
+    def __init__(self, topic_session_id: str = "interests", scan_days: int = 2, max_units: int = 5, **kwargs):
         super().__init__(**kwargs)
         self.topic_session_id = topic_session_id
         self.scan_days = scan_days
+        self.max_units = max_units
 
     async def execute(self):
         assert self.context is not None
         day = today(self, str(self.context.get("date", "") or ""))
         raw_scan_days = self.context.get("scan_days", self.scan_days)
         scan_days = max(int(raw_scan_days or self.scan_days), 1)
+        raw_max_units = self.context.get("max_units", self.max_units)
+        max_units = max(int(raw_max_units or self.max_units), 0)
         dates = recent_dates(day, scan_days)
         hint = str(self.context.get("hint", "") or "").strip()
         daily, workspace = daily_dir(self), workspace_dir(self)
         if self.file_catalog is None:
             raise RuntimeError("dream_extract_step requires file_catalog")
+        self.logger.info(
+            f"[{self.name}] start date={day} dates={','.join(dates)} scan_days={scan_days} "
+            f"max_units={max_units} hint={bool(hint)}",
+        )
         for scan_day in dates:
+            self.logger.info(f"[{self.name}] refresh index start date={scan_day} daily_dir={daily}")
             await refresh_day_index(self.file_store, scan_day, daily)
+            self.logger.info(f"[{self.name}] refresh index done date={scan_day}")
 
         existing = self._existing(
             workspace,
@@ -63,8 +73,14 @@ class DreamExtractStep(BaseStep):
         unchanged = [rel for rel, mt in existing.items() if indexed.get(rel) == mt]
         protected = set(existing) | {rel for rel in interest_rels if (workspace / rel).is_file()}
         deleted = sorted(indexed_all.keys() - protected)
+        self.logger.info(
+            f"[{self.name}] scan summary existing={len(existing)} indexed={len(indexed)} "
+            f"changed={len(changed)} unchanged={len(unchanged)} deleted={len(deleted)}",
+        )
         if deleted:
+            self.logger.info(f"[{self.name}] catalog delete start paths={len(deleted)}")
             await self.file_catalog.delete(deleted)
+            self.logger.info(f"[{self.name}] catalog delete done paths={len(deleted)}")
 
         state = DreamState(
             date=day,
@@ -84,17 +100,21 @@ class DreamExtractStep(BaseStep):
             indexed=indexed,
         )
         if not changed:
+            self.logger.info(f"[{self.name}] skip no changed input dates={','.join(dates)}")
             return self._finish(state, True, f"No changed dream input for {', '.join(dates)}")
         if not llm_available(self):
             state.errors.append("no llm configured; dream extract requires an LLM")
+            self.logger.warning(f"[{self.name}] skip no llm changed={len(changed)}")
             return self._finish(state, False, state.errors[-1])
 
+        self.logger.info(f"[{self.name}] agent start changed={len(changed)} dates={len(dates)}")
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "extract_user_message",
                 date=day,
                 dates_json=json.dumps(dates, ensure_ascii=False, indent=2),
                 hint=hint or "(none)",
+                max_units=max_units,
                 changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
                 material_blob=pack_paths(workspace, changed),
             ),
@@ -102,12 +122,16 @@ class DreamExtractStep(BaseStep):
                 "extract_system_prompt",
                 workspace_dir=str(workspace),
                 buckets=", ".join(bucket.value for bucket in DreamBucketEnum),
+                max_units=max_units,
             ),
             job_tools=list(_TOOLS),
         )
-        meta = parse_structured_reply(str(result.get("result") or ""))
-        self._clean_output(state, meta)
-        state.extract_summary = str(result.get("result") or "").strip()
+        self.logger.info(f"[{self.name}] agent done has_result={bool(result.get('result'))}")
+        raw_result = agent_reply_result_text(result)
+        meta = parse_structured_reply(raw_result)
+        self.logger.info(f"[{self.name}] parse done keys={','.join(sorted(meta.keys())) if meta else '(none)'}")
+        self.clean_output(state, meta, max_units=max_units)
+        state.extract_summary = raw_result
         answer = f"Extracted {len(state.units)} unit(s), {len(state.topics)} topic(s)"
         answer = f"{answer} from {len(changed)} changed file(s) across {len(dates)} day(s)"
         return self._finish(state, True, answer)
@@ -121,9 +145,12 @@ class DreamExtractStep(BaseStep):
                 self.logger.error(f"[{self.name}] stat failed on {rel}: {e}")
         return out
 
-    def _clean_output(self, state: DreamState, meta: dict) -> None:
+    def clean_output(self, state: DreamState, meta: dict, max_units: int | None = None) -> None:
+        """Clean up output"""
         allowed = set(state.changed_paths)
         for raw in meta.get("units") or meta.get("memory_units") or []:
+            if max_units is not None and len(state.units) >= max_units:
+                break
             if not isinstance(raw, dict):
                 continue
             name = str(raw.get("name") or "").strip()
@@ -168,4 +195,5 @@ class DreamExtractStep(BaseStep):
         store_state(self, state)
         self.context.response.success = success
         self.context.response.answer = answer
+        self.logger.info(f"[{self.name}] finish success={success} answer={answer!r}")
         return self.context.response

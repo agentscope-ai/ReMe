@@ -10,6 +10,7 @@ from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.schema import DreamState
+from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
@@ -110,6 +111,27 @@ def test_parse_structured_reply_handles_fenced_yaml_and_scalar_fallback():
     assert data["note"].startswith("Extended node")
 
 
+def test_extract_clean_output_respects_max_units():
+    """Extract cleaning caps valid units at max_units."""
+    state = DreamState(changed_paths=["daily/a.md"])
+    meta = {
+        "units": [
+            {
+                "name": f"unit-{i}",
+                "bucket": "wiki",
+                "summary": f"summary {i}",
+                "paths": ["daily/a.md"],
+            }
+            for i in range(7)
+        ],
+    }
+
+    DreamExtractStep().clean_output(state, meta, max_units=5)
+
+    assert len(state.units) == 5
+    assert [unit["name"] for unit in state.units] == [f"unit-{i}" for i in range(5)]
+
+
 def test_topics_step_writes_only_target_date_interests():
     """Topics are written only to ``state.date`` even when scan dates span multiple days."""
 
@@ -139,7 +161,9 @@ def test_topics_step_writes_only_target_date_interests():
                 ],
             )
             step = DreamTopicsStep()
-            resp = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(workspace)))
+            resp = await step(
+                RuntimeContext(dream=state.model_dump(), file_store=_FileStore(workspace)),
+            )
 
             target = workspace / "daily" / "2026-05-28" / "interests.yaml"
             dream = resp.metadata["dream"]
@@ -170,12 +194,24 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
                 changed_paths=[str(ok.relative_to(workspace)), str(failed.relative_to(workspace))],
                 failed_paths=[str(failed.relative_to(workspace))],
                 interests_paths=[str(interests.relative_to(workspace))],
+                integrate_results=[
+                    {
+                        "action": "CREATE",
+                        "target_path": "digest/procedure/example.md",
+                        "note": "Created a concise procedure node.",
+                    },
+                ],
             )
             step, catalog = DreamFinishStep(), _Catalog()
             resp = await step(RuntimeContext(dream=state.model_dump(), file_catalog=catalog))
 
             upserted = [n.path for n in catalog.upserts]
             assert resp.success is True
+            assert resp.answer.startswith("AutoDream completed\n\n")
+            assert "action:" not in resp.answer
+            assert "topics:" not in resp.answer
+            assert "Changes:" in resp.answer
+            assert "- [digest/procedure/example.md][CREATE]: Created a concise procedure node." in resp.answer
             assert str(ok.relative_to(workspace)) in upserted
             assert str(failed.relative_to(workspace)) not in upserted
             assert str(interests.relative_to(workspace)) in upserted

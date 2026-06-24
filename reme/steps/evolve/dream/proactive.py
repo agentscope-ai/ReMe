@@ -21,15 +21,22 @@ class ProactiveStep(BaseStep):
         daily = self.config_value("daily_dir")
         rel_path, abs_path = f"{daily}/{day}/interests.yaml", workspace_dir(self) / daily / day / "interests.yaml"
         result = ProactiveResult(date=day, path=rel_path)
+        self.logger.info(f"[{self.name}] start date={day} path={rel_path} include_content={include_content}")
 
         if not abs_path.is_file():
             result.skipped, result.summary = True, f"Skipped: interests file not found at {rel_path}"
+            self.logger.info(f"[{self.name}] skip missing path={rel_path}")
             return self._finish(True, result)
         try:
+            self.logger.info(f"[{self.name}] read start path={rel_path}")
             result.content = abs_path.read_text(encoding="utf-8") if include_content else ""
             result.topics = load_yaml_topics(abs_path)
+            self.logger.info(
+                f"[{self.name}] read done path={rel_path} topics={len(result.topics)} chars={len(result.content)}",
+            )
         except Exception as e:  # noqa: BLE001
             result.error, result.summary = f"{type(e).__name__}: {e}", ""
+            self.logger.error(f"[{self.name}] read failed path={rel_path}: {result.error}")
             return self._finish(False, result)
 
         result.summary = f"Read {len(result.topics)} proactive topic(s) from {rel_path}"
@@ -40,4 +47,5 @@ class ProactiveStep(BaseStep):
         self.context.response.success = success
         self.context.response.answer = result.summary if success else f"Error: {result.error}"
         self.context.response.metadata.update(result.model_dump())
+        self.logger.info(f"[{self.name}] finish success={success} answer={self.context.response.answer!r}")
         return self.context.response

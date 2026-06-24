@@ -4,10 +4,18 @@ import json
 from pathlib import Path
 
 from ...base_step import BaseStep
+from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
 from ....schema import IntegrateOutcome
-from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
+from .utils import (
+    llm_available,
+    pack_paths,
+    parse_structured_reply,
+    state_from_context,
+    store_state,
+    workspace_dir,
+)
 
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
@@ -20,18 +28,24 @@ class DreamIntegrateStep(BaseStep):
         assert self.context is not None
         state = state_from_context(self)
         if not state.units:
+            self.logger.info(f"[{self.name}] skip no units")
             return self._finish(state, True, "No dream units to integrate")
         if not llm_available(self):
             err = "no llm configured; dream integrate requires an LLM"
             state.errors.append(err)
             state.failed_units = state.units
             state.failed_paths = sorted({p for u in state.units for p in u.get("paths", [])})
+            self.logger.warning(f"[{self.name}] skip no llm units={len(state.units)}")
             return self._finish(state, False, err)
 
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
+        self.logger.info(
+            f"[{self.name}] start units={len(state.units)} workspace={workspace} digest_dir={digest_dir}",
+        )
         for bucket in DreamBucketEnum:
             (workspace / digest_dir / bucket.value).mkdir(parents=True, exist_ok=True)
+        self.logger.info(f"[{self.name}] digest dirs ready buckets={len(list(DreamBucketEnum))}")
         for i, unit in enumerate(state.units, start=1):
             await self._integrate_one(state, unit, i, workspace, digest_dir)
         state.failed_paths = sorted(set(state.failed_paths))
@@ -44,6 +58,10 @@ class DreamIntegrateStep(BaseStep):
         except ValueError:
             bucket = DreamBucketEnum.WIKI.value
         paths = [str(p) for p in unit.get("paths", [])]
+        self.logger.info(
+            f"[{self.name}] unit {index}/{len(state.units)} start "
+            f"name={unit.get('name', '')!r} bucket={bucket} paths={len(paths)}",
+        )
         try:
             result = await self.agent_wrapper.reply(
                 self.prompt_format(
@@ -63,7 +81,8 @@ class DreamIntegrateStep(BaseStep):
                 ),
                 job_tools=list(_TOOLS),
             )
-            outcome = IntegrateOutcome.model_validate(parse_structured_reply(str(result.get("result") or "")))
+            raw_result = agent_reply_result_text(result)
+            outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
         except Exception as e:  # noqa: BLE001
             error = f"{type(e).__name__}: {e}"
             self.logger.error(f"[{self.name}] unit {index}/{len(state.units)} failed: {error}")
@@ -82,6 +101,10 @@ class DreamIntegrateStep(BaseStep):
             },
         )
         (state.nodes_created if outcome.action == "CREATE" else state.nodes_updated).append(outcome.target_path)
+        self.logger.info(
+            f"[{self.name}] unit {index}/{len(state.units)} done "
+            f"action={outcome.action} target_path={outcome.target_path}",
+        )
 
     def _finish(self, state, success: bool, answer: str):
         assert self.context is not None
@@ -89,4 +112,8 @@ class DreamIntegrateStep(BaseStep):
         store_state(self, state)
         self.context.response.success = success
         self.context.response.answer = answer
+        self.logger.info(
+            f"[{self.name}] finish success={success} integrated={len(state.integrate_results)} "
+            f"failed={len(state.failed_units)}",
+        )
         return self.context.response

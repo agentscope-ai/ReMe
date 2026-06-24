@@ -11,6 +11,7 @@ downstream ``update_index_step`` to consume; tests assert against that key.
 # pylint: disable=protected-access
 
 import asyncio
+import datetime
 import os
 import tempfile
 import warnings
@@ -72,6 +73,7 @@ def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="diges
     ctx.app_config.daily_dir = daily_dir
     ctx.app_config.digest_dir = digest_dir
     ctx.app_config.resource_dir = resource_dir
+    ctx.app_config.timezone = None
     return ctx
 
 
@@ -655,13 +657,151 @@ def test_auto_resource_batch_deleted_changes():
                 resp = await step(ctx)
 
                 assert resp.success is True
-                assert resp.answer == "Processed 1/1 resource change(s)"
+                assert resp.answer == "Deleted resource note: daily/2026-01-01/file.md"
                 assert resp.metadata["processed"] == 1
                 assert resp.metadata["results"][0]["path"] == "resource/2026-01-01/file.md"
                 assert not note_path.exists()
             finally:
                 await fs.close()
         print("✓ test_auto_resource_batch_deleted_changes passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_accepts_loose_root_resource():
+    """Root-level resource files use today's date without moving the source."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            app_ctx = _make_app_context(workspace)
+            source = write_file(workspace / "resource" / "report.txt", "hello")
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            captured = {}
+
+            step = AutoResourceStep(app_context=app_ctx)
+
+            async def fake_upsert(file_path, date_str, note_stem, created):
+                captured.update(
+                    {"file_path": file_path, "date_str": date_str, "note_stem": note_stem, "created": created},
+                )
+                step.context.response.success = True
+                step.context.response.answer = "ok"
+
+            step._handle_upsert = fake_upsert
+
+            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+            assert resp.success is True
+            assert source.read_text(encoding="utf-8") == "hello"
+            assert not (workspace / "resource" / today / "report.txt").exists()
+            assert captured == {
+                "file_path": "resource/report.txt",
+                "date_str": today,
+                "note_stem": "report",
+                "created": True,
+            }
+        print("✓ test_auto_resource_accepts_loose_root_resource passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
+    """Loose-resource compatibility does not overwrite dated resource files."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            app_ctx = _make_app_context(workspace)
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            write_file(workspace / "resource" / today / "report.txt", "existing")
+            source = write_file(workspace / "resource" / "report.txt", "new")
+            captured = {}
+
+            step = AutoResourceStep(app_context=app_ctx)
+
+            async def fake_upsert(file_path, date_str, note_stem, _created):
+                captured.update({"file_path": file_path, "date_str": date_str, "note_stem": note_stem})
+                step.context.response.success = True
+                step.context.response.answer = "ok"
+
+            step._handle_upsert = fake_upsert
+
+            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+            assert resp.success is True
+            assert (workspace / "resource" / today / "report.txt").read_text(encoding="utf-8") == "existing"
+            assert source.read_text(encoding="utf-8") == "new"
+            assert captured == {
+                "file_path": "resource/report.txt",
+                "date_str": today,
+                "note_stem": "report",
+            }
+        print("✓ test_auto_resource_loose_root_resource_keeps_existing_dated_resource passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_deletes_loose_root_resource_note_for_today():
+    """Deleting a loose root resource deletes today's same-stem note."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            app_ctx = _make_app_context(workspace)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            try:
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                note_path = write_file(workspace / "daily" / today / "report.md", "---\nname: report\n---\nbody\n")
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+
+                resp = await step(RuntimeContext(changes=[{"change": "deleted", "path": "resource/report.txt"}]))
+
+                assert resp.success is True
+                assert resp.metadata["results"][0]["path"] == "resource/report.txt"
+                assert not note_path.exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_deletes_loose_root_resource_note_for_today passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_result_hook_is_optional_and_isolated():
+    """AutoResourceStep optionally emits host result hooks without coupling."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_ctx = _make_app_context(Path(tmpdir))
+            step = AutoResourceStep(app_context=app_ctx)
+            step.context = RuntimeContext()
+            changes = [{"change": "added", "path": "resource/2026-01-01/file.md"}]
+            results = [{"success": True, "path": "resource/2026-01-01/file.md"}]
+
+            app_ctx.metadata = {}
+            await step._emit_result_hook(changes=changes, results=results)
+
+            calls = []
+
+            async def hook(**kwargs):
+                calls.append(kwargs)
+
+            app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
+            await step._emit_result_hook(changes=changes, results=results)
+            assert len(calls) == 1
+            assert calls[0]["job_name"] == "auto_resource"
+            assert calls[0]["response"] is step.context.response
+            assert calls[0]["kwargs"] == {"changes": changes}
+            assert calls[0]["metadata"] == {"results": results}
+
+            def failing_hook(**_kwargs):
+                raise RuntimeError("boom")
+
+            app_ctx.metadata = {"qwenpaw_memory_result_hook": failing_hook}
+            await step._emit_result_hook(changes=changes, results=results)
+
+        print("✓ test_auto_resource_result_hook_is_optional_and_isolated passed")
 
     asyncio.run(run())
 
@@ -713,6 +853,10 @@ if __name__ == "__main__":
     test_watch_changes_filter_matches_rules()
     test_watch_changes_dispatch_steps_list()
     test_auto_resource_batch_deleted_changes()
+    test_auto_resource_accepts_loose_root_resource()
+    test_auto_resource_loose_root_resource_keeps_existing_dated_resource()
+    test_auto_resource_deletes_loose_root_resource_note_for_today()
+    test_auto_resource_result_hook_is_optional_and_isolated()
     # LogChangesStep
     test_log_changes_step()
     print("\n所有测试通过!")

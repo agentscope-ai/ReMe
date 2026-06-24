@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ...base_step import BaseStep
 from ...file_io import refresh_day_index
+from .._evolve import agent_reply_result_text
 from ....components import R
 from .utils import (
     load_yaml_topics,
@@ -36,6 +37,10 @@ class DreamTopicsStep(BaseStep):
         diversity_days = int(raw_days or self.topic_diversity_days)
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         target_day = state.date or ((state.dates or [""])[-1])
+        self.logger.info(
+            f"[{self.name}] start target_day={target_day!r} candidates={len(state.topics)} "
+            f"topic_count={topic_count} diversity_days={diversity_days}",
+        )
 
         if not state.topics:
             existing_paths = []
@@ -51,6 +56,7 @@ class DreamTopicsStep(BaseStep):
                 if existing_paths
                 else "Skipped interests.yaml write: no new topic candidates"
             )
+            self.logger.info(f"[{self.name}] skip no candidates existing_paths={len(existing_paths)}")
             return self._finish(state, True, answer)
 
         try:
@@ -58,6 +64,7 @@ class DreamTopicsStep(BaseStep):
                 state.interests_paths = []
                 state.interests_path = ""
                 state.topics_written = 0
+                self.logger.info(f"[{self.name}] skip no target date")
                 return self._finish(state, True, "Skipped interests.yaml write: no target date")
 
             rel_path = self._rel_path(state.daily_dir, target_day)
@@ -68,8 +75,10 @@ class DreamTopicsStep(BaseStep):
                 for previous_day in previous_dates(target_day, diversity_days)
                 for topic in load_yaml_topics(self._abs_path(workspace, state.daily_dir, previous_day))
             ]
+            self.logger.info(
+                f"[{self.name}] loaded context same_day={len(same_day)} recent={len(recent)} target={rel_path}",
+            )
             topics, _used_llm = await self._select_topics(
-                state,
                 target_day,
                 state.topics,
                 same_day,
@@ -77,14 +86,19 @@ class DreamTopicsStep(BaseStep):
                 topic_count,
                 diversity_days,
             )
+            self.logger.info(f"[{self.name}] selected topics={len(topics)} used_llm={_used_llm}")
             payload = {
                 "date": target_day,
                 "topic_count": topic_count,
                 "diversity_days": diversity_days,
                 "topics": topics,
             }
+            self.logger.info(f"[{self.name}] write yaml start path={rel_path}")
             write_yaml(abs_path, payload)
+            self.logger.info(f"[{self.name}] write yaml done path={rel_path}")
+            self.logger.info(f"[{self.name}] refresh index start date={target_day} daily_dir={state.daily_dir}")
             await refresh_day_index(self.file_store, target_day, state.daily_dir)
+            self.logger.info(f"[{self.name}] refresh index done date={target_day}")
             state.interests_paths = [rel_path]
             state.interests_path = rel_path
             state.topics_written = len(topics)
@@ -93,11 +107,11 @@ class DreamTopicsStep(BaseStep):
         except Exception as e:  # noqa: BLE001
             state.topic_error = f"{type(e).__name__}: {e}"
             state.errors.append(state.topic_error)
+            self.logger.error(f"[{self.name}] failed: {state.topic_error}")
             return self._finish(state, False, f"Error: {state.topic_error}")
 
     async def _select_topics(
         self,
-        _state,
         day: str,
         candidates: list[dict],
         same_day: list[dict],
@@ -108,7 +122,12 @@ class DreamTopicsStep(BaseStep):
         if not candidates:
             return self._dedupe([], same_day, recent, count), False
         if not llm_available(self):
+            self.logger.info(f"[{self.name}] select topics without llm candidates={len(candidates)}")
             return self._dedupe(candidates, same_day, recent, count), False
+        self.logger.info(
+            f"[{self.name}] topics agent start candidates={len(candidates)} "
+            f"same_day={len(same_day)} recent={len(recent)}",
+        )
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "topics_user_message",
@@ -121,9 +140,12 @@ class DreamTopicsStep(BaseStep):
             ),
             system_prompt=self.prompt_format("topics_system_prompt"),
         )
-        meta = parse_structured_reply(str(result.get("result") or ""))
+        self.logger.info(f"[{self.name}] topics agent done has_result={bool(result.get('result'))}")
+        raw_result = agent_reply_result_text(result)
+        meta = parse_structured_reply(raw_result)
         selected = [self._clean_topic(t) for t in meta.get("topics") or []]
         if not any(selected):
+            self.logger.info(f"[{self.name}] topics agent produced no usable topics; fallback to candidates")
             selected = candidates
         return self._dedupe(selected, same_day, recent, count), True
 
@@ -173,4 +195,5 @@ class DreamTopicsStep(BaseStep):
         store_state(self, state)
         self.context.response.success = success
         self.context.response.answer = answer
+        self.logger.info(f"[{self.name}] finish success={success} answer={answer!r}")
         return self.context.response

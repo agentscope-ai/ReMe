@@ -5,7 +5,7 @@ from pathlib import Path
 import aiofiles
 from agentscope.message import Msg
 
-from ._evolve import format_history, now
+from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
 from ..file_io import refresh_day_index, validate_session_id
 from ...components import R
@@ -89,6 +89,9 @@ class AutoMemoryStep(BaseStep):
             return
 
         path = self._session_path(session_id)
+        self.logger.info(
+            f"[{self.name}] save session start session_id={session_id!r} messages={len(messages)} path={path}",
+        )
 
         existing: list[Msg] = []
         if path.exists():
@@ -121,10 +124,23 @@ class AutoMemoryStep(BaseStep):
                 async with aiofiles.open(path, "a", encoding="utf-8") as f:
                     for msg in new_msgs:
                         await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                self.logger.info(
+                    f"[{self.name}] save session appended session_id={session_id!r} "
+                    f"existing={len(existing)} appended={len(new_msgs)} total={len(merged)}",
+                )
+            else:
+                self.logger.info(
+                    f"[{self.name}] save session unchanged session_id={session_id!r} "
+                    f"existing={len(existing)} total={len(merged)}",
+                )
         else:
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
                 for msg in merged:
                     await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+            self.logger.info(
+                f"[{self.name}] save session rewrote session_id={session_id!r} "
+                f"existing={len(existing)} total={len(merged)}",
+            )
 
     @staticmethod
     def _to_msg(item) -> Msg:
@@ -143,10 +159,15 @@ class AutoMemoryStep(BaseStep):
         current = now(tz)
 
         messages: list[Msg] = [self._to_msg(item) for item in raw_messages]
+        self.logger.info(
+            f"[{self.name}] start session_id={session_id!r} raw_messages={len(raw_messages)} "
+            f"messages={len(messages)} hint={bool(memory_hint)}",
+        )
 
         if session_id and (err := validate_session_id(session_id)):
             self.context.response.success = False
             self.context.response.answer = f"Error: {err}"
+            self.logger.warning(f"[{self.name}] invalid session_id={session_id!r} err={err}")
             return
 
         await self._save_session_messages(session_id, messages)
@@ -179,15 +200,18 @@ class AutoMemoryStep(BaseStep):
             history=format_history(messages),
         )
 
+        self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
             job_tools=self.agent_tools,
         )
+        self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 
         source_conversation = ""
         if session_id:
             source_conversation = self._session_link(session_id)
+            self.logger.info(f"[{self.name}] frontmatter link start path={note_path} source={source_conversation}")
             link_response = await self.run_job(
                 "frontmatter_update",
                 path=note_path,
@@ -204,12 +228,17 @@ class AutoMemoryStep(BaseStep):
                     f"path={note_path} session_id={session_id!r} answer={link_response.answer!r}",
                 )
                 return
+            self.logger.info(f"[{self.name}] frontmatter link done path={note_path}")
 
         daily_dir = self.config_value("daily_dir")
+        self.logger.info(
+            f"[{self.name}] refresh index start date={create_response.metadata['date']} daily_dir={daily_dir}",
+        )
         index_payload = await refresh_day_index(self.file_store, create_response.metadata["date"], daily_dir)
+        self.logger.info(f"[{self.name}] refresh index done path={note_path}")
 
         self.context.response.success = True
-        self.context.response.answer = (result.get("result") or "").strip()
+        self.context.response.answer = agent_reply_result_text(result)
         self.context.response.metadata.update(
             {
                 "path": note_path,

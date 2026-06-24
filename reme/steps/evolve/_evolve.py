@@ -27,3 +27,16 @@ def format_history(messages: list[Msg], include_timestamp: bool = True) -> str:
         header = f"[{speaker} @ {msg.created_at}]" if include_timestamp else f"[{speaker}]"
         lines.append(f"{header}\n{text}")
     return "\n\n".join(lines) or "(empty)"
+
+
+def agent_reply_result_text(reply_result: dict) -> str:
+    """Return the final user-visible text block from an agent reply result."""
+    last_message = reply_result.get("last_message") or {}
+    content = last_message.get("content") if isinstance(last_message, dict) else None
+    if isinstance(content, list):
+        for block in reversed(content):
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = str(block.get("text") or "").strip()
+                if text:
+                    return text
+    return str(reply_result.get("result") or "").strip()
