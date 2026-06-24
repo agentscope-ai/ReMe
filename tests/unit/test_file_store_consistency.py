@@ -107,11 +107,13 @@ def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
             await store.dump()
 
             await store.keyword_index.clear()
+            assert not store.keyword_index.index_file.exists()
             assert await store.keyword_search("uniquerepairword", 5, {}) == []
 
             store.file_chunks.clear()
             await store.load()
 
+            assert store.keyword_index.index_file.exists()
             assert [c.id for c in await store.keyword_search("uniquerepairword", 5, {})] == ["a"]
             await store.close()
 

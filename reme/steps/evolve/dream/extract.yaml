@@ -152,6 +152,8 @@ extract_system_prompt_zh: |
 
 extract_user_message: |
   date: {date}
+  scan_dates:
+  {dates_json}
   hint: {hint}
 
   changed_paths:
@@ -165,6 +167,8 @@ extract_user_message: |
 
 extract_user_message_zh: |
   日期：{date}
+  扫描日期：
+  {dates_json}
   提示：{hint}
 
   changed_paths:

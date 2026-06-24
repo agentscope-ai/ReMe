@@ -59,6 +59,7 @@ jobs:
       - backend: dream_extract_step
         file_catalog: dream
         topic_session_id: interests
+        scan_days: 2
       - backend: dream_integrate_step
       - backend: dream_topics_step
         topic_count: 3
@@ -80,6 +81,10 @@ jobs:
           type: string
           description: "caller guidance passed through to dream extract/integrate"
           default: ""
+        scan_days:
+          type: integer
+          description: "number of recent daily directories to scan, ending at date"
+          default: 2
         topic_count:
           type: integer
           description: "maximum number of final daily interest topics"
@@ -92,6 +97,7 @@ jobs:
       - backend: dream_extract_step
         file_catalog: dream
         topic_session_id: interests
+        scan_days: 2
       - backend: dream_integrate_step
       - backend: dream_topics_step
         topic_count: 3

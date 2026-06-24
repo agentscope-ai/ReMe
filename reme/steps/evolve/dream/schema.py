@@ -64,6 +64,8 @@ class DreamState(BaseModel):
     """Shared state passed across the four dream steps."""
 
     date: str = ""
+    dates: list[str] = Field(default_factory=list)
+    scan_days: int = 2
     hint: str = ""
     daily_dir: str = ""
     workspace: str = ""
@@ -85,6 +87,7 @@ class DreamState(BaseModel):
     failed_units: list[dict] = Field(default_factory=list)
     failed_paths: list[str] = Field(default_factory=list)
     interests_path: str = ""
+    interests_paths: list[str] = Field(default_factory=list)
     topics_written: int = 0
     topic_error: str = ""
     checkpoint_paths: list[str] = Field(default_factory=list)

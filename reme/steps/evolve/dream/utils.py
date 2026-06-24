@@ -48,6 +48,16 @@ def today(step: BaseStep, explicit: str = "") -> str:
     return now(tz).strftime("%Y-%m-%d")
 
 
+def recent_dates(day: str, n_days: int) -> list[str]:
+    """Return the inclusive recent-date window ending at ``day``."""
+    try:
+        base = dt.date.fromisoformat(day)
+    except ValueError:
+        return [day] if day else []
+    n = max(int(n_days or 1), 1)
+    return [(base - dt.timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+
+
 def llm_available(step: BaseStep) -> bool:
     """Check if LLM is available."""
     try:

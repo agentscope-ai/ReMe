@@ -35,51 +35,87 @@ class DreamTopicsStep(BaseStep):
         raw_days = self.context.get("topic_diversity_days", self.topic_diversity_days)
         diversity_days = int(raw_days or self.topic_diversity_days)
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
-        rel_path = f"{state.daily_dir}/{state.date}/interests.yaml"
-        abs_path = workspace / state.daily_dir / state.date / "interests.yaml"
-        same_day = load_yaml_topics(abs_path)
+        target_day = state.date or ((state.dates or [""])[-1])
 
         if not state.topics:
-            state.interests_path = rel_path if abs_path.is_file() else ""
-            state.topics_written = len(same_day)
-            answer = f"Kept {len(same_day)} existing interest topic(s) at {rel_path}"
-            answer = answer if abs_path.is_file() else "Skipped interests.yaml write: no new topic candidates"
+            existing_paths = []
+            if target_day and self._abs_path(workspace, state.daily_dir, target_day).is_file():
+                existing_paths = [self._rel_path(state.daily_dir, target_day)]
+            state.interests_paths = existing_paths
+            state.interests_path = existing_paths[-1] if existing_paths else ""
+            state.topics_written = (
+                len(load_yaml_topics(self._abs_path(workspace, state.daily_dir, target_day))) if target_day else 0
+            )
+            answer = (
+                f"Kept existing interest topic(s) at {', '.join(existing_paths)}"
+                if existing_paths
+                else "Skipped interests.yaml write: no new topic candidates"
+            )
             return self._finish(state, True, answer)
 
-        recent = [
-            topic
-            for day in previous_dates(state.date, diversity_days)
-            for topic in load_yaml_topics(workspace / state.daily_dir / day / "interests.yaml")
-        ]
         try:
-            topics, _used_llm = await self._select_topics(state, same_day, recent, topic_count, diversity_days)
+            if not target_day:
+                state.interests_paths = []
+                state.interests_path = ""
+                state.topics_written = 0
+                return self._finish(state, True, "Skipped interests.yaml write: no target date")
+
+            rel_path = self._rel_path(state.daily_dir, target_day)
+            abs_path = self._abs_path(workspace, state.daily_dir, target_day)
+            same_day = load_yaml_topics(abs_path)
+            recent = [
+                topic
+                for previous_day in previous_dates(target_day, diversity_days)
+                for topic in load_yaml_topics(self._abs_path(workspace, state.daily_dir, previous_day))
+            ]
+            topics, _used_llm = await self._select_topics(
+                state,
+                target_day,
+                state.topics,
+                same_day,
+                recent,
+                topic_count,
+                diversity_days,
+            )
             payload = {
-                "date": state.date,
+                "date": target_day,
                 "topic_count": topic_count,
                 "diversity_days": diversity_days,
                 "topics": topics,
             }
             write_yaml(abs_path, payload)
-            await refresh_day_index(self.file_store, state.date, state.daily_dir)
-            state.interests_path, state.topics_written = rel_path, len(topics)
-            return self._finish(state, True, f"Wrote {len(topics)} interest topic(s) to {rel_path}")
+            await refresh_day_index(self.file_store, target_day, state.daily_dir)
+            state.interests_paths = [rel_path]
+            state.interests_path = rel_path
+            state.topics_written = len(topics)
+            answer = f"Wrote {len(topics)} interest topic(s) to {rel_path}"
+            return self._finish(state, True, answer)
         except Exception as e:  # noqa: BLE001
             state.topic_error = f"{type(e).__name__}: {e}"
             state.errors.append(state.topic_error)
             return self._finish(state, False, f"Error: {state.topic_error}")
 
-    async def _select_topics(self, state, same_day: list[dict], recent: list[dict], count: int, days: int):
-        if not state.topics:
+    async def _select_topics(
+        self,
+        _state,
+        day: str,
+        candidates: list[dict],
+        same_day: list[dict],
+        recent: list[dict],
+        count: int,
+        days: int,
+    ):
+        if not candidates:
             return self._dedupe([], same_day, recent, count), False
         if not llm_available(self):
-            return self._dedupe(state.topics, same_day, recent, count), False
+            return self._dedupe(candidates, same_day, recent, count), False
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "topics_user_message",
-                date=state.date,
+                date=day,
                 topic_count=count,
                 diversity_days=days,
-                candidates_json=json.dumps(state.topics, ensure_ascii=False, indent=2),
+                candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
                 same_day_json=json.dumps(same_day, ensure_ascii=False, indent=2),
                 recent_topics_json=json.dumps(recent, ensure_ascii=False, indent=2),
             ),
@@ -88,8 +124,16 @@ class DreamTopicsStep(BaseStep):
         meta = parse_structured_reply(str(result.get("result") or ""))
         selected = [self._clean_topic(t) for t in meta.get("topics") or []]
         if not any(selected):
-            selected = state.topics
+            selected = candidates
         return self._dedupe(selected, same_day, recent, count), True
+
+    @staticmethod
+    def _rel_path(daily_dir: str, day: str) -> str:
+        return f"{daily_dir}/{day}/interests.yaml"
+
+    @staticmethod
+    def _abs_path(workspace: Path, daily_dir: str, day: str) -> Path:
+        return workspace / daily_dir / day / "interests.yaml"
 
     @staticmethod
     def _clean_topic(raw) -> dict:

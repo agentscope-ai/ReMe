@@ -25,7 +25,9 @@ class DreamFinishStep(BaseStep):
             raise RuntimeError("dream_finish_step requires file_catalog")
 
         checkpoint = [p for p in state.changed_paths if p not in set(state.failed_paths)]
-        upsert_paths = checkpoint + [p for p in [state.interests_path, f"{state.daily_dir}/{state.date}.md"] if p]
+        day_index_paths = [f"{state.daily_dir}/{day}.md" for day in (state.dates or [state.date]) if day]
+        interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
+        upsert_paths = checkpoint + [p for p in [*interest_paths, *day_index_paths] if p]
         upserts = self._nodes(workspace, upsert_paths)
         if upserts:
             await self.file_catalog.upsert(upserts)
@@ -52,12 +54,14 @@ class DreamFinishStep(BaseStep):
 
 def render_summary(state: DreamState) -> str:
     """Render summary."""
+    interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
     lines = [
-        f"[AutoDream] date={state.date} scanned={state.files_scanned} changed={state.files_changed} "
+        f"[AutoDream] date={state.date} dates={','.join(state.dates or [state.date])} "
+        f"scanned={state.files_scanned} changed={state.files_changed} "
         f"unchanged={state.files_unchanged} deleted={state.files_deleted}",
         f"  - extract: {len(state.units)} unit(s), {len(state.topics)} topic(s)",
         f"  - integrate: {len(state.integrate_results)} ok, {len(state.failed_units)} failed",
-        f"  - topics: {state.topics_written} written" + (f" to {state.interests_path}" if state.interests_path else ""),
+        f"  - topics: {state.topics_written} written" + (f" to {', '.join(interest_paths)}" if interest_paths else ""),
         f"  - catalog: checkpointed {len(state.checkpoint_paths)} changed path(s)",
     ]
     if state.failed_paths:
