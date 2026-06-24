@@ -82,7 +82,6 @@ class BM25Index(BaseKeywordIndex):
         stopwords_path = getattr(self.tokenizer, "stopwords_path", None)
         if stopwords_path is not None:
             path = Path(stopwords_path)
-            config["stopwords_path"] = str(path)
             if path.exists() and path.is_file():
                 config["stopwords_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
             else:

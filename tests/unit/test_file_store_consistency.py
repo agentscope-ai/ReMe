@@ -90,6 +90,34 @@ def test_keyword_only_upsert_removes_old_chunks_and_docs():
     run(go())
 
 
+def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
+    """Loading persisted chunks repairs a missing keyword index."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_keyword_repair", embedding_store="")
+            await store.start()
+
+            await store.upsert(
+                [
+                    (node("a.md"), [chunk("a", "a.md", "uniquerepairword stock")]),
+                    (node("b.md"), [chunk("b", "b.md", "work preference")]),
+                ],
+            )
+            await store.dump()
+
+            await store.keyword_index.clear()
+            assert await store.keyword_search("uniquerepairword", 5, {}) == []
+
+            store.file_chunks.clear()
+            await store.load()
+
+            assert [c.id for c in await store.keyword_search("uniquerepairword", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
 def test_same_chunk_id_with_changed_text_gets_new_embedding():
     """Changing a chunk text refreshes its embedding."""
 

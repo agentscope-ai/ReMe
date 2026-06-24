@@ -787,6 +787,47 @@ def test_index_file_isolated_by_tokenizer_config():
     run(go())
 
 
+def test_tokenizer_fingerprint_ignores_stopwords_absolute_path():
+    """Same stopwords content should not fork indexes by install path."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            stopwords_a = os.path.join(tmp, "a", "stopwords")
+            stopwords_b = os.path.join(tmp, "b", "stopwords")
+            os.makedirs(os.path.dirname(stopwords_a))
+            os.makedirs(os.path.dirname(stopwords_b))
+            with open(stopwords_a, "w", encoding="utf-8") as f:
+                f.write("alpha\nbeta\n")
+            with open(stopwords_b, "w", encoding="utf-8") as f:
+                f.write("alpha\nbeta\n")
+
+            first = BM25Index()
+            first_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_a)
+            first.tokenizer = first_tokenizer
+            first._owned.append(first_tokenizer)
+            await first.start()
+
+            second = BM25Index()
+            second_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_b)
+            second.tokenizer = second_tokenizer
+            second._owned.append(second_tokenizer)
+            await second.start()
+
+            assert first._tokenizer_config()["stopwords_sha256"] == second._tokenizer_config()["stopwords_sha256"]
+            assert "stopwords_path" not in first._tokenizer_config()
+            assert first._tokenizer_fingerprint() == second._tokenizer_fingerprint()
+            assert first.index_file == second.index_file
+
+            with open(stopwords_b, "w", encoding="utf-8") as f:
+                f.write("alpha\ngamma\n")
+            assert first._tokenizer_fingerprint() != second._tokenizer_fingerprint()
+
+            await first.close()
+            await second.close()
+
+    run(go())
+
+
 def test_dump_failure_is_not_silent():
     """A failed write must be observable by callers."""
 

@@ -1,5 +1,7 @@
 """In-memory file store with compressed JSONL persistence on close."""
 
+from contextlib import suppress
+
 import numpy as np
 
 from .base_file_store import BaseFileStore
@@ -88,8 +90,33 @@ class LocalFileStore(BaseFileStore):
                     chunk = FileChunk.model_validate_json(line)
                     self.file_chunks[chunk.id] = chunk
             self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
+            await self._sync_keyword_index_from_chunks()
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+
+    async def _sync_keyword_index_from_chunks(self) -> None:
+        """Repair keyword index when its persisted state does not match chunks."""
+        if not self.keyword_index or not self.file_chunks:
+            return
+
+        docs = {cid: chunk.text for cid, chunk in self.file_chunks.items() if chunk.text}
+        if not docs:
+            return
+
+        expected_ids = set(docs)
+        live_ids = None
+        with suppress(Exception):
+            live_ids = set(getattr(self.keyword_index, "doc_meta", {}).keys())
+
+        if live_ids == expected_ids:
+            return
+
+        n_docs = getattr(self.keyword_index, "n_docs", None)
+        if live_ids is None and n_docs == len(expected_ids):
+            return
+
+        self.logger.warning(f"{self.name}: keyword index mismatch with chunks; rebuilding {len(docs)} docs")
+        await self.keyword_index.reset_index(docs)
 
     async def dump(self) -> None:
         """Atomically rewrite the JSONL, then cascade dump into keyword_index and file_graph."""
