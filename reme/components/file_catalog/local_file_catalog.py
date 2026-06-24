@@ -25,7 +25,7 @@ class LocalFileCatalog(BaseFileCatalog):
             if not self._catalog_file.exists():
                 return
             await self._read_jsonl()
-            self.logger.info(f"Loaded {len(self._nodes)} nodes from {self._catalog_file}")
+            self.logger.debug(f"Loaded {len(self._nodes)} nodes from {self._catalog_file}")
 
     async def dump(self) -> None:
         async with self._io_lock:

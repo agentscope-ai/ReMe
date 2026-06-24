@@ -38,7 +38,7 @@ class BaseTokenizer(BaseComponent):
         async with aiofiles.open(self.stopwords_path, encoding="utf-8") as f:
             content = await f.read()
         self._stopwords = {line.strip().lower() for line in content.splitlines() if line.strip()}
-        self.logger.info(f"Loaded {len(self._stopwords)} stopwords from {self.stopwords_path}")
+        self.logger.debug(f"Loaded {len(self._stopwords)} stopwords from {self.stopwords_path}")
 
     async def _close(self) -> None:
         self._stopwords.clear()

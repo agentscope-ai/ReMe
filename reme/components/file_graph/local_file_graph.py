@@ -35,7 +35,7 @@ class LocalFileGraph(BaseFileGraph):
                 if line.strip():
                     node = FileNode.model_validate_json(line)
                     self._nodes[node.path] = node
-            self.logger.info(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
+            self.logger.debug(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
