@@ -61,7 +61,9 @@ class temp_chdir:
 
 
 def _today() -> str:
-    return _date.today().isoformat()
+    from reme.steps.evolve import now
+
+    return now("Asia/Shanghai").strftime("%Y-%m-%d")
 
 
 async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> LocalFileStore:
