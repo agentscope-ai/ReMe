@@ -42,6 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 core = [
     "agentscope>=2.0.2",
+    "claude-agent-sdk>=0.2.91",
     "faiss-cpu>=1.13.2",
     "jieba>=0.42.1",
     "rjieba>=0.2.1",

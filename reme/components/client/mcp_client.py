@@ -3,21 +3,16 @@
 import json
 import os
 from collections.abc import AsyncGenerator
-from typing import Any
-
-from fastmcp import Client
-from fastmcp.client import SSETransport, StdioTransport, StreamableHttpTransport
-from fastmcp.client.client import CallToolResult
+from typing import TYPE_CHECKING, Any
 
 from .base_client import BaseClient
 from ..component_registry import R
 from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
-_TRANSPORT_MAP = {
-    "sse": SSETransport,
-    "stdio": StdioTransport,
-    "streamable-http": StreamableHttpTransport,
-}
+if TYPE_CHECKING:
+    from fastmcp.client.client import CallToolResult
+
+_VALID_TRANSPORTS = {"sse", "stdio", "streamable-http"}
 
 
 @R.register("mcp")
@@ -52,8 +47,8 @@ class MCPClient(BaseClient):
     ):
         super().__init__(**kwargs)
 
-        if isinstance(transport, str) and transport not in _TRANSPORT_MAP:
-            raise ValueError(f"Unknown transport: {transport!r}, expected one of {list(_TRANSPORT_MAP)}")
+        if isinstance(transport, str) and transport not in _VALID_TRANSPORTS:
+            raise ValueError(f"Unknown transport: {transport!r}, expected one of {sorted(_VALID_TRANSPORTS)}")
 
         if isinstance(transport, str) and transport != "stdio":
             if not (host and port):
@@ -77,7 +72,14 @@ class MCPClient(BaseClient):
         if not isinstance(self.transport, str):
             return self.transport
 
-        cls = _TRANSPORT_MAP[self.transport]
+        from fastmcp.client import SSETransport, StdioTransport, StreamableHttpTransport
+
+        transport_map = {
+            "sse": SSETransport,
+            "stdio": StdioTransport,
+            "streamable-http": StreamableHttpTransport,
+        }
+        cls = transport_map[self.transport]
 
         if self.transport == "stdio":
             command = self.kwargs.get("command", "")
@@ -91,6 +93,8 @@ class MCPClient(BaseClient):
     # pylint: disable=unnecessary-dunder-call
     async def _start(self) -> None:
         if self.client is None:
+            from fastmcp import Client
+
             self.client = Client(self._build_transport(), timeout=self.timeout)
             await self.client.__aenter__()
 
@@ -99,7 +103,7 @@ class MCPClient(BaseClient):
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
 
-        result: CallToolResult = await self.client.call_tool(action, payload)
+        result: "CallToolResult" = await self.client.call_tool(action, payload)
         yield self._extract_text(result)
 
     async def list_actions(self) -> list[dict]:
@@ -116,7 +120,7 @@ class MCPClient(BaseClient):
             self.client = None
 
     @staticmethod
-    def _extract_text(result: CallToolResult) -> str:
+    def _extract_text(result: "CallToolResult") -> str:
         for block in result.content:
             if hasattr(block, "text"):
                 return block.text

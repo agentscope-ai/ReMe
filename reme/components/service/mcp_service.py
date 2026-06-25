@@ -27,12 +27,6 @@ silently drops keys with hyphens / other chars when projecting onto
 import re
 from typing import TYPE_CHECKING
 
-from fastmcp import FastMCP
-from fastmcp.server.server import Transport
-from fastmcp.tools import FunctionTool
-from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCNotification
-
 from .base_service import BaseService
 from ..component_registry import R
 from ..job import BaseJob, StreamJob
@@ -40,6 +34,7 @@ from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ...utils import get_logger
 
 if TYPE_CHECKING:
+    from fastmcp.server.server import Transport
     from mcp.server.session import ServerSession
 
     from ...application import Application
@@ -69,6 +64,9 @@ class ChannelSink:
         session = self._session
         if session is None:
             return
+
+        from mcp.shared.message import SessionMessage
+        from mcp.types import JSONRPCMessage, JSONRPCNotification
 
         clean_meta = {k: str(v) for k, v in (meta or {}).items() if _IDENT_RE.match(k)}
         message = SessionMessage(
@@ -115,7 +113,7 @@ class MCPService(BaseService):
 
     def __init__(
         self,
-        transport: Transport = "sse",
+        transport: "Transport" = "sse",
         host: str = REME_DEFAULT_HOST,
         port: int = REME_DEFAULT_PORT,
         **kwargs,
@@ -129,6 +127,8 @@ class MCPService(BaseService):
 
     def build_service(self, app: "Application") -> None:
         """Construct the FastMCP server and publish an unbound ChannelSink."""
+        from fastmcp import FastMCP
+
         app.context.metadata["channel_sink"] = ChannelSink()
         self.service = FastMCP(
             name=app.config.app_name,
@@ -138,6 +138,8 @@ class MCPService(BaseService):
 
     def add_job(self, job: BaseJob) -> bool:
         """Register a non-stream job as an MCP tool; StreamJobs are unsupported."""
+        from fastmcp.tools import FunctionTool
+
         if isinstance(job, StreamJob):
             return False
 
