@@ -5,7 +5,7 @@ provision / listing / index-rebuild operations. Body authoring and
 frontmatter mutations are generic CRUD (covered in test_crud_steps
 and test_property_steps).
 
-A daily note is the single file ``daily/<YYYY-MM-DD>/<session_id>.md``
+A daily note is the single file ``daily/<YYYY-MM-DD>/<name>.md``
 (no folder, no sibling materials). ``daily_create`` validates the
 session_id, writes an empty-body note with default
 ``{name: session_id}`` frontmatter when the file is absent, and
@@ -39,7 +39,6 @@ import frontmatter
 
 from reme.components import ApplicationContext
 from reme.components.file_store import LocalFileStore
-from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum
 from reme.steps.file_io import (
     daily_create as daily_create_step,
@@ -75,17 +74,17 @@ def _today() -> str:
 async def _make_store_with_dailies(entries: list[tuple[str, str, str]]) -> LocalFileStore:
     """Seed the workspace with daily notes.
 
-    entries: list of (date, session_id, body). Each tuple creates
-    ``daily/<date>/<session_id>.md`` with a minimal ``name``-only
-    frontmatter — no opinionated status / lifecycle axes.
+    entries: list of (date, name, body). Each tuple creates
+    ``daily/<date>/<name>.md`` with a minimal ``name``-only frontmatter —
+    no opinionated status / lifecycle axes.
     """
     store = LocalFileStore(name="t", embedding_store="")
     await store.start()
-    for day, session_id, body in entries:
+    for day, name, body in entries:
         day_dir = Path.cwd() / "daily" / day
         day_dir.mkdir(parents=True, exist_ok=True)
-        text = f"---\nname: {session_id}\n---\n{body}\n"
-        (day_dir / f"{session_id}.md").write_text(text, encoding="utf-8")
+        text = f"---\nname: {name}\n---\n{body}\n"
+        (day_dir / f"{name}.md").write_text(text, encoding="utf-8")
     return store
 
 
@@ -93,25 +92,24 @@ def _metadata(step) -> dict:
     return step.context.response.metadata
 
 
-async def _seed_note(date: str, session_id: str, name: str = "", description: str = "") -> None:
-    """Write ``daily/<date>/<session_id>.md`` with optional frontmatter."""
+async def _seed_note(date: str, filename: str, name: str = "", description: str = "", **metadata) -> None:
+    """Write ``daily/<date>/<filename>.md`` with optional frontmatter."""
     day_dir = Path.cwd() / "daily" / date
     day_dir.mkdir(parents=True, exist_ok=True)
-    fm_lines = [f"name: {name or session_id}"]
+    fm_lines = [f"name: {name or filename}"]
     if description:
         fm_lines.append(f"description: {description}")
+    for key, value in metadata.items():
+        fm_lines.append(f"{key}: {value}")
     text = "---\n" + "\n".join(fm_lines) + "\n---\nbody\n"
-    (day_dir / f"{session_id}.md").write_text(text, encoding="utf-8")
+    (day_dir / f"{filename}.md").write_text(text, encoding="utf-8")
 
 
 async def _make_daily_write_step(store: LocalFileStore, workspace_dir: str):
-    """Build ``daily_write`` with a real ``write`` job in a minimal app context."""
+    """Build ``daily_write`` in a minimal app context."""
     app_context = ApplicationContext(workspace_dir=workspace_dir)
     app_context.components[ComponentEnum.FILE_STORE] = {"default": store}
-    write_job = BaseJob(name="write", app_context=app_context, steps=[{"backend": "write_step"}])
-    await write_job.start()
-    app_context.jobs["write"] = write_job
-    return daily_write_step.DailyWriteStep(app_context=app_context), write_job
+    return daily_write_step.DailyWriteStep(app_context=app_context)
 
 
 # -- daily_list_step ----------------------------------------------------------
@@ -167,8 +165,8 @@ def test_daily_list_filters_by_date():
     asyncio.run(run())
 
 
-def test_daily_list_returns_path_session_id_metadata():
-    """Each note row exposes path / session_id / metadata (full frontmatter dict)."""
+def test_daily_list_returns_path_and_frontmatter_notes():
+    """Each note row exposes path plus the full frontmatter dict."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -176,20 +174,33 @@ def test_daily_list_returns_path_session_id_metadata():
             await store.start()
             await _seed_note(
                 "2026-05-18",
-                "alpha",
+                "Alpha Project",
                 name="Alpha Project",
                 description="JWT auth migration",
+                session_id="session-123",
+                source_conversation='"[[sessions/dialog/session-123.jsonl]]"',
             )
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
             assert payload["count"] == 1
+            assert payload["notes"] == [
+                {
+                    "path": "daily/2026-05-18/Alpha Project.md",
+                    "name": "Alpha Project",
+                    "description": "JWT auth migration",
+                    "session_id": "session-123",
+                    "source_conversation": "[[sessions/dialog/session-123.jsonl]]",
+                },
+            ]
             answer = step.context.response.answer
-            assert "daily/2026-05-18/alpha.md" in answer
+            assert "daily/2026-05-18/Alpha Project.md" in answer
             assert "Alpha Project" in answer
             assert "JWT auth migration" in answer
+            assert "session-123" in answer
+            assert "[[sessions/dialog/session-123.jsonl]]" in answer
             await store.close()
-        print("✓ test_daily_list_returns_path_session_id_metadata passed")
+        print("✓ test_daily_list_returns_path_and_frontmatter_notes passed")
 
     asyncio.run(run())
 
@@ -233,7 +244,7 @@ def test_daily_list_empty_when_no_daily_dir():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            assert payload == {"date": "2026-05-18", "count": 0}
+            assert payload == {"date": "2026-05-18", "count": 0, "notes": []}
             await store.close()
         print("✓ test_daily_list_empty_when_no_daily_dir passed")
 
@@ -265,7 +276,7 @@ def test_daily_list_does_not_refresh_index():
 
 
 def test_daily_list_response_shape():
-    """daily_list returns only {date, count}."""
+    """daily_list returns {date, count, notes}."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -277,7 +288,8 @@ def test_daily_list_response_shape():
             step = daily_list_step.DailyListStep(file_store=store)
             await step(date="2026-05-18")
             payload = _metadata(step)
-            assert set(payload.keys()) == {"date", "count"}
+            assert set(payload.keys()) == {"date", "count", "notes"}
+            assert payload["notes"] == [{"path": "daily/2026-05-18/alpha.md", "name": "alpha"}]
             await store.close()
         print("✓ test_daily_list_response_shape passed")
 
@@ -447,12 +459,12 @@ def test_daily_create_then_skip_round_trip():
 
 
 def test_daily_write_delegates_to_write_and_refreshes_index():
-    """``daily_write`` writes body/frontmatter through ``write`` and refreshes the day index."""
+    """``daily_write`` writes body/frontmatter through ``write_step`` and refreshes the day index."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step, write_job = await _make_daily_write_step(store, tmp)
+            step = await _make_daily_write_step(store, tmp)
 
             await step(
                 name="project-plan",
@@ -479,7 +491,6 @@ def test_daily_write_delegates_to_write_and_refreshes_index():
             index = Path(tmp) / "daily" / f"{_today()}.md"
             assert index.is_file()
             assert f"[[daily/{_today()}/project-plan.md]]" in index.read_text(encoding="utf-8")
-            await write_job.close()
             await store.close()
         print("✓ test_daily_write_delegates_to_write_and_refreshes_index passed")
 
@@ -492,7 +503,7 @@ def test_daily_write_reserved_metadata_keys_are_overridden():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step, write_job = await _make_daily_write_step(store, tmp)
+            step = await _make_daily_write_step(store, tmp)
 
             await step(
                 name="real-name",
@@ -514,7 +525,6 @@ def test_daily_write_reserved_metadata_keys_are_overridden():
             assert post.metadata["session_id"] == "real-session"
             assert post.metadata["source_conversation"] == "[[session/dialog/real-session.jsonl]]"
             assert post.metadata["priority"] == 2
-            await write_job.close()
             await store.close()
         print("✓ test_daily_write_reserved_metadata_keys_are_overridden passed")
 
@@ -527,14 +537,13 @@ def test_daily_write_rejects_invalid_name_and_session_id():
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = await _make_store_with_dailies([])
-            step, write_job = await _make_daily_write_step(store, tmp)
+            step = await _make_daily_write_step(store, tmp)
 
             await step(name="bad/name", description="d", session_id="ok", content="body")
             assert step.context.response.success is False
             await step(name="ok", description="d", session_id="bad/session", content="body")
             assert step.context.response.success is False
             assert not (Path(tmp) / "daily" / _today()).exists()
-            await write_job.close()
             await store.close()
         print("✓ test_daily_write_rejects_invalid_name_and_session_id passed")
 
@@ -597,6 +606,40 @@ def test_day_index_includes_note_descriptions():
             assert "description:" not in text.split("[[daily/2026-05-18/gamma.md]]")[1].split("\n")[0]
             await store.close()
         print("✓ test_day_index_includes_note_descriptions passed")
+
+    asyncio.run(run())
+
+
+def test_day_index_hides_conversation_metadata():
+    """The day index omits conversation metadata while keeping it in the returned notes payload."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t", embedding_store="")
+            await store.start()
+            await _seed_note(
+                "2026-05-18",
+                "alpha",
+                name="Alpha Project",
+                description="JWT auth migration",
+                session_id="session-123",
+                source_conversation='"[[session/dialog/session-123.jsonl]]"',
+            )
+
+            refreshed = await daily_reindex_step.refresh_day_index(store, "2026-05-18", "daily")
+            assert refreshed["notes"][0]["session_id"] == "session-123"
+            assert refreshed["notes"][0]["source_conversation"] == "[[session/dialog/session-123.jsonl]]"
+
+            text = _day_index_text(tmp, "2026-05-18")
+            line = text.split("[[daily/2026-05-18/alpha.md]]", 1)[1].split("\n", 1)[0]
+            assert "name: Alpha Project" in line
+            assert "description: JWT auth migration" in line
+            assert "session_id" not in line
+            assert "session-123" not in line
+            assert "source_conversation" not in line
+            assert "[[session/dialog/session-123.jsonl]]" not in line
+            await store.close()
+        print("✓ test_day_index_hides_conversation_metadata passed")
 
     asyncio.run(run())
 
@@ -741,7 +784,7 @@ if __name__ == "__main__":
     print("\n=== Daily step tests ===")
     test_daily_list_default_date_is_today()
     test_daily_list_filters_by_date()
-    test_daily_list_returns_path_session_id_metadata()
+    test_daily_list_returns_path_and_frontmatter_notes()
     test_daily_list_ignores_subdirectories()
     test_daily_list_empty_when_no_daily_dir()
     test_daily_list_does_not_refresh_index()
@@ -758,6 +801,7 @@ if __name__ == "__main__":
     test_daily_write_rejects_invalid_name_and_session_id()
     test_day_index_lists_each_note()
     test_day_index_includes_note_descriptions()
+    test_day_index_hides_conversation_metadata()
     test_day_index_description_is_note_count()
     test_day_index_description_updates_when_note_count_changes()
     test_day_index_preserves_user_content_outside_marker()

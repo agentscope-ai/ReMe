@@ -17,6 +17,7 @@ def validate_session_id(session_id: str) -> str | None:
 
 _NOTES_OPEN = "<!-- notes:auto -->"
 _NOTES_CLOSE = "<!-- /notes:auto -->"
+_INDEX_HIDDEN_METADATA_KEYS = {"session_id", "source_conversation"}
 
 
 def _render_notes_block(notes: list[dict]) -> str:
@@ -26,7 +27,8 @@ def _render_notes_block(notes: list[dict]) -> str:
     lines: list[str] = []
     for note in notes:
         meta: dict = note["metadata"]
-        keys = [k for k in ("name", "description") if k in meta] + [k for k in meta if k not in ("name", "description")]
+        keys = [k for k in ("name", "description") if k in meta]
+        keys += [k for k in meta if k not in {"name", "description", *_INDEX_HIDDEN_METADATA_KEYS}]
         parts = [f"- [[{note['path']}]]"] + [
             f"{k}: {str(v).replace(chr(10), ' ')}" for k in keys if (v := meta[k]) not in (None, "")
         ]
@@ -45,9 +47,12 @@ def _rebuild_body(body: str, notes_content: str) -> str:
 def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
     """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.
 
+    Files under the date folder are named by note ``name``. Conversation
+    identity, when present, lives in frontmatter as ``session_id``.
+
     Returns one dict per note::
 
-        {"session_id": str, "path": str, "metadata": dict}
+        {"path": str, "metadata": dict}
     """
     date_dir, err = resolve_path(workspace_dir, f"{daily_dir}/{date}")
     if err or date_dir is None:
@@ -57,14 +62,12 @@ def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
         return []
     out: list[dict] = []
     for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md"):
-        session_id = md_path.stem
         try:
             post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
         except Exception:
             continue
         out.append(
             {
-                "session_id": session_id,
                 "path": f"{daily_dir}/{date}/{md_path.name}",
                 "metadata": dict(post.metadata or {}),
             },
@@ -91,7 +94,7 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
         }
     notes = scan_notes(workspace_dir, date, daily_dir)
 
-    notes_payload = [{"path": n["path"], "session_id": n["session_id"], "metadata": n["metadata"]} for n in notes]
+    notes_payload = [{**n["metadata"], "path": n["path"]} for n in notes]
 
     if not notes and not index_abs.is_file():
         return {

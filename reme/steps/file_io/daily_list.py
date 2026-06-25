@@ -1,8 +1,10 @@
 """``daily_list`` — list the notes under a single day (pure read, no side effects).
 
-Returns one row per ``daily/<date>/<session_id>.md`` note file with its
-workspace-relative ``path``, ``session_id``, and the raw ``metadata`` dict
-(full frontmatter). Sorted by session_id for stable output.
+Returns one row per ``daily/<date>/<name>.md`` note file. The human answer
+contains the workspace-relative ``path`` plus every frontmatter key/value.
+Response metadata includes ``notes`` as the original list of flat dicts:
+``{"path": ..., "name": ..., "description": ..., "session_id": ...,
+"source_conversation": ..., ...}``.
 
 **Does NOT refresh** ``daily/<date>.md`` — call ``daily_reindex``
 explicitly when the index page needs to be rebuilt. Decoupling
@@ -26,7 +28,7 @@ class DailyListStep(BaseStep):
     """List the notes under a single day. Pure read — no index refresh."""
 
     def _collect_params(self) -> tuple[str, str, Path]:
-        """Read ``date`` (default today, ``YYYY-MM-DD``), resolve ``daily_dir``, locate the workspace root on disk."""
+        """Read ``date`` (default today, ``YYYY-MM-DD``), ``daily_dir``, and the workspace root."""
         assert self.context is not None
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         day = self.context.get("date", "") or now(tz).strftime("%Y-%m-%d")
@@ -36,18 +38,17 @@ class DailyListStep(BaseStep):
 
     @staticmethod
     def _project(note: dict) -> dict:
-        """Keep only the user-facing keys (drop internal scan_notes fields, if any)."""
-        return {"path": note["path"], "session_id": note["session_id"], "metadata": note["metadata"]}
+        """Flatten the note path and full frontmatter into one user-facing dict."""
+        return {**note["metadata"], "path": note["path"]}
 
     @staticmethod
     def _format_note_line(note: dict) -> str:
-        """Format a single note as ``- path: ... name: ... description: ... <other keys>``."""
-        meta: dict = note.get("metadata", {})
-        ordered_keys = [k for k in ("name", "description") if k in meta]
-        ordered_keys += [k for k in meta if k not in ("name", "description")]
+        """Format a note as ``- path: ... name: ... description: ... <other frontmatter>``."""
+        ordered_keys = [k for k in ("name", "description", "session_id", "source_conversation") if k in note]
+        ordered_keys += [k for k in note if k not in {"path", *ordered_keys}]
         parts = [f"- path: {note['path']}"]
         for key in ordered_keys:
-            value = meta[key]
+            value = note[key]
             if value is None or value == "":
                 continue
             value_str = str(value).replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
@@ -69,5 +70,5 @@ class DailyListStep(BaseStep):
         self.context.response.success = True
         lines = [self._format_note_line(n) for n in notes]
         self.context.response.answer = "\n".join(lines) if lines else f"No notes found for {day}"
-        self.context.response.metadata.update({"date": day, "count": len(notes)})
+        self.context.response.metadata.update({"date": day, "count": len(notes), "notes": notes})
         self.logger.info(f"[{self.name}] date={day} notes={len(notes)}")

@@ -1,4 +1,4 @@
-"""Write a daily markdown note by delegating to the generic ``write`` job."""
+"""Write a daily markdown note by dispatching the generic ``write`` step."""
 
 from ._daily_index import refresh_day_index, validate_session_id
 from ._path import validate_filename_component
@@ -28,11 +28,7 @@ class DailyWriteStep(BaseStep):
 
     def _collect_required(self) -> tuple[str, str, str, str] | None:
         assert self.context is not None
-        missing = [
-            key
-            for key in ("name", "description", "session_id", "content")
-            if self.context.get(key) is None
-        ]
+        missing = [key for key in ("name", "description", "session_id", "content") if self.context.get(key) is None]
         if missing:
             self._fail(f"missing required parameter(s): {', '.join(missing)}")
             return None
@@ -80,17 +76,20 @@ class DailyWriteStep(BaseStep):
         path = f"{daily_dir}/{day}/{name}.md"
         source_conversation = self._session_link(session_id)
 
-        write_response = await self.run_job(
-            "write",
+        write_responses = await self.dispatch_steps(
+            [{"backend": "write_step"}],
             path=path,
             name=name,
             description=description,
             content=content,
             metadata=self._metadata(session_id),
         )
-        if not write_response.success:
+        write_response = write_responses[0]
+        write_success = write_response.success
+        write_answer = write_response.answer
+        if not write_success:
             self.context.response.success = False
-            self.context.response.answer = f"write failed: {write_response.answer}"
+            self.context.response.answer = f"write failed: {write_answer}"
             self.context.response.metadata.update(
                 {"date": day, "path": path, "session_id": session_id, "source_conversation": source_conversation},
             )
@@ -99,7 +98,7 @@ class DailyWriteStep(BaseStep):
         index_payload = await refresh_day_index(self.file_store, day, daily_dir)
 
         self.context.response.success = True
-        self.context.response.answer = write_response.answer
+        self.context.response.answer = write_answer
         self.context.response.metadata.update(
             {
                 "date": day,

@@ -3,15 +3,17 @@
 from pathlib import Path
 
 import aiofiles
+import frontmatter
 from agentscope.message import Msg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index, validate_session_id
+from ..file_io import refresh_day_index, validate_filename_component, validate_session_id
 from ...components import R
 
 _TOOL_OUTPUT_MAX = 2048
 _TOOL_OUTPUT_HALF = 1024
+_SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
 
 
@@ -73,7 +75,8 @@ class AutoMemoryStep(BaseStep):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
+        self.create_tools: list[str] = ["daily_write"]
+        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     def _session_dir(self) -> str:
         return str(self.config_value("session_dir")).strip("/")
@@ -83,6 +86,65 @@ class AutoMemoryStep(BaseStep):
 
     def _session_link(self, session_id: str) -> str:
         return f"[[{self._session_dir()}/dialog/{session_id}.jsonl]]"
+
+    def _daily_note_path(self, day: str, name: str) -> str:
+        return f"{self.config_value('daily_dir')}/{day}/{name}.md"
+
+    def _frontmatter(self, path: str) -> dict:
+        post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
+        return dict(post.metadata or {})
+
+    def _find_session_note(self, notes: list[dict], session_id: str) -> dict | None:
+        source = self._session_link(session_id)
+        for note in notes:
+            if str(note.get(_SESSION_ID_KEY, "")).strip() == session_id:
+                return note
+        for note in notes:
+            if str(note.get(_SOURCE_CONVERSATION_KEY, "")).strip() == source:
+                return note
+        return None
+
+    async def _list_session_note(self, day: str, session_id: str) -> dict | None:
+        list_response = await self.run_job("daily_list", date=day)
+        if not list_response.success:
+            raise RuntimeError(f"daily_list failed: {list_response.answer}")
+        notes = list_response.metadata.get("notes") or []
+        return self._find_session_note(notes, session_id)
+
+    async def _ensure_session_frontmatter(self, path: str, session_id: str) -> None:
+        response = await self.run_job(
+            "frontmatter_update",
+            path=path,
+            metadata={
+                _SESSION_ID_KEY: session_id,
+                _SOURCE_CONVERSATION_KEY: self._session_link(session_id),
+            },
+        )
+        if not response.success:
+            raise RuntimeError(f"frontmatter_update failed: {response.answer}")
+
+    async def _rename_from_frontmatter_name(self, path: str, day: str) -> str:
+        meta = self._frontmatter(path)
+        name = str(meta.get("name", "")).strip()
+        if not name:
+            return path
+        if err := validate_filename_component(name, kind="name"):
+            raise RuntimeError(err)
+
+        target_path = self._daily_note_path(day, name)
+        if target_path == path:
+            return path
+
+        move_response = await self.run_job(
+            "move",
+            src_path=path,
+            dst_path=target_path,
+            overwrite=False,
+            retarget=True,
+        )
+        if not move_response.success:
+            raise RuntimeError(f"move failed: {move_response.answer}")
+        return target_path
 
     async def _save_session_messages(self, session_id: str, messages: list[Msg]) -> None:
         if not session_id or not messages:
@@ -150,6 +212,7 @@ class AutoMemoryStep(BaseStep):
             item = {**item, "content": [{"type": "text", "text": item["content"]}]}
         return Msg.model_validate(item)
 
+    # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
         raw_messages = self.context.get("messages") or []
@@ -169,6 +232,11 @@ class AutoMemoryStep(BaseStep):
             self.context.response.answer = f"Error: {err}"
             self.logger.warning(f"[{self.name}] invalid session_id={session_id!r} err={err}")
             return
+        if not session_id:
+            self.context.response.success = False
+            self.context.response.answer = "Error: session_id is required"
+            self.logger.warning(f"[{self.name}] missing session_id")
+            return
 
         await self._save_session_messages(session_id, messages)
 
@@ -179,24 +247,28 @@ class AutoMemoryStep(BaseStep):
             self.logger.info(f"[{self.name}] Skipped: no messages session_id={session_id!r}")
             return
 
-        create_response = await self.run_job("daily_create", session_id=session_id)
-        if not create_response.success:
+        day = current.strftime("%Y-%m-%d")
+        try:
+            note = await self._list_session_note(day, session_id)
+        except RuntimeError as exc:
             self.context.response.success = False
-            self.context.response.answer = f"daily_create failed: {create_response.answer}"
-            self.logger.info(f"[{self.name}] daily_create failed session_id={session_id!r}")
+            self.context.response.answer = str(exc)
+            self.logger.info(f"[{self.name}] list failed session_id={session_id!r} answer={str(exc)!r}")
             return
 
-        note_path: str = create_response.metadata["path"]
-        created: bool = create_response.metadata["created"]
-        self.logger.info(f"[{self.name}] {note_path} created={created} msgs={len(messages)} hint={bool(memory_hint)}")
-
+        note_path = str(note["path"]) if note else ""
+        created = note is None
+        self.logger.info(
+            f"[{self.name}] note lookup session_id={session_id!r} path={note_path!r} "
+            f"created={created} msgs={len(messages)} hint={bool(memory_hint)}",
+        )
         template_key = "user_message_create" if created else "user_message_update"
         user_message = self.prompt_format(
             template_key,
-            today=current.strftime("%Y-%m-%d"),
-            workspace_dir=str(self.file_store.workspace_path),
+            today=day,
             note=memory_hint or "(none)",
             note_path=note_path,
+            session_id=session_id,
             history=format_history(messages),
         )
 
@@ -204,39 +276,45 @@ class AutoMemoryStep(BaseStep):
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
-            job_tools=self.agent_tools,
+            job_tools=self.create_tools if created else self.update_tools,
         )
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 
-        source_conversation = ""
-        if session_id:
-            source_conversation = self._session_link(session_id)
-            self.logger.info(f"[{self.name}] frontmatter link start path={note_path} source={source_conversation}")
-            link_response = await self.run_job(
-                "frontmatter_update",
-                path=note_path,
-                metadata={_SOURCE_CONVERSATION_KEY: source_conversation},
-            )
-            if not link_response.success:
+        if created:
+            try:
+                note = await self._list_session_note(day, session_id)
+            except RuntimeError as exc:
                 self.context.response.success = False
-                self.context.response.answer = f"frontmatter_update failed: {link_response.answer}"
-                self.context.response.metadata.update(
-                    {"path": note_path, "created": created, "n_messages": len(messages), "index": None},
-                )
-                self.logger.info(
-                    f"[{self.name}] source conversation link failed "
-                    f"path={note_path} session_id={session_id!r} answer={link_response.answer!r}",
-                )
+                self.context.response.answer = str(exc)
+                self.context.response.metadata.update({"path": None, "created": created, "n_messages": len(messages)})
+                self.logger.info(f"[{self.name}] post-create list failed session_id={session_id!r} answer={str(exc)!r}")
                 return
-            self.logger.info(f"[{self.name}] frontmatter link done path={note_path}")
+            if note is None:
+                self.context.response.success = True
+                self.context.response.answer = agent_reply_result_text(result)
+                self.context.response.metadata.update({"path": None, "created": False, "n_messages": len(messages)})
+                self.logger.info(f"[{self.name}] done without note session_id={session_id!r}")
+                return
+            note_path = str(note["path"])
+        else:
+            try:
+                await self._ensure_session_frontmatter(note_path, session_id)
+                note_path = await self._rename_from_frontmatter_name(note_path, day)
+            except RuntimeError as exc:
+                self.context.response.success = False
+                self.context.response.answer = str(exc)
+                self.context.response.metadata.update(
+                    {"path": note_path, "created": created, "n_messages": len(messages)}
+                )
+                self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
+                return
 
         daily_dir = self.config_value("daily_dir")
-        self.logger.info(
-            f"[{self.name}] refresh index start date={create_response.metadata['date']} daily_dir={daily_dir}",
-        )
-        index_payload = await refresh_day_index(self.file_store, create_response.metadata["date"], daily_dir)
+        self.logger.info(f"[{self.name}] refresh index start date={day} daily_dir={daily_dir}")
+        index_payload = await refresh_day_index(self.file_store, day, daily_dir)
         self.logger.info(f"[{self.name}] refresh index done path={note_path}")
 
+        source_conversation = self._session_link(session_id)
         self.context.response.success = True
         self.context.response.answer = agent_reply_result_text(result)
         self.context.response.metadata.update(
