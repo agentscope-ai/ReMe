@@ -124,6 +124,20 @@ class AutoResourceStep(BaseStep):
         post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
         return dict(post.metadata or {})
 
+    def _note_bytes(self, path: str) -> bytes | None:
+        note_path = self.file_store.workspace_path / path
+        if not note_path.is_file():
+            return None
+        return note_path.read_bytes()
+
+    def _note_modified(self, before_path: str, before_bytes: bytes | None, after_path: str) -> bool:
+        if not after_path:
+            return False
+        after_bytes = self._note_bytes(after_path)
+        if after_bytes is None:
+            return before_bytes is not None
+        return after_path != before_path or before_bytes != after_bytes
+
     def _find_resource_note(self, notes: list[dict], file_path: str, fallback_path: str) -> dict | None:
         source = self._source_resource_link(file_path)
         for note in notes:
@@ -142,15 +156,21 @@ class AutoResourceStep(BaseStep):
         return self._find_resource_note(notes, file_path, fallback_path)
 
     async def _ensure_resource_frontmatter(self, path: str, file_path: str) -> None:
+        metadata = {_SOURCE_RESOURCE_KEY: self._source_resource_link(file_path)}
+        current = self._frontmatter(path)
+        if all(current.get(key) == value for key, value in metadata.items()):
+            return
         response = await self.run_job(
             "frontmatter_update",
             path=path,
-            metadata={_SOURCE_RESOURCE_KEY: self._source_resource_link(file_path)},
+            metadata=metadata,
         )
         if not response.success:
             raise RuntimeError(f"frontmatter_update failed: {response.answer}")
 
     async def _set_frontmatter_name(self, path: str, name: str) -> None:
+        if self._frontmatter(path).get("name") == name:
+            return
         response = await self.run_job("frontmatter_update", path=path, metadata={"name": name})
         if not response.success:
             raise RuntimeError(f"frontmatter_update failed: {response.answer}")
@@ -226,10 +246,16 @@ class AutoResourceStep(BaseStep):
         metadata = getattr(self.app_context, "metadata", None)
         if not isinstance(metadata, dict):
             return
+        response_metadata = getattr(self.context.response, "metadata", None)
+        if isinstance(response_metadata, dict) and response_metadata.get("modified") is False:
+            self.logger.info(f"[{self.name}] result hook skipped; no resource note change modified=False")
+            return
         hook = metadata.get("qwenpaw_memory_result_hook")
         if hook is None:
             return
         try:
+            modified = response_metadata.get("modified") if isinstance(response_metadata, dict) else None
+            self.logger.info(f"[{self.name}] result hook emit modified={modified}")
             value = hook(
                 job_name="auto_resource",
                 response=self.context.response,
@@ -254,9 +280,10 @@ class AutoResourceStep(BaseStep):
 
         note_rel = str(note["path"]) if note else fallback_path
         note_abs = self.workspace_path / note_rel
+        note_existed = note_abs.is_file()
         self.logger.info(f"[{self.name}] delete start note={note_rel}")
 
-        if note_abs.is_file():
+        if note_existed:
             note_abs.unlink()
             self.logger.info(f"[{self.name}] Deleted file: {note_rel}")
 
@@ -274,6 +301,7 @@ class AutoResourceStep(BaseStep):
                 "session_id": note_stem,
                 "source_resource": self._source_resource_link(file_path),
                 "action": "deleted",
+                "modified": note_existed,
                 "index": index_payload,
             },
         )
@@ -300,6 +328,8 @@ class AutoResourceStep(BaseStep):
 
         note_path = str(note["path"]) if note else fallback_path
         note_created = note is None
+        before_note_path = note_path
+        before_note_bytes = self._note_bytes(note_path)
         self.logger.info(f"[{self.name}] daily note lookup path={note_path} created={note_created}")
 
         # Read resource file content
@@ -346,14 +376,14 @@ class AutoResourceStep(BaseStep):
             except RuntimeError as exc:
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
-                self.context.response.metadata.update({"path": None, "created": note_created})
+                self.context.response.metadata.update({"path": None, "created": note_created, "modified": False})
                 self.logger.info(f"[{self.name}] post-create list failed file_path={file_path} answer={str(exc)!r}")
                 return
             if note is None:
                 self.context.response.success = True
                 self.context.response.answer = agent_reply_result_text(result)
-                self.context.response.metadata.update({"path": None, "created": False})
-                self.logger.info(f"[{self.name}] done without note file_path={file_path}")
+                self.context.response.metadata.update({"path": None, "created": False, "modified": False})
+                self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
                 return
             note_path = str(note["path"])
 
@@ -370,10 +400,17 @@ class AutoResourceStep(BaseStep):
         except RuntimeError as exc:
             self.context.response.success = False
             self.context.response.answer = str(exc)
-            self.context.response.metadata.update({"path": note_path, "created": note_created})
+            self.context.response.metadata.update(
+                {
+                    "path": note_path,
+                    "created": note_created,
+                    "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
+                },
+            )
             self.logger.info(f"[{self.name}] post-agent failed path={note_path} answer={str(exc)!r}")
             return
 
+        modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         self.logger.info(f"[{self.name}] refresh index start date={date_str} daily_dir={daily_dir}")
         index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
         self.logger.info(f"[{self.name}] refresh index done date={date_str}")
@@ -384,6 +421,7 @@ class AutoResourceStep(BaseStep):
             {
                 "path": note_path,
                 "created": note_created,
+                "modified": modified,
                 "session_id": note_stem,
                 "source_resource": self._source_resource_link(file_path),
                 "agent_session_id": agent_session_id,
@@ -391,7 +429,7 @@ class AutoResourceStep(BaseStep):
                 "index": index_payload,
             },
         )
-        self.logger.info(f"[{self.name}] done {note_path}")
+        self.logger.info(f"[{self.name}] done {note_path} modified={modified}")
 
     async def _handle_change(self, file_path: str, raw_change) -> dict:
         assert self.context is not None
@@ -468,6 +506,12 @@ class AutoResourceStep(BaseStep):
         self.context.response.answer = _results_answer(results, processed_answer)
         self.context.response.metadata["processed"] = len(results)
         self.context.response.metadata["results"] = results
+        self.context.response.metadata["modified"] = any(
+            bool((item.get("metadata") or {}).get("modified")) for item in results
+        )
         await self._emit_result_hook(changes=changes, results=results)
-        self.logger.info(f"[{self.name}] done success={success_count}/{len(changes)} processed={len(results)}")
+        self.logger.info(
+            f"[{self.name}] done success={success_count}/{len(changes)} "
+            f"processed={len(results)} modified={self.context.response.metadata['modified']}",
+        )
         return self.context.response

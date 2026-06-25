@@ -26,6 +26,7 @@ from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
+from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.auto_resource import AutoResourceStep, _compute_note_stem
 from reme.steps.file_io.daily_list import DailyListStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
@@ -108,6 +109,7 @@ def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="diges
     ctx.app_config.daily_dir = daily_dir
     ctx.app_config.digest_dir = digest_dir
     ctx.app_config.resource_dir = resource_dir
+    ctx.app_config.session_dir = "session"
     ctx.app_config.timezone = None
     return ctx
 
@@ -982,6 +984,39 @@ def test_auto_resource_update_keeps_existing_renamed_path():
     asyncio.run(run())
 
 
+def test_auto_resource_reports_unmodified_when_agent_skips_existing_note():
+    """A modified event that leaves the note bytes unchanged reports modified=False."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "same")
+                write_file(
+                    cwd / "daily" / "2026-01-01" / "report.md",
+                    "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                result_meta = resp.metadata["results"][0]["metadata"]
+                assert resp.success is True
+                assert result_meta["modified"] is False
+                assert resp.metadata["modified"] is False
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_reports_unmodified_when_agent_skips_existing_note passed")
+
+    asyncio.run(run())
+
+
 def test_auto_resource_deletes_loose_root_resource_note_for_today():
     """Deleting a loose root resource deletes today's same-stem note."""
 
@@ -1001,6 +1036,8 @@ def test_auto_resource_deletes_loose_root_resource_note_for_today():
 
                 assert resp.success is True
                 assert resp.metadata["results"][0]["path"] == "resource/report.txt"
+                assert resp.metadata["results"][0]["metadata"]["modified"] is True
+                assert resp.metadata["modified"] is True
                 assert not note_path.exists()
             finally:
                 await fs.close()
@@ -1040,6 +1077,51 @@ def test_auto_resource_deletes_renamed_note_by_source_resource():
     asyncio.run(run())
 
 
+def test_auto_memory_reports_modified_for_create_and_false_for_skip():
+    """AutoMemoryStep reports whether a daily note actually changed."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                wrapper.on_reply = lambda *_: write_file(
+                    cwd / "daily" / today / "memory.md",
+                    "---\nname: memory\nsession_id: s1\n"
+                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
+                )
+                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
+                        session_id="s1",
+                    ),
+                )
+                resp = resp or step.context.response
+
+                assert resp.success is True
+                assert resp.metadata["created"] is True
+                assert resp.metadata["modified"] is True
+
+                wrapper.on_reply = None
+                resp = await step(RuntimeContext(messages=[], session_id="s2"))
+                resp = resp or step.context.response
+
+                assert resp.success is True
+                assert resp.metadata["modified"] is False
+                assert resp.metadata["n_messages"] == 0
+            finally:
+                await fs.close()
+        print("✓ test_auto_memory_reports_modified_for_create_and_false_for_skip passed")
+
+    asyncio.run(run())
+
+
 def test_auto_resource_result_hook_is_optional_and_isolated():
     """AutoResourceStep optionally emits host result hooks without coupling."""
 
@@ -1060,6 +1142,11 @@ def test_auto_resource_result_hook_is_optional_and_isolated():
                 calls.append(kwargs)
 
             app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
+            step.context.response.metadata["modified"] = False
+            await step._emit_result_hook(changes=changes, results=results)
+            assert not calls
+
+            step.context.response.metadata["modified"] = True
             await step._emit_result_hook(changes=changes, results=results)
             assert len(calls) == 1
             assert calls[0]["job_name"] == "auto_resource"

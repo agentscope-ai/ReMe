@@ -59,6 +59,20 @@ class AutoMemoryStep(BaseStep):
         post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
         return dict(post.metadata or {})
 
+    def _note_bytes(self, path: str) -> bytes | None:
+        note_path = self.file_store.workspace_path / path
+        if not note_path.is_file():
+            return None
+        return note_path.read_bytes()
+
+    def _note_modified(self, before_path: str, before_bytes: bytes | None, after_path: str) -> bool:
+        if not after_path:
+            return False
+        after_bytes = self._note_bytes(after_path)
+        if after_bytes is None:
+            return before_bytes is not None
+        return after_path != before_path or before_bytes != after_bytes
+
     def _find_session_note(self, notes: list[dict], session_id: str) -> dict | None:
         source = self._session_link(session_id)
         for note in notes:
@@ -77,13 +91,17 @@ class AutoMemoryStep(BaseStep):
         return self._find_session_note(notes, session_id)
 
     async def _ensure_session_frontmatter(self, path: str, session_id: str) -> None:
+        metadata = {
+            _SESSION_ID_KEY: session_id,
+            _SOURCE_CONVERSATION_KEY: self._session_link(session_id),
+        }
+        current = self._frontmatter(path)
+        if all(current.get(key) == value for key, value in metadata.items()):
+            return
         response = await self.run_job(
             "frontmatter_update",
             path=path,
-            metadata={
-                _SESSION_ID_KEY: session_id,
-                _SOURCE_CONVERSATION_KEY: self._session_link(session_id),
-            },
+            metadata=metadata,
         )
         if not response.success:
             raise RuntimeError(f"frontmatter_update failed: {response.answer}")
@@ -208,8 +226,8 @@ class AutoMemoryStep(BaseStep):
         if not messages:
             self.context.response.success = True
             self.context.response.answer = "Skipped: no messages"
-            self.context.response.metadata.update({"n_messages": 0})
-            self.logger.info(f"[{self.name}] Skipped: no messages session_id={session_id!r}")
+            self.context.response.metadata.update({"modified": False, "n_messages": 0})
+            self.logger.info(f"[{self.name}] Skipped: no messages session_id={session_id!r} modified=False")
             return
 
         day = current.strftime("%Y-%m-%d")
@@ -223,6 +241,8 @@ class AutoMemoryStep(BaseStep):
 
         note_path = str(note["path"]) if note else ""
         created = note is None
+        before_note_path = note_path
+        before_note_bytes = self._note_bytes(note_path) if note_path else None
         self.logger.info(
             f"[{self.name}] note lookup session_id={session_id!r} path={note_path!r} "
             f"created={created} msgs={len(messages)} hint={bool(memory_hint)}",
@@ -251,14 +271,18 @@ class AutoMemoryStep(BaseStep):
             except RuntimeError as exc:
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
-                self.context.response.metadata.update({"path": None, "created": created, "n_messages": len(messages)})
+                self.context.response.metadata.update(
+                    {"path": None, "created": created, "modified": False, "n_messages": len(messages)},
+                )
                 self.logger.info(f"[{self.name}] post-create list failed session_id={session_id!r} answer={str(exc)!r}")
                 return
             if note is None:
                 self.context.response.success = True
                 self.context.response.answer = agent_reply_result_text(result)
-                self.context.response.metadata.update({"path": None, "created": False, "n_messages": len(messages)})
-                self.logger.info(f"[{self.name}] done without note session_id={session_id!r}")
+                self.context.response.metadata.update(
+                    {"path": None, "created": False, "modified": False, "n_messages": len(messages)},
+                )
+                self.logger.info(f"[{self.name}] done without note session_id={session_id!r} modified=False")
                 return
             note_path = str(note["path"])
         else:
@@ -269,11 +293,17 @@ class AutoMemoryStep(BaseStep):
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
                 self.context.response.metadata.update(
-                    {"path": note_path, "created": created, "n_messages": len(messages)},
+                    {
+                        "path": note_path,
+                        "created": created,
+                        "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
+                        "n_messages": len(messages),
+                    },
                 )
                 self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
                 return
 
+        modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         daily_dir = self.config_value("daily_dir")
         self.logger.info(f"[{self.name}] refresh index start date={day} daily_dir={daily_dir}")
         index_payload = await refresh_day_index(self.file_store, day, daily_dir)
@@ -286,9 +316,10 @@ class AutoMemoryStep(BaseStep):
             {
                 "path": note_path,
                 "created": created,
+                "modified": modified,
                 "n_messages": len(messages),
                 "source_conversation": source_conversation,
                 "index": index_payload,
             },
         )
-        self.logger.info(f"[{self.name}] done {note_path}")
+        self.logger.info(f"[{self.name}] done {note_path} modified={modified}")
