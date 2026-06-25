@@ -17,7 +17,7 @@ system_prompt: |
 
   ## Frontmatter Rules
 
-  - `name` = a concise, stable filename stem suggested from the resource content. The system may sanitize it, de-duplicate it, or keep the existing filename after your final response.
+  - `name` = a concise, stable topic/event filename stem suggested from the resource content, such as `cold-remedies` or `contract-review-notes`. Do not include the resource date, current date, or daily directory date; the outer daily path already records the date. The system may sanitize it, de-duplicate it, or keep the existing filename after your final response.
   - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
   - `source_resource` = a wikilink to the original resource file.
   - **Never set `status`** — it is a field reserved for downstream processing.
@@ -40,7 +40,7 @@ system_prompt_zh: |
 
   ## Frontmatter 规则
 
-  - `name` = 根据资源内容建议的简洁、稳定文件名 stem。系统可能在你最终回复后清洗、去重，或保留已有文件名。
+  - `name` = 根据资源内容建议的简洁、稳定主题/事件文件名 stem，例如 `cold-remedies` 或 `contract-review-notes`。不要包含资源日期、当前日期或日记目录日期；外层日记路径已经记录日期。系统可能在你最终回复后清洗、去重，或保留已有文件名。
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
   - `source_resource` = 指向原始资源文件的 wikilink。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
@@ -71,7 +71,8 @@ user_message_create: |
   The target file does not exist. Create it in one shot:
   `write path={note_path} name=<suggested name> description=<description> content=<body> metadata={{"source_resource": "{source_resource}"}}`
 
-  - Suggest `name` from the resource content as a concise, stable filename stem.
+  - Suggest `name` from the resource content as a concise, stable topic/event filename stem. Prefer a reusable topic or event summary, optionally in kebab-case.
+  - Do not include the resource date, current date, or daily directory date in `name`; the note already lives under a dated daily path.
   - `name` should be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
   - Keep `source_resource` exactly `{source_resource}` so the note points back to the original file.
@@ -110,7 +111,8 @@ user_message_create_zh: |
   目标文件不存在。一次性创建完整内容：
   `write path={note_path} name=<建议的 name> description=<description> content=<正文> metadata={{"source_resource": "{source_resource}"}}`
 
-  - 根据资源内容建议简洁、稳定的文件名 stem 作为 `name`。
+  - 根据资源内容建议简洁、稳定的主题/事件文件名 stem 作为 `name`。优先使用可复用的主题或事件总结，可以采用 kebab-case。
+  - `name` 不要包含资源日期、当前日期或日记目录日期；笔记已经位于带日期的日记路径下。
   - `name` 应该是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
   - 在 frontmatter 保留严格等于 `{source_resource}` 的 `source_resource`，让笔记能追溯到原始文件。
@@ -157,7 +159,7 @@ user_message_update: |
 
   Execution:
   1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
-  2. After body changes, refresh frontmatter: `frontmatter_update path={note_path} metadata={{"name": "<suggested name>", "description": "<updated summary>", "source_resource": "{source_resource}"}}`.
+  2. After body changes, refresh frontmatter: `frontmatter_update path={note_path} metadata={{"name": "<suggested topic/event name without date>", "description": "<updated summary>", "source_resource": "{source_resource}"}}`.
   3. If `edit` fails repeatedly (e.g., cannot find the original text), fall back to `write path={note_path} name=<suggested name> description=<description> content=<full body> metadata={{"source_resource": "{source_resource}"}}` for a complete rewrite.
 
   ## Step 2b — Full Write (Empty File Fallback)
@@ -165,7 +167,8 @@ user_message_update: |
   The file exists but its body is empty. Write the full content in one shot:
   `write path={note_path} name=<suggested name> description=<description> content=<body> metadata={{"source_resource": "{source_resource}"}}`
 
-  - Suggest `name` from the resource content as a concise, stable filename stem.
+  - Suggest `name` from the resource content as a concise, stable topic/event filename stem.
+  - Do not include the resource date, current date, or daily directory date in `name`.
   - `name` should be a valid single filename component.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
   - Keep `source_resource` exactly `{source_resource}` so the note points back to the original file.
@@ -212,7 +215,7 @@ user_message_update_zh: |
 
   执行：
   1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
-  2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<建议的 name>", "description": "<更新后的总结>", "source_resource": "{source_resource}"}}`。
+  2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<不带日期的主题/事件 name>", "description": "<更新后的总结>", "source_resource": "{source_resource}"}}`。
   3. 如果 `edit` 多次失败（如找不到原文），退回 `write path={note_path} name=<建议的 name> description=<description> content=<完整正文> metadata={{"source_resource": "{source_resource}"}}` 全量重写。
 
   ## 步骤 2b — 全量写入（空文件 fallback）
@@ -220,7 +223,8 @@ user_message_update_zh: |
   文件存在但正文为空。一次性写入完整内容：
   `write path={note_path} name=<建议的 name> description=<description> content=<正文> metadata={{"source_resource": "{source_resource}"}}`
 
-  - 根据资源内容建议简洁、稳定的文件名 stem 作为 `name`。
+  - 根据资源内容建议简洁、稳定的主题/事件文件名 stem 作为 `name`。
+  - `name` 不要包含资源日期、当前日期或日记目录日期。
   - `name` 应该是合法的单个文件名组件。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
   - 在 frontmatter 保留严格等于 `{source_resource}` 的 `source_resource`，让笔记能追溯到原始文件。

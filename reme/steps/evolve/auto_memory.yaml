@@ -18,7 +18,7 @@ system_prompt: |
 
   ## Frontmatter Rules
 
-  - `name` = a concise, stable filename stem. For existing notes, update it when a better filename is clearly warranted.
+  - `name` = a concise, stable topic/event filename stem, such as `cold-remedies` or `project-kickoff-decision`. Do not include today's date or the daily directory date; the outer daily path already records the date. For existing notes, update it when a better filename is clearly warranted.
   - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
   - **Never set `status`** — it is a field reserved for downstream processing.
 system_prompt_zh: |
@@ -41,7 +41,7 @@ system_prompt_zh: |
 
   ## Frontmatter 规则
 
-  - `name` = 简洁、稳定的文件名 stem。对已有笔记，如果明显有更好的文件名，就更新它。
+  - `name` = 简洁、稳定的主题/事件文件名 stem，例如 `cold-remedies` 或 `project-kickoff-decision`。不要包含今天日期或日记目录日期；外层日记路径已经记录日期。对已有笔记，如果明显有更好的文件名，就更新它。
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
@@ -69,7 +69,8 @@ user_message_create: |
   Create the note in one shot:
   `daily_write name=<name> description=<description> session_id={session_id} content=<body>`
 
-  - Generate `name` as a concise, stable filename stem for this memory.
+  - Generate `name` as a concise, stable topic/event filename stem for this memory. Prefer a reusable topic or event summary, optionally in kebab-case.
+  - Do not include today's date or the daily directory date in `name`; the note already lives under today's daily path.
   - `name` must be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
 
@@ -104,7 +105,8 @@ user_message_create_zh: |
   一次性创建笔记：
   `daily_write name=<name> description=<description> session_id={session_id} content=<正文>`
 
-  - 由你生成 `name`，作为这条记忆简洁、稳定的文件名 stem。
+  - 由你生成 `name`，作为这条记忆简洁、稳定的主题/事件文件名 stem。优先使用可复用的主题或事件总结，可以采用 kebab-case。
+  - `name` 不要包含今天日期或日记目录日期；笔记已经位于当天日记路径下。
   - `name` 必须是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
 
@@ -153,7 +155,8 @@ user_message_update: |
   Execution:
   1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
   2. After body changes, refresh frontmatter with `frontmatter_update path={note_path} metadata={{"name": "<updated filename stem>", "description": "<updated summary>"}}`.
-     - Keep the existing `name` only when it is already the best concise filename stem. The system will rename the file after your final response.
+     - Keep the existing `name` only when it is already the best concise topic/event filename stem. The system will rename the file after your final response.
+     - Do not add today's date or the daily directory date to `name`.
   3. If `edit` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to `write path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
 
   ## Step 3b — Full Write (Empty File Fallback)
@@ -161,7 +164,8 @@ user_message_update: |
   The file exists but its body is empty. Write the full content in one shot:
   `write path={note_path} name=<name> description=<description> content=<body>`
 
-  - Use a concise, stable `name`; filename changes are applied after your final response.
+  - Use a concise, stable topic/event `name`; filename changes are applied after your final response.
+  - Do not include today's date or the daily directory date in `name`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
 
   ## Step 4 — Summary
@@ -210,7 +214,8 @@ user_message_update_zh: |
   执行：
   1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
   2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<更新后的文件名 stem>", "description": "<更新后的总结>"}}`。
-     - 只有当前 `name` 已经是最合适的简洁文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
+     - 只有当前 `name` 已经是最合适的简洁主题/事件文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
+     - 不要在 `name` 中加入今天日期或日记目录日期。
   3. 如果 `edit` 多次失败（如因格式不匹配找不到原文），退回 `write path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
 
   ## 步骤 3b — 全量写入（空文件 fallback）
@@ -218,7 +223,8 @@ user_message_update_zh: |
   文件存在但正文为空。一次性写入完整内容：
   `write path={note_path} name=<name> description=<description> content=<正文>`
 
-  - 使用简洁、稳定的 `name`；文件名变化会在你最终回复后应用。
+  - 使用简洁、稳定的主题/事件 `name`；文件名变化会在你最终回复后应用。
+  - `name` 不要包含今天日期或日记目录日期。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
 
   ## 步骤 4 — 总结

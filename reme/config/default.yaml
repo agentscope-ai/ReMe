@@ -14,7 +14,9 @@ jobs:
         monitor_name: default
         dispatch_steps: [update_index_step]
       - backend: watch_changes_step
-        dispatch_steps: [update_index_step]
+        dispatch_steps:
+          - backend: update_index_step
+          - persist: False
 
   resource_watch_loop:
     backend: background

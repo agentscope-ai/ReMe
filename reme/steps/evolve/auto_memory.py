@@ -11,59 +11,24 @@ from ..base_step import BaseStep
 from ..file_io import refresh_day_index, validate_filename_component, validate_session_id
 from ...components import R
 
-_TOOL_OUTPUT_MAX = 2048
-_TOOL_OUTPUT_HALF = 1024
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
-
-
-def _truncate_text(text: str) -> str:
-    if len(text) <= _TOOL_OUTPUT_MAX:
-        return text
-    return text[:_TOOL_OUTPUT_HALF] + "\n...(truncated)...\n" + text[-_TOOL_OUTPUT_HALF:]
-
-
-def _sanitize_tool_result(block):
-    output = block.output
-    if isinstance(output, str):
-        truncated = _truncate_text(output)
-        if truncated is output:
-            return block
-        return block.model_copy(update={"output": truncated})
-    new_output = []
-    changed = False
-    for item in output:
-        if item.type == "data":
-            changed = True
-            continue
-        if item.type == "text":
-            truncated = _truncate_text(item.text)
-            if truncated is not item.text:
-                changed = True
-                new_output.append(item.model_copy(update={"text": truncated}))
-            else:
-                new_output.append(item)
-        else:
-            new_output.append(item)
-    if not changed:
-        return block
-    return block.model_copy(update={"output": new_output})
 
 
 def _sanitize_msg_for_save(msg: Msg) -> Msg:
     new_content = []
     changed = False
     for block in msg.content:
+        # Tool results often contain recalled memory/search/read output. Keeping
+        # them in saved conversation history lets retrieved facts masquerade as
+        # user-provided context in future auto-memory runs.
+        if block.type == "tool_result":
+            changed = True
+            continue
         if block.type == "data" and hasattr(block, "source") and getattr(block.source, "type", None) == "base64":
             changed = True
             continue
-        if block.type == "tool_result":
-            sanitized = _sanitize_tool_result(block)
-            if sanitized is not block:
-                changed = True
-            new_content.append(sanitized)
-        else:
-            new_content.append(block)
+        new_content.append(block)
     if not changed:
         return msg
     return msg.model_copy(update={"content": new_content})

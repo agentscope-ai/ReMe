@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
+from . import __version__
 from .components import BaseComponent, ApplicationContext
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
@@ -29,7 +30,7 @@ class Application(BaseComponent):
         if self.config.enable_logo:
             print_logo(self.config)
         logger = get_logger(log_to_console=self.config.log_to_console, log_to_file=self.config.log_to_file)
-        logger.info(f"Initializing {self.config.app_name} Application")
+        logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         super().__init__()
 
         self._init_service()
