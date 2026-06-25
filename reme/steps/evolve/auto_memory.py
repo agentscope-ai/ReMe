@@ -304,7 +304,7 @@ class AutoMemoryStep(BaseStep):
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
                 self.context.response.metadata.update(
-                    {"path": note_path, "created": created, "n_messages": len(messages)}
+                    {"path": note_path, "created": created, "n_messages": len(messages)},
                 )
                 self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
                 return
