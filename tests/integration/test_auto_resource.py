@@ -4,7 +4,8 @@ Drives the ``auto_resource`` step against a real LLM. Three scenarios:
 
 1. **CREATE (added)** / **UPDATE (modified)**: places a resource file in
    ``resource/{date}/``, calls ``auto_resource`` with a ``changes`` batch,
-   and expects the agent to write/update the same-name daily note.
+   and expects the agent to write/update the ``source_resource``-linked
+   daily note.
 
 2. **DELETE (deleted)**: seeds a resource note under
    ``daily/{date}/{resource_stem}.md``, calls ``auto_resource`` with a
@@ -98,7 +99,7 @@ def _print_message_files(label: str, paths: list[Path]) -> None:
 
 
 def test_auto_resource_create():
-    """CREATE branch: agent writes the same-name daily note and saves its AgentScope session."""
+    """CREATE branch: agent writes a source-linked daily note and saves its AgentScope session."""
 
     async def run():
         with workspace_env() as env:
@@ -135,8 +136,10 @@ def test_auto_resource_create():
                 result_meta = (meta.get("results") or [{}])[0].get("metadata") or {}
                 assert result_meta.get("action") == "added", f"Unexpected action: {meta!r}"
                 assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
-                assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
-                note_path = env.workspace_dir / "daily" / today / f"{note_stem}.md"
+                assert result_meta.get("source_resource") == f"[[{file_path}]]", f"Unexpected source: {meta!r}"
+                note_rel = result_meta.get("path")
+                assert note_rel and note_rel.startswith(f"daily/{today}/"), f"Unexpected note path: {meta!r}"
+                note_path = env.workspace_dir / note_rel
                 assert note_path.is_file()
 
                 assert expected_session_jsonl.is_file(), (
@@ -180,7 +183,7 @@ def test_auto_resource_create():
 
 
 def test_auto_resource_update():
-    """UPDATE branch: agent updates the same-name daily note and appends to its AgentScope session."""
+    """UPDATE branch: agent updates the source-linked daily note and appends to its AgentScope session."""
 
     async def run():
         with workspace_env() as env:
@@ -202,6 +205,9 @@ def test_auto_resource_update():
 
                 response = await app.run_job("auto_resource", changes=[{"path": file_path, "change": "added"}])
                 assert response.success is True, f"Initial create failed: {response.answer!r}"
+                initial_meta = ((response.metadata or {}).get("results") or [{}])[0].get("metadata") or {}
+                initial_note_rel = initial_meta.get("path")
+                assert initial_note_rel, f"Initial create did not return note path: {response.metadata!r}"
                 assert session_jsonl.is_file(), "initial added run did not save the AgentScope session"
                 size_before = session_jsonl.stat().st_size
                 print(f"[UPDATE] transcript before modify ({size_before} bytes)")
@@ -223,8 +229,10 @@ def test_auto_resource_update():
                 result_meta = (meta.get("results") or [{}])[0].get("metadata") or {}
                 assert result_meta.get("action") == "modified", f"Unexpected action: {meta!r}"
                 assert result_meta.get("session_id") == note_stem, f"Unexpected session_id: {meta!r}"
-                assert result_meta.get("path") == f"daily/{today}/{note_stem}.md", f"Unexpected note path: {meta!r}"
-                note_path = env.workspace_dir / "daily" / today / f"{note_stem}.md"
+                assert result_meta.get("source_resource") == f"[[{file_path}]]", f"Unexpected source: {meta!r}"
+                note_rel = result_meta.get("path")
+                assert note_rel == initial_note_rel, f"Unexpected note path: {meta!r}"
+                note_path = env.workspace_dir / note_rel
                 assert note_path.is_file()
 
                 size_after = session_jsonl.stat().st_size

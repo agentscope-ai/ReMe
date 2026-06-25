@@ -139,12 +139,12 @@ curl -s http://127.0.0.1:2333/list \
 Daily note：
 
 ```bash
-reme daily_create session_id=demo-session
+reme write path=daily/2026-06-20/demo-session.md name=demo-session description="Demo session" content="记录内容"
 reme daily_list
 reme daily_reindex
 ```
 
-`daily_create` 会创建 `daily/<date>/<session_id>.md`，并刷新 `daily/<date>.md`。
+`write` 可直接创建 daily note；需要刷新当天索引时运行 `daily_reindex`。
 
 ---
 
@@ -170,7 +170,7 @@ reme auto_dream date=2026-06-20
 reme proactive date=2026-06-20
 ```
 
-这些流程需要可用 LLM；未配置 LLM 时请先使用 `write/read/search/daily_create` 这类基础能力。
+这些流程需要可用 LLM；未配置 LLM 时请先使用 `write/read/search` 这类基础能力。
 
 更多细节见 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md)、[Auto Dream](./auto_dream.md) 和
 [Proactive](./proactive.md)。

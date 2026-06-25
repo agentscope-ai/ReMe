@@ -1,7 +1,7 @@
 # Auto Resource `Beta`
 
-Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先按日期进入 `resource/`，再被解读成同名 daily
-资源卡片，最后由当天的 `YYYY-MM-DD.md` 统一索引。
+Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先按日期进入 `resource/`，再被解读成 daily
+资源卡片；卡片文件名由 LLM 生成的 frontmatter `name` 决定，并通过 `source_resource` 追溯原始文件。
 
 <p align="center">
   <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
@@ -12,9 +12,9 @@ Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文
 
 ```text
 resource/YYYY-MM-DD/<resource_file>
-  ├─ step 1: daily/YYYY-MM-DD/<resource_name>.md  # 资源解读卡片
-  ├─ step 2: daily/YYYY-MM-DD.md                  # 当天索引再串起来
-  └─ source: resource/YYYY-MM-DD/<resource_file>  # 原始资源保留原位
+  ├─ step 1: daily/YYYY-MM-DD/<generated_name>.md # 资源解读卡片
+  ├─ step 2: source_resource 指回原始资源
+  └─ step 3: daily/YYYY-MM-DD.md                  # 当天索引再串起来
 ```
 
 ## 它记录什么
@@ -47,15 +47,23 @@ workspace/
 
 ## 资源卡片
 
-每个资源文件会生成一张同名 daily 资源卡片。文件名 stem 会成为卡片名：
+每个资源文件会生成一张 daily 资源卡片。创建时先使用资源文件 stem 作为临时路径，Agent 写入后，系统会根据
+frontmatter `name` 重命名文件：
 
 ```text
 resource/2026-06-20/market-report.md
         ↓
-daily/2026-06-20/market-report.md
+daily/2026-06-20/市场报告要点.md
 ```
 
-如果资源文件更新，Auto Resource 会重新解读并更新这张卡片；如果资源文件删除，对应的 daily note 也会被清理。
+资源卡片通过 frontmatter 关联原始文件：
+
+```yaml
+source_resource: "[[resource/2026-06-20/market-report.md]]"
+```
+
+如果资源文件更新，Auto Resource 会通过 `source_resource` 找到对应卡片并更新；如果资源文件删除，对应的 daily note
+也会被清理。旧版本按 stem 生成的 `daily/YYYY-MM-DD/<resource_stem>.md` 仍作为 fallback 兼容。
 
 ## 当天索引
 
@@ -65,8 +73,8 @@ daily/2026-06-20/market-report.md
 daily/
   2026-06-20.md
   2026-06-20/
-    market-report.md
-    meeting-notes.md
+    市场报告要点.md
+    会议纪要整理.md
 ```
 
 以后想回看这一天处理过哪些资料，先看 `YYYY-MM-DD.md`；想看某份资料沉淀了什么，再进入对应的资源卡片。

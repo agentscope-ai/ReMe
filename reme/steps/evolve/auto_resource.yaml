@@ -17,8 +17,9 @@ system_prompt: |
 
   ## Frontmatter Rules
 
-  - `name` = the filename stem, copied verbatim. Do not Title-Case or rewrite it.
+  - `name` = a concise, stable filename stem suggested from the resource content. The system may sanitize it, de-duplicate it, or keep the existing filename after your final response.
   - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
+  - `source_resource` = a wikilink to the original resource file.
   - **Never set `status`** — it is a field reserved for downstream processing.
 system_prompt_zh: |
   你是自动资源解读系统。你的职责是读取一个资源文件，并将结构化摘要记录到指定路径的日记中。思考这个文件中哪些信息对未来检索和理解最有价值。
@@ -39,14 +40,16 @@ system_prompt_zh: |
 
   ## Frontmatter 规则
 
-  - `name` = 文件名 stem，逐字照抄。不要 Title-Case 化，不要改写。
+  - `name` = 根据资源内容建议的简洁、稳定文件名 stem。系统可能在你最终回复后清洗、去重，或保留已有文件名。
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
+  - `source_resource` = 指向原始资源文件的 wikilink。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
 user_message_create: |
   Date: {date}
   Workspace directory: {workspace_dir}
   Resource file: {file_path}
+  Source resource link: {source_resource}
   Target note path: {note_path}
 
   # Resource File Content
@@ -65,11 +68,14 @@ user_message_create: |
 
   ## Step 2 — Write
 
-  The target file is a newly created empty file. Write the full content in one shot:
-  `write path={note_path} name=<name> description=<description> content=<body>`
+  The target file does not exist. Create it in one shot:
+  `write path={note_path} name=<suggested name> description=<description> content=<body> metadata={{"source_resource": "{source_resource}"}}`
 
-  - `name` must equal the filename stem of the target path (the part between the last `/` and `.md`), copied verbatim.
+  - Suggest `name` from the resource content as a concise, stable filename stem.
+  - `name` should be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+  - Keep `source_resource` exactly `{source_resource}` so the note points back to the original file.
+  - The target path is temporary; the system will decide the final filename from frontmatter `name` after validation and de-duplication.
 
   ## Step 3 — Summary
 
@@ -82,6 +88,7 @@ user_message_create_zh: |
   日期：{date}
   Workspace 目录：{workspace_dir}
   资源文件：{file_path}
+  原始资源链接：{source_resource}
   目标笔记路径：{note_path}
 
   # 资源文件内容
@@ -100,11 +107,14 @@ user_message_create_zh: |
 
   ## 步骤 2 — 写入
 
-  目标文件是新建的空文件。一次性写入完整内容：
-  `write path={note_path} name=<name> description=<description> content=<正文>`
+  目标文件不存在。一次性创建完整内容：
+  `write path={note_path} name=<建议的 name> description=<description> content=<正文> metadata={{"source_resource": "{source_resource}"}}`
 
-  - `name` 必须等于目标路径的文件名 stem（最后一个 `/` 与 `.md` 之间的部分），逐字照抄。
+  - 根据资源内容建议简洁、稳定的文件名 stem 作为 `name`。
+  - `name` 应该是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+  - 在 frontmatter 保留严格等于 `{source_resource}` 的 `source_resource`，让笔记能追溯到原始文件。
+  - 目标路径只是临时路径；系统会在你最终回复后校验、去重，并决定最终文件名。
 
   ## 步骤 3 — 总结
 
@@ -118,6 +128,7 @@ user_message_update: |
   Date: {date}
   Workspace directory: {workspace_dir}
   Resource file: {file_path}
+  Source resource link: {source_resource}
   Target note path: {note_path}
 
   # Resource File Content (Updated)
@@ -146,16 +157,19 @@ user_message_update: |
 
   Execution:
   1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
-  2. After body changes, refresh the frontmatter description: `frontmatter_update path={note_path} metadata={{"description": "<updated summary>"}}`.
-  3. If `edit` fails repeatedly (e.g., cannot find the original text), fall back to `write path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
+  2. After body changes, refresh frontmatter: `frontmatter_update path={note_path} metadata={{"name": "<suggested name>", "description": "<updated summary>", "source_resource": "{source_resource}"}}`.
+  3. If `edit` fails repeatedly (e.g., cannot find the original text), fall back to `write path={note_path} name=<suggested name> description=<description> content=<full body> metadata={{"source_resource": "{source_resource}"}}` for a complete rewrite.
 
   ## Step 2b — Full Write (Empty File Fallback)
 
   The file exists but its body is empty. Write the full content in one shot:
-  `write path={note_path} name=<name> description=<description> content=<body>`
+  `write path={note_path} name=<suggested name> description=<description> content=<body> metadata={{"source_resource": "{source_resource}"}}`
 
-  - `name` must equal the filename stem of the target path (the part between the last `/` and `.md`), copied verbatim.
+  - Suggest `name` from the resource content as a concise, stable filename stem.
+  - `name` should be a valid single filename component.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+  - Keep `source_resource` exactly `{source_resource}` so the note points back to the original file.
+  - Filename changes are only suggestions expressed by updating frontmatter `name`; the system may keep the existing filename after your final response.
 
   ## Step 3 — Summary
 
@@ -169,6 +183,7 @@ user_message_update_zh: |
   日期：{date}
   Workspace 目录：{workspace_dir}
   资源文件：{file_path}
+  原始资源链接：{source_resource}
   目标笔记路径：{note_path}
 
   # 资源文件内容（已更新）
@@ -197,16 +212,19 @@ user_message_update_zh: |
 
   执行：
   1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
-  2. 正文变更后，刷新 frontmatter 的 description：`frontmatter_update path={note_path} metadata={{"description": "<更新后的总结>"}}`。
-  3. 如果 `edit` 多次失败（如找不到原文），退回 `write path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
+  2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<建议的 name>", "description": "<更新后的总结>", "source_resource": "{source_resource}"}}`。
+  3. 如果 `edit` 多次失败（如找不到原文），退回 `write path={note_path} name=<建议的 name> description=<description> content=<完整正文> metadata={{"source_resource": "{source_resource}"}}` 全量重写。
 
   ## 步骤 2b — 全量写入（空文件 fallback）
 
   文件存在但正文为空。一次性写入完整内容：
-  `write path={note_path} name=<name> description=<description> content=<正文>`
+  `write path={note_path} name=<建议的 name> description=<description> content=<正文> metadata={{"source_resource": "{source_resource}"}}`
 
-  - `name` 必须等于目标路径的文件名 stem（最后一个 `/` 与 `.md` 之间的部分），逐字照抄。
+  - 根据资源内容建议简洁、稳定的文件名 stem 作为 `name`。
+  - `name` 应该是合法的单个文件名组件。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+  - 在 frontmatter 保留严格等于 `{source_resource}` 的 `source_resource`，让笔记能追溯到原始文件。
+  - 文件名变化通过更新 frontmatter `name` 表达为建议；系统可能在你最终回复后保留已有文件名。
 
   ## 步骤 3 — 总结
 

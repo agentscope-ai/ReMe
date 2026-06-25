@@ -3,7 +3,6 @@
 from ._daily_index import refresh_day_index, validate_session_id
 from ._file_io import write_file_safe
 from ._path import validate_filename_component
-from .daily_create import DailyCreateStep
 from .daily_list import DailyListStep
 from .daily_reindex import DailyReindexStep
 from .daily_write import DailyWriteStep
@@ -24,7 +23,6 @@ __all__ = [
     "validate_session_id",
     "validate_filename_component",
     "write_file_safe",
-    "DailyCreateStep",
     "DailyListStep",
     "DailyReindexStep",
     "DailyWriteStep",

@@ -363,7 +363,7 @@ jobs:
 ```mermaid
 flowchart LR
     Jobs["default.yaml jobs"] --> BG["background<br/>index_update_loop<br/>resource_watch_loop<br/>digest_watch_loop"]
-    Jobs --> Base["base<br/>version / help / health_check<br/>search / node_search / traverse / reindex<br/>read / write / edit / delete / move / list / stat<br/>daily_create / daily_list / daily_reindex<br/>auto_memory / auto_resource / auto_dream / proactive"]
+    Jobs --> Base["base<br/>version / help / health_check<br/>search / node_search / traverse / reindex<br/>read / write / edit / delete / move / list / stat<br/>daily_list / daily_reindex / daily_write<br/>auto_memory / auto_resource / auto_dream / proactive"]
 ```
 
 ## 7. Step 模型

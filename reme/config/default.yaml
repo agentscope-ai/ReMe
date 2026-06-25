@@ -124,7 +124,7 @@ jobs:
             type: object
         session_id:
           type: string
-          description: "session identifier passed to daily_create"
+          description: "source conversation session identifier"
           default: ""
         memory_hint:
           type: string
@@ -287,23 +287,6 @@ jobs:
       - backend: node_search_step
         vector_weight: 0.7
         candidate_multiplier: 5.0
-
-  daily_create:
-    backend: base
-    description: "Provision a session note under a daily folder: daily/<date>/<session_id>.md or daily/<date>.md"
-    parameters:
-      type: object
-      properties:
-        session_id:
-          type: string
-          description: "the session identifier (also the file stem); empty = day-level file"
-          default: ""
-        date:
-          type: string
-          description: "YYYY-MM-DD; empty = today"
-          default: ""
-    steps:
-      - backend: daily_create_step
 
   daily_list:
     backend: base

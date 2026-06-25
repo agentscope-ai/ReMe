@@ -20,12 +20,16 @@ from unittest.mock import MagicMock
 
 from watchfiles import Change
 
+from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_resource import AutoResourceStep, _compute_note_stem
+from reme.steps.file_io.daily_list import DailyListStep
+from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
+from reme.steps.file_io.move import MoveStep
 from reme.steps.index import (
     DEFAULT_LOW_POWER_POLL_MS,
     DEFAULT_WATCH_DEBOUNCE_MS,
@@ -66,6 +70,37 @@ def write_file(path: Path, content: str = "x") -> Path:
     return path
 
 
+class _FakeAgentWrapper(BaseAgentWrapper):
+    """Capture agent calls without invoking a real model."""
+
+    def __init__(self):
+        super().__init__()
+        self.inputs = ""
+        self.kwargs = {}
+        self.on_reply = None
+
+    async def reply(self, inputs, **kwargs) -> dict:
+        self.inputs = inputs
+        self.kwargs = kwargs
+        if self.on_reply is not None:
+            self.on_reply(inputs, kwargs)
+        return {"result": "ok"}
+
+
+class _StepJob:
+    """Tiny job adapter for unit tests that need BaseStep.run_job."""
+
+    def __init__(self, step_cls, app_context, file_store):
+        self.step_cls = step_cls
+        self.app_context = app_context
+        self.file_store = file_store
+
+    async def __call__(self, **kwargs):
+        step = self.step_cls(app_context=self.app_context, file_store=self.file_store)
+        result = await step(**kwargs)
+        return result or step.context.response
+
+
 def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="digest", resource_dir="resource"):
     """Create a mock app_context with app_config pointing to the given workspace."""
     ctx = MagicMock()
@@ -75,6 +110,14 @@ def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="diges
     ctx.app_config.resource_dir = resource_dir
     ctx.app_config.timezone = None
     return ctx
+
+
+def _install_file_jobs(app_context, file_store) -> None:
+    app_context.jobs = {
+        "daily_list": _StepJob(DailyListStep, app_context, file_store),
+        "frontmatter_update": _StepJob(FrontmatterUpdateStep, app_context, file_store),
+        "move": _StepJob(MoveStep, app_context, file_store),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -642,11 +685,15 @@ def test_auto_resource_batch_deleted_changes():
             app_ctx = _make_app_context(cwd)
             fs = LocalFileStore(name="test_store", embedding_store="")
             await fs.start()
+            _install_file_jobs(app_ctx, fs)
             try:
                 filename = "file.md"
                 note_stem = _compute_note_stem(filename)
                 note_path = cwd / "daily" / "2026-01-01" / f"{note_stem}.md"
-                write_file(note_path, "---\nname: test\n---\nbody\n")
+                write_file(
+                    note_path,
+                    "---\nname: test\nsource_resource: '[[resource/2026-01-01/file.md]]'\n---\nbody\n",
+                )
 
                 step = AutoResourceStep(app_context=app_ctx, file_store=fs)
                 ctx = RuntimeContext(
@@ -672,8 +719,8 @@ def test_auto_resource_accepts_loose_root_resource():
     """Root-level resource files use today's date without moving the source."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
             app_ctx = _make_app_context(workspace)
             source = write_file(workspace / "resource" / "report.txt", "hello")
             today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -710,8 +757,8 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
     """Loose-resource compatibility does not overwrite dated resource files."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
             app_ctx = _make_app_context(workspace)
             today = datetime.datetime.now().strftime("%Y-%m-%d")
             write_file(workspace / "resource" / today / "report.txt", "existing")
@@ -745,15 +792,206 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
     asyncio.run(run())
 
 
+def test_auto_resource_modified_missing_note_uses_create_tools():
+    """A modified resource with no daily note is treated as a create."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+                wrapper.on_reply = lambda *_: write_file(
+                    cwd / "daily" / "2026-01-01" / "report.md",
+                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                assert resp.success is True
+                assert resp.metadata["results"][0]["metadata"]["created"] is True
+                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/resource-summary.md"
+                assert wrapper.kwargs["job_tools"] == ["write"]
+                assert "The target file does not exist" in wrapper.inputs
+                assert "Target note path: daily/2026-01-01/report.md" in wrapper.inputs
+                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+                assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_modified_missing_note_uses_create_tools passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_sanitizes_invalid_generated_name():
+    """Invalid LLM-suggested names are sanitized before renaming."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+                wrapper.on_reply = lambda *_: write_file(
+                    cwd / "daily" / "2026-01-01" / "report.md",
+                    "---\nname: bad/name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                assert resp.success is True
+                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/bad-name.md"
+                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+                assert "name: bad-name" in (cwd / "daily" / "2026-01-01" / "bad-name.md").read_text(encoding="utf-8")
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_sanitizes_invalid_generated_name passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_uniquifies_conflicting_generated_name():
+    """Conflicting LLM-suggested names get a stable source-derived suffix."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+                write_file(
+                    cwd / "daily" / "2026-01-01" / "resource-summary.md",
+                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/other.txt]]'\n---\nother\n",
+                )
+                wrapper.on_reply = lambda *_: write_file(
+                    cwd / "daily" / "2026-01-01" / "report.md",
+                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                path = resp.metadata["results"][0]["metadata"]["path"]
+                assert resp.success is True
+                assert path.startswith("daily/2026-01-01/resource-summary--")
+                assert path.endswith(".md")
+                assert (cwd / path).exists()
+                assert "name: resource-summary--" in (cwd / path).read_text(encoding="utf-8")
+                assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
+                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_uniquifies_conflicting_generated_name passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_update_finds_renamed_note_by_source_resource():
+    """A modified resource updates the renamed note linked by source_resource."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
+                write_file(
+                    cwd / "daily" / "2026-01-01" / "generated-name.md",
+                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                assert resp.success is True
+                assert resp.metadata["results"][0]["metadata"]["created"] is False
+                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+                assert wrapper.kwargs["job_tools"] == ["read", "edit", "frontmatter_update", "write"]
+                assert "Target note path: daily/2026-01-01/generated-name.md" in wrapper.inputs
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_update_finds_renamed_note_by_source_resource passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_update_keeps_existing_renamed_path():
+    """Updates do not rename an already-renamed note from a fresh LLM suggestion."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
+                write_file(
+                    cwd / "daily" / "2026-01-01" / "generated-name.md",
+                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
+                )
+
+                def rewrite_frontmatter(*_args):
+                    write_file(
+                        cwd / "daily" / "2026-01-01" / "generated-name.md",
+                        "---\nname: new-suggestion\nsource_resource: "
+                        "'[[resource/2026-01-01/report.txt]]'\n---\nnew body\n",
+                    )
+
+                wrapper.on_reply = rewrite_frontmatter
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                path = cwd / "daily" / "2026-01-01" / "generated-name.md"
+                assert resp.success is True
+                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+                assert path.exists()
+                text = path.read_text(encoding="utf-8")
+                assert "name: generated-name" in text
+                assert not (cwd / "daily" / "2026-01-01" / "new-suggestion.md").exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_update_keeps_existing_renamed_path passed")
+
+    asyncio.run(run())
+
+
 def test_auto_resource_deletes_loose_root_resource_note_for_today():
     """Deleting a loose root resource deletes today's same-stem note."""
 
     async def run():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            workspace = Path(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
             app_ctx = _make_app_context(workspace)
             fs = LocalFileStore(name="test_store", embedding_store="")
             await fs.start()
+            _install_file_jobs(app_ctx, fs)
             try:
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
                 note_path = write_file(workspace / "daily" / today / "report.md", "---\nname: report\n---\nbody\n")
@@ -767,6 +1005,37 @@ def test_auto_resource_deletes_loose_root_resource_note_for_today():
             finally:
                 await fs.close()
         print("✓ test_auto_resource_deletes_loose_root_resource_note_for_today passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_deletes_renamed_note_by_source_resource():
+    """Deleting a resource removes the note even after frontmatter-name rename."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            app_ctx = _make_app_context(workspace)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                note_path = write_file(
+                    workspace / "daily" / "2026-01-01" / "generated-name.md",
+                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+                )
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "deleted", "path": "resource/2026-01-01/report.txt"}]),
+                )
+
+                assert resp.success is True
+                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+                assert not note_path.exists()
+            finally:
+                await fs.close()
+        print("✓ test_auto_resource_deletes_renamed_note_by_source_resource passed")
 
     asyncio.run(run())
 
@@ -858,7 +1127,13 @@ if __name__ == "__main__":
     test_auto_resource_batch_deleted_changes()
     test_auto_resource_accepts_loose_root_resource()
     test_auto_resource_loose_root_resource_keeps_existing_dated_resource()
+    test_auto_resource_modified_missing_note_uses_create_tools()
+    test_auto_resource_sanitizes_invalid_generated_name()
+    test_auto_resource_uniquifies_conflicting_generated_name()
+    test_auto_resource_update_finds_renamed_note_by_source_resource()
+    test_auto_resource_update_keeps_existing_renamed_path()
     test_auto_resource_deletes_loose_root_resource_note_for_today()
+    test_auto_resource_deletes_renamed_note_by_source_resource()
     test_auto_resource_result_hook_is_optional_and_isolated()
     # LogChangesStep
     test_log_changes_step()

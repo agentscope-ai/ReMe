@@ -532,8 +532,8 @@ class WorkspaceEnv:
     ) -> Path:
         """Like ``wait_for_glob`` but only returns once the file exceeds ``min_bytes``.
 
-        ``daily_create`` writes a ~50-byte frontmatter-only stub before the
-        agent fills in the body, so a simple ``glob`` check returns too early.
+        Agent-created notes may appear before their body is fully written, so
+        a simple ``glob`` check can return too early.
         """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

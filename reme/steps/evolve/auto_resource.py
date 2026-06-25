@@ -1,16 +1,23 @@
-"""auto_resource — interpret resource files into same-name daily notes via an agent."""
+"""auto_resource — interpret resource files into source-linked daily notes via an agent."""
 
+import hashlib
 import inspect
+import re
 import uuid
 from pathlib import Path, PurePosixPath
 
 import aiofiles
+import frontmatter
 from watchfiles import Change
 
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index
+from ..file_io import refresh_day_index, validate_filename_component
 from ...components import R
 from ._evolve import agent_reply_result_text, now
+
+_SOURCE_RESOURCE_KEY = "source_resource"
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 
 
 def _compute_agent_session_id(path: str) -> str:
@@ -31,10 +38,13 @@ def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
     parts = PurePosixPath(file_path).parts
     # Strip leading resource_dir prefix
     prefix_parts = PurePosixPath(resource_dir).parts
-    if parts[: len(prefix_parts)] == prefix_parts:
-        parts = parts[len(prefix_parts) :]
+    if parts[: len(prefix_parts)] != prefix_parts:
+        return "", ""
+    parts = parts[len(prefix_parts) :]
     # First segment is date, rest is filename
     date_str = parts[0] if parts else ""
+    if not _DATE_RE.match(date_str):
+        return "", ""
     filename = str(PurePosixPath(*parts[1:])) if len(parts) > 1 else ""
     return date_str, filename
 
@@ -63,13 +73,34 @@ def _results_answer(results: list[dict], processed_answer: str) -> str:
     return processed_answer
 
 
+def _source_suffix(file_path: str) -> str:
+    """Return a short stable suffix for source-path collision handling."""
+    return hashlib.sha1(file_path.encode("utf-8")).hexdigest()[:8]
+
+
+def _sanitize_note_name(raw: str, fallback: str) -> str:
+    """Return a safe single filename component from an LLM-suggested name."""
+    name = str(raw or "").strip()
+    name = _UNSAFE_FILENAME_CHARS.sub("-", name)
+    name = re.sub(r"\s+", " ", name).strip(" .")
+    if not name:
+        name = str(fallback or "").strip()
+    name = _UNSAFE_FILENAME_CHARS.sub("-", name).strip(" .")
+    if not name or validate_filename_component(name, kind="name"):
+        name = f"resource-{_source_suffix(fallback or raw or 'note')}"
+    if validate_filename_component(name, kind="name"):
+        name = f"resource-{_source_suffix(name)}"
+    return name
+
+
 @R.register("auto_resource_step")
 class AutoResourceStep(BaseStep):
     """Interpret resource files into daily notes via an Agent."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.agent_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
+        self.create_tools: list[str] = ["write"]
+        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     def _normalize_change(self, raw) -> Change | None:
         if isinstance(raw, Change):
@@ -81,6 +112,108 @@ class AutoResourceStep(BaseStep):
     def _today(self) -> str:
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         return now(tz).strftime("%Y-%m-%d")
+
+    def _daily_note_path(self, day: str, name: str) -> str:
+        return f"{self.config_value('daily_dir')}/{day}/{name}.md"
+
+    @staticmethod
+    def _source_resource_link(file_path: str) -> str:
+        return f"[[{file_path}]]"
+
+    def _frontmatter(self, path: str) -> dict:
+        post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
+        return dict(post.metadata or {})
+
+    def _find_resource_note(self, notes: list[dict], file_path: str, fallback_path: str) -> dict | None:
+        source = self._source_resource_link(file_path)
+        for note in notes:
+            if str(note.get(_SOURCE_RESOURCE_KEY, "")).strip() == source:
+                return note
+        for note in notes:
+            if str(note.get("path", "")).strip() == fallback_path:
+                return note
+        return None
+
+    async def _list_resource_note(self, day: str, file_path: str, fallback_path: str) -> dict | None:
+        list_response = await self.run_job("daily_list", date=day)
+        if not list_response.success:
+            raise RuntimeError(f"daily_list failed: {list_response.answer}")
+        notes = list_response.metadata.get("notes") or []
+        return self._find_resource_note(notes, file_path, fallback_path)
+
+    async def _ensure_resource_frontmatter(self, path: str, file_path: str) -> None:
+        response = await self.run_job(
+            "frontmatter_update",
+            path=path,
+            metadata={_SOURCE_RESOURCE_KEY: self._source_resource_link(file_path)},
+        )
+        if not response.success:
+            raise RuntimeError(f"frontmatter_update failed: {response.answer}")
+
+    async def _set_frontmatter_name(self, path: str, name: str) -> None:
+        response = await self.run_job("frontmatter_update", path=path, metadata={"name": name})
+        if not response.success:
+            raise RuntimeError(f"frontmatter_update failed: {response.answer}")
+
+    def _unique_daily_note_path(self, day: str, name: str, file_path: str, current_path: str) -> tuple[str, str]:
+        """Return a collision-free (name, path), preserving current_path when possible."""
+        target_path = self._daily_note_path(day, name)
+        target_abs = self.file_store.workspace_path / target_path
+        if target_path == current_path or not target_abs.exists():
+            return name, target_path
+
+        suffixed = f"{name}--{_source_suffix(file_path)}"
+        target_path = self._daily_note_path(day, suffixed)
+        target_abs = self.file_store.workspace_path / target_path
+        if target_path == current_path or not target_abs.exists():
+            return suffixed, target_path
+
+        for index in range(2, 100):
+            candidate = f"{suffixed}-{index}"
+            target_path = self._daily_note_path(day, candidate)
+            target_abs = self.file_store.workspace_path / target_path
+            if target_path == current_path or not target_abs.exists():
+                return candidate, target_path
+        raise RuntimeError(f"cannot allocate unique note name for: {name!r}")
+
+    async def _rename_from_frontmatter_name(
+        self,
+        path: str,
+        day: str,
+        file_path: str,
+        fallback_name: str,
+        fallback_path: str,
+        *,
+        allow_rename: bool,
+    ) -> str:
+        meta = self._frontmatter(path)
+        current_name = PurePosixPath(path).stem
+        suggested_name = str(meta.get("name", "")).strip()
+
+        if not allow_rename and path != fallback_path:
+            name = _sanitize_note_name(current_name, fallback_name)
+            if suggested_name != name:
+                await self._set_frontmatter_name(path, name)
+            return path
+
+        name = _sanitize_note_name(suggested_name, fallback_name)
+        name, target_path = self._unique_daily_note_path(day, name, file_path, path)
+        if suggested_name != name:
+            await self._set_frontmatter_name(path, name)
+
+        if target_path == path:
+            return path
+
+        move_response = await self.run_job(
+            "move",
+            src_path=path,
+            dst_path=target_path,
+            overwrite=False,
+            retarget=True,
+        )
+        if not move_response.success:
+            raise RuntimeError(f"move failed: {move_response.answer}")
+        return target_path
 
     async def _emit_result_hook(self, *, changes: list[dict], results: list[dict]) -> None:
         """Notify embedding hosts about the final auto-resource response.
@@ -108,9 +241,18 @@ class AutoResourceStep(BaseStep):
         except Exception:
             self.logger.exception(f"[{self.name}] result hook failed")
 
-    async def _handle_delete(self, date_str: str, note_stem: str) -> None:
+    async def _handle_delete(self, file_path: str, date_str: str, note_stem: str) -> None:
         daily_dir = self.config_value("daily_dir")
-        note_rel = f"{daily_dir}/{date_str}/{note_stem}.md"
+        fallback_path = f"{daily_dir}/{date_str}/{note_stem}.md"
+        try:
+            note = await self._list_resource_note(date_str, file_path, fallback_path)
+        except RuntimeError as exc:
+            self.context.response.success = False
+            self.context.response.answer = str(exc)
+            self.logger.info(f"[{self.name}] delete list failed file_path={file_path} answer={str(exc)!r}")
+            return
+
+        note_rel = str(note["path"]) if note else fallback_path
         note_abs = self.workspace_path / note_rel
         self.logger.info(f"[{self.name}] delete start note={note_rel}")
 
@@ -127,26 +269,38 @@ class AutoResourceStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = f"Deleted resource note: {note_rel}"
         self.context.response.metadata.update(
-            {"path": note_rel, "session_id": note_stem, "action": "deleted", "index": index_payload},
+            {
+                "path": note_rel,
+                "session_id": note_stem,
+                "source_resource": self._source_resource_link(file_path),
+                "action": "deleted",
+                "index": index_payload,
+            },
         )
 
-    async def _handle_upsert(self, file_path: str, date_str: str, note_stem: str, created: bool) -> None:
+    async def _handle_upsert(
+        self,
+        file_path: str,
+        date_str: str,
+        note_stem: str,
+        added: bool,
+    ) -> None:
         self.logger.info(
-            f"[{self.name}] upsert start file_path={file_path} date={date_str} "
-            f"note_stem={note_stem} created={created}",
+            f"[{self.name}] upsert start file_path={file_path} date={date_str} " f"note_stem={note_stem} added={added}",
         )
-        create_response = await self.run_job("daily_create", session_id=note_stem, date=date_str)
-        if not create_response.success:
+        daily_dir = self.config_value("daily_dir")
+        fallback_path = f"{daily_dir}/{date_str}/{note_stem}.md"
+        try:
+            note = await self._list_resource_note(date_str, file_path, fallback_path)
+        except RuntimeError as exc:
             self.context.response.success = False
-            self.context.response.answer = f"daily_create failed: {create_response.answer}"
-            self.logger.info(
-                f"[{self.name}] daily_create failed file_path={file_path} answer={create_response.answer!r}",
-            )
+            self.context.response.answer = str(exc)
+            self.logger.info(f"[{self.name}] list failed file_path={file_path} answer={str(exc)!r}")
             return
 
-        note_path: str = create_response.metadata["path"]
-        note_created: bool = create_response.metadata["created"]
-        self.logger.info(f"[{self.name}] daily note ready path={note_path} created={note_created}")
+        note_path = str(note["path"]) if note else fallback_path
+        note_created = note is None
+        self.logger.info(f"[{self.name}] daily note lookup path={note_path} created={note_created}")
 
         # Read resource file content
         abs_path = self.workspace_path / file_path
@@ -161,12 +315,14 @@ class AutoResourceStep(BaseStep):
             file_content = await f.read()
         self.logger.info(f"[{self.name}] read resource done file_path={file_path} chars={len(file_content)}")
 
-        template_key = "user_message_create" if created else "user_message_update"
+        template_key = "user_message_create" if note_created else "user_message_update"
         user_message = self.prompt_format(
             template_key,
             workspace_dir=str(self.workspace_path),
             note_path=note_path,
+            note_stem=note_stem,
             file_path=file_path,
+            source_resource=self._source_resource_link(file_path),
             file_content=file_content,
             date=date_str,
         )
@@ -179,11 +335,45 @@ class AutoResourceStep(BaseStep):
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
-            job_tools=self.agent_tools,
+            job_tools=self.create_tools if note_created else self.update_tools,
             session_id=agent_session_id,
         )
         self.logger.info(f"[{self.name}] agent done file_path={file_path} has_result={bool(result.get('result'))}")
-        daily_dir = self.config_value("daily_dir")
+
+        if note_created:
+            try:
+                note = await self._list_resource_note(date_str, file_path, fallback_path)
+            except RuntimeError as exc:
+                self.context.response.success = False
+                self.context.response.answer = str(exc)
+                self.context.response.metadata.update({"path": None, "created": note_created})
+                self.logger.info(f"[{self.name}] post-create list failed file_path={file_path} answer={str(exc)!r}")
+                return
+            if note is None:
+                self.context.response.success = True
+                self.context.response.answer = agent_reply_result_text(result)
+                self.context.response.metadata.update({"path": None, "created": False})
+                self.logger.info(f"[{self.name}] done without note file_path={file_path}")
+                return
+            note_path = str(note["path"])
+
+        try:
+            await self._ensure_resource_frontmatter(note_path, file_path)
+            note_path = await self._rename_from_frontmatter_name(
+                note_path,
+                date_str,
+                file_path,
+                note_stem,
+                fallback_path,
+                allow_rename=note_created,
+            )
+        except RuntimeError as exc:
+            self.context.response.success = False
+            self.context.response.answer = str(exc)
+            self.context.response.metadata.update({"path": note_path, "created": note_created})
+            self.logger.info(f"[{self.name}] post-agent failed path={note_path} answer={str(exc)!r}")
+            return
+
         self.logger.info(f"[{self.name}] refresh index start date={date_str} daily_dir={daily_dir}")
         index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
         self.logger.info(f"[{self.name}] refresh index done date={date_str}")
@@ -195,8 +385,9 @@ class AutoResourceStep(BaseStep):
                 "path": note_path,
                 "created": note_created,
                 "session_id": note_stem,
+                "source_resource": self._source_resource_link(file_path),
                 "agent_session_id": agent_session_id,
-                "action": "added" if created else "modified",
+                "action": "added" if added else "modified",
                 "index": index_payload,
             },
         )
@@ -236,13 +427,13 @@ class AutoResourceStep(BaseStep):
         self.logger.info(f"[{self.name}] {change.name} file_path={file_path} note_stem={note_stem}")
 
         if change == Change.deleted:
-            await self._handle_delete(date_str, note_stem)
+            await self._handle_delete(file_path, date_str, note_stem)
         else:
             await self._handle_upsert(
                 file_path,
                 date_str,
                 note_stem,
-                created=change == Change.added,
+                change == Change.added,
             )
         return {
             "success": self.context.response.success,
