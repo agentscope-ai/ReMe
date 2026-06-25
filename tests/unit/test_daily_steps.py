@@ -24,10 +24,8 @@ to the plugin layer.
 import asyncio
 import os
 import tempfile
-from datetime import date as _date
-from pathlib import Path
-
 import warnings
+from pathlib import Path
 
 import frontmatter
 
