@@ -120,7 +120,9 @@ def test_daily_list_default_date_is_today():
                     ("2026-05-17", "yesterday", "y"),
                 ],
             )
-            step = daily_list_step.DailyListStep(file_store=store)
+            app_context = ApplicationContext(workspace_dir=tmp)
+            app_context.components[ComponentEnum.FILE_STORE] = {"default": store}
+            step = daily_list_step.DailyListStep(file_store=store, app_context=app_context)
             await step()
             payload = _metadata(step)
             assert payload["date"] == _today()
