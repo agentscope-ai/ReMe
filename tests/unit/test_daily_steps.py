@@ -35,11 +35,17 @@ from pathlib import Path
 
 import warnings
 
+import frontmatter
+
+from reme.components import ApplicationContext
 from reme.components.file_store import LocalFileStore
+from reme.components.job import BaseJob
+from reme.enumeration import ComponentEnum
 from reme.steps.file_io import (
     daily_create as daily_create_step,
     daily_list as daily_list_step,
     daily_reindex as daily_reindex_step,
+    daily_write as daily_write_step,
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -96,6 +102,16 @@ async def _seed_note(date: str, session_id: str, name: str = "", description: st
         fm_lines.append(f"description: {description}")
     text = "---\n" + "\n".join(fm_lines) + "\n---\nbody\n"
     (day_dir / f"{session_id}.md").write_text(text, encoding="utf-8")
+
+
+async def _make_daily_write_step(store: LocalFileStore, workspace_dir: str):
+    """Build ``daily_write`` with a real ``write`` job in a minimal app context."""
+    app_context = ApplicationContext(workspace_dir=workspace_dir)
+    app_context.components[ComponentEnum.FILE_STORE] = {"default": store}
+    write_job = BaseJob(name="write", app_context=app_context, steps=[{"backend": "write_step"}])
+    await write_job.start()
+    app_context.jobs["write"] = write_job
+    return daily_write_step.DailyWriteStep(app_context=app_context), write_job
 
 
 # -- daily_list_step ----------------------------------------------------------
@@ -427,6 +443,104 @@ def test_daily_create_then_skip_round_trip():
     asyncio.run(run())
 
 
+# -- daily_write_step ---------------------------------------------------------
+
+
+def test_daily_write_delegates_to_write_and_refreshes_index():
+    """``daily_write`` writes body/frontmatter through ``write`` and refreshes the day index."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step, write_job = await _make_daily_write_step(store, tmp)
+
+            await step(
+                name="project-plan",
+                description="Plan note",
+                session_id="2f85a30f4faa41b39380cabb647c1b5b",
+                content="body text",
+                metadata={"tag": "kept"},
+            )
+            payload = _metadata(step)
+
+            assert step.context.response.success is True
+            assert payload["path"] == f"daily/{_today()}/project-plan.md"
+            assert payload["source_conversation"] == "[[session/dialog/2f85a30f4faa41b39380cabb647c1b5b.jsonl]]"
+
+            note = Path(tmp) / "daily" / _today() / "project-plan.md"
+            post = frontmatter.loads(note.read_text(encoding="utf-8"))
+            assert post.metadata["name"] == "project-plan"
+            assert post.metadata["description"] == "Plan note"
+            assert post.metadata["session_id"] == "2f85a30f4faa41b39380cabb647c1b5b"
+            assert post.metadata["source_conversation"] == "[[session/dialog/2f85a30f4faa41b39380cabb647c1b5b.jsonl]]"
+            assert post.metadata["tag"] == "kept"
+            assert post.content.strip() == "body text"
+
+            index = Path(tmp) / "daily" / f"{_today()}.md"
+            assert index.is_file()
+            assert f"[[daily/{_today()}/project-plan.md]]" in index.read_text(encoding="utf-8")
+            await write_job.close()
+            await store.close()
+        print("✓ test_daily_write_delegates_to_write_and_refreshes_index passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_reserved_metadata_keys_are_overridden():
+    """User metadata cannot override daily_write's fixed frontmatter fields."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step, write_job = await _make_daily_write_step(store, tmp)
+
+            await step(
+                name="real-name",
+                description="Real description",
+                session_id="real-session",
+                content="body",
+                metadata={
+                    "name": "bad-name",
+                    "description": "bad-description",
+                    "session_id": "bad-session",
+                    "source_conversation": "[[bad]]",
+                    "priority": 2,
+                },
+            )
+
+            post = frontmatter.loads((Path(tmp) / "daily" / _today() / "real-name.md").read_text(encoding="utf-8"))
+            assert post.metadata["name"] == "real-name"
+            assert post.metadata["description"] == "Real description"
+            assert post.metadata["session_id"] == "real-session"
+            assert post.metadata["source_conversation"] == "[[session/dialog/real-session.jsonl]]"
+            assert post.metadata["priority"] == 2
+            await write_job.close()
+            await store.close()
+        print("✓ test_daily_write_reserved_metadata_keys_are_overridden passed")
+
+    asyncio.run(run())
+
+
+def test_daily_write_rejects_invalid_name_and_session_id():
+    """Path-bearing fields are validated before write job execution."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step, write_job = await _make_daily_write_step(store, tmp)
+
+            await step(name="bad/name", description="d", session_id="ok", content="body")
+            assert step.context.response.success is False
+            await step(name="ok", description="d", session_id="bad/session", content="body")
+            assert step.context.response.success is False
+            assert not (Path(tmp) / "daily" / _today()).exists()
+            await write_job.close()
+            await store.close()
+        print("✓ test_daily_write_rejects_invalid_name_and_session_id passed")
+
+    asyncio.run(run())
+
+
 # -- day index: daily/<date>.md ------------------------------------------
 
 
@@ -639,6 +753,9 @@ if __name__ == "__main__":
     test_daily_create_rejects_invalid_session_id()
     test_daily_create_empty_session_id_creates_day_level_file()
     test_daily_create_then_skip_round_trip()
+    test_daily_write_delegates_to_write_and_refreshes_index()
+    test_daily_write_reserved_metadata_keys_are_overridden()
+    test_daily_write_rejects_invalid_name_and_session_id()
     test_day_index_lists_each_note()
     test_day_index_includes_note_descriptions()
     test_day_index_description_is_note_count()

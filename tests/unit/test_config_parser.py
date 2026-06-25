@@ -20,6 +20,16 @@ def test_load_builtin_config_by_filename_with_suffix():
     assert cfg["service"]["backend"] == "http"
 
 
+def test_default_config_registers_daily_write_job():
+    """``daily_write`` is exposed as a base job backed by ``daily_write_step``."""
+    cfg = _load_config("default.yaml")
+
+    job = cfg["jobs"]["daily_write"]
+    assert job["backend"] == "base"
+    assert job["steps"] == [{"backend": "daily_write_step"}]
+    assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
+
+
 def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):

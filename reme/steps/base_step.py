@@ -168,13 +168,13 @@ class BaseStep(ComponentMixin, ABC):
         """Construct a new instance from the original init args, applying overrides."""
         return self.__class__(*self._init_args, **{**self._init_kwargs, **kwargs})
 
-    def get_job(self, name: str) -> "BaseJob | None":
+    def get_job(self, name: str, /) -> "BaseJob | None":
         """Return a job by name."""
         if self.app_context is None:
             raise RuntimeError("Cannot get job without an app context")
         return self.app_context.jobs.get(name)
 
-    async def run_job(self, name: str, **kwargs) -> Response:
+    async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a job by name and kwargs, return the final response."""
         job: "BaseJob | None" = self.get_job(name)
         if job is None:

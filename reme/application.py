@@ -209,14 +209,6 @@ class Application(BaseComponent):
             self.context.thread_pool.shutdown(wait=True)
             self.context.thread_pool = None
 
-    # ----- Job execution -------------------------------------------------
-
-    async def run_job(self, name: str, /, **kwargs) -> Response:
-        """Execute a registered job by name and return its final Response."""
-        if name not in self.context.jobs:
-            raise KeyError(f"Job '{name}' not found")
-        return await self.context.jobs[name](**kwargs)
-
     async def update_component(self, component_enum: ComponentEnum | str, name: str, /, **kwargs) -> BaseComponent:
         """Update an existing component by type/name; never creates missing components."""
         component_enum = ComponentEnum(component_enum)
@@ -230,6 +222,14 @@ class Application(BaseComponent):
                 raise AttributeError(f"Component {component_enum.value}:{name} has no attribute '{key}'")
             setattr(component, key, value)
         return component
+
+    # ----- Job execution -------------------------------------------------
+
+    async def run_job(self, name: str, /, **kwargs) -> Response:
+        """Execute a registered job by name and return its final Response."""
+        if name not in self.context.jobs:
+            raise KeyError(f"Job '{name}' not found")
+        return await self.context.jobs[name](**kwargs)
 
     async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job, yielding chunks as they are produced."""

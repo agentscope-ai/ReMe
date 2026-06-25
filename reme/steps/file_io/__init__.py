@@ -5,6 +5,7 @@ from ._file_io import write_file_safe
 from .daily_create import DailyCreateStep
 from .daily_list import DailyListStep
 from .daily_reindex import DailyReindexStep
+from .daily_write import DailyWriteStep
 from .delete import DeleteStep
 from .edit import EditStep
 from .frontmatter_delete import FrontmatterDeleteStep
@@ -24,6 +25,7 @@ __all__ = [
     "DailyCreateStep",
     "DailyListStep",
     "DailyReindexStep",
+    "DailyWriteStep",
     "DeleteStep",
     "EditStep",
     "FrontmatterDeleteStep",
