@@ -41,10 +41,7 @@ _TURN_1 = [
     {
         "name": "user",
         "role": "user",
-        "content": (
-            "记一下 Project Meridian 的架构决定:实时协同改用 CRDT,"
-            "后端选 Yjs。今天 2026-06-20 定的。"
-        ),
+        "content": ("记一下 Project Meridian 的架构决定:实时协同改用 CRDT," "后端选 Yjs。今天 2026-06-20 定的。"),
     },
     {
         "name": "assistant",
@@ -175,16 +172,14 @@ async def _run_loop(env, reme) -> None:
         answer = result.answer or ""
         results_meta = (result.metadata or {}).get("results") or []
         print(
-            f"\n[4/5 recall] query={query!r} -> {len(results_meta)} hit(s)\n"
-            f"{answer[:1500]}",
+            f"\n[4/5 recall] query={query!r} -> {len(results_meta)} hit(s)\n" f"{answer[:1500]}",
         )
         searched.append(query)
         hit_facts += [f for f in _TOPIC_FACTS if f in answer]
     hit_facts = sorted(set(hit_facts))
     print(f"[4/5] facts recalled via search across {searched}: {hit_facts}")
     assert hit_facts, (
-        "search recalled none of the seeded facts — the provision->"
-        "consolidate->index->search loop is broken"
+        "search recalled none of the seeded facts — the provision->" "consolidate->index->search loop is broken"
     )
 
     # ---- 5. proactive: read the interests surfaced by the dream --

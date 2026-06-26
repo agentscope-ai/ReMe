@@ -22,6 +22,7 @@ from reme.utils import load_env  # noqa: E402
 
 
 async def main() -> None:
+    """Run the e2e loop against a local .reme workspace for manual inspection."""
     load_env()
     workspace = REPO_ROOT / ".reme"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -32,7 +33,7 @@ async def main() -> None:
     with temp_chdir(REPO_ROOT):
         reme = await env.make_reme()
         try:
-            await e2e._run_loop(env, reme)  # noqa: SLF001
+            await e2e._run_loop(env, reme)  # noqa: SLF001  # pylint: disable=protected-access
         finally:
             await env.close_all()
     print(f"\n[local] done — inspect files under: {workspace}")

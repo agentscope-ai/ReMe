@@ -77,7 +77,7 @@ def _read_jsonrpc(resp) -> dict | None:
             if not line.startswith("data:"):
                 continue
             try:
-                obj = json.loads(line[len("data:"):].strip())
+                obj = json.loads(line[len("data:") :].strip())
             except json.JSONDecodeError:
                 continue
             if isinstance(obj, dict) and ("result" in obj or "error" in obj):
@@ -138,6 +138,7 @@ def _daemonize() -> None:
 
 
 def main() -> None:
+    """Entry point: read the hook payload from stdin and record the session."""
     try:
         payload = json.loads(sys.stdin.read() or "{}")
     except Exception:
