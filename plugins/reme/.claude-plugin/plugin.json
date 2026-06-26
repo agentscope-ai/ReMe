@@ -1,0 +1,13 @@
+{
+  "name": "reme",
+  "version": "0.1.0",
+  "description": "File-native long-term memory for Claude Code, backed by a running ReMe MCP server. A memory skill recalls long-term knowledge on demand; recording is automatic via a Stop hook that records each session in the background.",
+  "author": {
+    "name": "EconML team of Alibaba Tongyi Lab",
+    "email": "jinli.yl@alibaba-inc.com"
+  },
+  "homepage": "https://reme.agentscope.io/",
+  "repository": "https://github.com/agentscope-ai/ReMe",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "reme", "mcp", "long-term-memory", "agent"]
+}

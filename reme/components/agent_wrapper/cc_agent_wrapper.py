@@ -19,8 +19,13 @@ if TYPE_CHECKING:
     from claude_agent_sdk.types import SessionKey, SessionStoreEntry, SessionStoreListEntry
 
 
-class _CcFileSessionStore:
-    """File-backed Claude Code SessionStore rooted under the ReMe workspace."""
+class CcFileSessionStore:
+    """File-backed Claude Code SessionStore rooted under a given directory.
+
+    Rooted under the ReMe workspace for the inner agent's own sessions, but the
+    same reader is reused (with a different root) to load an *outer* Claude Code
+    session's transcript by id — see ``AutoMemoryCCStep``.
+    """
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -274,7 +279,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
         if opts.skills is not None:
             self._ensure_claude_skill_dir(claude_config_dir)
-        opts.session_store = opts.session_store or _CcFileSessionStore(self.session_path / "claude_code")
+        opts.session_store = opts.session_store or CcFileSessionStore(self.session_path / "claude_code")
 
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)

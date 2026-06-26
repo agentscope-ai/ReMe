@@ -136,6 +136,23 @@ jobs:
     steps:
       - backend: auto_memory_step
 
+  auto_memory_cc:
+    backend: base
+    description: "Auto-memory (Claude Code): record a Claude Code session into a daily note, resolved from its session_id"
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: "Claude Code session id; its transcript is resolved from disk"
+        memory_hint:
+          type: string
+          description: "optional hint"
+      required:
+        - session_id
+    steps:
+      - backend: auto_memory_cc_step
+
   auto_resource:
     backend: base
     description: "Auto-resource: interpret resource files into daily notes"
