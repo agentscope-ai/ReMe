@@ -30,6 +30,7 @@ dependencies = [
     "mistletoe>=1.5.1",
     "numpy>=2.2.6",
     "openai>=2.26.0",
+    "psutil>=5.9",
     "pydantic>=2.12.5",
     "python-frontmatter>=1.1.0",
     "pyyaml>=6.0.3",

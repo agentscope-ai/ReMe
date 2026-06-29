@@ -12,9 +12,9 @@ include a directory component so the caller is always explicit about
 where in the workspace the file lands. ``overwrite`` defaults to False —
 callers must opt in to clobber an existing destination.
 
-For the resource-bucket ingest path (channel-tagged, dated under
-``resource/<YYYY-MM-DD>/`` with provenance metadata) use
-``ingest`` instead.
+To capture an external asset into the resource bucket, upload it under
+``resource/<YYYY-MM-DD>/`` (or loosely under ``resource/``); the resource
+file watcher then interprets it into a source-linked daily note.
 """
 
 import mimetypes

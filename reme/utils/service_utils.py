@@ -2,8 +2,9 @@
 
 import asyncio
 import socket
-import subprocess
 import sys
+
+import psutil
 
 from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
@@ -28,34 +29,42 @@ async def find_reme(host: str, port: int) -> str:
             return "occupied"
 
 
-def _sh(cmd: list[str]) -> str:
-    """Run cmd; return stdout, or '' on failure."""
-    try:
-        return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return ""
-
-
 def _pid_on_port(port: int) -> int | None:
-    """PID listening on TCP port, or None."""
-    out = _sh(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"]).strip()
-    return int(out.splitlines()[0]) if out else None
+    """PID listening on TCP ``port``, or None. Cross-platform via psutil.
+
+    Iterates per-process rather than calling the system-wide
+    ``psutil.net_connections()`` — the latter needs root on macOS, while
+    per-process connection enumeration works without elevation for
+    processes the current user owns (which reme's own server always is).
+    """
+    for proc in psutil.process_iter(["pid"]):
+        try:
+            for conn in proc.net_connections(kind="tcp"):
+                if conn.status == psutil.CONN_LISTEN and conn.laddr and conn.laddr.port == port:
+                    return proc.info["pid"]
+        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
+    return None
 
 
 def _scan_reme_procs() -> list[tuple[int, str, int]]:
     """List running 'reme ... start' processes as (pid, host, port)."""
     procs: list[tuple[int, str, int]] = []
-    for line in _sh(["pgrep", "-af", "reme.* start"]).splitlines():
-        parts = line.split()
-        if not parts or not parts[0].isdigit():
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = proc.info["cmdline"] or []
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        # Match a `reme ... start` invocation (mirrors the old `pgrep -af`).
+        if "start" not in cmdline or not any("reme" in tok for tok in cmdline):
             continue
         host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-        for t in parts[1:]:
+        for t in cmdline:
             if t.startswith("service.host="):
                 host = t.split("=", 1)[1]
             elif t.startswith("service.port=") and t.split("=", 1)[1].isdigit():
                 port = int(t.split("=", 1)[1])
-        procs.append((int(parts[0]), host, port))
+        procs.append((proc.info["pid"], host, port))
     return procs
 
 
