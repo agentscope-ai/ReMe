@@ -105,14 +105,14 @@ curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}
 
 ### Agent Integration
 
-ReMe integrates with supported agent frameworks through **SKILL.md + CLI + hooks (optional)**. A typical integration looks like this:
+ReMe runs as a service and exposes its memory through CLI / MCP jobs. Agents adopt it in whatever way fits them — embedding ReMe directly in their own code, or installing it as a plugin — and wire `auto_memory` / `proactive` into their lifecycle so conversations are consolidated into memory and surfaced at the right time. Indexing (`auto_index`) and resource processing (`auto_resource`) run automatically via file watching, and `auto_dream` consolidates daily memories into long-term digests on a schedule.
 
-- Add the [memory skill](skills/reme_memory/SKILL.md) to the agent and grant the agent permission to call the CLI.
-- Call `auto_memory` and `proactive` from agent hooks as needed, so conversations are automatically consolidated into daily memories and proactive reminders can be read at the right time.
-- `auto_index` and `auto_resource` are triggered by file monitoring to maintain indexes and process resources.
-- `auto_dream` is triggered by a scheduled task to further organize daily memories into reusable long-term digest memories.
+Integration status across agents:
 
-QwenPaw 2.0 will integrate the new ReMe version. A Claude Code plugin will also be released later to reduce manual integration work.
+| Agent                                                      | Status         | How it integrates                                                                                          |
+|------------------------------------------------------------|----------------|-----------------------------------------------------------------------------------------------------------|
+| [QwenPaw](https://github.com/agentscope-ai/QwenPaw)        | ✅ Available    | [Deep SDK integration](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/memory/reme_light_memory_manager.py) — embeds the ReMe app in-process and drives `search` / `auto_memory` / `auto_dream` jobs via `run_job`, reusing the agent's own model (no separate server). |
+| [Claude Code](plugins/reme)                                | ✅ Available    | Plugin: HTTP MCP server for recall, a `reme-memory` skill, and a Stop hook that records each session via `auto_memory_cc`. |
 
 For more details, see the [Quick Start](docs/zh/quick_start.md).
 

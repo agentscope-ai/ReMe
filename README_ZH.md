@@ -104,14 +104,14 @@ curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}
 
 ### 快速接入
 
-ReMe 通过 **SKILL.md + CLI + hook（可选）** 接入支持的 Agent 框架。典型接入方式如下：
+ReMe 以服务形式运行，通过 CLI / MCP job 对外暴露记忆。各 Agent 按各自合适的方式接入——可以把 ReMe 直接嵌进自己的代码,也可以作为 plugin 安装——并把 `auto_memory` / `proactive` 接入自身生命周期,让对话沉淀为记忆并在合适时机浮现。索引(`auto_index`)与资源加工(`auto_resource`)由文件监控自动触发,`auto_dream` 则按计划把 daily 记忆整理为可长期复用的 digest。
 
-- 为 Agent 添加 [memory skill](skills/reme_memory/SKILL.md)，并授予 Agent 调用 CLI 的权限。
-- 在 Agent hook 中按需调用 `auto_memory` 和 `proactive`，让对话自动沉淀为 daily 记忆，并在合适时机读取主动提醒。
-- `auto_index` 与 `auto_resource` 由文件监控自动触发，负责索引维护和资源加工。
-- `auto_dream` 由定时任务触发，将 daily 记忆进一步整理为可长期复用的 digest 记忆。
+各 Agent 接入状态:
 
-QwenPaw 2.0 将集成新版 ReMe；后续也会推出 Claude Code plugin，进一步降低手动接入成本。
+| Agent                                                | 状态        | 接入方式                                                                                     |
+|------------------------------------------------------|-------------|----------------------------------------------------------------------------------------------|
+| [QwenPaw](https://github.com/agentscope-ai/QwenPaw)  | ✅ 已支持   | [SDK 深度集成](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/memory/reme_light_memory_manager.py)——进程内嵌入 ReMe 应用,通过 `run_job` 驱动 `search` / `auto_memory` / `auto_dream`,并复用 Agent 自身模型(无需独立 server)。 |
+| [Claude Code](plugins/reme)                          | ✅ 已支持   | Plugin:HTTP MCP server 做召回、`reme-memory` skill,外加在会话结束时经 `auto_memory_cc` 录入的 Stop hook。 |
 
 更多细节见 [快速开始](docs/zh/quick_start.md)。
 

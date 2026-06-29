@@ -9,7 +9,7 @@ parts:
     chapters:
       - file: memory_as_file
       - file: framework
-  - caption: Auto Memory
+  - caption: Memory
     chapters:
       - file: auto_memory
       - file: auto_resource
