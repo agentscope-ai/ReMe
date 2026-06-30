@@ -1,6 +1,6 @@
 """Write a daily markdown note by dispatching the generic ``write`` step."""
 
-from ._daily_index import refresh_day_index, validate_session_id
+from ._daily_index import refresh_day_index, validate_daily_date, validate_session_id
 from ._path import validate_filename_component
 from ..base_step import BaseStep
 from ...components import R
@@ -63,6 +63,18 @@ class DailyWriteStep(BaseStep):
         # ``write`` takes name/description as explicit parameters, not metadata.
         return metadata
 
+    def _target_day(self) -> str | None:
+        assert self.context is not None
+        raw_date = str(self.context.get("date") or "").strip()
+        if raw_date:
+            if err := validate_daily_date(raw_date):
+                self._fail(err, date=raw_date)
+                return None
+            return raw_date
+
+        tz = self.app_context.app_config.timezone if self.app_context is not None else None
+        return now(tz).strftime("%Y-%m-%d")
+
     async def execute(self):
         assert self.context is not None
         collected = self._collect_required()
@@ -70,8 +82,9 @@ class DailyWriteStep(BaseStep):
             return None
 
         name, description, session_id, content = collected
-        tz = self.app_context.app_config.timezone if self.app_context is not None else None
-        day = now(tz).strftime("%Y-%m-%d")
+        day = self._target_day()
+        if day is None:
+            return None
         daily_dir = self.config_value("daily_dir")
         path = f"{daily_dir}/{day}/{name}.md"
         source_conversation = self._session_link(session_id)

@@ -28,6 +28,7 @@ def test_default_config_registers_daily_write_job():
     assert job["backend"] == "base"
     assert job["steps"] == [{"backend": "daily_write_step"}]
     assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
+    assert "date" in job["parameters"]["properties"]
 
 
 def test_parse_args_rejects_non_key_value_extra_argument():

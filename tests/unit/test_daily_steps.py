@@ -333,6 +333,35 @@ def test_daily_write_delegates_to_write_and_refreshes_index():
     asyncio.run(run())
 
 
+def test_daily_write_accepts_explicit_date():
+    """``daily_write`` can target a historical daily folder when ``date`` is provided."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = await _make_daily_write_step(store, tmp)
+
+            await step(
+                date="2023-01-19",
+                name="historical-memory",
+                description="Historical note",
+                session_id="locomo-session",
+                content="body text",
+            )
+            payload = _metadata(step)
+
+            assert step.context.response.success is True
+            assert payload["date"] == "2023-01-19"
+            assert payload["path"] == "daily/2023-01-19/historical-memory.md"
+            assert (Path(tmp) / "daily" / "2023-01-19" / "historical-memory.md").is_file()
+            assert (Path(tmp) / "daily" / "2023-01-19.md").is_file()
+            assert not (Path(tmp) / "daily" / _today()).exists()
+            await store.close()
+        print("✓ test_daily_write_accepts_explicit_date passed")
+
+    asyncio.run(run())
+
+
 def test_daily_write_reserved_metadata_keys_are_overridden():
     """User metadata cannot override daily_write's fixed frontmatter fields."""
 
@@ -378,6 +407,8 @@ def test_daily_write_rejects_invalid_name_and_session_id():
             await step(name="bad/name", description="d", session_id="ok", content="body")
             assert step.context.response.success is False
             await step(name="ok", description="d", session_id="bad/session", content="body")
+            assert step.context.response.success is False
+            await step(name="ok", description="d", session_id="ok", content="body", date="2023/01/19")
             assert step.context.response.success is False
             assert not (Path(tmp) / "daily" / _today()).exists()
             await store.close()
@@ -626,6 +657,7 @@ if __name__ == "__main__":
     test_daily_list_does_not_refresh_index()
     test_daily_list_response_shape()
     test_daily_write_delegates_to_write_and_refreshes_index()
+    test_daily_write_accepts_explicit_date()
     test_daily_write_reserved_metadata_keys_are_overridden()
     test_daily_write_rejects_invalid_name_and_session_id()
     test_day_index_lists_each_note()

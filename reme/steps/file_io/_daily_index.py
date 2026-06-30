@@ -1,5 +1,6 @@
 """Daily-note helpers: session_id validation + day-index rebuild."""
 
+import datetime
 from pathlib import Path
 
 import frontmatter
@@ -13,6 +14,17 @@ logger = get_logger()
 def validate_session_id(session_id: str) -> str | None:
     """Validate a daily-note session_id. Thin wrapper over :func:`validate_filename_component`."""
     return validate_filename_component(session_id, kind="session_id")
+
+
+def validate_daily_date(date: str) -> str | None:
+    """Validate a daily directory date in ISO ``YYYY-MM-DD`` format."""
+    try:
+        parsed = datetime.date.fromisoformat(date)
+    except ValueError:
+        return "date must use YYYY-MM-DD format"
+    if parsed.isoformat() != date:
+        return "date must use YYYY-MM-DD format"
+    return None
 
 
 _NOTES_OPEN = "<!-- notes:auto -->"

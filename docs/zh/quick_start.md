@@ -157,6 +157,15 @@ reme auto_memory \
   memory_hint="记录用户偏好"
 ```
 
+如果要导入历史对话或 benchmark 数据，可显式指定 daily 日期，避免记忆被写到运行当天：
+
+```bash
+reme auto_memory \
+  date=2023-01-19 \
+  session_id=historical-chat \
+  messages='[{"role":"user","content":"Jon lost his job today."}]'
+```
+
 外部资料放入 `resource/YYYY-MM-DD/` 后，默认后台会监听 `md/txt/json/jsonl/csv/yaml/html`。也可以手动触发：
 
 ```bash

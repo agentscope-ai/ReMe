@@ -128,6 +128,10 @@ jobs:
           type: string
           description: "source conversation session identifier"
           default: ""
+        date:
+          type: string
+          description: "optional daily note date in YYYY-MM-DD format; defaults to runtime date"
+          default: ""
         memory_hint:
           type: string
           description: "optional hint"
@@ -543,6 +547,10 @@ jobs:
         session_id:
           type: string
           description: "source conversation session identifier"
+        date:
+          type: string
+          description: "optional daily note date in YYYY-MM-DD format; defaults to runtime date"
+          default: ""
         content:
           type: string
           description: "body"

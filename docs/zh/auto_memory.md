@@ -53,6 +53,19 @@ daily/2026-06-20/session-a.md
 这样不同对话不会混在一起。一次需求讨论、一次问题排查、一次文档修改，都可以拥有自己的记忆卡片。以后想知道这一天发生了什么，先看
 `YYYY-MM-DD.md`；想看某段对话沉淀了什么，再进入对应的 `<session_id>.md`。
 
+默认情况下，`auto_memory` 使用应用时区中的运行日期作为 daily 日期。导入历史对话、评测数据或离线 transcript 时，可以传入
+`date=YYYY-MM-DD`，让 daily note 写入对话实际发生的日期：
+
+```bash
+reme auto_memory \
+  date=2023-01-19 \
+  session_id=locomo-session \
+  messages='[{"role":"user","content":"Jon lost his job today."}]'
+```
+
+这只改变 daily 路径和当天索引，例如 `daily/2023-01-19/locomo-session.md` 与 `daily/2023-01-19.md`；原始对话仍保存在
+`session/dialog/<session_id>.jsonl`。
+
 ## 同时保存原始信息
 
 整理后的 daily note 负责“好读”，原始对话负责“可信”。

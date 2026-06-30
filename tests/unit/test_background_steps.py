@@ -1122,6 +1122,52 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
     asyncio.run(run())
 
 
+def test_auto_memory_accepts_explicit_date():
+    """AutoMemoryStep uses an explicit daily date instead of runtime date when provided."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                wrapper.on_reply = lambda *_: write_file(
+                    cwd / "daily" / "2023-01-19" / "memory.md",
+                    "---\nname: memory\nsession_id: s1\n"
+                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
+                )
+                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        date="2023-01-19",
+                        messages=[
+                            {
+                                "name": "user",
+                                "role": "user",
+                                "content": "Jon lost his job during this historical conversation.",
+                            },
+                        ],
+                        session_id="s1",
+                    ),
+                )
+                resp = resp or step.context.response
+
+                assert resp.success is True
+                assert resp.metadata["date"] == "2023-01-19"
+                assert resp.metadata["path"] == "daily/2023-01-19/memory.md"
+                assert "Daily date: 2023-01-19" in wrapper.inputs
+                assert "daily_write date=2023-01-19" in wrapper.inputs
+                assert (cwd / "daily" / "2023-01-19.md").is_file()
+            finally:
+                await fs.close()
+        print("✓ test_auto_memory_accepts_explicit_date passed")
+
+    asyncio.run(run())
+
+
 def test_auto_resource_result_hook_is_optional_and_isolated():
     """AutoResourceStep optionally emits host result hooks without coupling."""
 
@@ -1221,6 +1267,7 @@ if __name__ == "__main__":
     test_auto_resource_update_keeps_existing_renamed_path()
     test_auto_resource_deletes_loose_root_resource_note_for_today()
     test_auto_resource_deletes_renamed_note_by_source_resource()
+    test_auto_memory_accepts_explicit_date()
     test_auto_resource_result_hook_is_optional_and_isolated()
     # LogChangesStep
     test_log_changes_step()

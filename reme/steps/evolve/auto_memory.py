@@ -8,7 +8,7 @@ from agentscope.message import Msg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index, validate_filename_component, validate_session_id
+from ..file_io import refresh_day_index, validate_daily_date, validate_filename_component, validate_session_id
 from ...components import R
 
 _SESSION_ID_KEY = "session_id"
@@ -201,6 +201,7 @@ class AutoMemoryStep(BaseStep):
         raw_messages = self.context.get("messages") or []
         session_id: str = self.context.get("session_id", "")
         memory_hint: str = self.context.get("memory_hint", "")
+        raw_date = str(self.context.get("date") or "").strip()
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         current = now(tz)
 
@@ -220,6 +221,12 @@ class AutoMemoryStep(BaseStep):
             self.context.response.answer = "Error: session_id is required"
             self.logger.warning(f"[{self.name}] missing session_id")
             return
+        if raw_date and (err := validate_daily_date(raw_date)):
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {err}"
+            self.context.response.metadata.update({"date": raw_date})
+            self.logger.warning(f"[{self.name}] invalid date={raw_date!r} err={err}")
+            return
 
         await self._save_session_messages(session_id, messages)
 
@@ -230,7 +237,7 @@ class AutoMemoryStep(BaseStep):
             self.logger.info(f"[{self.name}] Skipped: no messages session_id={session_id!r} modified=False")
             return
 
-        day = current.strftime("%Y-%m-%d")
+        day = raw_date or current.strftime("%Y-%m-%d")
         try:
             note = await self._list_session_note(day, session_id)
         except RuntimeError as exc:
@@ -272,7 +279,7 @@ class AutoMemoryStep(BaseStep):
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
                 self.context.response.metadata.update(
-                    {"path": None, "created": created, "modified": False, "n_messages": len(messages)},
+                    {"path": None, "date": day, "created": created, "modified": False, "n_messages": len(messages)},
                 )
                 self.logger.info(f"[{self.name}] post-create list failed session_id={session_id!r} answer={str(exc)!r}")
                 return
@@ -280,7 +287,7 @@ class AutoMemoryStep(BaseStep):
                 self.context.response.success = True
                 self.context.response.answer = agent_reply_result_text(result)
                 self.context.response.metadata.update(
-                    {"path": None, "created": False, "modified": False, "n_messages": len(messages)},
+                    {"path": None, "date": day, "created": False, "modified": False, "n_messages": len(messages)},
                 )
                 self.logger.info(f"[{self.name}] done without note session_id={session_id!r} modified=False")
                 return
@@ -295,6 +302,7 @@ class AutoMemoryStep(BaseStep):
                 self.context.response.metadata.update(
                     {
                         "path": note_path,
+                        "date": day,
                         "created": created,
                         "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
                         "n_messages": len(messages),
@@ -315,6 +323,7 @@ class AutoMemoryStep(BaseStep):
         self.context.response.metadata.update(
             {
                 "path": note_path,
+                "date": day,
                 "created": created,
                 "modified": modified,
                 "n_messages": len(messages),

@@ -46,7 +46,7 @@ system_prompt_zh: |
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
 user_message_create: |
-  Today: {today}
+  Daily date: {today}
   Extra hint: {note}
   Session ID: {session_id}
 
@@ -67,10 +67,10 @@ user_message_create: |
   ## Step 2 — Write
 
   Create the note in one shot:
-  `daily_write name=<name> description=<description> session_id={session_id} content=<body>`
+  `daily_write date={today} name=<name> description=<description> session_id={session_id} content=<body>`
 
   - Generate `name` as a concise, stable topic/event filename stem for this memory. Prefer a reusable topic or event summary, optionally in kebab-case.
-  - Do not include today's date or the daily directory date in `name`; the note already lives under today's daily path.
+  - Do not include today's date or the daily directory date in `name`; the note already lives under the target daily path.
   - `name` must be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
 
@@ -82,7 +82,7 @@ user_message_create: |
 
   - Create at most one note for this session.
 user_message_create_zh: |
-  今天：{today}
+  日记日期：{today}
   额外提示：{note}
   Session ID：{session_id}
 
@@ -103,10 +103,10 @@ user_message_create_zh: |
   ## 步骤 2 — 写入
 
   一次性创建笔记：
-  `daily_write name=<name> description=<description> session_id={session_id} content=<正文>`
+  `daily_write date={today} name=<name> description=<description> session_id={session_id} content=<正文>`
 
   - 由你生成 `name`，作为这条记忆简洁、稳定的主题/事件文件名 stem。优先使用可复用的主题或事件总结，可以采用 kebab-case。
-  - `name` 不要包含今天日期或日记目录日期；笔记已经位于当天日记路径下。
+  - `name` 不要包含今天日期或日记目录日期；笔记已经位于目标日记路径下。
   - `name` 必须是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
 
@@ -119,7 +119,7 @@ user_message_create_zh: |
   - 当前 session 最多创建一条笔记。
 
 user_message_update: |
-  Today: {today}
+  Daily date: {today}
   Extra hint: {note}
   Target path: {note_path}
 
@@ -178,7 +178,7 @@ user_message_update: |
   - `write` unconditionally overwrites body and frontmatter — use with caution.
   - Filename changes are expressed by updating frontmatter `name`.
 user_message_update_zh: |
-  今天：{today}
+  日记日期：{today}
   额外提示：{note}
   目标路径：{note_path}
 
