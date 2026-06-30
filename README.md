@@ -205,19 +205,19 @@ on-demand calls.
 
 <table>
   <tr>
-    <td align="center" width="45%">
-      <img src="docs/figure/memory-as-file.svg" alt="Memory as File" width="100%">
+    <td align="center" width="50%">
+      <img src="docs/figure/memory-as-file.svg" alt="Memory as File" width="92%">
     </td>
-    <td align="center" width="45%">
-      <img src="docs/figure/auto-memory-resource.svg" alt="Auto Memory and Resource" width="100%">
+    <td align="center" width="50%">
+      <img src="docs/figure/auto-memory-resource.svg" alt="Auto Memory and Resource" width="92%">
     </td>
   </tr>
   <tr>
-    <td align="center" width="45%">
-      <img src="docs/figure/auto-dream-and-proactive.svg" alt="Auto Dream and Proactive" width="100%">
+    <td align="center" width="50%">
+      <img src="docs/figure/auto-dream-and-proactive.svg" alt="Auto Dream and Proactive" width="92%">
     </td>
-    <td align="center" width="45%">
-      <img src="docs/figure/auto-index-and-memory-search.svg" alt="Auto Index and Memory Search" width="100%">
+    <td align="center" width="50%">
+      <img src="docs/figure/auto-index-and-memory-search.svg" alt="Auto Index and Memory Search" width="92%">
     </td>
   </tr>
 </table>
