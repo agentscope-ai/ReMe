@@ -1,0 +1,1 @@
+Uses `PyYAML` for YAML parsing and standard `json` for JSON handling. Environment variable expansion uses custom regex-based interpolation supporting defaults (`${VAR:-default}`).

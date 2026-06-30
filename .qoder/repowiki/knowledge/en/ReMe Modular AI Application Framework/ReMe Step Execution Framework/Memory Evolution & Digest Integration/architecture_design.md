@@ -1,0 +1,7 @@
+- **Entry Points**: Exposes step classes like `AutoMemoryStep`, `AutoResourceStep`, and the `Dream*` pipeline steps via `reme/steps/evolve/__init__.py`.
+- **Core Sub-modules**: 
+  - `auto_memory.py` / `auto_memory_cc.py`: Handle session-based conversation logging into daily notes, with specialized support for Claude Code transcript resolution.
+  - `auto_resource.py`: Interprets external resource files (e.g., PDFs, docs) into structured daily notes using agent-driven summarization.
+  - `dream/`: Implements the "Auto-Dream" pipeline for higher-order memory evolution: `extract.py` identifies reusable abstractions from changed daily files; `integrate.py` merges these into a typed digest graph (procedure/personal/wiki); `topics.py` manages daily interest tracking; `finish.py` persists catalog state.
+- **Configuration**: Each step is paired with a `.yaml` file (e.g., `auto_memory.yaml`, `dream/extract.yaml`) containing bilingual (EN/ZH) system and user prompts that define agent behavior and output schemas.
+- **Shared Utilities**: `_evolve.py` provides common helpers for message formatting and timezone handling; `dream/utils.py` offers state management, YAML parsing, and path scanning logic.

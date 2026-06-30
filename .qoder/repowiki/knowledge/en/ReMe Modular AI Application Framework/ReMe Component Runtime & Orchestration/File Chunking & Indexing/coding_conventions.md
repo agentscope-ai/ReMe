@@ -1,0 +1,3 @@
+- Concrete chunker implementations are registered with the global component registry using the `@R.register` decorator with a string identifier.
+- Chunking logic is implemented as an async method returning a tuple of a metadata node (`FileNode`) and a list of content segments (`FileChunk`).
+- Wikilink extraction is delegated to a shared `WikilinkHandler` utility rather than implementing parsing logic within each chunker.

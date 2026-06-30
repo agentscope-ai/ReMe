@@ -1,0 +1,4 @@
+- **Zstandard Compression**: Uses `zstandard` library for efficient JSONL storage (`jsonl_zst.py`).
+- **Async File I/O**: Uses `aiofiles` for non-blocking state persistence (`agent_state_io.py`).
+- **Rich CLI UI**: Uses `rich` for rendering the startup ASCII logo and service metadata table (`logo_utils.py`).
+- **Loguru**: Preferred logging backend with automatic rotation and retention policies (`logger_utils.py`).

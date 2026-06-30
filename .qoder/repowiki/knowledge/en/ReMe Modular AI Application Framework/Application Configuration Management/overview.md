@@ -1,0 +1,1 @@
+Manages application configuration by loading YAML/JSON files, expanding environment variables, and merging CLI overrides.

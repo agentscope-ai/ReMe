@@ -1,0 +1,1 @@
+Uses `aiofiles` for async I/O, `frontmatter` for Markdown metadata handling, `watchfiles` for resource change detection, and `agentscope` for agent interaction and message structures.

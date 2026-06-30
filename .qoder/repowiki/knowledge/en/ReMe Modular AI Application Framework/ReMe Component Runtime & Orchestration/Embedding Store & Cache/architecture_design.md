@@ -1,0 +1,5 @@
+- Defines `BaseEmbeddingStore` (abstract) extending `BaseComponent`, exposing `get_embedding`, `get_embeddings`, and `get_node_embeddings`.
+- `LocalEmbeddingStore` implements the interface with an in-memory `OrderedDict` LRU cache, SHA-256 keyed by text + dimension suffix, and disk persistence via NumPy `.npz` files.
+- Delegates actual vector computation to a bound `as_embedding` component (`BaseAsEmbedding`), registered under the "local" key via `@R.register`.
+- Lifecycle hooks `_start`/`_close` load/dump the cache; `health_check` probes the delegate with a timeout.
+- Batching respects `max_batch_size`; retries use exponential backoff for transient errors; embeddings are normalized/padded to the declared dimension.

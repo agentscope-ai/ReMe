@@ -1,0 +1,1 @@
+Integrates `agentscope` (v1+) for ReAct-based agent orchestration and `claude_agent_sdk` for Anthropic's Claude Code interactions, using `pydantic` for schema validation.

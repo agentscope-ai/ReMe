@@ -1,0 +1,3 @@
+- Job classes use the `@R.register` decorator to map string identifiers to their implementation classes for dynamic lookup.
+- Execution logic is encapsulated in the `__call__` method, which typically builds steps and runs them within a `RuntimeContext`.
+- Configuration parameters are passed through `kwargs` and merged with instance defaults before creating the execution context.

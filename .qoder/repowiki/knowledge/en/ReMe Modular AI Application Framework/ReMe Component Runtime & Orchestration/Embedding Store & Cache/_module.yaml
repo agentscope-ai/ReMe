@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: reme_core/components/embedding_store
+title: Embedding Store & Cache
+scope:
+    - reme/components/embedding_store/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/keyword_index
+    - path: reme_core/components/file_store

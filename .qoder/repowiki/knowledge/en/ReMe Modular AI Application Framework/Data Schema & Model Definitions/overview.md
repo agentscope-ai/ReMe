@@ -1,0 +1,1 @@
+Defines Pydantic-based data models for application configuration, file graph nodes, embedding records, and service request/response envelopes.

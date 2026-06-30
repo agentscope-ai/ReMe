@@ -1,0 +1,3 @@
+- Sub-components are injected via the `bind` method with default factories, allowing optional or mandatory dependency wiring.
+- Persistence logic separates authoritative chunk storage (JSONL) from auxiliary indexes (FAISS sidecars), rebuilding indexes on mismatch.
+- Search filters support both exact path matching and prefix-based filtering, applied consistently across vector and keyword search results.

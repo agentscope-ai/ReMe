@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: reme_core/steps/common
+title: Common Utility & Demo Steps
+scope:
+    - reme/steps/common/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/job
+    - path: reme_core/components/agent_wrapper
+    - path: reme_core/core
+    - path: tests

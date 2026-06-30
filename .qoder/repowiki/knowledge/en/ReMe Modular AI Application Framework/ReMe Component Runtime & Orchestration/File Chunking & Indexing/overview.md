@@ -1,0 +1,1 @@
+Splits files into overlapping byte-based or AST-aware chunks for semantic indexing and retrieval.

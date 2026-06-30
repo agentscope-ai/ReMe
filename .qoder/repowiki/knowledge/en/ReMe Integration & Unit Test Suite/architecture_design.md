@@ -1,0 +1,4 @@
+- **Structure**: Divided into `unit/` for isolated component logic (steps, utils, registries) and `integration/` for full-lifecycle workflows (provision, consolidate, recall).
+- **Fixture Strategy**: Uses a centralized `WorkspaceEnv` in `_workspace_fixture.py` to manage temporary workspaces, seed data (daily notes, digests), and application lifecycle (`make_app`, `close_all`).
+- **Execution Model**: Integration tests drive the public `ReMe.run_job` API against real LLM APIs (requiring `LLM_API_KEY`), verifying state changes in the workspace filesystem.
+- **Agent Tracing**: Employs `AgentMemoryRecorder` to monkey-patch `Agent.__init__` and capture ReAct traces for post-mortem inspection of agent decisions.

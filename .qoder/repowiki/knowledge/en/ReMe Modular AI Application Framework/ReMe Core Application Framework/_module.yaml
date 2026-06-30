@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: reme_core/core
+title: ReMe Core Application Framework
+scope:
+    - reme/__init__.py
+    - reme/application.py
+    - reme/reme.py
+    - reme/constants.py
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/core_infrastructure
+    - path: reme_core/steps/common
+    - path: reme_core/config
+    - path: tests

@@ -1,0 +1,1 @@
+FastMCP server session binding via `fastmcp.server.dependencies.get_context`; MCP JSON-RPC notifications sent through `mcp.shared.message.SessionMessage` and `mcp.types.JSONRPCNotification`.

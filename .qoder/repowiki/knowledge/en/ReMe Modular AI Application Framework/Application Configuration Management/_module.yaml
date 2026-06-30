@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: reme_core/config
+title: Application Configuration Management
+scope:
+    - reme/config/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/schema
+    - path: reme_core/core
+    - path: reme_core/components/service

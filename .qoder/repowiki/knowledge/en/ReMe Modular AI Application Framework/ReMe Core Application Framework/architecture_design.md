@@ -1,0 +1,4 @@
+- Entry point: `reme.py` defines the `ReMe` class (extending `Application`) and the `main()` CLI handler that routes between server start, client calls, and utility commands.
+- Application orchestration: `application.py` implements the `Application` class, which manages the `ApplicationContext`, instantiates services/components/jobs via a registry-based factory pattern, and handles async lifecycle startup/shutdown with topological dependency resolution.
+- Component architecture: Relies on a global `ComponentRegistry` (`R`) in `components/component_registry.py` and a `BaseComponent` abstract base class in `components/base_component.py` that enforces async lifecycle hooks (`start`, `close`) and dependency injection via `bind()` placeholders.
+- Configuration & Constants: `constants.py` holds global limits and defaults, while the `config` package (imported in `__init__.py`) handles argument parsing and app config resolution.

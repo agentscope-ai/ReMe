@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: reme_core/components/agent_wrapper
+title: Unified Agent Wrapper
+scope:
+    - reme/components/agent_wrapper/
+source_files: []
+depends_on: []
+related_to:
+    - path: plugins
+    - path: reme_core/steps/common
+    - path: reme_core/steps/evolve

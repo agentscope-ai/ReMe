@@ -1,0 +1,3 @@
+- Implementations use lazy dependency imports (e.g., `neo4j`, `networkx`) that raise descriptive `ImportError` exceptions only during initialization or startup.
+- All backends distinguish 'real' nodes (with full metadata) from 'virtual' placeholders (created only by inbound links) to support accurate link scope filtering.
+- Persistence layers in local and NetworkX backends use atomic write patterns (temporary files with replacement) to prevent data corruption during dumps.

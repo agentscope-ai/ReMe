@@ -1,0 +1,4 @@
+- **Abstract Base**: `BaseAgentWrapper` defines the common contract (`reply`, `reply_stream`) and shared utilities like tool resolution and schema handling, inheriting from `BaseComponent` for lifecycle management.
+- **Backend Implementations**: `AsAgentWrapper` integrates the AgentScope framework, managing ReAct agents, local skills, and permission modes. `CcAgentWrapper` integrates the Claude Code SDK, handling MCP servers, session stores via `CcFileSessionStore`, and environment configuration.
+- **Unified Streaming**: Both implementations convert backend-specific events into a standardized `StreamChunk` format, ensuring consistent downstream processing regardless of the chosen agent backend.
+- **Session Management**: Implements file-based session persistence and cleanup logic, with `CcFileSessionStore` providing a secure, path-sanitized storage mechanism for Claude Code sessions.

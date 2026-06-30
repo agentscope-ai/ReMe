@@ -1,0 +1,1 @@
+Uses Python's `asyncio` for concurrent lifecycle management and `concurrent.futures.ThreadPoolExecutor` for blocking task offloading within the async event loop.

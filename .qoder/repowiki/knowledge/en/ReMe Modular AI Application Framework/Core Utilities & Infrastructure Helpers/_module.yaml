@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: reme_core/utils
+title: Core Utilities & Infrastructure Helpers
+scope:
+    - reme/utils/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/enumeration
+    - path: reme_core/components/file_chunker
+    - path: reme_core/schema

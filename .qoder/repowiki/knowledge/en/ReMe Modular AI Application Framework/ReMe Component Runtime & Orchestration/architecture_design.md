@@ -1,0 +1,4 @@
+- **Lifecycle & DI**: `BaseComponent` enforces an async start/close protocol with automatic dependency resolution via `Dependency` placeholders, supporting both standalone (factory-based) and context-bound (registry-lookup) modes.
+- **Registry & Context**: A global `ComponentRegistry` (`R`) maps component types to classes, while `ApplicationContext` holds the instantiated component graph, jobs, and service endpoints for runtime discovery.
+- **Execution Context**: `RuntimeContext` provides a per-request scratch space for streaming responses and state sharing across steps, decoupling workflow logic from component infrastructure.
+- **Shared Utilities**: `PromptHandler` offers a cross-cutting template rendering engine with i18n and conditional flag support, used by various agent and retrieval components.

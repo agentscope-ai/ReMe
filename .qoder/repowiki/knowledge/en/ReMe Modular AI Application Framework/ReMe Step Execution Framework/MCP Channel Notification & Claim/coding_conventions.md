@@ -1,0 +1,3 @@
+- Steps guard against missing context or app_context by returning early or raising RuntimeError with a clear message.
+- Workspace paths in notifications are rendered relative to the workspace root; absolute paths outside the workspace are left as-is to avoid breaking on stray entries.
+- Step execute methods return `self.context.response` (or None when context is absent) to keep the pipeline contract consistent.

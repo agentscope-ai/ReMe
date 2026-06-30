@@ -1,0 +1,3 @@
+- Async methods are used for all state-mutating operations (add, delete, retrieve, persist) to support non-blocking I/O in the component lifecycle.
+- Lazy deletion is preferred over immediate compaction; physical reclaim of memory and vocab renumbering is deferred to `optimize_index`.
+- Tokenizer dependencies are injected via the `bind` mechanism in the base class constructor, defaulting to `RegexTokenizer` if not specified.

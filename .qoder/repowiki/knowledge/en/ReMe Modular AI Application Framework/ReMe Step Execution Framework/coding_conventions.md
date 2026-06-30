@@ -1,0 +1,3 @@
+- All step classes inherit from `BaseStep` and implement an asynchronous `execute` method.
+- Shared dependencies like `as_llm` and `file_store` are declared as class-level `Ref` descriptors for lazy resolution.
+- Steps utilize `self.context` for state passing and apply `input_mapping`/`output_mapping` for data transformation.

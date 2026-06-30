@@ -1,0 +1,3 @@
+- Components inherit from `BaseComponent` and define a `component_type` enum for registry classification.
+- Dependencies are declared statically via `BaseComponent.bind()` and resolved automatically during `start()`.
+- Per-component metadata paths are standardized via `workspace_metadata_path` and `component_metadata_path` properties.

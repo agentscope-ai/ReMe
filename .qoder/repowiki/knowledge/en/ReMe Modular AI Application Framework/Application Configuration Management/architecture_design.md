@@ -1,0 +1,5 @@
+- Entry point: `reme/config/__init__.py` exposes `parse_args` and `resolve_app_config`.
+- Core logic: `config_parser.py` handles file discovery (`_discover_configs`), loading (`_load_config`, `_read_config_file`), environment variable expansion (`_expand_env_vars` with `${VAR:-default}` syntax), and deep merging (`_deep_merge`).
+- CLI parsing: `parse_args` processes action and dot-notation key-value pairs, converted via `parse_dot_notation` and `_convert_value`.
+- Configuration resolution: `resolve_app_config` loads a specified config or falls back to `default.yaml`, then merges CLI kwargs as overrides.
+- Data formats: Supports `.yaml`, `.yml`, and `.json` files, with environment variable interpolation in string values.

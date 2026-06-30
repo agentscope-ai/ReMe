@@ -1,0 +1,1 @@
+Provides atomic, encoding-aware file operations and structured markdown frontmatter management within a secured workspace.

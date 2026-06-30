@@ -1,0 +1,1 @@
+Provides pluggable text tokenizers with shared async stopword loading and post-processing for Chinese and general text.

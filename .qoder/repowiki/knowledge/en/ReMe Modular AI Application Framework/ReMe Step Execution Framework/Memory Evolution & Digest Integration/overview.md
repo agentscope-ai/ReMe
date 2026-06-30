@@ -1,0 +1,1 @@
+Automates the extraction, integration, and organization of conversational and resource-based knowledge into daily notes and a structured digest memory graph.

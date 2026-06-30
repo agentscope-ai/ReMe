@@ -1,0 +1,1 @@
+Uses Python 3.11+ for the stop hook (`auto_memory.py`) which implements a minimal JSON-RPC 2.0 client over HTTP for the Model Context Protocol (MCP).

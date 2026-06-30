@@ -1,0 +1,1 @@
+Validates ReMe's memory lifecycle, job execution, and component logic through isolated unit tests and end-to-end integration scenarios.

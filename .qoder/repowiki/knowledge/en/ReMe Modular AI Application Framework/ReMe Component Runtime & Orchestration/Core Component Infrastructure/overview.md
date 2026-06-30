@@ -1,0 +1,1 @@
+Provides the foundational lifecycle, dependency injection, and registry mechanisms for the application's modular component architecture.

@@ -1,0 +1,3 @@
+- All schema classes inherit from `pydantic.BaseModel` to enforce type safety and automatic validation.
+- Field definitions consistently use `Field()` with `default` or `default_factory` and a `description` for documentation.
+- Models intended for flexible configuration or extensible payloads (e.g., `ComponentConfig`, `Request`, `Response`) enable `ConfigDict(extra="allow")`.

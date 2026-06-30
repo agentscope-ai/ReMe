@@ -1,0 +1,1 @@
+Exposes application jobs as network-accessible endpoints via HTTP (FastAPI) or MCP (FastMCP) protocols.

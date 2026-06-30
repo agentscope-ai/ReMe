@@ -1,0 +1,1 @@
+Exposes MCP tools for clients to claim a notification channel and receive debounced workspace-change events.

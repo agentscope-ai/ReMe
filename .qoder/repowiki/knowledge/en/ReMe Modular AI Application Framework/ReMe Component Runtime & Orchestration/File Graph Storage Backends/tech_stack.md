@@ -1,0 +1,1 @@
+Optional `neo4j` async driver for remote graph storage; `networkx` for in-memory graph analysis; `jsonl_zst` utilities for compressed local persistence.

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: docs
+title: ReMe Documentation & Architecture Specification
+scope:
+    - docs/
+source_files: []
+depends_on: []
+related_to:
+    - path: tests
+    - path: reme_core/steps/transfer
+    - path: reme_core/steps/evolve

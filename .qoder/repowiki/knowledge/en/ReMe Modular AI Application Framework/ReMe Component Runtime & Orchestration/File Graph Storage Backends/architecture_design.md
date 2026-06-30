@@ -1,0 +1,4 @@
+- Defines an abstract `BaseFileGraph` interface in `base_file_graph.py` extending `BaseComponent`, enforcing CRUD and link traversal contracts.
+- Implements three concrete strategies: `LocalFileGraph` (dict-based with JSONL/ZST persistence), `NxFileGraph` (NetworkX MultiDiGraph with pickle serialization), and `Neo4jFileGraph` (remote graph database via async driver).
+- Uses a component registry decorator (`@R.register`) in each implementation to enable runtime selection via configuration.
+- Adopts a 'virtual node' pattern across all backends to track dangling references (links to non-existent files) without breaking graph connectivity.

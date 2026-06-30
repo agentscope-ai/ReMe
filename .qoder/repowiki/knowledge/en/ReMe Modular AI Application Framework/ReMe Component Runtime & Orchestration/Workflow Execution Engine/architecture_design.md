@@ -1,0 +1,4 @@
+- **Inheritance Hierarchy**: `BaseJob` serves as the foundational class for sequential step execution. `BackgroundJob` extends it with lifecycle management (start/stop/supervision), while `CronJob` and `StreamJob` specialize further for scheduled and real-time streaming use cases respectively.
+- **Registry Integration**: All job types are registered via the `@R.register` decorator in `component_registry`, enabling dynamic resolution by type strings (e.g., "base", "background").
+- **Step Composition**: Jobs compose executable units (`BaseStep`) defined in `step_configs`. Steps are resolved from the registry at startup and instantiated per execution context.
+- **Lifecycle Management**: `BackgroundJob` implements a robust supervisor loop with exponential backoff and jitter, handling graceful shutdowns via `asyncio` events and timeouts.

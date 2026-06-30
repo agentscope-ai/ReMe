@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: reme_core/steps
+title: ReMe Step Execution Framework
+scope:
+    - reme/steps/
+source_files: []
+depends_on: []
+related_to: []

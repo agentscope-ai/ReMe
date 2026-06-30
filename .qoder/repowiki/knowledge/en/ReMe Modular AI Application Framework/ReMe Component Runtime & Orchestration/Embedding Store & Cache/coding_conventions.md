@@ -1,0 +1,3 @@
+- Cache keys are deterministic SHA-256 hashes of `text.encode() + dimension_suffix` to avoid collisions across models.
+- Missed embeddings are processed in serial batches capped by `max_batch_size`, with per-batch retry using exponential backoff.
+- Embeddings are cast to `float16` and padded or truncated to match the delegate’s `dimensions` before caching.

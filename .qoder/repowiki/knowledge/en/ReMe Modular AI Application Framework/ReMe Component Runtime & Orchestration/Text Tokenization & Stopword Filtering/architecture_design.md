@@ -1,0 +1,4 @@
+- Adopts a Template Method pattern via `BaseTokenizer`, which inherits from `BaseComponent` to manage async lifecycle (`_start`/`_close`) and dependency injection.
+- Centralizes cross-cutting concerns like lowercasing and stopword filtering in the base class, while delegating raw segmentation to the abstract `_tokenize_one` method implemented by subclasses.
+- Integrates with a global `ComponentRegistry` (`R`) using decorators (e.g., `@R.register("jieba")`) to enable dynamic discovery and instantiation of tokenizer backends.
+- Supports multiple segmentation strategies through concrete implementations: `JiebaTokenizer` for Chinese word segmentation (with swappable `rjieba`/`jieba` backends) and `RegexTokenizer` for rule-based CJK/unigram splitting.

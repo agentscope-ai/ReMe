@@ -1,0 +1,1 @@
+Uses `mistletoe` for Markdown AST parsing in `MarkdownFileChunker` and `aiofiles` for async I/O in `DefaultFileChunker`.

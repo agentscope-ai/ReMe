@@ -1,0 +1,388 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+exported_at: "2026-06-29T09:37:15Z"
+modules:
+    "":
+        dir_name: ReMe AI Memory Platform
+        title: ReMe AI Memory Platform
+        scope:
+            - .gitignore
+            - .pre-commit-config.yaml
+            - README.md
+            - README_ZH.md
+            - example.env
+            - pyproject.toml
+            - LICENSE
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    docs:
+        dir_name: ReMe Documentation & Architecture Specification
+        title: ReMe Documentation & Architecture Specification
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: tests
+            - path: reme_core/steps/transfer
+            - path: reme_core/steps/evolve
+    plugins:
+        dir_name: ReMe Long-Term Memory Integration
+        title: ReMe Long-Term Memory Integration
+        scope:
+            - plugins/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/agent_wrapper
+            - path: reme_core/components/service
+            - path: reme_core/steps/channel
+            - path: reme_core/components/client
+    reme_core:
+        dir_name: ReMe Modular AI Application Framework
+        title: ReMe Modular AI Application Framework
+        scope:
+            - reme/
+        source_files: []
+        children:
+            - reme_core/steps
+            - reme_core/utils
+            - reme_core/config
+            - reme_core/core
+            - reme_core/components
+            - reme_core/schema
+            - reme_core/enumeration
+        depends_on: []
+        related_to: []
+    reme_core/components:
+        dir_name: ReMe Component Runtime & Orchestration
+        title: ReMe Component Runtime & Orchestration
+        scope:
+            - reme/components/
+        source_files: []
+        children:
+            - reme_core/components/core_infrastructure
+            - reme_core/components/file_store
+            - reme_core/components/embedding_store
+            - reme_core/components/tokenizer
+            - reme_core/components/file_chunker
+            - reme_core/components/client
+            - reme_core/components/agent_wrapper
+            - reme_core/components/file_catalog
+            - reme_core/components/file_graph
+            - reme_core/components/service
+            - reme_core/components/job
+            - reme_core/components/keyword_index
+        depends_on: []
+        related_to: []
+    reme_core/components/agent_wrapper:
+        dir_name: Unified Agent Wrapper
+        title: Unified Agent Wrapper
+        scope:
+            - reme/components/agent_wrapper/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: plugins
+            - path: reme_core/steps/common
+            - path: reme_core/steps/evolve
+    reme_core/components/client:
+        dir_name: Client Abstraction & Transport Layer
+        title: Client Abstraction & Transport Layer
+        scope:
+            - reme/components/client/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/service
+            - path: reme_core/schema
+            - path: plugins
+    reme_core/components/core_infrastructure:
+        dir_name: Core Component Infrastructure
+        title: Core Component Infrastructure
+        scope:
+            - reme/components/base_component.py
+            - reme/components/component_registry.py
+            - reme/components/application_context.py
+            - reme/components/runtime_context.py
+            - reme/components/prompt_handler.py
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/core
+            - path: reme_core/components/job
+            - path: reme_core/enumeration
+    reme_core/components/embedding_store:
+        dir_name: Embedding Store & Cache
+        title: Embedding Store & Cache
+        scope:
+            - reme/components/embedding_store/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/keyword_index
+            - path: reme_core/components/file_store
+    reme_core/components/file_catalog:
+        dir_name: File Catalog Management
+        title: File Catalog Management
+        scope:
+            - reme/components/file_catalog/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/file_store
+            - path: reme_core/steps/transfer
+            - path: reme_core/schema
+    reme_core/components/file_chunker:
+        dir_name: File Chunking & Indexing
+        title: File Chunking & Indexing
+        scope:
+            - reme/components/file_chunker/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/tokenizer
+            - path: reme_core/steps/file_io
+            - path: reme_core/utils
+    reme_core/components/file_graph:
+        dir_name: File Graph Storage Backends
+        title: File Graph Storage Backends
+        scope:
+            - reme/components/file_graph/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/file_store
+            - path: reme_core/schema
+            - path: reme_core/steps/evolve
+    reme_core/components/file_store:
+        dir_name: File Storage & Retrieval
+        title: File Storage & Retrieval
+        scope:
+            - reme/components/file_store/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/file_graph
+            - path: reme_core/components/file_catalog
+            - path: reme_core/components/embedding_store
+            - path: reme_core/components/keyword_index
+    reme_core/components/job:
+        dir_name: Workflow Execution Engine
+        title: Workflow Execution Engine
+        scope:
+            - reme/components/job/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/steps/common
+            - path: reme_core/steps/evolve
+            - path: reme_core/components/core_infrastructure
+    reme_core/components/keyword_index:
+        dir_name: BM25 Keyword Indexing
+        title: BM25 Keyword Indexing
+        scope:
+            - reme/components/keyword_index/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/embedding_store
+            - path: reme_core/components/file_store
+            - path: reme_core/components/tokenizer
+    reme_core/components/service:
+        dir_name: Service Exposure & Protocol Adapters
+        title: Service Exposure & Protocol Adapters
+        scope:
+            - reme/components/service/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/client
+            - path: reme_core/steps/channel
+            - path: plugins
+            - path: reme_core/config
+    reme_core/components/tokenizer:
+        dir_name: Text Tokenization & Stopword Filtering
+        title: Text Tokenization & Stopword Filtering
+        scope:
+            - reme/components/tokenizer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/file_chunker
+            - path: reme_core/components/keyword_index
+    reme_core/config:
+        dir_name: Application Configuration Management
+        title: Application Configuration Management
+        scope:
+            - reme/config/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/schema
+            - path: reme_core/core
+            - path: reme_core/components/service
+    reme_core/core:
+        dir_name: ReMe Core Application Framework
+        title: ReMe Core Application Framework
+        scope:
+            - reme/__init__.py
+            - reme/application.py
+            - reme/reme.py
+            - reme/constants.py
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/core_infrastructure
+            - path: reme_core/steps/common
+            - path: reme_core/config
+            - path: tests
+    reme_core/enumeration:
+        dir_name: Domain Enumeration Definitions
+        title: Domain Enumeration Definitions
+        scope:
+            - reme/enumeration/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/utils
+            - path: reme_core/components/core_infrastructure
+    reme_core/schema:
+        dir_name: Data Schema & Model Definitions
+        title: Data Schema & Model Definitions
+        scope:
+            - reme/schema/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/config
+            - path: reme_core/components/file_graph
+            - path: reme_core/components/client
+            - path: reme_core/steps/evolve
+            - path: reme_core/components/file_catalog
+            - path: reme_core/utils
+            - path: reme_core/steps/file_io
+    reme_core/steps:
+        dir_name: ReMe Step Execution Framework
+        title: ReMe Step Execution Framework
+        scope:
+            - reme/steps/
+        source_files: []
+        children:
+            - reme_core/steps/channel
+            - reme_core/steps/file_io
+            - reme_core/steps/common
+            - reme_core/steps/evolve
+            - reme_core/steps/transfer
+        depends_on: []
+        related_to: []
+    reme_core/steps/channel:
+        dir_name: MCP Channel Notification & Claim
+        title: MCP Channel Notification & Claim
+        scope:
+            - reme/steps/channel/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/service
+            - path: plugins
+    reme_core/steps/common:
+        dir_name: Common Utility & Demo Steps
+        title: Common Utility & Demo Steps
+        scope:
+            - reme/steps/common/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/components/job
+            - path: reme_core/components/agent_wrapper
+            - path: reme_core/core
+            - path: tests
+    reme_core/steps/evolve:
+        dir_name: Memory Evolution & Digest Integration
+        title: Memory Evolution & Digest Integration
+        scope:
+            - reme/steps/evolve/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/steps/transfer
+            - path: reme_core/components/job
+            - path: reme_core/components/agent_wrapper
+            - path: reme_core/schema
+            - path: docs
+            - path: reme_core/components/file_graph
+    reme_core/steps/file_io:
+        dir_name: Workspace File I_O & Markdown Management
+        title: Workspace File I/O & Markdown Management
+        scope:
+            - reme/steps/file_io/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/steps/transfer
+            - path: reme_core/components/file_chunker
+            - path: reme_core/schema
+    reme_core/steps/transfer:
+        dir_name: File Transfer & Resource Ingestion
+        title: File Transfer & Resource Ingestion
+        scope:
+            - reme/steps/transfer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/steps/file_io
+            - path: reme_core/steps/evolve
+            - path: reme_core/components/file_catalog
+            - path: docs
+    reme_core/utils:
+        dir_name: Core Utilities & Infrastructure Helpers
+        title: Core Utilities & Infrastructure Helpers
+        scope:
+            - reme/utils/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: reme_core/enumeration
+            - path: reme_core/components/file_chunker
+            - path: reme_core/schema
+    tests:
+        dir_name: ReMe Integration & Unit Test Suite
+        title: ReMe Integration & Unit Test Suite
+        scope:
+            - tests/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: docs
+            - path: reme_core/steps/common
+            - path: reme_core/core

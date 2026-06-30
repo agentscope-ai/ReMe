@@ -1,0 +1,1 @@
+Uses FastAPI with Uvicorn for HTTP services and FastMCP for Model Context Protocol services.

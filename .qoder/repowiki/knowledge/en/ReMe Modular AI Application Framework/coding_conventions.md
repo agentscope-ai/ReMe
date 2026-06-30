@@ -1,0 +1,3 @@
+- Components and Steps inherit from `ComponentMixin` to share identity, logging, and workspace path resolution logic.
+- All pluggable backends (components, steps, clients) are registered in the global `ComponentRegistry` using the `@R.register` decorator or direct registration.
+- Configuration is centralized in YAML files and parsed into typed `ApplicationConfig` Pydantic models, with environment variable expansion supported.

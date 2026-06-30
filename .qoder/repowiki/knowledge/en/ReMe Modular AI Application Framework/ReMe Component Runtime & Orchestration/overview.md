@@ -1,0 +1,1 @@
+Orchestrates modular AI components through a unified async lifecycle, dependency injection, and shared execution context.

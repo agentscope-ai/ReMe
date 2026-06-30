@@ -1,0 +1,4 @@
+- Defines `BaseClient` as an abstract base class extending `BaseComponent`, enforcing `_execute` and `list_actions` contracts.
+- Implements concrete transports: `HttpClient` for standard REST/SSE communication and `MCPClient` for MCP-specific tool invocation.
+- Uses the `@R.register` decorator to register client implementations ('http', 'mcp') with the global component registry.
+- Centralizes connection logic in `_start`/`_close` hooks and provides a uniform `__call__` entry point for action dispatching.

@@ -1,0 +1,1 @@
+Defines typed string enumerations for chunk processing, component registration, memory buckets, and graph link scopes.

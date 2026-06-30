@@ -1,0 +1,1 @@
+Connects Claude Code to the ReMe file-native long-term memory system via MCP, enabling automatic session recording and on-demand semantic recall.

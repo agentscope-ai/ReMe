@@ -1,0 +1,4 @@
+- Integration tests wrap async execution in a synchronous `def test_...()` function that calls `asyncio.run()` on an inner async coroutine.
+- Tests use the `workspace_env()` context manager to create isolated temporary directories and automatically clean up resources after execution.
+- Assertions verify both the success status of job responses and the physical presence/content of files in the workspace directory.
+- Seed data for complex scenarios (like 'dream' consolidation) is defined as static dictionaries in the fixture module and written to the workspace before test execution.

@@ -42,6 +42,9 @@ tmp*/
 temp*/
 .trash/
 
+# Datasets
+datasets/
+
 # ReMe runtime data
 .reme/
 vault/

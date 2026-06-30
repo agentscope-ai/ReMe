@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: ""
+title: ReMe AI Memory Platform
+scope:
+    - .gitignore
+    - .pre-commit-config.yaml
+    - README.md
+    - README_ZH.md
+    - example.env
+    - pyproject.toml
+    - LICENSE
+source_files: []
+depends_on: []
+related_to: []

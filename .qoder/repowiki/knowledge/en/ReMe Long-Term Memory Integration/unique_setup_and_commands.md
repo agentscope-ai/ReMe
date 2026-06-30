@@ -1,0 +1,3 @@
+- Prerequisite: Install ReMe via `pip install "reme-ai[core]"` and configure `.env` with API keys.
+- Server Start: Must manually start the ReMe MCP server with `reme start service.backend=mcp service.transport=streamable-http` before using the plugin.
+- Installation: Run `/plugin marketplace add ./plugins` followed by `/plugin install reme@reme-marketplace` within Claude Code.

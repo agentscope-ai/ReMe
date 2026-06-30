@@ -1,0 +1,5 @@
+- **Centralized Export**: `__init__.py` acts as the module's public API, re-exporting key functions from specialized sub-modules.
+- **Dual-Backend Logging**: `logger_utils.py` implements an abstraction layer supporting both `loguru` (default) and Python's standard `logging`, controlled by the `REME_DISABLE_LOGURU` environment variable.
+- **Service Lifecycle Management**: `service_utils.py` and `common_utils.py` handle process discovery (`pgrep`, `lsof`), port probing, and subprocess management for the `reme start` CLI command.
+- **Data Persistence Helpers**: `jsonl_zst.py` provides atomic read/write operations for JSONL files compressed with Zstandard, while `agent_state_io.py` handles serialization of `AgentState` objects using `aiofiles` for async I/O.
+- **Graph & Text Processing**: `wikilink_handler.py` serves as the single source of truth for parsing, validating, and rewriting `[[wikilink]]` syntax, including Dataview predicate inference. `link_expansion.py` uses this to resolve neighbor nodes in the file graph.

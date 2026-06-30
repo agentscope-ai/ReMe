@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: plugins
+title: ReMe Long-Term Memory Integration
+scope:
+    - plugins/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/agent_wrapper
+    - path: reme_core/components/service
+    - path: reme_core/steps/channel
+    - path: reme_core/components/client

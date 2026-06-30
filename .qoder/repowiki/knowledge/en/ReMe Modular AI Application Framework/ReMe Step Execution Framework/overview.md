@@ -1,0 +1,1 @@
+Orchestrates modular LLM workflow units by providing a shared execution base, dependency injection, and context propagation across diverse operational domains.

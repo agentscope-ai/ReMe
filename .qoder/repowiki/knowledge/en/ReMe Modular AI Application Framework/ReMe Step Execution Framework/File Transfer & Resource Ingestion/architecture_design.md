@@ -1,0 +1,4 @@
+- The module exposes three step classes (`DownloadStep`, `UploadStep`, `IngestStep`) registered via the `R` component registry and inheriting from `BaseStep`.
+- `download.py` and `upload.py` implement symmetric file copying logic using `shutil.copy2`, enforcing workspace boundary checks via `Path.relative_to` to prevent path traversal.
+- `ingest.py` handles complex asset ingestion into a `resource/<date>/` directory, employing per-day file locking (`fcntl.flock`) and atomic writes (`os.replace`) to ensure data consistency for `meta.json` and daily markdown indices.
+- Input validation is centralized in helper functions within `ingest.py` (e.g., `_prepare_inputs`, `_validate_channel`) to enforce naming conventions and metadata constraints before file operations.

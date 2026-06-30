@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: reme_core/components/client
+title: Client Abstraction & Transport Layer
+scope:
+    - reme/components/client/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/service
+    - path: reme_core/schema
+    - path: plugins

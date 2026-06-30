@@ -1,0 +1,1 @@
+Orchestrates a plugin-based AI memory system by wiring declarative YAML configurations to a shared runtime context, managing component lifecycles, and executing modular workflow steps.

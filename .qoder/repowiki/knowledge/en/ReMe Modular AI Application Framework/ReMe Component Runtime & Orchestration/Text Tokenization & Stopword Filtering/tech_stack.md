@@ -1,0 +1,1 @@
+Uses `aiofiles` for non-blocking I/O when loading stopwords and `rjieba` (Rust binding) as the high-performance default backend for Chinese segmentation.

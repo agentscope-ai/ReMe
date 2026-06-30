@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: reme_core/components/file_chunker
+title: File Chunking & Indexing
+scope:
+    - reme/components/file_chunker/
+source_files: []
+depends_on: []
+related_to:
+    - path: reme_core/components/tokenizer
+    - path: reme_core/steps/file_io
+    - path: reme_core/utils
