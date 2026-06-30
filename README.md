@@ -123,6 +123,27 @@ into their lifecycle so conversations are consolidated into memory and surfaced 
 `auto_index`) and resource processing (`auto_resource`) run automatically through file watching, and `auto_dream`
 consolidates daily memories into long-term digests on a schedule.
 
+<details>
+<summary><b>QwenPaw Auto Memory / Auto Dream demo</b></summary>
+
+<br>
+
+<table>
+  <tr>
+    <td width="50%" align="center"><b>Auto Memory</b></td>
+    <td width="50%" align="center"><b>Auto Dream</b></td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <video src="docs/figure/qwenpaw-auto-memory.mp4" controls muted loop playsinline width="100%"></video>
+    </td>
+    <td width="50%">
+      <video src="docs/figure/qwenpaw-auto-dream.mp4" controls muted loop playsinline width="100%"></video>
+    </td>
+  </tr>
+</table>
+</details>
+
 Integration status across agents:
 
 | Agent                                               | Status      | How it integrates                                                                                                                                                                                                                                                                             |

@@ -117,6 +117,27 @@ ReMe 以服务形式运行，通过 CLI / MCP job 对外暴露记忆。各 Agent
 Skill + CLI 集成。它们可以把 `auto_memory` / `proactive` 接入自身生命周期，让对话沉淀为记忆并在合适时机浮现。索引（
 `auto_index`）与资源加工（`auto_resource`）由文件监控自动触发，`auto_dream` 则按计划把 daily 记忆整理为可长期复用的 digest。
 
+<details>
+<summary><b>QwenPaw Auto Memory / Auto Dream 演示</b></summary>
+
+<br>
+
+<table>
+  <tr>
+    <td width="50%" align="center"><b>Auto Memory</b></td>
+    <td width="50%" align="center"><b>Auto Dream</b></td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <video src="docs/figure/qwenpaw-auto-memory.mp4" controls muted loop playsinline width="100%"></video>
+    </td>
+    <td width="50%">
+      <video src="docs/figure/qwenpaw-auto-dream.mp4" controls muted loop playsinline width="100%"></video>
+    </td>
+  </tr>
+</table>
+</details>
+
 各 Agent 接入状态：
 
 | Agent                                               | 状态    | 接入方式                                                                                                                                                                                                                     |
