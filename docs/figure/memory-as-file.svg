@@ -3,28 +3,28 @@
   <desc id="desc">A diagram showing ReMe workspace files as both a human readable memory interface and an agent operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.</desc>
   <defs>
     <style>
-      .bg { fill: #f7f8fb; }
-      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
-      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
-      .section-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
-      .section-subtitle { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
-      .chip-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #253246; }
-      .chip-text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #627087; }
-      .note { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5d6a7d; }
-      .label { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
-      .panel { fill: #ffffff; stroke: #d7dde7; stroke-width: 1.2; rx: 10; ry: 10; }
-      .chip { fill: #f9fafc; stroke: #dfe5ee; stroke-width: 1; rx: 8; ry: 8; }
+      .bg { fill: #fffdf8; }
+      .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; }
+      .section-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .section-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; }
+      .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; }
+      .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4f5c6f; }
+      .label { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; }
       .badge { fill: #44546a; }
-      .soft { fill: #eef2f7; stroke: #d7dde7; stroke-width: 1; rx: 8; ry: 8; }
-      .arrow { stroke: #8794a8; stroke-width: 2; fill: none; marker-end: url(#arrow); }
-      .soft-arrow { stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow-soft); }
-      .line { stroke: #e1e6ee; stroke-width: 1; }
+      .soft { fill: #eef7ff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); }
+      .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }
     </style>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L8,3 z" fill="#8794a8"/>
+    <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
     </marker>
-    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L8,3 z" fill="#a3adbd"/>
+    <marker id="arrow-soft" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,4 L5,2 z" fill="#a3adbd"/>
     </marker>
   </defs>
 

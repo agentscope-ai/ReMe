@@ -3,27 +3,27 @@
   <desc id="desc">A left-to-right flow from changed daily notes to digest integration, interest topic writing, catalog checkpointing, and proactive reads.</desc>
   <defs>
     <style>
-      .bg { fill: #f7f8fb; }
-      .title { font: 700 28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
-      .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
-      .step-num { font: 700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
-      .step-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
-      .step-subtitle { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
-      .chip-title { font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #253246; }
-      .chip-text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #627087; }
-      .note { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5d6a7d; }
-      .panel { fill: #ffffff; stroke: #d7dde7; stroke-width: 1.2; rx: 10; ry: 10; }
-      .chip { fill: #f9fafc; stroke: #dfe5ee; stroke-width: 1; rx: 8; ry: 8; }
+      .bg { fill: #fffdf8; }
+      .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; }
+      .step-num { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; }
+      .step-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .step-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; }
+      .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+      .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; }
+      .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4f5c6f; }
+      .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; }
       .badge { fill: #44546a; }
-      .arrow { stroke: #8794a8; stroke-width: 2; fill: none; marker-end: url(#arrow); }
-      .soft-arrow { stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 5 5; fill: none; marker-end: url(#arrow-soft); }
-      .line { stroke: #e1e6ee; stroke-width: 1; }
+      .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); }
+      .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }
     </style>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L8,3 z" fill="#8794a8"/>
+    <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
     </marker>
-    <marker id="arrow-soft" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-      <path d="M0,0 L0,6 L8,3 z" fill="#a3adbd"/>
+    <marker id="arrow-soft" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,4 L5,2 z" fill="#a3adbd"/>
     </marker>
   </defs>
 
@@ -121,8 +121,8 @@
   <text class="chip-title" x="748" y="532">Proactive material</text>
   <text class="chip-text" x="748" y="554">daily/&lt;date&gt;/interests.yaml</text>
   <line class="line" x1="942" y1="518" x2="942" y2="566"/>
-  <text class="chip-title" x="986" y="532">Boundary</text>
-  <text class="chip-text" x="986" y="554">Read only; caller decides.</text>
+  <text class="chip-title" x="972" y="532">Boundary</text>
+  <text class="chip-text" x="972" y="554">Read only; caller decides</text>
 
   <path class="soft-arrow" d="M1064 432 C1064 476 600 472 600 432"/>
   <text class="note" x="834" y="474" text-anchor="middle">proactive reads interests.yaml after auto_dream writes it</text>
