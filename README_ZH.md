@@ -198,29 +198,29 @@ hook 负责触发对话记忆，长期整理与主动提醒则通过定时任务
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/figure/memory-as-file.svg" alt="Memory as File" width="100%">
+      <img src="docs/figure/memory-as-file.svg" alt="Memory as File" width="92%">
     </td>
     <td align="center" width="50%">
-      <img src="docs/figure/auto-memory-resource.svg" alt="Auto Memory and Resource" width="100%">
+      <img src="docs/figure/auto-memory-resource.svg" alt="Auto Memory and Resource" width="92%">
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/figure/auto-dream-and-proactive.svg" alt="Auto Dream and Proactive" width="100%">
+      <img src="docs/figure/auto-dream-and-proactive.svg" alt="Auto Dream and Proactive" width="92%">
     </td>
     <td align="center" width="50%">
-      <img src="docs/figure/auto-index-and-memory-search.svg" alt="Auto Index and Memory Search" width="100%">
+      <img src="docs/figure/auto-index-and-memory-search.svg" alt="Auto Index and Memory Search" width="92%">
     </td>
   </tr>
 </table>
 
-### Workspace 操作接口
+### ReMe Operations
 
 ReMe 通过统一的 CLI / Service Job 接口操作 workspace。Agent 通常只需要使用检索、读取、写入、编辑和自动记忆相关命令；更底层的索引、frontmatter
 和文件操作接口主要用于维护、调试或高级集成。
 
 <details>
-<summary><b>查看 Workspace 操作接口表</b></summary>
+<summary><b>查看 ReMe Operations 表</b></summary>
 
 <br>
 

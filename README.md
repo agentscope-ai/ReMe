@@ -222,14 +222,14 @@ on-demand calls.
   </tr>
 </table>
 
-### Workspace Operation Interface
+### ReMe Operations
 
 ReMe operates the workspace through a unified CLI / Service Job interface. Agents usually only need retrieval, reading,
 writing, editing, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands are
 mainly for maintenance, debugging, or advanced integration.
 
 <details>
-<summary><b>Workspace Operation Interface</b></summary>
+<summary><b>ReMe Operations</b></summary>
 
 <br>
 

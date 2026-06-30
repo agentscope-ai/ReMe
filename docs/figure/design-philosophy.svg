@@ -3,7 +3,7 @@
   <desc id="desc">A simple diagram showing ReMe's design philosophy: file-native memory, progressive abstraction, and explicit relationship graph for agents.</desc>
   <defs>
     <style>
-      .bg { fill: #f7f8fb; }
+      .bg { fill: #ffffff; }
       .title { font: 700 30px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #172033; }
       .subtitle { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #607086; }
       .panel { fill: #ffffff; stroke: #d8dee8; stroke-width: 1.2; }
