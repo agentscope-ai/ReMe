@@ -135,10 +135,10 @@ consolidates daily memories into long-term digests on a schedule.
   </tr>
   <tr>
     <td width="50%">
-      <video src="docs/figure/qwenpaw-auto-memory.mp4" controls muted loop playsinline width="100%"></video>
+      <img src="docs/figure/qwenpaw-auto-memory.gif" alt="QwenPaw Auto Memory demo" width="100%">
     </td>
     <td width="50%">
-      <video src="docs/figure/qwenpaw-auto-dream.mp4" controls muted loop playsinline width="100%"></video>
+      <img src="docs/figure/qwenpaw-auto-dream.gif" alt="QwenPaw Auto Dream demo" width="100%">
     </td>
   </tr>
 </table>
