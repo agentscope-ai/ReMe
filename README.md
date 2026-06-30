@@ -123,10 +123,7 @@ into their lifecycle so conversations are consolidated into memory and surfaced 
 `auto_index`) and resource processing (`auto_resource`) run automatically through file watching, and `auto_dream`
 consolidates daily memories into long-term digests on a schedule.
 
-<details>
-<summary><b>QwenPaw Auto Memory / Auto Dream demo</b></summary>
-
-<br>
+<p align="center"><b>QwenPaw Auto Memory / Auto Dream demo</b></p>
 
 <table>
   <tr>
@@ -142,7 +139,6 @@ consolidates daily memories into long-term digests on a schedule.
     </td>
   </tr>
 </table>
-</details>
 
 Integration status across agents:
 
