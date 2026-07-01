@@ -67,7 +67,7 @@ user_message_create: |
   ## Step 2 — Write
 
   Create the note in one shot:
-  `daily_write name=<name> description=<description> session_id={session_id} content=<body>`
+  `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<body>`
 
   - Generate `name` as a concise, stable topic/event filename stem for this memory. Prefer a reusable topic or event summary, optionally in kebab-case.
   - Do not include today's date or the daily directory date in `name`; the note already lives under today's daily path.
@@ -103,7 +103,7 @@ user_message_create_zh: |
   ## 步骤 2 — 写入
 
   一次性创建笔记：
-  `daily_write name=<name> description=<description> session_id={session_id} content=<正文>`
+  `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<正文>`
 
   - 由你生成 `name`，作为这条记忆简洁、稳定的主题/事件文件名 stem。优先使用可复用的主题或事件总结，可以采用 kebab-case。
   - `name` 不要包含今天日期或日记目录日期；笔记已经位于当天日记路径下。

@@ -1122,6 +1122,57 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
     asyncio.run(run())
 
 
+def test_auto_memory_uses_message_day_for_historical_create():
+    """AutoMemoryStep creates historical daily notes from message timestamps."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                historical_day = "2023-01-19"
+
+                def write_historical_note(inputs, _kwargs):
+                    assert f"Today: {historical_day}" in inputs
+                    assert f"date={historical_day}" in inputs
+                    write_file(
+                        cwd / "daily" / historical_day / "memory.md",
+                        "---\nname: memory\nsession_id: s1\n"
+                        "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
+                    )
+
+                wrapper.on_reply = write_historical_note
+                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        messages=[
+                            {
+                                "name": "user",
+                                "role": "user",
+                                "content": "remember historical project detail",
+                                "created_at": "2023-01-19T08:00:00",
+                            },
+                        ],
+                        session_id="s1",
+                    ),
+                )
+                resp = resp or step.context.response
+
+                assert resp.success is True
+                assert resp.metadata["date"] == historical_day
+                assert resp.metadata["path"] == "daily/2023-01-19/memory.md"
+                assert (cwd / "daily" / historical_day / "memory.md").is_file()
+            finally:
+                await fs.close()
+        print("✓ test_auto_memory_uses_message_day_for_historical_create passed")
+
+    asyncio.run(run())
+
+
 def test_auto_resource_result_hook_is_optional_and_isolated():
     """AutoResourceStep optionally emits host result hooks without coupling."""
 

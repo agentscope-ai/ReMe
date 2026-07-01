@@ -112,3 +112,27 @@ def test_auto_memory_created_at_takes_precedence_over_aliases():
     )
 
     assert msg.created_at == "2023-02-01T00:00:00"
+
+
+def test_auto_memory_derives_day_from_message_timestamps():
+    """Historical imports should anchor the daily note date to message time, not runtime time."""
+    messages = [
+        AutoMemoryStep._to_msg(
+            {
+                "name": "assistant",
+                "role": "assistant",
+                "content": "second event",
+                "created_at": "2023-01-20T09:30:00",
+            },
+        ),
+        AutoMemoryStep._to_msg(
+            {
+                "name": "user",
+                "role": "user",
+                "content": "first event",
+                "metadata": {"timestamp": "2023-01-19T08:00:00"},
+            },
+        ),
+    ]
+
+    assert AutoMemoryStep._messages_day(messages) == "2023-01-19"

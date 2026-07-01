@@ -131,6 +131,10 @@ jobs:
         memory_hint:
           type: string
           description: "optional hint"
+        date:
+          type: string
+          description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
+          default: ""
       required:
         - messages
     steps:
@@ -546,6 +550,10 @@ jobs:
         content:
           type: string
           description: "body"
+        date:
+          type: string
+          description: "YYYY-MM-DD daily note date; empty = today"
+          default: ""
         metadata:
           type: object
           description: "Optional extra frontmatter fields."

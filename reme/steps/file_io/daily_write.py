@@ -1,6 +1,6 @@
 """Write a daily markdown note by dispatching the generic ``write`` step."""
 
-from ._daily_index import refresh_day_index, validate_session_id
+from ._daily_index import extract_daily_date, refresh_day_index, validate_session_id
 from ._path import validate_filename_component
 from ..base_step import BaseStep
 from ...components import R
@@ -71,7 +71,11 @@ class DailyWriteStep(BaseStep):
 
         name, description, session_id, content = collected
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
-        day = now(tz).strftime("%Y-%m-%d")
+        raw_date = self.context.get("date", "")
+        day = extract_daily_date(raw_date) if raw_date else now(tz).strftime("%Y-%m-%d")
+        if raw_date and day is None:
+            self._fail("date must be YYYY-MM-DD", date=raw_date)
+            return self.context.response
         daily_dir = self.config_value("daily_dir")
         path = f"{daily_dir}/{day}/{name}.md"
         source_conversation = self._session_link(session_id)

@@ -333,6 +333,36 @@ def test_daily_write_delegates_to_write_and_refreshes_index():
     asyncio.run(run())
 
 
+def test_daily_write_accepts_explicit_date():
+    """``daily_write`` can write historical notes instead of always using today's folder."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store_with_dailies([])
+            step = await _make_daily_write_step(store, tmp)
+
+            await step(
+                name="historical-event",
+                description="Historical note",
+                session_id="locomo-session",
+                content="body text",
+                date="2023-01-19",
+            )
+            payload = _metadata(step)
+
+            assert step.context.response.success is True
+            assert payload["date"] == "2023-01-19"
+            assert payload["path"] == "daily/2023-01-19/historical-event.md"
+            assert (Path(tmp) / "daily" / "2023-01-19" / "historical-event.md").is_file()
+            assert "[[daily/2023-01-19/historical-event.md]]" in (Path(tmp) / "daily" / "2023-01-19.md").read_text(
+                encoding="utf-8",
+            )
+            await store.close()
+        print("✓ test_daily_write_accepts_explicit_date passed")
+
+    asyncio.run(run())
+
+
 def test_daily_write_reserved_metadata_keys_are_overridden():
     """User metadata cannot override daily_write's fixed frontmatter fields."""
 
@@ -626,6 +656,7 @@ if __name__ == "__main__":
     test_daily_list_does_not_refresh_index()
     test_daily_list_response_shape()
     test_daily_write_delegates_to_write_and_refreshes_index()
+    test_daily_write_accepts_explicit_date()
     test_daily_write_reserved_metadata_keys_are_overridden()
     test_daily_write_rejects_invalid_name_and_session_id()
     test_day_index_lists_each_note()
