@@ -72,6 +72,34 @@ def test_parse_frontmatter_only():
     asyncio.run(run())
 
 
+def test_parse_frontmatter_is_copied_to_chunk_metadata():
+    """Chunk metadata includes frontmatter fields for search filtering."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            body = (
+                "---\n"
+                "name: locomo-event\n"
+                "description: Jon lost his job\n"
+                "conversation_date: 2023-01-19\n"
+                "---\n"
+                "Jon said he lost his job today.\n"
+            )
+            path = _write_md(tmp, "daily/2023-01-19/locomo-event.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=500)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) == 1
+            assert chunks[0].metadata == {
+                "name": "locomo-event",
+                "description": "Jon lost his job",
+                "conversation_date": "2023-01-19",
+            }
+        print("✓ test_parse_frontmatter_is_copied_to_chunk_metadata passed")
+
+    asyncio.run(run())
+
+
 def test_parse_small_body_one_chunk():
     """A body shorter than chunk_chars produces exactly one chunk that contains the body."""
 
@@ -275,6 +303,7 @@ if __name__ == "__main__":
     print("\n=== MarkdownFileChunker tests ===")
     test_parse_empty_file()
     test_parse_frontmatter_only()
+    test_parse_frontmatter_is_copied_to_chunk_metadata()
     test_parse_small_body_one_chunk()
     test_parse_oversized_body_splits()
     test_parse_chunk_ids_match_node_chunk_ids()

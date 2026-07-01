@@ -165,6 +165,24 @@ def test_search_step_tool_context_deduplicates_returned_chunks_only():
     asyncio.run(run())
 
 
+def test_search_step_passes_metadata_filter_to_store():
+    """Search filters can target chunk metadata such as conversation_date."""
+
+    async def run():
+        hit = _chunk("hit", "daily/2023-01-19/event.md", "historical hit", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        search_filter = {"metadata": {"conversation_date": "2023-01-19"}}
+
+        resp = await step(RuntimeContext(query="Jon job", limit=5, search_filter=search_filter))
+
+        assert resp.success is True
+        assert resp.metadata["results"][0]["id"] == "hit"
+        assert all(call[3] == search_filter for call in store.calls)
+
+    asyncio.run(run())
+
+
 def test_search_step_tool_context_seen_chunks_expire_after_ttl():
     """Seen chunk ids under a tool_context_id are reusable after the configured TTL."""
 
@@ -191,8 +209,6 @@ def test_search_step_tool_context_seen_chunks_expire_after_ttl():
         assert second.metadata["dedup"]["expired"] == 1
         assert second.metadata["dedup"]["seen_before"] == 0
         assert second.metadata["dedup"]["ttl_seconds"] == 3600.0
-
-    asyncio.run(run())
 
 
 def test_search_step_empty_query_fails_before_store_calls():

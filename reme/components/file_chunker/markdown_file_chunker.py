@@ -135,6 +135,9 @@ class MarkdownFileChunker(BaseFileChunker):
             with MarkdownRenderer() as renderer:
                 tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
+            chunk_metadata = self._chunk_metadata(front_matter)
+            for chunk in chunks:
+                chunk.metadata = chunk_metadata.copy()
 
         links = WikilinkHandler.extract_links(content, rel_path) if content else []
 
@@ -171,6 +174,11 @@ class MarkdownFileChunker(BaseFileChunker):
             front_matter = FileFrontMatter()
 
         return front_matter, "".join(lines[close_idx + 1 :]), close_idx + 1
+
+    @staticmethod
+    def _chunk_metadata(front_matter: FileFrontMatter) -> dict:
+        """Expose frontmatter fields on chunks so search filters can match them."""
+        return {key: value for key, value in front_matter.model_dump(mode="json").items() if value not in (None, "")}
 
     def _build_tree(self, doc: Any, renderer, line_offset: int = 0) -> MdNode:
         """Heading-level stack folds mistletoe's flat children into nested
