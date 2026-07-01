@@ -1,9 +1,11 @@
 """Tests for shared evolve helpers."""
 
+# pylint: disable=protected-access
+
 from agentscope.message import Msg
 
-from reme.steps.evolve._evolve import agent_reply_result_text
-from reme.steps.evolve.auto_memory import _sanitize_msg_for_save
+from reme.steps.evolve._evolve import agent_reply_result_text, format_history
+from reme.steps.evolve.auto_memory import AutoMemoryStep, _sanitize_msg_for_save
 
 
 def test_agent_reply_result_text_uses_last_text_block():
@@ -67,3 +69,46 @@ def test_sanitize_msg_for_save_drops_tool_results_and_base64_data():
     assert [block.type for block in sanitized.content] == ["text", "tool_call"]
     assert sanitized.content[0].text == "real conversation"
     assert sanitized.content[1].name == "memory_search"
+
+
+def test_auto_memory_accepts_message_timestamp_aliases():
+    """AutoMemoryStep preserves historical message timestamps from common benchmark fields."""
+    top_level = AutoMemoryStep._to_msg(
+        {
+            "name": "user",
+            "role": "user",
+            "content": "first event",
+            "time_created": "2023-01-19T08:00:00",
+        },
+    )
+    nested = AutoMemoryStep._to_msg(
+        {
+            "name": "assistant",
+            "role": "assistant",
+            "content": "second event",
+            "metadata": {"timestamp": "2023-01-20T09:30:00"},
+        },
+    )
+
+    history = format_history([top_level, nested])
+
+    assert top_level.created_at == "2023-01-19T08:00:00"
+    assert nested.created_at == "2023-01-20T09:30:00"
+    assert "[user @ 2023-01-19T08:00:00]" in history
+    assert "[assistant @ 2023-01-20T09:30:00]" in history
+
+
+def test_auto_memory_created_at_takes_precedence_over_aliases():
+    """Explicit AgentScope ``created_at`` values are not overwritten by compatibility aliases."""
+    msg = AutoMemoryStep._to_msg(
+        {
+            "name": "user",
+            "role": "user",
+            "content": "event",
+            "created_at": "2023-02-01T00:00:00",
+            "time_created": "2023-01-19T08:00:00",
+            "metadata": {"timestamp": "2023-01-20T09:30:00"},
+        },
+    )
+
+    assert msg.created_at == "2023-02-01T00:00:00"

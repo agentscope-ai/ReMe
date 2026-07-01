@@ -13,6 +13,7 @@ from ...components import R
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
+_MESSAGE_TIME_ALIASES = ("time_created", "timestamp", "createdAt", "timeCreated", "created_time")
 
 
 def _sanitize_msg_for_save(msg: Msg) -> Msg:
@@ -32,6 +33,26 @@ def _sanitize_msg_for_save(msg: Msg) -> Msg:
     if not changed:
         return msg
     return msg.model_copy(update={"content": new_content})
+
+
+def _normalize_msg_timestamp(item: dict) -> dict:
+    """Map common message timestamp aliases to AgentScope's ``created_at`` field."""
+    if item.get("created_at"):
+        return item
+
+    for key in _MESSAGE_TIME_ALIASES:
+        value = item.get(key)
+        if value:
+            return {**item, "created_at": value}
+
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        for key in _MESSAGE_TIME_ALIASES:
+            value = metadata.get(key)
+            if value:
+                return {**item, "created_at": value}
+
+    return item
 
 
 @R.register("auto_memory_step")
@@ -191,6 +212,8 @@ class AutoMemoryStep(BaseStep):
     def _to_msg(item) -> Msg:
         if isinstance(item, Msg):
             return item
+        if isinstance(item, dict):
+            item = _normalize_msg_timestamp(item)
         if isinstance(item, dict) and isinstance(item.get("content"), str):
             item = {**item, "content": [{"type": "text", "text": item["content"]}]}
         return Msg.model_validate(item)
