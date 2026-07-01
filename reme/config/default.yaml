@@ -16,7 +16,7 @@ jobs:
       - backend: watch_changes_step
         dispatch_steps:
           - backend: update_index_step
-          - persist: False
+            persist: False
 
   resource_watch_loop:
     backend: background
