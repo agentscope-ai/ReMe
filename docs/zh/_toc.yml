@@ -21,4 +21,5 @@ parts:
       - file: proactive
   - caption: 社区
     chapters:
+      - file: benchmark_status
       - file: contributing
