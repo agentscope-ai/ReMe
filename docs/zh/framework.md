@@ -13,6 +13,12 @@ ReMe 的运行时可以理解为：**配置驱动的 Application 把组件和 Jo
 自动记忆和主动读取的用户侧说明分别见 [Memory Search](./memory_search.md)、[Auto Memory](./auto_memory.md)、
 [Auto Resource](./auto_resource.md)、[Auto Dream](./auto_dream.md) 和 [Proactive](./proactive.md)。
 
+### 能力边界
+
+ReMe v4 聚焦长期记忆：把对话和资源沉淀为 `daily/`，再整理到 `digest/`，并通过 CLI、HTTP、MCP 暴露写入、检索和主动读取能力。
+单会话上下文窗口管理不属于 ReMe v4 的职责范围，例如对当前会话做压缩、摘要注入、工具输出裁剪，或提供独立 `/compact`
+接口。需要这类能力时，应在上层 Agent 框架中处理；ReMe 只接收已经发生的对话、资源或文件变更，并把其中有长期价值的信息持久化。
+
 ```mermaid
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
