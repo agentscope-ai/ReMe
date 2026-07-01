@@ -8,7 +8,8 @@ from agentscope.message import Msg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
-from ..file_io import extract_daily_date, refresh_day_index, validate_filename_component, validate_session_id
+from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index
+from ..file_io import validate_filename_component, validate_session_id
 from ...components import R
 
 _SESSION_ID_KEY = "session_id"
@@ -221,7 +222,7 @@ class AutoMemoryStep(BaseStep):
     @staticmethod
     def _messages_day(messages: list[Msg]) -> str | None:
         days = [day for msg in messages if (day := extract_daily_date(msg.created_at))]
-        return min(days) if days else None
+        return max(days) if days else None
 
     # pylint: disable=too-many-return-statements
     async def execute(self):
@@ -250,15 +251,15 @@ class AutoMemoryStep(BaseStep):
             self.logger.warning(f"[{self.name}] missing session_id")
             return
 
-        await self._save_session_messages(session_id, messages)
-
-        day = extract_daily_date(raw_date) if raw_date else self._messages_day(messages) or current.strftime("%Y-%m-%d")
+        day = parse_daily_date(raw_date) if raw_date else self._messages_day(messages) or current.strftime("%Y-%m-%d")
         if raw_date and day is None:
             self.context.response.success = False
             self.context.response.answer = "Error: date must be YYYY-MM-DD"
             self.context.response.metadata.update({"date": raw_date, "modified": False, "n_messages": len(messages)})
             self.logger.warning(f"[{self.name}] invalid date={raw_date!r}")
             return
+
+        await self._save_session_messages(session_id, messages)
 
         if not messages:
             self.context.response.success = True

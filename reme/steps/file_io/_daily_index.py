@@ -28,6 +28,12 @@ def extract_daily_date(value) -> str | None:
         return None
 
 
+def parse_daily_date(value) -> str | None:
+    """Return a strict ``YYYY-MM-DD`` date, or ``None`` when invalid."""
+    text = str(value or "").strip()
+    return extract_daily_date(text) if len(text) == 10 else None
+
+
 _NOTES_OPEN = "<!-- notes:auto -->"
 _NOTES_CLOSE = "<!-- /notes:auto -->"
 _INDEX_HIDDEN_METADATA_KEYS = {"session_id", "source_conversation"}
