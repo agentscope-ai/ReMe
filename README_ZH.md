@@ -117,19 +117,30 @@ ReMe 以服务形式运行，通过 CLI / MCP job 对外暴露记忆。各 Agent
 Skill + CLI 集成。它们可以把 `auto_memory` / `proactive` 接入自身生命周期，让对话沉淀为记忆并在合适时机浮现。索引（
 `auto_index`）与资源加工（`auto_resource`）由文件监控自动触发，`auto_dream` 则按计划把 daily 记忆整理为可长期复用的 digest。
 
-<p align="center"><b>QwenPaw Auto Memory / Auto Dream 演示</b></p>
+<p align="center"><b>集成演示</b></p>
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>Auto Memory</b></td>
-    <td width="50%" align="center"><b>Auto Dream</b></td>
+    <td align="center"></td>
+    <td width="45%" align="center"><b>Auto Memory</b></td>
+    <td width="45%" align="center"><b>Auto Dream</b></td>
   </tr>
   <tr>
-    <td width="50%">
+    <td align="center"><b>QwenPaw</b></td>
+    <td width="45%">
       <img src="docs/figure/qwenpaw-auto-memory.gif" alt="QwenPaw Auto Memory 演示" width="100%">
     </td>
-    <td width="50%">
+    <td width="45%">
       <img src="docs/figure/qwenpaw-auto-dream.gif" alt="QwenPaw Auto Dream 演示" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Claude Code</b></td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-memory.gif" alt="Claude Code Auto Memory 演示" width="100%">
+    </td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-dream.gif" alt="Claude Code Auto Dream 演示" width="100%">
     </td>
   </tr>
 </table>

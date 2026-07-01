@@ -11,7 +11,7 @@ from .env_utils import load_env, parse_env_file
 from .link_expansion import expand_links, render_expansion_lines
 from .logger_utils import get_logger
 from .logo_utils import print_logo
-from .service_utils import find_reme, locate_reme, precheck_start, cli_find_reme
+from .service_utils import find_reme, locate_reme, precheck_start, cli_find_reme, running_service_config
 from .similarity_utils import cosine_similarity, batch_cosine_similarity
 from .token_utils import estimate_token_count
 from .agent_state_io import AsStateHandler
@@ -32,6 +32,7 @@ __all__ = [
     "locate_reme",
     "precheck_start",
     "cli_find_reme",
+    "running_service_config",
     "cosine_similarity",
     "batch_cosine_similarity",
     "estimate_token_count",

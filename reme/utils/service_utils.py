@@ -68,6 +68,48 @@ def _scan_reme_procs() -> list[tuple[int, str, int]]:
     return procs
 
 
+def _reme_start_argv() -> list[list[str]]:
+    """Return the `key=value` start-args of each running `reme ... start` process.
+
+    These cmdline tokens are the authoritative record of how the server was
+    *actually* launched — including ``service.*`` overrides that never touched
+    any config file — so replaying them reproduces the server's own config.
+    """
+    argvs: list[list[str]] = []
+    for proc in psutil.process_iter(["cmdline"]):
+        try:
+            cmdline = proc.info["cmdline"] or []
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        if "start" not in cmdline or not any("reme" in tok for tok in cmdline):
+            continue
+        start_idx = cmdline.index("start")
+        argvs.append([t for t in cmdline[start_idx + 1 :] if "=" in t])
+    return argvs
+
+
+def running_service_config() -> dict | None:
+    """Resolve the ``service`` config of a running reme by replaying its start args.
+
+    Reads the live ``reme start ...`` process cmdline and re-runs the same
+    ``resolve_app_config`` the server used, so the result matches the running
+    server's real backend/transport/host/port even when those were passed on the
+    command line and are absent from (or differ from) the on-disk config file.
+    Returns ``None`` when no running reme is found or its args can't be parsed.
+    """
+    from ..config import parse_args, resolve_app_config
+
+    for argv in _reme_start_argv():
+        try:
+            _, kwargs = parse_args("start", *argv)
+        except ValueError:
+            continue
+        service = resolve_app_config(**kwargs).get("service")
+        if isinstance(service, dict):
+            return service
+    return None
+
+
 async def locate_reme() -> tuple[str, int, int | None] | None:
     """Find a running reme: try default port, then scanned processes."""
     if await find_reme(REME_DEFAULT_HOST, REME_DEFAULT_PORT) == "reme":

@@ -123,19 +123,30 @@ into their lifecycle so conversations are consolidated into memory and surfaced 
 `auto_index`) and resource processing (`auto_resource`) run automatically through file watching, and `auto_dream`
 consolidates daily memories into long-term digests on a schedule.
 
-<p align="center"><b>QwenPaw Auto Memory / Auto Dream demo</b></p>
+<p align="center"><b>Integration demos</b></p>
 
 <table>
   <tr>
-    <td width="50%" align="center"><b>Auto Memory</b></td>
-    <td width="50%" align="center"><b>Auto Dream</b></td>
+    <td align="center"></td>
+    <td width="45%" align="center"><b>Auto Memory</b></td>
+    <td width="45%" align="center"><b>Auto Dream</b></td>
   </tr>
   <tr>
-    <td width="50%">
+    <td align="center"><b>QwenPaw</b></td>
+    <td width="45%">
       <img src="docs/figure/qwenpaw-auto-memory.gif" alt="QwenPaw Auto Memory demo" width="100%">
     </td>
-    <td width="50%">
+    <td width="45%">
       <img src="docs/figure/qwenpaw-auto-dream.gif" alt="QwenPaw Auto Dream demo" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Claude Code</b></td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-memory.gif" alt="Claude Code Auto Memory demo" width="100%">
+    </td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-dream.gif" alt="Claude Code Auto Dream demo" width="100%">
     </td>
   </tr>
 </table>
