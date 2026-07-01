@@ -1,1 +1,0 @@
-Provides a unified interface for interacting with ReMe services via HTTP or Model Context Protocol (MCP), handling connection lifecycle and response streaming.

@@ -1,4 +1,0 @@
-- Defines `BaseFileCatalog` as an abstract component extending `BaseComponent`, enforcing `upsert`, `delete`, and `get_nodes` contracts.
-- Implements `LocalFileCatalog` registered as 'local' via `@R.register`, storing `FileNode` objects in memory and persisting to compressed JSONL files.
-- Uses async locks for thread-safe I/O operations during load, dump, and CRUD actions.
-- Exports both base and local implementations through `__init__.py` for module-level access.

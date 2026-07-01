@@ -1,3 +1,0 @@
-- **Environment**: Requires `LLM_API_KEY` (and optionally `LLM_BASE_URL`) in `.env` or environment for integration tests.
-- **Local E2E Driver**: `tests/integration/run_reme_e2e_local.py` allows running the full e2e loop against a persistent `./.reme` workspace for manual inspection.
-- **Dream Seeding**: `_workspace_fixture.py` can be run as a script to seed a specific workspace with pre-existing digest nodes and daily notes for dreamer testing.

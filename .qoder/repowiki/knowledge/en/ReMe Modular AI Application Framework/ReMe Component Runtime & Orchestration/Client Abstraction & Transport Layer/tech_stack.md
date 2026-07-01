@@ -1,1 +1,0 @@
-Uses `httpx` for async HTTP/SSE handling and `fastmcp` for MCP transport abstraction (SSE, Stdio, Streamable HTTP).

@@ -1,4 +1,0 @@
-- **Template Method Pattern**: `BaseService` defines the lifecycle (`build_service`, `add_jobs`, `start_service`) while concrete subclasses (`HttpService`, `MCPService`) implement protocol-specific logic.
-- **Protocol Abstraction**: Jobs are mapped to either JSON/SSE endpoints (HTTP) or Function Tools (MCP), with `StreamJob` types handled differently or excluded based on protocol capabilities.
-- **Component Registration**: Services are registered in the component registry using the `@R.register` decorator, allowing dynamic selection of the transport layer.
-- **Lifecycle Management**: Uses an async lifespan context to manage application startup/shutdown and publishes service metadata (host/port) via environment variables for in-process discovery.

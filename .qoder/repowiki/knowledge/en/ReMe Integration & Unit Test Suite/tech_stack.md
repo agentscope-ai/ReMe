@@ -1,1 +1,0 @@
-Uses `pytest` conventions (though tests are often runnable as scripts via `asyncio.run`), `httpx` for server polling, and `yaml` for digest validation.

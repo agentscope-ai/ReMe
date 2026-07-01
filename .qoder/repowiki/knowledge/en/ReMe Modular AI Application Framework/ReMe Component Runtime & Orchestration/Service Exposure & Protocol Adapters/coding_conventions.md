@@ -1,3 +1,0 @@
-- Concrete service classes implement the three abstract methods defined in `BaseService`: `build_service`, `add_job`, and `start_service`.
-- Services use the `_lifespan` helper from `BaseService` to bracket server execution with application start/close events.
-- Job registration iterates through `app.context.jobs` and filters based on the `enable_serve` flag before calling the protocol-specific `add_job`.

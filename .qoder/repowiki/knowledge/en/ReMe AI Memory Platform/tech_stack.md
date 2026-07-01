@@ -1,1 +1,0 @@
-Python 3.11+ with a unified `pyproject.toml` build system using setuptools.

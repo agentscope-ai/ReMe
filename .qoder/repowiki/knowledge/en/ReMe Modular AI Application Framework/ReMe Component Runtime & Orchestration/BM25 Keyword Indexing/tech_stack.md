@@ -1,1 +1,0 @@
-Uses NumPy for vectorized posting list operations and IDF caching, and Python's `pickle` for binary index serialization.

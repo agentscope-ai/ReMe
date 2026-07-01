@@ -1,5 +1,0 @@
-- **Entry Point**: `__init__.py` aggregates and exports all step classes (e.g., `AddStep`, `HealthCheckStep`) for registration within the broader application context.
-- **Registration Pattern**: Every step class is decorated with `@R.register` (from `...components`), binding it to a unique string identifier (e.g., `"health_check_step"`) for runtime discovery.
-- **Inheritance**: All steps extend `BaseStep` from the parent `steps` package, adhering to a standardized `async execute(self)` interface that interacts with a shared `RuntimeContext`.
-- **Internal Layering**: The module is flat, with each file representing a distinct functional unit. Complex logic, such as memory accounting in `health_check.py`, is encapsulated within private module-level functions (`_deep_size`, `_collect_components`) to keep the step's `execute` method clean.
-- **Dependency Direction**: Steps depend on upstream components (`R`, `BaseStep`, `ComponentEnum`) and downstream context objects (`self.context`, `self.app_context`) to read inputs and write responses or stream data.

@@ -1,1 +1,0 @@
-Manages bidirectional file transfers between the workspace and local filesystem, and ingests external assets into a date-partitioned resource bucket with provenance tracking.

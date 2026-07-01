@@ -1,4 +1,0 @@
-- Defines `BaseFileStore` abstract interface for CRUD, graph queries, and search operations.
-- `LocalFileStore` implements an in-memory store composed of `embedding_store`, `keyword_index`, and `file_graph` sub-components, persisted via compressed JSONL.
-- `FaissLocalFileStore` extends `LocalFileStore` by integrating a FAISS index for efficient vector similarity search, using tombstone-based deletion and sidecar persistence.
-- Module exports `BaseFileStore`, `LocalFileStore`, and `FaissLocalFileStore` via `__init__.py`.

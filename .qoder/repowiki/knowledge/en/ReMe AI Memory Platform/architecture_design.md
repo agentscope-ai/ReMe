@@ -1,3 +1,0 @@
-- Defines the monorepo build boundary via `pyproject.toml`, packaging `reme*` namespaces while exposing `tests` and `docs` as sibling scopes.
-- Enforces cross-module code quality through a shared `.pre-commit-config.yaml` that applies Black, Flake8, and Pylint rules uniformly across core and plugin sources.
-- Centralizes dependency management and CLI entry points (`reme = reme.reme:main`) to ensure consistent runtime behavior for both the core engine and its MCP integrations.

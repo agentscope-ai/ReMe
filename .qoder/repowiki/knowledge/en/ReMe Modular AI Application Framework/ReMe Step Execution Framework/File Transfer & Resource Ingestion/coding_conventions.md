@@ -1,4 +1,0 @@
-- Steps inherit from `BaseStep` and implement an asynchronous `execute` method that interacts with `self.context` for input/output.
-- File operations enforce workspace boundaries by resolving paths and verifying they remain relative to the configured workspace directory.
-- Error handling follows a pattern of returning error dictionaries or setting `self.context.response.success = False` with descriptive messages.
-- Metadata enrichment includes automatic MIME type detection using `mimetypes.guess_type` and file size reporting in transfer operations.

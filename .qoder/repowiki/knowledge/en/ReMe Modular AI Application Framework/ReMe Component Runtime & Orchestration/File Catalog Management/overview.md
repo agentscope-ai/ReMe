@@ -1,1 +1,0 @@
-Manages persistent storage and retrieval of file metadata nodes using an abstract backend with local JSONL persistence.

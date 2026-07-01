@@ -1,1 +1,0 @@
-Uses `faiss-cpu` for approximate nearest neighbor search in `FaissLocalFileStore` and `zstandard` (via `jsonl_zst`) for compressed persistence.

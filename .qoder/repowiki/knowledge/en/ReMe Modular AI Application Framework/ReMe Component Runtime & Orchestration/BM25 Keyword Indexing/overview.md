@@ -1,1 +1,0 @@
-Provides an abstract interface and a concrete BM25 implementation for lexical document retrieval with lazy deletion and disk persistence.

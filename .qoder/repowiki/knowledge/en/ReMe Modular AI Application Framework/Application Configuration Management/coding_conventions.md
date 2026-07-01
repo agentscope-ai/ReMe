@@ -1,4 +1,0 @@
-- Environment variables in config values are expanded using `${VAR}` or `${VAR:-default}` syntax, applied recursively to strings within dicts and lists.
-- CLI arguments use dot-notation (e.g., `service.name=test`) to specify nested configuration overrides, parsed into nested dictionaries.
-- Configuration files are discovered at module import time from the local directory, prioritizing `.yaml` over `.yml` and `.json` for same-stem files.
-- String-to-type conversion in CLI values preserves leading-zero strings (e.g., '007') as strings, while converting 'true'/'false' to booleans and valid numbers to int/float.

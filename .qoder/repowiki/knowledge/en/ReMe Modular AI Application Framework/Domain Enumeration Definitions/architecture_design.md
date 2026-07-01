@@ -1,7 +1,0 @@
-- Centralized enumeration module exposing four distinct enum classes via `__init__.py`.
-- All enums inherit from both `str` and `Enum`, ensuring string-compatible values for serialization and comparison.
-- Each enum is isolated in its own file (`chunk_enum.py`, `component_enum.py`, etc.) with clear domain responsibility.
-- `ChunkEnum` maps streaming events from AgentScope and Claude Code SDK to unified chunk types.
-- `ComponentEnum` supports dependency injection by categorizing system components like LLMs, embeddings, and services.
-- `DreamBucketEnum` classifies memory digest buckets for dream integration.
-- `LinkScopeEnum` controls edge visibility in graph queries (real, virtual, or all).

@@ -1,3 +1,0 @@
-- Use semantic, workspace-relative paths for all file operations and wikilinks to ensure predictability and avoid automatic resolution logic.
-- Persist long-term memory nodes in Markdown files using YAML frontmatter for metadata (name, description) and typed wikilinks (e.g., `derived_from:: [[path]]`) for graph relationships.
-- Implement business logic as atomic Steps that read from and write to a shared `RuntimeContext`, avoiding instance-level state to ensure thread safety and testability.

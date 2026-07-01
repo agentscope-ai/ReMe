@@ -1,3 +1,0 @@
-- Components and jobs are instantiated via a string-based backend lookup from a global registry (`R.get`) rather than direct class imports.
-- Async lifecycle methods (`start`, `close`) are implemented with reentrancy guards using `asyncio.Lock` to prevent duplicate execution.
-- Dependency injection is handled by declaring `Dependency` placeholders in component attributes, which are resolved into real instances or None during the `start()` phase.

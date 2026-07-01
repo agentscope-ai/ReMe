@@ -1,3 +1,0 @@
-- All enumeration classes inherit from both str and Enum to enable string-like behavior while maintaining enum safety.
-- Each enumeration is defined in its own dedicated module file following the pattern <domain>_enum.py.
-- Enum values are lowercase strings with underscores, matching common serialization conventions.

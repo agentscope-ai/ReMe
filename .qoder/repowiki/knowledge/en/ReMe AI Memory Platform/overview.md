@@ -1,1 +1,0 @@
-Unifies the core runtime, MCP plugins, documentation, and test suites into a single distributable Python package for file-native agent memory.

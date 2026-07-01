@@ -1,2 +1,0 @@
-- Enforces 120-character line limits and trailing commas via shared Black and Flake8 configurations.
-- Applies uniform static analysis using Pylint with a centralized exclusion pattern for docs and generated files.

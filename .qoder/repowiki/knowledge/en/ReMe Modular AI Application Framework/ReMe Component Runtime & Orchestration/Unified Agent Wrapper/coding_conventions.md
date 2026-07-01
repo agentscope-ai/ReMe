@@ -1,3 +1,0 @@
-- Fluent API pattern: Configuration methods like `set_system_prompt` and `add_job_tools` return `self` to enable method chaining.
-- Event normalization: Backend-specific events are mapped to a common `StreamChunk` enum via dedicated `_event_to_chunk` or `_raw_event_to_chunk` static methods.
-- Dependency resolution: Job tools are resolved from string identifiers to `BaseJob` instances using the `app_context` before being passed to the underlying agent framework.

@@ -1,3 +1,0 @@
-- Every step class implements an `async execute(self)` method that begins with `assert self.context is not None` to ensure runtime safety.
-- Step classes are consistently registered using the `@R.register("unique_name")` decorator immediately preceding the class definition.
-- Inputs are retrieved from `self.context` using `.get()` with sensible defaults, while outputs are written to `self.context.response.answer` and `self.context.response.metadata`.

@@ -1,4 +1,0 @@
-- Steps inherit from `BaseStep` and are registered using the `@R.register` decorator with a unique string identifier.
-- Agent prompts are externalized into sidecar `.yaml` files with parallel `en` and `zh` keys for system and user messages.
-- Structured agent outputs are parsed using `parse_structured_reply` which supports JSON, YAML, and fenced code blocks.
-- Daily note paths follow a `daily_dir/YYYY-MM-DD/name.md` convention, with frontmatter used for stable naming and source linking.

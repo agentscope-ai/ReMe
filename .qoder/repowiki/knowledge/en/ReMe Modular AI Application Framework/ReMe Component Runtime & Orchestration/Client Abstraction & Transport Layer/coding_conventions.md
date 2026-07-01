@@ -1,3 +1,0 @@
-- Concrete client classes use the `@R.register("identifier")` decorator for discovery and instantiation by name.
-- Async context management is implemented via explicit `_start` and `_close` methods rather than standard Python context manager protocols.
-- Action execution follows a streaming pattern where `_execute` yields text chunks, supporting both single-response and continuous stream scenarios.

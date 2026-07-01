@@ -1,3 +1,0 @@
-- Stop hooks implement fire-and-forget asynchronous behavior by daemonizing the process (double-fork) to avoid blocking the Claude Code session termination.
-- MCP communication is implemented using a minimal custom JSON-RPC 2.0 client over HTTP with streamable-http transport support, avoiding heavy dependencies.
-- Configuration for server endpoints is centralized in `.mcp.json` and read dynamically by both the skill documentation and the Python hook logic.

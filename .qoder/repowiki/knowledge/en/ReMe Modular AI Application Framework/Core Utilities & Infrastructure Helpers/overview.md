@@ -1,1 +1,0 @@
-Provides foundational utilities for logging, environment management, service discovery, data serialization, and wikilink processing within the ReMe framework.

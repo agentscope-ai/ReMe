@@ -1,1 +1,0 @@
-Provides a component-based framework for defining and executing sequential, background, scheduled, and streaming workflows.

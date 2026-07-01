@@ -1,1 +1,0 @@
-Provides an abstract interface and a local LRU-cached implementation for computing, storing, and persisting text embeddings.

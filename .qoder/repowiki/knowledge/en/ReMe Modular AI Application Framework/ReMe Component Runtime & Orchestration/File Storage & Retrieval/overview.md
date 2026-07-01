@@ -1,1 +1,0 @@
-Manages file chunk persistence, graph relationships, and hybrid vector/keyword search capabilities.

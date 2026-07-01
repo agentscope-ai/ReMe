@@ -1,3 +1,0 @@
-- **Async I/O**: Uses `aiofiles` for non-blocking filesystem access across all read/write operations.
-- **Metadata Parsing**: Relies on `python-frontmatter` and `pyyaml` for robust handling of markdown YAML headers.
-- **Concurrency**: Implements custom async locking via `asyncio.Lock` for file-level serialization.

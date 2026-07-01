@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: reme_core
-title: ReMe Modular AI Application Framework
-scope:
-    - reme/
-source_files: []
-depends_on: []
-related_to: []

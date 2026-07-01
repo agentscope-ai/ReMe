@@ -1,4 +1,0 @@
-- Defines `BaseKeywordIndex` (in `base_keyword_index.py`) as the abstract contract, extending `BaseComponent` to inherit async lifecycle (`start`/`close`) and dependency injection for tokenizers.
-- Implements `BM25Index` (in `bm25_index.py`) using an inverted index structure backed by NumPy arrays for efficient scoring and lazy deletion.
-- Persistence is handled via atomic pickle writes (`dump`/`load`) to a fingerprinted path that encodes tokenizer configuration, ensuring index consistency.
-- The module exposes `BaseKeywordIndex` and `BM25Index` through `__init__.py`, relying on the parent `component_registry` for runtime discovery via the `@R.register` decorator.

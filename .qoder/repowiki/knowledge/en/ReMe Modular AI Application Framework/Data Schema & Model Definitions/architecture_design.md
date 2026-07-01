@@ -1,3 +1,0 @@
-- Centralizes all data contracts using Pydantic `BaseModel` for validation and serialization.
-- Organizes models into logical domains: `application_config.py` for system settings, `file_*.py` and `emb_node.py` for the knowledge graph and vector store, `dream.py` for AI-driven memory processes, and `request.py`/`response.py`/`stream_chunk.py` for service I/O.
-- `__init__.py` serves as the public API, re-exporting all schema classes to simplify imports for downstream modules.

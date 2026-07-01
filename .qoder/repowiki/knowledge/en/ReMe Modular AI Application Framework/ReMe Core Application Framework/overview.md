@@ -1,1 +1,0 @@
-Provides the central application lifecycle, component dependency injection, and CLI entry point for the ReMe memory management system.

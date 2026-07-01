@@ -1,4 +1,0 @@
-- Defines `BaseStep` as the universal orchestrator contract, enforcing a standardized `execute` lifecycle and `RuntimeContext` propagation for all child modules.
-- Implements a `Ref` descriptor pattern for lazy, cached dependency injection of shared infrastructure (LLMs, file stores, agent wrappers) from the application context.
-- Supports dynamic step chaining via `dispatch_steps`, allowing steps to resolve and invoke other registered steps by backend name at runtime.
-- Unifies prompt management through a `PromptHandler` that loads YAML templates based on class inheritance, enabling consistent localization and template overrides across all step implementations.

@@ -1,1 +1,0 @@
-Pydantic v2 for data validation and serialization; NumPy for embedding vector storage in `EmbNode`.

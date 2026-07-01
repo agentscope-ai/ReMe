@@ -1,3 +1,0 @@
-- Subclasses implement only the `_tokenize_one` method for raw segmentation, relying on the base class to handle lowercasing and stopword filtering via `_postprocess`.
-- Heavy initialization tasks, such as loading stopwords or resolving backend libraries, are performed in the async `_start` lifecycle hook rather than in `__init__`.
-- Concrete tokenizer classes are registered with the global `ComponentRegistry` using the `@R.register` decorator with a string identifier.

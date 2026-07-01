@@ -1,3 +1,0 @@
-- Components must declare a non-BASE `ComponentEnum` value in the `component_type` class attribute to participate in the registry and dependency injection system.
-- Async lifecycle methods (`_start`, `_close`) are implemented as protected hooks in subclasses, while public `start()` and `close()` methods handle resolution, locking, and owned-component propagation.
-- Dependency placeholders (`Dependency`) raise a `RuntimeError` on attribute access if accessed before the owning component's `start()` method has resolved them.

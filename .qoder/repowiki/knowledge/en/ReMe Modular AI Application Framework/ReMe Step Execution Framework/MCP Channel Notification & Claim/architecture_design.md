@@ -1,4 +1,0 @@
-- Two step classes (`ChannelNotifyStep`, `ClaimChannelStep`) extend `reme/steps/base_step.py:BaseStep` and are registered via the `R` component registry (`@R.register`).
-- `ChannelNotifyStep` reads `context['changes']`, renders workspace-relative paths, and emits a single batched notification through `app_context.metadata['channel_sink']` (a `ChannelSink` instance created in `reme/components/service/mcp_service.py:MCPService.build_service`).
-- `ClaimChannelStep` uses `fastmcp.server.dependencies.get_context()` to bind the current `ServerSession` into the shared `ChannelSink`; last-claim-wins semantics apply.
-- The module boundary is the `ChannelSink` abstraction: steps only call `sink.bind/session` and `sink.emit`, keeping transport details out of step logic.

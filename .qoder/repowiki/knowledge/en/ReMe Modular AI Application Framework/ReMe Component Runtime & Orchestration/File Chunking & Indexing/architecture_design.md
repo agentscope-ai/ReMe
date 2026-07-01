@@ -1,4 +1,0 @@
-- Defines an abstract `BaseFileChunker` (extending `BaseComponent`) with an async `chunk` contract returning a `FileNode` and list of `FileChunk`.
-- Provides two concrete implementations: `DefaultFileChunker` for generic byte-level sliding windows with wikilink boundary protection, and `MarkdownFileChunker` for structure-aware splitting using `mistletoe` AST and heading hierarchy.
-- Integrates with the global `ComponentRegistry` (`@R.register`) to allow runtime selection by backend name.
-- Relies on shared schemas (`FileNode`, `FileChunk`, `FileFrontMatter`) and utilities (`WikilinkHandler`) from the parent package for consistent metadata and link extraction.

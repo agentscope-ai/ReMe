@@ -1,4 +1,0 @@
-- Utility modules use a `_utils.py` suffix naming convention (e.g., `logger_utils.py`, `service_utils.py`) to clearly distinguish them from core business logic or schema definitions.
-- File write operations implement atomic writes using a temporary file with a UUID suffix followed by `os.replace` to prevent data corruption during crashes (seen in `jsonl_zst.py` and `agent_state_io.py`).
-- Environment variable loading is idempotent; `load_env` caches loaded values in module-level globals to avoid redundant file parsing on repeated calls (`env_utils.py`).
-- Wikilink parsing uses a single compiled regex (`WIKILINK_RE`) with named groups to extract targets, anchors, and aliases, ensuring consistent handling across extraction and rewrite operations (`wikilink_handler.py`).

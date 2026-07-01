@@ -1,5 +1,0 @@
-- Entry point: `plugins/reme/.claude-plugin/plugin.json` defines the plugin metadata and capabilities.
-- Configuration: `plugins/reme/.mcp.json` specifies the HTTP MCP server endpoint (`http://127.0.0.1:2333/mcp`) used by both the skill and the hook.
-- Automation layer: `plugins/reme/hooks/hooks.json` registers a `Stop` event hook that triggers `plugins/reme/hooks/auto_memory.py`. This script uses a double-fork daemonization pattern to asynchronously call the ReMe server's `auto_memory_cc` tool, ensuring non-blocking session termination.
-- Skill layer: `plugins/reme/skills/reme-memory/SKILL.md` provides instructions for the agent to use MCP tools (`search`, `traverse`, `read`, etc.) for recalling long-term memory from `digest/`, `daily/`, and `resource/` directories.
-- Marketplace: `plugins/.claude-plugin/marketplace.json` packages the `reme` plugin for distribution.

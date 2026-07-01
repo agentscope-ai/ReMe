@@ -1,1 +1,0 @@
-Provides pluggable graph storage for file nodes and links using local, NetworkX, or Neo4j backends with virtual node support.

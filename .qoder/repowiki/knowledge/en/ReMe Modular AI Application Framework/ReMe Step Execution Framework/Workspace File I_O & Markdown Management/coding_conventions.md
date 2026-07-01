@@ -1,4 +1,0 @@
-- Steps implement a private `_fail` method to standardize error responses by setting `success=False` and populating the `answer` field with a prefixed 'Error:' message.
-- File-modifying steps (Write, Edit, Frontmatter Update/Delete) acquire a per-path async lock before performing any disk I/O to ensure atomicity.
-- Path resolution consistently uses the `resolve_path` helper to convert relative inputs into absolute paths while enforcing workspace boundaries and filename safety.
-- Markdown-specific steps use `gate_md` or suffix checks to provide 'compatibility mode' warnings when operating on non-markdown files, rather than hard-failing.

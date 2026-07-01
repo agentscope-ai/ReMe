@@ -1,1 +1,0 @@
-Python 3.10+ with `asyncio` for concurrent lifecycle management and `Pydantic` for unified configuration and data schema validation across all modules.

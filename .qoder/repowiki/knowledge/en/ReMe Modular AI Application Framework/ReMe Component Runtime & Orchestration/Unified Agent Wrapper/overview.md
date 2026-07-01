@@ -1,1 +1,0 @@
-Provides a swappable interface for AI agent backends, supporting both AgentScope and Claude Code SDK with unified streaming and session management.

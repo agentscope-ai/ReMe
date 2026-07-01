@@ -1,1 +1,0 @@
-NumPy for vector storage and `.npz` persistence; `asyncio` for async I/O and offloading sync save/load via `asyncio.to_thread`.

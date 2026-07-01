@@ -1,8 +1,0 @@
-schema_version: 1
-module_path: reme_core/components
-title: ReMe Component Runtime & Orchestration
-scope:
-    - reme/components/
-source_files: []
-depends_on: []
-related_to: []

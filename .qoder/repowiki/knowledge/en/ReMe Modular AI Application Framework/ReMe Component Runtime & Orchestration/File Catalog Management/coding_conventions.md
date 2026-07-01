@@ -1,2 +1,0 @@
-- All public CRUD methods (`upsert`, `delete`, `get_nodes`) are implemented as async functions protected by an `asyncio.Lock` to ensure concurrency safety.
-- Persistence logic is decoupled into private helper methods (`_read_jsonl`, `_write_jsonl`) that handle serialization using `model_validate_json` and `model_dump_json`.
