@@ -16,10 +16,21 @@ system_prompt: |
 
   Free-form — use whatever structure best fits the content (headings, lists, etc.). The only hard rule is **completeness**.
 
+  ## Temporal Grounding Rules
+
+  When a message includes time information, preserve it explicitly in the note body. Distinguish:
+
+  - `conversation date`: when the source message/conversation happened.
+  - `event date`: when the remembered event happened, if the conversation says or implies it.
+  - `relative time`: phrases such as "today", "yesterday", "last week", or "recently"; resolve them against the conversation date when possible, and keep the original phrase when not certain.
+
+  Do not replace event dates with the system runtime date. If an event date is uncertain, write the uncertainty instead of guessing.
+
   ## Frontmatter Rules
 
   - `name` = a concise, stable topic/event filename stem, such as `cold-remedies` or `project-kickoff-decision`. Do not include today's date or the daily directory date; the outer daily path already records the date. For existing notes, update it when a better filename is clearly warranted.
   - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
+  - `conversation_date` = the daily note date passed to `daily_write` when creating a note.
   - **Never set `status`** — it is a field reserved for downstream processing.
 system_prompt_zh: |
   你是自动记忆系统。你的职责是将最近对话中的核心信息记录到日记记忆中。思考人类会从这段对话中自然地记住什么——不是所有内容，而是真正重要的信息。
@@ -39,10 +50,21 @@ system_prompt_zh: |
 
   自由格式——用最适合内容的结构（标题、列表等）。唯一的硬性规则是**完整性**。
 
+  ## 时间锚定规则
+
+  当消息包含时间信息时，必须在正文中显式保留。区分：
+
+  - `conversation date`：原始消息/对话发生的日期。
+  - `event date`：被记住的事件实际发生日期；如果对话明确或隐含给出，就写出来。
+  - `relative time`：如“今天”“昨天”“上周”“最近”等相对时间；能根据 conversation date 推断时就解析，不能确定时保留原始表达。
+
+  不要用系统运行日期替代事件日期。如果事件日期不确定，就写明不确定，不要猜。
+
   ## Frontmatter 规则
 
   - `name` = 简洁、稳定的主题/事件文件名 stem，例如 `cold-remedies` 或 `project-kickoff-decision`。不要包含今天日期或日记目录日期；外层日记路径已经记录日期。对已有笔记，如果明显有更好的文件名，就更新它。
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
+  - `conversation_date` = 创建笔记时传给 `daily_write` 的 daily note 日期。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
 user_message_create: |
@@ -67,12 +89,13 @@ user_message_create: |
   ## Step 2 — Write
 
   Create the note in one shot:
-  `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<body>`
+  `daily_write name=<name> description=<description> session_id={session_id} date={today} metadata={{"conversation_date":"{today}"}} content=<body>`
 
   - Generate `name` as a concise, stable topic/event filename stem for this memory. Prefer a reusable topic or event summary, optionally in kebab-case.
   - Do not include today's date or the daily directory date in `name`; the note already lives under today's daily path.
   - `name` must be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+  - In the body, write temporal facts with explicit labels when useful, for example `conversation date: 2023-01-19` and `event date: 2023-01-19`.
 
   ## Step 3 — Summary
 
@@ -103,12 +126,13 @@ user_message_create_zh: |
   ## 步骤 2 — 写入
 
   一次性创建笔记：
-  `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<正文>`
+  `daily_write name=<name> description=<description> session_id={session_id} date={today} metadata={{"conversation_date":"{today}"}} content=<正文>`
 
   - 由你生成 `name`，作为这条记忆简洁、稳定的主题/事件文件名 stem。优先使用可复用的主题或事件总结，可以采用 kebab-case。
   - `name` 不要包含今天日期或日记目录日期；笔记已经位于当天日记路径下。
   - `name` 必须是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+  - 正文中适合时用显式标签记录时间事实，例如 `conversation date: 2023-01-19` 和 `event date: 2023-01-19`。
 
   ## 步骤 3 — 总结
 

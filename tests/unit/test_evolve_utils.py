@@ -136,3 +136,25 @@ def test_auto_memory_derives_latest_day_from_message_timestamps():
     ]
 
     assert AutoMemoryStep._messages_day(messages) == "2023-01-20"
+
+
+def test_auto_memory_prompt_preserves_temporal_grounding_rules():
+    """The memory-writing prompt should keep event time distinct from runtime time."""
+    step = AutoMemoryStep()
+
+    system_prompt = step.prompt_format("system_prompt")
+    create_prompt = step.prompt_format(
+        "user_message_create",
+        today="2023-01-19",
+        note="(none)",
+        session_id="locomo-session",
+        history="[user @ 2023-01-19T08:00:00] Jon lost his job today.",
+    )
+
+    assert "Temporal Grounding Rules" in system_prompt
+    assert "conversation date" in system_prompt
+    assert "event date" in system_prompt
+    assert "relative time" in system_prompt
+    assert "Do not replace event dates with the system runtime date" in system_prompt
+    assert 'metadata={"conversation_date":"2023-01-19"}' in create_prompt
+    assert "event date: 2023-01-19" in create_prompt

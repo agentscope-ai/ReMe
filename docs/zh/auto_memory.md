@@ -95,6 +95,10 @@ reme auto_memory \
   messages='[{"role":"user","content":"Jon lost his job today."}]'
 ```
 
+生成记忆时，Auto Memory 还会要求正文显式区分 `conversation date`、`event date` 和 `relative time`。例如
+`"today"` 会尽量按消息时间解析为事件日期，而不是按系统运行日期解释；不能确定的相对时间会保留原始表达并标明不确定性。
+新建 daily note 时也会写入 `conversation_date` frontmatter，便于后续检索或评测对齐。
+
 ## 后续流向
 
 Auto Memory 只生成 daily 层记忆。要把这些材料进一步沉淀为长期 `digest/` 节点，使用 [Auto Dream](./auto_dream.md)；要搜索
