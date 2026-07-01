@@ -97,8 +97,11 @@ class AsAgentWrapper(BaseAgentWrapper):
         self._session_cleanup_done = False
 
     @staticmethod
-    def _make_tool(job: "BaseJob") -> FunctionTool:
+    def _make_tool(job: "BaseJob", defaults: dict | None = None) -> FunctionTool:
         async def run_job(**kwargs) -> ToolChunk:
+            if defaults:
+                for k, v in defaults.items():
+                    kwargs.setdefault(k, v)
             response = await job(**kwargs)
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
@@ -214,10 +217,11 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
+        tool_defaults: dict[str, dict] = kwargs.get("tool_defaults", {})
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[*self._builtin_tools(), *(self._make_tool(job) for job in resolved_jobs)],
+            tools=[*self._builtin_tools(), *(self._make_tool(job, tool_defaults.get(job.name)) for job in resolved_jobs)],
             skills_or_loaders=skills,
         )
 

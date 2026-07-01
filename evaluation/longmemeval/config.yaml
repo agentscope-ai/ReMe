@@ -1,0 +1,30 @@
+# LongMemEval evaluation configuration
+# This file controls what/how to evaluate.
+
+dataset:
+  path: "datasets/longmemeval/longmemeval_s_cleaned.json"
+  variant: "s_cleaned"       # oracle | s_cleaned | m_cleaned
+  start_index: 0             # first item index
+  num_items: 1               # how many items to evaluate (starting from start_index)
+  max_sessions: 0            # 0 = all sessions; >0 = limit sessions per item for testing
+
+evaluation:
+  # LLM-as-judge uses the 'judge' as_llm component defined in longmemeval.yaml
+  # Model and credentials are configured there (reading from .env)
+  # Metric types
+  metrics:
+    - binary                 # yes/no classification
+    - score                  # 0-5 Likert scale
+
+reme:
+  config: "longmemeval.yaml" # reme config to use (in reme/config/)
+  # Dream trigger: when gap between consecutive sessions crosses this hour (23:00)
+  dream_trigger_hour: 23
+  # Dream scan_days for each trigger
+  dream_scan_days: 2
+  dream_max_units: 5
+
+output:
+  dir: "evaluation/longmemeval/results"
+  log_to_console: true
+  log_to_file: true

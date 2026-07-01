@@ -1,0 +1,23 @@
+[
+  {
+    "question_id": "e47becba",
+    "question_type": "single-session-user",
+    "question": "What degree did I graduate with?",
+    "ground_truth": "Business Administration",
+    "system_response": "Based on the retrieved context, there is no explicit mention of the specific degree you graduated with. However, the context does note that you have a \"background in Business Administration.\"",
+    "judgments": {
+      "binary": {
+        "verdict": "yes",
+        "reason": "The system correctly identifies 'Business Administration' as the user's educational background, which semantically answers the question about the degree obtained despite the hedging.",
+        "metric": "binary"
+      },
+      "score": {
+        "score": 3,
+        "reason": "The system identifies the correct field ('Business Administration') but hedges by stating there is no explicit mention of the specific degree, failing to directly and confidently answer the question as the ground truth does.",
+        "metric": "score"
+      }
+    },
+    "sessions_ingested": 53,
+    "dreams_triggered": 11
+  }
+]
