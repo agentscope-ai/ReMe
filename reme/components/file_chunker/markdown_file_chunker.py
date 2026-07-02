@@ -115,12 +115,14 @@ class MarkdownFileChunker(BaseFileChunker):
         encoding: str = "utf-8",
         chunk_chars: int = 10000,
         embed_toc: bool = True,
+        include_frontmatter_in_metadata: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.encoding = encoding
         self.chunk_chars = max(100, chunk_chars)
         self.embed_toc = embed_toc
+        self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         from mistletoe.markdown_renderer import MarkdownRenderer
@@ -135,9 +137,10 @@ class MarkdownFileChunker(BaseFileChunker):
             with MarkdownRenderer() as renderer:
                 tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
-            chunk_metadata = self._chunk_metadata(front_matter)
-            for chunk in chunks:
-                chunk.metadata = chunk_metadata.copy()
+            if self.include_frontmatter_in_metadata:
+                chunk_metadata = self._chunk_metadata(front_matter)
+                for chunk in chunks:
+                    chunk.metadata = chunk_metadata.copy()
 
         links = WikilinkHandler.extract_links(content, rel_path) if content else []
 

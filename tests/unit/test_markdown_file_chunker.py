@@ -72,8 +72,8 @@ def test_parse_frontmatter_only():
     asyncio.run(run())
 
 
-def test_parse_frontmatter_is_copied_to_chunk_metadata():
-    """Chunk metadata includes frontmatter fields for search filtering."""
+def test_parse_frontmatter_metadata_is_opt_in():
+    """Chunk metadata preserves the old empty default unless explicitly enabled."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -90,12 +90,18 @@ def test_parse_frontmatter_is_copied_to_chunk_metadata():
             _, chunks = await chunker.chunk(path)
 
             assert len(chunks) == 1
+            assert chunks[0].metadata == {}
+
+            chunker = MarkdownFileChunker(chunk_chars=500, include_frontmatter_in_metadata=True)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) == 1
             assert chunks[0].metadata == {
                 "name": "locomo-event",
                 "description": "Jon lost his job",
                 "conversation_date": "2023-01-19",
             }
-        print("✓ test_parse_frontmatter_is_copied_to_chunk_metadata passed")
+        print("✓ test_parse_frontmatter_metadata_is_opt_in passed")
 
     asyncio.run(run())
 
@@ -303,7 +309,7 @@ if __name__ == "__main__":
     print("\n=== MarkdownFileChunker tests ===")
     test_parse_empty_file()
     test_parse_frontmatter_only()
-    test_parse_frontmatter_is_copied_to_chunk_metadata()
+    test_parse_frontmatter_metadata_is_opt_in()
     test_parse_small_body_one_chunk()
     test_parse_oversized_body_splits()
     test_parse_chunk_ids_match_node_chunk_ids()

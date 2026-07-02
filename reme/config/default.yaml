@@ -666,6 +666,7 @@ components:
     markdown:
       backend: markdown
       supported_extensions: [ "md" ]
+      include_frontmatter_in_metadata: false
     json:
       backend: json
       supported_extensions: [ "json" ]
