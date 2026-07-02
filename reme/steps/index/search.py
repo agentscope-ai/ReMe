@@ -77,7 +77,13 @@ class SearchStep(BaseStep):
         assert limit > 0, f"limit must be positive, got {limit}"
 
         candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))
-        search_filter: dict = self.context.get("search_filter", {}) or {}
+        search_filter: dict = dict(self.context.get("search_filter", {}) or {})
+
+        # Promote top-level date parameters into search_filter for file_store.
+        for date_key in ("start_date", "end_date"):
+            value = self.context.get(date_key)
+            if value and date_key not in search_filter:
+                search_filter[date_key] = value
 
         vector_results, keyword_results = await asyncio.gather(
             self.file_store.vector_search(query, candidates, search_filter),

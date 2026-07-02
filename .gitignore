@@ -4,6 +4,7 @@
 .vscode/
 .qoder/
 *.code-workspace
+.qoder/
 
 # Local environment
 .env

@@ -282,6 +282,12 @@ jobs:
           type: number
           description: "min fused score"
           default: 0.0
+        start_date:
+          type: string
+          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        end_date:
+          type: string
+          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
       required:
         - query
     steps:
