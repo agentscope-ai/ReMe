@@ -3,24 +3,19 @@
 import asyncio
 import json
 import logging
-import os
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
-
 from run import (
     format_messages_for_reme,
     load_eval_config,
-    parse_haystack_date,
     sessions_sorted_by_time,
-    should_trigger_dream,
-    to_iso,
 )
+
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("test_5sessions")
@@ -29,6 +24,7 @@ _WORKSPACE_ROOT = _PROJECT_ROOT / "memory_workspaces"
 
 
 async def main():
+    """Ingest first 5 sessions and verify workspace state."""
     eval_config = load_eval_config()
     dataset_path = _PROJECT_ROOT / eval_config["dataset"]["path"]
     with open(dataset_path, encoding="utf-8") as f:
@@ -53,7 +49,6 @@ async def main():
 
     from reme import Application
     from reme.config import resolve_app_config
-    from reme.enumeration import ComponentEnum
 
     reme_cfg = eval_config["reme"]
     cfg = resolve_app_config(
@@ -69,7 +64,7 @@ async def main():
 
     try:
         # Ingest first 5 sessions
-        for idx, (orig_idx, session_dt, session_id, messages) in enumerate(sorted_sessions[:5]):
+        for idx, (_, session_dt, session_id, messages) in enumerate(sorted_sessions[:5]):
             formatted_msgs = format_messages_for_reme(messages, session_dt)
             date_str = session_dt.strftime("%Y-%m-%d")
             logger.info(f"Ingesting session {idx+1}/5: id={session_id} date={date_str} msgs={len(formatted_msgs)}")
@@ -81,16 +76,18 @@ async def main():
                 session_id=session_id,
                 date=date_str,
             )
-            logger.info(f"  auto_memory result: success={resp.success} answer={resp.answer[:100] if resp.answer else ''}")
+            logger.info(
+                f"  auto_memory result: success={resp.success} answer={resp.answer[:100] if resp.answer else ''}",
+            )
 
             # Index update after each session
             idx_resp = await app.run_job("index_update")
             logger.info(f"  index_update: success={idx_resp.success} metadata={idx_resp.metadata}")
 
         # Check workspace contents
-        logger.info("\n" + "=" * 60)
+        logger.info("%s", "\n" + "=" * 60)
         logger.info("WORKSPACE CONTENTS:")
-        logger.info("=" * 60)
+        logger.info("%s", "=" * 60)
         for p in sorted(item_dir.rglob("*")):
             if p.is_file():
                 rel = p.relative_to(item_dir)
@@ -109,9 +106,9 @@ async def main():
                     logger.info(f"  metadata/{rel} ({size} bytes)")
 
         # Test search
-        logger.info("\n" + "=" * 60)
+        logger.info("%s", "\n" + "=" * 60)
         logger.info("SEARCH TEST:")
-        logger.info("=" * 60)
+        logger.info("%s", "=" * 60)
         test_query = item["question"]
         logger.info(f"Query: {test_query}")
         search_resp = await app.run_job("search", query=test_query, limit=5)

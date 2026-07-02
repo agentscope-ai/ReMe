@@ -349,7 +349,7 @@ class AutoMemoryStep(BaseStep):
         # the rest via linear interpolation so the whole session has coherent
         # time ordering (see _interpolate_timestamps docstring for rules).
         interpolated = _interpolate_timestamps(
-            [item if not isinstance(item, dict) else dict(item) for item in raw_messages]
+            [item if not isinstance(item, dict) else dict(item) for item in raw_messages],
         )
         messages: list[Msg] = [self._to_msg(item) for item in interpolated]
         self.logger.info(

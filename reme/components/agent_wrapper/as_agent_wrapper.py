@@ -221,7 +221,10 @@ class AsAgentWrapper(BaseAgentWrapper):
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[*self._builtin_tools(), *(self._make_tool(job, tool_defaults.get(job.name)) for job in resolved_jobs)],
+            tools=[
+                *self._builtin_tools(),
+                *(self._make_tool(job, tool_defaults.get(job.name)) for job in resolved_jobs),
+            ],
             skills_or_loaders=skills,
         )
 
