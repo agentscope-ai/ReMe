@@ -1,5 +1,6 @@
 """In-memory file store with compressed JSONL persistence on close."""
 
+import datetime
 from contextlib import suppress
 
 import numpy as np
@@ -336,6 +337,27 @@ class LocalFileStore(BaseFileStore):
             return actual in set(expected)
         return actual == expected
 
+    @staticmethod
+    def _extract_date_from_path(path: str) -> str | None:
+        """Extract the date from a file path following the project path convention.
+
+        Paths with dates always place them at the 2nd segment:
+            daily/2026-05-18/note.md
+            resource/2026-06-06/report.pdf
+            daily/2026-05-18.md  (day index, date is stem of segment)
+
+        Returns a validated YYYY-MM-DD string, or None if no date is found.
+        """
+        parts = path.split("/")
+        if len(parts) < 2:
+            return None
+        # The 2nd segment is either "YYYY-MM-DD" (dir) or "YYYY-MM-DD.md" (index)
+        candidate = parts[1].split(".")[0]
+        try:
+            return datetime.date.fromisoformat(candidate).isoformat()
+        except ValueError:
+            return None
+
     @classmethod
     def _matches_search_filter(cls, chunk: FileChunk, search_filter: dict | None) -> bool:
         """Conservative post-filter shared by vector and keyword search."""
@@ -356,6 +378,17 @@ class LocalFileStore(BaseFileStore):
         if prefixes and not any(chunk.path.startswith(prefix) for prefix in prefixes):
             return False
 
+        # Date range filtering based on date embedded in chunk path
+        start_date = search_filter.get("start_date")
+        end_date = search_filter.get("end_date")
+        if start_date or end_date:
+            path_date = cls._extract_date_from_path(chunk.path)
+            if path_date:
+                if start_date and path_date < start_date:
+                    return False
+                if end_date and path_date > end_date:
+                    return False
+
         metadata_filter = dict(search_filter.get("metadata") or {})
         reserved = {
             "path",
@@ -365,6 +398,8 @@ class LocalFileStore(BaseFileStore):
             "prefix",
             "prefixes",
             "metadata",
+            "start_date",
+            "end_date",
         }
         for key, value in search_filter.items():
             if key not in reserved:

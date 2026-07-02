@@ -143,3 +143,51 @@ def test_search_step_empty_query_fails_before_store_calls():
         assert not store.calls
 
     asyncio.run(run())
+
+
+def test_search_step_start_end_date_promoted_into_search_filter():
+    """start_date and end_date from context are promoted into search_filter passed to store."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "some text", "keyword", 5.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+        )
+
+        await step(ctx)
+
+        assert len(store.calls) == 2
+        for _, _, _, sf in store.calls:
+            assert sf["start_date"] == "2024-01-01"
+            assert sf["end_date"] == "2024-06-30"
+
+    asyncio.run(run())
+
+
+def test_search_step_date_in_search_filter_not_overridden_by_context():
+    """Explicit search_filter dates take precedence over top-level context dates."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "text", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+            search_filter={"start_date": "2023-07-01", "end_date": "2023-12-31"},
+        )
+
+        await step(ctx)
+
+        for _, _, _, sf in store.calls:
+            assert sf["start_date"] == "2023-07-01"
+            assert sf["end_date"] == "2023-12-31"
+
+    asyncio.run(run())

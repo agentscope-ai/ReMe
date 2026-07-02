@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 *.code-workspace
+.qoder/
 
 # Local environment
 .env
@@ -52,3 +53,6 @@ vault/
 # Documentation build outputs
 docs/_build/
 site/
+
+evaluation/
+datasets/
