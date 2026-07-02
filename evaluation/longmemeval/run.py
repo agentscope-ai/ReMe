@@ -121,19 +121,6 @@ def format_messages_for_reme(messages: list[dict], session_dt: datetime) -> list
 # ---------------------------------------------------------------------------
 # LLM-as-Judge
 # ---------------------------------------------------------------------------
-ANSWER_PROMPT = """\
-You are a helpful assistant with access to a memory system. \
-Based on the retrieved memory context below, answer the user's question concisely and accurately.
-
-Current time: {current_time}
-
-Retrieved context:
-{context}
-
-Question: {question}
-
-Answer the question based ONLY on the retrieved context. If the context does not contain enough information, say so."""
-
 BINARY_JUDGE_PROMPT = """\
 You are an evaluation judge. Given a question, the ground-truth answer, \
 and a system's response, determine if the system's response correctly answers the question.
@@ -212,7 +199,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
     from reme import Application
     from reme.config import resolve_app_config
     from reme.enumeration import ComponentEnum
-    from agentscope.message import Msg
 
     reme_cfg = eval_config["reme"]
     dream_trigger_hour = reme_cfg.get("dream_trigger_hour", 23)
@@ -332,35 +318,23 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
         # ── Phase 3: Digest update ────────────────────────────────────
         await app.run_job("digest_update")
 
-        # ── Phase 4: Ask question via search + answer generation ─────
+        # ── Phase 4: Ask question via bench_query_job (ReAct agent) ──
         question = item["question"]
-        logger.info(f"[Item {item_index}] Searching for answer to: {question[:80]}...")
-        search_resp = await app.run_job("search", query=question, limit=10)
-
-        if search_resp.success and search_resp.answer:
-            search_context = search_resp.answer
-        else:
-            search_context = "(no relevant information found)"
-
-        logger.info(f"[Item {item_index}] Search context: {search_context[:200]}...")
-
-        # Generate answer using the answer model
         question_date_raw = item.get("question_date", "")
         question_dt = parse_haystack_date(question_date_raw) if question_date_raw else None
-        current_time = to_iso(question_dt) if question_dt else "(unknown)"
-        logger.info(f"[Item {item_index}] Question date: {question_date_raw} -> {current_time}")
+        query_time = to_iso(question_dt) if question_dt else ""
+        logger.info(
+            f"[Item {item_index}] Asking: {question[:80]}... query_time={query_time}",
+        )
 
-        answer_llm = app.context.components[ComponentEnum.AS_LLM]["answer"]
-        answer_prompt = ANSWER_PROMPT.format(context=search_context, question=question, current_time=current_time)
-        answer_msg = Msg(name="user", role="user", content=[{"type": "text", "text": answer_prompt}])
-        answer_response = await answer_llm.model([answer_msg])
-        system_response = ""
-        for block in answer_response.content:
-            if hasattr(block, "text"):
-                system_response += block.text
-        system_response = system_response.strip()
+        query_resp = await app.run_job(
+            "bench_query_job",
+            query=question,
+            query_time=query_time,
+        )
+        system_response = (query_resp.answer or "").strip()
         if not system_response:
-            system_response = search_context  # fallback to raw search results
+            system_response = "(no answer generated)"
 
         logger.info(f"[Item {item_index}] System response: {system_response[:200]}...")
 

@@ -6,6 +6,26 @@ service:
   backend: http
 
 jobs:
+  bench_query_job:
+    backend: base
+    description: "Benchmark query job"
+    watch_dirs: []
+    watch_suffixes: []
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "The query to ask"
+        query_time:
+          type: string
+          description: "ISO timestamp representing the query time"
+          default: ""
+      required:
+        - query
+    steps:
+      - backend: bench_query_step
+
   # ── Manual index update (replaces index_update_loop background) ──
   index_update:
     backend: base
@@ -389,18 +409,6 @@ components:
         base_url: ${LLM_BASE_URL:-}
       parameters:
         max_tokens: 2048
-        thinking_enable: false
-    answer:
-      backend: ${LLM_BACKEND:-openai}
-      model: ${ANSWER_MODEL_NAME:-qwen3.7-max}
-      stream: false
-      context_size: 32000
-      max_retries: 3
-      credential:
-        api_key: ${LLM_API_KEY:-}
-        base_url: ${LLM_BASE_URL:-}
-      parameters:
-        max_tokens: 4096
         thinking_enable: false
 
   agent_wrapper:

@@ -17,7 +17,7 @@ evaluation:
   metrics:
     - binary                 # yes/no classification
     - score                  # 0-5 Likert scale
-  num_workers: 32            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
+  num_workers: 50            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
   filter_future_sessions: true  # true = only ingest sessions with timestamp <= question_date
 
 reme:
