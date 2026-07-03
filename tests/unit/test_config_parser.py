@@ -30,6 +30,15 @@ def test_default_config_registers_daily_write_job():
     assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
 
 
+def test_default_config_exposes_search_temporal_boost():
+    """``search`` exposes an opt-in temporal reranking weight."""
+    cfg = _load_config("default.yaml")
+
+    step = cfg["jobs"]["search"]["steps"][0]
+    assert step["backend"] == "search_step"
+    assert step["temporal_boost"] == 0.0
+
+
 def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):

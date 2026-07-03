@@ -294,6 +294,7 @@ jobs:
       - backend: search_step
         vector_weight: 0.7
         candidate_multiplier: 3.0
+        temporal_boost: 0.0
         expand_links: true
         max_links_per_direction: 10
 

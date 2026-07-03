@@ -64,6 +64,7 @@ def _chunk(
     score_key: str,
     score: float,
     line: int = 1,
+    metadata: dict | None = None,
 ) -> FileChunk:
     return FileChunk(
         id=chunk_id,
@@ -71,6 +72,7 @@ def _chunk(
         text=text,
         start_line=line,
         end_line=line,
+        metadata=metadata or {},
         scores={score_key: score, "score": score},
     )
 
@@ -141,6 +143,78 @@ def test_search_step_empty_query_fails_before_store_calls():
         assert resp.success is False
         assert resp.answer == "Error: query cannot be empty"
         assert not store.calls
+
+    asyncio.run(run())
+
+
+def test_search_step_boosts_chunks_matching_query_dates_when_enabled():
+    """Explicit-date boosting is available when explicitly enabled."""
+
+    async def run():
+        generic = _chunk("generic", "daily/2026-06-28/generic.md", "Jon lost his job.", "keyword", 1.0)
+        temporal = _chunk(
+            "temporal",
+            "daily/2023-01-19/jon-job.md",
+            "conversation date: 2023-01-19\nevent date: 2023-01-19\nJon lost his job.",
+            "keyword",
+            0.9,
+        )
+        store = FakeSearchStore(keyword_results=[generic, temporal])
+        step = SearchStep(file_store=store, temporal_boost=0.2, expand_links=False)
+
+        resp = await step(RuntimeContext(query="When did Jon lose his job on 19 January 2023?", limit=2))
+
+        assert [r["id"] for r in resp.metadata["results"]] == ["temporal", "generic"]
+        assert resp.metadata["results"][0]["scores"]["temporal"] == 0.2
+        assert "temporal=0.2000" in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_step_temporal_boost_is_off_by_default():
+    """Default search ranking does not apply heuristic explicit-date boosts."""
+
+    async def run():
+        generic = _chunk("generic", "daily/2026-06-28/generic.md", "Jon lost his job.", "keyword", 1.0)
+        temporal = _chunk(
+            "temporal",
+            "daily/2023-01-19/jon-job.md",
+            "conversation date: 2023-01-19\nevent date: 2023-01-19\nJon lost his job.",
+            "keyword",
+            0.9,
+        )
+        store = FakeSearchStore(keyword_results=[generic, temporal])
+        step = SearchStep(file_store=store, expand_links=False)
+
+        resp = await step(RuntimeContext(query="When did Jon lose his job on 19 January 2023?", limit=2))
+
+        assert [r["id"] for r in resp.metadata["results"]] == ["generic", "temporal"]
+        assert "temporal" not in resp.metadata["results"][0]["scores"]
+        assert "temporal=" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_step_temporal_boost_uses_chunk_metadata():
+    """Temporal boost can match structured date metadata when chunks carry it."""
+
+    async def run():
+        generic = _chunk("generic", "daily/generic.md", "Caroline attended a support group.", "keyword", 1.0)
+        temporal = _chunk(
+            "temporal",
+            "daily/caroline.md",
+            "Caroline attended a support group.",
+            "keyword",
+            0.9,
+            metadata={"conversation_date": "2023-05-07"},
+        )
+        store = FakeSearchStore(keyword_results=[generic, temporal])
+        step = SearchStep(file_store=store, temporal_boost=0.2, expand_links=False)
+
+        resp = await step(RuntimeContext(query="Caroline support group 2023-05-07", limit=2))
+
+        assert [r["id"] for r in resp.metadata["results"]] == ["temporal", "generic"]
+        assert resp.metadata["results"][0]["scores"]["temporal"] == 0.2
 
     asyncio.run(run())
 

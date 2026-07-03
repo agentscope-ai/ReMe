@@ -103,6 +103,7 @@ search:
     - backend: search_step
       vector_weight: 0.7
       candidate_multiplier: 3.0
+      temporal_boost: 0.0
       expand_links: true
       max_links_per_direction: 10
 ```
@@ -137,6 +138,11 @@ fused_score = vector_weight / (60 + vector_rank)
 ```
 
 默认 `vector_weight=0.7`，所以启用 embedding 后语义召回权重更高；关键词仍能把精确词命中的 chunk 拉上来。
+
+`temporal_boost` 默认是 `0.0`，即关闭。将它设为正数后，`search_step` 会从 query 中提取显式日期（例如 `2023-05-07`、
+`19 January 2023` 或 `January 19, 2023`），并轻微提升 path、metadata 或正文中包含同一日期的 chunk。这个机制只适合作为可选的
+reranking fallback；如果问题没有显式日期，例如“Jon 什么时候失业？”，仍应由上层 agent 或策略先推断时间范围，再结合
+`start_date` / `end_date` 过滤或多次检索。
 
 ## BM25 怎么工作
 

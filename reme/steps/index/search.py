@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import re
 
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
@@ -11,6 +12,45 @@ from ...utils import expand_links, render_expansion_lines
 
 _RRF_K = 60
 _MAX_CANDIDATES = 200
+_ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_DAY_MONTH_RE = re.compile(
+    r"\b(?P<day>\d{1,2})\s+(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Sept(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r",?\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+_MONTH_DAY_RE = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Sept(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+(?P<day>\d{1,2}),?\s+(?P<year>\d{4})\b",
+    re.IGNORECASE,
+)
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 
 
 @R.register("search_step")
@@ -59,7 +99,63 @@ class SearchStep(BaseStep):
             for k in ("vector", "keyword"):
                 v = scores.get(k)
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
+        if scores.get("temporal"):
+            parts.append(f"temporal={scores['temporal']:.4f}")
         return " ".join(parts)
+
+    @staticmethod
+    def _date_from_parts(year: str, month: str, day: str) -> str | None:
+        month_num = _MONTHS.get(month.lower())
+        if month_num is None:
+            return None
+        try:
+            return datetime.date(int(year), month_num, int(day)).isoformat()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _query_dates(cls, query: str) -> set[str]:
+        """Extract explicit date constraints from the query."""
+        dates = set(_ISO_DATE_RE.findall(query))
+        for pattern in (_DAY_MONTH_RE, _MONTH_DAY_RE):
+            for match in pattern.finditer(query):
+                date = cls._date_from_parts(match.group("year"), match.group("month"), match.group("day"))
+                if date:
+                    dates.add(date)
+        return dates
+
+    @staticmethod
+    def _chunk_temporal_text(chunk: FileChunk) -> str:
+        metadata = " ".join(str(value) for value in chunk.metadata.values())
+        return " ".join([chunk.path, metadata, chunk.text])
+
+    @classmethod
+    def _apply_temporal_boost(
+        cls,
+        chunks: list[FileChunk],
+        query: str,
+        temporal_boost: float,
+    ) -> list[FileChunk]:
+        """Optionally boost chunks that mention explicit dates from the query."""
+        if temporal_boost <= 0.0:
+            return chunks
+        query_dates = cls._query_dates(query)
+        if not query_dates:
+            return chunks
+
+        boosted: list[FileChunk] = []
+        for chunk in chunks:
+            temporal_text = cls._chunk_temporal_text(chunk)
+            matched = [date for date in query_dates if date in temporal_text]
+            if not matched:
+                boosted.append(chunk)
+                continue
+            c = chunk.model_copy(deep=False)
+            score = chunk.score * (1.0 + temporal_boost)
+            c.scores = {**chunk.scores, "score": score, "temporal": temporal_boost}
+            boosted.append(c)
+        boosted.sort(key=lambda r: r.score, reverse=True)
+        return boosted
 
     async def execute(self):
         assert self.context is not None
@@ -68,6 +164,7 @@ class SearchStep(BaseStep):
         min_score: float = float(self.context.get("min_score") or 0.0)
         vector_weight: float = float(self.kwargs.get("vector_weight", 0.7))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 3.0))
+        temporal_boost: float = float(self.kwargs.get("temporal_boost", 0.0))
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         strict_date_filter: bool = bool(
@@ -140,6 +237,8 @@ class SearchStep(BaseStep):
             fused = keyword_results
         else:
             fused = self._rrf_merge(vector_results, keyword_results, vector_weight)
+
+        fused = self._apply_temporal_boost(fused, query, temporal_boost)
 
         if min_score > 0.0:
             fused = [c for c in fused if c.score >= min_score]
