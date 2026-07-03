@@ -351,8 +351,11 @@ class LocalFileStore(BaseFileStore):
         parts = path.split("/")
         if len(parts) < 2:
             return None
-        # The 2nd segment is either "YYYY-MM-DD" (dir) or "YYYY-MM-DD.md" (index)
-        candidate = parts[1].split(".")[0]
+        # Accept only exact "YYYY-MM-DD" (dir) or "YYYY-MM-DD.md" (day index).
+        segment = parts[1]
+        candidate = segment if "." not in segment else segment.rsplit(".", 1)[0]
+        if segment != candidate and not segment.endswith(".md"):
+            return None
         try:
             return datetime.date.fromisoformat(candidate).isoformat()
         except ValueError:
@@ -378,16 +381,19 @@ class LocalFileStore(BaseFileStore):
         if prefixes and not any(chunk.path.startswith(prefix) for prefix in prefixes):
             return False
 
-        # Date range filtering based on date embedded in chunk path
+        # Date range filtering based on date embedded in chunk path.
+        # strict_date_filter (default False): when True and at least one date
+        # bound is set, chunks whose path yields no date are excluded.
         start_date = search_filter.get("start_date")
         end_date = search_filter.get("end_date")
+        strict_date = bool(search_filter.get("strict_date_filter", False))
         if start_date or end_date:
             path_date = cls._extract_date_from_path(chunk.path)
-            if path_date:
-                if start_date and path_date < start_date:
+            if not path_date:
+                if strict_date:
                     return False
-                if end_date and path_date > end_date:
-                    return False
+            elif (start_date and path_date < start_date) or (end_date and path_date > end_date):
+                return False
 
         metadata_filter = dict(search_filter.get("metadata") or {})
         reserved = {
@@ -400,6 +406,7 @@ class LocalFileStore(BaseFileStore):
             "metadata",
             "start_date",
             "end_date",
+            "strict_date_filter",
         }
         for key, value in search_filter.items():
             if key not in reserved:

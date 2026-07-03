@@ -250,8 +250,17 @@ def test_date_filter_extract_and_match():
     assert LocalFileStore._matches_search_filter(chunk("d", "daily/2026-02-28/n.md", "t"), filt) is True
     assert LocalFileStore._matches_search_filter(chunk("e", "daily/2026-03-01/n.md", "t"), filt) is False
 
-    # No date in path → not excluded
+    # No date in path → not excluded (non-strict, default)
     assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), filt) is True
+
+    # strict_date_filter=True → no-date paths excluded when date filter is active
+    strict_filt = {**filt, "strict_date_filter": True}
+    assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), strict_filt) is False
+    assert LocalFileStore._matches_search_filter(chunk("b", "daily/2026-02-15/n.md", "t"), strict_filt) is True
+
+    # strict_date_filter=True but no date bounds → no-date paths still pass
+    strict_no_bounds = {"strict_date_filter": True}
+    assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), strict_no_bounds) is True
 
     # start_date/end_date stay in reserved, not leaked to metadata
     c = chunk("z", "daily/2026-05-18/note.md", "text")

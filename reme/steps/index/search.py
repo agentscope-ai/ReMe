@@ -1,8 +1,10 @@
 """Hybrid search over file_store using RRF fusion of vector + keyword results."""
 
 import asyncio
+import datetime
 
 from ..base_step import BaseStep
+from ..file_io import extract_daily_date
 from ...components import R
 from ...schema import FileChunk
 from ...utils import expand_links, render_expansion_lines
@@ -68,6 +70,9 @@ class SearchStep(BaseStep):
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 3.0))
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
+        strict_date_filter: bool = bool(
+            self.context.get("strict_date_filter") or self.kwargs.get("strict_date_filter", False),
+        )
 
         if not query:
             self.context.response.success = False
@@ -84,6 +89,37 @@ class SearchStep(BaseStep):
             value = self.context.get(date_key)
             if value and date_key not in search_filter:
                 search_filter[date_key] = value
+
+        # Validate and normalize date filters before they reach file_store.
+        # _matches_search_filter does lexicographic string comparison against
+        # path_date (always a canonical YYYY-MM-DD), so raw caller values like
+        # "2026-2-28" or "abc" would produce silently wrong results.
+        for date_key in ("start_date", "end_date"):
+            raw = search_filter.get(date_key)
+            if raw is None:
+                continue
+            normalized = extract_daily_date(raw)
+            if normalized is None:
+                # Fallback: accept non-zero-padded dates like "2024-1-5".
+                try:
+                    normalized = (
+                        datetime.datetime.strptime(
+                            str(raw).strip(),
+                            "%Y-%m-%d",
+                        )
+                        .date()
+                        .isoformat()
+                    )
+                except ValueError:
+                    self.logger.warning(
+                        f"Ignoring invalid {date_key}={raw!r}; " f"expected a valid YYYY-MM-DD date.",
+                    )
+                    del search_filter[date_key]
+                    continue
+            search_filter[date_key] = normalized
+
+        if strict_date_filter:
+            search_filter["strict_date_filter"] = True
 
         vector_results, keyword_results = await asyncio.gather(
             self.file_store.vector_search(query, candidates, search_filter),

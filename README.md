@@ -19,15 +19,15 @@
 </p>
 
 <p align="center">
-  <strong>A memory management toolkit for AI agents — Remember Me, Refine Me.</strong><br>
+  <strong>An agent memory layer that turns conversations and resources into readable, editable, searchable Markdown memory.</strong><br>
 </p>
 
 > Previous versions: [0.3.x](https://github.com/agentscope-ai/ReMe/tree/reme_v3) ·
 > [0.2.x](https://github.com/agentscope-ai/ReMe/tree/v0.2.0.6) ·
 > [MemoryScope](https://github.com/agentscope-ai/ReMe/tree/memoryscope_branch)
 
-🧠 ReMe is a memory management toolkit for **AI agents**. It turns conversations and resources into readable, editable,
-and searchable file-based long-term memory.
+🧠 ReMe is a local-first memory layer for **AI agents**. It turns conversations and resources into file-based long-term
+memory, then continuously indexes, links, and consolidates that memory for future recall.
 
 ## ✨ Core Ideas
 
@@ -44,23 +44,21 @@ and searchable file-based long-term memory.
   <img src="docs/figure/design-philosophy.svg" alt="ReMe Design Philosophy" width="92%">
 </p>
 
-<details>
-<summary><b>Use Cases</b></summary>
+## 🔭 Use Cases
 
-<br>
-
-- **Personal assistants**: Provide long-term memory for agents such
-  as [QwenPaw](https://github.com/agentscope-ai/QwenPaw).
-- **Coding assistants**: Preserve coding style, project background, and workflow experience across sessions.
-- **Knowledge QA**: Progressively transform resources and conversations into a searchable, traceable, and linked
-  Markdown knowledge base.
-- **Task automation**: Reuse successful paths, lessons from failures, and operating procedures from past tasks.
-
-</details>
+- **Personal assistants**: Give personal assistants such as
+  [QwenPaw](https://github.com/agentscope-ai/QwenPaw), [OpenClaw](https://github.com/openclaw/openclaw), and
+  [Hermes](https://github.com/nousresearch/hermes-agent) a user-editable long-term memory layer.
+- **Coding agents**: Preserve coding style, project background, repository decisions, and workflow
+  experience across sessions when integrating with coding agents such as [Claude Code](plugins/reme).
+- **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown
+  knowledge base that both users and agents can maintain.
+- **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
+  reusable procedures, and periodic reflections as memory.
 
 ## 📰 News
 
-- Our paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/) has been accepted to Findings of ACL 2026.
+- [2026.07] - Our paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/) has been accepted to Findings of ACL 2026.
 
 ## 🚀 Quick Start
 
@@ -84,16 +82,21 @@ pip install -e ".[core]"
 
 ### Environment Variables
 
-Configure environment variables:
+Configure environment variables when you want LLM-powered memory evolution or embedding retrieval:
 
 ```bash
 cat > .env <<'EOF'
+# Optional: enables semantic retrieval when the embedding store is configured.
 EMBEDDING_API_KEY=sk-xxx
 EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# Required for auto_memory, auto_resource, and auto_dream.
 LLM_API_KEY=sk-xxx
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 EOF
 ```
+
+Basic file operations, BM25 search, wikilink traversal, and reading proactive topics can run without LLM credentials.
 
 ### Start the Service
 
@@ -115,58 +118,46 @@ reme version
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
-### Agent Integration
+### 5-Minute Memory Demo
 
-ReMe runs as a service and exposes memory through CLI / MCP jobs. Agents can adopt it in whichever way fits them: deep
-SDK integration, plugin integration, or a lightweight Skill + CLI integration. They can wire `auto_memory` / `proactive`
-into their lifecycle so conversations are consolidated into memory and surfaced at the right time. Indexing (
-`auto_index`) and resource processing (`auto_resource`) run automatically through file watching, and `auto_dream`
-consolidates daily memories into long-term digests on a schedule.
+With the service running, write a memory node, let ReMe index it, then retrieve it:
 
-<p align="center"><b>Integration demos</b></p>
+```bash
+reme write \
+  path=digest/wiki/quick-start-demo \
+  name="Quick Start Demo" \
+  description="A first ReMe memory node" \
+  content="# Quick Start Demo
 
-<table>
-  <tr>
-    <td align="center"></td>
-    <td width="45%" align="center"><b>Auto Memory</b></td>
-    <td width="45%" align="center"><b>Auto Dream</b></td>
-  </tr>
-  <tr>
-    <td align="center"><b>QwenPaw</b></td>
-    <td width="45%">
-      <img src="docs/figure/qwenpaw-auto-memory.gif" alt="QwenPaw Auto Memory demo" width="100%">
-    </td>
-    <td width="45%">
-      <img src="docs/figure/qwenpaw-auto-dream.gif" alt="QwenPaw Auto Dream demo" width="100%">
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><b>Claude Code</b></td>
-    <td width="45%">
-      <img src="docs/figure/cc-auto-memory.gif" alt="Claude Code Auto Memory demo" width="100%">
-    </td>
-    <td width="45%">
-      <img src="docs/figure/cc-auto-dream.gif" alt="Claude Code Auto Dream demo" width="100%">
-    </td>
-  </tr>
-</table>
+ReMe stores agent memory as readable Markdown.
 
-Integration status across agents:
+Related: [[digest/wiki/memory-as-file.md]]"
 
-| Agent                                               | Status      | How it integrates                                                                                                                                                                                                                                                                             |
-|-----------------------------------------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [QwenPaw](https://github.com/agentscope-ai/QwenPaw) | ✅ Available | [Deep SDK integration](https://github.com/agentscope-ai/QwenPaw/blob/main/src/qwenpaw/agents/memory/reme_light_memory_manager.py) — embeds the ReMe app in-process, drives `search` / `auto_memory` / `auto_dream` jobs via `run_job`, and reuses the agent's own model (no separate server). |
-| [Claude Code](plugins/reme)                         | ✅ Available | Plugin: HTTP MCP server for recall, a `reme-memory` skill, and a Stop hook that records each session via `auto_memory_cc`.                                                                                                                                                                    |
-| Skill + CLI integration                            | ✅ Available | [Skill + CLI](skills/reme_memory/SKILL.md): install or copy the `reme_memory` skill, then use `reme version` to check the version and `reme search query="xxx" limit=5` to search memory.                                                                                                      |
+reme search query="agent memory markdown" limit=5
+reme read path=digest/wiki/quick-start-demo start_line=1 end_line=20
+```
 
-For more details, see the [Quick Start](docs/zh/quick_start.md).
+The generated file is ordinary Markdown with frontmatter:
+
+```markdown
+---
+name: Quick Start Demo
+description: A first ReMe memory node
+---
+
+# Quick Start Demo
+
+ReMe stores agent memory as readable Markdown.
+
+Related: [[digest/wiki/memory-as-file.md]]
+```
 
 ## 📁 Memory System
 
 > Memory as File, File as Memory.
 
 ReMe treats **memory as files**, progressively processing raw conversations and external resources from `session/` and
-`resource/` into `daily/`, then consolidating them into reusable long-term knowledge nodes under `digest/`.
+`resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under `digest/`.
 
 ### Directory Structure
 
@@ -200,20 +191,24 @@ ReMe treats **memory as files**, progressively processing raw conversations and 
   <img src="docs/figure/reme-overview.svg" alt="ReMe file-based memory system overview" width="92%">
 </p>
 
+## 🧭 Memory Design Philosophy
+
+> Capture raw dialogs and resources, refine them into long-term preferences, reusable experience, and valuable knowledge,
+> while keeping the result editable by humans and agents.
+
 ### Automatic Memory Flow
 
-ReMe's automatic memory flow gradually turns raw conversations and resources into searchable, traceable, and reusable
-file-based memory. During normal operation, background watchers maintain indexes and process resources, agent hooks
-trigger conversation memory, and long-term consolidation plus proactive reminders run through scheduled tasks or
-on-demand calls.
+ReMe follows a capture → index → consolidate → recall loop. Conversations and resources first become daily memory cards;
+background jobs keep files searchable; `auto_dream` distills stable knowledge into `digest/`; agents recall memory
+through search, wikilinks, or proactive topics.
 
-| Capability                                  | How it runs                                                           | Purpose                                                                                                                                                               | Main parameters                                                          |
-|---------------------------------------------|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| [`auto_index`](docs/zh/memory_search.md)    | Background maintenance via `index_update_loop`                        | Scans on startup and continuously watches Markdown/JSONL changes in `daily/`, `digest/`, and `resource/`; updates chunk, BM25, embedding, and wikilink graph indexes. | Config: `watch_dirs`, `watch_suffixes`                                   |
-| [`auto_memory`](docs/zh/auto_memory.md)     | Agent after-reply hook; also callable on demand                       | Saves raw conversation text and turns long-term valuable information into `daily/<date>/<session_id>.md` memory cards.                                                | Required: `messages`; optional: `session_id`, `memory_hint`              |
-| [`auto_resource`](docs/zh/auto_resource.md) | Automatically triggered by resource watching; also callable on demand | Reads resource changes under `resource/<date>/` and creates or updates LLM-named daily resource cards linked by `source_resource`.                                    | Required: `changes`; each item may include `path`, `file_path`, `change` |
-| [`auto_dream`](docs/zh/auto_dream.md)       | Scheduled by `dream_cron`; also callable on demand                    | Scans daily input for a given date, extracts long-term memory units, integrates them into `digest/`, and writes `daily/<date>/interests.yaml`.                        | `date`, `hint`, `topic_count`, `topic_diversity_days`                    |
-| [`proactive`](docs/zh/proactive.md)         | Read on demand before agent proactive reminders                       | Reads `interests.yaml` generated by `auto_dream` and exposes topics worth attention to the upper-level agent; the caller decides whether to remind the user.          | `date`, `include_content`                                                |
+| Capability                                  | Entry point                                      | What it does                                                                                  | Output                                                   |
+|---------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------------------------------------|----------------------------------------------------------|
+| [`auto_memory`](docs/en/auto_memory.md)     | Agent hook or `reme auto_memory`                 | Distills useful conversation facts while preserving the raw session.                          | `session/dialog/*.jsonl`, `daily/<date>/<session>.md`    |
+| [`auto_resource`](docs/en/auto_resource.md) | Resource watcher or `reme auto_resource`         | Turns files under `resource/<date>/` into source-linked daily cards.                          | `daily/<date>/<resource-card>.md`                        |
+| [`auto_index`](docs/en/memory_search.md)    | Background watcher or `reme reindex`             | Maintains chunks, BM25/embedding indexes, and the wikilink graph.                             | Searchable `daily/`, `digest/`, and `resource/` content  |
+| [`auto_dream`](docs/en/auto_dream.md)       | `dream_cron` or `reme auto_dream`                | Consolidates changed daily cards into long-term personal, procedure, and wiki memory.         | `digest/**`, `daily/<date>/interests.yaml`               |
+| [`proactive`](docs/en/proactive.md)         | `reme proactive` before an agent decides to act  | Reads topics generated by `auto_dream`; the host agent decides whether and how to mention them. | Structured topics from `daily/<date>/interests.yaml`     |
 
 <table>
   <tr>
@@ -234,44 +229,71 @@ on-demand calls.
   </tr>
 </table>
 
-### ReMe Operations
+## 🤝 Agent-friendly Integration
 
-ReMe operates the workspace through a unified CLI / Service Job interface. Agents usually only need retrieval, reading,
-writing, editing, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands are
-mainly for maintenance, debugging, or advanced integration.
+ReMe runs as a local memory service and offers multiple integration paths: CLI, HTTP API, MCP server, and SDK. Different
+agents can choose the path that fits their runtime while sharing the same local memory workspace.
 
-| Category       | Command                                         | Description                                                                                                                       | Parameters                                                               |
-|----------------|-------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|
-| System status  | `reme version`                                  | Returns the ReMe package version.                                                                                                 | None                                                                     |
-| System status  | `reme health_check`                             | Returns a health-check summary for ReMe components.                                                                               | None                                                                     |
-| System status  | `reme help`                                     | Lists registered jobs and their metadata.                                                                                         | None                                                                     |
-| Retrieval/read | [`reme search`](docs/zh/memory_search.md)       | Performs hybrid retrieval in the workspace with vector recall, BM25, and RRF fusion.                                              | Required: `query`; optional: `limit`, `min_score`                        |
-| Retrieval/read | `reme node_search`                              | Recalls similar digest nodes by candidate abstraction name and description, mainly for `auto_dream` deduplication or association. | Required: `query`; optional: `limit`                                     |
-| Retrieval/read | `reme traverse`                                 | Traverses the wikilink graph from a specified path.                                                                               | Required: `path`; optional: `depth`, `direction`                         |
-| Retrieval/read | `reme read`                                     | Reads a Markdown file under the workspace.                                                                                        | Required: `path`; optional: `start_line`, `end_line`                     |
-| Retrieval/read | `reme read_image`                               | Reads an image file under the workspace and returns base64.                                                                       | Required: `path`                                                         |
-| Index          | `reme reindex`                                  | Clears file-store indexes and rebuilds indexes from existing files.                                                               | Config: `watch_dirs`, `watch_suffixes`                                   |
-| Daily          | `reme daily_list`                               | Lists notes for a day.                                                                                                            | `date`                                                                   |
-| Daily          | `reme daily_reindex`                            | Rebuilds the day-index page `daily/<date>.md`.                                                                                    | `date`                                                                   |
-| Metadata       | `reme frontmatter_read`                         | Reads file frontmatter.                                                                                                           | Required: `path`                                                         |
-| Metadata       | `reme frontmatter_update`                       | Merges key-values into file frontmatter.                                                                                          | Required: `path`, `metadata`                                             |
-| Metadata       | `reme frontmatter_delete`                       | Deletes specified keys from file frontmatter.                                                                                     | Required: `path`, `keys`                                                 |
-| File operation | `reme stat`                                     | Gets workspace path status, including size, mtime, existence, and file/directory type.                                            | Required: `path`                                                         |
-| File operation | `reme list`                                     | Lists files under a workspace path.                                                                                               | `path`, `recursive`, `limit`                                             |
-| File operation | `reme write`                                    | Creates or overwrites a Markdown file and writes name/description frontmatter.                                                    | Required: `path`, `name`, `description`, `content`; optional: `metadata` |
-| File operation | `reme edit`                                     | Performs full-text find-and-replace on a Markdown file.                                                                           | Required: `path`, `old`, `new`                                           |
-| File operation | `reme move`                                     | Moves or renames a workspace file and rewrites inbound wikilinks by default.                                                      | Required: `src_path`, `dst_path`; optional: `overwrite`, `retarget`      |
-| File operation | `reme delete`                                   | Deletes a workspace file or folder and returns inbound wikilinks that still exist.                                                | Required: `path`                                                         |
+| Agents                                               | Recommended path                                                            | What works out of the box                                                                      |
+|------------------------------------------------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| **QwenPaw**                                          | Embed ReMe via the Python SDK.                                              | Reuse the app's own lifecycle and model config while keeping memory local and file-based.      |
+| **Claude Code**                                      | Start ReMe as an MCP service and install [plugins/reme](plugins/reme).      | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.  |
+| **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Search/read/write memory and call `auto_memory`, `auto_dream`, and `proactive` via the CLI.    |
+
+<p align="center"><b>Integration demos</b></p>
+
+<table>
+  <tr>
+    <td align="center"></td>
+    <td width="45%" align="center"><b>Auto Memory</b></td>
+    <td width="45%" align="center"><b>Auto Dream</b></td>
+  </tr>
+  <tr>
+    <td align="center"><b>QwenPaw</b></td>
+    <td width="45%">
+      <img src="docs/figure/qwenpaw-auto-memory.gif" alt="QwenPaw Auto Memory demo" width="100%">
+    </td>
+    <td width="45%">
+      <img src="docs/figure/qwenpaw-auto-dream.gif" alt="QwenPaw Auto Dream demo" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Claude Code</b></td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-memory.gif" alt="Claude Code Auto Memory demo" width="100%">
+    </td>
+    <td width="45%">
+      <img src="docs/figure/cc-auto-dream.gif" alt="Claude Code Auto Dream demo" width="100%">
+    </td>
+  </tr>
+</table>
+
+## 🛠️ ReMe Operations
+
+ReMe operates the workspace through a unified job interface exposed by the CLI. Agents usually only need retrieval,
+reading, writing, editing, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands
+are mainly for maintenance, debugging, or advanced integration. Run `reme help` for the full job list.
+
+| Command                                   | Purpose                                                                              |
+|-------------------------------------------|--------------------------------------------------------------------------------------|
+| `reme start`                              | Start the local ReMe service.                                                        |
+| `reme version` / `reme health_check`      | Check package and component status.                                                  |
+| [`reme search`](docs/en/memory_search.md) | Retrieve memory with hybrid search.                                                  |
+| `reme read` / `reme write` / `reme edit`  | Inspect and maintain Markdown memory files.                                          |
+| `reme auto_memory`                        | Turn conversation messages into daily memory cards. Requires LLM credentials.        |
+| `reme auto_resource`                      | Interpret files under `resource/` into daily resource cards. Requires LLM credentials. |
+| `reme auto_dream` / `reme proactive`      | Consolidate daily memory into long-term digest and surface topics worth attention.   |
+| `reme reindex`                            | Rebuild search and wikilink indexes from existing files.                             |
 
 ## 🤝 Community and Support
 
 - **Issues and requests**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
   related discussion, open a new issue with background, expected behavior, and impact scope.
-- **Code contributions**: Before making changes, read the [contribution guide](docs/zh/contributing.md)
-  and [code framework](docs/zh/framework.md), and follow the CLI / Service / Application / Job / Step / Component
+- **Code contributions**: Before making changes, read the [contribution guide](docs/en/contributing.md)
+  and [code framework](docs/en/framework.md), and follow the CLI / Service / Application / Job / Step / Component
   layering.
 - **Documentation contributions**: For user-visible installation, configuration, invocation, or behavior changes, update
-  `docs/zh/` or `README.md` accordingly.
+  `docs/en/`, `docs/zh/`, or the README files accordingly.
 - **Commit convention**: Conventional Commits are recommended, for example `feat(search): add link expansion option` or
   `docs(zh): update quick start`.
 - **Pre-submit checks**: Before submitting a PR, try to run `pre-commit run --all-files` and `pytest`. If tests that
@@ -290,27 +312,11 @@ Thanks to everyone who has contributed to ReMe:
 ## 📄 Citation
 
 ```bibtex
-@software{AgentscopeReMe2026,
-  title = {AgentscopeReMe: Memory Management Kit for Agents},
+@software{ReMe2026,
+  title = {Remember me, Refine me: Memory Management Kit for Agents},
   author = {ReMe Team},
   url = {https://reme.agentscope.io},
   year = {2026}
-}
-
-@inproceedings{cao-etal-2026-remember,
-  title = "Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution",
-  author = "Cao, Zouying  and
-    Deng, Jiaji  and
-    Yu, Li  and
-    Zhou, Weikang  and
-    Liu, Zhaoyang  and
-    Ding, Bolin  and
-    Zhao, Hai",
-  booktitle = "Findings of the {A}ssociation for {C}omputational {L}inguistics: {ACL} 2026",
-  year = "2026",
-  publisher = "Association for Computational Linguistics",
-  url = "https://aclanthology.org/2026.findings-acl.829/",
-  pages = "16803--16822"
 }
 ```
 

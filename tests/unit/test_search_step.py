@@ -169,6 +169,52 @@ def test_search_step_start_end_date_promoted_into_search_filter():
     asyncio.run(run())
 
 
+def test_search_step_invalid_date_is_ignored():
+    """Invalid date strings are silently ignored (removed from filter) and search proceeds."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "some text", "keyword", 5.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="abc",
+        )
+
+        resp = await step(ctx)
+
+        assert resp.success is True
+        assert len(store.calls) == 2
+        for _, _, _, sf in store.calls:
+            assert "start_date" not in sf
+
+    asyncio.run(run())
+
+
+def test_search_step_non_normalized_date_is_canonicalized():
+    """Valid but non-canonical dates like '2024-1-5' are normalized to '2024-01-05'."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "some text", "keyword", 5.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="2024-1-5",
+            end_date="2024-6-1",
+        )
+
+        await step(ctx)
+
+        for _, _, _, sf in store.calls:
+            assert sf["start_date"] == "2024-01-05"
+            assert sf["end_date"] == "2024-06-01"
+
+    asyncio.run(run())
+
+
 def test_search_step_date_in_search_filter_not_overridden_by_context():
     """Explicit search_filter dates take precedence over top-level context dates."""
 
@@ -189,5 +235,48 @@ def test_search_step_date_in_search_filter_not_overridden_by_context():
         for _, _, _, sf in store.calls:
             assert sf["start_date"] == "2023-07-01"
             assert sf["end_date"] == "2023-12-31"
+
+    asyncio.run(run())
+
+
+def test_search_step_strict_date_filter_propagated_to_search_filter():
+    """strict_date_filter=True is passed through to file_store via search_filter."""
+
+    async def run():
+        hit = _chunk("hit", "daily/2024-03-01/a.md", "text", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False, strict_date_filter=True)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="2024-01-01",
+            end_date="2024-06-30",
+        )
+
+        await step(ctx)
+
+        for _, _, _, sf in store.calls:
+            assert sf["strict_date_filter"] is True
+
+    asyncio.run(run())
+
+
+def test_search_step_non_strict_date_filter_not_in_search_filter():
+    """strict_date_filter defaults to False and is not added to search_filter."""
+
+    async def run():
+        hit = _chunk("hit", "daily/2024-03-01/a.md", "text", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            start_date="2024-01-01",
+        )
+
+        await step(ctx)
+
+        for _, _, _, sf in store.calls:
+            assert "strict_date_filter" not in sf
 
     asyncio.run(run())
