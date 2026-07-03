@@ -139,7 +139,7 @@ def test_auto_memory_derives_latest_day_from_message_timestamps():
 
 
 def test_auto_memory_prompt_preserves_temporal_grounding_rules():
-    """The memory-writing prompt should keep event time distinct from runtime time."""
+    """The memory-writing prompt should keep event time distinct without a rigid default format."""
     step = AutoMemoryStep()
 
     system_prompt = step.prompt_format("system_prompt")
@@ -155,6 +155,8 @@ def test_auto_memory_prompt_preserves_temporal_grounding_rules():
     assert "conversation date" in system_prompt
     assert "event date" in system_prompt
     assert "relative time" in system_prompt
+    assert "Do not force a rigid schema for ordinary memories" in system_prompt
     assert "Do not replace event dates with the system runtime date" in system_prompt
+    assert "not necessarily the event date" in system_prompt
     assert 'metadata={"conversation_date":"2023-01-19"}' in create_prompt
-    assert "event date: 2023-01-19" in create_prompt
+    assert "not required for every note" in create_prompt

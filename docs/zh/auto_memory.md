@@ -95,9 +95,9 @@ reme auto_memory \
   messages='[{"role":"user","content":"Jon lost his job today."}]'
 ```
 
-生成记忆时，Auto Memory 还会要求正文显式区分 `conversation date`、`event date` 和 `relative time`。例如
-`"today"` 会尽量按消息时间解析为事件日期，而不是按系统运行日期解释；不能确定的相对时间会保留原始表达并标明不确定性。
-新建 daily note 时也会写入 `conversation_date` frontmatter，便于后续检索或评测对齐。
+生成记忆时，Auto Memory 会在相关时清楚保留时间事实，避免把 `"today"`、`"yesterday"`、`"recently"` 等相对时间按系统运行日期误解。
+对有歧义的历史导入，可以在正文中使用 `conversation date`、`event date`、`relative time` 这类显式标签，但默认记忆格式不会强制每条
+note 都套用固定标签。新建 daily note 时也会写入 `conversation_date` frontmatter，作为原始对话日期的 provenance 字段；它不一定等同于事件发生日期。
 
 ## 后续流向
 
