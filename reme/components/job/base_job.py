@@ -46,7 +46,8 @@ class BaseJob(BaseComponent):
         """Instantiate steps with _local_instantiation_ > 0, grouping by value."""
         self._persistent_steps = {}
         for step_cls, params, local_id in self.step_specs:
-            if local_id > 0 and local_id not in self._persistent_steps:
+            # Only strictly positive integers indicate persistent lifecycle.
+            if isinstance(local_id, int) and local_id > 0 and local_id not in self._persistent_steps:
                 self._persistent_steps[local_id] = step_cls(**dict(params))
 
     async def _close(self) -> None:
@@ -71,7 +72,8 @@ class BaseJob(BaseComponent):
         """Build the step list: persistent steps reuse existing instances."""
         steps: list["BaseStep"] = []
         for step_cls, params, local_id in self.step_specs:
-            if local_id > 0:
+            # Only strictly positive integers indicate persistent lifecycle.
+            if isinstance(local_id, int) and local_id > 0:
                 steps.append(self._persistent_steps[local_id])
             else:
                 steps.append(step_cls(**dict(params)))
