@@ -3,6 +3,7 @@
 .idea/
 .vscode/
 *.code-workspace
+.qoder/
 
 # Local environment
 .env
@@ -54,3 +55,5 @@ docs/_build/
 site/
 
 longmemeval/
+evaluation/
+datasets/

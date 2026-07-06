@@ -227,3 +227,111 @@ def test_faiss_rebuilds_stale_sidecar_and_updates_same_id_text():
             await store.close()
 
     run(go())
+
+
+# -- Date filter tests -------------------------------------------------------
+
+
+def test_date_filter_extract_and_match():
+    """_extract_date_from_path and _matches_search_filter date filtering."""
+    # Extract from various path formats
+    assert LocalFileStore._extract_date_from_path("daily/2026-05-18/note.md") == "2026-05-18"
+    assert LocalFileStore._extract_date_from_path("daily/2026-05-18.md") == "2026-05-18"
+    assert LocalFileStore._extract_date_from_path("resource/2026-06-06/report.pdf") == "2026-06-06"
+    assert LocalFileStore._extract_date_from_path("digest/personal/topic.md") is None
+    assert LocalFileStore._extract_date_from_path("daily/9999-99-99/note.md") is None
+    assert LocalFileStore._extract_date_from_path("note.md") is None
+
+    # start_date / end_date boundary checks
+    filt = {"start_date": "2026-02-01", "end_date": "2026-02-28"}
+    assert LocalFileStore._matches_search_filter(chunk("a", "daily/2026-01-31/n.md", "t"), filt) is False
+    assert LocalFileStore._matches_search_filter(chunk("b", "daily/2026-02-01/n.md", "t"), filt) is True
+    assert LocalFileStore._matches_search_filter(chunk("c", "daily/2026-02-15/n.md", "t"), filt) is True
+    assert LocalFileStore._matches_search_filter(chunk("d", "daily/2026-02-28/n.md", "t"), filt) is True
+    assert LocalFileStore._matches_search_filter(chunk("e", "daily/2026-03-01/n.md", "t"), filt) is False
+
+    # No date in path → not excluded (non-strict, default)
+    assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), filt) is True
+
+    # strict_date_filter=True → no-date paths excluded when date filter is active
+    strict_filt = {**filt, "strict_date_filter": True}
+    assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), strict_filt) is False
+    assert LocalFileStore._matches_search_filter(chunk("b", "daily/2026-02-15/n.md", "t"), strict_filt) is True
+
+    # strict_date_filter=True but no date bounds → no-date paths still pass
+    strict_no_bounds = {"strict_date_filter": True}
+    assert LocalFileStore._matches_search_filter(chunk("x", "digest/personal/topic.md", "t"), strict_no_bounds) is True
+
+    # start_date/end_date stay in reserved, not leaked to metadata
+    c = chunk("z", "daily/2026-05-18/note.md", "text")
+    assert LocalFileStore._matches_search_filter(c, {"start_date": "2026-01-01", "end_date": "2026-12-31"}) is True
+
+
+def test_date_filter_with_vector_and_keyword_search():
+    """vector_search and keyword_search respect start_date/end_date filters."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_date_search", embedding_store="")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+
+            await store.upsert(
+                [
+                    (node("daily/2026-01-10/a.md"), [chunk("a", "daily/2026-01-10/a.md", "alpha topic")]),
+                    (node("daily/2026-02-15/b.md"), [chunk("b", "daily/2026-02-15/b.md", "alpha topic")]),
+                    (node("daily/2026-03-20/c.md"), [chunk("c", "daily/2026-03-20/c.md", "alpha topic")]),
+                ],
+            )
+
+            filt = {"start_date": "2026-02-01", "end_date": "2026-02-28"}
+            assert [c.id for c in await store.vector_search("alpha", 5, filt)] == ["b"]
+            assert [c.id for c in await store.keyword_search("alpha", 5, filt)] == ["b"]
+
+            # start_date only
+            assert sorted(c.id for c in await store.vector_search("alpha", 5, {"start_date": "2026-02-01"})) == [
+                "b",
+                "c",
+            ]
+            # end_date only
+            assert sorted(c.id for c in await store.keyword_search("alpha", 5, {"end_date": "2026-02-28"})) == [
+                "a",
+                "b",
+            ]
+
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_date_filter_progressive_recall():
+    """FaissLocalFileStore progressive recall collects enough results with date filter."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            try:
+                store = FaissLocalFileStore(name="t_faiss_date", embedding_store="")
+            except ImportError:
+                pytest.skip("faiss is not installed")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            files = []
+            for i in range(10):
+                day = f"2026-01-{i + 10:02d}"
+                path = f"daily/{day}/note.md"
+                files.append((node(path), [chunk(f"c{i}", path, "alpha topic")]))
+            await store.upsert(files)
+
+            # Enough matches exist
+            results = await store.vector_search("alpha", 3, {"start_date": "2026-01-15", "end_date": "2026-01-17"})
+            assert len(results) == 3
+
+            # Fewer matches than limit → returns all matching
+            results = await store.vector_search("alpha", 5, {"start_date": "2026-01-18", "end_date": "2026-01-19"})
+            assert len(results) == 2
+
+            await store.close()
+
+    run(go())

@@ -264,14 +264,24 @@ class FaissLocalFileStore(LocalFileStore):
         if query_embedding is None:
             return []
 
-        # Over-fetch by len(tombstones) so dropped rows can't starve the result set.
         q = self._prepare(query_embedding)
-        if search_filter:
-            k = self._faiss_index.ntotal
-        else:
-            k = min(self._faiss_index.ntotal, limit + len(self._tombstones))
-        scores, rows = self._faiss_index.search(q, k)
-        return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+        ntotal = self._faiss_index.ntotal
+
+        if not search_filter:
+            # No filter: simple over-fetch to cover tombstones.
+            k = min(ntotal, limit + len(self._tombstones))
+            scores, rows = self._faiss_index.search(q, k)
+            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+
+        # With filter: progressively increase k until we collect enough results
+        # or exhaust the entire index.
+        k = min(ntotal, 3 * limit)
+        while True:
+            scores, rows = self._faiss_index.search(q, k)
+            results = self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+            if len(results) >= limit or k >= ntotal:
+                return results
+            k = min(ntotal, k * 2)
 
     def _collect_hits(
         self,
