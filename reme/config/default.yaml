@@ -666,9 +666,15 @@ components:
     markdown:
       backend: markdown
       supported_extensions: [ "md" ]
+    json:
+      backend: json
+      supported_extensions: [ "json" ]
+    jsonl:
+      backend: jsonl
+      supported_extensions: [ "jsonl" ]
     default:
       backend: default
-      supported_extensions: [ "jsonl" ]
+      supported_extensions: []
 
   keyword_index:
     default:
