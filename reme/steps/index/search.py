@@ -1,7 +1,6 @@
 """Hybrid search over file_store using RRF fusion of vector + keyword results."""
 
 import asyncio
-import time
 import datetime
 
 from ..base_step import BaseStep
@@ -75,6 +74,10 @@ class SearchStep(BaseStep):
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
         return " ".join(parts)
 
+    @staticmethod
+    def _now_ts() -> float:
+        return datetime.datetime.now().timestamp()
+
     def _tool_context_store(self, tool_context_id: str) -> dict:
         """Return the mutable state bucket for a tool context."""
         if self.app_context is not None:
@@ -89,7 +92,7 @@ class SearchStep(BaseStep):
         tool_context_id: str,
         limit: int,
     ) -> tuple[list[FileChunk], dict]:
-        now = self.kwargs.get("clock", time.time)()
+        now = self.kwargs.get("clock", self._now_ts)()
         ttl = float(
             self.kwargs.get(
                 "tool_context_chunk_ttl_seconds",
