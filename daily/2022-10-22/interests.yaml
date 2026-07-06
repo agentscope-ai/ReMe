@@ -1,0 +1,32 @@
+topics:
+  - title: Local chemistry and physics museum search
+    reason: User plans to identify lesser-known regional science centers with chemistry/physics focus using MuseumsUSA and ASTC directories
+    evidence: Action items referencing MuseumsUSA, ASTC, and prioritization of chemistry/physics exhibition topics
+    keywords:
+      - chemistry museums
+      - physics science centers
+      - MuseumsUSA
+      - ASTC
+    paths:
+      - daily/2022-10-22.md
+      - daily/2022-10-22/science-museum-visit-and-science-education-resources.md
+  - title: Curated science education video and podcast channels
+    reason: User received structured recommendations for informal STEM learning across multiple media formats
+    evidence: Recommended resources include Crash Course, 3Blue1Brown, Kurzgesagt, Physics Girl, Veritasium plus associated podcasts and news sites
+    keywords:
+      - 3Blue1Brown
+      - Kurzgesagt
+      - Crash Course
+      - science podcasts
+      - online science courses
+    paths:
+      - daily/2022-10-22/science-museum-visit-and-science-education-resources.md
+  - title: Reddit STEM discussion communities
+    reason: User introduced to active science forums for Q&A and community-driven exploration
+    evidence: Additional Learning Resources section lists r/learnchemistry and r/Physics alongside science blogs and magazines
+    keywords:
+      - r/learnchemistry
+      - r/Physics
+      - STEM discussion forums
+    paths:
+      - daily/2022-10-22/science-museum-visit-and-science-education-resources.md

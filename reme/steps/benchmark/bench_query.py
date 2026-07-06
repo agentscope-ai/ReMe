@@ -27,7 +27,7 @@ class BenchQueryStep(BaseStep):
     DEFAULT_SYS_PROMPT = (
         "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n\n"
         "## Search Strategy\n"
-        "- You can search multiple times (at most {self.MAX_ITERATION} times) with different queries to gather comprehensive information.\n"
+        "- You can call 'search' tool to search multiple times (at most 5 times, at least once) with different queries to gather comprehensive information.\n"
         "## Answer Rules\n"
         "- Answer based ONLY on retrieved context.\n"
         "- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n"

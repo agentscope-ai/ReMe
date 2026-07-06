@@ -67,3 +67,6 @@ evaluation/longmemeval/results/*
 !evaluation/longmemeval/results/
 !evaluation/longmemeval/results/.gitkeep
 evaluation/longmemeval/demo.py
+benchmark/longmemeval/results/*
+!benchmark/longmemeval/results/
+!benchmark/longmemeval/results/.gitkeep

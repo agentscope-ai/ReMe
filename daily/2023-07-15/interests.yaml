@@ -1,0 +1,13 @@
+topics:
+  - title: "Roller coaster itinerary planning and major park visit tracking"
+    reason: "User actively maps thrill rides across Six Flags and Universal, compares ticket tiers by ride count, and self-identifies as a coaster-focused traveler."
+    evidence: "Prioritized shortlists of Twisted Colossus, Kingda Ka, X2, etc., and detailed tier-by-tier analysis driven by attraction density."
+    keywords: ["roller coasters", "theme parks", "ride itineraries", "Six Flags", "Universal Studios"]
+    paths:
+      - daily/2023-07-15/six-flags-and-universal-studios-trip-planning.md
+  - title: "Wizarding World of Harry Potter immersion and nighttime shows"
+    reason: "User highlighted the depth of Hogwarts architecture and specifically valued the Summer Nights light show, pointing to interest in themed-world storytelling and festivals beyond standalone rides."
+    evidence: "Extended walkthrough of the Wizarding World area; positive notes on Summer Nights festival atmosphere and Nighttime Lights spectacle."
+    keywords: ["Harry Potter", "Wizarding World", "immersive theming", "Summer Nights", "Universal Studios Hollywood"]
+    paths:
+      - daily/2023-07-15/six-flags-and-universal-studios-trip-planning.md

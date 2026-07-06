@@ -11,6 +11,7 @@ Usage:
     python evaluation/longmemeval/run.py -q                          # quiet: only eval-level logs
     python evaluation/longmemeval/run.py --log-level WARNING         # reduce eval runner logs
     python evaluation/longmemeval/run.py --reme-log-level WARNING    # reduce reme internal logs
+    python evaluation/longmemeval/run.py --eval_only                 # query+judge only, reuse existing workspace
 """
 
 import json
@@ -200,6 +201,20 @@ System response: {response}
 
 Reply with ONLY a JSON object: {{"verdict": "yes" or "no", "reason": "brief explanation"}}"""
 
+# ---------------------------------------------------------------------------
+# Prompted-answer system prompt (non-agentic, direct LLM generation)
+# ---------------------------------------------------------------------------
+PROMPTED_SYSTEM_PROMPT = (
+    "You are a memory retrieval assistant. You will be given retrieved memory chunks "
+    "and a question. Think carefully step by step about the retrieved context, "
+    "then output ONLY the direct factual answer.\n\n"
+    "## Rules\n"
+    "- Answer based ONLY on the retrieved context provided below.\n"
+    "- Then provide a very CONCISE answer (short phrase about core information)."
+)
+
+PROMPTED_TEMPORAL_HINT = "\n\nCurrent time context: {query_time}\n"
+
 
 async def judge_response(
     question: str,
@@ -246,8 +261,17 @@ async def judge_response(
 # ---------------------------------------------------------------------------
 # Main evaluation pipeline
 # ---------------------------------------------------------------------------
-async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
-    """Evaluate a single LongMemEval item end-to-end."""
+async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_only: bool = False) -> dict:
+    """Evaluate a single LongMemEval item end-to-end.
+
+    Args:
+        item: The dataset item containing question, answer, sessions, etc.
+        eval_config: The evaluation configuration dict.
+        item_index: The index of this item in the dataset.
+        eval_only: If True, skip ingestion (phases 1-3) and only run query+judge
+            using the existing workspace. Useful for re-evaluating different query
+            configurations without re-ingesting sessions.
+    """
     from reme import Application
     from reme.config import resolve_app_config
     from reme.enumeration import ComponentEnum
@@ -275,16 +299,38 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
 
     logger.info(
         f"[Item {item_index}] question_id={item['question_id']} "
-        f"type={item['question_type']} sessions={len(sorted_sessions)}",
+        f"type={item['question_type']} sessions={len(sorted_sessions)}"
+        + (" [eval_only]" if eval_only else ""),
     )
 
     # Use fixed workspace directory (clean it for fresh evaluation)
     item_dir = _WORKSPACE_ROOT / f"item_{item_index}"
     workspace_dir = str(item_dir / ".reme")
-    if item_dir.exists():
-        shutil.rmtree(item_dir)
-        logger.info(f"[Item {item_index}] Cleaned existing workspace: {item_dir}")
-    item_dir.mkdir(parents=True, exist_ok=True)
+    if eval_only:
+        if not item_dir.exists() or not Path(workspace_dir).exists():
+            logger.warning(
+                f"[Item {item_index}] eval_only: workspace not found at {item_dir}, skipping"
+            )
+            _skip_judgment = {"verdict": "no", "reason": "workspace missing in eval_only mode", "metric": "binary", "question_type": item["question_type"]}
+            return {
+                "question_id": item["question_id"],
+                "question_type": item["question_type"],
+                "question": item["question"],
+                "ground_truth": item["answer"],
+                "agentic_response": "(workspace missing, skipped)",
+                "agentic_judgment": dict(_skip_judgment),
+                "prompted_response": "(workspace missing, skipped)",
+                "prompted_judgment": dict(_skip_judgment),
+                "prompted_input_tokens": 0,
+                "prompted_output_tokens": 0,
+                "sessions_ingested": 0,
+                "dreams_triggered": 0,
+            }
+    else:
+        if item_dir.exists():
+            shutil.rmtree(item_dir)
+            logger.info(f"[Item {item_index}] Cleaned existing workspace: {item_dir}")
+        item_dir.mkdir(parents=True, exist_ok=True)
 
     cfg = resolve_app_config(
         config=reme_cfg["config"],
@@ -298,77 +344,88 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
     await app.start()
 
     try:
-        # ── Phase 1: Ingest sessions ──────────────────────────────────
-        prev_dt = None
         dream_dates_triggered = set()
+        dream_available = True  # Set to False if auto_dream job is not found
 
-        for idx, (_, session_dt, session_id, messages) in enumerate(sorted_sessions):
-            # Check if dream should be triggered before this session
-            if prev_dt is not None and should_trigger_dream(prev_dt, session_dt, dream_trigger_hour):
-                dream_date = prev_dt.strftime("%Y-%m-%d")
-                if dream_date not in dream_dates_triggered:
-                    logger.info(f"[Item {item_index}] Triggering dream for date={dream_date}")
+        if not eval_only:
+            # ── Phase 1: Ingest sessions ──────────────────────────────
+            prev_dt = None
+
+            for idx, (_, session_dt, session_id, messages) in enumerate(sorted_sessions):
+                # Check if dream should be triggered before this session
+                if dream_available and prev_dt is not None and should_trigger_dream(prev_dt, session_dt, dream_trigger_hour):
+                    dream_date = prev_dt.strftime("%Y-%m-%d")
+                    if dream_date not in dream_dates_triggered:
+                        logger.info(f"[Item {item_index}] Triggering dream for date={dream_date}")
+                        try:
+                            dream_resp = await app.run_job(
+                                "auto_dream",
+                                date=dream_date,
+                                scan_days=dream_scan_days,
+                                max_units=dream_max_units,
+                            )
+                            logger.info(
+                                f"[Item {item_index}] Dream done: success={dream_resp.success} "
+                                f"answer={dream_resp.answer[:100] if dream_resp.answer else ''}",
+                            )
+                        except Exception as e:
+                            if "not found" in str(e).lower():
+                                dream_available = False
+                                logger.warning(f"[Item {item_index}] auto_dream job not found, skipping all dreams")
+                            else:
+                                logger.warning(f"[Item {item_index}] Dream failed for {dream_date}: {e}")
+                        dream_dates_triggered.add(dream_date)
+                        # Index update after dream to pick up new digest nodes
+                        await app.run_job("index_update")
+
+                # Format and ingest the session
+                formatted_msgs = format_messages_for_reme(messages, session_dt)
+                date_str = session_dt.strftime("%Y-%m-%d")
+
+                logger.info(
+                    f"[Item {item_index}] Ingesting session {idx+1}/{len(sorted_sessions)} "
+                    f"id={session_id} date={date_str} msgs={len(formatted_msgs)}",
+                )
+                resp = await app.run_job(
+                    "auto_memory",
+                    messages=formatted_msgs,
+                    session_id=session_id,
+                    date=date_str,
+                )
+                if not resp.success:
+                    logger.warning(
+                        f"[Item {item_index}] auto_memory failed for session {session_id}: {resp.answer}",
+                    )
+
+                # Manual index update after each session
+                await app.run_job("index_update")
+
+                prev_dt = session_dt
+
+            # ── Phase 2: Final dream for the last day ─────────────────
+            if dream_available and prev_dt is not None:
+                last_dream_date = prev_dt.strftime("%Y-%m-%d")
+                if last_dream_date not in dream_dates_triggered:
+                    logger.info(f"[Item {item_index}] Final dream for date={last_dream_date}")
                     try:
-                        dream_resp = await app.run_job(
+                        await app.run_job(
                             "auto_dream",
-                            date=dream_date,
+                            date=last_dream_date,
                             scan_days=dream_scan_days,
                             max_units=dream_max_units,
                         )
-                        logger.info(
-                            f"[Item {item_index}] Dream done: success={dream_resp.success} "
-                            f"answer={dream_resp.answer[:100] if dream_resp.answer else ''}",
-                        )
                     except Exception as e:
-                        logger.warning(f"[Item {item_index}] Dream failed for {dream_date}: {e}")
-                    dream_dates_triggered.add(dream_date)
-                    # Index update after dream to pick up new digest nodes
+                        if "not found" in str(e).lower():
+                            dream_available = False
+                            logger.warning(f"[Item {item_index}] auto_dream job not found, skipping all dreams")
+                        else:
+                            logger.warning(f"[Item {item_index}] Final dream failed: {e}")
+                    dream_dates_triggered.add(last_dream_date)
+                    # Index update after final dream
                     await app.run_job("index_update")
 
-            # Format and ingest the session
-            formatted_msgs = format_messages_for_reme(messages, session_dt)
-            date_str = session_dt.strftime("%Y-%m-%d")
-
-            logger.info(
-                f"[Item {item_index}] Ingesting session {idx+1}/{len(sorted_sessions)} "
-                f"id={session_id} date={date_str} msgs={len(formatted_msgs)}",
-            )
-            resp = await app.run_job(
-                "auto_memory",
-                messages=formatted_msgs,
-                session_id=session_id,
-                date=date_str,
-            )
-            if not resp.success:
-                logger.warning(
-                    f"[Item {item_index}] auto_memory failed for session {session_id}: {resp.answer}",
-                )
-
-            # Manual index update after each session
-            await app.run_job("index_update")
-
-            prev_dt = session_dt
-
-        # ── Phase 2: Final dream for the last day ─────────────────────
-        if prev_dt is not None:
-            last_dream_date = prev_dt.strftime("%Y-%m-%d")
-            if last_dream_date not in dream_dates_triggered:
-                logger.info(f"[Item {item_index}] Final dream for date={last_dream_date}")
-                try:
-                    await app.run_job(
-                        "auto_dream",
-                        date=last_dream_date,
-                        scan_days=dream_scan_days,
-                        max_units=dream_max_units,
-                    )
-                except Exception as e:
-                    logger.warning(f"[Item {item_index}] Final dream failed: {e}")
-                dream_dates_triggered.add(last_dream_date)
-                # Index update after final dream
-                await app.run_job("index_update")
-
-        # ── Phase 3: Digest update ────────────────────────────────────
-        await app.run_job("digest_update")
+            # ── Phase 3: Digest update ────────────────────────────────
+            await app.run_job("digest_update")
 
         # ── Phase 4: Ask question via bench_query_job (ReAct agent) ──
         question = item["question"]
@@ -376,7 +433,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
         question_dt = parse_haystack_date(question_date_raw) if question_date_raw else None
         query_time = to_iso(question_dt) if question_dt else ""
         logger.info(
-            f"[Item {item_index}] Asking: {question[:80]}... query_time={query_time}",
+            f"[Item {item_index}] Asking (agentic): {question[:80]}... query_time={query_time}",
         )
 
         query_resp = await app.run_job(
@@ -384,23 +441,94 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
             query=question,
             query_time=query_time,
         )
-        system_response = (query_resp.answer or "").strip()
-        if not system_response:
-            system_response = "(no answer generated)"
+        agentic_response = (query_resp.answer or "").strip()
+        if not agentic_response:
+            agentic_response = "(no answer generated)"
 
-        logger.info(f"[Item {item_index}] System response: {system_response[:200]}...")
+        logger.info(f"[Item {item_index}] Agentic response: {agentic_response[:200]}...")
 
-        # ── Phase 5: Judge (using reme's as_llm component) ────────────
+        # ── Phase 4b: Prompted answer (direct LLM with search context) ──
+        logger.info(
+            f"[Item {item_index}] Asking (prompted): {question[:80]}...",
+        )
+        prompted_llm = app.context.components[ComponentEnum.AS_LLM]["prompted"]
+
+        # Search for relevant chunks
+        search_resp = await app.run_job("search", query=question, limit=10)
+        search_context = (search_resp.answer or "").strip()
+        search_hit_count = (search_resp.metadata or {}).get("counts", {}).get("returned", 0)
+        logger.info(f"[Item {item_index}] Prompted search: {search_hit_count} hit(s)")
+
+        if not search_context:
+            search_context = "(no search results found)"
+
+        # Build prompted prompt
+        prompted_sys = PROMPTED_SYSTEM_PROMPT
+        if query_time:
+            prompted_sys += PROMPTED_TEMPORAL_HINT.format(query_time=query_time)
+
+        prompted_user_content = (
+            f"## Retrieved Memory Context\n\n{search_context}\n\n"
+            f"## Question\n{question}\n\n"
+            f"Please provide the direct factual answer based on the above context."
+        )
+
+        from agentscope.message import Msg as PromptedMsg
+
+        prompted_messages = [
+            PromptedMsg(name="system", role="system", content=[{"type": "text", "text": prompted_sys}]),
+            PromptedMsg(name="user", role="user", content=[{"type": "text", "text": prompted_user_content}]),
+        ]
+
+        prompted_input_tokens = 0
+        prompted_output_tokens = 0
+        try:
+            prompted_chat_resp = await prompted_llm.model(prompted_messages)
+            prompted_raw_text = ""
+            for block in prompted_chat_resp.content:
+                if hasattr(block, "text"):
+                    prompted_raw_text += block.text
+            prompted_response = prompted_raw_text.strip()
+            if prompted_chat_resp.usage is not None:
+                prompted_input_tokens = prompted_chat_resp.usage.input_tokens
+                prompted_output_tokens = prompted_chat_resp.usage.output_tokens
+        except Exception as e:
+            logger.warning(f"[Item {item_index}] Prompted LLM call failed: {e}")
+            prompted_response = ""
+
+        logger.info(
+            f"[Item {item_index}] Prompted tokens: input={prompted_input_tokens} output={prompted_output_tokens}",
+        )
+
+        if not prompted_response:
+            prompted_response = "(no answer generated)"
+
+        logger.info(f"[Item {item_index}] Prompted response: {prompted_response[:200]}...")
+
+        # ── Phase 5: Judge both responses ────────────────────────────────
         judge_llm = app.context.components[ComponentEnum.AS_LLM]["judge"]
-        logger.info(f"[Item {item_index}] Judging (binary, type={item['question_type']})...")
-        judgment = await judge_response(
+
+        # Judge agentic response
+        logger.info(f"[Item {item_index}] Judging agentic (binary, type={item['question_type']})...")
+        agentic_judgment = await judge_response(
             question=question,
             ground_truth=item["answer"],
-            response=system_response,
+            response=agentic_response,
             question_type=item["question_type"],
             judge_llm=judge_llm,
         )
-        logger.info(f"[Item {item_index}] binary result: {judgment}")
+        logger.info(f"[Item {item_index}] agentic binary result: {agentic_judgment}")
+
+        # Judge prompted response
+        logger.info(f"[Item {item_index}] Judging prompted (binary, type={item['question_type']})...")
+        prompted_judgment = await judge_response(
+            question=question,
+            ground_truth=item["answer"],
+            response=prompted_response,
+            question_type=item["question_type"],
+            judge_llm=judge_llm,
+        )
+        logger.info(f"[Item {item_index}] prompted binary result: {prompted_judgment}")
 
     finally:
         await app.close()
@@ -410,8 +538,12 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
         "question_type": item["question_type"],
         "question": question,
         "ground_truth": item["answer"],
-        "system_response": system_response,
-        "judgment": judgment,
+        "agentic_response": agentic_response,
+        "agentic_judgment": agentic_judgment,
+        "prompted_response": prompted_response,
+        "prompted_judgment": prompted_judgment,
+        "prompted_input_tokens": prompted_input_tokens,
+        "prompted_output_tokens": prompted_output_tokens,
         "sessions_ingested": len(sorted_sessions),
         "dreams_triggered": len(dream_dates_triggered),
     }
@@ -422,7 +554,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
 # ---------------------------------------------------------------------------
 def _evaluate_item_worker(task_input: tuple) -> dict:
     """Worker function for multiprocessing. Each process gets its own event loop."""
-    item, eval_config, item_index, log_level, reme_log_level = task_input
+    item, eval_config, item_index, log_level, reme_log_level, eval_only = task_input
     import asyncio  # pylint: disable=import-outside-toplevel
 
     _configure_worker(log_level, reme_log_level)
@@ -433,7 +565,7 @@ def _evaluate_item_worker(task_input: tuple) -> dict:
     # garbage collection of httpx connection-pool tasks — harmless.
     logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
-    return asyncio.run(evaluate_item(item, eval_config, item_index))
+    return asyncio.run(evaluate_item(item, eval_config, item_index, eval_only=eval_only))
 
 
 def _indexed_worker(indexed_input: tuple) -> tuple:
@@ -452,8 +584,16 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level: str = "INFO"):
-    """Run the LongMemEval evaluation pipeline."""
+def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level: str = "INFO", eval_only: bool = False):
+    """Run the LongMemEval evaluation pipeline.
+
+    Args:
+        config_path: Path to the YAML config file.
+        log_level: Log level for the eval runner.
+        reme_log_level: Log level for reme internal logs.
+        eval_only: If True, skip ingestion and only run query+judge using
+            existing workspaces.
+    """
     from multiprocessing import Pool  # pylint: disable=import-outside-toplevel
 
     setup_logging(log_level, reme_log_level)
@@ -479,7 +619,8 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
             f"Filtered by question_types={question_types}: {before_filter} -> {len(items_to_eval)} items",
         )
 
-    logger.info(f"Evaluating {len(items_to_eval)} item(s) starting from index {start}")
+    logger.info(f"Evaluating {len(items_to_eval)} item(s) starting from index {start}"
+                + (" [eval_only: query+judge only]" if eval_only else ""))
 
     # Resolve parallelism
     num_workers = _resolve_num_workers(eval_config["evaluation"].get("num_workers", 1))
@@ -489,8 +630,8 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build task args — include log levels so workers can configure themselves
-    task_args = [(item, eval_config, start + i, log_level, reme_log_level) for i, item in enumerate(items_to_eval)]
+    # Build task args — include log levels and eval_only flag
+    task_args = [(item, eval_config, start + i, log_level, reme_log_level, eval_only) for i, item in enumerate(items_to_eval)]
 
     # Progress tracking (force print regardless of log level, every 10 minutes)
     total_items = len(task_args)
@@ -565,28 +706,62 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     print("EVALUATION RESULTS")
     print("=" * 60)
 
-    binary_correct = 0
-    type_stats = {}  # {question_type: {correct: int, total: int}}
+    def _accumulate(results_key, judgment_key):
+        correct = 0
+        stats: dict = {}  # {question_type: {correct: int, total: int}}
+        for r in results:
+            qtype = r["question_type"]
+            verdict = r.get(judgment_key, {}).get("verdict", "N/A")
+            if qtype not in stats:
+                stats[qtype] = {"correct": 0, "total": 0}
+            stats[qtype]["total"] += 1
+            if verdict == "yes":
+                correct += 1
+                stats[qtype]["correct"] += 1
+        return correct, stats
+
+    agentic_correct, agentic_type_stats = _accumulate("agentic_response", "agentic_judgment")
+    prompted_correct, prompted_type_stats = _accumulate("prompted_response", "prompted_judgment")
+
+    total = len(results)
+
+    # Per-item verdict rows
     for r in results:
-        qtype = r["question_type"]
-        verdict = r.get("judgment", {}).get("verdict", "N/A")
-        print(f"  [{r['question_id']}] type={qtype}  verdict={verdict}")
-        if qtype not in type_stats:
-            type_stats[qtype] = {"correct": 0, "total": 0}
-        type_stats[qtype]["total"] += 1
-        if verdict == "yes":
-            binary_correct += 1
-            type_stats[qtype]["correct"] += 1
+        a_verdict = r.get("agentic_judgment", {}).get("verdict", "N/A")
+        p_verdict = r.get("prompted_judgment", {}).get("verdict", "N/A")
+        print(f"  [{r['question_id']}] type={r['question_type']}  agentic={a_verdict}  prompted={p_verdict}")
 
     print("\n" + "-" * 60)
-    total = len(results)
     print(f"  Items: {total}")
-    print(f"  Overall accuracy: {binary_correct}/{total} ({100*binary_correct/total:.1f}%)")
-    print()
+
+    # Agentic stats
+    print("\n  ── Agentic (ReAct) ──")
+    print(f"  Overall accuracy: {agentic_correct}/{total} ({100*agentic_correct/total:.1f}%)")
     print("  Per-type accuracy:")
-    for qtype, stats in sorted(type_stats.items()):
+    for qtype, stats in sorted(agentic_type_stats.items()):
         acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
         print(f"    {qtype}: {stats['correct']}/{stats['total']} ({acc:.1f}%)")
+
+    # Prompted stats
+    print("\n  ── Prompted (direct LLM + think) ──")
+    print(f"  Overall accuracy: {prompted_correct}/{total} ({100*prompted_correct/total:.1f}%)")
+    print("  Per-type accuracy:")
+    for qtype, stats in sorted(prompted_type_stats.items()):
+        acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
+        print(f"    {qtype}: {stats['correct']}/{stats['total']} ({acc:.1f}%)")
+
+    # Prompted token usage stats
+    total_input_tokens = sum(r.get("prompted_input_tokens", 0) for r in results)
+    total_output_tokens = sum(r.get("prompted_output_tokens", 0) for r in results)
+    counted = sum(1 for r in results if r.get("prompted_input_tokens", 0) > 0)
+    avg_input = total_input_tokens / counted if counted else 0
+    avg_output = total_output_tokens / counted if counted else 0
+    print(f"\n  ── Prompted Token Usage (avg over {counted} queries) ──")
+    print(f"  Avg input tokens/query:  {avg_input:,.1f}")
+    print(f"  Avg output tokens/query: {avg_output:,.1f}")
+    print(f"  Total input tokens:      {total_input_tokens:,}")
+    print(f"  Total output tokens:     {total_output_tokens:,}")
+
     print("=" * 60)
     total_elapsed = time.time() - start_time
     print(f"\n  Total time: {total_elapsed/60:.1f} min")
@@ -619,10 +794,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Shortcut for --log-level WARNING --reme-log-level WARNING",
     )
+    parser.add_argument(
+        "--eval_only",
+        action="store_true",
+        help="Skip ingestion (phases 1-3). Reuse existing workspaces and only run query+judge.",
+    )
     args = parser.parse_args()
 
     if args.quiet:
         args.log_level = "WARNING"
         args.reme_log_level = "WARNING"
 
-    main(args.config, args.log_level, args.reme_log_level)
+    main(args.config, args.log_level, args.reme_log_level, eval_only=args.eval_only)

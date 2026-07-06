@@ -1,0 +1,25 @@
+# Temporary test config: 5 items, 5 workers
+dataset:
+  path: "datasets/longmemeval/longmemeval_oracle.json"
+  variant: "oracle"
+  start_index: 0
+  num_items: 5
+  max_sessions: 0
+  question_types: []
+
+evaluation:
+  metrics:
+    - binary
+  num_workers: 5
+  filter_future_sessions: true
+
+reme:
+  config: "longmemeval.yaml"
+  dream_trigger_hour: 23
+  dream_scan_days: 2
+  dream_max_units: 5
+
+output:
+  dir: "evaluation/longmemeval/results"
+  log_to_console: true
+  log_to_file: true

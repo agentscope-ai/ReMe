@@ -30,7 +30,7 @@ jobs:
   index_update:
     backend: base
     description: "Manually trigger incremental index update for watched dirs."
-    watch_dirs: [daily_dir, digest_dir, resource_dir]
+    watch_dirs: [daily_dir, digest_dir, dialog_dir]
     watch_suffixes: [md, jsonl]
     parameters:
       type: object
@@ -60,48 +60,48 @@ jobs:
           - backend: log_changes_step
 
   # ── Auto dream (same as default.yaml auto_dream, base mode) ──
-  auto_dream:
-    backend: base
-    description: "Auto-dream: scan today's day-index and daily notes, globally extract merged units/topics, integrate digest units, write interests.yaml, and persist the dream catalog."
-    parameters:
-      type: object
-      properties:
-        date:
-          type: string
-          description: "YYYY-MM-DD to scan; defaults to today in the dreamer's timezone"
-          default: ""
-        hint:
-          type: string
-          description: "caller guidance passed through to dream extract/integrate"
-          default: ""
-        scan_days:
-          type: integer
-          description: "number of recent daily directories to scan, ending at date"
-          default: 2
-        max_units:
-          type: integer
-          description: "maximum number of extracted memory units"
-          default: 5
-        topic_count:
-          type: integer
-          description: "maximum number of final daily interest topics"
-          default: 3
-        topic_diversity_days:
-          type: integer
-          description: "number of previous interests.yaml days to avoid repeating"
-          default: 7
-    steps:
-      - backend: dream_extract_step
-        file_catalog: dream
-        topic_session_id: interests
-        scan_days: 2
-        max_units: 5
-      - backend: dream_integrate_step
-      - backend: dream_topics_step
-        topic_count: 3
-        topic_diversity_days: 7
-      - backend: dream_finish_step
-        file_catalog: dream
+  # auto_dream:
+  #   backend: base
+  #   description: "Auto-dream: scan today's day-index and daily notes, globally extract merged units/topics, integrate digest units, write interests.yaml, and persist the dream catalog."
+  #   parameters:
+  #     type: object
+  #     properties:
+  #       date:
+  #         type: string
+  #         description: "YYYY-MM-DD to scan; defaults to today in the dreamer's timezone"
+  #         default: ""
+  #       hint:
+  #         type: string
+  #         description: "caller guidance passed through to dream extract/integrate"
+  #         default: ""
+  #       scan_days:
+  #         type: integer
+  #         description: "number of recent daily directories to scan, ending at date"
+  #         default: 2
+  #       max_units:
+  #         type: integer
+  #         description: "maximum number of extracted memory units"
+  #         default: 5
+  #       topic_count:
+  #         type: integer
+  #         description: "maximum number of final daily interest topics"
+  #         default: 3
+  #       topic_diversity_days:
+  #         type: integer
+  #         description: "number of previous interests.yaml days to avoid repeating"
+  #         default: 7
+  #   steps:
+  #     - backend: dream_extract_step
+  #       file_catalog: dream
+  #       topic_session_id: interests
+  #       scan_days: 2
+  #       max_units: 5
+  #     - backend: dream_integrate_step
+  #     - backend: dream_topics_step
+  #       topic_count: 3
+  #       topic_diversity_days: 7
+  #     - backend: dream_finish_step
+  #       file_catalog: dream
 
   # ── Auto memory (same as default.yaml) ──
   auto_memory:
@@ -410,6 +410,18 @@ components:
       parameters:
         max_tokens: 2048
         thinking_enable: false
+    prompted:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${PROMPTED_MODEL_NAME:-qwen3.7-max}
+      stream: false
+      context_size: 64000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 8192
+        thinking_enable: true
 
   agent_wrapper:
     default:

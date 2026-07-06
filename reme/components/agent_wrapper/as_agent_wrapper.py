@@ -226,7 +226,7 @@ class AsAgentWrapper(BaseAgentWrapper):
                 *(self._make_tool(job, tool_defaults.get(job.name)) for job in resolved_jobs),
             ],
             skills_or_loaders=skills,
-        )
+        ) # tools存储FunctionTool类型的对象
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)

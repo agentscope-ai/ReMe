@@ -34,6 +34,7 @@ class ApplicationConfig(BaseModel):
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    dialog_dir: str = Field(default="session/dialog", description="Subdirectory for dialog session transcripts")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
     language: str = Field(default="", description="Default language for LLM interactions")
