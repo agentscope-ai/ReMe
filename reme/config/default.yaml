@@ -674,7 +674,7 @@ components:
       supported_extensions: [ "jsonl" ]
     default:
       backend: default
-      supported_extensions: []
+      supported_extensions: ["txt","log"]
 
   keyword_index:
     default:
