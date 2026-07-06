@@ -217,7 +217,7 @@ def test_search_step_tool_context_seen_chunks_expire_after_ttl():
         step = SearchStep(
             file_store=store,
             expand_links=False,
-            seen_ttl_hours=1,
+            tool_context_chunk_ttl_hours=1,
             clock=lambda: now,
         )
 

@@ -96,12 +96,12 @@ class AsAgentWrapper(BaseAgentWrapper):
         self.session_retention_days = int(session_retention_days)
         self._session_cleanup_done = False
 
-    @staticmethod
-    def _make_tool(job: "BaseJob", defaults: dict | None = None) -> FunctionTool:
+    @classmethod
+    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None) -> FunctionTool:
         async def run_job(**kwargs) -> ToolChunk:
-            if defaults:
-                for k, v in defaults.items():
-                    kwargs.setdefault(k, v)
+            if tool_context_id:
+                assert "tool_context_id" not in kwargs, "tool_context_id is injected by agent_wrapper"
+                kwargs["tool_context_id"] = tool_context_id
             response = await job(**kwargs)
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
@@ -220,11 +220,9 @@ class AsAgentWrapper(BaseAgentWrapper):
         tool_defaults: dict[str, dict] = kwargs.get("tool_defaults", {})
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
+        tool_context_id = kwargs.get("tool_context_id")
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[
-                *self._builtin_tools(),
-                *(self._make_tool(job, tool_defaults.get(job.name)) for job in resolved_jobs),
-            ],
+            tools=[*self._builtin_tools(), *(self._make_tool(job, tool_context_id) for job in resolved_jobs)],
             skills_or_loaders=skills,
         ) # tools存储FunctionTool类型的对象
 

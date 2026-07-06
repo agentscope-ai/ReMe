@@ -31,17 +31,18 @@ def _default_limit() -> int:
 class SearchStep(BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
 
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
-    SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
-
     def __init__(
         self,
         *args,
-        seen_ttl_hours: float = 24,
+        tool_contexts_key: str = "tool_contexts",
+        search_seen_key: str = "search_seen_chunk_ids",
+        tool_context_chunk_ttl_hours: float = 24,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        self.seen_ttl_hours = seen_ttl_hours
+        self.tool_contexts_key = tool_contexts_key
+        self.search_seen_key = search_seen_key
+        self.tool_context_chunk_ttl_hours = tool_context_chunk_ttl_hours
 
     @staticmethod
     def _rrf_merge(
@@ -94,9 +95,9 @@ class SearchStep(BaseStep):
     def _tool_context_store(self, tool_context_id: str) -> dict:
         """Return the mutable state bucket for a tool context."""
         if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
+            contexts = self.app_context.metadata.setdefault(self.tool_contexts_key, {})
         else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
+            contexts = self.kwargs.setdefault(self.tool_contexts_key, {})
         return contexts.setdefault(tool_context_id, {})
 
     def _dedupe_tool_context(
@@ -109,15 +110,15 @@ class SearchStep(BaseStep):
         ttl = float(
             self.kwargs.get(
                 "tool_context_chunk_ttl_seconds",
-                float(self.seen_ttl_hours) * 60 * 60,
+                float(self.tool_context_chunk_ttl_hours) * 60 * 60,
             ),
         )
         store = self._tool_context_store(tool_context_id)
-        seen = store.get(self.SEARCH_SEEN_KEY, {})
+        seen = store.get(self.search_seen_key, {})
         if not isinstance(seen, dict):
             seen = dict.fromkeys(seen, now)
         before_expire = len(seen)
-        store[self.SEARCH_SEEN_KEY] = seen = {chunk_id: ts for chunk_id, ts in seen.items() if now - float(ts) < ttl}
+        store[self.search_seen_key] = seen = {chunk_id: ts for chunk_id, ts in seen.items() if now - float(ts) < ttl}
 
         seen_before = len(seen)
         unvisited = [chunk for chunk in chunks if chunk.id not in seen]
