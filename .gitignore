@@ -52,3 +52,5 @@ vault/
 # Documentation build outputs
 docs/_build/
 site/
+
+longmemeval/

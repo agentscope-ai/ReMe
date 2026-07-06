@@ -216,11 +216,14 @@ class CcAgentWrapper(BaseAgentWrapper):
             except OSError as exc:
                 self.logger.warning(f"Failed to link Claude Code skills directory {target}: {exc}")
 
-    @staticmethod
-    def _make_tool(job: "BaseJob"):
+    @classmethod
+    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None):
         from claude_agent_sdk import SdkMcpTool
 
         async def run_job(args):
+            if tool_context_id:
+                assert "tool_context_id" not in args, "tool_context_id is injected by agent_wrapper"
+                args["tool_context_id"] = tool_context_id
             response = await job(**args)
             return {"content": [{"type": "text", "text": str(response.answer)}], "is_error": not response.success}
 
@@ -284,7 +287,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
         if resolved_jobs:
-            sdk_tools = [self._make_tool(job) for job in resolved_jobs]
+            sdk_tools = [self._make_tool(job, kwargs.get("tool_context_id")) for job in resolved_jobs]
             server = create_sdk_mcp_server(name="mcp_server", tools=sdk_tools)
             opts.mcp_servers = opts.mcp_servers if isinstance(opts.mcp_servers, dict) else {}
             opts.mcp_servers["mcp_server"] = server

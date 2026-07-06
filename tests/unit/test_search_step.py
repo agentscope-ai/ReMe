@@ -130,6 +130,71 @@ def test_search_step_keyword_only_uses_keyword_scores_and_min_score():
     asyncio.run(run())
 
 
+def test_search_step_tool_context_deduplicates_returned_chunks_only():
+    """When tool_context_id is supplied, repeated searches skip previously returned chunks."""
+
+    async def run():
+        chunks = [
+            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+            _chunk("c", "daily/c.md", "third", "keyword", 3.0),
+        ]
+        store = FakeSearchStore(keyword_results=chunks)
+        step = SearchStep(file_store=store, expand_links=False)
+
+        first = await step(RuntimeContext(query="alpha", limit=2, tool_context_id="ctx-1"))
+        second = await step(RuntimeContext(query="alpha", limit=2, tool_context_id="ctx-1"))
+        third = await step(RuntimeContext(query="alpha", limit=2))
+
+        assert [r["id"] for r in first.metadata["results"]] == ["a", "b"]
+        assert first.metadata["dedup"] == {
+            "tool_context_id": "ctx-1",
+            "seen_before": 0,
+            "skipped_seen": 0,
+            "seen_after": 2,
+            "expired": 0,
+            "ttl_seconds": 86400.0,
+        }
+        assert [r["id"] for r in second.metadata["results"]] == ["c"]
+        assert second.metadata["dedup"]["seen_before"] == 2
+        assert second.metadata["dedup"]["skipped_seen"] == 2
+        assert second.metadata["dedup"]["seen_after"] == 3
+        assert [r["id"] for r in third.metadata["results"]] == ["a", "b"]
+        assert "dedup" not in third.metadata
+
+    asyncio.run(run())
+
+
+def test_search_step_tool_context_seen_chunks_expire_after_ttl():
+    """Seen chunk ids under a tool_context_id are reusable after the configured TTL."""
+
+    async def run():
+        now = 1000.0
+        chunks = [
+            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+        ]
+        store = FakeSearchStore(keyword_results=chunks)
+        step = SearchStep(
+            file_store=store,
+            expand_links=False,
+            tool_context_chunk_ttl_hours=1,
+            clock=lambda: now,
+        )
+
+        first = await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+        now = 4601.0
+        second = await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+
+        assert [r["id"] for r in first.metadata["results"]] == ["a"]
+        assert [r["id"] for r in second.metadata["results"]] == ["a"]
+        assert second.metadata["dedup"]["expired"] == 1
+        assert second.metadata["dedup"]["seen_before"] == 0
+        assert second.metadata["dedup"]["ttl_seconds"] == 3600.0
+
+    asyncio.run(run())
+
+
 def test_search_step_empty_query_fails_before_store_calls():
     """Empty queries fail fast and do not call file_store search methods."""
 

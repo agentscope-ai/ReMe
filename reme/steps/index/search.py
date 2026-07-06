@@ -1,6 +1,7 @@
 """Hybrid search over file_store using RRF fusion of vector + keyword results."""
 
 import asyncio
+import time
 
 from ..base_step import BaseStep
 from ...components import R
@@ -14,6 +15,19 @@ _MAX_CANDIDATES = 200
 @R.register("search_step")
 class SearchStep(BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
+
+    def __init__(
+        self,
+        *args,
+        tool_contexts_key: str = "tool_contexts",
+        search_seen_key: str = "search_seen_chunk_ids",
+        tool_context_chunk_ttl_hours: float = 24,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.tool_contexts_key = tool_contexts_key
+        self.search_seen_key = search_seen_key
+        self.tool_context_chunk_ttl_hours = tool_context_chunk_ttl_hours
 
     @staticmethod
     def _rrf_merge(
@@ -59,15 +73,59 @@ class SearchStep(BaseStep):
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
         return " ".join(parts)
 
+    def _tool_context_store(self, tool_context_id: str) -> dict:
+        """Return the mutable state bucket for a tool context."""
+        if self.app_context is not None:
+            contexts = self.app_context.metadata.setdefault(self.tool_contexts_key, {})
+        else:
+            contexts = self.kwargs.setdefault(self.tool_contexts_key, {})
+        return contexts.setdefault(tool_context_id, {})
+
+    def _dedupe_tool_context(
+        self,
+        chunks: list[FileChunk],
+        tool_context_id: str,
+        limit: int,
+    ) -> tuple[list[FileChunk], dict]:
+        now = self.kwargs.get("clock", time.time)()
+        ttl = float(
+            self.kwargs.get(
+                "tool_context_chunk_ttl_seconds",
+                float(self.tool_context_chunk_ttl_hours) * 60 * 60,
+            ),
+        )
+        store = self._tool_context_store(tool_context_id)
+        seen = store.get(self.search_seen_key, {})
+        if not isinstance(seen, dict):
+            seen = dict.fromkeys(seen, now)
+        before_expire = len(seen)
+        store[self.search_seen_key] = seen = {chunk_id: ts for chunk_id, ts in seen.items() if now - float(ts) < ttl}
+
+        seen_before = len(seen)
+        unvisited = [chunk for chunk in chunks if chunk.id not in seen]
+        returned = unvisited[:limit]
+        for chunk in returned:
+            seen[chunk.id] = now
+
+        return returned, {
+            "tool_context_id": tool_context_id,
+            "seen_before": seen_before,
+            "skipped_seen": len(chunks) - len(unvisited),
+            "seen_after": len(seen),
+            "expired": before_expire - seen_before,
+            "ttl_seconds": ttl,
+        }
+
     async def execute(self):
         assert self.context is not None
         query: str = (self.context.get("query", "") or "").strip()
         limit: int = int(self.context.get("limit") or 5)
         min_score: float = float(self.context.get("min_score") or 0.0)
         vector_weight: float = float(self.kwargs.get("vector_weight", 0.7))
-        candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 3.0))
+        candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 5.0))
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
+        tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
 
         if not query:
             self.context.response.success = False
@@ -101,7 +159,12 @@ class SearchStep(BaseStep):
 
         if min_score > 0.0:
             fused = [c for c in fused if c.score >= min_score]
-        fused = fused[:limit]
+
+        dedup: dict | None = None
+        if tool_context_id:
+            fused, dedup = self._dedupe_tool_context(fused, tool_context_id, limit)
+        else:
+            fused = fused[:limit]
 
         unique_paths = list(dict.fromkeys(c.path for c in fused))
         link_expansion: dict[str, dict] = (
@@ -127,4 +190,6 @@ class SearchStep(BaseStep):
             "returned": len(fused),
             "hybrid": hybrid,
         }
+        if dedup is not None:
+            self.context.response.metadata["dedup"] = dedup
         return self.context.response
