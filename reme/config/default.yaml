@@ -620,7 +620,8 @@ components:
         base_url: ${LLM_BASE_URL:-}
       parameters:
         max_tokens: 65536
-        thinking_enable: false
+      extra_body:
+        enable_thinking: false
 
   agent_wrapper:
     default:

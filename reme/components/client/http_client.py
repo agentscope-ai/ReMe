@@ -21,7 +21,7 @@ class HttpClient(BaseClient):
         self,
         host: str | None = None,
         port: int | None = None,
-        timeout: float = 30.0,
+        timeout: float = 600.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
