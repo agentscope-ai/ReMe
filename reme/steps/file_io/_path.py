@@ -83,15 +83,16 @@ def resolve_path(
         return None, "`path` is required"
     s = str(raw).strip()
     p = Path(s)
+    workspace = workspace_path.resolve()
     if p.is_absolute():
         logger.info("absolute path detected, recommending relative paths")
-        return p.resolve(), None
-    for part in p.parts:
-        err = validate_filename_component(part, kind="path component")
-        if err:
-            return None, err
-    workspace = workspace_path.resolve()
-    target = (workspace / p).resolve()
+        target = p.resolve()
+    else:
+        for part in p.parts:
+            err = validate_filename_component(part, kind="path component")
+            if err:
+                return None, err
+        target = (workspace / p).resolve()
     if not is_relative_to(target, workspace):
         return None, "`path` must stay inside the workspace"
     return target, None

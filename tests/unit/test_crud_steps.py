@@ -20,7 +20,8 @@ bucket semantics — tests for it live in ``test_resource_steps.py``.
 Path-shape contract (enforced by ``read`` / ``write`` / ``edit``):
 ``path=`` is workspace-relative by default. A bare path with no suffix
 auto-appends ``.md``; non-``.md`` suffix is accepted in degraded mode.
-Absolute paths are accepted with a warning.
+Absolute paths are allowed when they resolve inside the workspace; paths
+outside the workspace are rejected.
 """
 
 # pylint: disable=protected-access,redefined-builtin
@@ -562,8 +563,8 @@ def test_read_line_range():
     _run(run())
 
 
-def test_read_absolute_path_accepted():
-    """Absolute paths are accepted (a log warning is emitted but the read proceeds)."""
+def test_read_absolute_path_inside_workspace_accepted():
+    """Absolute paths that resolve inside the workspace are accepted."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -573,7 +574,48 @@ def test_read_absolute_path_accepted():
             assert resp.success is True
             assert "x" in str(resp.answer)
             await store.close()
-        print("✓ test_read_absolute_path_accepted passed")
+        print("✓ test_read_absolute_path_inside_workspace_accepted passed")
+
+    _run(run())
+
+
+def test_file_io_ops_reject_outside_workspace_path():
+    """CRUD steps reject paths outside the workspace without side effects."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            outside_path = "/etc/passwd"
+            _seed_md(Path(tmp), "target.md", "body\n")
+            store = await _make_store({"target.md": "body\n"})
+
+            write_resp = await _write(store, path=outside_path, content="evil")
+            assert write_resp.success is False
+
+            edit_resp = await _edit(store, path=outside_path, old_string="root", new_string="evil")
+            assert edit_resp.success is False
+
+            read_resp = await _read(store, path=outside_path)
+            assert read_resp.success is False
+
+            stat_step = crud_stat.StatStep(file_store=store)
+            await stat_step(path=outside_path)
+            assert stat_step.context.response.success is False
+
+            list_step = crud_list.ListStep(file_store=store)
+            await list_step(path=outside_path)
+            assert list_step.context.response.success is False
+
+            delete_step = crud_delete.DeleteStep(file_store=store)
+            await delete_step(path=outside_path)
+            assert delete_step.context.response.success is False
+            assert (Path(tmp) / "target.md").exists()
+
+            move_step = crud_move.MoveStep(file_store=store)
+            await move_step(src_path=outside_path, dst_path="moved.md")
+            assert move_step.context.response.success is False
+
+            await store.close()
+        print("✓ test_file_io_ops_reject_outside_workspace_path passed")
 
     _run(run())
 
@@ -1107,7 +1149,8 @@ if __name__ == "__main__":
     test_read_relative_path()
     test_read_no_suffix_autoappends_md()
     test_read_line_range()
-    test_read_absolute_path_accepted()
+    test_read_absolute_path_inside_workspace_accepted()
+    test_file_io_ops_reject_outside_workspace_path()
     test_read_non_md_degraded()
     test_read_missing_file()
     test_read_start_after_end()
