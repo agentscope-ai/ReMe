@@ -16,15 +16,22 @@ from reme.steps.base_step import BaseStep
 # -- helpers ------------------------------------------------------------------
 
 _CALL_LOG: list[tuple[str, int]] = []
+_INSTANCE_COUNTER: int = 0
 
 
 class _TrackingStep(BaseStep):
-    """Step that logs its id(self) on every execute to detect reuse vs. re-creation."""
+    """Step that logs a unique instance counter on every execute to detect reuse vs. re-creation."""
 
     component_type = ComponentEnum.STEP
 
+    def __init__(self, **kwargs):
+        global _INSTANCE_COUNTER
+        super().__init__(**kwargs)
+        _INSTANCE_COUNTER += 1
+        self._instance_uid = _INSTANCE_COUNTER
+
     async def execute(self):
-        _CALL_LOG.append((self.name, id(self)))
+        _CALL_LOG.append((self.name, self._instance_uid))
 
 
 def _make_job(step_configs: list[dict], registry: ComponentRegistry) -> BaseJob:
@@ -52,9 +59,12 @@ def _make_job(step_configs: list[dict], registry: ComponentRegistry) -> BaseJob:
 
 @pytest.fixture(autouse=True)
 def reset_call_log():
+    global _INSTANCE_COUNTER
     _CALL_LOG.clear()
+    _INSTANCE_COUNTER = 0
     yield
     _CALL_LOG.clear()
+    _INSTANCE_COUNTER = 0
 
 
 @pytest.fixture
