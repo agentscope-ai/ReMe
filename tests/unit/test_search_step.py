@@ -3,10 +3,11 @@
 import asyncio
 
 from reme.components.file_store import BaseFileStore
+from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode
-from reme.steps.index import SearchStep
+from reme.steps.index import AddDraftStep, ReadAllDraftStep, SearchStep
 
 
 class FakeSearchStore(BaseFileStore):
@@ -105,6 +106,26 @@ def test_search_step_rrf_merges_vector_and_keyword_by_chunk_id():
         assert {call[0] for call in store.calls} == {"vector", "keyword"}
         assert all(call[2] == 6 for call in store.calls)
         assert all(call[3] == {"path_prefix": "daily/"} for call in store.calls)
+
+    asyncio.run(run())
+
+
+def test_draft_steps_accumulate_by_tool_context_id():
+    """Drafts are stored in app metadata and isolated by injected tool_context_id."""
+
+    async def run():
+        app_context = ApplicationContext()
+        add = AddDraftStep(app_context=app_context)
+        read = ReadAllDraftStep(app_context=app_context)
+
+        await add(RuntimeContext(text="first", tool_context_id="ctx-1"))
+        await add(RuntimeContext(text="second", tool_context_id="ctx-1"))
+        await add(RuntimeContext(text="other", tool_context_id="ctx-2"))
+
+        resp = await read(RuntimeContext(tool_context_id="ctx-1"))
+
+        assert resp.answer == "first\nsecond"
+        assert resp.metadata["draft_count"] == 2
 
     asyncio.run(run())
 

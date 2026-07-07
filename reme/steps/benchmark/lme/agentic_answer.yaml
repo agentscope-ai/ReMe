@@ -1,0 +1,15 @@
+user_message: |
+  Please answer the user's question using the available history-search tools.
+
+  Question Date: {question_date}
+  Question: {question}
+
+  Instructions:
+  - Use vector_search first because semantic search is preferred.
+  - If vector_search does not find enough evidence, keep trying bm25_search with new keywords, aliases, dates, names, entities, and short phrases from the question or earlier search results.
+  - Do not give up easily. Search until the tools stop returning new useful information.
+  - Search results are deduplicated by the tools, so a search that returns no new information means those matching chunks have already been seen or no longer match.
+  - If a retrieved result is useful but not enough to answer fully, call add_draft to save the evidence or partial reasoning.
+  - When you believe the answer can be fully supported, call read_all_draft before producing the final answer so you can review saved evidence.
+  - Answer only from the retrieved history. If the answer is not provided in history after exhaustive search, reply exactly: not provided in history
+  - Keep the final answer concise.

@@ -1,9 +1,9 @@
 service:
   backend: cli
 
-workspace_dir: /Users/yuli/workspace/ReMe/datasets/longmemeval/0
-session_dir: session
-resource_dir: ""
+workspace_dir: /Users/yuli/workspace/ReMe/datasets/longmemeval/1
+session_dir: history_session
+resource_dir: session
 daily_dir: ""
 digest_dir: ""
 tool_results_dir: tool_results
@@ -11,9 +11,10 @@ tool_results_dir: tool_results
 jobs:
   update_index:
     backend: base
-    watch_dirs: [session_dir]
+    watch_dirs: [resource_dir]
     watch_suffixes: [md, json, jsonl]
     steps:
+      - backend: clear_store_step
       - backend: init_changes_step
         monitor_type: file_store
         monitor_name: default
@@ -28,6 +29,35 @@ jobs:
     steps:
       - backend: version_step
 
+  agentic_answer:
+    backend: base
+    description: "Answer the LongMemEval query by agentic search over indexed history."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: agentic_answer_step
+        agent_wrapper: agentic_search_agentwrapper
+
+  agentic_answer_and_judge:
+    backend: base
+    description: "Answer the LongMemEval query, judge it against the golden answer, and save result JSON."
+    parameters:
+      type: object
+      properties:
+        answer_id:
+          type: string
+          description: "shared run id used as result/{answer_id}.json for every LongMemEval index"
+      required:
+        - answer_id
+    steps:
+      - backend: agentic_answer_step
+        agent_wrapper: agentic_search_agentwrapper
+      - backend: lme_prepare_judge_step
+      - backend: answer_judge_step
+        agent_wrapper: default
+      - backend: lme_save_result_step
+
   vector_search:
     backend: base
     description: "Vector workspace search."
@@ -40,7 +70,7 @@ jobs:
         limit:
           type: integer
           description: "max results"
-          default: 5
+          default: 1
       required:
         - query
     steps:
@@ -58,11 +88,34 @@ jobs:
         limit:
           type: integer
           description: "max results"
-          default: 5
+          default: 1
       required:
         - query
     steps:
       - backend: bm25_search_step
+
+  add_draft:
+    backend: base
+    description: "Append text to the current draft list."
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "draft text to append"
+      required:
+        - text
+    steps:
+      - backend: add_draft_step
+
+  read_all_draft:
+    backend: base
+    description: "Read all draft text previously appended in the current tool context."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: read_all_draft_step
 
 components:
   tokenizer:
@@ -87,7 +140,7 @@ components:
   as_llm:
     default:
       backend: ${LLM_BACKEND:-openai}
-      model: ${LLM_MODEL_NAME:-glm-5.2}
+      model: ${LLM_MODEL_NAME:-glm-5.1}
       stream: true
       context_size: 200000
       max_retries: 3
@@ -105,11 +158,36 @@ components:
       react_config:
         max_iters: 30
       context_config:
-        trigger_ratio: 0.8
+        trigger_ratio: 0.89
         reserve_ratio: 0.1
         tool_result_limit: 50000
       model_config:
         max_retries: 1
+
+    agentic_search_agentwrapper:
+      backend: agentscope
+      as_llm: default
+      cwd: session
+      permission_mode: bypass
+      builtin_tools: false
+      job_tools:
+        - vector_search
+        - bm25_search
+        - add_draft
+        - read_all_draft
+      tool_result_offload_skip_tools:
+        - add_draft
+        - read_all_draft
+      sequential_tool_calls: true
+      react_config:
+        max_iters: 100
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
     claude_code:
       backend: claude_code
       model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.2}

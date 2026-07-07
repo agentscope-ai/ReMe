@@ -90,8 +90,15 @@ def _tool_result_text(tool_result: ToolResultBlock) -> str:
 class ToolResultOffloadMiddleware(MiddlewareBase):
     """Offload historical tool results after each reasoning pass."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        skip_tool_names: list[str] | tuple[str, ...] | set[str] | str | None = None,
+    ) -> None:
         self.root = root
+        if isinstance(skip_tool_names, str):
+            skip_tool_names = [skip_tool_names]
+        self.skip_tool_names = set(skip_tool_names or [])
 
     async def on_reasoning(
         self,
@@ -122,6 +129,8 @@ class ToolResultOffloadMiddleware(MiddlewareBase):
         rel_session_dir: Path,
         tool_result: ToolResultBlock,
     ) -> None:
+        if tool_result.name in self.skip_tool_names:
+            return
         if self._is_already_offloaded(tool_result):
             return
 
@@ -397,7 +406,12 @@ class AsAgentWrapper(BaseAgentWrapper):
         else:
             middlewares = list(configured_middlewares)
         if bool(kwargs.get("offload_tool_results_after_reasoning", True)):
-            middlewares.append(ToolResultOffloadMiddleware(self.tool_results_path))
+            skip_tool_names = kwargs.get("tool_result_offload_skip_tools")
+            if skip_tool_names is None:
+                skip_tool_names = kwargs.get("tool_result_offload_whitelist", [])
+            middlewares.append(
+                ToolResultOffloadMiddleware(self.tool_results_path, skip_tool_names=skip_tool_names),
+            )
 
         agent = Agent(
             name=self.name,
