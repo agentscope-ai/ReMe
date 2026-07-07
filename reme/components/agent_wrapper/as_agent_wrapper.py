@@ -4,6 +4,7 @@ import json
 import re
 import time
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
@@ -33,7 +34,8 @@ from agentscope.event import (
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
 )
-from agentscope.message import TextBlock, ToolResultState, UserMsg
+from agentscope.message import TextBlock, ToolResultBlock, ToolResultState, UserMsg
+from agentscope.middleware import MiddlewareBase
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import (
@@ -42,6 +44,7 @@ from agentscope.tool import (
     FunctionTool,
     Glob,
     Grep,
+    LocalBackend,
     Read,
     ToolBase,
     ToolChunk,
@@ -64,6 +67,117 @@ _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
+_SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+_TOOL_RESULT_OFFLOAD_KEY = "reme_tool_result_offload"
+_TOOL_RESULT_OFFLOAD_MARKERS = (
+    "has been offloaded to",
+    "remaining content has been omitted for limited context",
+)
+
+
+def _safe_file_part(value: str) -> str:
+    """Return a filesystem-safe single path part."""
+    return _SAFE_FILE_RE.sub("_", value).strip("._") or uuid4().hex
+
+
+def _tool_result_text(tool_result: ToolResultBlock) -> str:
+    """Extract textual content from a tool result for marker detection."""
+    if isinstance(tool_result.output, str):
+        return tool_result.output
+    return "\n".join(block.text for block in tool_result.output if isinstance(block, TextBlock))
+
+
+class ToolResultOffloadMiddleware(MiddlewareBase):
+    """Offload historical tool results after each reasoning pass."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    async def on_reasoning(
+        self,
+        agent: Agent,
+        input_kwargs: dict,
+        next_handler: Any,
+    ) -> AsyncGenerator:
+        async for event in next_handler(**input_kwargs):
+            yield event
+        await self.offload_state_tool_results(agent.state)
+
+    async def offload_state_tool_results(self, state: AgentState) -> None:
+        """Persist unmarked tool results and replace their output with a reference."""
+        if not state.session_id:
+            return
+
+        safe_session_id = _safe_file_part(state.session_id)
+        session_dir = self.root / safe_session_id
+        rel_session_dir = Path(self.root.name) / safe_session_id
+        for msg in state.context:
+            for block in msg.get_content_blocks("tool_result"):
+                if isinstance(block, ToolResultBlock):
+                    await self._offload_tool_result(session_dir, rel_session_dir, block)
+
+    async def _offload_tool_result(
+        self,
+        session_dir: Path,
+        rel_session_dir: Path,
+        tool_result: ToolResultBlock,
+    ) -> None:
+        if self._is_already_offloaded(tool_result):
+            return
+
+        session_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{_safe_file_part(tool_result.id)}.json"
+        path = session_dir / filename
+        rel_path = rel_session_dir / filename
+
+        payload = tool_result.model_dump_json(indent=2)
+        tmp_path = session_dir / f".{filename}.{uuid4().hex}.tmp"
+        tmp_path.write_text(payload + "\n", encoding="utf-8")
+        tmp_path.replace(path)
+
+        metadata = dict(tool_result.metadata or {})
+        metadata[_TOOL_RESULT_OFFLOAD_KEY] = {
+            "path": rel_path.as_posix(),
+            "offloaded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        tool_result.metadata = metadata
+        tool_result.output = [
+            TextBlock(
+                text=(
+                    "<system-reminder>"
+                    f"Tool result '{tool_result.name}' has been offloaded to "
+                    f"'{rel_path.as_posix()}'. Use that file if the full result "
+                    "is needed."
+                    "</system-reminder>"
+                ),
+            ),
+        ]
+
+    @staticmethod
+    def _is_already_offloaded(tool_result: ToolResultBlock) -> bool:
+        """Return whether a tool result is already an offload reference."""
+        if tool_result.metadata.get(_TOOL_RESULT_OFFLOAD_KEY):
+            return True
+
+        text = _tool_result_text(tool_result)
+        return any(marker in text for marker in _TOOL_RESULT_OFFLOAD_MARKERS)
+
+
+class WorkspaceBackend(LocalBackend):
+    """LocalBackend whose default cwd is the configured workspace.
+
+    AgentScope's file tools (Read/Write/Edit/Glob/Grep) resolve relative
+    paths against ``backend.getcwd()``, which normally returns the host
+    process cwd. Pinning it here keeps every builtin tool rooted at the
+    same directory the Bash tool uses.
+    """
+
+    def __init__(self, cwd: str) -> None:
+        super().__init__()
+        self._workspace_cwd = cwd
+
+    async def getcwd(self) -> str:
+        return self._workspace_cwd
 
 
 class BypassAnalysisBash(Bash):
@@ -106,15 +220,51 @@ class AsAgentWrapper(BaseAgentWrapper):
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
 
-        tool = FunctionTool(func=run_job, name=job.name, description=job.description)
+        tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
         if job.parameters:
             tool.input_schema = job.parameters
         return tool
 
-    @classmethod
-    def _builtin_tools(cls) -> list[ToolBase]:
-        """Return built-in tools expected by local skills."""
-        return [BypassAnalysisBash(), Edit(), Glob(), Grep(), Read(), Write()]
+    def _builtin_tools(
+        self,
+        names: list[str] | str | bool | None = "all",
+        *,
+        sequential_tool_calls: bool = False,
+    ) -> list[ToolBase]:
+        """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
+        cwd = str(self.cwd)
+        backend = WorkspaceBackend(cwd)
+        factories = {
+            "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
+            "edit": lambda: Edit(backend=backend),
+            "glob": lambda: Glob(backend=backend),
+            "grep": lambda: Grep(backend=backend),
+            "read": lambda: Read(backend=backend),
+            "write": lambda: Write(backend=backend),
+        }
+        if names is False:
+            selected_names = []
+        elif names is True or names is None or names == "all":
+            selected_names = list(factories)
+        elif names in ("none", "no", "false"):
+            selected_names = []
+        elif isinstance(names, str):
+            selected_names = [names]
+        else:
+            selected_names = names
+
+        tools: list[ToolBase] = []
+        for name in selected_names:
+            key = name.lower()
+            if key not in factories:
+                allowed = ", ".join(factories)
+                raise ValueError(f"Unknown builtin tool {name!r}; expected one of: {allowed}")
+            tools.append(factories[key]())
+
+        if sequential_tool_calls:
+            for tool in tools:
+                tool.is_concurrency_safe = False
+        return tools
 
     @property
     def session_path(self) -> Path:
@@ -122,6 +272,13 @@ class AsAgentWrapper(BaseAgentWrapper):
         if self.app_context is None:
             return self.workspace_path / "mem_session" / "agentscope"
         return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
+
+    @property
+    def tool_results_path(self) -> Path:
+        """Directory used for offloaded AgentScope tool results."""
+        if self.app_context is None:
+            return self.workspace_path / "tool_results"
+        return self.workspace_path / self.app_context.app_config.tool_results_dir
 
     @staticmethod
     def _validate_session_id(session_id: str, field: str = "session_id") -> str:
@@ -220,19 +377,34 @@ class AsAgentWrapper(BaseAgentWrapper):
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         tool_context_id = kwargs.get("tool_context_id")
+        sequential_tool_calls = bool(kwargs.get("sequential_tool_calls", True))
+        builtin_tools = kwargs.get("builtin_tools", "all")
+        if "builtin_tools" not in kwargs and not bool(kwargs.get("use_builtin_tools", True)):
+            builtin_tools = []
+        tools: list[ToolBase] = []
+        tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
+        tools.extend(self._make_tool(job, tool_context_id) for job in resolved_jobs)
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[*self._builtin_tools(), *(self._make_tool(job, tool_context_id) for job in resolved_jobs)],
+            tools=tools,
             skills_or_loaders=skills,
         )
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
+        configured_middlewares = kwargs.get("middlewares") or []
+        if isinstance(configured_middlewares, MiddlewareBase):
+            middlewares = [configured_middlewares]
+        else:
+            middlewares = list(configured_middlewares)
+        if bool(kwargs.get("offload_tool_results_after_reasoning", True)):
+            middlewares.append(ToolResultOffloadMiddleware(self.tool_results_path))
 
         agent = Agent(
             name=self.name,
             system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
+            middlewares=middlewares,
             state=state,
             model_config=ModelConfig(**(kwargs.get("model_config") or {})),
             context_config=ContextConfig(**(kwargs.get("context_config") or {})),

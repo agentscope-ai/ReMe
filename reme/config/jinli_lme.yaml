@@ -6,6 +6,7 @@ session_dir: session
 resource_dir: ""
 daily_dir: ""
 digest_dir: ""
+tool_results_dir: tool_results
 
 jobs:
   update_index:

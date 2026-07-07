@@ -277,7 +277,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             )
         opts.env.update(extra_env_dict)
         self.session_path.mkdir(parents=True, exist_ok=True)
-        opts.cwd = opts.cwd or self.project_path
+        opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
         if opts.skills is not None:

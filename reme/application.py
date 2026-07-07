@@ -54,6 +54,7 @@ class Application(BaseComponent):
             cfg.session_dir,
             cfg.mem_session_dir,
             cfg.resource_dir,
+            cfg.tool_results_dir,
             cfg.daily_dir,
             cfg.digest_dir,
         ]:
