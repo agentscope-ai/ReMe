@@ -76,6 +76,38 @@ jobs:
     steps:
       - backend: vector_search_step
 
+  search:
+    backend: base
+    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results"
+          default: 5
+        min_score:
+          type: number
+          description: "min fused score"
+          default: 0.0
+        start_date:
+          type: string
+          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        end_date:
+          type: string
+          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+      required:
+        - query
+    steps:
+      - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
+        expand_links: true
+        max_links_per_direction: 10
+
   bm25_search:
     backend: base
     description: "BM25 keyword workspace search."
@@ -162,7 +194,7 @@ components:
         reserve_ratio: 0.1
         tool_result_limit: 50000
       model_config:
-        max_retries: 1
+        max_retries: 3
 
     agentic_search_agentwrapper:
       backend: agentscope
@@ -171,8 +203,7 @@ components:
       permission_mode: bypass
       builtin_tools: false
       job_tools:
-        - vector_search
-        - bm25_search
+        - search
         - add_draft
         - read_all_draft
       tool_result_offload_skip_tools:
