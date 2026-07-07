@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -83,6 +84,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reme-bin", default="reme", help="reme executable")
     parser.add_argument("--start-index", type=int, default=0, help="first dataset index, inclusive")
     parser.add_argument("--end-index", type=int, default=499, help="last dataset index, inclusive")
+    parser.add_argument(
+        "--shuffle",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="shuffle dataset indices before submitting jobs; use --no-shuffle to keep numeric order",
+    )
+    parser.add_argument("--seed", type=int, default=None, help="random seed used with --shuffle")
     parser.add_argument("--workers", type=int, default=4, help="number of indices to run concurrently")
     parser.add_argument("--update-timeout", type=int, default=600, help="seconds for each update_index job")
     parser.add_argument("--answer-timeout", type=int, default=3600, help="seconds for each answer-and-judge job")
@@ -92,6 +100,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     indices = list(range(args.start_index, args.end_index + 1))
+    if args.shuffle:
+        rng = random.Random(args.seed)
+        rng.shuffle(indices)
+        seed_text = "none" if args.seed is None else str(args.seed)
+        print(f"shuffled {len(indices)} indices with seed={seed_text}", flush=True)
     failures: list[IndexResult] = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:

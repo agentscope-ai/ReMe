@@ -140,7 +140,7 @@ components:
   as_llm:
     default:
       backend: ${LLM_BACKEND:-openai}
-      model: ${LLM_MODEL_NAME:-glm-5.1}
+      model: ${LLM_MODEL_NAME:-qwen3.7-max}
       stream: true
       context_size: 200000
       max_retries: 3
