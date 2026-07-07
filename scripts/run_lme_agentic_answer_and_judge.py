@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
         default=True,
         help="shuffle dataset indices before submitting jobs; use --no-shuffle to keep numeric order",
     )
-    parser.add_argument("--seed", type=int, default=None, help="random seed used with --shuffle")
+    parser.add_argument("--seed", type=int, default=42, help="random seed used with --shuffle")
     parser.add_argument("--workers", type=int, default=4, help="number of indices to run concurrently")
     parser.add_argument("--update-timeout", type=int, default=600, help="seconds for each update_index job")
     parser.add_argument("--answer-timeout", type=int, default=3600, help="seconds for each answer-and-judge job")
