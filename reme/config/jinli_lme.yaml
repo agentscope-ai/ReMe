@@ -1,49 +1,22 @@
 service:
   backend: cli
 
+workspace_dir: /Users/yuli/workspace/ReMe/datasets/longmemeval/0
+session_dir: session
+resource_dir: ""
+daily_dir: ""
+digest_dir: ""
+
 jobs:
   update_index:
     backend: base
-    watch_dirs: [daily_dir, digest_dir, resource_dir]
-#    watch_dirs: [daily_dir, digest_dir]
+    watch_dirs: [session_dir]
     watch_suffixes: [md, json, jsonl]
-#    watch_suffixes: [md]
     steps:
       - backend: init_changes_step
         monitor_type: file_store
         monitor_name: default
         dispatch_steps: [update_index_step]
-      - backend: watch_changes_step
-        dispatch_steps:
-          - backend: update_index_step
-            persist: False
-
-  auto_memory:
-    backend: base
-    description: "Auto-memory: record conversation facts into a daily note"
-    parameters:
-      type: object
-      properties:
-        messages:
-          type: array
-          description: "messages"
-          items:
-            type: object
-        session_id:
-          type: string
-          description: "source conversation session identifier"
-          default: ""
-        memory_hint:
-          type: string
-          description: "optional hint"
-        date:
-          type: string
-          description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
-          default: ""
-      required:
-        - messages
-    steps:
-      - backend: auto_memory_step
 
   version:
     backend: base
@@ -54,9 +27,9 @@ jobs:
     steps:
       - backend: version_step
 
-  search:
+  vector_search:
     backend: base
-    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    description: "Vector workspace search."
     parameters:
       type: object
       properties:
@@ -67,24 +40,28 @@ jobs:
           type: integer
           description: "max results"
           default: 5
-        min_score:
-          type: number
-          description: "min fused score"
-          default: 0.0
-        start_date:
-          type: string
-          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
-        end_date:
-          type: string
-          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
       required:
         - query
     steps:
-      - backend: search_step
-        vector_weight: 0.7
-        candidate_multiplier: 5.0
-        expand_links: true
-        max_links_per_direction: 10
+      - backend: vector_search_step
+
+  bm25_search:
+    backend: base
+    description: "BM25 keyword workspace search."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results"
+          default: 5
+      required:
+        - query
+    steps:
+      - backend: bm25_search_step
 
 components:
   tokenizer:
@@ -109,7 +86,7 @@ components:
   as_llm:
     default:
       backend: ${LLM_BACKEND:-openai}
-      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
+      model: ${LLM_MODEL_NAME:-glm-5.2}
       stream: true
       context_size: 200000
       max_retries: 3
@@ -134,23 +111,13 @@ components:
         max_retries: 1
     claude_code:
       backend: claude_code
-      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.1}
+      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.2}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
 
   file_graph:
     default:
-      backend: local
-
-  file_catalog:
-    default:
-      backend: local
-    resource:
-      backend: local
-    digest:
-      backend: local
-    dream:
       backend: local
 
   file_chunker:
@@ -171,7 +138,7 @@ components:
     default:
       backend: local
       store_name: local
-      #  embedding_store: default
-      embedding_store: ""
+      embedding_store: default
+#      embedding_store: ""
       keyword_index: default
       file_graph: default
