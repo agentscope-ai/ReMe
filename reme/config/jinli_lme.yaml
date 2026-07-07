@@ -1,0 +1,177 @@
+service:
+  backend: http
+
+jobs:
+  update_index:
+    backend: base
+    watch_dirs: [daily_dir, digest_dir, resource_dir]
+#    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md, jsonl]
+#    watch_suffixes: [md]
+    steps:
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+      - backend: watch_changes_step
+        dispatch_steps:
+          - backend: update_index_step
+            persist: False
+
+  auto_memory:
+    backend: base
+    description: "Auto-memory: record conversation facts into a daily note"
+    parameters:
+      type: object
+      properties:
+        messages:
+          type: array
+          description: "messages"
+          items:
+            type: object
+        session_id:
+          type: string
+          description: "source conversation session identifier"
+          default: ""
+        memory_hint:
+          type: string
+          description: "optional hint"
+        date:
+          type: string
+          description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
+          default: ""
+      required:
+        - messages
+    steps:
+      - backend: auto_memory_step
+
+  version:
+    backend: base
+    description: "return reme package version"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: version_step
+
+  search:
+    backend: base
+    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        limit:
+          type: integer
+          description: "max results"
+          default: 5
+        min_score:
+          type: number
+          description: "min fused score"
+          default: 0.0
+        start_date:
+          type: string
+          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        end_date:
+          type: string
+          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+      required:
+        - query
+    steps:
+      - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
+        expand_links: true
+        max_links_per_direction: 10
+
+components:
+  tokenizer:
+    default:
+      backend: regex
+
+  as_embedding:
+    default:
+      backend: ${EMBEDDING_BACKEND:-openai}
+      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      credential:
+        api_key: ${EMBEDDING_API_KEY:-}
+        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters:
+        dimensions: 1024
+
+  embedding_store:
+    default:
+      backend: local
+      as_embedding: default
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
+      stream: true
+      context_size: 200000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
+        thinking_enable: false
+
+  agent_wrapper:
+    default:
+      backend: agentscope
+      as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+    claude_code:
+      backend: claude_code
+      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.1}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+
+  file_graph:
+    default:
+      backend: local
+
+  file_catalog:
+    default:
+      backend: local
+    resource:
+      backend: local
+    digest:
+      backend: local
+    dream:
+      backend: local
+
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions: [ "md" ]
+    default:
+      backend: default
+      supported_extensions: [ "jsonl" ]
+
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  file_store:
+    default:
+      backend: local
+      store_name: local
+      #  embedding_store: default
+      embedding_store: ""
+      keyword_index: default
+      file_graph: default

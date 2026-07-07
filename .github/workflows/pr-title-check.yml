@@ -1,0 +1,36 @@
+name: PR Title Check
+
+on:
+  pull_request:
+    branches: [main, master, dev, develop]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title format
+        uses: amannn/action-semantic-pull-request@v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            ci
+            refactor
+            test
+            chore
+            perf
+            style
+            build
+            revert
+          requireScope: false
+          scopePattern: ^[a-z0-9_-]+$
+          scopePatternError: |
+            The scope must contain only lowercase letters, numbers, hyphens, and underscores.
+            Example: "feat(memory): add redis cache support"
+          validateSingleCommit: false
+          ignoreLabels: |
+            ignore-semantic-pull-request

@@ -33,11 +33,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -e ".[dev,core]"
+          pip install coverage
 
       - name: Run unit tests
         run: |
-          pytest tests/unit \
+          coverage run -m pytest tests/unit \
             -v \
             --tb=long \
             -s \
             --log-cli-level=WARNING
+
+      - name: Generate coverage report
+        run: coverage report -m
