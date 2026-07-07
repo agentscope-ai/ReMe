@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_ROOT = REPO_ROOT / "datasets" / "longmemeval"
+SEARCH_LIMIT_ENV = "REME_SEARCH_LIMIT"
 
 
 @dataclass
@@ -25,11 +27,12 @@ class IndexResult:
     message: str
 
 
-def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+def _run(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             cmd,
             cwd=REPO_ROOT,
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -40,6 +43,14 @@ def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 124, exc.stdout or "", exc.stderr or f"timeout after {timeout}s")
     except OSError as exc:
         return subprocess.CompletedProcess(cmd, 127, "", str(exc))
+
+
+def _answer_env(args: argparse.Namespace) -> dict[str, str] | None:
+    if args.search_limit is None:
+        return None
+    env = os.environ.copy()
+    env[SEARCH_LIMIT_ENV] = str(args.search_limit)
+    return env
 
 
 def run_index(index: int, args: argparse.Namespace) -> IndexResult:
@@ -68,7 +79,7 @@ def run_index(index: int, args: argparse.Namespace) -> IndexResult:
         workspace_arg,
         f"answer_id={args.answer_id}",
     ]
-    answer = _run(answer_cmd, args.answer_timeout)
+    answer = _run(answer_cmd, args.answer_timeout, env=_answer_env(args))
     if answer.returncode != 0:
         message = (answer.stderr or answer.stdout).strip()
         return IndexResult(index, False, update.returncode, answer.returncode, message[-2000:])
@@ -94,7 +105,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=4, help="number of indices to run concurrently")
     parser.add_argument("--update-timeout", type=int, default=600, help="seconds for each update_index job")
     parser.add_argument("--answer-timeout", type=int, default=3600, help="seconds for each answer-and-judge job")
-    return parser.parse_args()
+    parser.add_argument(
+        "--search-limit",
+        type=int,
+        help=(
+            f"set {SEARCH_LIMIT_ENV} for answer jobs, overriding search.py's default limit; "
+            "omit to use the code default"
+        ),
+    )
+    args = parser.parse_args()
+    if args.search_limit is not None and args.search_limit <= 0:
+        parser.error("--search-limit must be positive")
+    return args
 
 
 def main() -> int:

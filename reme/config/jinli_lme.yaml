@@ -85,14 +85,6 @@ jobs:
         query:
           type: string
           description: "search query"
-        limit:
-          type: integer
-          description: "max results"
-          default: 5
-        min_score:
-          type: number
-          description: "min fused score"
-          default: 0.0
         start_date:
           type: string
           description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
@@ -174,7 +166,7 @@ components:
       backend: ${LLM_BACKEND:-openai}
       model: ${LLM_MODEL_NAME:-qwen3.7-max}
       stream: true
-      context_size: 200000
+      context_size: 1000000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}

@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import os
 from typing import Final
 
 from ..base_step import BaseStep
@@ -12,6 +13,18 @@ from ...utils import expand_links, render_expansion_lines
 
 _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
+_DEFAULT_LIMIT_ENV: Final = "REME_SEARCH_LIMIT"
+_DEFAULT_LIMIT: Final = 5
+
+
+def _default_limit() -> int:
+    value = os.getenv(_DEFAULT_LIMIT_ENV)
+    if value is None:
+        return _DEFAULT_LIMIT
+    try:
+        return int(value)
+    except ValueError:
+        return _DEFAULT_LIMIT
 
 
 @R.register("search_step")
@@ -124,7 +137,7 @@ class SearchStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         query: str = (self.context.get("query", "") or "").strip()
-        limit: int = int(self.context.get("limit") or 5)
+        limit: int = int(self.context.get("limit") or _default_limit())
         min_score: float = float(self.context.get("min_score") or 0.0)
         vector_weight: float = float(self.kwargs.get("vector_weight", 0.7))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 5.0))
