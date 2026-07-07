@@ -33,6 +33,10 @@ jobs:
         pip install setuptools wheel build
     - name: Build package
       run: python -m build
+    - name: Test installation
+      run: |
+        pip install dist/*.whl
+        python -c "import reme; print(reme.__version__)"
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:

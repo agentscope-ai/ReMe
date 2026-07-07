@@ -14,10 +14,10 @@ repos:
     hooks:
       - id: add-trailing-comma
   - repo: https://github.com/psf/black
-    rev: 25.9.0
+    rev: 26.5.1
     hooks:
     - id: black
-      args: [--line-length=120]
+      args: [--line-length=120, --target-version=py311]
   - repo: https://github.com/PyCQA/flake8
     rev: 7.3.0
     hooks:
@@ -27,7 +27,7 @@ repos:
           "--max-line-length=120"
         ]
   - repo: https://github.com/pylint-dev/pylint
-    rev: v4.0.2
+    rev: v4.0.6
     hooks:
       - id: pylint
         exclude:
@@ -76,7 +76,7 @@ repos:
           --max-module-lines=1500,
         ]
   - repo: https://github.com/regebro/pyroma
-    rev: "5.0"
+    rev: "5.0.1"
     hooks:
       - id: pyroma
         args: [--min=10, .]

@@ -9,7 +9,7 @@ from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
 from .utils import cli_find_reme, load_env, precheck_start, running_service_config
 
-_CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args"}
+_CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "show_metadata"}
 
 
 class ReMe(Application):

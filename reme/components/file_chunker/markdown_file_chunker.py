@@ -31,7 +31,6 @@ from ...schema import (
 )
 from ...utils.wikilink_handler import WikilinkHandler
 
-
 # -- AST node + helpers ---------------------------------------------------
 
 

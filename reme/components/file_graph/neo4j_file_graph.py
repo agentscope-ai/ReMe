@@ -42,7 +42,6 @@ from ...enumeration import LinkScopeEnum
 from ...schema import FileLink, FileNode
 from ...schema.file_node import FileFrontMatter
 
-
 _TYPED_FRONTMATTER_FIELDS = {"name", "description"}
 _LINK_FIELDS = {"source_path", "target_path", "target_anchor", "predicate"}
 

@@ -25,6 +25,7 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
             yield "ok"
 
     monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
 
     async def run():
         await reme_module.call_server(
@@ -43,4 +44,41 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
     assert seen["client_kwargs"] == {"host": "127.0.0.2", "port": 2444, "timeout": 1.5}
     assert seen["action"] == "search"
     assert seen["payload"] == {"query": "hello"}
+    assert capsys.readouterr().out == "ok\n"
+
+
+def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
+    """show_metadata controls client display and is not sent as a tool argument."""
+    seen = {}
+
+    class FakeClient:
+        """Async client stub that records call arguments."""
+
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def __call__(self, action: str, **kwargs):
+            seen["action"] = action
+            seen["payload"] = kwargs
+            yield "ok"
+
+    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
+
+    async def run():
+        await reme_module.call_server("version", backend="http", show_metadata=True)
+
+    import asyncio
+
+    asyncio.run(run())
+
+    assert seen["client_kwargs"] == {"show_metadata": True}
+    assert seen["action"] == "version"
+    assert seen["payload"] == {}
     assert capsys.readouterr().out == "ok\n"

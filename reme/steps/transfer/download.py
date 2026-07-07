@@ -24,7 +24,6 @@ from ..base_step import BaseStep
 
 from ...components import R
 
-
 _TEMP_ROOT: Path | None = None
 
 

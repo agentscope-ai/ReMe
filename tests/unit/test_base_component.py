@@ -11,7 +11,6 @@ import pytest
 from reme.components.base_component import BaseComponent, ComponentMixin, Dependency
 from reme.enumeration import ComponentEnum
 
-
 # -- Test subclasses ----------------------------------------------------------
 
 
