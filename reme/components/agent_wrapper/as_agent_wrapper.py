@@ -94,11 +94,18 @@ class ToolResultOffloadMiddleware(MiddlewareBase):
         self,
         root: Path,
         skip_tool_names: list[str] | tuple[str, ...] | set[str] | str | None = None,
+        reminder_template: str | None = None,
     ) -> None:
         self.root = root
         if isinstance(skip_tool_names, str):
             skip_tool_names = [skip_tool_names]
         self.skip_tool_names = set(skip_tool_names or [])
+        self.reminder_template = reminder_template or (
+            "<system-reminder>"
+            "Tool result '{tool_name}' has been offloaded to '{path}'. "
+            "Use that file if the full result is needed."
+            "</system-reminder>"
+        )
 
     async def on_reasoning(
         self,
@@ -150,15 +157,14 @@ class ToolResultOffloadMiddleware(MiddlewareBase):
             "offloaded_at": datetime.now(timezone.utc).isoformat(),
         }
         tool_result.metadata = metadata
+        reminder = self.reminder_template.format(
+            tool_name=tool_result.name,
+            path=rel_path.as_posix(),
+            full_path=path.as_posix(),
+        )
         tool_result.output = [
             TextBlock(
-                text=(
-                    "<system-reminder>"
-                    f"Tool result '{tool_result.name}' has been offloaded to "
-                    f"'{rel_path.as_posix()}'. Use that file if the full result "
-                    "is needed."
-                    "</system-reminder>"
-                ),
+                text=reminder,
             ),
         ]
 
@@ -410,7 +416,11 @@ class AsAgentWrapper(BaseAgentWrapper):
             if skip_tool_names is None:
                 skip_tool_names = kwargs.get("tool_result_offload_whitelist", [])
             middlewares.append(
-                ToolResultOffloadMiddleware(self.tool_results_path, skip_tool_names=skip_tool_names),
+                ToolResultOffloadMiddleware(
+                    self.tool_results_path,
+                    skip_tool_names=skip_tool_names,
+                    reminder_template=kwargs.get("tool_result_offload_message"),
+                ),
             )
 
         agent = Agent(

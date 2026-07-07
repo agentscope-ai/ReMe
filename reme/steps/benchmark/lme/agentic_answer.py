@@ -42,7 +42,18 @@ class AgenticAnswerStep(BaseStep):
             question=question,
             question_date=question_date,
         )
-        result = await self.agent_wrapper.reply(user_prompt, tool_context_id=tool_context_id)
+        result = await self.agent_wrapper.reply(
+            user_prompt,
+            tool_context_id=tool_context_id,
+            tool_result_offload_message=(
+                "<system-reminder>"
+                "The tool result is too long. Its core content has been saved "
+                "to the draft. If you need to read the core content from "
+                "historical tool calls, use read_all_draft to read all saved "
+                "memory results."
+                "</system-reminder>"
+            ),
+        )
         answer = (result.get("result") or "").strip()
 
         self.logger.info(f"[{self.name}] agentic search answer: {answer}")

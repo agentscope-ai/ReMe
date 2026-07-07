@@ -9,7 +9,23 @@ user_message: |
   - If vector_search does not find enough evidence, keep trying bm25_search with new keywords, aliases, dates, names, entities, and short phrases from the question or earlier search results.
   - Do not give up easily. Search until the tools stop returning new useful information.
   - Search results are deduplicated by the tools, so a search that returns no new information means those matching chunks have already been seen or no longer match.
-  - If a retrieved result is useful but not enough to answer fully, call add_draft to save the evidence or partial reasoning.
-  - When you believe the answer can be fully supported, call read_all_draft before producing the final answer so you can review saved evidence.
+  - Whenever you encounter any retrieved content that is useful for answering the user's question, call `add_draft` immediately to save the evidence or partial reasoning.
+  - Historical tool-call content can be very long and may be offloaded after you read it. Use `read_all_draft` to recall all saved memory before continuing synthesis or producing the final answer.
   - Answer only from the retrieved history. If the answer is not provided in history after exhaustive search, reply exactly: not provided in history
   - Keep the final answer concise.
+
+user_message_zh: |
+  请使用可用的历史检索工具回答用户的问题。
+
+  问题日期：{question_date}
+  问题：{question}
+
+  指令：
+  - 优先使用 vector_search，因为语义检索更适合查找相关历史。
+  - 如果 vector_search 没有找到足够证据，继续使用 bm25_search，并尝试问题或已有检索结果中的新关键词、别名、日期、姓名、实体和短语。
+  - 不要轻易放弃。持续检索，直到工具不再返回新的有用信息。
+  - 工具会对检索结果去重，因此某次搜索没有返回新信息，表示匹配片段已经看过或不再匹配。
+  - 只要碰到任何对回答用户问题有用的检索内容，就立即调用 `add_draft` 记录证据或阶段性推理。
+  - 历史工具调用内容可能很长，读过之后可能会被 offload。继续综合或输出最终答案前，使用 `read_all_draft` 召回所有已保存的记忆。
+  - 只能基于检索到的历史回答。如果穷尽检索后历史中没有提供答案，准确回复：not provided in history
+  - 最终答案保持简洁。
