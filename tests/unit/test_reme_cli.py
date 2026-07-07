@@ -1,6 +1,77 @@
 """Tests for the ReMe CLI entry helpers."""
 
+from types import SimpleNamespace
+
+from reme.components.service import CliService
+from reme.components.service import cli_service
 from reme import reme as reme_module
+
+
+def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
+    """``reme start job=...`` is translated into a one-shot cli service config."""
+
+    monkeypatch.setattr(
+        cli_service,
+        "resolve_app_config",
+        lambda **kwargs: {
+            **kwargs,
+            "service": {"backend": "http", "host": "127.0.0.1"},
+        },
+    )
+
+    cfg = cli_service.prepare_start_config(
+        {
+            "config": "jinli_lme",
+            "workspace_dir": "/tmp/reme",
+            "job": "search",
+            "query": "hello",
+            "limit": 3,
+        },
+    )
+
+    assert cfg["config"] == "jinli_lme"
+    assert cfg["workspace_dir"] == "/tmp/reme"
+    assert cfg["enable_logo"] is False
+    assert cfg["log_to_console"] is False
+    assert cfg["service"] == {
+        "backend": "cli",
+        "host": "127.0.0.1",
+        "job": "search",
+        "job_args": {"query": "hello", "limit": 3},
+    }
+
+
+def test_should_precheck_start_skips_cli_service():
+    """CLI service is local execution and should not run port prechecks."""
+    assert cli_service.should_precheck_start({"service": {"backend": "cli"}}) is False
+    assert cli_service.should_precheck_start({"service": {"backend": "http"}}) is True
+
+
+def test_cli_service_runs_configured_job_and_closes_app(capsys):
+    """CLI service runs one local job through app lifecycle and prints its answer."""
+    events = []
+
+    class FakeApp:
+        async def start(self):
+            events.append("start")
+
+        async def close(self):
+            events.append("close")
+
+        async def run_job(self, name, **kwargs):
+            events.append(("run_job", name, kwargs))
+            return SimpleNamespace(answer="found it", success=True, metadata={"hits": 1})
+
+    service = CliService(job="search", job_args={"query": "hello"})
+
+    service.start_service(FakeApp())
+
+    assert events == [
+        "start",
+        ("run_job", "search", {"query": "hello"}),
+        "close",
+    ]
+    assert capsys.readouterr().out == "found it\n"
 
 
 def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):

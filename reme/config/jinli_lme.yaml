@@ -1,12 +1,12 @@
 service:
-  backend: http
+  backend: cli
 
 jobs:
   update_index:
     backend: base
     watch_dirs: [daily_dir, digest_dir, resource_dir]
 #    watch_dirs: [daily_dir, digest_dir]
-    watch_suffixes: [md, jsonl]
+    watch_suffixes: [md, json, jsonl]
 #    watch_suffixes: [md]
     steps:
       - backend: init_changes_step
@@ -118,7 +118,6 @@ components:
         base_url: ${LLM_BASE_URL:-}
       parameters:
         max_tokens: 65536
-        thinking_enable: false
 
   agent_wrapper:
     default:
@@ -160,7 +159,8 @@ components:
       supported_extensions: [ "md" ]
     default:
       backend: default
-      supported_extensions: [ "jsonl" ]
+      supported_extensions: [ "json", "jsonl" ]
+      chunk_byte_size: 100000
 
   keyword_index:
     default:
