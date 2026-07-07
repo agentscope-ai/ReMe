@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -57,15 +58,21 @@ def main() -> int:
     yes: list[int] = []
     no: list[int] = []
     other: list[tuple[int, str]] = []
+    by_type: dict[str, dict[str, int]] = defaultdict(lambda: {"completed": 0, "yes": 0, "no": 0, "other": 0})
 
     for index, _path, data in completed:
         judgement = str(data.get("answer_judgement") or "").strip().lower()
+        question_type = str(data.get("question_type") or "unknown").strip() or "unknown"
+        by_type[question_type]["completed"] += 1
         if judgement == "yes":
             yes.append(index)
+            by_type[question_type]["yes"] += 1
         elif judgement == "no":
             no.append(index)
+            by_type[question_type]["no"] += 1
         else:
             other.append((index, judgement))
+            by_type[question_type]["other"] += 1
 
     completed_count = len(completed)
     total = len(indices)
@@ -79,6 +86,18 @@ def main() -> int:
     print(f"other_judgement: {len(other)}")
     print(f"missing: {len(missing)}")
     print(f"unreadable: {len(unreadable)}")
+    print()
+    print("by_question_type:")
+    if by_type:
+        print("question_type\tcompleted\tyes\tno\tother\taccuracy_completed")
+        for question_type in sorted(by_type):
+            row = by_type[question_type]
+            print(
+                f"{question_type}\t{row['completed']}\t{row['yes']}\t{row['no']}\t"
+                f"{row['other']}\t{_pct(row['yes'], row['completed'])}",
+            )
+    else:
+        print("(no completed results)")
 
     if args.show_failures:
         failed = no + [index for index, _judgement in other]
