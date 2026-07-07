@@ -12,7 +12,7 @@ user_message: |
   - Whenever you encounter any retrieved content that is useful for answering the user's question, call `add_draft` immediately to save the evidence or partial reasoning.
   - Historical tool-call content can be very long and may be offloaded after you read it. Use `read_all_draft` to recall all saved memory before continuing synthesis or producing the final answer.
   - Answer only from the retrieved history. If the answer is not provided in history after exhaustive search, reply exactly: not provided in history
-  - Keep the final answer concise.
+  - The final answer must be strictly grounded in the retrieved context and saved drafts. Do not infer or hallucinate unsupported facts.
 
 user_message_zh: |
   请使用可用的历史检索工具回答用户的问题。
@@ -28,4 +28,4 @@ user_message_zh: |
   - 只要碰到任何对回答用户问题有用的检索内容，就立即调用 `add_draft` 记录证据或阶段性推理。
   - 历史工具调用内容可能很长，读过之后可能会被 offload。继续综合或输出最终答案前，使用 `read_all_draft` 召回所有已保存的记忆。
   - 只能基于检索到的历史回答。如果穷尽检索后历史中没有提供答案，准确回复：not provided in history
-  - 最终答案保持简洁。
+  - 最终答案必须严格基于检索上下文和已保存草稿，不要推断或编造没有证据支持的信息。
