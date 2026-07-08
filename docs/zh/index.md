@@ -92,4 +92,11 @@ Application / Service / Job / Step 运行时与依赖注入。
 读取当天兴趣主题，驱动主动提醒与洞察。
 :::
 
+:::{grid-item-card} 📏 LME Benchmark
+:link: lme_benchmark
+:link-type: doc
+
+将 `context_answer_step` + `answer_judge_step` 接入 LongMemEval 评测的字段约定与配置示例。
+:::
+
 ::::

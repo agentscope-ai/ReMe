@@ -103,4 +103,12 @@ Index building, hybrid recall, and progressive link expansion.
 Reading the day's interest topics to drive proactive reminders and insights.
 :::
 
+:::{grid-item-card} 📏 LME Benchmark
+:link: lme_benchmark
+:link-type: doc
+
+Wire `context_answer_step` + `answer_judge_step` into a LongMemEval run: input/output
+contract and an example config.
+:::
+
 ::::
