@@ -175,6 +175,9 @@ reme proactive date=2026-06-20
 更多细节见 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md)、[Auto Dream](./auto_dream.md) 和
 [Proactive](./proactive.md)。
 
+如果是要把 ReMe 接入 [LongMemEval](https://github.com/xiaowu0162/longmemeval) 之类的评测，参考
+[LME Benchmark](./lme_benchmark.md)。
+
 ---
 
 ## HTTP 与配置
