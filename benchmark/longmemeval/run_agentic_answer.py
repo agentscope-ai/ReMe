@@ -13,10 +13,12 @@ Pick one with ``--job``, or ``--job all`` to run all three *serially per sample*
 Runs are capped at ``--concurrency`` (default 3) samples at once and each launch is
 staggered by ``--stagger`` seconds so they do not all hit the LLM API at once.
 
-Every job is resumable: a sample is skipped when its expected output already
-exists (``daily/`` for auto_memory, ``metadata/embedding_store/`` for update_index,
-``mem_answer.json`` for agentic_answer) unless ``--force`` is given. Each sample's
-stdout/stderr goes to ``logs/agentic_answer/<job>/<idx>.log``.
+By default every selected job is rerun for every sample — each job's own clear
+step (configured in jinli_lme.yaml) wipes stale output first, so a run is always
+a clean rebuild. Pass ``--resume`` to instead skip samples whose output already
+exists (``daily/`` for auto_memory, ``metadata/embedding_store/`` for
+update_index, ``mem_answer.json`` for agentic_answer) and continue an interrupted
+batch. Each sample's stdout/stderr goes to ``logs/agentic_answer/<job>/<idx>.log``.
 
 After an agentic_answer run finishes, the driver aggregates every sample's query,
 golden answer, predicted answer and a best-effort tool-call trail into one big
@@ -27,7 +29,7 @@ Examples:
     python benchmark/longmemeval/run_agentic_answer.py --job all             # 3 jobs serially per sample
     python benchmark/longmemeval/run_agentic_answer.py --job auto_memory     # just step 1
     python benchmark/longmemeval/run_agentic_answer.py --limit 5 --dry-run   # list what would run
-    python benchmark/longmemeval/run_agentic_answer.py --job agentic_answer --force
+    python benchmark/longmemeval/run_agentic_answer.py --job all --resume    # continue an interrupted batch
 """
 
 import argparse
@@ -59,7 +61,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--concurrency", type=int, default=3, help="max samples running at once (default 3)")
     p.add_argument("--stagger", type=float, default=1.0, help="seconds between consecutive launches (default 1)")
     p.add_argument("--limit", type=int, default=0, help="only process the first N samples (0 = all)")
-    p.add_argument("--force", action="store_true", help="rerun even if the job's output already exists")
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip a sample when the job's output already exists (resume an interrupted run); "
+        "by default every selected job is rerun so the config's clear step rebuilds cleanly",
+    )
     p.add_argument("--dry-run", action="store_true", help="list what would run, launch nothing")
     p.add_argument("--no-aggregate", action="store_true", help="skip writing aggregate.json after agentic_answer")
     return p.parse_args()
@@ -116,11 +123,16 @@ async def run_job(idx: str, job: str, counters: dict) -> bool:
     return ok
 
 
-async def run_one(idx: str, jobs: list[str], sem: asyncio.Semaphore, force: bool, counters: dict) -> None:
-    """Run the selected jobs for one sample, serially, honouring skip/resume."""
+async def run_one(idx: str, jobs: list[str], sem: asyncio.Semaphore, resume: bool, counters: dict) -> None:
+    """Run the selected jobs for one sample, serially.
+
+    By default every selected job is rerun (the job's own clear step wipes stale
+    output first). With ``resume`` a job is skipped when its output already
+    exists, so an interrupted batch can continue without redoing finished work.
+    """
     async with sem:
         for job in jobs:
-            if not force and job_done(idx, job):
+            if resume and job_done(idx, job):
                 counters["skip"] += 1
                 print(f"[skip] {idx}/{job} (output exists)", flush=True)
                 continue
@@ -265,17 +277,20 @@ async def main() -> int:
     if args.limit:
         ids = ids[: args.limit]
 
-    pending = [i for i in ids if args.force or any(not job_done(i, j) for j in jobs)]
+    # Without --resume every job reruns; with --resume, jobs whose output exists are skipped.
+    def todo_jobs(i: str) -> list[str]:
+        return [j for j in jobs if not (args.resume and job_done(i, j))]
+
+    pending = [i for i in ids if todo_jobs(i)]
     print(
-        f"jobs={jobs} samples total={len(ids)} pending={len(pending)} "
+        f"jobs={jobs} resume={args.resume} samples total={len(ids)} pending={len(pending)} "
         f"concurrency={args.concurrency} stagger={args.stagger}s",
         flush=True,
     )
 
     if args.dry_run:
         for i in pending:
-            todo = [j for j in jobs if args.force or not job_done(i, j)]
-            print(f"[would-run] {i}: {todo}")
+            print(f"[would-run] {i}: {todo_jobs(i)}")
         return 0
 
     sem = asyncio.Semaphore(args.concurrency)
@@ -284,7 +299,7 @@ async def main() -> int:
     for n, idx in enumerate(ids):
         if n and args.stagger > 0:
             await asyncio.sleep(args.stagger)  # stagger each launch relative to the previous
-        tasks.append(asyncio.create_task(run_one(idx, jobs, sem, args.force, counters)))
+        tasks.append(asyncio.create_task(run_one(idx, jobs, sem, args.resume, counters)))
 
     await asyncio.gather(*tasks, return_exceptions=True)
     print(
