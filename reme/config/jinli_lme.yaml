@@ -75,6 +75,23 @@ jobs:
     steps:
       - backend: read_all_draft_step
 
+  python_execute:
+    backend: base
+    description: "Execute Python code and return printed stdout."
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+          description: "Python code to execute. Print the final result to stdout."
+        timeout:
+          type: number
+          description: "Execution timeout in seconds; defaults to 60."
+      required:
+        - code
+    steps:
+      - backend: python_execute_step
+
 components:
   tokenizer:
     default:
@@ -132,6 +149,7 @@ components:
         - search
         - add_draft
         - read_all_draft
+        - python_execute
       sequential_tool_calls: true
       react_config:
         max_iters: 100

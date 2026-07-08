@@ -8,11 +8,13 @@ import tempfile
 import warnings
 
 from reme.components.agent_wrapper import BaseAgentWrapper
+from reme.components.application_context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileLink, FileNode
 from reme.steps.common.add import AddStep
 from reme.steps.common.health_check import _file_graph_status
 from reme.steps.common.llm_demo import LLMDemoStep
+from reme.steps.common.python_execute import PythonExecuteStep
 from reme.steps.index import traverse as traverse_mod
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
@@ -85,6 +87,51 @@ def test_add_step_rejects_invalid_inputs():
         assert resp.success is False
         assert "Invalid add arguments" in resp.answer
         print("✓ test_add_step_rejects_invalid_inputs passed")
+
+    _run(run())
+
+
+def test_python_execute_step_returns_printed_stdout(tmp_path):
+    """python_execute returns stdout as answer and runs under workspace_dir."""
+
+    async def run():
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
+        step = PythonExecuteStep(app_context=app_context)
+        resp = await step(code="from pathlib import Path\nprint(Path.cwd().name)")
+        assert resp.success is True
+        assert resp.answer == f"{tmp_path.name}\n"
+        assert resp.metadata["returncode"] == 0
+        assert resp.metadata["stderr"] == ""
+        print("✓ test_python_execute_step_returns_printed_stdout passed")
+
+    _run(run())
+
+
+def test_python_execute_step_reports_stderr_on_failure():
+    """python_execute captures traceback stderr instead of throwing."""
+
+    async def run():
+        step = PythonExecuteStep()
+        resp = await step(code='raise RuntimeError("boom")')
+        assert resp.success is False
+        assert resp.metadata["returncode"] != 0
+        assert "RuntimeError: boom" in resp.answer
+        assert "RuntimeError: boom" in resp.metadata["stderr"]
+        print("✓ test_python_execute_step_reports_stderr_on_failure passed")
+
+    _run(run())
+
+
+def test_python_execute_step_times_out():
+    """python_execute converts subprocess timeout into a failed response."""
+
+    async def run():
+        step = PythonExecuteStep()
+        resp = await step(code="import time\ntime.sleep(1)", timeout=0.01)
+        assert resp.success is False
+        assert resp.answer == "Python execution timed out after 0.01s"
+        assert resp.metadata["timeout"] == 0.01
+        print("✓ test_python_execute_step_times_out passed")
 
     _run(run())
 
