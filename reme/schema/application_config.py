@@ -31,6 +31,7 @@ class ApplicationConfig(BaseModel):
     workspace_dir: str = Field(default=".reme", description="Workspace root directory for runtime files")
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
+    mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
