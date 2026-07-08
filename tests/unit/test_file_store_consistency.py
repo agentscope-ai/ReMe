@@ -220,7 +220,7 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
             store.embedding_store = fake
             await store.load()
 
-            assert fake.node_embedding_calls == []
+            assert not fake.node_embedding_calls
             assert store.embedding_store is None
             assert store.file_chunks["a"].embedding is None
             await store.close()

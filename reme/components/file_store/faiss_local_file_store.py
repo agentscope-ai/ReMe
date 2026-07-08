@@ -253,9 +253,7 @@ class FaissLocalFileStore(LocalFileStore):
     # -- search -----------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_store is None or not query or self._faiss_index is None:
-            return []
-        if self._faiss_index.ntotal == 0:
+        if self.embedding_store is None or not query or self._faiss_index is None or self._faiss_index.ntotal == 0:
             return []
 
         try:
