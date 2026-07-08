@@ -18,7 +18,7 @@ _APP_CONFIG_KEYS = set(ApplicationConfig.model_fields)
 
 
 def prepare_start_config(kwargs: dict) -> dict:
-    """Resolve ``reme start`` kwargs, translating top-level ``job=...`` into cli service config."""
+    """Resolve ``reme start`` kwargs, translating top-level ``job=...`` into internal cli service config."""
     if "job" not in kwargs:
         return resolve_app_config(**kwargs)
     return _prepare_job_start_config(dict(kwargs))
@@ -31,7 +31,7 @@ def should_precheck_start(config: dict) -> bool:
 
 
 def _prepare_job_start_config(kwargs: dict) -> dict:
-    """Translate ``reme start job=...`` args into an internal cli service config."""
+    """Translate ``reme start job=...`` args into the internal cli service fields."""
     job = kwargs.pop("job")
     config_kwargs: dict = {}
     job_args: dict = {}
@@ -67,14 +67,12 @@ class CliService(BaseService):
         job: str = "",
         job_args: dict[str, Any] | None = None,
         show_metadata: bool = False,
-        show_status: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.job = job
         self.job_args = job_args or {}
         self.show_metadata = show_metadata
-        self.show_status = show_status
 
     def build_service(self, app: "Application") -> None:
         """No network framework is needed for local CLI execution."""
@@ -100,19 +98,14 @@ class CliService(BaseService):
         await app.start()
         try:
             response = await app.run_job(self.job, **self.job_args)
-            print(self._format_response(response.answer, response.success, response.metadata))
+            print(self._format_response(response.answer, response.metadata))
         finally:
             await app.close()
 
-    def _format_response(self, answer: Any, success: bool, metadata: dict | None) -> str:
+    def _format_response(self, answer: Any, metadata: dict | None) -> str:
         if not isinstance(answer, str):
             answer = json.dumps(answer, ensure_ascii=False, indent=2)
         parts = [answer]
-        status_pieces = []
-        if self.show_status:
-            status_pieces.append("✅" if success else "❌")
         if self.show_metadata and metadata:
-            status_pieces.append(json.dumps(metadata, ensure_ascii=False))
-        if status_pieces:
-            parts.append(" ".join(status_pieces))
+            parts.append(json.dumps(metadata, ensure_ascii=False))
         return "\n".join(parts)

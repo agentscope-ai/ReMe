@@ -1,5 +1,6 @@
 """Tests for the ReMe CLI entry helpers."""
 
+import asyncio
 from types import SimpleNamespace
 
 from reme.components.service import cli_service
@@ -79,6 +80,29 @@ def test_cli_service_runs_configured_job_and_closes_app(capsys):
     assert capsys.readouterr().out == "found it\n"
 
 
+def test_cli_service_can_print_metadata_from_service_config(capsys):
+    """service.show_metadata controls optional CLI metadata output."""
+
+    class FakeApp:
+        """Minimal app stub for exercising metadata output."""
+
+        async def start(self):
+            """No-op app startup."""
+
+        async def close(self):
+            """No-op app shutdown."""
+
+        async def run_job(self, _name, **_kwargs):
+            """Return a successful response with metadata."""
+            return SimpleNamespace(answer="found it", success=True, metadata={"hits": 1})
+
+    service = CliService(job="search", show_metadata=True)
+
+    service.start_service(FakeApp())
+
+    assert capsys.readouterr().out == 'found it\n{"hits": 1}\n'
+
+
 def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
     """CLI helper forwards connection options to the selected client."""
     seen = {}
@@ -112,8 +136,6 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
             timeout=1.5,
             query="hello",
         )
-
-    import asyncio
 
     asyncio.run(run())
 
@@ -149,8 +171,6 @@ def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
 
     async def run():
         await reme_module.call_server("version", backend="http", show_metadata=True)
-
-    import asyncio
 
     asyncio.run(run())
 
