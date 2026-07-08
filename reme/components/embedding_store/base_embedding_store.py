@@ -44,11 +44,20 @@ class BaseEmbeddingStore(BaseComponent):
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
         """Get embeddings for texts."""
 
+    def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
+        """Return whether an embedding matches the configured model dimension."""
+        if embedding is None:
+            return False
+        dimensions = getattr(self, "dimensions", None)
+        if dimensions is None:
+            return True
+        return len(embedding) == dimensions
+
     async def get_node_embeddings(self, nodes: list[EmbNode], **kwargs) -> list[EmbNode]:
         """Embed each node's text in-place and return the same list."""
         embeddings = await self.get_embeddings([n.text for n in nodes], **kwargs)
         if len(embeddings) == len(nodes):
             for node, vec in zip(nodes, embeddings):
-                if vec is not None:
+                if vec is not None and self._embedding_dim_matches(vec):
                     node.embedding = vec
         return nodes

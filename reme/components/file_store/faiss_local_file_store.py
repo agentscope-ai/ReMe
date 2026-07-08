@@ -96,7 +96,7 @@ class FaissLocalFileStore(LocalFileStore):
         self._id_map = []
         self._id_to_row = {}
         self._tombstones.clear()
-        chunks = [c for c in self.file_chunks.values() if c.embedding is not None]
+        chunks = [c for c in self.file_chunks.values() if self._embedding_dim_matches(c.embedding)]
         if not chunks:
             return
         vectors = np.stack([c.embedding for c in chunks])
@@ -138,7 +138,9 @@ class FaissLocalFileStore(LocalFileStore):
             live_ids = [cid for i, cid in enumerate(id_map) if i not in tombstones]
             if len(live_ids) != len(set(live_ids)):
                 raise ValueError("FAISS id_map contains duplicate live chunk ids")
-            expected_ids = {cid for cid, chunk in self.file_chunks.items() if chunk.embedding is not None}
+            expected_ids = {
+                cid for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
+            }
             if set(live_ids) != expected_ids:
                 raise ValueError("FAISS sidecar live ids do not match persisted chunks")
             self._faiss_index = index
@@ -213,7 +215,7 @@ class FaissLocalFileStore(LocalFileStore):
                 self._tombstone(cid)
             for cid in new_ids:
                 chunk = self.file_chunks.get(cid)
-                if chunk is None or chunk.embedding is None:
+                if chunk is None or not self._embedding_dim_matches(chunk.embedding):
                     continue
                 if cid in existing and old_text_by_id.get(cid) == chunk.text:
                     continue
@@ -262,6 +264,11 @@ class FaissLocalFileStore(LocalFileStore):
             self._disable_embedding(f"search: {type(e).__name__}: {e}")
             return []
         if query_embedding is None:
+            return []
+        if not self._embedding_dim_matches(query_embedding):
+            self._disable_embedding(
+                f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
+            )
             return []
 
         q = self._prepare(query_embedding)

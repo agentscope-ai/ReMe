@@ -61,6 +61,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
             result = await asyncio.wait_for(self.as_embedding(["ping"]), timeout=timeout)
             if not result or result[0] is None:
                 raise RuntimeError("empty embedding")
+            if len(result[0]) != self.dimensions:
+                raise RuntimeError(f"embedding dimension mismatch: {len(result[0])} != {self.dimensions}")
             self.is_healthy = True
             self.logger.info(f"{tag} -> OK")
         except asyncio.TimeoutError:
@@ -114,7 +116,9 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         for (idx, _text, key), raw in zip(batch, embeddings):
             if raw is None:
                 continue
-            emb = self._normalize_dim(np.asarray(raw, dtype=np.float16))
+            emb = self._validate_dim(np.asarray(raw, dtype=np.float16))
+            if emb is None:
+                continue
             out.append((idx, key, emb))
         return out
 
@@ -132,12 +136,12 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 return None
         return None
 
-    def _normalize_dim(self, emb: np.ndarray) -> np.ndarray:
+    def _validate_dim(self, emb: np.ndarray) -> np.ndarray | None:
+        """Return only embeddings that exactly match the configured dimension."""
         if len(emb) == self.dimensions:
             return emb
-        if len(emb) < self.dimensions:
-            return np.pad(emb, (0, self.dimensions - len(emb)))
-        return emb[: self.dimensions]
+        self.logger.error(f"Embedding dimension mismatch: {len(emb)} != {self.dimensions}")
+        return None
 
     # -- Cache --
 
