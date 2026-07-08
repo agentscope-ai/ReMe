@@ -92,6 +92,41 @@ jobs:
     steps:
       - backend: python_execute_step
 
+  lme_one_question:
+    backend: base
+    description: "Run context_answer_step + answer_judge_step for a single LME question."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "the LME question being answered"
+        session_context:
+          type: string
+          description: "concatenated chat history for the relevant session"
+        current_date:
+          type: string
+          description: "today's date in YYYY-MM-DD, used to resolve relative phrases"
+        agent_answer:
+          type: string
+          description: "answer from the agent-under-test; can be the value of `context_answer` from a prior call"
+        golden_answer:
+          type: string
+          description: "ground-truth answer from the LME dataset"
+        question_type:
+          type: string
+          description: "LME category; one of temporal_reasoning / knowledge_update / single_session_preference / other"
+      required:
+        - query
+        - session_context
+        - current_date
+        - agent_answer
+        - golden_answer
+        - question_type
+    steps:
+      - backend: context_answer_step
+      - backend: answer_judge_step
+
 components:
   tokenizer:
     default:
