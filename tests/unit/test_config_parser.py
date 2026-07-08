@@ -86,3 +86,27 @@ def test_expand_env_vars_converts_expanded_scalar_types(monkeypatch):
         "url": "http://localhost:18080",
         "string_bool": "false",
     }
+
+
+def test_jinli_lme_config_registers_lme_one_question_job():
+    """``jinli_lme.yaml`` exposes a ``lme_one_question`` job that bundles the
+    LME ``context_answer`` and ``answer_judge`` steps and requires every
+    input the two steps consume."""
+    cfg = _load_config("jinli_lme.yaml")
+
+    job = cfg["jobs"]["lme_one_question"]
+    assert job["backend"] == "base"
+    assert [step["backend"] for step in job["steps"]] == [
+        "context_answer_step",
+        "answer_judge_step",
+    ]
+    assert job["parameters"]["required"] == [
+        "query",
+        "session_context",
+        "current_date",
+        "agent_answer",
+        "golden_answer",
+        "question_type",
+    ]
+    props = set(job["parameters"]["properties"])
+    assert props == set(job["parameters"]["required"])
