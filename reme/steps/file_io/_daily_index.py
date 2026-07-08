@@ -8,7 +8,7 @@ import frontmatter
 from ._path import resolve_path, validate_filename_component
 from ...utils import get_logger
 
-logger = get_logger()
+logger = get_logger(log_to_file=False)
 
 
 def validate_session_id(session_id: str) -> str | None:

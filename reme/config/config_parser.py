@@ -207,7 +207,7 @@ def resolve_app_config(**kwargs) -> dict:
     """
     from ..utils import get_logger
 
-    logger = get_logger()
+    logger = get_logger(log_to_file=False)
     configs: list[dict] = []
 
     # `config=path` arrives as a string here; `config.foo=bar` arrives as a

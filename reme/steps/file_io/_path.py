@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ...utils import get_logger
 
-logger = get_logger()
+logger = get_logger(log_to_file=False)
 
 NON_MD_WARNING = (
     "non-markdown file detected; CRUD operations are recommended on markdown files. "

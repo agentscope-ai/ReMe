@@ -92,6 +92,19 @@ jobs:
     steps:
       - backend: python_execute_step
 
+  check_golden:
+    backend: base
+    description: "Review every session for query/answer-relevant evidence, then judge whether the golden answer is reasonable."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: lme_session_review_step
+        agent_wrapper: lme_review
+        concurrency: 10
+      - backend: lme_golden_check_step
+        agent_wrapper: lme_judge
+
 components:
   tokenizer:
     default:
@@ -116,6 +129,18 @@ components:
     default:
       backend: ${LLM_BACKEND:-openai}
       model: ${LLM_MODEL_NAME:-qwen3.7-max}
+      stream: true
+      context_size: 1000000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
+
+    plus:
+      backend: ${LLM_BACKEND:-openai}
+      model: qwen3.7-plus
       stream: true
       context_size: 1000000
       max_retries: 3
@@ -166,6 +191,37 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
+
+    lme_review:
+      backend: agentscope
+      as_llm: plus
+      permission_mode: bypass
+      builtin_tools: false
+      react_config:
+        max_iters: 10
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
+    lme_judge:
+      backend: agentscope
+      as_llm: default
+      permission_mode: bypass
+      builtin_tools: false
+      job_tools:
+        - python_execute
+      sequential_tool_calls: true
+      react_config:
+        max_iters: 50
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
 
   file_graph:
     default:

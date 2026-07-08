@@ -10,7 +10,7 @@ import aiofiles.os
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
 from ...utils import get_logger
 
-logger = get_logger()
+logger = get_logger(log_to_file=False)
 
 # ---------------------------------------------------------------------------
 # In-process per-path write lock.

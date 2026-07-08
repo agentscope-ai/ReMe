@@ -18,7 +18,7 @@ class ComponentRegistry:
 
     def __init__(self) -> None:
         self._registry: dict[ComponentEnum, dict[str, type[BaseComponent]]] = {}
-        self.logger = get_logger()
+        self.logger = get_logger(log_to_file=False)
 
     def _do_register(self, cls: type[T], name: str) -> type[T]:
         """Insert `cls` under its ``component_type`` group; warn on overwrite."""

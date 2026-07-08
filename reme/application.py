@@ -29,7 +29,11 @@ class Application(BaseComponent):
 
         if self.config.enable_logo:
             print_logo(self.config)
-        logger = get_logger(log_to_console=self.config.log_to_console, log_to_file=self.config.log_to_file)
+        logger = get_logger(
+            log_to_console=self.config.log_to_console,
+            log_to_file=self.config.log_to_file,
+            force_init=True,
+        )
         logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         super().__init__()
 
