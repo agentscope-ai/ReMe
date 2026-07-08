@@ -1,14 +1,22 @@
 """Execute Python code and return printed stdout."""
 
 import asyncio
-import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 from ..base_step import BaseStep
 from ...components import R
 
 DEFAULT_TIMEOUT = 60.0
+
+
+@dataclass(frozen=True)
+class _PythonResult:
+    stdout: str
+    stderr: str
+    returncode: int | None
+    timed_out: bool = False
 
 
 @R.register("python_execute_step")
@@ -29,12 +37,17 @@ class PythonExecuteStep(BaseStep):
             self.context.response.answer = timeout_error
             return self.context.response
 
-        try:
-            result = await asyncio.to_thread(self._run_python, code, timeout)
-        except subprocess.TimeoutExpired:
+        result = await self._run_python(code, timeout)
+        if result.timed_out:
             self.context.response.success = False
             self.context.response.answer = f"Python execution timed out after {timeout:g}s"
-            self.context.response.metadata.update({"timeout": timeout})
+            self.context.response.metadata.update(
+                {
+                    "returncode": result.returncode,
+                    "stderr": result.stderr,
+                    "timeout": timeout,
+                },
+            )
             return self.context.response
 
         stdout = result.stdout or ""
@@ -50,15 +63,31 @@ class PythonExecuteStep(BaseStep):
         )
         return self.context.response
 
-    def _run_python(self, code: str, timeout: float) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, "-c", code],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+    async def _run_python(self, code: str, timeout: float) -> _PythonResult:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            code,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=self.workspace_path,
-            check=False,
         )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            return _PythonResult(
+                stdout=stdout.decode(),
+                stderr=stderr.decode(),
+                returncode=process.returncode,
+            )
+        except TimeoutError:
+            process.kill()
+            stdout, stderr = await process.communicate()
+            return _PythonResult(
+                stdout=stdout.decode(),
+                stderr=stderr.decode(),
+                returncode=process.returncode,
+                timed_out=True,
+            )
 
     @staticmethod
     def _parse_timeout(raw: Any) -> tuple[float, str]:
