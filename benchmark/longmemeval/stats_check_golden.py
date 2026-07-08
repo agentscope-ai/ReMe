@@ -29,24 +29,36 @@ LOGDIR = REPO / "logs" / "check_golden"
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--list-bad", action="store_true", help="list samples whose golden answer is NOT reasonable")
-    p.add_argument("--list-bad-sessions", action="store_true", help="list samples whose answer_session_ids is NOT reasonable")
-    p.add_argument("--list-run-failed", action="store_true", help="list launched samples that did not produce readable output")
+    p.add_argument(
+        "--list-bad-sessions",
+        action="store_true",
+        help="list samples whose answer_session_ids is NOT reasonable",
+    )
+    p.add_argument(
+        "--list-run-failed",
+        action="store_true",
+        help="list launched samples that did not produce readable output",
+    )
     p.add_argument("--json", action="store_true", help="emit the summary as JSON")
     return p.parse_args()
 
 
 def sample_ids() -> list[str]:
+    """List all sample IDs."""
     ids = [p.name for p in DATA.iterdir() if p.is_dir() and p.name.isdigit()]
     return sorted(ids, key=int)
 
 
 def pct(num: int, den: int) -> str:
+    """Format a percentage."""
     return f"{(100.0 * num / den):.1f}%" if den else "n/a"
 
 
 def logged_sample_ids() -> list[str]:
+    """List all sample IDs that have been launched but not finished."""
     if not LOGDIR.exists():
         return []
     ids = [p.stem for p in LOGDIR.glob("*.log") if p.stem.isdigit()]
@@ -54,6 +66,7 @@ def logged_sample_ids() -> list[str]:
 
 
 def main() -> int:
+    """Main entry point."""
     args = parse_args()
     ids = sample_ids()
     total = len(ids)
@@ -81,8 +94,9 @@ def main() -> int:
     golden_ok = sum(1 for d in done if d.get("verdict", {}).get("golden_answer_reasonable") is True)
     sess_ok = sum(1 for d in done if d.get("verdict", {}).get("answer_session_ids_reasonable") is True)
     date_ok = sum(1 for d in done if d.get("verdict", {}).get("answer_session_date_ok") is True)
-    confs = [d["verdict"]["confidence"] for d in done
-             if isinstance(d.get("verdict", {}).get("confidence"), (int, float))]
+    confs = [
+        d["verdict"]["confidence"] for d in done if isinstance(d.get("verdict", {}).get("confidence"), (int, float))
+    ]
     avg_conf = sum(confs) / len(confs) if confs else 0.0
 
     # Per question_type breakdown.
@@ -98,17 +112,30 @@ def main() -> int:
     bad_sessions = [d["_idx"] for d in done if d.get("verdict", {}).get("answer_session_ids_reasonable") is not True]
 
     if args.json:
-        print(json.dumps({
-            "total": total, "finished": n, "pending": total - n - len(unreadable),
-            "unreadable": unreadable, "launched": len(launched), "run_failed": run_failed,
-            "golden_answer_accuracy": round(golden_ok / n, 4) if n else None,
-            "answer_session_ids_accuracy": round(sess_ok / n, 4) if n else None,
-            "answer_session_date_ok_rate": round(date_ok / n, 4) if n else None,
-            "avg_confidence": round(avg_conf, 4),
-            "golden_ok": golden_ok, "sess_ok": sess_ok, "date_ok": date_ok,
-            "by_type": {t: {**c, "golden_acc": round(c["golden_ok"] / c["n"], 4)} for t, c in by_type.items()},
-            "bad_golden": bad_golden, "bad_sessions": bad_sessions,
-        }, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "total": total,
+                    "finished": n,
+                    "pending": total - n - len(unreadable),
+                    "unreadable": unreadable,
+                    "launched": len(launched),
+                    "run_failed": run_failed,
+                    "golden_answer_accuracy": round(golden_ok / n, 4) if n else None,
+                    "answer_session_ids_accuracy": round(sess_ok / n, 4) if n else None,
+                    "answer_session_date_ok_rate": round(date_ok / n, 4) if n else None,
+                    "avg_confidence": round(avg_conf, 4),
+                    "golden_ok": golden_ok,
+                    "sess_ok": sess_ok,
+                    "date_ok": date_ok,
+                    "by_type": {t: {**c, "golden_acc": round(c["golden_ok"] / c["n"], 4)} for t, c in by_type.items()},
+                    "bad_golden": bad_golden,
+                    "bad_sessions": bad_sessions,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
         return 0
 
     print("=" * 60)

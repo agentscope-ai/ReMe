@@ -4,20 +4,86 @@ service:
 workspace_dir: ${LME_WORKSPACE_DIR:-datasets/longmemeval/1}
 session_dir: history_session
 resource_dir: session
-daily_dir: ""
+daily_dir: daily
 digest_dir: ""
 
 jobs:
+  auto_memory:
+    backend: base
+    description: "Extract every raw session into a search-friendly daily note (one note per session)."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: lme_auto_memory_step
+        agent_wrapper: lme_memory
+        concurrency: 12
+
   update_index:
     backend: base
-    watch_dirs: [resource_dir]
-    watch_suffixes: [md, json, jsonl]
+    watch_dirs: [daily_dir]
+    watch_suffixes: [md]
     steps:
       - backend: clear_store_step
       - backend: init_changes_step
         monitor_type: file_store
         monitor_name: default
         dispatch_steps: [update_index_step]
+
+  extract_session_by_id:
+    backend: base
+    description: "Given a session_id shown in a search result, go back to the original raw session and extract everything in it that is relevant to the current question. Use this when a search hit looks relevant but the distilled note lacks an exact number, date, or wording."
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: "the session_id from a search result header"
+      required:
+        - session_id
+    steps:
+      - backend: lme_extract_session_step
+        agent_wrapper: lme_extract
+
+  vector_search:
+    backend: base
+    description: "Dense semantic search over the memory notes. Returns each hit with its source note path and session_id."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+      required:
+        - query
+    steps:
+      - backend: vector_search_step
+        include_source: true
+
+  bm25_search:
+    backend: base
+    description: "Keyword (BM25) search over the memory notes. Returns each hit with its source note path and session_id."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+      required:
+        - query
+    steps:
+      - backend: bm25_search_step
+        include_source: true
+
+  agentic_answer:
+    backend: base
+    description: "Answer query.json from indexed memory using vector/bm25 search + session extraction."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: lme_agentic_answer_step
+        agent_wrapper: lme_agentic_answer
 
   version:
     backend: base
@@ -178,6 +244,55 @@ components:
       sequential_tool_calls: true
       react_config:
         max_iters: 100
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
+    lme_memory:
+      backend: agentscope
+      as_llm: plus
+      permission_mode: bypass
+      builtin_tools: false
+      react_config:
+        max_iters: 8
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
+    lme_extract:
+      backend: agentscope
+      as_llm: plus
+      permission_mode: bypass
+      builtin_tools: false
+      react_config:
+        max_iters: 3
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
+    lme_agentic_answer:
+      backend: agentscope
+      as_llm: default
+      cwd: session
+      permission_mode: bypass
+      builtin_tools: false
+      job_tools:
+        - vector_search
+        - bm25_search
+        - python_execute
+        - extract_session_by_id
+      sequential_tool_calls: true
+      react_config:
+        max_iters: 40
       context_config:
         trigger_ratio: 0.89
         reserve_ratio: 0.1
