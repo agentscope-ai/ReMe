@@ -49,6 +49,7 @@ class BaseEmbeddingStore(BaseComponent):
         if embedding is None:
             return False
         dimensions = getattr(self, "dimensions", None)
+        # Base stores may not expose dimensions; only enforce the check when they do.
         if dimensions is None:
             return True
         return len(embedding) == dimensions

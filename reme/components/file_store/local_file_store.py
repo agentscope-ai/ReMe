@@ -80,18 +80,20 @@ class LocalFileStore(BaseFileStore):
 
     def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
         """Return whether an index embedding matches the active embedding model."""
+        # With no active embedding store, no persisted/index vector is trustworthy.
         if self.embedding_store is None or embedding is None:
             return False
         return len(embedding) == self.embedding_store.dimensions
 
     def _drop_stale_embedding(self, chunk: FileChunk, context: str) -> bool:
         """Drop a chunk embedding when it does not match the active model dimension."""
+        if self.embedding_store is None:
+            return False
         if chunk.embedding is None or self._embedding_dim_matches(chunk.embedding):
             return False
-        expected = self.embedding_store.dimensions if self.embedding_store is not None else "unknown"
         self.logger.warning(
             f"{self.name}: stale embedding for chunk {chunk.id} during {context}: "
-            f"{len(chunk.embedding)} != {expected}; re-embedding",
+            f"{len(chunk.embedding)} != {self.embedding_store.dimensions}; re-embedding",
         )
         chunk.embedding = None
         return True
@@ -123,14 +125,7 @@ class LocalFileStore(BaseFileStore):
         """Drop persisted embeddings whose dimension no longer matches the active model."""
         if self.embedding_store is None:
             return
-        for chunk in self.file_chunks.values():
-            if chunk.embedding is None or self._embedding_dim_matches(chunk.embedding):
-                continue
-            self.logger.warning(
-                f"{self.name}: stale embedding for chunk {chunk.id}: "
-                f"{len(chunk.embedding)} != {self.embedding_store.dimensions}; re-embedding",
-            )
-            chunk.embedding = None
+        self._drop_stale_embeddings(list(self.file_chunks.values()), "load")
 
     async def _backfill_missing_embeddings(self) -> None:
         """Embed persisted chunks that predate embedding being enabled."""

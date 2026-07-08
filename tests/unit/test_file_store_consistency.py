@@ -254,6 +254,18 @@ def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
     run(go())
 
 
+def test_drop_stale_embedding_noops_without_embedding_store():
+    """The helper should not clear embeddings when vector search is disabled."""
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = LocalFileStore(name="t_embedding_no_store_drop", embedding_store="")
+        stale = chunk("a", "a.md", "alpha text")
+        stale.embedding = np.array([1.0], dtype=np.float16)
+
+        assert store._drop_stale_embedding(stale, "test") is False
+        assert stale.embedding.tolist() == [1.0]
+
+
 def test_upsert_does_not_reuse_cached_embedding_with_stale_dimensions():
     """Re-upsert queues a fresh embedding when cached same-text vector has old dimensions."""
 

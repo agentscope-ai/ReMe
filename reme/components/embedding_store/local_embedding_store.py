@@ -113,13 +113,18 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         if not embeddings or len(embeddings) != len(texts):
             return []
         out: list[tuple[int, str, np.ndarray]] = []
+        bad_dims: dict[int, int] = {}
         for (idx, _text, key), raw in zip(batch, embeddings):
             if raw is None:
                 continue
-            emb = self._validate_dim(np.asarray(raw, dtype=np.float16))
-            if emb is None:
+            emb = np.asarray(raw, dtype=np.float16)
+            if not self._validate_dim(emb):
+                bad_dims[len(emb)] = bad_dims.get(len(emb), 0) + 1
                 continue
             out.append((idx, key, emb))
+        if bad_dims:
+            details = ", ".join(f"{count} with dim {dim}" for dim, count in sorted(bad_dims.items()))
+            self.logger.error(f"Embedding dimension mismatch in batch: expected {self.dimensions}; rejected {details}")
         return out
 
     async def _call_with_retry(self, texts: list[str], **kwargs) -> list[list[float] | None] | None:
@@ -136,12 +141,9 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 return None
         return None
 
-    def _validate_dim(self, emb: np.ndarray) -> np.ndarray | None:
-        """Return only embeddings that exactly match the configured dimension."""
-        if len(emb) == self.dimensions:
-            return emb
-        self.logger.error(f"Embedding dimension mismatch: {len(emb)} != {self.dimensions}")
-        return None
+    def _validate_dim(self, emb: np.ndarray) -> bool:
+        """Return whether an embedding exactly matches the configured dimension."""
+        return len(emb) == self.dimensions
 
     # -- Cache --
 
