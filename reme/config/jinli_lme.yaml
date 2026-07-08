@@ -6,7 +6,6 @@ session_dir: history_session
 resource_dir: session
 daily_dir: ""
 digest_dir: ""
-tool_results_dir: tool_results
 
 jobs:
   update_index:
@@ -28,35 +27,6 @@ jobs:
       properties: { }
     steps:
       - backend: version_step
-
-  agentic_answer:
-    backend: base
-    description: "Answer the LongMemEval query by agentic search over indexed history."
-    parameters:
-      type: object
-      properties: { }
-    steps:
-      - backend: agentic_answer_step
-        agent_wrapper: agentic_search_agentwrapper
-
-  agentic_answer_and_judge:
-    backend: base
-    description: "Answer the LongMemEval query, judge it against the golden answer, and save result JSON."
-    parameters:
-      type: object
-      properties:
-        answer_id:
-          type: string
-          description: "shared run id used as result/{answer_id}.json for every LongMemEval index"
-      required:
-        - answer_id
-    steps:
-      - backend: agentic_answer_step
-        agent_wrapper: agentic_search_agentwrapper
-      - backend: lme_prepare_judge_step
-      - backend: answer_judge_step
-        agent_wrapper: default
-      - backend: lme_save_result_step
 
   vector_search:
     backend: base
@@ -196,9 +166,6 @@ components:
       builtin_tools: false
       job_tools:
         - search
-        - add_draft
-        - read_all_draft
-      tool_result_offload_skip_tools:
         - add_draft
         - read_all_draft
       sequential_tool_calls: true

@@ -33,7 +33,6 @@ class ApplicationConfig(BaseModel):
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
     mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
-    tool_results_dir: str = Field(default="", description="Subdirectory for offloaded tool results")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")

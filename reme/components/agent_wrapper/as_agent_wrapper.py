@@ -1,10 +1,7 @@
 """AgentScope backend for the unified agent wrapper."""
 
-import json
 import re
 import time
-from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
@@ -34,7 +31,7 @@ from agentscope.event import (
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
 )
-from agentscope.message import TextBlock, ToolResultBlock, ToolResultState, UserMsg
+from agentscope.message import TextBlock, ToolResultState, UserMsg
 from agentscope.middleware import MiddlewareBase
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
@@ -67,115 +64,6 @@ _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
-_SAFE_FILE_RE = re.compile(r"[^A-Za-z0-9_.-]+")
-_TOOL_RESULT_OFFLOAD_KEY = "reme_tool_result_offload"
-_TOOL_RESULT_OFFLOAD_MARKERS = (
-    "has been offloaded to",
-    "remaining content has been omitted for limited context",
-)
-
-
-def _safe_file_part(value: str) -> str:
-    """Return a filesystem-safe single path part."""
-    return _SAFE_FILE_RE.sub("_", value).strip("._") or uuid4().hex
-
-
-def _tool_result_text(tool_result: ToolResultBlock) -> str:
-    """Extract textual content from a tool result for marker detection."""
-    if isinstance(tool_result.output, str):
-        return tool_result.output
-    return "\n".join(block.text for block in tool_result.output if isinstance(block, TextBlock))
-
-
-class ToolResultOffloadMiddleware(MiddlewareBase):
-    """Offload historical tool results after each reasoning pass."""
-
-    def __init__(
-        self,
-        root: Path,
-        skip_tool_names: list[str] | tuple[str, ...] | set[str] | str | None = None,
-        reminder_template: str | None = None,
-    ) -> None:
-        self.root = root
-        if isinstance(skip_tool_names, str):
-            skip_tool_names = [skip_tool_names]
-        self.skip_tool_names = set(skip_tool_names or [])
-        self.reminder_template = reminder_template or (
-            "<system-reminder>"
-            "Tool result '{tool_name}' has been offloaded to '{path}'. "
-            "Use that file if the full result is needed."
-            "</system-reminder>"
-        )
-
-    async def on_reasoning(
-        self,
-        agent: Agent,
-        input_kwargs: dict,
-        next_handler: Any,
-    ) -> AsyncGenerator:
-        async for event in next_handler(**input_kwargs):
-            yield event
-        await self.offload_state_tool_results(agent.state)
-
-    async def offload_state_tool_results(self, state: AgentState) -> None:
-        """Persist unmarked tool results and replace their output with a reference."""
-        if not state.session_id:
-            return
-
-        safe_session_id = _safe_file_part(state.session_id)
-        session_dir = self.root / safe_session_id
-        rel_session_dir = Path(self.root.name) / safe_session_id
-        for msg in state.context:
-            for block in msg.get_content_blocks("tool_result"):
-                if isinstance(block, ToolResultBlock):
-                    await self._offload_tool_result(session_dir, rel_session_dir, block)
-
-    async def _offload_tool_result(
-        self,
-        session_dir: Path,
-        rel_session_dir: Path,
-        tool_result: ToolResultBlock,
-    ) -> None:
-        if tool_result.name in self.skip_tool_names:
-            return
-        if self._is_already_offloaded(tool_result):
-            return
-
-        session_dir.mkdir(parents=True, exist_ok=True)
-        filename = f"{_safe_file_part(tool_result.id)}.json"
-        path = session_dir / filename
-        rel_path = rel_session_dir / filename
-
-        payload = tool_result.model_dump_json(indent=2)
-        tmp_path = session_dir / f".{filename}.{uuid4().hex}.tmp"
-        tmp_path.write_text(payload + "\n", encoding="utf-8")
-        tmp_path.replace(path)
-
-        metadata = dict(tool_result.metadata or {})
-        metadata[_TOOL_RESULT_OFFLOAD_KEY] = {
-            "path": rel_path.as_posix(),
-            "offloaded_at": datetime.now(timezone.utc).isoformat(),
-        }
-        tool_result.metadata = metadata
-        reminder = self.reminder_template.format(
-            tool_name=tool_result.name,
-            path=rel_path.as_posix(),
-            full_path=path.as_posix(),
-        )
-        tool_result.output = [
-            TextBlock(
-                text=reminder,
-            ),
-        ]
-
-    @staticmethod
-    def _is_already_offloaded(tool_result: ToolResultBlock) -> bool:
-        """Return whether a tool result is already an offload reference."""
-        if tool_result.metadata.get(_TOOL_RESULT_OFFLOAD_KEY):
-            return True
-
-        text = _tool_result_text(tool_result)
-        return any(marker in text for marker in _TOOL_RESULT_OFFLOAD_MARKERS)
 
 
 class WorkspaceBackend(LocalBackend):
@@ -287,13 +175,6 @@ class AsAgentWrapper(BaseAgentWrapper):
         if self.app_context is None:
             return self.workspace_path / "mem_session" / "agentscope"
         return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
-
-    @property
-    def tool_results_path(self) -> Path:
-        """Directory used for offloaded AgentScope tool results."""
-        if self.app_context is None:
-            return self.workspace_path / "tool_results"
-        return self.workspace_path / self.app_context.app_config.tool_results_dir
 
     @staticmethod
     def _validate_session_id(session_id: str, field: str = "session_id") -> str:
@@ -411,17 +292,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             middlewares = [configured_middlewares]
         else:
             middlewares = list(configured_middlewares)
-        if bool(kwargs.get("offload_tool_results_after_reasoning", True)):
-            skip_tool_names = kwargs.get("tool_result_offload_skip_tools")
-            if skip_tool_names is None:
-                skip_tool_names = kwargs.get("tool_result_offload_whitelist", [])
-            middlewares.append(
-                ToolResultOffloadMiddleware(
-                    self.tool_results_path,
-                    skip_tool_names=skip_tool_names,
-                    reminder_template=kwargs.get("tool_result_offload_message"),
-                ),
-            )
 
         agent = Agent(
             name=self.name,
