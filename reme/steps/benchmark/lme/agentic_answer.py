@@ -53,11 +53,19 @@ class LmeAgenticAnswerStep(BaseStep):
             tool_context_id=question_id or question,
         )
         answer = (result.get("result") or "").strip()
+        # session_id names the trajectory file mem_session/agentscope/<session_id>.jsonl,
+        # so downstream tooling can locate this run's full tool-call trail.
+        session_id = str(result.get("session_id") or "")
 
         out_path = self.workspace_path / self._OUTPUT_FILE
         out_path.write_text(
             json.dumps(
-                {"question_id": question_id, "question": question, "answer": answer},
+                {
+                    "question_id": question_id,
+                    "question": question,
+                    "answer": answer,
+                    "session_id": session_id,
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -68,6 +76,12 @@ class LmeAgenticAnswerStep(BaseStep):
         self.context.response.success = True
         self.context.response.answer = answer
         self.context.response.metadata.update(
-            {"question_id": question_id, "question": question, "answer": answer, "path": self._OUTPUT_FILE},
+            {
+                "question_id": question_id,
+                "question": question,
+                "answer": answer,
+                "session_id": session_id,
+                "path": self._OUTPUT_FILE,
+            },
         )
         return self.context.response

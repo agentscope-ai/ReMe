@@ -17,7 +17,7 @@ jobs:
     steps:
       - backend: lme_auto_memory_step
         agent_wrapper: lme_memory
-        concurrency: 12
+        concurrency: 8
 
   update_index:
     backend: base
