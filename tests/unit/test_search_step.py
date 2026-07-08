@@ -210,6 +210,8 @@ def test_search_step_tool_context_seen_chunks_expire_after_ttl():
         assert second.metadata["dedup"]["seen_before"] == 0
         assert second.metadata["dedup"]["ttl_seconds"] == 3600.0
 
+    asyncio.run(run())
+
 
 def test_search_step_empty_query_fails_before_store_calls():
     """Empty queries fail fast and do not call file_store search methods."""
