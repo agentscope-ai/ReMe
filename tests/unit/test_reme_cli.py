@@ -2,8 +2,8 @@
 
 from types import SimpleNamespace
 
-from reme.components.service import CliService
 from reme.components.service import cli_service
+from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 
 
@@ -52,13 +52,18 @@ def test_cli_service_runs_configured_job_and_closes_app(capsys):
     events = []
 
     class FakeApp:
+        """Minimal app stub for exercising CliService lifecycle."""
+
         async def start(self):
+            """Record app startup."""
             events.append("start")
 
         async def close(self):
+            """Record app shutdown."""
             events.append("close")
 
         async def run_job(self, name, **kwargs):
+            """Record job execution and return a successful response."""
             events.append(("run_job", name, kwargs))
             return SimpleNamespace(answer="found it", success=True, metadata={"hits": 1})
 

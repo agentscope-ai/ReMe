@@ -1,7 +1,7 @@
 service:
   backend: cli
 
-workspace_dir: /Users/yuli/workspace/ReMe/datasets/longmemeval/1
+workspace_dir: ${LME_WORKSPACE_DIR:-datasets/longmemeval/1}
 session_dir: history_session
 resource_dir: session
 daily_dir: ""
@@ -28,24 +28,6 @@ jobs:
     steps:
       - backend: version_step
 
-  vector_search:
-    backend: base
-    description: "Vector workspace search."
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "search query"
-        limit:
-          type: integer
-          description: "max results"
-          default: 2
-      required:
-        - query
-    steps:
-      - backend: vector_search_step
-
   search:
     backend: base
     description: "Hybrid workspace search (vector + BM25, RRF-fused)."
@@ -69,24 +51,6 @@ jobs:
         candidate_multiplier: 5.0
         expand_links: true
         max_links_per_direction: 10
-
-  bm25_search:
-    backend: base
-    description: "BM25 keyword workspace search."
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "search query"
-        limit:
-          type: integer
-          description: "max results"
-          default: 2
-      required:
-        - query
-    steps:
-      - backend: bm25_search_step
 
   add_draft:
     backend: base

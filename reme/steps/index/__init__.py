@@ -1,13 +1,11 @@
 """Index steps."""
 
-from .bm25_search import Bm25SearchStep
 from .clear_store import ClearStoreStep
 from .draft import AddDraftStep, ReadAllDraftStep
 from .log_changes import LogChangesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
 from .search import SearchStep
-from .vector_search import VectorSearchStep
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
 from .watch_changes import (
@@ -18,7 +16,6 @@ from .watch_changes import (
 )
 
 __all__ = [
-    "Bm25SearchStep",
     "AddDraftStep",
     "ChangeApplyStep",
     "ClearStoreStep",
@@ -31,7 +28,6 @@ __all__ = [
     "ReadAllDraftStep",
     "SearchStep",
     "TraverseStep",
-    "VectorSearchStep",
     "UpdateCatalogStep",
     "UpdateIndexStep",
     "WatchChangesStep",

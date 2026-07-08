@@ -81,6 +81,7 @@ class WorkspaceBackend(LocalBackend):
         self._workspace_cwd = cwd
 
     async def getcwd(self) -> str:
+        """Return the configured workspace directory."""
         return self._workspace_cwd
 
 
@@ -294,7 +295,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
-            middlewares=[],
             state=state,
             model_config=ModelConfig(**(kwargs.get("model_config") or {})),
             context_config=ContextConfig(**(kwargs.get("context_config") or {})),

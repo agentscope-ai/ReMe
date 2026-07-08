@@ -5,8 +5,8 @@ import sys
 
 from .application import Application
 from .components import R
+from .components.service.cli_service import prepare_start_config, should_precheck_start
 from .config import parse_args, resolve_app_config
-from .components.service import prepare_start_config, should_precheck_start
 from .enumeration import ComponentEnum
 from .utils import cli_find_reme, load_env, precheck_start, running_service_config
 
