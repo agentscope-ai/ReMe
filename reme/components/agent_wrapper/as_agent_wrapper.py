@@ -1,7 +1,9 @@
 """AgentScope backend for the unified agent wrapper."""
 
+import json
 import re
 import time
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
@@ -32,7 +34,6 @@ from agentscope.event import (
     ToolResultTextDeltaEvent,
 )
 from agentscope.message import TextBlock, ToolResultState, UserMsg
-from agentscope.middleware import MiddlewareBase
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import (
@@ -287,18 +288,13 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
-        configured_middlewares = kwargs.get("middlewares") or []
-        if isinstance(configured_middlewares, MiddlewareBase):
-            middlewares = [configured_middlewares]
-        else:
-            middlewares = list(configured_middlewares)
 
         agent = Agent(
             name=self.name,
             system_prompt=system_prompt,
             model=model,
             toolkit=toolkit,
-            middlewares=middlewares,
+            middlewares=[],
             state=state,
             model_config=ModelConfig(**(kwargs.get("model_config") or {})),
             context_config=ContextConfig(**(kwargs.get("context_config") or {})),
