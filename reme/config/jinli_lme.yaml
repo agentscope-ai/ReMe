@@ -15,6 +15,8 @@ jobs:
       type: object
       properties: { }
     steps:
+      - backend: clear_paths_step   # wipe old daily notes so this is a clean rebuild
+        config_keys: [daily_dir]
       - backend: lme_auto_memory_step
         agent_wrapper: lme_memory
         concurrency: 8
@@ -82,6 +84,8 @@ jobs:
       type: object
       properties: { }
     steps:
+      - backend: clear_paths_step   # drop the previous answer so each run rewrites cleanly
+        paths: [mem_answer.json]
       - backend: lme_agentic_answer_step
         agent_wrapper: lme_agentic_answer
 

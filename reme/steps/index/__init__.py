@@ -1,6 +1,7 @@
 """Index steps."""
 
 from .bm25_search import Bm25SearchStep
+from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep
 from .draft import AddDraftStep, ReadAllDraftStep
 from .log_changes import LogChangesStep
@@ -21,6 +22,7 @@ __all__ = [
     "AddDraftStep",
     "Bm25SearchStep",
     "ChangeApplyStep",
+    "ClearPathsStep",
     "ClearStoreStep",
     "DEFAULT_LOW_POWER_POLL_MS",
     "DEFAULT_WATCH_DEBOUNCE_MS",
