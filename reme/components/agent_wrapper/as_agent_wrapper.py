@@ -68,12 +68,12 @@ _UUID_RE = re.compile(
 
 
 class WorkspaceBackend(LocalBackend):
-    """LocalBackend whose default cwd is the configured workspace.
+    """LocalBackend whose reported cwd is the configured agent workspace.
 
-    AgentScope's file tools (Read/Write/Edit/Glob/Grep) resolve relative
-    paths against ``backend.getcwd()``, which normally returns the host
-    process cwd. Pinning it here keeps every builtin tool rooted at the
-    same directory the Bash tool uses.
+    Some AgentScope builtin tools use ``backend.getcwd()`` for default search
+    paths or safety checks. Pinning it here keeps those operations aligned with
+    the cwd passed to Bash. Tools that require absolute file paths still keep
+    their own validation behavior.
     """
 
     def __init__(self, cwd: str) -> None:

@@ -3,6 +3,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
@@ -101,6 +103,42 @@ def test_cli_service_can_print_metadata_from_service_config(capsys):
     service.start_service(FakeApp())
 
     assert capsys.readouterr().out == 'found it\n{"hits": 1}\n'
+
+
+def test_cli_service_exits_nonzero_on_failed_response(capsys):
+    """Failed local CLI jobs write to stderr and produce a failing process status."""
+    events = []
+
+    class FakeApp:
+        """Minimal app stub for exercising failure handling."""
+
+        async def start(self):
+            """Record app startup."""
+            events.append("start")
+
+        async def close(self):
+            """Record app shutdown."""
+            events.append("close")
+
+        async def run_job(self, name, **kwargs):
+            """Record job execution and return a failed response."""
+            events.append(("run_job", name, kwargs))
+            return SimpleNamespace(answer="boom", success=False, metadata={})
+
+    service = CliService(job="search", job_args={"query": "hello"})
+
+    with pytest.raises(SystemExit) as exc_info:
+        service.start_service(FakeApp())
+
+    assert exc_info.value.code == 1
+    assert events == [
+        "start",
+        ("run_job", "search", {"query": "hello"}),
+        "close",
+    ]
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "boom\n"
 
 
 def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):

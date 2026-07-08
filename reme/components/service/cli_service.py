@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sys
 from typing import TYPE_CHECKING, Any
 
 from .base_service import BaseService
@@ -98,7 +99,12 @@ class CliService(BaseService):
         await app.start()
         try:
             response = await app.run_job(self.job, **self.job_args)
-            print(self._format_response(response.answer, response.metadata))
+            output = self._format_response(response.answer, response.metadata)
+            if response.success:
+                print(output)
+            else:
+                print(output, file=sys.stderr)
+                raise SystemExit(1)
         finally:
             await app.close()
 
