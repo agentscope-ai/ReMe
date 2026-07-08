@@ -23,7 +23,7 @@ jobs:
           pip install -U setuptools wheel
       - name: Install
         run: |
-          pip install -q -e .[dev]
+          pip install -q -e ".[dev,core]"
       - name: Install pre-commit
         run: |
           pre-commit install

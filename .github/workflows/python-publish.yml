@@ -35,7 +35,8 @@ jobs:
       run: python -m build
     - name: Test installation
       run: |
-        pip install dist/*.whl
+        WHEEL="$(ls dist/*.whl)"
+        pip install "${WHEEL}[core]"
         python -c "import reme; print(reme.__version__)"
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
