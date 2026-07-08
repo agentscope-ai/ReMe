@@ -12,9 +12,10 @@ Everything is also broken down by ``question_type``. Use ``--list-bad`` to print
 the samples whose golden answer was judged NOT reasonable.
 
 Examples:
-    python scripts/stats_check_golden.py
-    python scripts/stats_check_golden.py --list-bad
-    python scripts/stats_check_golden.py --json
+    python benchmark/longmemeval/stats_check_golden.py
+    python benchmark/longmemeval/stats_check_golden.py --list-bad
+    python benchmark/longmemeval/stats_check_golden.py --list-run-failed
+    python benchmark/longmemeval/stats_check_golden.py --json
 """
 
 import argparse
@@ -22,14 +23,16 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "datasets" / "longmemeval"
+LOGDIR = REPO / "logs" / "check_golden"
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--list-bad", action="store_true", help="list samples whose golden answer is NOT reasonable")
     p.add_argument("--list-bad-sessions", action="store_true", help="list samples whose answer_session_ids is NOT reasonable")
+    p.add_argument("--list-run-failed", action="store_true", help="list launched samples that did not produce readable output")
     p.add_argument("--json", action="store_true", help="emit the summary as JSON")
     return p.parse_args()
 
@@ -43,12 +46,20 @@ def pct(num: int, den: int) -> str:
     return f"{(100.0 * num / den):.1f}%" if den else "n/a"
 
 
+def logged_sample_ids() -> list[str]:
+    if not LOGDIR.exists():
+        return []
+    ids = [p.stem for p in LOGDIR.glob("*.log") if p.stem.isdigit()]
+    return sorted(ids, key=int)
+
+
 def main() -> int:
     args = parse_args()
     ids = sample_ids()
     total = len(ids)
 
     done, unreadable = [], []
+    finished_ids = set()
     for idx in ids:
         path = DATA / idx / "check_golden.json"
         if not path.exists():
@@ -58,10 +69,13 @@ def main() -> int:
                 data = json.load(f)
             data["_idx"] = idx
             done.append(data)
+            finished_ids.add(idx)
         except (OSError, json.JSONDecodeError):
             unreadable.append(idx)
 
     n = len(done)
+    launched = logged_sample_ids()
+    run_failed = [idx for idx in launched if idx not in finished_ids]
 
     # Overall tallies.
     golden_ok = sum(1 for d in done if d.get("verdict", {}).get("golden_answer_reasonable") is True)
@@ -86,7 +100,7 @@ def main() -> int:
     if args.json:
         print(json.dumps({
             "total": total, "finished": n, "pending": total - n - len(unreadable),
-            "unreadable": unreadable,
+            "unreadable": unreadable, "launched": len(launched), "run_failed": run_failed,
             "golden_answer_accuracy": round(golden_ok / n, 4) if n else None,
             "answer_session_ids_accuracy": round(sess_ok / n, 4) if n else None,
             "answer_session_date_ok_rate": round(date_ok / n, 4) if n else None,
@@ -105,6 +119,8 @@ def main() -> int:
     print(f"未完成              : {total - n - len(unreadable)}")
     if unreadable:
         print(f"损坏/无法解析       : {len(unreadable)}  {unreadable}")
+    print(f"已启动过 (有 log)   : {len(launched)}")
+    print(f"运行失败/无可读产出 : {len(run_failed)}")
     print("-" * 60)
     print(f"golden answer 准确率 : {pct(golden_ok, n)}   ({golden_ok}/{n} 判为合理)")
     print(f"answer_session 合理率: {pct(sess_ok, n)}   ({sess_ok}/{n})")
@@ -123,6 +139,11 @@ def main() -> int:
     if args.list_bad_sessions:
         print("-" * 60)
         print(f"answer_session_ids 判为不合理的样例 ({len(bad_sessions)}): {bad_sessions}")
+    if args.list_run_failed:
+        print("-" * 60)
+        print(f"运行失败/无可读 check_golden.json 的样例 ({len(run_failed)}): {run_failed}")
+        for idx in run_failed:
+            print(f"  {idx}: {LOGDIR / f'{idx}.log'}")
     print("=" * 60)
     return 0
 

@@ -24,7 +24,7 @@ import os
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "datasets" / "longmemeval"
 LOGDIR = REPO / "logs" / "check_golden"
 
