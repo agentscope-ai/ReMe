@@ -19,6 +19,9 @@ parts:
     chapters:
       - file: memory_search
       - file: proactive
+  - caption: Benchmark
+    chapters:
+      - file: lme_benchmark
   - caption: Community
     chapters:
       - file: contributing
