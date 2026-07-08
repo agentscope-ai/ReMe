@@ -106,6 +106,66 @@ def test_parse_frontmatter_metadata_is_opt_in():
     asyncio.run(run())
 
 
+def test_parse_frontmatter_metadata_keys_allowlist():
+    """``include_frontmatter_keys_in_metadata`` restricts copied keys to an allow-list."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            body = (
+                "---\n"
+                "name: locomo-event\n"
+                "description: Jon lost his job\n"
+                "conversation_date: 2023-01-19\n"
+                "---\n"
+                "Jon said he lost his job today.\n"
+            )
+            path = _write_md(tmp, "daily/2023-01-19/locomo-event.md", body)
+
+            # Allow-list restricted to a single key.
+            chunker = MarkdownFileChunker(
+                chunk_chars=500,
+                include_frontmatter_in_metadata=True,
+                include_frontmatter_keys_in_metadata=["conversation_date"],
+            )
+            _, chunks = await chunker.chunk(path)
+            assert len(chunks) == 1
+            assert chunks[0].metadata == {"conversation_date": "2023-01-19"}
+
+            # Allow-list with a key not present in frontmatter is a no-op for that key.
+            chunker = MarkdownFileChunker(
+                chunk_chars=500,
+                include_frontmatter_in_metadata=True,
+                include_frontmatter_keys_in_metadata=["conversation_date", "absent"],
+            )
+            _, chunks = await chunker.chunk(path)
+            assert chunks[0].metadata == {"conversation_date": "2023-01-19"}
+
+            # Empty allow-list (not None) keeps the legacy "all non-empty keys" behavior.
+            chunker = MarkdownFileChunker(
+                chunk_chars=500,
+                include_frontmatter_in_metadata=True,
+                include_frontmatter_keys_in_metadata=[],
+            )
+            _, chunks = await chunker.chunk(path)
+            assert chunks[0].metadata == {
+                "name": "locomo-event",
+                "description": "Jon lost his job",
+                "conversation_date": "2023-01-19",
+            }
+
+            # Allow-list is ignored when the master toggle is off (back-compat default).
+            chunker = MarkdownFileChunker(
+                chunk_chars=500,
+                include_frontmatter_in_metadata=False,
+                include_frontmatter_keys_in_metadata=["conversation_date"],
+            )
+            _, chunks = await chunker.chunk(path)
+            assert chunks[0].metadata == {}
+        print("✓ test_parse_frontmatter_metadata_keys_allowlist passed")
+
+    asyncio.run(run())
+
+
 def test_parse_small_body_one_chunk():
     """A body shorter than chunk_chars produces exactly one chunk that contains the body."""
 

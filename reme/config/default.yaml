@@ -667,12 +667,13 @@ components:
       backend: markdown
       supported_extensions: [ "md" ]
       include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []  # empty = all non-empty frontmatter keys
     json:
       backend: json
       supported_extensions: [ "json" ]
     jsonl:
       backend: jsonl
-      supported_extensions: [ "jsonl" ]
+      supported_extensions: [ "jsonl" ]  # noqa: keep #314 chunker scope intact after #325
     default:
       backend: default
       supported_extensions: ["txt","log"]

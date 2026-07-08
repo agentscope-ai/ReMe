@@ -116,6 +116,7 @@ class MarkdownFileChunker(BaseFileChunker):
         chunk_chars: int = 10000,
         embed_toc: bool = True,
         include_frontmatter_in_metadata: bool = False,
+        include_frontmatter_keys_in_metadata: list[str] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -123,6 +124,7 @@ class MarkdownFileChunker(BaseFileChunker):
         self.chunk_chars = max(100, chunk_chars)
         self.embed_toc = embed_toc
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
+        self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         from mistletoe.markdown_renderer import MarkdownRenderer
@@ -138,7 +140,10 @@ class MarkdownFileChunker(BaseFileChunker):
                 tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                 chunks = self._chunk_node(tree, "", "", rel_path, renderer)
             if self.include_frontmatter_in_metadata:
-                chunk_metadata = self._chunk_metadata(front_matter)
+                chunk_metadata = self._chunk_metadata(
+                    front_matter,
+                    allow_keys=self.include_frontmatter_keys_in_metadata or None,
+                )
                 for chunk in chunks:
                     chunk.metadata = chunk_metadata.copy()
 
@@ -179,9 +184,18 @@ class MarkdownFileChunker(BaseFileChunker):
         return front_matter, "".join(lines[close_idx + 1 :]), close_idx + 1
 
     @staticmethod
-    def _chunk_metadata(front_matter: FileFrontMatter) -> dict:
-        """Expose frontmatter fields on chunks so search filters can match them."""
-        return {key: value for key, value in front_matter.model_dump(mode="json").items() if value not in (None, "")}
+    def _chunk_metadata(
+        front_matter: FileFrontMatter,
+        allow_keys: list[str] | None = None,
+    ) -> dict:
+        """Expose frontmatter fields on chunks so search filters can match them.
+
+        ``allow_keys`` (when non-empty) restricts the output to that subset of
+        field names; absent or empty means "all fields with non-empty values".
+        """
+        dumped = front_matter.model_dump(mode="json")
+        filtered = dumped if not allow_keys else {k: dumped.get(k) for k in allow_keys if k in dumped}
+        return {key: value for key, value in filtered.items() if value not in (None, "")}
 
     def _build_tree(self, doc: Any, renderer, line_offset: int = 0) -> MdNode:
         """Heading-level stack folds mistletoe's flat children into nested
