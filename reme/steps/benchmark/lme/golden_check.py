@@ -18,6 +18,7 @@ structured verdict. It is written to the workspace root (e.g.
 """
 
 import json
+import asyncio
 from uuid import uuid4
 
 from ...base_step import BaseStep
@@ -26,6 +27,8 @@ from ....components import R
 # File written under the workspace root with the full review + verdict payload.
 OUTPUT_FILENAME = "check_golden.json"
 SESSION_REVIEW_FILENAME = "session_review.json"
+RETRY_INITIAL_SECONDS = 5.0
+RETRY_MAX_SECONDS = 300.0
 
 # Structured verdict the judge agent must produce (extracted from its reasoning).
 _VERDICT_SCHEMA = {
@@ -132,12 +135,37 @@ class GoldenCheckStep(BaseStep):
         )
 
         tool_context_id = str(self.context.get("tool_context_id") or f"lme-golden-{uuid4()}")
-        result = await self.agent_wrapper.reply(
-            user_prompt,
-            system_prompt=self.get_prompt("system_prompt"),
-            tool_context_id=tool_context_id,
-            output_schema=_VERDICT_SCHEMA,
-        )
+        retry_initial_seconds = float(self.kwargs.get("retry_initial_seconds", RETRY_INITIAL_SECONDS))
+        retry_max_seconds = float(self.kwargs.get("retry_max_seconds", RETRY_MAX_SECONDS))
+        retry_max_attempts_raw = self.kwargs.get("retry_max_attempts")
+        retry_max_attempts = int(retry_max_attempts_raw) if retry_max_attempts_raw not in (None, "") else 0
+        if retry_initial_seconds <= 0:
+            retry_initial_seconds = RETRY_INITIAL_SECONDS
+        retry_max_seconds = max(retry_max_seconds, retry_initial_seconds)
+
+        attempt = 1
+        sleep_seconds = retry_initial_seconds
+        while True:
+            try:
+                result = await self.agent_wrapper.reply(
+                    user_prompt,
+                    system_prompt=self.get_prompt("system_prompt"),
+                    tool_context_id=tool_context_id,
+                    output_schema=_VERDICT_SCHEMA,
+                )
+                if attempt > 1:
+                    self.logger.info(f"[{self.name}] golden check recovered after {attempt} attempts")
+                break
+            except Exception as exc:
+                if 0 < retry_max_attempts <= attempt:
+                    raise
+                next_sleep = min(sleep_seconds, retry_max_seconds)
+                self.logger.warning(
+                    f"[{self.name}] golden check attempt {attempt} failed: {exc}; " f"retrying in {next_sleep:.1f}s",
+                )
+                await asyncio.sleep(next_sleep)
+                sleep_seconds = min(sleep_seconds * 2, retry_max_seconds)
+                attempt += 1
 
         # The structured verdict is the real output; the free-text reply is only the
         # agent's closing narration and is kept as a fallback.
