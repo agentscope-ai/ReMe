@@ -65,6 +65,14 @@ def logged_sample_ids() -> list[str]:
     return sorted(ids, key=int)
 
 
+def write_check_golden_list(done: list[dict], output_path: Path) -> None:
+    """Write all readable check_golden records as JSONL."""
+    with output_path.open("w", encoding="utf-8") as f:
+        for data in done:
+            f.write(json.dumps(data, ensure_ascii=False))
+            f.write("\n")
+
+
 def main() -> int:
     """Main entry point."""
     args = parse_args()
@@ -87,6 +95,8 @@ def main() -> int:
             unreadable.append(idx)
 
     n = len(done)
+    output_path = Path.cwd() / "check_golden_list.jsonl"
+    write_check_golden_list(done, output_path)
     launched = logged_sample_ids()
     run_failed = [idx for idx in launched if idx not in finished_ids]
 
@@ -131,6 +141,7 @@ def main() -> int:
                     "by_type": {t: {**c, "golden_acc": round(c["golden_ok"] / c["n"], 4)} for t, c in by_type.items()},
                     "bad_golden": bad_golden,
                     "bad_sessions": bad_sessions,
+                    "check_golden_list": str(output_path),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -146,6 +157,7 @@ def main() -> int:
     print(f"未完成              : {total - n - len(unreadable)}")
     if unreadable:
         print(f"损坏/无法解析       : {len(unreadable)}  {unreadable}")
+    print(f"已合并 JSONL        : {output_path}")
     print(f"已启动过 (有 log)   : {len(launched)}")
     print(f"运行失败/无可读产出 : {len(run_failed)}")
     print("-" * 60)
