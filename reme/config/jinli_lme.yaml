@@ -172,16 +172,27 @@ jobs:
     steps:
       - backend: python_execute_step
 
-  check_golden:
+  session_review:
     backend: base
-    description: "Review every session for query/answer-relevant evidence, then judge whether the golden answer is reasonable."
+    description: "Review every session for query/answer-relevant evidence and write session_review.json."
     parameters:
       type: object
       properties: { }
     steps:
+      - backend: clear_paths_step   # drop the previous review so each run rewrites cleanly
+        paths: [session_review.json]
       - backend: lme_session_review_step
         agent_wrapper: lme_review
-        concurrency: 10
+
+  golden_check:
+    backend: base
+    description: "Read session_review.json and judge whether the golden answer is reasonable."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: clear_paths_step   # drop the previous verdict so each run rewrites cleanly
+        paths: [check_golden.json]
       - backend: lme_golden_check_step
         agent_wrapper: lme_judge
 
