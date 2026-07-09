@@ -19,6 +19,8 @@ Examples:
 
 import argparse
 import shutil
+import time
+from collections.abc import Iterator
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -32,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--start", type=int, default=0, help="first numeric sample id to clean, inclusive (default 0)")
     p.add_argument("--end", type=int, default=499, help="last numeric sample id to clean, inclusive (default 499)")
     p.add_argument("--limit", type=int, default=0, help="only clean the first N selected samples (0 = all)")
+    p.add_argument("--progress-every", type=int, default=25, help="print progress every N samples when applying")
     p.add_argument("--apply", action="store_true", help="actually delete files; default is dry-run")
     return p.parse_args()
 
@@ -50,13 +53,20 @@ def delete_path(path: Path) -> None:
         path.unlink()
 
 
-def is_under(path: Path, parent: Path) -> bool:
-    """Return True when ``path`` is inside ``parent``."""
-    try:
-        path.relative_to(parent)
-        return True
-    except ValueError:
-        return False
+def iter_sample_targets(sample_dir: Path) -> Iterator[Path]:
+    """Yield generated artifacts for one sample.
+
+    Root-level generated directories are yielded as a whole, so there is no
+    need to recurse into them. AppleDouble files are only searched inside the
+    kept ``session/`` directory.
+    """
+    for path in sorted(sample_dir.iterdir(), key=lambda p: p.name):
+        if path.name not in KEEP:
+            yield path
+
+    session_dir = sample_dir / "session"
+    if session_dir.is_dir():
+        yield from session_dir.rglob("._*")
 
 
 def main() -> int:
@@ -69,29 +79,38 @@ def main() -> int:
     if args.limit:
         ids = ids[: args.limit]
 
-    targets: list[Path] = []
-    target_set: set[Path] = set()
-    for idx in ids:
+    total_targets = 0
+    deleted = 0
+    started_at = time.time()
+    for ordinal, idx in enumerate(ids, start=1):
         sample_dir = DATA / idx
-        for path in sorted(sample_dir.iterdir(), key=lambda p: p.name):
-            if path.name not in KEEP:
-                targets.append(path)
-                target_set.add(path)
-        for path in sorted(sample_dir.rglob("._*")):
-            if path not in target_set and not any(is_under(path, target) for target in targets):
-                targets.append(path)
-                target_set.add(path)
+        sample_started_at = time.time()
+        targets = list(iter_sample_targets(sample_dir))
+        total_targets += len(targets)
+        print(f"[sample {ordinal}/{len(ids)}] {idx} targets={len(targets)}", flush=True)
+        for path in targets:
+            if args.apply:
+                target_started_at = time.time()
+                print(f"[delete] {path}", flush=True)
+                delete_path(path)
+                deleted += 1
+                print(f"[deleted] {path} elapsed={time.time() - target_started_at:.1f}s", flush=True)
+            else:
+                print(f"[would-delete] {path}")
+        if args.apply and args.progress_every > 0 and (int(idx) + 1) % args.progress_every == 0:
+            elapsed = time.time() - started_at
+            print(
+                f"[progress] processed={ordinal}/{len(ids)} through={idx} " f"deleted={deleted} elapsed={elapsed:.1f}s",
+                flush=True,
+            )
+        print(f"[sample-done] {idx} elapsed={time.time() - sample_started_at:.1f}s", flush=True)
 
     mode = "DELETE" if args.apply else "DRY-RUN"
     print(
         f"{mode} LongMemEval generated artifacts: samples={len(ids)} "
-        f"targets={len(targets)} range={args.start}..{args.end}",
+        f"targets={total_targets} deleted={deleted if args.apply else 0} range={args.start}..{args.end}",
         flush=True,
     )
-    for path in targets:
-        print(path)
-        if args.apply:
-            delete_path(path)
 
     if not args.apply:
         print("No files deleted. Re-run with --apply to delete these paths.", flush=True)
