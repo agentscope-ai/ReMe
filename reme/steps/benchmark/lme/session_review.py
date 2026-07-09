@@ -20,8 +20,8 @@ from pathlib import Path
 from ...base_step import BaseStep
 from ....components import R
 
-START_INTERVAL_SECONDS = 2.0
-MAX_CONCURRENCY = 30
+START_INTERVAL_SECONDS = 1.0
+MAX_CONCURRENCY = 60
 RETRY_INITIAL_SECONDS = 5.0
 RETRY_MAX_SECONDS = 300.0
 OUTPUT_FILENAME = "session_review.json"
