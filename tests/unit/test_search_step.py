@@ -7,7 +7,7 @@ from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode
-from reme.steps.index import AddDraftStep, ReadAllDraftStep, SearchStep
+from reme.steps.index import AddDraftStep, Bm25SearchStep, ReadAllDraftStep, SearchStep, VectorSearchStep
 
 
 class FakeSearchStore(BaseFileStore):
@@ -106,6 +106,26 @@ def test_search_step_rrf_merges_vector_and_keyword_by_chunk_id():
         assert {call[0] for call in store.calls} == {"vector", "keyword"}
         assert all(call[2] == 6 for call in store.calls)
         assert all(call[3] == {"path_prefix": "daily/"} for call in store.calls)
+
+    asyncio.run(run())
+
+
+def test_lme_plain_search_steps_use_ten_times_limit_candidates():
+    """LME vector/bm25 tools fetch a wider candidate pool before truncating."""
+
+    async def run():
+        store = FakeSearchStore()
+
+        vector = VectorSearchStep(file_store=store, include_source=False)
+        bm25 = Bm25SearchStep(file_store=store, include_source=False)
+
+        await vector(RuntimeContext(query="alpha", limit=3))
+        await bm25(RuntimeContext(query="alpha", limit=3))
+
+        assert store.calls == [
+            ("vector", "alpha", 30, {}),
+            ("keyword", "alpha", 30, {}),
+        ]
 
     asyncio.run(run())
 

@@ -9,6 +9,7 @@ from ...components import R
 from ...schema import FileChunk
 
 _MAX_CANDIDATES: Final = 200
+_CANDIDATE_MULTIPLIER: Final = 10
 
 
 @R.register("bm25_search_step")
@@ -57,7 +58,7 @@ class Bm25SearchStep(BaseStep):
             return self.context.response
         assert limit > 0, f"limit must be positive, got {limit}"
 
-        candidates = min(_MAX_CANDIDATES, max(1, limit * 5))
+        candidates = min(_MAX_CANDIDATES, max(1, limit * _CANDIDATE_MULTIPLIER))
         results = await self.file_store.keyword_search(query, candidates, {})
         self.logger.info(f"[{self.name}] query={query!r} candidates={candidates} hits={len(results)}")
 
