@@ -96,7 +96,11 @@ class CliService(BaseService):
         if not self.job:
             raise ValueError("cli service requires service.job")
 
-        await app.start()
+        start_job = getattr(app, "start_job", None)
+        if start_job is None:
+            await app.start()
+        else:
+            await start_job(self.job)
         try:
             response = await app.run_job(self.job, **self.job_args)
             output = self._format_response(response.answer, response.metadata)

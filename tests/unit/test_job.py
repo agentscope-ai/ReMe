@@ -11,12 +11,13 @@ import pytest
 from reme.enumeration import ComponentEnum
 from reme.application import Application
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
+from reme.steps import BaseStep
 from reme.schema import ComponentConfig
 
 # -- helpers ------------------------------------------------------------------
@@ -140,6 +141,94 @@ def test_start_without_app_context_raises():
         job = BaseJob(name="j")
         with pytest.raises(RuntimeError, match="app_context must be provided"):
             await job._start()
+
+    asyncio.run(run())
+
+
+def test_application_start_job_skips_unreferenced_components(tmp_path):
+    class FailingEmbedding(BaseComponent):
+        component_type = ComponentEnum.AS_EMBEDDING
+
+        async def _start(self):
+            raise RuntimeError("embedding should not start")
+
+    R.register(FailingEmbedding, "failing_embedding_for_start_job_test")
+
+    async def run():
+        app = Application(
+            workspace_dir=str(tmp_path),
+            enable_logo=False,
+            log_to_console=False,
+            log_to_file=False,
+            service={"backend": "cli"},
+            components={
+                "as_embedding": {
+                    "default": {
+                        "backend": "failing_embedding_for_start_job_test",
+                    },
+                },
+            },
+            jobs={
+                "version": {
+                    "backend": "base",
+                    "steps": [{"backend": "version_step"}],
+                },
+            },
+        )
+        await app.start_job("version")
+        try:
+            response = await app.run_job("version")
+        finally:
+            await app.close()
+
+        assert response.success is True
+        assert response.metadata["version"]
+
+    asyncio.run(run())
+
+
+def test_application_start_job_starts_referenced_step_components(tmp_path):
+    class TrackingFileStore(BaseComponent):
+        component_type = ComponentEnum.FILE_STORE
+
+    class NeedsFileStoreStep(BaseStep):
+        async def execute(self):
+            assert self.context is not None
+            self.context.response.metadata["file_store_started"] = self.file_store.is_started
+            return self.context.response
+
+    R.register(TrackingFileStore, "tracking_file_store_for_start_job_test")
+    R.register(NeedsFileStoreStep, "needs_file_store_for_start_job_test")
+
+    async def run():
+        app = Application(
+            workspace_dir=str(tmp_path),
+            enable_logo=False,
+            log_to_console=False,
+            log_to_file=False,
+            service={"backend": "cli"},
+            components={
+                "file_store": {
+                    "default": {
+                        "backend": "tracking_file_store_for_start_job_test",
+                    },
+                },
+            },
+            jobs={
+                "needs_file_store": {
+                    "backend": "base",
+                    "steps": [{"backend": "needs_file_store_for_start_job_test"}],
+                },
+            },
+        )
+        await app.start_job("needs_file_store")
+        try:
+            response = await app.run_job("needs_file_store")
+        finally:
+            await app.close()
+
+        assert response.success is True
+        assert response.metadata["file_store_started"] is True
 
     asyncio.run(run())
 

@@ -3,6 +3,7 @@
 import asyncio
 import heapq
 from concurrent.futures import ThreadPoolExecutor
+from types import CodeType
 from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
@@ -173,14 +174,81 @@ class Application(BaseComponent):
                     )
         return in_degree, dependents
 
+    def _job_component_order(self, job: BaseJob) -> list[BaseComponent]:
+        """Return only the configured components referenced by a job's steps, with dependencies first."""
+        from .steps.base_step import BaseStep, Ref
+
+        nodes: dict[_NodeKey, BaseComponent] = {
+            (ctype, name): comp for ctype, group in self.context.components.items() for name, comp in group.items()
+        }
+        required: set[_NodeKey] = set()
+
+        def code_references(code: CodeType, name: str) -> bool:
+            return name in code.co_names or any(
+                isinstance(const, CodeType) and code_references(const, name) for const in code.co_consts
+            )
+
+        def step_references(step_cls: type[BaseStep], name: str) -> bool:
+            for cls in step_cls.__mro__:
+                if cls is BaseStep:
+                    break
+                for value in cls.__dict__.values():
+                    target = value
+                    if isinstance(value, (staticmethod, classmethod)):
+                        target = value.__func__
+                    elif isinstance(value, property):
+                        target = value.fget
+                    code = getattr(target, "__code__", None)
+                    if isinstance(code, CodeType) and code_references(code, name):
+                        return True
+            return False
+
+        def add_required(key: _NodeKey) -> None:
+            if key not in nodes:
+                raise ValueError(f"Job '{job.name}' depends on unregistered {key[0].value}:{key[1]}")
+            if key in required:
+                return
+            required.add(key)
+            for dep in nodes[key].dependencies:
+                dep_key = (dep.ctype, dep.name)
+                if dep_key in nodes:
+                    add_required(dep_key)
+                elif not dep.optional:
+                    raise ValueError(
+                        f"Component {key[0].value}:{key[1]} depends on unregistered " f"{dep.ctype.value}:{dep.name}",
+                    )
+
+        for step_cls, params in job.step_specs:
+            for cls in reversed(step_cls.__mro__):
+                for attr, ref in cls.__dict__.items():
+                    if not isinstance(ref, Ref):
+                        continue
+                    value = params.get(attr)
+                    if isinstance(value, BaseComponent):
+                        continue
+                    explicit = value is not None
+                    referenced = step_references(step_cls, attr)
+                    if not explicit and not referenced:
+                        continue
+                    key = (ref.comp_enum, value or "default")
+                    if ref.optional and key not in nodes:
+                        continue
+                    add_required(key)
+
+        return [comp for comp in self._topological_order() if (comp.component_type, comp.name) in required]
+
     # ----- Lifecycle -----------------------------------------------------
+
+    def _start_thread_pool(self) -> None:
+        """Initialize the shared thread pool once when configured."""
+        pool_size = self.config.thread_pool_max_workers
+        if pool_size > 0 and self.context.thread_pool is None:
+            self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
+            self.logger.info(f"Thread pool created with max_workers={pool_size}")
 
     async def _start(self) -> None:
         """Start components, then jobs as base > stream > background > cron."""
-        pool_size = self.config.thread_pool_max_workers
-        if pool_size > 0:
-            self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
-            self.logger.info(f"Thread pool created with max_workers={pool_size}")
+        self._start_thread_pool()
         try:
             components = self._topological_order()
             jobs = list(self.context.jobs.values())
@@ -190,6 +258,20 @@ class Application(BaseComponent):
             cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
             for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
                 await self._start_one(c)
+        except Exception:
+            await self._close()
+            raise
+
+    async def start_job(self, name: str) -> None:
+        """Start one job and only the components its configured steps reference."""
+        if name not in self.context.jobs:
+            raise KeyError(f"Job '{name}' not found")
+        self._start_thread_pool()
+        try:
+            job = self.context.jobs[name]
+            await self._start_one(job)
+            for component in self._job_component_order(job):
+                await self._start_one(component)
         except Exception:
             await self._close()
             raise
