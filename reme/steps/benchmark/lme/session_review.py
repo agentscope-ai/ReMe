@@ -20,12 +20,11 @@ from pathlib import Path
 from ...base_step import BaseStep
 from ....components import R
 
-START_INTERVAL_SECONDS = 5.0
+START_INTERVAL_SECONDS = 2.0
+MAX_CONCURRENCY = 30
 RETRY_INITIAL_SECONDS = 5.0
 RETRY_MAX_SECONDS = 300.0
 OUTPUT_FILENAME = "session_review.json"
-REPO_ROOT = Path(__file__).resolve().parents[4]
-GLOBAL_THROTTLE_PATH = REPO_ROOT / "logs" / "session_review" / ".submit_throttle"
 _LME_DATETIME_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2}).*?(\d{2}):(\d{2})")
 
 # Structured schema the review agent must return for each session.
@@ -83,37 +82,7 @@ class SessionReviewStep(BaseStep):
         except ValueError:
             return None
 
-    @staticmethod
-    def _wait_for_global_start_slot() -> None:
-        """Throttle request starts across all concurrent ``session_review`` processes."""
-        try:
-            import portalocker
-        except ImportError as exc:
-            raise RuntimeError(
-                "lme_session_review_step requires the benchmark extra for cross-process throttling. "
-                "Install with `pip install 'reme-ai[benchmark]'`.",
-            ) from exc
-
-        GLOBAL_THROTTLE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with portalocker.Lock(GLOBAL_THROTTLE_PATH, mode="a+", encoding="utf-8") as f:
-            f.seek(0)
-            raw = f.read().strip()
-            try:
-                last_started_at = float(raw) if raw else 0.0
-            except ValueError:
-                last_started_at = 0.0
-
-            now = time.time()
-            next_start_at = last_started_at + START_INTERVAL_SECONDS
-            if now < next_start_at:
-                time.sleep(next_start_at - now)
-                now = time.time()
-
-            f.seek(0)
-            f.truncate()
-            f.write(f"{now:.6f}")
-            f.flush()
-
+    # pylint: disable=too-many-statements
     async def execute(self):
         assert self.context is not None
         if self.agent_wrapper is None:
@@ -178,10 +147,17 @@ class SessionReviewStep(BaseStep):
             session_id for session_id in answer_session_ids if session_id not in illegal_answer_session_ids
         ]
         total = len(sessions)
+        start_interval_seconds = float(self.kwargs.get("start_interval_seconds", START_INTERVAL_SECONDS))
+        if start_interval_seconds < 0:
+            start_interval_seconds = START_INTERVAL_SECONDS
+        concurrency = int(self.kwargs.get("concurrency", MAX_CONCURRENCY))
+        if concurrency <= 0:
+            concurrency = MAX_CONCURRENCY
+        concurrency = min(concurrency, MAX_CONCURRENCY)
         self.logger.info(
             f"[{self.name}] reviewing {total} sessions from {session_dir} "
             f"(filtered {len(session_ids_illegal)} sessions after question_date, "
-            f"start_interval={START_INTERVAL_SECONDS}s)",
+            f"start_interval={start_interval_seconds}s, concurrency={concurrency})",
         )
 
         failed_reviews: list[dict] = []
@@ -193,37 +169,44 @@ class SessionReviewStep(BaseStep):
             retry_initial_seconds = RETRY_INITIAL_SECONDS
         retry_max_seconds = max(retry_max_seconds, retry_initial_seconds)
         retry_gate = asyncio.Condition()
-        retrying_review_idxs: set[int] = set()
+        retry_sleeping_review_idxs: set[int] = set()
+        submit_lock = asyncio.Lock()
+        last_submitted_at = 0.0
 
-        def has_prior_retry(idx: int) -> bool:
-            return any(retry_idx < idx for retry_idx in retrying_review_idxs)
+        def has_prior_retry_sleeping(idx: int) -> bool:
+            return any(retry_idx < idx for retry_idx in retry_sleeping_review_idxs)
 
         async def wait_for_start_slot() -> None:
-            await asyncio.to_thread(self._wait_for_global_start_slot)
+            nonlocal last_submitted_at
+            async with submit_lock:
+                sleep_seconds = last_submitted_at + start_interval_seconds - time.monotonic()
+                if sleep_seconds > 0:
+                    await asyncio.sleep(sleep_seconds)
+                last_submitted_at = time.monotonic()
 
         async def wait_for_healthy_start_slot(idx: int, session_id: str) -> None:
             while True:
                 async with retry_gate:
-                    if has_prior_retry(idx):
+                    if has_prior_retry_sleeping(idx):
                         self.logger.info(
-                            f"[{self.name}] ({idx}/{total}) {session_id} waits for earlier retry to recover",
+                            f"[{self.name}] ({idx}/{total}) {session_id} waits for earlier retry sleep",
                         )
-                    await retry_gate.wait_for(lambda: not has_prior_retry(idx))
+                    await retry_gate.wait_for(lambda: not has_prior_retry_sleeping(idx))
 
                 await wait_for_start_slot()
 
                 async with retry_gate:
-                    if not has_prior_retry(idx):
+                    if not has_prior_retry_sleeping(idx):
                         return
 
-        async def mark_retrying(idx: int) -> None:
+        async def mark_retry_sleeping(idx: int) -> None:
             async with retry_gate:
-                retrying_review_idxs.add(idx)
+                retry_sleeping_review_idxs.add(idx)
                 retry_gate.notify_all()
 
-        async def mark_recovered(idx: int) -> None:
+        async def mark_retry_awake(idx: int) -> None:
             async with retry_gate:
-                retrying_review_idxs.discard(idx)
+                retry_sleeping_review_idxs.discard(idx)
                 retry_gate.notify_all()
 
         async def reply_with_retry(idx: int, user_prompt: str, session_id: str) -> dict:
@@ -237,21 +220,22 @@ class SessionReviewStep(BaseStep):
                         system_prompt=self.get_prompt("system_prompt"),
                         output_schema=_SESSION_REVIEW_SCHEMA,
                     )
-                    await mark_recovered(idx)
+                    await mark_retry_awake(idx)
                     if attempt > 1:
                         self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
                     return result
                 except Exception as exc:
                     if 0 < retry_max_attempts <= attempt:
-                        await mark_recovered(idx)
+                        await mark_retry_awake(idx)
                         raise
-                    await mark_retrying(idx)
+                    await mark_retry_sleeping(idx)
                     next_sleep = min(sleep_seconds, retry_max_seconds)
                     self.logger.warning(
                         f"[{self.name}] review attempt {attempt} failed for {session_id}: {exc}; "
                         f"retrying in {next_sleep:.1f}s",
                     )
                     await asyncio.sleep(next_sleep)
+                    await mark_retry_awake(idx)
                     sleep_seconds = min(sleep_seconds * 2, retry_max_seconds)
                     attempt += 1
 
@@ -296,10 +280,16 @@ class SessionReviewStep(BaseStep):
             )
             return summary
 
+        review_semaphore = asyncio.Semaphore(concurrency)
+
+        async def review_one_limited(idx: int, session: dict, session_id: str, session_date: str) -> dict | None:
+            async with review_semaphore:
+                return await review_one(idx, session, session_id, session_date)
+
         # gather preserves input order, so summaries stay chronological.
         results = await asyncio.gather(
             *(
-                review_one(idx, session, session_id, session_date)
+                review_one_limited(idx, session, session_id, session_date)
                 for idx, (session, session_id, session_date) in enumerate(sessions, start=1)
             ),
         )

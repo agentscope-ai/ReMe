@@ -7,9 +7,9 @@ range, this launches:
     reme start config=jinli_lme job=session_review
 
 with ``LME_WORKSPACE_DIR`` pointed at that sample. Multiple samples can run at
-once, capped by ``--concurrency``. Request submission inside ``session_review``
-is globally throttled across these processes by the step itself. Each sample's
-stdout/stderr goes to ``logs/session_review/<idx>.log``.
+once, capped by ``--concurrency``. By default this runner launches one sample at
+a time; request submission is throttled inside each ``session_review`` process.
+Each sample's stdout/stderr goes to ``logs/session_review/<idx>.log``.
 
 By default the script processes samples 0..499 inclusive and reruns every sample
 in that range. Pass ``--resume`` to skip samples whose ``session_review.json``
@@ -18,7 +18,7 @@ already exists.
 Examples:
     python benchmark/longmemeval/run_session_review.py
     python benchmark/longmemeval/run_session_review.py --start 187 --end 499
-    python benchmark/longmemeval/run_session_review.py --concurrency 3
+    python benchmark/longmemeval/run_session_review.py --concurrency 2
     python benchmark/longmemeval/run_session_review.py --resume
     python benchmark/longmemeval/run_session_review.py --limit 5 --dry-run
 """
@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--start", type=int, default=0, help="first numeric sample id to process, inclusive (default 0)")
     p.add_argument("--end", type=int, default=499, help="last numeric sample id to process, inclusive (default 499)")
     p.add_argument("--limit", type=int, default=0, help="only process the first N selected samples (0 = all)")
-    p.add_argument("--concurrency", type=int, default=3, help="max samples running at once (default 3)")
+    p.add_argument("--concurrency", type=int, default=1, help="max samples running at once (default 1)")
     p.add_argument("--stagger", type=float, default=1.0, help="seconds between worker launches (default 1)")
     p.add_argument(
         "--resume",
