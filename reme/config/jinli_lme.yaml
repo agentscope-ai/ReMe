@@ -19,7 +19,6 @@ jobs:
         config_keys: [daily_dir]
       - backend: lme_auto_memory_step
         agent_wrapper: lme_memory
-        concurrency: 8
 
   update_index:
     backend: base

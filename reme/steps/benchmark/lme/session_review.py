@@ -220,6 +220,8 @@ class SessionReviewStep(BaseStep):
                         system_prompt=self.get_prompt("system_prompt"),
                         output_schema=_SESSION_REVIEW_SCHEMA,
                     )
+                    if not isinstance(result.get("structured_output"), dict):
+                        raise ValueError("agent reply missing structured_output")
                     await mark_retry_awake(idx)
                     if attempt > 1:
                         self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
@@ -264,9 +266,6 @@ class SessionReviewStep(BaseStep):
                 return None
 
             extracted = result.get("structured_output")
-            if not isinstance(extracted, dict):
-                # Fall back to the free-text reply when structured output is unavailable.
-                extracted = {"relevant_info": (result.get("result") or "").strip()}
             relevant_info = str(extracted.get("relevant_info") or "").strip()
 
             summary = {
