@@ -11,8 +11,9 @@ at that sample. The pipeline jobs, in order, are:
   4. llm_judge      — judge ``mem_answer.json`` against ``answer.json``
 
 Pick one with ``--job``, or ``--job all`` to run the full pipeline *serially per sample*.
-Runs are capped at ``--concurrency`` (default 3) samples at once and each launch is
-staggered by ``--stagger`` seconds so they do not all hit the LLM API at once.
+Runs are capped at ``--concurrency`` (default 1 for ``--job auto_memory``, otherwise
+3) samples at once and each launch is staggered by ``--stagger`` seconds so they
+do not all hit the LLM API at once.
 
 By default every selected job is rerun for every sample — each job's own clear
 step (configured in jinli_lme.yaml) wipes stale output first, so a run is always
@@ -63,7 +64,7 @@ def parse_args() -> argparse.Namespace:
         default="agentic_answer",
         help="which job to run per sample; 'all' runs the full pipeline serially (default: agentic_answer)",
     )
-    p.add_argument("--concurrency", type=int, default=3, help="max samples running at once (default 3)")
+    p.add_argument("--concurrency", type=int, default=1, help="max samples running at once (default 3)")
     p.add_argument("--stagger", type=float, default=1.0, help="seconds between consecutive launches (default 1)")
     p.add_argument("--start", type=int, default=0, help="first numeric sample id to process, inclusive (default 0)")
     p.add_argument(
