@@ -1,0 +1,38 @@
+name: Windows Smoke
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+  pull_request:
+    branches: [main, master, dev, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-smoke:
+    name: CLI smoke - py${{ matrix.python-version }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -e ".[core,benchmark]"
+
+      - name: Run version job
+        run: reme start service.backend=cli job=version
