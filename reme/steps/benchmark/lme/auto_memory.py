@@ -32,6 +32,11 @@ MAX_CONCURRENCY = 60
 RETRY_INITIAL_SECONDS = 5.0
 RETRY_MAX_SECONDS = 300.0
 _LME_DATETIME_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2}).*?(\d{2}):(\d{2})")
+_NON_RETRYABLE_DATA_INSPECTION_MARKERS = (
+    "data_inspection_failed",
+    "DataInspectionFailed",
+    "Input text data may contain inappropriate content",
+)
 
 # Structured extraction the memory agent must return per session.
 _MEMORY_SCHEMA = {
@@ -110,6 +115,11 @@ class LmeAutoMemoryStep(BaseStep):
                 content = json.dumps(content, ensure_ascii=False)
             lines.append(f"[{role}]\n{content}")
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _is_data_inspection_error(exc: Exception) -> bool:
+        text = str(exc)
+        return any(marker in text for marker in _NON_RETRYABLE_DATA_INSPECTION_MARKERS)
 
     async def _existing_session_id(self, rel_path: str) -> str:
         note = self.workspace_path / rel_path
@@ -279,6 +289,9 @@ class LmeAutoMemoryStep(BaseStep):
                         self.logger.info(f"[{self.name}] extract recovered for {session_id} after {attempt} attempts")
                     return result
                 except Exception as exc:
+                    if self._is_data_inspection_error(exc):
+                        await mark_retry_awake(idx)
+                        raise
                     if 0 < retry_max_attempts <= attempt:
                         await mark_retry_awake(idx)
                         raise
@@ -315,12 +328,32 @@ class LmeAutoMemoryStep(BaseStep):
             try:
                 result = await reply_with_retry(idx, user_prompt, session_id)
             except Exception as exc:  # noqa: BLE001 — one bad session must not abort the sweep
+                if self._is_data_inspection_error(exc):
+                    self.logger.warning(
+                        f"[{self.name}] extract fallback for {session_id}: non-retryable data inspection error",
+                    )
+                    failed_extracts.append(
+                        {
+                            "session_id": session_id,
+                            "session_date": session_date,
+                            "session_file": session_path.name,
+                            "error": str(exc),
+                            "non_retryable": True,
+                            "fallback": True,
+                            "fallback_reason": "data_inspection_failed",
+                            "raw_session": session,
+                        },
+                    )
+                    return None
                 self.logger.warning(f"[{self.name}] extract failed for {session_id}: {exc}")
                 failed_extracts.append(
                     {
                         "session_id": session_id,
                         "session_date": session_date,
+                        "session_file": session_path.name,
                         "error": str(exc),
+                        "non_retryable": False,
+                        "fallback": False,
                     },
                 )
                 return None
@@ -373,6 +406,7 @@ class LmeAutoMemoryStep(BaseStep):
             ),
         )
         written = [r for r in results if r is not None]
+        fallback_extracts = [e for e in failed_extracts if e.get("fallback")]
 
         self.context.response.success = True
         self.context.response.answer = f"wrote {len(written)}/{total} session notes"
@@ -382,10 +416,12 @@ class LmeAutoMemoryStep(BaseStep):
                 "num_session_files": len(session_files),
                 "num_written": len(written),
                 "num_failed_extracts": len(failed_extracts),
+                "num_fallback_extracts": len(fallback_extracts),
                 "num_filtered_sessions": len(session_ids_illegal),
                 "session_ids_illegal": session_ids_illegal,
                 "filtered_sessions": filtered_sessions,
                 "failed_extracts": failed_extracts,
+                "fallback_extracts": fallback_extracts,
                 "notes": written,
             },
         )

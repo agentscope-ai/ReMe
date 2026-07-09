@@ -26,6 +26,11 @@ RETRY_INITIAL_SECONDS = 5.0
 RETRY_MAX_SECONDS = 300.0
 OUTPUT_FILENAME = "session_review.json"
 _LME_DATETIME_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2}).*?(\d{2}):(\d{2})")
+_NON_RETRYABLE_DATA_INSPECTION_MARKERS = (
+    "data_inspection_failed",
+    "DataInspectionFailed",
+    "Input text data may contain inappropriate content",
+)
 
 # Structured schema the review agent must return for each session.
 _SESSION_REVIEW_SCHEMA = {
@@ -81,6 +86,11 @@ class SessionReviewStep(BaseStep):
             return datetime(year, month, day, hour, minute)
         except ValueError:
             return None
+
+    @staticmethod
+    def _is_data_inspection_error(exc: Exception) -> bool:
+        text = str(exc)
+        return any(marker in text for marker in _NON_RETRYABLE_DATA_INSPECTION_MARKERS)
 
     # pylint: disable=too-many-statements
     async def execute(self):
@@ -227,6 +237,9 @@ class SessionReviewStep(BaseStep):
                         self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
                     return result
                 except Exception as exc:
+                    if self._is_data_inspection_error(exc):
+                        await mark_retry_awake(idx)
+                        raise
                     if 0 < retry_max_attempts <= attempt:
                         await mark_retry_awake(idx)
                         raise
@@ -255,12 +268,40 @@ class SessionReviewStep(BaseStep):
             try:
                 result = await reply_with_retry(idx, user_prompt, session_id)
             except Exception as exc:  # noqa: BLE001 — one bad session must not abort the sweep
+                if self._is_data_inspection_error(exc):
+                    error = str(exc)
+                    self.logger.warning(
+                        f"[{self.name}] review fallback for {session_id}: non-retryable data inspection error",
+                    )
+                    failed_reviews.append(
+                        {
+                            "session_id": session_id,
+                            "session_date": session_date,
+                            "error": error,
+                            "non_retryable": True,
+                            "fallback": True,
+                            "fallback_reason": "data_inspection_failed",
+                            "raw_session": session,
+                        },
+                    )
+                    return {
+                        "session_id": session_id,
+                        "session_date": session_date,
+                        "is_relevant": False,
+                        "relevant_info": "",
+                        "review_status": "fallback",
+                        "fallback_reason": "data_inspection_failed",
+                        "error": error,
+                        "raw_session": session,
+                    }
                 self.logger.warning(f"[{self.name}] review failed for {session_id}: {exc}")
                 failed_reviews.append(
                     {
                         "session_id": session_id,
                         "session_date": session_date,
                         "error": str(exc),
+                        "non_retryable": False,
+                        "fallback": False,
                     },
                 )
                 return None
@@ -294,6 +335,7 @@ class SessionReviewStep(BaseStep):
         )
         summaries: list[dict] = [s for s in results if s is not None]
         relevant_summaries = [s for s in summaries if s.get("is_relevant")]
+        fallback_summaries = [s for s in summaries if s.get("review_status") == "fallback"]
         reviewed_session_ids = [str(s.get("session_id")) for s in summaries if s.get("session_id")]
         output = {
             "query": {
@@ -314,11 +356,13 @@ class SessionReviewStep(BaseStep):
                 "num_relevant_sessions": len(relevant_summaries),
                 "num_irrelevant_sessions": len(summaries) - len(relevant_summaries),
                 "num_failed_reviews": len(failed_reviews),
+                "num_fallback_reviews": len(fallback_summaries),
                 "num_filtered_sessions": len(session_ids_illegal),
                 "reviewed_session_ids": reviewed_session_ids,
                 "session_ids_illegal": session_ids_illegal,
                 "filtered_sessions": filtered_sessions,
                 "failed_reviews": failed_reviews,
+                "fallback_reviews": fallback_summaries,
             },
             "session_summaries": relevant_summaries,
         }
@@ -334,6 +378,7 @@ class SessionReviewStep(BaseStep):
                 "num_session_files": len(session_files),
                 "num_reviewed_sessions": len(summaries),
                 "num_failed_reviews": len(failed_reviews),
+                "num_fallback_reviews": len(fallback_summaries),
                 "num_filtered_sessions": len(session_ids_illegal),
                 "output_path": str(output_path),
             },
