@@ -55,9 +55,13 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+benchmark = [
+    "portalocker>=2.10.1",
+]
 full = [
     "reme-ai[core]",
     "reme-ai[dev]",
+    "reme-ai[benchmark]",
 ]
 
 [project.urls]

@@ -13,6 +13,7 @@ the downstream golden-answer check.
 import asyncio
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from ....components import R
 
 START_INTERVAL_SECONDS = 1.0
 OUTPUT_FILENAME = "session_review.json"
+REPO_ROOT = Path(__file__).resolve().parents[4]
+GLOBAL_THROTTLE_PATH = REPO_ROOT / "logs" / "session_review" / ".submit_throttle"
 _LME_DATETIME_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2}).*?(\d{2}):(\d{2})")
 
 # Structured schema the review agent must return for each session.
@@ -77,6 +80,37 @@ class SessionReviewStep(BaseStep):
             return datetime(year, month, day, hour, minute)
         except ValueError:
             return None
+
+    @staticmethod
+    def _wait_for_global_start_slot() -> None:
+        """Throttle request starts across all concurrent ``session_review`` processes."""
+        try:
+            import portalocker
+        except ImportError as exc:
+            raise RuntimeError(
+                "lme_session_review_step requires the benchmark extra for cross-process throttling. "
+                "Install with `pip install 'reme-ai[benchmark]'`.",
+            ) from exc
+
+        GLOBAL_THROTTLE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with portalocker.Lock(GLOBAL_THROTTLE_PATH, mode="a+", encoding="utf-8") as f:
+            f.seek(0)
+            raw = f.read().strip()
+            try:
+                last_started_at = float(raw) if raw else 0.0
+            except ValueError:
+                last_started_at = 0.0
+
+            now = time.time()
+            next_start_at = last_started_at + START_INTERVAL_SECONDS
+            if now < next_start_at:
+                time.sleep(next_start_at - now)
+                now = time.time()
+
+            f.seek(0)
+            f.truncate()
+            f.write(f"{now:.6f}")
+            f.flush()
 
     async def execute(self):
         assert self.context is not None
@@ -148,19 +182,10 @@ class SessionReviewStep(BaseStep):
             f"start_interval={START_INTERVAL_SECONDS}s)",
         )
 
-        start_lock = asyncio.Lock()
-        next_start_at = 0.0
         failed_reviews: list[dict] = []
 
         async def wait_for_start_slot() -> None:
-            nonlocal next_start_at
-            async with start_lock:
-                loop = asyncio.get_running_loop()
-                now = loop.time()
-                if now < next_start_at:
-                    await asyncio.sleep(next_start_at - now)
-                    now = loop.time()
-                next_start_at = now + START_INTERVAL_SECONDS
+            await asyncio.to_thread(self._wait_for_global_start_slot)
 
         async def review_one(idx: int, session: dict, session_id: str, session_date: str) -> dict | None:
             user_prompt = self.prompt_format(
