@@ -183,6 +183,9 @@ jobs:
         paths: [session_review.json]
       - backend: lme_session_review_step
         agent_wrapper: lme_review
+        retry_initial_seconds: 5
+        retry_max_seconds: 300
+        retry_max_attempts: 0   # 0 means retry forever; set a positive number to cap attempts
 
   golden_check:
     backend: base

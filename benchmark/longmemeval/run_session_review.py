@@ -25,6 +25,7 @@ Examples:
 
 import argparse
 import asyncio
+import json
 import os
 import time
 from pathlib import Path
@@ -62,6 +63,26 @@ def sample_ids() -> list[str]:
 def output_exists(idx: str) -> bool:
     """Return True when the sample already has a session review artifact."""
     return (DATA / idx / OUTPUT_FILENAME).exists()
+
+
+def output_is_healthy(idx: str) -> bool:
+    """Return True when ``session_review.json`` exists and has no failed reviews."""
+    path = DATA / idx / OUTPUT_FILENAME
+    if not path.exists():
+        return False
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    review = data.get("review") if isinstance(data, dict) else None
+    if not isinstance(review, dict):
+        return False
+    raw = review.get("num_failed_reviews")
+    if isinstance(raw, int):
+        return raw == 0
+    failed_reviews = review.get("failed_reviews")
+    return not failed_reviews
 
 
 async def run_one(idx: str, active: set[str]) -> bool:
@@ -114,9 +135,9 @@ async def worker(
             return
 
         try:
-            if args.resume and output_exists(idx):
+            if args.resume and output_is_healthy(idx):
                 counters["skip"] += 1
-                print(f"[skip] {idx} ({OUTPUT_FILENAME} exists)", flush=True)
+                print(f"[skip] {idx} (healthy {OUTPUT_FILENAME} exists)", flush=True)
                 continue
 
             if await run_one(idx, active):

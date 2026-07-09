@@ -21,6 +21,8 @@ from ...base_step import BaseStep
 from ....components import R
 
 START_INTERVAL_SECONDS = 1.0
+RETRY_INITIAL_SECONDS = 5.0
+RETRY_MAX_SECONDS = 300.0
 OUTPUT_FILENAME = "session_review.json"
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GLOBAL_THROTTLE_PATH = REPO_ROOT / "logs" / "session_review" / ".submit_throttle"
@@ -183,9 +185,42 @@ class SessionReviewStep(BaseStep):
         )
 
         failed_reviews: list[dict] = []
+        retry_initial_seconds = float(self.kwargs.get("retry_initial_seconds", RETRY_INITIAL_SECONDS))
+        retry_max_seconds = float(self.kwargs.get("retry_max_seconds", RETRY_MAX_SECONDS))
+        retry_max_attempts_raw = self.kwargs.get("retry_max_attempts")
+        retry_max_attempts = int(retry_max_attempts_raw) if retry_max_attempts_raw not in (None, "") else 0
+        if retry_initial_seconds <= 0:
+            retry_initial_seconds = RETRY_INITIAL_SECONDS
+        retry_max_seconds = max(retry_max_seconds, retry_initial_seconds)
 
         async def wait_for_start_slot() -> None:
             await asyncio.to_thread(self._wait_for_global_start_slot)
+
+        async def reply_with_retry(user_prompt: str, session_id: str) -> dict:
+            attempt = 1
+            sleep_seconds = retry_initial_seconds
+            while True:
+                try:
+                    await wait_for_start_slot()
+                    result = await self.agent_wrapper.reply(
+                        user_prompt,
+                        system_prompt=self.get_prompt("system_prompt"),
+                        output_schema=_SESSION_REVIEW_SCHEMA,
+                    )
+                    if attempt > 1:
+                        self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
+                    return result
+                except Exception as exc:
+                    if 0 < retry_max_attempts <= attempt:
+                        raise
+                    next_sleep = min(sleep_seconds, retry_max_seconds)
+                    self.logger.warning(
+                        f"[{self.name}] review attempt {attempt} failed for {session_id}: {exc}; "
+                        f"retrying in {next_sleep:.1f}s",
+                    )
+                    await asyncio.sleep(next_sleep)
+                    sleep_seconds = min(sleep_seconds * 2, retry_max_seconds)
+                    attempt += 1
 
         async def review_one(idx: int, session: dict, session_id: str, session_date: str) -> dict | None:
             user_prompt = self.prompt_format(
@@ -199,12 +234,7 @@ class SessionReviewStep(BaseStep):
                 session_content=json.dumps(session.get("messages", []), ensure_ascii=False, indent=2),
             )
             try:
-                await wait_for_start_slot()
-                result = await self.agent_wrapper.reply(
-                    user_prompt,
-                    system_prompt=self.get_prompt("system_prompt"),
-                    output_schema=_SESSION_REVIEW_SCHEMA,
-                )
+                result = await reply_with_retry(user_prompt, session_id)
             except Exception as exc:  # noqa: BLE001 — one bad session must not abort the sweep
                 self.logger.warning(f"[{self.name}] review failed for {session_id}: {exc}")
                 failed_reviews.append(
