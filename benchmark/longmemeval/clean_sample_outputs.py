@@ -7,8 +7,9 @@ For each ``datasets/longmemeval/<idx>`` workspace, this keeps only:
   - session/
 
 All other files or directories in the sample root are considered generated
-artifacts and can be removed. The script is dry-run by default; pass ``--apply``
-to actually delete.
+artifacts and can be removed. AppleDouble files whose names start with ``._``
+are also removed recursively, including under ``session/``. The script is
+dry-run by default; pass ``--apply`` to actually delete.
 
 Examples:
     python benchmark/longmemeval/clean_sample_outputs.py
@@ -49,6 +50,15 @@ def delete_path(path: Path) -> None:
         path.unlink()
 
 
+def is_under(path: Path, parent: Path) -> bool:
+    """Return True when ``path`` is inside ``parent``."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def main() -> int:
     """Main entry point."""
     args = parse_args()
@@ -60,11 +70,17 @@ def main() -> int:
         ids = ids[: args.limit]
 
     targets: list[Path] = []
+    target_set: set[Path] = set()
     for idx in ids:
         sample_dir = DATA / idx
         for path in sorted(sample_dir.iterdir(), key=lambda p: p.name):
             if path.name not in KEEP:
                 targets.append(path)
+                target_set.add(path)
+        for path in sorted(sample_dir.rglob("._*")):
+            if path not in target_set and not any(is_under(path, target) for target in targets):
+                targets.append(path)
+                target_set.add(path)
 
     mode = "DELETE" if args.apply else "DRY-RUN"
     print(
