@@ -11,6 +11,7 @@ from .search import SearchStep
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
 from .vector_search import VectorSearchStep
+from .wait_for_paths import WaitForPathsStep
 from .watch_changes import (
     DEFAULT_LOW_POWER_POLL_MS,
     DEFAULT_WATCH_DEBOUNCE_MS,
@@ -36,5 +37,6 @@ __all__ = [
     "UpdateCatalogStep",
     "UpdateIndexStep",
     "VectorSearchStep",
+    "WaitForPathsStep",
     "WatchChangesStep",
 ]

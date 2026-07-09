@@ -193,6 +193,10 @@ jobs:
     steps:
       - backend: clear_paths_step   # drop the previous verdict so each run rewrites cleanly
         paths: [check_golden.json]
+      - backend: wait_for_paths_step # wait until session_review finishes; comment this step to fail fast instead
+        paths: [session_review.json]
+        poll_seconds: 5
+        log_every_seconds: 60
       - backend: lme_golden_check_step
         agent_wrapper: lme_judge
 
