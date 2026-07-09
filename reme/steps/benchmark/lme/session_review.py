@@ -192,27 +192,60 @@ class SessionReviewStep(BaseStep):
         if retry_initial_seconds <= 0:
             retry_initial_seconds = RETRY_INITIAL_SECONDS
         retry_max_seconds = max(retry_max_seconds, retry_initial_seconds)
+        retry_gate = asyncio.Condition()
+        retrying_review_idxs: set[int] = set()
+
+        def has_prior_retry(idx: int) -> bool:
+            return any(retry_idx < idx for retry_idx in retrying_review_idxs)
 
         async def wait_for_start_slot() -> None:
             await asyncio.to_thread(self._wait_for_global_start_slot)
 
-        async def reply_with_retry(user_prompt: str, session_id: str) -> dict:
+        async def wait_for_healthy_start_slot(idx: int, session_id: str) -> None:
+            while True:
+                async with retry_gate:
+                    if has_prior_retry(idx):
+                        self.logger.info(
+                            f"[{self.name}] ({idx}/{total}) {session_id} waits for earlier retry to recover",
+                        )
+                    await retry_gate.wait_for(lambda: not has_prior_retry(idx))
+
+                await wait_for_start_slot()
+
+                async with retry_gate:
+                    if not has_prior_retry(idx):
+                        return
+
+        async def mark_retrying(idx: int) -> None:
+            async with retry_gate:
+                retrying_review_idxs.add(idx)
+                retry_gate.notify_all()
+
+        async def mark_recovered(idx: int) -> None:
+            async with retry_gate:
+                retrying_review_idxs.discard(idx)
+                retry_gate.notify_all()
+
+        async def reply_with_retry(idx: int, user_prompt: str, session_id: str) -> dict:
             attempt = 1
             sleep_seconds = retry_initial_seconds
             while True:
                 try:
-                    await wait_for_start_slot()
+                    await wait_for_healthy_start_slot(idx, session_id)
                     result = await self.agent_wrapper.reply(
                         user_prompt,
                         system_prompt=self.get_prompt("system_prompt"),
                         output_schema=_SESSION_REVIEW_SCHEMA,
                     )
+                    await mark_recovered(idx)
                     if attempt > 1:
                         self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
                     return result
                 except Exception as exc:
                     if 0 < retry_max_attempts <= attempt:
+                        await mark_recovered(idx)
                         raise
+                    await mark_retrying(idx)
                     next_sleep = min(sleep_seconds, retry_max_seconds)
                     self.logger.warning(
                         f"[{self.name}] review attempt {attempt} failed for {session_id}: {exc}; "
@@ -234,7 +267,7 @@ class SessionReviewStep(BaseStep):
                 session_content=json.dumps(session.get("messages", []), ensure_ascii=False, indent=2),
             )
             try:
-                result = await reply_with_retry(user_prompt, session_id)
+                result = await reply_with_retry(idx, user_prompt, session_id)
             except Exception as exc:  # noqa: BLE001 — one bad session must not abort the sweep
                 self.logger.warning(f"[{self.name}] review failed for {session_id}: {exc}")
                 failed_reviews.append(
