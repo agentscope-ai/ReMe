@@ -89,6 +89,16 @@ jobs:
       - backend: lme_agentic_answer_step
         agent_wrapper: lme_agentic_answer
 
+  llm_judge:
+    backend: base
+    description: "Judge mem_answer.json against answer.json and write the judgement back into mem_answer.json."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: lme_llm_judge_step
+        agent_wrapper: lme_judge
+
   version:
     backend: base
     description: "return reme package version"

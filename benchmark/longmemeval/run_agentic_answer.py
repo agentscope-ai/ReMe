@@ -3,13 +3,14 @@
 
 For every workspace under ``datasets/longmemeval/<idx>`` this launches one or more
 ``reme start config=jinli_lme job=<job>`` runs with ``LME_WORKSPACE_DIR`` pointed
-at that sample. The three pipeline jobs, in order, are:
+at that sample. The pipeline jobs, in order, are:
 
   1. auto_memory   — distil every raw session into a daily note (``daily/*.md``)
   2. update_index  — clear the store and rebuild the index over ``daily/*.md``
   3. agentic_answer — read ``query.json`` and answer it, writing ``mem_answer.json``
+  4. llm_judge      — judge ``mem_answer.json`` against ``answer.json``
 
-Pick one with ``--job``, or ``--job all`` to run all three *serially per sample*.
+Pick one with ``--job``, or ``--job all`` to run the full pipeline *serially per sample*.
 Runs are capped at ``--concurrency`` (default 3) samples at once and each launch is
 staggered by ``--stagger`` seconds so they do not all hit the LLM API at once.
 
@@ -17,18 +18,22 @@ By default every selected job is rerun for every sample — each job's own clear
 step (configured in jinli_lme.yaml) wipes stale output first, so a run is always
 a clean rebuild. Pass ``--resume`` to instead skip samples whose output already
 exists (``daily/`` for auto_memory, ``metadata/embedding_store/`` for
-update_index, ``mem_answer.json`` for agentic_answer) and continue an interrupted
-batch. Each sample's stdout/stderr goes to ``logs/agentic_answer/<job>/<idx>.log``.
+update_index, ``mem_answer.json`` for agentic_answer, ``mem_answer.json`` with
+``llm_judge.judgement`` for llm_judge) and continue an interrupted batch. Each
+sample's stdout/stderr goes to ``logs/agentic_answer/<job>/<idx>.log``.
 
 After an agentic_answer run finishes, the driver aggregates every sample's query,
-golden answer, predicted answer and a best-effort tool-call trail into one big
-JSON at ``logs/agentic_answer/aggregate.json``.
+golden answer, predicted answer, LLM judgement and a best-effort tool-call trail
+into one big JSON at ``logs/agentic_answer/aggregate.json``.
 
 Examples:
     python benchmark/longmemeval/run_agentic_answer.py                       # agentic_answer, all 500, conc 3
-    python benchmark/longmemeval/run_agentic_answer.py --job all             # 3 jobs serially per sample
+    python benchmark/longmemeval/run_agentic_answer.py --job all             # full pipeline serially per sample
     python benchmark/longmemeval/run_agentic_answer.py --job auto_memory     # just step 1
+    python benchmark/longmemeval/run_agentic_answer.py --job llm_judge       # just judge existing answers
     python benchmark/longmemeval/run_agentic_answer.py --limit 5 --dry-run   # list what would run
+    python benchmark/longmemeval/run_agentic_answer.py --start 187           # samples 187..499
+    python benchmark/longmemeval/run_agentic_answer.py --start 187 --end 499 # samples 187..499
     python benchmark/longmemeval/run_agentic_answer.py --job all --resume    # continue an interrupted batch
 """
 
@@ -46,7 +51,7 @@ LOGDIR = REPO / "logs" / "agentic_answer"
 AGGREGATE = LOGDIR / "aggregate.json"
 
 # Pipeline jobs in execution order.
-JOB_ORDER = ["auto_memory", "update_index", "agentic_answer"]
+JOB_ORDER = ["auto_memory", "update_index", "agentic_answer", "llm_judge"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,10 +61,17 @@ def parse_args() -> argparse.Namespace:
         "--job",
         choices=[*JOB_ORDER, "all"],
         default="agentic_answer",
-        help="which job to run per sample; 'all' runs the three serially (default: agentic_answer)",
+        help="which job to run per sample; 'all' runs the full pipeline serially (default: agentic_answer)",
     )
     p.add_argument("--concurrency", type=int, default=3, help="max samples running at once (default 3)")
     p.add_argument("--stagger", type=float, default=1.0, help="seconds between consecutive launches (default 1)")
+    p.add_argument("--start", type=int, default=0, help="first numeric sample id to process, inclusive (default 0)")
+    p.add_argument(
+        "--end",
+        type=int,
+        default=0,
+        help="last numeric sample id to process, inclusive (0 = no upper bound)",
+    )
     p.add_argument("--limit", type=int, default=0, help="only process the first N samples (0 = all)")
     p.add_argument(
         "--resume",
@@ -68,7 +80,7 @@ def parse_args() -> argparse.Namespace:
         "by default every selected job is rerun so the config's clear step rebuilds cleanly",
     )
     p.add_argument("--dry-run", action="store_true", help="list what would run, launch nothing")
-    p.add_argument("--no-aggregate", action="store_true", help="skip writing aggregate.json after agentic_answer")
+    p.add_argument("--no-aggregate", action="store_true", help="skip writing aggregate.json after answer/judge jobs")
     return p.parse_args()
 
 
@@ -94,6 +106,9 @@ def job_done(idx: str, job: str) -> bool:
         return store.is_dir() and any(store.iterdir())
     if job == "agentic_answer":
         return (ws / "mem_answer.json").exists()
+    if job == "llm_judge":
+        judge = _load_json(ws / "mem_answer.json").get("llm_judge")
+        return isinstance(judge, dict) and bool(str(judge.get("judgement") or "").strip())
     raise ValueError(f"unknown job: {job}")
 
 
@@ -220,6 +235,7 @@ def build_record(idx: str) -> dict:
 
     pred = str(mem.get("answer") or "").strip()
     session_id = str(mem.get("session_id") or "")
+    llm_judge = mem.get("llm_judge") if isinstance(mem.get("llm_judge"), dict) else {}
     tool_calls = parse_tool_calls(idx, session_id) if mem else []
 
     if not mem:
@@ -242,6 +258,8 @@ def build_record(idx: str) -> dict:
         "pred_answer": pred,
         "session_id": session_id,
         "status": status,
+        "llm_judge": llm_judge.get("judgement"),
+        "llm_judge_raw": llm_judge.get("raw_judgement"),
         "num_tool_calls": len(tool_calls),
         "tool_calls": tool_calls,
     }
@@ -252,14 +270,18 @@ def write_aggregate(ids: list[str]) -> None:
     records = [build_record(idx) for idx in ids]
     finished = [r for r in records if r["status"] != "missing"]
     by_status: dict[str, int] = {}
+    by_llm_judge: dict[str, int] = {}
     for r in records:
         by_status[r["status"]] = by_status.get(r["status"], 0) + 1
+        judgement = r.get("llm_judge") or "missing"
+        by_llm_judge[judgement] = by_llm_judge.get(judgement, 0) + 1
 
     payload = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total": len(records),
         "finished": len(finished),
         "by_status": by_status,
+        "by_llm_judge": by_llm_judge,
         "samples": records,
     }
     AGGREGATE.parent.mkdir(parents=True, exist_ok=True)
@@ -274,6 +296,9 @@ async def main() -> int:
     jobs = selected_jobs(args.job)
 
     ids = sample_ids()
+    if args.end and args.end < args.start:
+        raise ValueError(f"--end ({args.end}) must be >= --start ({args.start})")
+    ids = [i for i in ids if int(i) >= args.start and (not args.end or int(i) <= args.end)]
     if args.limit:
         ids = ids[: args.limit]
 
@@ -307,7 +332,7 @@ async def main() -> int:
         flush=True,
     )
 
-    if "agentic_answer" in jobs and not args.no_aggregate:
+    if any(j in jobs for j in ("agentic_answer", "llm_judge")) and not args.no_aggregate:
         write_aggregate(ids)
 
     return 0 if counters["fail"] == 0 else 1
