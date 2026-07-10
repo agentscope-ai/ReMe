@@ -119,6 +119,40 @@ def sample_label(data: dict) -> str:
     return f"{idx}({qid})" if qid else idx
 
 
+def related_session_ids(data: dict) -> list[str]:
+    """Return the best available session ids for a bad verdict record."""
+    verdict = data.get("verdict") if isinstance(data, dict) else None
+    if isinstance(verdict, dict):
+        true_ids = verdict.get("true_answer_session_ids")
+        if isinstance(true_ids, list):
+            ids = [str(session_id) for session_id in true_ids if str(session_id).strip()]
+            if ids:
+                return ids
+
+    summaries = data.get("session_summaries")
+    if isinstance(summaries, list):
+        return [
+            str(summary.get("session_id"))
+            for summary in summaries
+            if isinstance(summary, dict) and str(summary.get("session_id") or "").strip()
+        ]
+    return []
+
+
+def grouped_records(records: list[dict]) -> dict[str, list[dict]]:
+    """Group records by question_type for human-readable list output."""
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for data in records:
+        question_type = str(data.get("_question_type") or "(unknown)")
+        grouped[question_type].append(
+            {
+                "index": sample_label(data),
+                "session_id": related_session_ids(data),
+            },
+        )
+    return dict(sorted(grouped.items()))
+
+
 def verdict_bool(verdict: dict, new_key: str, old_key: str) -> bool:
     """Read a verdict boolean, accepting the old field name for compatibility."""
     if verdict.get(new_key) is True:
@@ -291,16 +325,12 @@ def main() -> int:
 
     if args.list_bad:
         print("-" * 60)
-        print(
-            f"golden answer 判为不正确的样例 ({len(bad_golden_records)}): "
-            f"{[sample_label(d) for d in bad_golden_records]}",
-        )
+        print(f"golden answer 判为不正确的样例 ({len(bad_golden_records)}):")
+        print(json.dumps(grouped_records(bad_golden_records), ensure_ascii=False, indent=2))
     if args.list_bad_sessions:
         print("-" * 60)
-        print(
-            f"answer_session_ids 判为不正确的样例 ({len(bad_session_records)}): "
-            f"{[sample_label(d) for d in bad_session_records]}",
-        )
+        print(f"answer_session_ids 判为不正确的样例 ({len(bad_session_records)}):")
+        print(json.dumps(grouped_records(bad_session_records), ensure_ascii=False, indent=2))
     if args.list_run_failed:
         print("-" * 60)
         print(f"运行失败/无可读 check_golden.json 的样例 ({len(run_failed)}): {run_failed}")
