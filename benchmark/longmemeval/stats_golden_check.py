@@ -146,7 +146,8 @@ def grouped_records(records: list[dict]) -> dict[str, list[dict]]:
         question_type = str(data.get("_question_type") or "(unknown)")
         grouped[question_type].append(
             {
-                "index": sample_label(data),
+                "index": str(data.get("_idx") or ""),
+                "question_id": str(data.get("_question_id") or ""),
                 "session_id": related_session_ids(data),
             },
         )
@@ -326,11 +327,11 @@ def main() -> int:
     if args.list_bad:
         print("-" * 60)
         print(f"golden answer 判为不正确的样例 ({len(bad_golden_records)}):")
-        print(json.dumps(grouped_records(bad_golden_records), ensure_ascii=False, indent=2))
+        print(json.dumps(grouped_records(bad_golden_records), ensure_ascii=False))
     if args.list_bad_sessions:
         print("-" * 60)
         print(f"answer_session_ids 判为不正确的样例 ({len(bad_session_records)}):")
-        print(json.dumps(grouped_records(bad_session_records), ensure_ascii=False, indent=2))
+        print(json.dumps(grouped_records(bad_session_records), ensure_ascii=False))
     if args.list_run_failed:
         print("-" * 60)
         print(f"运行失败/无可读 check_golden.json 的样例 ({len(run_failed)}): {run_failed}")
