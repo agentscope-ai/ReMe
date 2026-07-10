@@ -108,6 +108,14 @@ def fallback_count(data: dict) -> int:
     return len(fallback_details(data))
 
 
+def question_id(data: dict) -> str:
+    """Return query.question_id when present."""
+    query = data.get("query") if isinstance(data, dict) else None
+    if not isinstance(query, dict):
+        return ""
+    return str(query.get("question_id") or "").strip()
+
+
 def main() -> int:
     """Main entry point."""
     args = parse_args()
@@ -119,6 +127,7 @@ def main() -> int:
     total_fallback_sessions = 0
     failed_details_by_id: dict[str, list[dict]] = {}
     fallback_details_by_id: dict[str, list[dict]] = {}
+    question_id_by_id: dict[str, str] = {}
 
     for idx in ids:
         path = DATA / idx / OUTPUT_FILENAME
@@ -129,6 +138,7 @@ def main() -> int:
         if not data:
             unreadable.append(idx)
             continue
+        question_id_by_id[idx] = question_id(data)
         n_failed = failure_count(data)
         n_fallback = fallback_count(data)
         if n_failed:
@@ -195,7 +205,12 @@ def main() -> int:
     if fallback:
         print("-" * 60)
         print("不可重试 fallback 的样例不用重跑：")
-        print(" ".join(fallback))
+        for idx in fallback:
+            details = fallback_details_by_id.get(idx) or []
+            session_ids = [str(item.get("session_id") or "(unknown)") for item in details]
+            qid = question_id_by_id.get(idx)
+            sample_label = f"{idx}({qid})" if qid else idx
+            print(f"{sample_label}: {' '.join(session_ids) if session_ids else '(unknown)'}")
 
     if args.list_failed and failed:
         print("-" * 60)
