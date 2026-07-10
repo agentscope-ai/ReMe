@@ -273,6 +273,9 @@ def main() -> int:
                     "by_type": {
                         t: {
                             **c,
+                            "golden_bad": c["n"] - c["golden_ok"],
+                            "session_bad": c["n"] - c["sess_ok"],
+                            "both_bad": c["n"] - c["both_ok"],
                             "golden_acc": round(c["golden_ok"] / c["n"], 4),
                             "session_acc": round(c["sess_ok"] / c["n"], 4),
                             "both_acc": round(c["both_ok"] / c["n"], 4),
@@ -308,12 +311,16 @@ def main() -> int:
     print(f"两者都正确          : {pct(both_ok, n)}   ({both_ok}/{n})")
     print("-" * 60)
     print("按 question_type:")
-    print(f"  {'type':<24} {'n':>4} {'golden正确率':>14} {'session正确率':>14} {'都正确':>10}")
+    print(
+        f"  {'type':<24} {'n':>4} {'golden正确率':>14} {'golden错误':>10} "
+        f"{'session正确率':>14} {'session错误':>11} {'都正确':>10} {'都正确错误':>12}",
+    )
     for t in sorted(by_type):
         c = by_type[t]
         print(
-            f"  {t:<24} {c['n']:>4} {pct(c['golden_ok'], c['n']):>14} "
-            f"{pct(c['sess_ok'], c['n']):>14} {pct(c['both_ok'], c['n']):>10}",
+            f"  {t:<24} {c['n']:>4} {pct(c['golden_ok'], c['n']):>14} {c['n'] - c['golden_ok']:>10} "
+            f"{pct(c['sess_ok'], c['n']):>14} {c['n'] - c['sess_ok']:>11} "
+            f"{pct(c['both_ok'], c['n']):>10} {c['n'] - c['both_ok']:>12}",
         )
 
     if args.list_bad:
