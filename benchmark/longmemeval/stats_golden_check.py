@@ -93,6 +93,32 @@ def question_type_for(idx: str, data: dict) -> str:
     return str(query.get("question_type") or "(unknown)").strip() or "(unknown)"
 
 
+def question_id_for(idx: str, data: dict) -> str:
+    """Return question_id from the output, session review, or query.json."""
+    question_id = str(data.get("question_id") or "").strip()
+    if question_id:
+        return question_id
+
+    review_path_raw = str(data.get("session_review_path") or "").strip()
+    review_path = Path(review_path_raw) if review_path_raw else DATA / idx / "session_review.json"
+    if not review_path.is_absolute():
+        review_path = REPO / review_path
+    review = load_json(review_path)
+    review_question_id = str((review.get("query") or {}).get("question_id") or "").strip()
+    if review_question_id:
+        return review_question_id
+
+    query = load_json(DATA / idx / "query.json")
+    return str(query.get("question_id") or "").strip()
+
+
+def sample_label(data: dict) -> str:
+    """Format sample id as idx(question_id) when question_id is available."""
+    idx = str(data.get("_idx") or "")
+    qid = str(data.get("_question_id") or "").strip()
+    return f"{idx}({qid})" if qid else idx
+
+
 def verdict_bool(verdict: dict, new_key: str, old_key: str) -> bool:
     """Read a verdict boolean, accepting the old field name for compatibility."""
     if verdict.get(new_key) is True:
@@ -141,6 +167,7 @@ def main() -> int:
                 continue
             data["_idx"] = idx
             data["_question_type"] = question_type_for(idx, data)
+            data["_question_id"] = question_id_for(idx, data)
             done.append(data)
             finished_ids.add(idx)
         except (OSError, json.JSONDecodeError):
@@ -180,15 +207,23 @@ def main() -> int:
         by_type[t]["sess_ok"] += 1 if sess_is_ok else 0
         by_type[t]["both_ok"] += 1 if golden_is_ok and sess_is_ok else 0
 
-    bad_golden = [
-        d["_idx"]
+    bad_golden_records = [
+        d
         for d in done
         if not verdict_bool(d.get("verdict", {}), "golden_answer_correct", "golden_answer_reasonable")
     ]
-    bad_sessions = [
-        d["_idx"]
+    bad_session_records = [
+        d
         for d in done
         if not verdict_bool(d.get("verdict", {}), "answer_session_ids_correct", "answer_session_ids_reasonable")
+    ]
+    bad_golden = [
+        d["_idx"]
+        for d in bad_golden_records
+    ]
+    bad_sessions = [
+        d["_idx"]
+        for d in bad_session_records
     ]
 
     if args.json:
@@ -256,10 +291,16 @@ def main() -> int:
 
     if args.list_bad:
         print("-" * 60)
-        print(f"golden answer 判为不正确的样例 ({len(bad_golden)}): {bad_golden}")
+        print(
+            f"golden answer 判为不正确的样例 ({len(bad_golden_records)}): "
+            f"{[sample_label(d) for d in bad_golden_records]}",
+        )
     if args.list_bad_sessions:
         print("-" * 60)
-        print(f"answer_session_ids 判为不正确的样例 ({len(bad_sessions)}): {bad_sessions}")
+        print(
+            f"answer_session_ids 判为不正确的样例 ({len(bad_session_records)}): "
+            f"{[sample_label(d) for d in bad_session_records]}",
+        )
     if args.list_run_failed:
         print("-" * 60)
         print(f"运行失败/无可读 check_golden.json 的样例 ({len(run_failed)}): {run_failed}")
