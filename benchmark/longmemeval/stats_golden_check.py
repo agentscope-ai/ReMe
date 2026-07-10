@@ -243,23 +243,15 @@ def main() -> int:
         by_type[t]["both_ok"] += 1 if golden_is_ok and sess_is_ok else 0
 
     bad_golden_records = [
-        d
-        for d in done
-        if not verdict_bool(d.get("verdict", {}), "golden_answer_correct", "golden_answer_reasonable")
+        d for d in done if not verdict_bool(d.get("verdict", {}), "golden_answer_correct", "golden_answer_reasonable")
     ]
     bad_session_records = [
         d
         for d in done
         if not verdict_bool(d.get("verdict", {}), "answer_session_ids_correct", "answer_session_ids_reasonable")
     ]
-    bad_golden = [
-        d["_idx"]
-        for d in bad_golden_records
-    ]
-    bad_sessions = [
-        d["_idx"]
-        for d in bad_session_records
-    ]
+    bad_golden = [d["_idx"] for d in bad_golden_records]
+    bad_sessions = [d["_idx"] for d in bad_session_records]
 
     if args.json:
         print(

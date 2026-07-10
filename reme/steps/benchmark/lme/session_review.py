@@ -1,12 +1,12 @@
-"""Review every LongMemEval session for query/answer-relevant evidence.
+"""Review every LongMemEval session and extract its information.
 
 For a workspace such as ``datasets/longmemeval/1`` this step loads ``query.json``
 and ``answer.json``, filters out sessions dated after ``question_date``, then
 walks each remaining session under ``resource_dir`` one by one. An agent wrapper
-extracts all information relevant to the question or the golden answer, keeping
-time information attached to the facts it modifies.
+extracts the complete information in each session, with extra care not to omit
+anything related to the question or golden answer.
 
-The collected per-session summaries are written to ``session_review.json`` for
+The collected per-session extractions are written to ``session_review.json`` for
 the downstream golden-answer check.
 """
 
@@ -32,30 +32,10 @@ _NON_RETRYABLE_DATA_INSPECTION_MARKERS = (
     "Input text data may contain inappropriate content",
 )
 
-# Structured schema the review agent must return for each session.
-_SESSION_REVIEW_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "is_relevant": {
-            "type": "boolean",
-            "description": "Whether this session contains anything relevant to the question or golden answer.",
-        },
-        "relevant_info": {
-            "type": "string",
-            "description": "Exhaustive extraction of every detail relevant to the question or golden answer. "
-            "Do not omit relevant facts, names, entities, numbers, preferences, corrections, or constraints. "
-            "Include every relevant time/date reference inline with the fact it modifies "
-            "(e.g. 'started the job on 2023/03/01'). Leave empty when the session is irrelevant.",
-        },
-    },
-    "required": ["is_relevant", "relevant_info"],
-    "additionalProperties": False,
-}
-
 
 @R.register("lme_session_review_step")
 class SessionReviewStep(BaseStep):
-    """Extract query/answer-relevant evidence from every eligible session."""
+    """Extract complete information from every eligible session."""
 
     def _load_json(self, path: Path | str) -> dict:
         if not isinstance(path, Path):
@@ -228,10 +208,7 @@ class SessionReviewStep(BaseStep):
                     result = await self.agent_wrapper.reply(
                         user_prompt,
                         system_prompt=self.get_prompt("system_prompt"),
-                        output_schema=_SESSION_REVIEW_SCHEMA,
                     )
-                    if not isinstance(result.get("structured_output"), dict):
-                        raise ValueError("agent reply missing structured_output")
                     await mark_retry_awake(idx)
                     if attempt > 1:
                         self.logger.info(f"[{self.name}] review recovered for {session_id} after {attempt} attempts")
@@ -287,8 +264,7 @@ class SessionReviewStep(BaseStep):
                     return {
                         "session_id": session_id,
                         "session_date": session_date,
-                        "is_relevant": False,
-                        "relevant_info": "",
+                        "extracted_info": "",
                         "review_status": "fallback",
                         "fallback_reason": "data_inspection_failed",
                         "error": error,
@@ -306,18 +282,14 @@ class SessionReviewStep(BaseStep):
                 )
                 return None
 
-            extracted = result.get("structured_output")
-            relevant_info = str(extracted.get("relevant_info") or "").strip()
+            extracted_info = str(result.get("result") or "").strip()
 
             summary = {
                 "session_id": session_id,
                 "session_date": session_date,
-                "is_relevant": bool(extracted.get("is_relevant")) or bool(relevant_info),
-                "relevant_info": relevant_info,
+                "extracted_info": extracted_info,
             }
-            self.logger.info(
-                f"[{self.name}] ({idx}/{total}) {session_id} " f"relevant={summary.get('is_relevant')}",
-            )
+            self.logger.info(f"[{self.name}] ({idx}/{total}) extracted {session_id}")
             return summary
 
         review_semaphore = asyncio.Semaphore(concurrency)
@@ -334,7 +306,7 @@ class SessionReviewStep(BaseStep):
             ),
         )
         summaries: list[dict] = [s for s in results if s is not None]
-        relevant_summaries = [s for s in summaries if s.get("is_relevant")]
+        non_empty_summaries = [s for s in summaries if str(s.get("extracted_info") or "").strip()]
         fallback_summaries = [s for s in summaries if s.get("review_status") == "fallback"]
         reviewed_session_ids = [str(s.get("session_id")) for s in summaries if s.get("session_id")]
         output = {
@@ -353,8 +325,8 @@ class SessionReviewStep(BaseStep):
             "review": {
                 "num_session_files": len(session_files),
                 "num_reviewed_sessions": len(summaries),
-                "num_relevant_sessions": len(relevant_summaries),
-                "num_irrelevant_sessions": len(summaries) - len(relevant_summaries),
+                "num_extracted_sessions": len(non_empty_summaries),
+                "num_empty_extractions": len(summaries) - len(non_empty_summaries),
                 "num_failed_reviews": len(failed_reviews),
                 "num_fallback_reviews": len(fallback_summaries),
                 "num_filtered_sessions": len(session_ids_illegal),
@@ -364,7 +336,7 @@ class SessionReviewStep(BaseStep):
                 "failed_reviews": failed_reviews,
                 "fallback_reviews": fallback_summaries,
             },
-            "session_summaries": relevant_summaries,
+            "session_summaries": summaries,
         }
         output_path = self.workspace_path / OUTPUT_FILENAME
         with output_path.open("w", encoding="utf-8") as f:

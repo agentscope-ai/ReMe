@@ -2,18 +2,12 @@ system_prompt: |
   你是 LongMemEval 基准测试的审核员。你要根据从用户聊天记录中提取的证据，判断某个问题的
   golden_answer 是否正确，以及 answer_session_ids 是否恰好正确。
 
-  你可以使用 python_execute 工具作为推理草稿本：统计相关会话、抽取完整答案、交叉核对
+  你可以使用 python_execute 工具作为推理草稿本：统计相关会话、抽取答案、交叉核对
   answer_session_ids。把给定的数据以字面量形式直接嵌入 Python 代码，使计算可复现；把中间结果
   以 JSON 打印出来，便于审计。
 
   python 的 stdout 不是你的最终答案，只是草稿。计算充分、确信之后，停止调用 python，用中文
-  给出结论。最终的结构化结果会从整段对话中自动抽取，所以务必把推理和结论清楚表达。判断规则：
-
-  - golden_answer 必须完全正确且完整；部分正确但不完整的答案算作错误。
-    例：若证据支持的完整答案是「a yellow dress and a pair of matching earrings」，则
-    golden_answer「a yellow dress」不完整，判为错误。
-  - answer_session_ids（已经过上游过滤）必须恰好是支持完整答案所需的会话；多、少、无关的 id，
-    或只支持不完整答案的 id，都算错误。
+  给出结论。最终的结构化结果会从整段对话中自动抽取，所以务必把推理和结论清楚表达。
 
   结构化输出要求：
   - reasoning 必须是详细的中文推理过程。
@@ -26,11 +20,11 @@ user_message: |
   Question date: {question_date}
   Golden answer: {golden_answer}
   Answer session ids: {answer_session_ids}
-  Number of relevant session summaries included: {num_relevant_sessions}
+  Number of session extractions included: {num_session_summaries}
 
   证据（JSON）。下方 answer_session_ids 已是 session_review.json 中的
-  answer_session_ids_filter_illegal；session_summaries 仅含相关会话，每条只有 session_id、
-  session_date、relevant_info：
+  answer_session_ids_filter_illegal；session_summaries 含上游审核过的会话，每条只有 session_id、
+  session_date、extracted_info：
   {payload_json}
 
   用 python_execute 统计和推理，过程中打印中间 JSON。然后用中文给出最终结论：golden_answer

@@ -1,10 +1,10 @@
 """Judge whether the LongMemEval golden answer is reasonable.
 
 Consumes ``session_review.json`` produced by ``lme_session_review_step`` and
-hands its evidence to an agent that is equipped with the
+hands its extracted session information to an agent that is equipped with the
 ``python_execute`` tool. The agent uses ``python_execute`` only as a scratchpad
-for the hard reasoning (checking completeness of the golden answer and
-cross-checking the filtered ``answer_session_ids``); the final verdict is not the
+for the hard reasoning (checking the golden answer and cross-checking the
+filtered ``answer_session_ids``); the final verdict is not the
 raw Python stdout but a *structured* object extracted from the whole conversation
 via ``output_schema``. Sessions dated after ``question_date`` are filtered
 upstream by ``lme_session_review_step`` and are not included in this
@@ -36,26 +36,26 @@ _VERDICT_SCHEMA = {
     "properties": {
         "reasoning": {
             "type": "string",
-            "description": "用中文写出详细的推理过程：先说明证据支持的完整答案，再逐步判断 golden_answer "
-            "是否正确完整，以及 answer_session_ids 是否恰好正确。",
+            "description": "用中文写出详细的推理过程：先说明证据支持的答案，再逐步判断 golden_answer "
+            "是否正确，以及 answer_session_ids 是否恰好正确。",
         },
         "golden_answer_correct": {
             "type": "boolean",
-            "description": "golden_answer 是否完全正确且完整。部分正确但不完整的答案算作错误。",
+            "description": "golden_answer 是否正确。",
         },
         "true_answer": {
             "type": "string",
-            "description": "仅当 golden_answer_correct 为 false 时填写：证据支持的完整正确答案（证据不足时填 "
+            "description": "仅当 golden_answer_correct 为 false 时填写：证据支持的正确答案（证据不足时填 "
             "'unknown'）。golden_answer_correct 为 true 时填空字符串。",
         },
         "answer_session_ids_correct": {
             "type": "boolean",
-            "description": "answer_session_ids 是否恰好是支持完整答案所需的会话（多、少、无关的 id 都算错误）。",
+            "description": "answer_session_ids 是否恰好是支持答案所需的会话（多、少、无关的 id 都算错误）。",
         },
         "true_answer_session_ids": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "仅当 answer_session_ids_correct 为 false 时填写：真正支持完整答案的 session id 列表。"
+            "description": "仅当 answer_session_ids_correct 为 false 时填写：真正支持答案的 session id 列表。"
             "answer_session_ids_correct 为 true 时填空列表。",
         },
     },
@@ -80,7 +80,7 @@ class GoldenCheckStep(BaseStep):
         return {
             "session_id": str(summary.get("session_id") or ""),
             "session_date": str(summary.get("session_date") or ""),
-            "relevant_info": str(summary.get("relevant_info") or ""),
+            "extracted_info": str(summary.get("extracted_info") or ""),
         }
 
     async def execute(self):
@@ -103,7 +103,7 @@ class GoldenCheckStep(BaseStep):
 
         query = review_payload.get("query") or {}
         golden = review_payload.get("golden") or {}
-        # session_review.json already keeps only the relevant summaries.
+        # session_review.json keeps one extraction per reviewed session.
         session_summaries = [self._compact_summary(s) for s in review_payload.get("session_summaries") or []]
 
         question = str(query.get("question") or "").strip()
@@ -130,7 +130,7 @@ class GoldenCheckStep(BaseStep):
             question_date=question_date,
             golden_answer=golden_answer,
             answer_session_ids=", ".join(str(s) for s in answer_session_ids) or "(none)",
-            num_relevant_sessions=len(session_summaries),
+            num_session_summaries=len(session_summaries),
             payload_json=json.dumps(prompt_input, ensure_ascii=False, indent=2),
         )
 
@@ -175,7 +175,7 @@ class GoldenCheckStep(BaseStep):
             verdict = {"reasoning": (result.get("result") or "").strip()}
 
         # Slim output: do NOT duplicate session_review.json (referenced by path);
-        # keep only the relevant session_summaries and the verdict.
+        # keep only the compact session_summaries and the verdict.
         output = {
             "session_review_path": str(review_path),
             "session_summaries": session_summaries,
@@ -190,7 +190,7 @@ class GoldenCheckStep(BaseStep):
         self.context.response.answer = json.dumps(verdict, ensure_ascii=False, indent=2)
         self.context.response.metadata.update(
             {
-                "num_relevant_sessions": len(session_summaries),
+                "num_session_summaries": len(session_summaries),
                 "session_review_path": str(review_path),
                 "tool_context_id": tool_context_id,
                 "agent_session_id": result.get("session_id"),
