@@ -9,12 +9,15 @@ For each ``datasets/longmemeval/<idx>`` workspace, this keeps only:
 All other files or directories in the sample root are considered generated
 artifacts and can be removed. AppleDouble files whose names start with ``._``
 are also removed recursively, including under ``session/``. The script is
-dry-run by default; pass ``--apply`` to actually delete.
+dry-run by default; pass ``--apply`` to actually delete. To delete only specific
+root-level generated files, pass one or more ``--filename`` values.
 
 Examples:
     python benchmark/longmemeval/clean_sample_outputs.py
     python benchmark/longmemeval/clean_sample_outputs.py --apply
     python benchmark/longmemeval/clean_sample_outputs.py --start 36 --end 79 --apply
+    python benchmark/longmemeval/clean_sample_outputs.py --filename check_golden.json --apply
+    python benchmark/longmemeval/clean_sample_outputs.py --filename session_review.json --apply
 """
 
 import argparse
@@ -35,6 +38,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--end", type=int, default=499, help="last numeric sample id to clean, inclusive (default 499)")
     p.add_argument("--limit", type=int, default=0, help="only clean the first N selected samples (0 = all)")
     p.add_argument("--progress-every", type=int, default=25, help="print progress every N samples when applying")
+    p.add_argument(
+        "--filename",
+        action="append",
+        default=[],
+        help="delete only this root-level file or directory name; can be passed multiple times",
+    )
     p.add_argument("--apply", action="store_true", help="actually delete files; default is dry-run")
     return p.parse_args()
 
@@ -53,13 +62,20 @@ def delete_path(path: Path) -> None:
         path.unlink()
 
 
-def iter_sample_targets(sample_dir: Path) -> Iterator[Path]:
+def iter_sample_targets(sample_dir: Path, filenames: set[str] | None = None) -> Iterator[Path]:
     """Yield generated artifacts for one sample.
 
     Root-level generated directories are yielded as a whole, so there is no
     need to recurse into them. AppleDouble files are only searched inside the
     kept ``session/`` directory.
     """
+    if filenames:
+        for name in sorted(filenames):
+            path = sample_dir / name
+            if path.exists():
+                yield path
+        return
+
     for path in sorted(sample_dir.iterdir(), key=lambda p: p.name):
         if path.name not in KEEP:
             yield path
@@ -74,6 +90,10 @@ def main() -> int:
     args = parse_args()
     if args.end < args.start:
         raise ValueError(f"--end ({args.end}) must be >= --start ({args.start})")
+    filenames = {name.strip() for name in args.filename if name.strip()}
+    invalid_filenames = [name for name in filenames if Path(name).name != name]
+    if invalid_filenames:
+        raise ValueError(f"--filename only accepts root-level names, got: {invalid_filenames}")
 
     ids = [idx for idx in sample_ids() if args.start <= int(idx) <= args.end]
     if args.limit:
@@ -85,7 +105,7 @@ def main() -> int:
     for ordinal, idx in enumerate(ids, start=1):
         sample_dir = DATA / idx
         sample_started_at = time.time()
-        targets = list(iter_sample_targets(sample_dir))
+        targets = list(iter_sample_targets(sample_dir, filenames=filenames))
         total_targets += len(targets)
         print(f"[sample {ordinal}/{len(ids)}] {idx} targets={len(targets)}", flush=True)
         for path in targets:
