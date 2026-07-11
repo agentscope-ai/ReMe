@@ -35,16 +35,18 @@ class BaseEmbeddingStore(BaseComponent):
     def _truncate(self, text: str) -> str:
         """Truncate text using a CJK-aware character budget.
 
-        Latin characters keep their historical cost of one unit. CJK and
-        other full-width characters cost 1.5 units because they commonly
-        consume more embedding tokens. Integer half-units avoid floating
-        point boundary errors.
+        ASCII text keeps its historical character limit. For non-ASCII text,
+        narrow characters cost one unit while CJK and other full-width
+        characters cost 1.5 units because they commonly consume more
+        embedding tokens. The estimate reserves a 5% safety margin, and
+        integer half-units avoid floating-point boundary errors.
         """
         limit = max(0, self.max_input_length)
         if text.isascii():
             return text[:limit]
 
-        budget = limit * 2
+        # Reserve a 5% safety margin for token estimation.
+        budget = limit * 2 * 95 // 100
         used = 0
         for index, char in enumerate(text):
             used += 3 if unicodedata.east_asian_width(char) in {"W", "F"} else 2

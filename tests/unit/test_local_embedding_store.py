@@ -46,6 +46,19 @@ def run(coro):
     return asyncio.run(coro)
 
 
+def test_truncate_uses_cjk_aware_integer_budget():
+    """Truncation should preserve ASCII behavior and budget non-ASCII text."""
+    store = BadNodeEmbeddingStore(name="t_base_embedding_truncate", max_input_length=10)
+
+    assert store._truncate("abcdefghijk") == "abcdefghij"
+    assert store._truncate("中文中文中文中文") == "中文中文中文"
+    assert store._truncate("éabcdefghij") == "éabcdefgh"
+
+    store.max_input_length = -1
+    assert store._truncate("text") == ""
+    assert store._truncate("中文") == ""
+
+
 def test_compute_batch_rejects_embeddings_with_wrong_dimension():
     """Provider results with wrong dimensions are not padded, truncated, or cached."""
 
