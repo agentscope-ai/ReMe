@@ -43,7 +43,7 @@ resource/
     ├── cobalt-policy.md
     └── cathode-trend.md
 
-reme_session/
+session/
 └── dialog/
     └── 2026-05-18-close.jsonl
 
@@ -59,7 +59,7 @@ daily/
 
 对应链路：
 
-- `auto_memory` 保存原始对话到 `reme_session/dialog/<session_id>.jsonl`，再让 Agent 把重要事实写入 `daily/<date>/<session_id>.md`。
+- `auto_memory` 保存原始对话到 `session/dialog/<session_id>.jsonl`，再让 Agent 把重要事实写入 `daily/<date>/<session_id>.md`。
 - `resource_watch_loop` 监听 `resource/` 文本文件变化，并触发 `auto_resource_step` 写同名 daily note。
 - `daily_create` 会维护 `daily/<date>.md` 当天索引页。
 
@@ -269,7 +269,7 @@ Agent 排查过程：
 `auto_memory` 写入：
 
 ```text
-reme_session/dialog/build-oom-2026-03-10.jsonl
+session/dialog/build-oom-2026-03-10.jsonl
 daily/2026-03-10/build-oom-2026-03-10.md
 ```
 
@@ -358,7 +358,7 @@ Agent 回复可以直接跳过低价值路径：
 
 - `digest/procedure/` 保存“怎么做”和“哪些路径无效”，让 Agent 复用排查经验。
 - `digest/personal/` 保存用户偏好，让 Agent 跨会话遵守同一工程风格。
-- 原始对话仍在 `reme_session/dialog/`，daily 记录可追溯，digest 只是长期提炼结果。
+- 原始对话仍在 `session/dialog/`，daily 记录可追溯，digest 只是长期提炼结果。
 
 ## 场景三：个人第二大脑
 
