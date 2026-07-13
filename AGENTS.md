@@ -112,6 +112,8 @@ authorized the necessary environment.
 ## Coding and Test Conventions
 
 - Target Python 3.11+ and follow the surrounding typing and async style.
+- Steps are stateless. If a step needs to persist state, store it in
+  `self.app_context.metadata` rather than on the step instance.
 - Keep public schemas explicit and backward-compatible where practical.
 - Close async clients, services, tasks, and other lifecycle resources deterministically.
 - Prefer clear failures over silently falling back to corrupt or ambiguous state.
