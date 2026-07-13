@@ -289,17 +289,16 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 
 - **Issues and requests**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
   related discussion, open a new issue with background, expected behavior, and impact scope.
-- **Code contributions**: Before making changes, read the [contribution guide](docs/en/contributing.md)
-  and [code framework](docs/en/framework.md), and follow the CLI / Service / Application / Job / Step / Component
-  layering.
-- **Documentation contributions**: For user-visible installation, configuration, invocation, or behavior changes, update
-  `docs/en/`, `docs/zh/`, or the README files accordingly.
+- **Code contributions**: Before making changes, read the [contribution guide](https://docs.agentscope.io/reme/stable/en/contributing). Source,
+  schemas, and tests are the authoritative architecture and extension guide.
+- **Documentation contributions**: Submit user-facing documentation changes to the
+  [unified documentation repository](https://github.com/agentscope-ai/docs) under `reme/<version>/{en,zh}/`.
 - **Commit convention**: Conventional Commits are recommended, for example `feat(search): add link expansion option` or
   `docs(zh): update quick start`.
 - **Pre-submit checks**: Before submitting a PR, try to run `pre-commit run --all-files` and `pytest`. If tests that
   depend on LLMs, embeddings, or external services cannot run, explain that in the PR.
 - **Get help**: Use [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues) for bugs and feature requests. Project
-  documentation is available at [https://reme.agentscope.io/](https://reme.agentscope.io/).
+  documentation is available at [https://docs.agentscope.io/](https://docs.agentscope.io/reme/stable/en/).
 
 ### Contributors
 
@@ -323,7 +322,3 @@ Thanks to everyone who has contributed to ReMe:
 ## ⚖️ License
 
 This project is open source under the Apache License 2.0. See [LICENSE](./LICENSE) for details.
-
-## 📈 Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=agentscope-ai/ReMe&type=Date)](https://www.star-history.com/#agentscope-ai/ReMe&Date)
