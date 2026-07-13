@@ -171,6 +171,38 @@ def test_search_step_keyword_only_uses_keyword_scores_and_min_score():
     asyncio.run(run())
 
 
+def test_plain_search_steps_apply_min_score_before_truncation():
+    """Vector-only and BM25-only tools should not return hits below ``min_score``."""
+
+    async def run():
+        vector_store = FakeSearchStore(
+            vector_results=[
+                _chunk("vector-high", "daily/high.md", "strong vector hit", "vector", 0.9),
+                _chunk("vector-low", "daily/low.md", "weak vector hit", "vector", 0.2),
+            ],
+        )
+        keyword_store = FakeSearchStore(
+            keyword_results=[
+                _chunk("keyword-high", "daily/high.md", "strong keyword hit", "keyword", 4.0),
+                _chunk("keyword-low", "daily/low.md", "weak keyword hit", "keyword", 0.2),
+            ],
+        )
+
+        vector = await VectorSearchStep(file_store=vector_store)(
+            RuntimeContext(query="alpha", limit=5, min_score=0.5),
+        )
+        keyword = await Bm25SearchStep(file_store=keyword_store)(
+            RuntimeContext(query="alpha", limit=5, min_score=1.0),
+        )
+
+        assert [result["id"] for result in vector.metadata["results"]] == ["vector-high"]
+        assert [result["id"] for result in keyword.metadata["results"]] == ["keyword-high"]
+        assert vector.answer == "strong vector hit"
+        assert keyword.answer == "strong keyword hit"
+
+    asyncio.run(run())
+
+
 def test_search_step_tool_context_deduplicates_returned_chunks_only():
     """When tool_context_id is supplied, repeated searches skip previously returned chunks."""
 
@@ -202,6 +234,24 @@ def test_search_step_tool_context_deduplicates_returned_chunks_only():
         assert second.metadata["dedup"]["seen_after"] == 3
         assert [r["id"] for r in third.metadata["results"]] == ["a", "b"]
         assert "dedup" not in third.metadata
+
+    asyncio.run(run())
+
+
+def test_search_step_passes_metadata_filter_to_store():
+    """Search filters can target chunk metadata such as conversation_date."""
+
+    async def run():
+        hit = _chunk("hit", "daily/2023-01-19/event.md", "historical hit", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        search_filter = {"metadata": {"conversation_date": "2023-01-19"}}
+
+        resp = await step(RuntimeContext(query="Jon job", limit=5, search_filter=search_filter))
+
+        assert resp.success is True
+        assert resp.metadata["results"][0]["id"] == "hit"
+        assert all(call[3] == search_filter for call in store.calls)
 
     asyncio.run(run())
 

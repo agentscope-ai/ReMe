@@ -1,6 +1,7 @@
 """Base embedding store with abstract interface for caching and retrieval."""
 
 from abc import abstractmethod
+import unicodedata
 
 import numpy as np
 
@@ -30,6 +31,28 @@ class BaseEmbeddingStore(BaseComponent):
         self.max_input_length = max_input_length
         self.max_retries = max_retries
         self.is_healthy: bool = True
+
+    def _truncate(self, text: str) -> str:
+        """Truncate text using a CJK-aware character budget.
+
+        ASCII text keeps its historical character limit. For non-ASCII text,
+        narrow characters cost one unit while CJK and other full-width
+        characters cost 1.5 units because they commonly consume more
+        embedding tokens. The estimate reserves a 5% safety margin, and
+        integer half-units avoid floating-point boundary errors.
+        """
+        limit = max(0, self.max_input_length)
+        if text.isascii():
+            return text[:limit]
+
+        # Reserve a 5% safety margin for token estimation.
+        budget = limit * 2 * 95 // 100
+        used = 0
+        for index, char in enumerate(text):
+            used += 3 if unicodedata.east_asian_width(char) in {"W", "F"} else 2
+            if used > budget:
+                return text[:index]
+        return text
 
     @abstractmethod
     async def health_check(self, timeout: float = 2.0) -> bool:

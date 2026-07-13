@@ -84,9 +84,6 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     # -- Batching --
 
-    def _truncate(self, text: str) -> str:
-        return text if len(text) <= self.max_input_length else text[: self.max_input_length]
-
     def _partition_by_cache(self, texts: list[str]) -> tuple[list[np.ndarray | None], list[Miss]]:
         results: list[np.ndarray | None] = [None] * len(texts)
         misses: list[Miss] = []
