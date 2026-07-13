@@ -188,10 +188,10 @@ def test_plain_search_steps_apply_min_score_before_truncation():
             ],
         )
 
-        vector = await VectorSearchStep(file_store=vector_store)(
+        vector = await VectorSearchStep(file_store=vector_store, include_source=False)(
             RuntimeContext(query="alpha", limit=5, min_score=0.5),
         )
-        keyword = await Bm25SearchStep(file_store=keyword_store)(
+        keyword = await Bm25SearchStep(file_store=keyword_store, include_source=False)(
             RuntimeContext(query="alpha", limit=5, min_score=1.0),
         )
 
