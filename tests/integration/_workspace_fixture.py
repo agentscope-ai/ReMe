@@ -492,13 +492,12 @@ class WorkspaceEnv:
             return []
         return sorted(digest_root.rglob("*.md"))
 
-    def session_state_files(self, prefix: str = "session_state_") -> list[Path]:
-        """All session-state jsonl files (the agent wrapper writes these under
-        ``resource/`` whenever a ``session_id`` is provided)."""
-        resource_dir = self.workspace_dir / "resource"
-        if not resource_dir.exists():
+    def session_state_files(self, prefix: str = "") -> list[Path]:
+        """All AgentScope session-state jsonl files."""
+        session_dir = self.workspace_dir / "mem_session" / "agentscope"
+        if not session_dir.exists():
             return []
-        return sorted(resource_dir.rglob(f"{prefix}*.jsonl"))
+        return sorted(session_dir.rglob(f"{prefix}*.jsonl"))
 
     # ----- async wait helpers --------------------------------------------
 

@@ -1,6 +1,5 @@
 """AgentScope embedding model wrappers."""
 
-import inspect
 from typing import Any
 
 from agentscope.credential import (
@@ -51,21 +50,16 @@ class BaseAsEmbedding(BaseComponent):
         if model_cls is None:
             raise ValueError(f"{self.credential_cls.__name__} does not support embeddings.")
 
+        dimensions = kwargs.pop("dimensions")
         params_dict = kwargs.pop("parameters", None)
         parameters = model_cls.Parameters(**params_dict) if params_dict else None
 
-        # agentscope 2.0.3 made ``dimensions`` a required first-class
-        # constructor argument, while keeping a backward-compat backfill
-        # that promotes it from ``parameters.dimensions`` when the explicit
-        # value is ``None``.  2.0.2 has no such argument and reads
-        # ``dimensions`` straight from ``Parameters``.  Keep ``dimensions``
-        # in ``Parameters`` for both, and on 2.0.3 pass ``dimensions=None``
-        # so its backfill picks it up.
-        extra: dict[str, Any] = {}
-        if "dimensions" in inspect.signature(model_cls.__init__).parameters:
-            extra["dimensions"] = None
-
-        self.model = model_cls(credential=credential, parameters=parameters, **extra, **kwargs)
+        self.model = model_cls(
+            credential=credential,
+            dimensions=dimensions,
+            parameters=parameters,
+            **kwargs,
+        )
 
 
 @R.register("openai")

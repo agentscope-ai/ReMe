@@ -603,11 +603,11 @@ components:
     default:
       backend: ${EMBEDDING_BACKEND:-openai}
       model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      dimensions: 1024
       credential:
         api_key: ${EMBEDDING_API_KEY:-}
         base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      parameters:
-        dimensions: 1024
+      parameters: { }
 
   embedding_store:
     default:
@@ -666,12 +666,14 @@ components:
     markdown:
       backend: markdown
       supported_extensions: [ "md" ]
+      include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []  # empty = all non-empty frontmatter keys
     json:
       backend: json
       supported_extensions: [ "json" ]
     jsonl:
       backend: jsonl
-      supported_extensions: [ "jsonl" ]
+      supported_extensions: [ "jsonl" ]  # noqa: keep #314 chunker scope intact after #325
     default:
       backend: default
       supported_extensions: ["txt","log"]

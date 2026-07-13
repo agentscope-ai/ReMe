@@ -78,6 +78,30 @@ class LocalFileStore(BaseFileStore):
         self.logger.error(f"{self.name}: embedding disabled, {reason}")
         self.embedding_store = None
 
+    def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
+        """Return whether an index embedding matches the active embedding model."""
+        # With no active embedding store, no persisted/index vector is trustworthy.
+        if self.embedding_store is None or embedding is None:
+            return False
+        return len(embedding) == self.embedding_store.dimensions
+
+    def _drop_stale_embedding(self, chunk: FileChunk, context: str) -> bool:
+        """Drop a chunk embedding when it does not match the active model dimension."""
+        if self.embedding_store is None:
+            return False
+        if chunk.embedding is None or self._embedding_dim_matches(chunk.embedding):
+            return False
+        self.logger.warning(
+            f"{self.name}: stale embedding for chunk {chunk.id} during {context}: "
+            f"{len(chunk.embedding)} != {self.embedding_store.dimensions}; re-embedding",
+        )
+        chunk.embedding = None
+        return True
+
+    def _drop_stale_embeddings(self, chunks: list[FileChunk], context: str) -> None:
+        for chunk in chunks:
+            self._drop_stale_embedding(chunk, context)
+
     # -- persistence ----------------------------------------------------------
 
     async def load(self) -> None:
@@ -91,10 +115,17 @@ class LocalFileStore(BaseFileStore):
                     chunk = FileChunk.model_validate_json(line)
                     self.file_chunks[chunk.id] = chunk
             self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
+            self._invalidate_stale_embeddings()
             await self._sync_keyword_index_from_chunks()
             await self._backfill_missing_embeddings()
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+
+    def _invalidate_stale_embeddings(self) -> None:
+        """Drop persisted embeddings whose dimension no longer matches the active model."""
+        if self.embedding_store is None:
+            return
+        self._drop_stale_embeddings(list(self.file_chunks.values()), "load")
 
     async def _backfill_missing_embeddings(self) -> None:
         """Embed persisted chunks that predate embedding being enabled."""
@@ -106,12 +137,17 @@ class LocalFileStore(BaseFileStore):
             return
 
         self.logger.info(f"{self.name}: backfilling embeddings for {len(missing)} chunks")
+        if not await self.embedding_store.health_check():
+            self._disable_embedding("backfill health check failed")
+            return
+
         try:
             await self.embedding_store.get_node_embeddings(missing)
         except Exception as e:
             self._disable_embedding(f"backfill: {type(e).__name__}: {e}")
             return
 
+        self._drop_stale_embeddings(missing, "backfill")
         filled = sum(1 for chunk in missing if chunk.embedding is not None)
         if filled:
             self.logger.info(f"{self.name}: backfilled embeddings for {filled}/{len(missing)} chunks")
@@ -213,9 +249,17 @@ class LocalFileStore(BaseFileStore):
         cached: dict[str, CachedEmbedding],
         needs_embed: list[FileChunk],
     ) -> None:
-        if not self.embedding_store or chunk.embedding is not None:
+        if not self.embedding_store:
             return
-        if chunk.id in cached and cached[chunk.id][0] == chunk.text:
+        if chunk.embedding is not None:
+            if self._embedding_dim_matches(chunk.embedding):
+                return
+            self._drop_stale_embedding(chunk, "upsert")
+        if (
+            chunk.id in cached
+            and cached[chunk.id][0] == chunk.text
+            and self._embedding_dim_matches(cached[chunk.id][1])
+        ):
             chunk.embedding = cached[chunk.id][1]
         elif chunk.text:
             needs_embed.append(chunk)
@@ -227,6 +271,8 @@ class LocalFileStore(BaseFileStore):
             await self.embedding_store.get_node_embeddings(chunks)
         except Exception as e:
             self._disable_embedding(f"upsert: {type(e).__name__}: {e}")
+            return
+        self._drop_stale_embeddings(chunks, "upsert")
 
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
@@ -282,11 +328,16 @@ class LocalFileStore(BaseFileStore):
             return []
         if query_embedding is None:
             return []
+        if not self._embedding_dim_matches(query_embedding):
+            self._disable_embedding(
+                f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
+            )
+            return []
 
         candidates = [
             c
             for c in self.file_chunks.values()
-            if c.embedding is not None and self._matches_search_filter(c, search_filter)
+            if self._embedding_dim_matches(c.embedding) and self._matches_search_filter(c, search_filter)
         ]
         if not candidates:
             return []

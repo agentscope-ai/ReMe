@@ -19,7 +19,6 @@ from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
 from reme.schema import ComponentConfig
 
-
 # -- helpers ------------------------------------------------------------------
 
 

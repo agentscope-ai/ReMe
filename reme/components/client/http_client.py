@@ -22,6 +22,7 @@ class HttpClient(BaseClient):
         host: str | None = None,
         port: int | None = None,
         timeout: float = 3600.0,
+        show_metadata: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -41,6 +42,7 @@ class HttpClient(BaseClient):
 
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
+        self.show_metadata = show_metadata
 
     async def _start(self) -> None:
         """Initialize the HTTP client."""
@@ -101,8 +103,7 @@ class HttpClient(BaseClient):
                 actions.append({"action": path.lstrip("/"), "method": method.upper(), **op})
         return actions
 
-    @staticmethod
-    def _format_for_display(text: str) -> str:
+    def _format_for_display(self, text: str) -> str:
         """Render a JSON response as human-friendly CLI text; pass through unrecognized payloads."""
         try:
             data = json.loads(text)
@@ -118,7 +119,7 @@ class HttpClient(BaseClient):
         status_pieces = []
         if success is not None:
             status_pieces.append("✅" if success else "❌")
-        if metadata:
+        if self.show_metadata and metadata:
             status_pieces.append(json.dumps(metadata, ensure_ascii=False))
         if status_pieces:
             parts.append(" ".join(status_pieces))

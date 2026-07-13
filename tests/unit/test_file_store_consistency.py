@@ -54,6 +54,36 @@ class FakeEmbeddingStore:
         return nodes
 
 
+class CountingFakeEmbeddingStore(FakeEmbeddingStore):
+    """Fake embedding store that records node backfill requests."""
+
+    def __init__(self):
+        self.node_embedding_calls: list[list[str]] = []
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
+        self.node_embedding_calls.append([node.id for node in nodes])
+        return await super().get_node_embeddings(nodes, **_kwargs)
+
+
+class UnhealthyCountingEmbeddingStore(CountingFakeEmbeddingStore):
+    """Fake embedding store that fails the backfill health gate."""
+
+    async def health_check(self, _timeout: float = 2.0) -> bool:
+        return False
+
+
+class WrongDimEmbeddingStore(FakeEmbeddingStore):
+    """Fake embedding store that returns vectors with the wrong dimension."""
+
+    async def get_embedding(self, input_text: str, **_kwargs) -> np.ndarray:
+        return np.array([1.0], dtype=np.float16)
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
+        for chunk_node in nodes:
+            chunk_node.embedding = np.array([1.0], dtype=np.float16)
+        return nodes
+
+
 def run(coro):
     """Run an async test body."""
     return asyncio.run(coro)
@@ -173,6 +203,132 @@ def test_load_backfills_missing_embeddings_from_persisted_chunks():
     run(go())
 
 
+def test_load_skips_backfill_when_embedding_health_check_fails():
+    """Backfill disables embeddings before batching when the provider is unhealthy."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_backfill_unhealthy", embedding_store="")
+            await store.start()
+            store.file_chunks = {"a": chunk("a", "a.md", "alpha text")}
+            await store.dump()
+            await store.close()
+
+            store = LocalFileStore(name="t_embedding_backfill_unhealthy", embedding_store="")
+            await store.start()
+            fake = UnhealthyCountingEmbeddingStore()
+            store.embedding_store = fake
+            await store.load()
+
+            assert not fake.node_embedding_calls
+            assert store.embedding_store is None
+            assert store.file_chunks["a"].embedding is None
+            await store.close()
+
+    run(go())
+
+
+def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
+    """Loading persisted chunks re-embeds vectors that do not match current dimensions."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_stale_dim", embedding_store="")
+            await store.start()
+            stale = chunk("a", "a.md", "alpha text")
+            stale.embedding = np.array([1.0], dtype=np.float16)
+            store.file_chunks = {"a": stale}
+            await store.dump()
+            await store.close()
+
+            store = LocalFileStore(name="t_embedding_stale_dim", embedding_store="")
+            await store.start()
+            fake = CountingFakeEmbeddingStore()
+            store.embedding_store = fake
+            await store.load()
+
+            assert fake.node_embedding_calls == [["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            await store.close()
+
+    run(go())
+
+
+def test_drop_stale_embedding_noops_without_embedding_store():
+    """The helper should not clear embeddings when vector search is disabled."""
+
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = LocalFileStore(name="t_embedding_no_store_drop", embedding_store="")
+        stale = chunk("a", "a.md", "alpha text")
+        stale.embedding = np.array([1.0], dtype=np.float16)
+
+        assert store._drop_stale_embedding(stale, "test") is False
+        assert stale.embedding.tolist() == [1.0]
+
+
+def test_upsert_does_not_reuse_cached_embedding_with_stale_dimensions():
+    """Re-upsert queues a fresh embedding when cached same-text vector has old dimensions."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_stale_reuse", embedding_store="")
+            await store.start()
+            fake = CountingFakeEmbeddingStore()
+            store.embedding_store = fake
+
+            await store.upsert([(node("note.md"), [chunk("same", "note.md", "alpha text")])])
+            store.file_chunks["same"].embedding = np.array([1.0], dtype=np.float16)
+            await store.file_graph.upsert_nodes([FileNode(path="note.md", st_mtime=1.0, chunk_ids=["same"])])
+
+            await store.upsert([(node("note.md"), [chunk("same", "note.md", "alpha text")])])
+
+            assert fake.node_embedding_calls == [["same"], ["same"]]
+            assert store.file_chunks["same"].embedding.tolist() == [1.0, 0.0]
+            await store.close()
+
+    run(go())
+
+
+def test_upsert_drops_wrong_dimension_from_custom_embedding_store():
+    """Wrong-dimensional embeddings from custom stores are not persisted on chunks."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_wrong_dim_custom", embedding_store="")
+            await store.start()
+            store.embedding_store = WrongDimEmbeddingStore()
+
+            await store.upsert([(node("note.md"), [chunk("a", "note.md", "alpha text")])])
+
+            assert store.file_chunks["a"].embedding is None
+            assert await store.vector_search("alpha", 5, {}) == []
+            assert store.embedding_store is None
+            await store.close()
+
+    run(go())
+
+
+def test_upsert_reembeds_prefilled_chunk_with_stale_dimension():
+    """Incoming chunks with stale embeddings are re-embedded before persistence."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_embedding_prefilled_stale", embedding_store="")
+            await store.start()
+            fake = CountingFakeEmbeddingStore()
+            store.embedding_store = fake
+            prefilled = chunk("a", "note.md", "alpha text")
+            prefilled.embedding = np.array([1.0], dtype=np.float16)
+
+            await store.upsert([(node("note.md"), [prefilled])])
+
+            assert fake.node_embedding_calls == [["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            await store.close()
+
+    run(go())
+
+
 def test_search_filter_applies_to_vector_and_keyword_results():
     """Search filters apply consistently to vector and keyword results."""
 
@@ -224,6 +380,33 @@ def test_faiss_rebuilds_stale_sidecar_and_updates_same_id_text():
             assert await store._try_load_sidecar() is False
             store._rebuild_index()
             assert set(store._id_to_row) == {"other"}
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_rebuild_skips_wrong_dimension_chunks():
+    """FAISS rebuild should ignore chunks whose embedding dimensions do not match."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            try:
+                store = FaissLocalFileStore(name="t_faiss_dim_filter", embedding_store="")
+            except ImportError:
+                pytest.skip("faiss is not installed")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store.file_chunks = {
+                "good": chunk("good", "good.md", "alpha text"),
+                "bad": chunk("bad", "bad.md", "alpha text"),
+            }
+            store.file_chunks["good"].embedding = np.array([1.0, 0.0], dtype=np.float16)
+            store.file_chunks["bad"].embedding = np.array([1.0], dtype=np.float16)
+
+            store._rebuild_index()
+
+            assert set(store._id_to_row) == {"good"}
+            assert store._faiss_index.ntotal == 1
             await store.close()
 
     run(go())

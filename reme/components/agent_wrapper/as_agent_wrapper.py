@@ -42,6 +42,7 @@ from agentscope.tool import (
     FunctionTool,
     Glob,
     Grep,
+    LocalBackend,
     Read,
     ToolBase,
     ToolChunk,
@@ -64,6 +65,24 @@ _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
+
+
+class WorkspaceBackend(LocalBackend):
+    """LocalBackend whose reported cwd is the configured agent workspace.
+
+    Some AgentScope builtin tools use ``backend.getcwd()`` for default search
+    paths or safety checks. Pinning it here keeps those operations aligned with
+    the cwd passed to Bash. Tools that require absolute file paths still keep
+    their own validation behavior.
+    """
+
+    def __init__(self, cwd: str) -> None:
+        super().__init__()
+        self._workspace_cwd = cwd
+
+    async def getcwd(self) -> str:
+        """Return the configured workspace directory."""
+        return self._workspace_cwd
 
 
 class BypassAnalysisBash(Bash):
@@ -106,22 +125,58 @@ class AsAgentWrapper(BaseAgentWrapper):
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
 
-        tool = FunctionTool(func=run_job, name=job.name, description=job.description)
+        tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
         if job.parameters:
             tool.input_schema = job.parameters
         return tool
 
-    @classmethod
-    def _builtin_tools(cls) -> list[ToolBase]:
-        """Return built-in tools expected by local skills."""
-        return [BypassAnalysisBash(), Edit(), Glob(), Grep(), Read(), Write()]
+    def _builtin_tools(
+        self,
+        names: list[str] | str | bool | None = "all",
+        *,
+        sequential_tool_calls: bool = False,
+    ) -> list[ToolBase]:
+        """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
+        cwd = str(self.cwd)
+        backend = WorkspaceBackend(cwd)
+        factories = {
+            "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
+            "edit": lambda: Edit(backend=backend),
+            "glob": lambda: Glob(backend=backend),
+            "grep": lambda: Grep(backend=backend),
+            "read": lambda: Read(backend=backend),
+            "write": lambda: Write(backend=backend),
+        }
+        if names is False:
+            selected_names = []
+        elif names is True or names is None or names == "all":
+            selected_names = list(factories)
+        elif names in ("none", "no", "false"):
+            selected_names = []
+        elif isinstance(names, str):
+            selected_names = [names]
+        else:
+            selected_names = names
+
+        tools: list[ToolBase] = []
+        for name in selected_names:
+            key = name.lower()
+            if key not in factories:
+                allowed = ", ".join(factories)
+                raise ValueError(f"Unknown builtin tool {name!r}; expected one of: {allowed}")
+            tools.append(factories[key]())
+
+        if sequential_tool_calls:
+            for tool in tools:
+                tool.is_concurrency_safe = False
+        return tools
 
     @property
     def session_path(self) -> Path:
         """Directory used for persisted AgentScope sessions."""
         if self.app_context is None:
-            return self.workspace_path / "session" / "agentscope"
-        return self.workspace_path / self.app_context.app_config.session_dir / "agentscope"
+            return self.workspace_path / "mem_session" / "agentscope"
+        return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
 
     @staticmethod
     def _validate_session_id(session_id: str, field: str = "session_id") -> str:
@@ -221,8 +276,15 @@ class AsAgentWrapper(BaseAgentWrapper):
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         tool_context_id = kwargs.get("tool_context_id")
+        sequential_tool_calls = bool(kwargs.get("sequential_tool_calls", True))
+        builtin_tools = kwargs.get("builtin_tools", "all")
+        if "builtin_tools" not in kwargs and not bool(kwargs.get("use_builtin_tools", True)):
+            builtin_tools = []
+        tools: list[ToolBase] = []
+        tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
+        tools.extend(self._make_tool(job, tool_context_id) for job in resolved_jobs)
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[*self._builtin_tools(), *(self._make_tool(job, tool_context_id) for job in resolved_jobs)],
+            tools=tools,
             skills_or_loaders=skills,
         ) # tools存储FunctionTool类型的对象
 

@@ -20,7 +20,6 @@ import psutil
 
 from reme.utils import service_utils as su
 
-
 # ----------------------------------------------------------------------
 # Fakes for mocking psutil.process_iter
 # ----------------------------------------------------------------------

@@ -192,8 +192,8 @@ class CcAgentWrapper(BaseAgentWrapper):
     def session_path(self) -> Path:
         """Directory used for persisted Claude Code sessions."""
         if self.app_context is None:
-            return self.workspace_path / "session"
-        return self.workspace_path / self.app_context.app_config.session_dir
+            return self.workspace_path / "mem_session"
+        return self.workspace_path / self.app_context.app_config.mem_session_dir
 
     def _ensure_claude_skill_dir(self, config_dir: Path) -> None:
         """Expose project skills through Claude Code skill discovery locations."""
@@ -277,7 +277,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             )
         opts.env.update(extra_env_dict)
         self.session_path.mkdir(parents=True, exist_ok=True)
-        opts.cwd = opts.cwd or self.project_path
+        opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
         if opts.skills is not None:

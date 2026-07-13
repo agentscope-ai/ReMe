@@ -125,7 +125,7 @@ def test_auto_dream_and_proactive():
                         topic_diversity_days=7,
                     )
                 dumped = await recorder.dump()
-                session_jsonl = sorted((env.workspace_dir / "session" / "agentscope").glob("*.jsonl"))
+                session_jsonl = sorted((env.workspace_dir / "mem_session" / "agentscope").glob("*.jsonl"))
                 message_files = [*dumped, *session_jsonl]
                 _print_message_files(message_files)
 

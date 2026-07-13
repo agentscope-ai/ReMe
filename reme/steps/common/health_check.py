@@ -10,7 +10,6 @@ from ... import __version__
 from ...components import R
 from ...enumeration import ComponentEnum
 
-
 # ---------------------------------------------------------------------------
 # Memory accounting
 # ---------------------------------------------------------------------------

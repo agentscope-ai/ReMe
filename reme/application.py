@@ -49,7 +49,14 @@ class Application(BaseComponent):
         cfg = self.config
         workspace_path = Path(cfg.workspace_dir).absolute()
         workspace_path.mkdir(parents=True, exist_ok=True)
-        for subdir in [cfg.metadata_dir, cfg.session_dir, cfg.resource_dir, cfg.daily_dir, cfg.digest_dir]:
+        for subdir in [
+            cfg.metadata_dir,
+            cfg.session_dir,
+            cfg.mem_session_dir,
+            cfg.resource_dir,
+            cfg.daily_dir,
+            cfg.digest_dir,
+        ]:
             if subdir:
                 (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
 

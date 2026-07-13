@@ -1,0 +1,195 @@
+service:
+  backend: cli
+
+workspace_dir: ${LME_WORKSPACE_DIR:-datasets/longmemeval/1}
+session_dir: history_session
+resource_dir: session
+daily_dir: ""
+digest_dir: ""
+
+jobs:
+  update_index:
+    backend: base
+    watch_dirs: [resource_dir]
+    watch_suffixes: [md, json, jsonl]
+    steps:
+      - backend: clear_store_step
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+
+  version:
+    backend: base
+    description: "return reme package version"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: version_step
+
+  search:
+    backend: base
+    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "search query"
+        start_date:
+          type: string
+          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        end_date:
+          type: string
+          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+      required:
+        - query
+    steps:
+      - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
+        expand_links: true
+        max_links_per_direction: 10
+
+  add_draft:
+    backend: base
+    description: "Append text to the current draft list."
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "draft text to append"
+      required:
+        - text
+    steps:
+      - backend: add_draft_step
+
+  read_all_draft:
+    backend: base
+    description: "Read all draft text previously appended in the current tool context."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: read_all_draft_step
+
+  python_execute:
+    backend: base
+    description: "Execute Python code and return printed stdout."
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+          description: "Python code to execute. Print the final result to stdout."
+        timeout:
+          type: number
+          description: "Execution timeout in seconds; defaults to 60."
+      required:
+        - code
+    steps:
+      - backend: python_execute_step
+
+components:
+  tokenizer:
+    default:
+      backend: regex
+
+  as_embedding:
+    default:
+      backend: ${EMBEDDING_BACKEND:-openai}
+      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      dimensions: 1024
+      credential:
+        api_key: ${EMBEDDING_API_KEY:-}
+        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters: { }
+
+  embedding_store:
+    default:
+      backend: local
+      as_embedding: default
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.7-max}
+      stream: true
+      context_size: 1000000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
+
+  agent_wrapper:
+    default:
+      backend: agentscope
+      as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 3
+
+    agentic_search_agentwrapper:
+      backend: agentscope
+      as_llm: default
+      cwd: session
+      permission_mode: bypass
+      builtin_tools: false
+      job_tools:
+        - search
+        - add_draft
+        - read_all_draft
+        - python_execute
+      sequential_tool_calls: true
+      react_config:
+        max_iters: 100
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 1000000
+      model_config:
+        max_retries: 3
+
+    claude_code:
+      backend: claude_code
+      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.2}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+
+  file_graph:
+    default:
+      backend: local
+
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions: [ "md" ]
+    default:
+      backend: default
+      supported_extensions: [ "json", "jsonl" ]
+      chunk_byte_size: 100000
+
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  file_store:
+    default:
+      backend: local
+      store_name: local
+      embedding_store: default
+#      embedding_store: ""
+      keyword_index: default
+      file_graph: default

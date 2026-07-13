@@ -20,6 +20,23 @@ class BaseAgentWrapper(BaseComponent):
 
     component_type = ComponentEnum.AGENT_WRAPPER
 
+    def __init__(self, cwd: str | Path | None = None, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._cwd = cwd
+
+    @property
+    def cwd(self) -> Path:
+        """Working directory shared by the agent's shell and file tools.
+
+        Defaults to the project root (the workspace) — the same directory
+        Claude Code has always used. Override via the ``cwd`` init argument;
+        a relative value resolves against the workspace root.
+        """
+        if not self._cwd:
+            return self.project_path
+        cwd = Path(self._cwd)
+        return cwd if cwd.is_absolute() else (self.workspace_path / cwd)
+
     def set_system_prompt(self, prompt: str) -> "BaseAgentWrapper":
         """Set the agent's system prompt. Returns self for chaining."""
         self.kwargs["system_prompt"] = prompt
