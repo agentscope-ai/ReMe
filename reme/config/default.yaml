@@ -599,20 +599,20 @@ components:
     default:
       backend: regex
 
-  as_embedding:
-    default:
-      backend: ${EMBEDDING_BACKEND:-openai}
-      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
-      dimensions: 1024
-      credential:
-        api_key: ${EMBEDDING_API_KEY:-}
-        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      parameters: { }
-
-  embedding_store:
-    default:
-      backend: local
-      as_embedding: default
+#  as_embedding:
+#    default:
+#      backend: ${EMBEDDING_BACKEND:-openai}
+#      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+#      dimensions: 1024
+#      credential:
+#        api_key: ${EMBEDDING_API_KEY:-}
+#        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+#      parameters: { }
+#
+#  embedding_store:
+#    default:
+#      backend: local
+#      as_embedding: default
 
   as_llm:
     default:
@@ -687,7 +687,7 @@ components:
     default:
       backend: local
       store_name: local
-      #  embedding_store: default
+#      embedding_store: default
       embedding_store: ""
       keyword_index: default
       file_graph: default
