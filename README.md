@@ -191,6 +191,15 @@ ReMe treats **memory as files**, progressively processing raw conversations and 
   <img src="docs/figure/reme-overview.svg" alt="ReMe file-based memory system overview" width="92%">
 </p>
 
+## 💡 Design Philosophy
+
+ReMe's architecture is grounded in cognitive science theories, deriving the core skeleton of a memory system from first principles.
+
+- **Four-layer pipeline: Engineering convergence of CLS and event construction**. Complementary Learning Systems theory (CLS) requires fast binding and slow integration to occupy separate representational spaces — `daily/` serves as a hippocampus-like fast-binding layer, while `digest/` carries neocortex-like long-term semantic knowledge. Event construction and multi-channel sensory processing theories add `resource/` and `session/` at the input end, converging into the `resource/ → session/ → daily/ → digest/` processing cascade. `daily/` also provides an unconsolidated candidate pool for adaptive forgetting, making forgetting an active choice rather than capacity-driven eviction.
+- **Wikilink: A biomimetic connective hub from spreading activation theory**. ReMe uses `[[wikilink]]` instead of traditional foreign keys, organizing four-layer memory into an explicit, traversable semantic network; `auto_index` adjusts link weights in real time, simulating synaptic plasticity (LTP/LTD). The graph combined with embeddings enables partial cue recovery of complete patterns, with `metadata/` acting as a hippocampus-like index.
+- **Upper-layer functions grow naturally around the foundation and Wikilinks**. Auto Dream selectively integrates daily into digest based on Wikilink relevance (consolidation as selection, unconsolidated as forgetting), aligned with the synaptic homeostasis hypothesis; progressive hybrid search blends Wikilink traversal (associative expansion), BM25 (familiarity pathway), and embeddings (contextual recollection pathway), echoing the ACT-R memory activation equation.
+- **Extended mind: A human-machine shared cognitive prosthesis**. Markdown serves as a cognitive prosthesis, allowing humans to directly edit memory — editing itself is generative re-encoding. ReMe treats memory as a human-machine co-maintained knowledge garden: the four-layer pipeline is the soil, Wikilinks are the root system, Auto Dream sets the pruning rhythm, and readability and editability are themselves central to cognitive quality.
+
 ## 🧭 Memory Design Philosophy
 
 > Capture raw dialogs and resources, refine them into long-term preferences, reusable experience, and valuable knowledge,
