@@ -47,6 +47,7 @@ class Bm25SearchStep(BaseStep):
         assert self.context is not None
         query: str = (self.context.get("query", "") or "").strip()
         limit: int = int(self.context.get("limit") or 5)
+        min_score: float = float(self.context.get("min_score") or 0.0)
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
 
         if not query:
@@ -58,6 +59,9 @@ class Bm25SearchStep(BaseStep):
         candidates = min(_MAX_CANDIDATES, max(1, limit * 5))
         results = await self.file_store.keyword_search(query, candidates, {})
         self.logger.info(f"[{self.name}] query={query!r} candidates={candidates} hits={len(results)}")
+
+        if min_score > 0.0:
+            results = [chunk for chunk in results if chunk.score >= min_score]
 
         if tool_context_id:
             results = self._dedupe_tool_context(results, tool_context_id, limit)
