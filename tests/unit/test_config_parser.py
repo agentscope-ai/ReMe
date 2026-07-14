@@ -30,6 +30,17 @@ def test_default_config_registers_daily_write_job():
     assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
 
 
+def test_default_config_registers_shell_job():
+    """``shell`` exposes command execution through ``shell_step``."""
+    cfg = _load_config("default.yaml")
+
+    job = cfg["jobs"]["shell"]
+    assert job["backend"] == "base"
+    assert job["steps"] == [{"backend": "shell_step"}]
+    assert job["parameters"]["required"] == ["command"]
+    assert job["parameters"]["properties"]["timeout"]["default"] == 86400
+
+
 def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     """Markdown frontmatter-to-chunk metadata is disabled by default for compatibility."""
     cfg = _load_config("default.yaml")

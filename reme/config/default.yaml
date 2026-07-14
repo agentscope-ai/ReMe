@@ -216,6 +216,15 @@ jobs:
     steps:
       - backend: health_check_step
 
+  status:
+    backend: base
+    description: "report memory estimates for stateful data components and process RSS"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: status_step
+
   help:
     backend: base
     description: "list all registered jobs with their metadata"
@@ -224,6 +233,24 @@ jobs:
       properties: { }
     steps:
       - backend: help_step
+
+  shell:
+    backend: base
+    description: "execute a shell command asynchronously in the workspace"
+    parameters:
+      type: object
+      properties:
+        command:
+          type: string
+          description: "shell command to execute"
+        timeout:
+          type: number
+          description: "maximum execution time in seconds"
+          default: 86400
+      required:
+        - command
+    steps:
+      - backend: shell_step
 
   traverse:
     backend: base

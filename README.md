@@ -288,6 +288,7 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 |-------------------------------------------|----------------------------------------------------------------------------------------|
 | `reme start`                              | Start the local ReMe service.                                                          |
 | `reme version` / `reme health_check`      | Check package and component status.                                                    |
+| `reme status`                             | Show stateful data-component memory estimates and process RSS.                         |
 | [`reme search`](docs/en/memory_search.md) | Retrieve memory with BM25 and wikilinks by default, plus vectors when enabled.         |
 | `reme read` / `reme write` / `reme edit`  | Inspect and maintain Markdown memory files.                                            |
 | `reme auto_memory`                        | Turn conversation messages into daily memory cards. Requires LLM credentials.          |
