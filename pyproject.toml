@@ -49,19 +49,16 @@ core = [
     "rjieba>=0.2.1",
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
+    "openai-codex>=0.1.0b3",
 ]
 dev = [
     "pre-commit",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
-benchmark = [
-    "portalocker>=2.10.1",
-]
 full = [
     "reme-ai[core]",
     "reme-ai[dev]",
-    "reme-ai[benchmark]",
 ]
 
 [project.urls]

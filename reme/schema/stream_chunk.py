@@ -10,7 +10,7 @@ from ..enumeration import ChunkEnum
 class StreamChunk(BaseModel):
     """A single chunk in a unified streaming response sequence.
 
-    Carries full information from both AgentScope and Claude Code SDK
+    Carries full information from AgentScope, Claude Code SDK, and Codex
     backends.  Optional fields are ``None`` by default so that simple
     text-only streams (e.g. plain CONTENT deltas) stay lightweight.
 
@@ -20,8 +20,7 @@ class StreamChunk(BaseModel):
                       dict/list for structured data (tool-call JSON,
                       usage stats, etc.).
         done:         Terminal marker. True only for the final DONE chunk.
-        session_id:   Session identifier (AgentScope: agent.state.session_id;
-                      Claude Code: ResultMessage.session_id).
+        session_id:   Backend session identifier (Codex uses its thread id).
         block_id:     Content-block identifier for matching start/delta/end
                       sequences (both backends assign block IDs).
         tool_call_id: Tool-call identifier for correlating call deltas

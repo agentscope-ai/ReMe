@@ -674,6 +674,21 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
+    codex:
+      backend: codex
+      model: ${CODEX_MODEL_NAME:-}
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+      approval_mode: auto_review
+      sandbox: workspace-write
+      mcp_config: default
+    codex_oauth:
+      backend: codex
+      model: ${CODEX_MODEL_NAME:-}
+      codex_home: ${CODEX_HOME:-~/.codex}
+      approval_mode: auto_review
+      sandbox: workspace-write
+      mcp_config: default
 
   file_graph:
     default:
