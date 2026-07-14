@@ -483,29 +483,143 @@ class CcAgentWrapper(BaseAgentWrapper):
         return isinstance(subtype, str) and subtype.lower() in {"error", "failed", "failure"}
 
     @staticmethod
+    def _is_max_turns_result(msg: Any) -> bool:
+        """Return whether an SDK ResultMessage represents a max-turns limit."""
+        subtype = getattr(msg, "subtype", None)
+        return isinstance(subtype, str) and subtype == "error_max_turns"
+
+    @staticmethod
     def _is_trailing_success_error(exc: Exception) -> bool:
         """Return whether an SDK iterator error is the known success-exit artifact."""
         return "Claude Code returned an error result: success" in str(exc)
 
     # ----- reply / reply_stream --------------------------------------------
 
-    async def reply(self, inputs: Any, **kwargs) -> dict:
+    @staticmethod
+    async def _deny_all_tools(_input: Any, _tool_use_id: str | None, _context: Any) -> dict[str, Any]:
+        """PreToolUse hook that hard-denies every tool call.
+
+        Used during the forced-answer step: even if the model ignores the
+        instruction and tries to call a tool, the CLI denies it at PreToolUse,
+        so the model cannot execute or keep calling tools and must produce a
+        direct text answer. This is a runtime permission decision — it does not
+        alter the tool schema, so the resumed prompt prefix (and its KV cache)
+        stays intact. Mirrors the AgentScope backend's ``tool_choice="none"``
+        hard guarantee.
+        """
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": (
+                    "The reasoning/tool-call limit has been reached. Answer "
+                    "directly from the existing context without calling tools."
+                ),
+            },
+        }
+
+    async def _force_answer(self, session_id: str, **kwargs) -> str | None:
+        """Force a final text answer after Claude Code hit its turn limit.
+
+        Resumes the existing session so the model keeps the full conversation
+        history *and the identical tool schema* (preserving the KV cache),
+        then hard-blocks tool execution via a PreToolUse deny hook so the
+        model is forced to answer directly.
+
+        Two layers work together:
+
+        1. An appended instruction asks the model to answer directly without
+           calling tools or reasoning further.
+        2. :meth:`_deny_all_tools` denies every tool at PreToolUse, so if the
+           model ignores (1) and still tries a tool, it is forcibly stopped
+           from executing / continuing tool calls. Because the hook is a
+           runtime decision (not a schema change), the resumed prompt prefix
+           stays byte-identical and the KV cache is reused.
+        """
+        from claude_agent_sdk import query, ResultMessage, HookMatcher
+
+        prompt = (
+            "You have reached the maximum number of reasoning steps and tool calls. "
+            "Do NOT call any tools and do NOT perform any further reasoning. "
+            "Based on the conversation history above, provide your final answer directly."
+        )
+
+        # Drop output_schema so the forced call returns plain text.
+        forced_kwargs = {k: v for k, v in kwargs.items() if k != "output_schema"}
+        opts = self._build_options(prompt, stream=False, **forced_kwargs)
+
+        # Resume the just-finished session. Tools / mcp_servers / system prompt
+        # are left untouched so the prompt prefix is identical and the KV cache
+        # is reused.
+        opts.resume = session_id
+        opts.session_id = None
+        opts.continue_conversation = False
+
+        # Hard stop: deny every tool at PreToolUse. The matcher is left as the
+        # default (matches all tools) so both builtin and job/MCP tools are
+        # blocked. Hooks keep the control channel (stdin) open, so this works
+        # with the plain string prompt above.
+        opts.hooks = {"PreToolUse": [HookMatcher(hooks=[self._deny_all_tools])]}
+
+        last_msg = None
+        try:
+            async for msg in query(prompt=prompt, options=opts):
+                if isinstance(msg, ResultMessage):
+                    last_msg = msg
+        except Exception as exc:
+            if last_msg is None:
+                raise
+            self.logger.debug(f"Ignoring Claude Code trailing error in forced answer: {exc}")
+
+        return last_msg.result if last_msg is not None else None
+
+    async def reply(self, inputs: Any, answer_reach_limit: bool = False, **kwargs) -> dict:
         from claude_agent_sdk import query, ResultMessage
 
         opts = self._build_options(inputs, stream=False, **kwargs)
 
         last_msg = None
-        async for msg in query(prompt=inputs, options=opts):
-            if isinstance(msg, ResultMessage):
-                last_msg = msg
+        try:
+            async for msg in query(prompt=inputs, options=opts):
+                if isinstance(msg, ResultMessage):
+                    last_msg = msg
+        except Exception as exc:
+            # On max_turns the CLI emits the ResultMessage and then exits
+            # non-zero, raising a trailing error. Only swallow it when we can
+            # act on the captured result (answer_reach_limit); otherwise keep
+            # the original raising behavior for backward compatibility.
+            if not (answer_reach_limit and last_msg is not None):
+                raise
+            self.logger.debug(f"Ignoring Claude Code trailing error after final result: {exc}")
 
         if last_msg is None:
             raise ValueError("No message received from Claude Code.")
 
+        result_text = last_msg.result
+
+        # When the agent hits max_turns, Claude Code returns an error result
+        # (subtype "error_max_turns") instead of a real answer. If
+        # answer_reach_limit is True, resume the session and force a final
+        # answer with tools disabled.
+        forced_answer = False
+        if answer_reach_limit and self._is_max_turns_result(last_msg) and last_msg.session_id:
+            try:
+                forced_text = await self._force_answer(last_msg.session_id, **kwargs)
+                if forced_text:
+                    result_text = forced_text
+                    forced_answer = True
+            except Exception:
+                self.logger.warning("Forced answer call failed, using original result", exc_info=True)
+
+        last_message = asdict(last_msg)
+        if forced_answer:
+            # Reflect the forced answer so result and last_message stay consistent.
+            last_message["result"] = result_text
+
         result = {
             "session_id": last_msg.session_id or "",
-            "last_message": asdict(last_msg),
-            "result": last_msg.result,
+            "last_message": last_message,
+            "result": result_text,
         }
         output_schema = kwargs.get("output_schema") or self.kwargs.get("output_schema")
         if output_schema and last_msg.structured_output:

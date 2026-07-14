@@ -92,8 +92,16 @@ class BaseAgentWrapper(BaseComponent):
         return StreamChunk(chunk_type=chunk_type, **kwargs)
 
     @abstractmethod
-    async def reply(self, inputs: Any, **kwargs) -> dict:
-        """Send inputs to the agent and return a dict with session_id and last_message."""
+    async def reply(self, inputs: Any, answer_reach_limit: bool = False, **kwargs) -> dict:
+        """Send inputs to the agent and return a dict with session_id and last_message.
+
+        Args:
+            inputs: The user input / prompt to send to the agent.
+            answer_reach_limit: When True, if the agent hits its reasoning/turn
+                limit, force it to produce a final answer from the existing
+                context instead of returning an empty or error result.
+            **kwargs: Additional backend-specific options.
+        """
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

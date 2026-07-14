@@ -33,7 +33,7 @@ from agentscope.event import (
     ToolResultStartEvent,
     ToolResultTextDeltaEvent,
 )
-from agentscope.message import TextBlock, ToolResultState, UserMsg
+from agentscope.message import AssistantMsg, TextBlock, ToolResultState, UserMsg
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
 from agentscope.state import AgentState
 from agentscope.tool import (
@@ -307,20 +307,87 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return agent, inputs
 
-    async def reply(self, inputs: Any, **kwargs) -> dict:
+    async def reply(self, inputs: Any, answer_reach_limit: bool = False, **kwargs) -> dict:
         kwargs = self._merged_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)
-        await agent.reply()
+        final_msg = await agent.reply()
+
+        result_text = final_msg.get_text_content()
+
+        # When the agent hits max_iters, AgentScope returns a placeholder
+        # message instead of a real answer. If answer_reach_limit is True,
+        # make a follow-up LLM call to force a final answer from the existing
+        # context — preserving system prompt, summary, and tools for KV cache.
+        forced_answer = False
+        if answer_reach_limit and agent.state.cur_iter >= agent.react_config.max_iters:
+            try:
+                # Get the same input as normal reasoning (system + summary + context + tools)
+                model_input = await agent._prepare_model_input()  # pylint: disable=protected-access
+                messages = model_input["messages"]
+                tools = model_input["tools"]
+
+                # Append force-answer prompt (only append, no modification)
+                messages.append(
+                    UserMsg(
+                        name="user",
+                        content="You have reached the maximum number of reasoning steps and tool calls. "
+                        "Based on the conversation history above, provide your final "
+                        "answer directly.",
+                    ),
+                )
+
+                # Call model via agent to reuse retry logic and middleware
+                response = await agent._call_model(  # pylint: disable=protected-access
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=ToolChoice(mode="none"),
+                )
+                # _call_model may return an async generator if the model is
+                # configured for streaming; collect the final chunk.
+                if hasattr(response, "__aiter__"):
+                    last_chunk = None
+                    async for chunk in response:
+                        last_chunk = chunk
+                    response = last_chunk
+
+                if response is not None:
+                    forced_text = "\n".join(b.text for b in response.content if getattr(b, "type", None) == "text")
+                    if forced_text:
+                        result_text = forced_text
+                        forced_answer = True
+                        # Persist the forced answer into context so it is
+                        # saved to state and reused by the output_schema path.
+                        agent.state.context.append(
+                            AssistantMsg(
+                                name=agent.name,
+                                content=[TextBlock(type="text", text=forced_text)],
+                            ),
+                        )
+            except Exception:
+                self.logger.warning(
+                    "Forced answer call failed, using original result",
+                    exc_info=True,
+                )
+
+        # Persist state AFTER the forced-answer logic so the forced answer
+        # (appended to context above) is included in the saved session.
         await self._dump_state(agent.state)
-        last_msg = agent.state.context[-1]
 
         result = {
             "session_id": agent.state.session_id,
-            "last_message": last_msg.model_dump(),
-            "result": last_msg.get_text_content(),
+            "last_message": final_msg.model_dump(),
+            "result": result_text,
         }
+
+        # If forced answer was used, update last_message to reflect the actual answer
+        if forced_answer:
+            last_msg_dict = final_msg.model_dump()
+            last_msg_dict["content"] = [
+                TextBlock(type="text", text=result_text).model_dump(),
+            ]
+            result["last_message"] = last_msg_dict
 
         output_schema: dict | None = kwargs.get("output_schema")
         if output_schema is not None:
