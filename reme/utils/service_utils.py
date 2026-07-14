@@ -104,7 +104,7 @@ def running_service_config() -> dict | None:
             _, kwargs = parse_args("start", *argv)
         except ValueError:
             continue
-        service = resolve_app_config(**kwargs).get("service")
+        service = resolve_app_config(log_config=False, **kwargs).get("service")
         if isinstance(service, dict):
             return service
     return None

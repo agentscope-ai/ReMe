@@ -113,7 +113,7 @@ def _collect_memory(app_context) -> dict:
 
 def _format_status(memory: dict) -> str:
     """Build the human-readable CLI response."""
-    lines = ["ReMe status", "", "Memory (estimated component object size)"]
+    lines = ["Memory (estimated component object size)"]
     for component_type, group in memory["components"].items():
         for name, usage in group.items():
             lines.append(f"  {component_type}:{name}  {usage['human']}")

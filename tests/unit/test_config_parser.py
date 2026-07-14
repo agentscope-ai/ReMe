@@ -10,6 +10,7 @@ from reme.config.config_parser import (
     _read_config_file,
     parse_args,
     parse_dot_notation,
+    resolve_app_config,
 )
 
 
@@ -18,6 +19,24 @@ def test_load_builtin_config_by_filename_with_suffix():
     cfg = _load_config("default.yaml")
 
     assert cfg["service"]["backend"] == "http"
+
+
+def test_resolve_app_config_can_suppress_config_log(monkeypatch):
+    """Client-side config resolution can avoid polluting command output."""
+    messages = []
+
+    class FakeLogger:
+        """Capture config log messages."""
+
+        def info(self, message):
+            """Record one INFO message."""
+            messages.append(message)
+
+    monkeypatch.setattr("reme.utils.get_logger", lambda **_kwargs: FakeLogger())
+
+    resolve_app_config(log_config=False)
+
+    assert not messages
 
 
 def test_default_config_registers_daily_write_job():
@@ -37,8 +56,8 @@ def test_default_config_registers_shell_job():
     job = cfg["jobs"]["shell"]
     assert job["backend"] == "base"
     assert job["steps"] == [{"backend": "shell_step"}]
-    assert job["parameters"]["required"] == ["command"]
-    assert job["parameters"]["properties"]["timeout"]["default"] == 86400
+    assert job["parameters"]["required"] == ["cmd"]
+    assert job["parameters"]["properties"]["shell_timeout"]["default"] == 86400
 
 
 def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():

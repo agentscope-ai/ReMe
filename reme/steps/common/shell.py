@@ -25,11 +25,12 @@ class ShellStep(BaseStep):
     async def execute(self):
         assert self.context is not None
 
-        command = self.context.get("command", "")
-        timeout, timeout_error = self._parse_timeout(self.context.get("timeout", DEFAULT_TIMEOUT))
+        command = self.context.get("cmd", self.context.get("command", ""))
+        raw_timeout = self.context.get("shell_timeout", self.context.get("timeout", DEFAULT_TIMEOUT))
+        timeout, timeout_error = self._parse_timeout(raw_timeout)
         if not isinstance(command, str) or not command.strip():
             self.context.response.success = False
-            self.context.response.answer = "command is required"
+            self.context.response.answer = "cmd is required"
             return self.context.response
         if timeout_error:
             self.context.response.success = False

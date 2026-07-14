@@ -201,9 +201,12 @@ def parse_args(*args) -> tuple[str, dict]:
     return first, parsed
 
 
-def resolve_app_config(**kwargs) -> dict:
+def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Set ``log_config=False`` for user-facing client calls that should print only
+    the requested job's output.
     """
     from ..utils import get_logger
 
@@ -215,10 +218,12 @@ def resolve_app_config(**kwargs) -> dict:
     config_value = kwargs.get("config")
     if isinstance(config_value, str):
         kwargs.pop("config")
-        logger.info(f"Loading config: {config_value}")
+        if log_config:
+            logger.info(f"Loading config: {config_value}")
         configs.append(_load_config(config_value))
     elif "default" in _CONFIG_REGISTRY:
-        logger.info("No config specified, loading 'default'")
+        if log_config:
+            logger.info("No config specified, loading 'default'")
         configs.append(_load_config("default"))
 
     configs.append(kwargs)

@@ -28,7 +28,7 @@ def test_shell_step_returns_stdout_from_workspace(tmp_path):
 
     async def run():
         step = ShellStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-        response = await step(command="pwd")
+        response = await step(cmd="pwd")
 
         assert response.success is True
         assert response.answer.strip() == str(tmp_path)
@@ -43,7 +43,7 @@ def test_shell_step_reports_stderr_on_failure():
 
     async def run():
         step = ShellStep()
-        response = await step(command="echo boom >&2; exit 7")
+        response = await step(cmd="echo boom >&2; exit 7")
 
         assert response.success is False
         assert response.answer == "boom\n"
@@ -58,7 +58,7 @@ def test_shell_step_times_out():
 
     async def run():
         step = ShellStep()
-        response = await step(command="sleep 0.1", timeout=0.01)
+        response = await step(cmd="sleep 0.1", shell_timeout=0.01)
 
         assert response.success is False
         assert response.answer == "Shell command timed out after 0.01s"
@@ -71,9 +71,22 @@ def test_shell_step_requires_a_command():
     """Blank commands are rejected without creating a subprocess."""
 
     async def run():
-        response = await ShellStep()(command="  ")
+        response = await ShellStep()(cmd="  ")
 
         assert response.success is False
-        assert response.answer == "command is required"
+        assert response.answer == "cmd is required"
+
+    _run(run())
+
+
+def test_shell_step_accepts_legacy_parameter_names():
+    """Existing API callers may continue using command and timeout."""
+
+    async def run():
+        response = await ShellStep()(command="printf legacy", timeout=1)
+
+        assert response.success is True
+        assert response.answer == "legacy"
+        assert response.metadata["timeout"] == 1
 
     _run(run())

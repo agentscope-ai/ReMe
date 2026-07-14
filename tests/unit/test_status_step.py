@@ -91,6 +91,7 @@ def test_status_step_returns_human_summary_and_exact_metadata(tmp_path):
 
     response = asyncio.run(StatusStep(app_context=context)())
 
+    assert not response.answer.startswith("ReMe status")
     assert "Memory (estimated component object size)" in response.answer
     assert "file_store:default" in response.answer
     assert "Storage" not in response.answer

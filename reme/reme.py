@@ -39,7 +39,7 @@ async def call_server(action: str, **kwargs):
     # Prefer the running server's real config; fall back to the local config file.
     service = running_service_config()
     if service is None:
-        service = resolve_app_config(**resolve_kwargs).get("service")
+        service = resolve_app_config(log_config=False, **resolve_kwargs).get("service")
     service = service if isinstance(service, dict) else {}
 
     backend: str = kwargs.pop("backend", None) or service.get("backend", "http")

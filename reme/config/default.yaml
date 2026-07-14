@@ -240,15 +240,15 @@ jobs:
     parameters:
       type: object
       properties:
-        command:
+        cmd:
           type: string
           description: "shell command to execute"
-        timeout:
+        shell_timeout:
           type: number
           description: "maximum execution time in seconds"
           default: 86400
       required:
-        - command
+        - cmd
     steps:
       - backend: shell_step
 
