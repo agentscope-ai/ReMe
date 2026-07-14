@@ -33,6 +33,8 @@ the code, schema, tests, configuration, and concise documentation together as ne
 
 - `reme/reme.py`: CLI entry point and client/server dispatch.
 - `reme/application.py`: application assembly, dependency ordering, and lifecycle.
+- `reme/components/application_context.py`: application-wide wiring and shared in-memory metadata.
+- `reme/components/runtime_context.py`: scratch state shared by steps within one execution.
 - `reme/config/default.yaml`: built-in jobs, components, and defaults.
 - `reme/schema/`: public and runtime Pydantic contracts.
 - `reme/components/`: services, stores, clients, jobs, and component registration.
@@ -78,6 +80,34 @@ runtime. Treat the implementation, registry entry, and import side effect as one
 Do not silently change stable CLI flags, configuration keys, workspace layouts, serialized
 schemas, or service interfaces. When such a change is required, preserve compatibility
 where practical and make the migration explicit.
+
+## Step State Model
+
+Treat every Step as stateless. `BaseJob` stores Step specifications and builds fresh Step
+instances for each Job invocation. A Step instance must not use `self` or class variables to
+retain mutable runtime state between calls.
+
+Place state according to its lifetime:
+
+- Constructor fields on `self`: immutable Step configuration and resolved dependencies only.
+- `self.context` (`RuntimeContext`): request data and intermediate results for one Job
+  execution; sequential Steps share this context.
+- `self.app_context.metadata`: in-memory state that must be shared across Step or Job
+  invocations for the lifetime of the Application.
+- Workspace files or a dedicated Component/store: durable state that must survive an
+  Application restart.
+
+Use narrow, namespaced keys in `app_context.metadata`, following existing patterns such as
+`tool_contexts` and `channel_sink`. The ApplicationContext is shared, so account for
+concurrent access when values are mutable. New Step code must not fall back to `self.kwargs`
+or another Step field to emulate shared state when `app_context` is absent; tests of shared
+state should construct an `ApplicationContext`. If shared state grows into a stable
+service-level contract or needs its own lifecycle, locking, or persistence, promote it to a
+typed ApplicationContext field or a dedicated Component instead of expanding an ad hoc
+metadata bucket.
+
+Do not use `Response.metadata` as a state store. It is request-scoped output for callers and
+diagnostics, distinct from `ApplicationContext.metadata`.
 
 ## Validation
 
