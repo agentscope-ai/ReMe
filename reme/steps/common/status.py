@@ -95,6 +95,10 @@ def _collect_memory(app_context) -> dict:
         for component_type in sorted(_TRACKED_COMPONENT_TYPES, key=lambda item: item.value):
             group = {}
             for name, component in sorted(app_context.components.get(component_type, {}).items()):
+                # _component_size keeps an independent seen set so each component
+                # remains understandable in isolation. Consequently, a non-component
+                # object shared by multiple components may be included more than once
+                # in components_total_bytes; this is an estimate, not unique RSS.
                 size = _component_size(component)
                 group[name] = {"bytes": size, "human": _format_bytes(size)}
                 total += size

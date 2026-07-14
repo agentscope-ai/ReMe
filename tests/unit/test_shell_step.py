@@ -1,6 +1,7 @@
 """Tests for asynchronous shell command execution."""
 
 import asyncio
+import time
 
 from reme.components.application_context import ApplicationContext
 from reme.enumeration import ComponentEnum
@@ -54,15 +55,17 @@ def test_shell_step_reports_stderr_on_failure():
 
 
 def test_shell_step_times_out():
-    """Commands exceeding the configured timeout return a failed response."""
+    """Timeout terminates child processes as well as their parent shell."""
 
     async def run():
         step = ShellStep()
-        response = await step(cmd="sleep 0.1", shell_timeout=0.01)
+        started = time.monotonic()
+        response = await step(cmd="sleep 3 & wait", shell_timeout=0.01)
 
         assert response.success is False
         assert response.answer == "Shell command timed out after 0.01s"
-        assert response.metadata["timeout"] == 0.01
+        assert response.metadata["shell_timeout"] == 0.01
+        assert time.monotonic() - started < 1
 
     _run(run())
 
@@ -79,14 +82,19 @@ def test_shell_step_requires_a_command():
     _run(run())
 
 
-def test_shell_step_accepts_legacy_parameter_names():
-    """Existing API callers may continue using command and timeout."""
+def test_shell_step_does_not_accept_legacy_parameter_names():
+    """Only cmd and shell_timeout configure shell execution."""
 
     async def run():
         response = await ShellStep()(command="printf legacy", timeout=1)
 
+        assert response.success is False
+        assert response.answer == "cmd is required"
+
+        response = await ShellStep()(cmd="printf current", timeout=1)
+
         assert response.success is True
-        assert response.answer == "legacy"
-        assert response.metadata["timeout"] == 1
+        assert response.answer == "current"
+        assert response.metadata["shell_timeout"] == DEFAULT_TIMEOUT
 
     _run(run())

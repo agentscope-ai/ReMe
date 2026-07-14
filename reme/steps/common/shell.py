@@ -1,6 +1,8 @@
 """Execute a shell command and return its stdout."""
 
 import asyncio
+import os
+import signal
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,9 +27,8 @@ class ShellStep(BaseStep):
     async def execute(self):
         assert self.context is not None
 
-        command = self.context.get("cmd", self.context.get("command", ""))
-        raw_timeout = self.context.get("shell_timeout", self.context.get("timeout", DEFAULT_TIMEOUT))
-        timeout, timeout_error = self._parse_timeout(raw_timeout)
+        command = self.context.get("cmd", "")
+        timeout, timeout_error = self._parse_timeout(self.context.get("shell_timeout", DEFAULT_TIMEOUT))
         if not isinstance(command, str) or not command.strip():
             self.context.response.success = False
             self.context.response.answer = "cmd is required"
@@ -49,17 +50,19 @@ class ShellStep(BaseStep):
             {
                 "returncode": result.returncode,
                 "stderr": result.stderr,
-                "timeout": timeout,
+                "shell_timeout": timeout,
             },
         )
         return self.context.response
 
     async def _run_shell(self, command: str, timeout: float) -> _ShellResult:
+        process_kwargs = {"start_new_session": True} if os.name == "posix" else {}
         process = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=self.workspace_path,
+            **process_kwargs,
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
@@ -69,7 +72,7 @@ class ShellStep(BaseStep):
                 returncode=process.returncode,
             )
         except TimeoutError:
-            process.kill()
+            self._kill_process_tree(process)
             stdout, stderr = await process.communicate()
             return _ShellResult(
                 stdout=stdout.decode(errors="replace"),
@@ -79,11 +82,38 @@ class ShellStep(BaseStep):
             )
 
     @staticmethod
+    def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return
+
+        # Windows has no process groups with POSIX kill semantics. Walk the
+        # descendants explicitly so commands do not survive their shell.
+        import psutil  # pylint: disable=import-outside-toplevel
+
+        try:
+            descendants = psutil.Process(process.pid).children(recursive=True)
+        except psutil.Error:
+            descendants = []
+        for child in reversed(descendants):
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+
+    @staticmethod
     def _parse_timeout(raw: Any) -> tuple[float, str]:
         try:
             timeout = float(raw)
         except (TypeError, ValueError):
-            return DEFAULT_TIMEOUT, "timeout must be a positive number"
+            return DEFAULT_TIMEOUT, "shell_timeout must be a positive number"
         if timeout <= 0:
-            return DEFAULT_TIMEOUT, "timeout must be a positive number"
+            return DEFAULT_TIMEOUT, "shell_timeout must be a positive number"
         return timeout, ""

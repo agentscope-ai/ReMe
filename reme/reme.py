@@ -61,9 +61,9 @@ async def call_server(action: str, **kwargs):
 
 def main():
     """Parse CLI arguments and launch the appropriate mode."""
+    load_env()
     action, kwargs = parse_args(*sys.argv[1:])
     if action == "start":
-        load_env()
         kwargs = prepare_start_config(kwargs)
         if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
             return

@@ -10,6 +10,24 @@ from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 
 
+def test_main_loads_env_before_calling_server(monkeypatch):
+    """Client actions can resolve connection settings from the local .env."""
+    events = []
+
+    main_globals = reme_module.main.__globals__
+    monkeypatch.setitem(main_globals, "load_env", lambda: events.append("load_env"))
+    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("shell", {"cmd": "pwd"}))
+
+    async def fake_call_server(action, **kwargs):
+        events.append(("call_server", action, kwargs))
+
+    monkeypatch.setitem(main_globals, "call_server", fake_call_server)
+
+    reme_module.main()
+
+    assert events == ["load_env", ("call_server", "shell", {"cmd": "pwd"})]
+
+
 def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
     """``reme start job=...`` is translated into a one-shot cli service config."""
 
