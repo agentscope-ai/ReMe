@@ -6,12 +6,16 @@ $ErrorActionPreference = 'Stop'
 $ReMeRoot = 'D:\projects\reme'
 $DataRoot = 'D:\projects\reme-data'
 $Executable = Join-Path $ReMeRoot '.venv\Scripts\reme.exe'
+$Config = Join-Path $ReMeRoot 'local-deploy\safe.yaml'
 $LogRoot = Join-Path $ReMeRoot 'local-deploy\logs'
 $PidFile = Join-Path $LogRoot 'reme.pid'
 $Port = 2333
 
 if (-not (Test-Path -LiteralPath $Executable)) {
     throw "ReMe executable not found: $Executable"
+}
+if (-not (Test-Path -LiteralPath $Config)) {
+    throw "ReMe safe config not found: $Config"
 }
 
 $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
@@ -39,6 +43,7 @@ $env:PYTHONIOENCODING = 'utf-8'
 
 $arguments = @(
     'start'
+    "config=$Config"
     "workspace_dir=$DataRoot"
     'service.host=127.0.0.1'
     "service.port=$Port"

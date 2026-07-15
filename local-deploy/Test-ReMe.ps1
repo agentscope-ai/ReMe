@@ -43,6 +43,18 @@ foreach ($owner in $owners) {
     }
 }
 
+foreach ($action in @('shell', 'auto_memory', 'auto_resource', 'auto_dream')) {
+    $blocked = Invoke-WebRequest `
+        -SkipHttpErrorCheck `
+        -Method Post `
+        -Uri "http://127.0.0.1:$Port/$action" `
+        -ContentType 'application/json' `
+        -Body '{}'
+    if ($blocked.StatusCode -ne 404) {
+        throw "Unsafe ReMe action remains exposed: $action returned HTTP $($blocked.StatusCode)."
+    }
+}
+
 $health = & $Executable health_check 2>&1
 if ($LASTEXITCODE -ne 0) {
     throw "ReMe health_check failed: $($health -join [Environment]::NewLine)"
