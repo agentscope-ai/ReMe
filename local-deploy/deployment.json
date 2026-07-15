@@ -1,0 +1,10 @@
+{
+  "upstream": "https://github.com/agentscope-ai/ReMe",
+  "commit": "c3b1e9391840537e769c32985f1ae4c6523be87b",
+  "remeVersion": "0.4.1.1",
+  "pythonVersion": "3.13.0",
+  "serviceAddress": "http://127.0.0.1:2333",
+  "workspace": "D:\\projects\\reme-data",
+  "llmFeatures": "disabled-no-credentials",
+  "verifiedAtUtc": "2026-07-15T18:05:38.8732886Z"
+}
