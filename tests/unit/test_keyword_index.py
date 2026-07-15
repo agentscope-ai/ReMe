@@ -174,6 +174,7 @@ def test_add_single_doc():
             assert bm25.total_len == 2  # 'hello', 'world'
             assert bm25.avg_len == 2.0
             assert set(bm25.vocab) == {"hello", "world"}
+            assert bm25.document_ids == {"d1"}
             assert "d1" in bm25.doc_meta
             assert bm25.doc_meta["d1"]["len"] == 2
             await bm25.close()
