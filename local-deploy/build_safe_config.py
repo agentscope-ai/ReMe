@@ -6,7 +6,6 @@ from pathlib import Path
 
 import yaml
 
-
 REME_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REME_ROOT / "reme" / "config" / "default.yaml"
 OUTPUT_CONFIG = Path(__file__).resolve().with_name("safe.yaml")
@@ -48,6 +47,7 @@ ALLOWED_COMPONENTS = (
 
 
 def select(mapping: dict, names: tuple[str, ...], label: str) -> dict:
+    """Return the allowlisted entries and reject missing defaults."""
     missing = [name for name in names if name not in mapping]
     if missing:
         raise RuntimeError(f"Default config is missing required {label}: {missing}")
@@ -55,6 +55,7 @@ def select(mapping: dict, names: tuple[str, ...], label: str) -> dict:
 
 
 def build_safe_config() -> dict:
+    """Build the deployment config from the pinned upstream defaults."""
     with DEFAULT_CONFIG.open(encoding="utf-8") as source:
         config = yaml.safe_load(source)
 
@@ -64,6 +65,7 @@ def build_safe_config() -> dict:
 
 
 def validate_safe_config(config: dict) -> None:
+    """Verify the generated jobs and components match the allowlists."""
     if tuple(config.get("jobs", {})) != ALLOWED_JOBS:
         raise RuntimeError("Generated job set does not match the deployment allowlist")
     if tuple(config.get("components", {})) != ALLOWED_COMPONENTS:
@@ -71,6 +73,7 @@ def validate_safe_config(config: dict) -> None:
 
 
 def main() -> None:
+    """Write and validate the loopback deployment config."""
     config = build_safe_config()
     validate_safe_config(config)
     OUTPUT_CONFIG.write_text(
