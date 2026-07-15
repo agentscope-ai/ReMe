@@ -76,38 +76,33 @@ class ChangeApplyStep(BaseStep):
 
     async def _try_build_item(self, change: Change, action: str, path: str, results: list[dict]):
         abs_path = self._to_abs_path(path)
-        if not abs_path.is_file():
-            results.append({"change": change.name, "path": path, "success": False, "error": "not a file"})
-            return None
-        size_bytes = abs_path.stat().st_size
-        max_file_bytes = self.max_file_bytes()
-        if self.reads_file_content and size_bytes > max_file_bytes:
-            try:
-                await self.delete_paths([self.to_workspace_relative(abs_path)])
-            except Exception as e:
-                self.logger.exception(f"Failed to clear oversized file from {self.target_name}: {path}")
-                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
-                return None
-            self.logger.warning(
-                f"Skipping oversized file: {path} size_bytes={size_bytes} max_file_bytes={max_file_bytes}",
-            )
-            results.append(
-                {
-                    "change": change.name,
-                    "path": path,
-                    "success": True,
-                    "skipped": True,
-                    "reason": "file_too_large",
-                    "size_bytes": size_bytes,
-                    "max_file_bytes": max_file_bytes,
-                },
-            )
-            return None
-        self.logger.info(f"{action} file: {path}")
         try:
+            if not abs_path.is_file():
+                results.append({"change": change.name, "path": path, "success": False, "error": "not a file"})
+                return None
+            size_bytes = abs_path.stat().st_size
+            max_file_bytes = self.max_file_bytes()
+            if self.reads_file_content and size_bytes > max_file_bytes:
+                await self.delete_paths([self.to_workspace_relative(abs_path)])
+                self.logger.warning(
+                    f"Skipping oversized file: {path} size_bytes={size_bytes} max_file_bytes={max_file_bytes}",
+                )
+                results.append(
+                    {
+                        "change": change.name,
+                        "path": path,
+                        "success": True,
+                        "skipped": True,
+                        "reason": "file_too_large",
+                        "size_bytes": size_bytes,
+                        "max_file_bytes": max_file_bytes,
+                    },
+                )
+                return None
+            self.logger.info(f"{action} file: {path}")
             return await self.build_item(abs_path)
         except Exception as e:
-            self.logger.exception(f"Failed to parse {path}")
+            self.logger.exception(f"Failed to process {path}")
             results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
             return None
 
