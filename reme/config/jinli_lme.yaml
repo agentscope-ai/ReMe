@@ -199,6 +199,21 @@ jobs:
       - backend: lme_golden_check_step
         agent_wrapper: lme_judge
 
+  final_answer_review:
+    backend: base
+    description: "Resolve one disputed LongMemEval answer from all sessions available by question_date."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: lme_final_answer_review_step
+        agent_wrapper: lme_final_answer_review
+        reference_paths:
+          - benchmark/longmemeval/golden_check_list_false.jsonl
+          - benchmark/longmemeval/merge_confirm_jinli_false.jsonl
+        retry_initial_seconds: 5
+        retry_max_seconds: 300
+
 components:
   tokenizer:
     default:
@@ -333,6 +348,14 @@ components:
       model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.2}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+
+    lme_final_answer_review:
+      backend: claude_code
+      model: ${CLAUDE_CODE_MODEL_NAME:-claude-opus-4-8}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-}
+      cwd: session
       permission_mode: bypassPermissions
 
     lme_review:
