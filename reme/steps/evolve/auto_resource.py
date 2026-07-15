@@ -340,6 +340,30 @@ class AutoResourceStep(BaseStep):
             self.logger.warning(f"[{self.name}] resource missing file_path={file_path}")
             return
 
+        size_bytes = abs_path.stat().st_size
+        max_file_bytes = self.max_file_bytes()
+        if size_bytes > max_file_bytes:
+            self.context.response.success = True
+            self.context.response.answer = (
+                f"Skipped oversized resource file: {file_path} ({size_bytes} > {max_file_bytes} bytes)"
+            )
+            self.context.response.metadata.update(
+                {
+                    "path": file_path,
+                    "action": "skipped",
+                    "reason": "file_too_large",
+                    "oversized": True,
+                    "size_bytes": size_bytes,
+                    "max_file_bytes": max_file_bytes,
+                    "modified": False,
+                },
+            )
+            self.logger.warning(
+                f"[{self.name}] skip oversized resource file_path={file_path} "
+                f"size_bytes={size_bytes} max_file_bytes={max_file_bytes}",
+            )
+            return
+
         self.logger.info(f"[{self.name}] read resource start file_path={file_path}")
         async with aiofiles.open(abs_path, encoding="utf-8", errors="replace") as f:
             file_content = await f.read()

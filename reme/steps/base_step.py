@@ -15,6 +15,7 @@ from ..components.prompt_handler import PromptHandler
 from ..components.runtime_context import RuntimeContext
 from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig, Response
+from ..constants import DEFAULT_MAX_FILE_BYTES
 
 if TYPE_CHECKING:
     from ..components import ApplicationContext
@@ -163,6 +164,13 @@ class BaseStep(ComponentMixin, ABC):
         cfg = self.app_context.app_config if self.app_context is not None else defaults
         value = getattr(cfg, key)
         return getattr(defaults, key) if value in (None, "") else value
+
+    def max_file_bytes(self) -> int:
+        """Return the content-processing size limit from Step or Job context."""
+        value = self.kwargs.get("max_file_bytes")
+        if value is None and self.context is not None:
+            value = self.context.get("max_file_bytes")
+        return int(value) if value is not None else DEFAULT_MAX_FILE_BYTES
 
     def copy(self, **kwargs) -> "BaseStep":
         """Construct a new instance from the original init args, applying overrides."""

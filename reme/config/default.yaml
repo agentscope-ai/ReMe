@@ -4,6 +4,7 @@ service:
 jobs:
   index_update_loop:
     backend: background
+    max_file_bytes: 20971520
     watch_dirs: [daily_dir, digest_dir, resource_dir]
 #    watch_dirs: [daily_dir, digest_dir]
     watch_suffixes: [md, jsonl]
@@ -20,6 +21,7 @@ jobs:
 
   resource_watch_loop:
     backend: background
+    max_file_bytes: 20971520
     watch_dirs: [resource_dir]
     watch_suffixes: [md, txt, json, jsonl, csv, yaml, html]
     steps:
@@ -38,6 +40,7 @@ jobs:
 
   digest_watch_loop:
     backend: background
+    max_file_bytes: 20971520
     watch_dirs: [daily_dir, digest_dir]
     watch_suffixes: [md]
     steps:
@@ -279,6 +282,7 @@ jobs:
 
   reindex:
     backend: base
+    max_file_bytes: 20971520
     description: "wipe the file store and rebuild it from the existing files"
     watch_dirs: [daily_dir, digest_dir, resource_dir]
     watch_suffixes: [md, jsonl]

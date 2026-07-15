@@ -39,6 +39,7 @@ from reme.steps.index import (
     InitChangesStep,
     LogChangesStep,
     UpdateCatalogStep,
+    UpdateIndexStep,
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
@@ -461,6 +462,52 @@ def test_update_catalog_relative_path_uses_workspace():
     asyncio.run(run())
 
 
+def test_update_index_skips_oversized_file_and_clears_stale_index():
+    """Oversized content is not read and any previous index entry is removed."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "small")
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker()
+            await fs.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {
+                    ComponentEnum.FILE_CHUNKER: {"default": chunker},
+                }
+                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+
+                added = await step(
+                    RuntimeContext(
+                        changes=[{"change": "added", "path": str(source)}],
+                        max_file_bytes=10,
+                    ),
+                )
+                assert added.success is True
+                assert {node.path for node in await fs.get_nodes()} == {"daily/a.md"}
+
+                source.write_text("now too large", encoding="utf-8")
+                modified = await step(
+                    RuntimeContext(
+                        changes=[{"change": "modified", "path": str(source)}],
+                        max_file_bytes=10,
+                    ),
+                )
+
+                assert modified.success is True
+                assert modified.answer[0]["skipped"] is True
+                assert modified.answer[0]["reason"] == "file_too_large"
+                assert await fs.get_nodes() == []
+            finally:
+                await chunker.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
 def test_index_update_loop_init_dispatch_updates_store_across_batches():
     """index_update_loop init scan dispatches to update_index_step and preserves final store state."""
 
@@ -713,6 +760,39 @@ def test_auto_resource_batch_deleted_changes():
             finally:
                 await fs.close()
         print("✓ test_auto_resource_batch_deleted_changes passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_skips_oversized_file_before_reading():
+    """Oversized resources are reported as successful skips without an agent call."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        changes=[{"change": "added", "path": str(source)}],
+                        max_file_bytes=4,
+                    ),
+                )
+
+                result = resp.metadata["results"][0]
+                assert resp.success is True
+                assert result["metadata"]["oversized"] is True
+                assert result["metadata"]["reason"] == "file_too_large"
+                assert resp.metadata["modified"] is False
+                assert wrapper.inputs == ""
+            finally:
+                await fs.close()
 
     asyncio.run(run())
 

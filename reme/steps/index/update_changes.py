@@ -18,6 +18,7 @@ class ChangeApplyStep(BaseStep):
     """Shared added/modified/deleted handling for index update targets."""
 
     target_name = "target"
+    reads_file_content = False
 
     def __init__(self, persist: bool | None = None, **kwargs):
         super().__init__(**kwargs)
@@ -77,6 +78,30 @@ class ChangeApplyStep(BaseStep):
         abs_path = self._to_abs_path(path)
         if not abs_path.is_file():
             results.append({"change": change.name, "path": path, "success": False, "error": "not a file"})
+            return None
+        size_bytes = abs_path.stat().st_size
+        max_file_bytes = self.max_file_bytes()
+        if self.reads_file_content and size_bytes > max_file_bytes:
+            try:
+                await self.delete_paths([self.to_workspace_relative(abs_path)])
+            except Exception as e:
+                self.logger.exception(f"Failed to clear oversized file from {self.target_name}: {path}")
+                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+                return None
+            self.logger.warning(
+                f"Skipping oversized file: {path} size_bytes={size_bytes} max_file_bytes={max_file_bytes}",
+            )
+            results.append(
+                {
+                    "change": change.name,
+                    "path": path,
+                    "success": True,
+                    "skipped": True,
+                    "reason": "file_too_large",
+                    "size_bytes": size_bytes,
+                    "max_file_bytes": max_file_bytes,
+                },
+            )
             return None
         self.logger.info(f"{action} file: {path}")
         try:
@@ -144,6 +169,7 @@ class UpdateIndexStep(ChangeApplyStep):
     """Update file_store with a batch of file changes."""
 
     target_name = "file_store"
+    reads_file_content = True
 
     async def build_item(self, path: Path) -> tuple[FileNode, list[FileChunk]]:
         return await self.chunk_file(path)
