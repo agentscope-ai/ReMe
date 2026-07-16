@@ -325,7 +325,7 @@ class ReMeMemoryProvider(MemoryProvider):
         with self._write_thread_lock:
             if not self._accept_writes:
                 return False
-            if self._write_thread is None:
+            if self._write_thread is None or not self._write_thread.is_alive():
                 self._write_thread = threading.Thread(
                     target=self._write_loop,
                     args=(self._write_queue,),
@@ -343,12 +343,23 @@ class ReMeMemoryProvider(MemoryProvider):
                 try:
                     if payload is None:
                         return
-                    self._record_payload(payload)
+                    try:
+                        self._record_payload(payload)
+                    except Exception as exc:  # keep one bad response from killing the writer
+                        logger.exception(
+                            "Unexpected ReMe recording failure for session %s; the writer will continue: %s",
+                            payload.get("session_id", "<unknown>"),
+                            exc,
+                        )
                 finally:
                     write_queue.task_done()
         finally:
-            if not self._accept_writes:
-                self._client = None
+            current_thread = threading.current_thread()
+            with self._write_thread_lock:
+                if self._write_thread is current_thread:
+                    self._write_thread = None
+                if not self._accept_writes:
+                    self._client = None
 
     def _record_payload(self, payload: dict[str, Any]) -> None:
         if time.monotonic() < self._next_write_attempt:

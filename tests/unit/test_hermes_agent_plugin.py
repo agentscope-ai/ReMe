@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import importlib.util
+import http.client
 import json
 import sys
 import threading
@@ -326,6 +327,65 @@ def test_recording_failure_does_not_disable_recall(plugin_module, tmp_path: Path
         provider.shutdown()
 
     assert [path for path, _ in calls] == ["/health_check", "/auto_memory", "/search"]
+
+
+def test_writer_continues_after_unexpected_payload_exception(
+    plugin_module,
+    tmp_path: Path,
+    caplog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not let a malformed HTTP response kill all later writes."""
+    responses = {
+        "/health_check": (200, _healthy_response()),
+        "/auto_memory": (200, {"success": True, "answer": "recorded", "metadata": {}}),
+    }
+    with action_server(responses) as (endpoint, calls):
+        _write_config(plugin_module, tmp_path, endpoint)
+        provider = plugin_module.ReMeMemoryProvider()
+        provider.initialize("session", hermes_home=str(tmp_path), agent_identity="default")
+        original_record = getattr(provider, "_record_payload")
+        attempts = 0
+
+        def record_with_one_broken_response(payload: dict[str, Any]) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise http.client.IncompleteRead(b"partial", 10)
+            original_record(payload)
+
+        monkeypatch.setattr(provider, "_record_payload", record_with_one_broken_response)
+        with caplog.at_level("ERROR"):
+            provider.sync_turn("first", "broken response")
+            provider.sync_turn("second", "must still be recorded")
+            provider.shutdown()
+
+    assert attempts == 2
+    assert "Unexpected ReMe recording failure" in caplog.text
+    assert [path for path, _ in calls] == ["/health_check", "/auto_memory"]
+
+
+def test_enqueue_restarts_a_dead_writer(plugin_module, tmp_path: Path) -> None:
+    """Replace a stale worker reference before accepting another payload."""
+    responses = {
+        "/health_check": (200, _healthy_response()),
+        "/auto_memory": (200, {"success": True, "answer": "recorded", "metadata": {}}),
+    }
+    with action_server(responses) as (endpoint, calls):
+        _write_config(plugin_module, tmp_path, endpoint)
+        provider = plugin_module.ReMeMemoryProvider()
+        provider.initialize("session", hermes_home=str(tmp_path), agent_identity="default")
+        dead_writer = threading.Thread(target=lambda: None)
+        dead_writer.start()
+        dead_writer.join(timeout=1)
+        assert not dead_writer.is_alive()
+        setattr(provider, "_write_thread", dead_writer)
+
+        provider.sync_turn("after failure", "record this")
+        provider.shutdown()
+
+    assert getattr(provider, "_write_thread") is None
+    assert [path for path, _ in calls] == ["/health_check", "/auto_memory"]
 
 
 def test_shutdown_is_bounded_when_write_is_slow(plugin_module, tmp_path: Path, caplog) -> None:
