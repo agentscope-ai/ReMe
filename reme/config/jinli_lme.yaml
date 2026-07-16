@@ -201,7 +201,7 @@ jobs:
 
   final_answer_review:
     backend: base
-    description: "Resolve one disputed LongMemEval answer from all sessions available by question_date."
+    description: "Review one LongMemEval golden answer from all sessions available by question_date."
     parameters:
       type: object
       properties: { }

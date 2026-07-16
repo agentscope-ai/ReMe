@@ -10,8 +10,7 @@ system_prompt: |
   - Keep time expressions inline with the fact they modify, including dates, weekdays, relative
     times such as "last week" or "since January 15th", durations, and frequencies.
   - Do not invent facts. Only extract what is actually present in the session.
-  - Do not judge whether answer_session_ids are correct. That is handled by the downstream
-    golden check.
+  - Do not judge whether answer_session_ids are correct. They are outside the answer audit scope.
   - Output only the extracted information as plain text. Do not output JSON, markdown fences, or
     relevance labels.
 

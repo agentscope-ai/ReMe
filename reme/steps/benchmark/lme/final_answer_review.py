@@ -1,10 +1,11 @@
-"""Produce a final, evidence-backed answer for a disputed LongMemEval case.
+"""Produce a final, evidence-backed answer for a LongMemEval case.
 
-The step puts the complete query, golden-answer object, and disputed reference
-answers directly into the prompt.  Raw session content stays out of the model
+The step puts the complete query, golden-answer object, and any available
+disputed reference answers directly into the prompt.  Raw session content stays out of the model
 context: Claude Code starts in the sample's ``session`` directory and uses its
-normal file tools to inspect whichever sessions it needs.  The step scans only
-session IDs and timestamps to enforce the ``is_session_time_wrong`` contract.
+normal file tools to inspect whichever sessions it needs. Session timestamps
+are scanned only to identify evidence that did not exist at question time;
+``answer_session_ids`` are not evaluated.
 
 Claude Code is intentionally used without an output schema.  Its ordinary text
 reply may contain narration but must include exactly one fenced ``json`` block
@@ -15,6 +16,7 @@ capped exponential backoff.
 
 import asyncio
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +29,7 @@ DEFAULT_REFERENCE_PATHS = (
     "benchmark/longmemeval/golden_check_list_false.jsonl",
     "benchmark/longmemeval/merge_confirm_jinli_false.jsonl",
 )
+REFERENCE_PATHS_ENV = "LME_FINAL_ANSWER_REFERENCE_PATHS"
 RETRY_INITIAL_SECONDS = 5.0
 RETRY_MAX_SECONDS = 300.0
 _LME_DATETIME_RE = re.compile(r"(\d{4})/(\d{2})/(\d{2}).*?(\d{2}):(\d{2})")
@@ -35,7 +38,7 @@ _FENCED_JSON_RE = re.compile(r"```json\s*(.*?)\s*```", re.IGNORECASE | re.DOTALL
 
 @R.register("lme_final_answer_review_step")
 class FinalAnswerReviewStep(BaseStep):
-    """Ask a Claude Code agent to resolve one disputed answer."""
+    """Ask a Claude Code agent to review one golden answer."""
 
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any]:
@@ -76,7 +79,15 @@ class FinalAnswerReviewStep(BaseStep):
         return self.workspace_path / path
 
     def _load_references(self, question_id: str) -> list[dict[str, Any]]:
-        raw_paths = self.kwargs.get("reference_paths") or DEFAULT_REFERENCE_PATHS
+        raw_paths: Any
+        serialized_paths = os.environ.get(REFERENCE_PATHS_ENV)
+        if serialized_paths:
+            try:
+                raw_paths = json.loads(serialized_paths)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{REFERENCE_PATHS_ENV} must be a JSON array of paths") from exc
+        else:
+            raw_paths = self.kwargs.get("reference_paths") or DEFAULT_REFERENCE_PATHS
         if isinstance(raw_paths, str):
             raw_paths = [raw_paths]
         if not isinstance(raw_paths, (list, tuple)) or not raw_paths:
@@ -107,10 +118,6 @@ class FinalAnswerReviewStep(BaseStep):
                     f"Cannot read reference-answer file: {path}",
                 ) from exc
 
-        if not references:
-            raise ValueError(
-                f"No disputed reference answer found for question_id={question_id!r}",
-            )
         return references
 
     def _inspect_session_times(self, question_dt: datetime) -> tuple[int, list[dict[str, str]]]:
@@ -141,7 +148,7 @@ class FinalAnswerReviewStep(BaseStep):
         return len(session_paths), future_sessions
 
     @staticmethod
-    def _parse_reply(raw_reply: Any, *, expected_session_time_wrong: bool) -> dict[str, Any]:
+    def _parse_reply(raw_reply: Any) -> dict[str, Any]:
         if not isinstance(raw_reply, str) or not raw_reply.strip():
             raise ValueError("Agent returned an empty reply")
         json_blocks = _FENCED_JSON_RE.findall(raw_reply)
@@ -164,6 +171,8 @@ class FinalAnswerReviewStep(BaseStep):
         is_session_time_wrong = value["is_session_time_wrong"]
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("Agent reply 'reason' must be a non-empty string")
+        if "answer_session_ids" in reason.casefold():
+            raise ValueError("Agent reply 'reason' must not evaluate answer_session_ids")
         if not isinstance(golden_answer_correct, bool):
             raise ValueError("Agent reply 'golden_answer_correct' must be a boolean")
         if not isinstance(answer, str):
@@ -175,10 +184,8 @@ class FinalAnswerReviewStep(BaseStep):
             raise ValueError("Agent reply 'answer' must be non-empty when golden_answer_correct is false")
         if not isinstance(is_session_time_wrong, bool):
             raise ValueError("Agent reply 'is_session_time_wrong' must be a boolean")
-        if is_session_time_wrong is not expected_session_time_wrong:
-            raise ValueError(
-                "Agent reply 'is_session_time_wrong' disagrees with answer.json session timestamps",
-            )
+        if is_session_time_wrong:
+            raise ValueError("Agent reply 'is_session_time_wrong' is deprecated and must be false")
         return {
             "reason": reason.strip(),
             "golden_answer_correct": golden_answer_correct,
@@ -202,21 +209,13 @@ class FinalAnswerReviewStep(BaseStep):
         )
         references = self._load_references(question_id)
         num_sessions, future_sessions = self._inspect_session_times(question_dt)
-        answer_session_ids = [str(value) for value in (golden.get("answer_session_ids") or [])]
-        future_session_ids = {item["session_id"] for item in future_sessions}
-        future_answer_session_ids = [
-            session_id for session_id in answer_session_ids if session_id in future_session_ids
-        ]
-        expected_session_time_wrong = bool(future_answer_session_ids)
 
         payload = {
             "query": query,
             "answer_json": golden,
             "reference_answers": references,
-            "answer_session_time_check": {
-                "answer_session_ids": answer_session_ids,
+            "session_time_check": {
                 "sessions_after_question_date": future_sessions,
-                "answer_session_ids_after_question_date": future_answer_session_ids,
             },
         }
         user_prompt = self.prompt_format(
@@ -249,10 +248,7 @@ class FinalAnswerReviewStep(BaseStep):
                     user_prompt,
                     system_prompt=self.get_prompt("system_prompt"),
                 )
-                final_answer = self._parse_reply(
-                    result.get("result"),
-                    expected_session_time_wrong=expected_session_time_wrong,
-                )
+                final_answer = self._parse_reply(result.get("result"))
                 if attempt > 1:
                     self.logger.info(
                         f"[{self.name}] recovered after {attempt} attempts",
@@ -276,8 +272,7 @@ class FinalAnswerReviewStep(BaseStep):
                 "num_future_sessions": len(future_sessions),
                 "future_sessions": future_sessions,
                 "num_reference_answers": len(references),
-                "answer_session_ids_after_question_date": future_answer_session_ids,
-                "is_session_time_wrong": expected_session_time_wrong,
+                "is_session_time_wrong": False,
                 "attempts": attempt,
                 "agent_session_id": result.get("session_id"),
             },
