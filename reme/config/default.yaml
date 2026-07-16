@@ -234,23 +234,23 @@ jobs:
     steps:
       - backend: help_step
 
-  shell:
-    backend: base
-    description: "execute a shell command asynchronously in the workspace"
-    parameters:
-      type: object
-      properties:
-        cmd:
-          type: string
-          description: "shell command to execute"
-        shell_timeout:
-          type: number
-          description: "maximum execution time in seconds"
-          default: 86400
-      required:
-        - cmd
-    steps:
-      - backend: shell_step
+#  shell:
+#    backend: base
+#    description: "execute a shell command asynchronously in the workspace"
+#    parameters:
+#      type: object
+#      properties:
+#        cmd:
+#          type: string
+#          description: "shell command to execute"
+#        shell_timeout:
+#          type: number
+#          description: "maximum execution time in seconds"
+#          default: 86400
+#      required:
+#        - cmd
+#    steps:
+#      - backend: shell_step
 
   traverse:
     backend: base
