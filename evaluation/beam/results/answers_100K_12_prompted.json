@@ -1,0 +1,692 @@
+{
+    "abstention": [
+        {
+            "question": "What specific arguments did Shelly and I make during their debate on the Trolley Problem?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific arguments made during the Trolley Problem debate.",
+            "difficulty": "hard",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The debate is mentioned but no details on the arguments or positions are given.",
+            "plan_reference": "Batch 1, Bullet 14",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific arguments made during the Trolley Problem debate"
+            ],
+            "llm_response": "Based on the provided context, the specific arguments made by Shelly and the user are not detailed. The text only mentions that they explored different ethical viewpoints and the reasoning behind each choice, and highlights the user's personal reflection that they would pull the lever in the Switch Scenario but find pushing the man in the Footbridge Scenario more morally troubling.\n\n**Concise Answer:** \nThe context does not detail their specific arguments, only that they explored different ethical viewpoints and the user's personal conclusions on the scenarios.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch1.jsonl:52-56 [score=0.0164 vector=0.5879 keyword=15.2259] ==========\nm and how it relates to your decision-making process, including the concept of free will.\\n\\n### The Trolley Problem\\n\\nThe Trolley Problem typically presents two scenarios:\\n\\n1. **Swit"
+            }
+        },
+        {
+            "question": "Could you provide details about the onboarding modules I need to complete at the streaming startup?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific onboarding modules Crystal needs to complete.",
+            "difficulty": "medium",
+            "abstention_type": "unavailable_information",
+            "why_unanswerable": "Onboarding modules are referenced but no specifics about their content or structure are provided.",
+            "plan_reference": "Batch 2, Bullets 16 and 22",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific onboarding modules Crystal needs to complete"
+            ],
+            "llm_response": "Based on the retrieved context, you must complete all required onboarding modules and achieve a 95% quiz score by **April 25, 2024**. Your execution strategy involves segmenting the curriculum, running daily study blocks, taking practice quizzes upon module completion, and conducting weekly comprehensive knowledge reviews.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-04-05/career-transition-and-compatibilism-exploration.md:14-47 [score=0.0160 vector=0.5088 keyword=13.3533] ==========\n## Career & Job Transition\n\n- **New Role**: Starting May 1, 2024 at a streaming startup with a $95,000 annual salary. Employment contract specifies a 6-month p"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have I ever read any books by Daniel Dennett?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have never read any books by Daniel Dennett, but you also mentioned Shelly suggested you read his book \"Freedom Evolves.\" Which statement is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Reading books by Daniel Dennett",
+            "conversation_references": [
+                "Session 32: Shelly's suggestion to read Dennett",
+                "Session 68: Never read Dennett's books"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    32
+                ],
+                "second_statement": [
+                    68
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never read any books by Daniel Dennett",
+                "LLM response should mention: you also mentioned Shelly suggested you read his book \"Freedom Evolves.\"",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you started reading \"Elbow Room\" on March 13, 2024.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch1.jsonl:68-70 [score=0.0164 vector=0.6680 keyword=20.3057] ==========\nob offer. Consider factors such as salary, benefits, work environment, growth opportunities, and work-life balance.\\n   - **Long-Term Impact**: Think about how each option will impact yo"
+            }
+        },
+        {
+            "question": "Have I ever celebrated anniversaries with Stephen?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you resolved a conflict by celebrating your anniversary with Stephen, but you also mentioned that you've never celebrated any anniversaries with him. Which statement is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Anniversary celebrations with Stephen",
+            "conversation_references": [
+                "Session 74: Celebrated anniversary",
+                "Session 140: Never celebrated anniversary"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    74
+                ],
+                "second_statement": [
+                    140
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you resolved a conflict by celebrating your anniversary with Stephe",
+                "LLM response should mention: you also mentioned that you've never celebrated any anniversaries with him",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Based on the retrieved context, historically you had never celebrated any formal anniversaries with Stephen during your 5-year relationship. However, you recently broke this pattern and celebrated your 5-year anniversary on May 20 with a dinner at The Sunset Grill on Bay Street. \n\n**Historically no, but you recently celebrated your 5-year anniversary on May 20 at The Sunset Grill.**",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:72-76 [score=0.0163 vector=0.7197 keyword=12.6329] ==========\nfor both of us. What do you value in our relationship?\\\"\\n\\n### Conclusion\\n\\nBy initiating an open and honest conversation with Stephen, you can gain insight into both of your perspecti"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you walk me through the order in which I brought up different aspects of balancing my personal relationship and beliefs throughout our conversations, in order? Mention ONLY and ONLY seven items.",
+            "answer": "You mentioned these aspects in this order: 1) Declining a meeting to focus on a personal offer, 2) Concern about scheduling a work call on an important personal date, 3) Resolving a conflict by celebrating an anniversary at a specific restaurant, 4) Agreeing to limit work trips to support the relationship, 5) Celebrating a milestone anniversary and reflecting on how beliefs might affect the relationship, 6) Scheduling weekly check-ins to maintain calm dialogue, 7) Starting daily journaling to explore beliefs and motivation.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 7,
+            "conversation_references": [
+                "Session 58: Meeting decline for personal offer",
+                "Session 60: Work call on personal date concern",
+                "Session 74: Conflict resolution via anniversary celebration",
+                "Session 110 & 112: Limiting work trips for relationship balance",
+                "Session 164 & 166 & 168: Anniversary milestone and belief discussions",
+                "Session 232 & 234 & 236: Weekly check-ins for conflict resolution",
+                "Session 258 & 260 & 262: Daily journaling on beliefs and motivation"
+            ],
+            "ordering_tested": [
+                "1st: Meeting decline for personal offer",
+                "2nd: Work call on personal date concern",
+                "3rd: Conflict resolution via anniversary celebration",
+                "4th: Limiting work trips for relationship balance",
+                "5th: Anniversary milestone and belief discussions",
+                "6th: Weekly check-ins for conflict resolution",
+                "7th: Daily journaling on beliefs and motivation"
+            ],
+            "source_chat_ids": [
+                58,
+                60,
+                74,
+                110,
+                112,
+                164,
+                166,
+                168,
+                232,
+                234,
+                236,
+                258,
+                260,
+                262
+            ],
+            "rubric": [
+                "Meeting decline for personal offer",
+                "Work call on personal date concern",
+                "Conflict resolution via anniversary celebration",
+                "Limiting work trips for relationship balance",
+                "Anniversary milestone and belief discussions",
+                "Weekly check-ins for conflict resolution",
+                "Daily journaling on beliefs and motivation"
+            ],
+            "llm_response": "1. Balancing discipline and free will with your father\n2. Sharing doubts about free will and choices with Stephen\n3. Balancing discipline and free will with Wendy\n4. Questioning the concept of free will with your father Joseph\n5. Balancing relationship boundaries and career ambitions with Stephen\n6. Tanya's moral dilemmas about free will influencing your beliefs\n7. How questioning free will might change your relationship with Stephen",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch4.jsonl:22-26 [score=0.0155 vector=0.5474 keyword=6.6464] ==========\nll, and how his background and beliefs shape his views.\\n\\n2. **Open Communication**:\\n   - **Express Yourself**: Share your thoughts and feelings openly with Stephen. Be honest about how"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different ideas related to free will and personal reflection throughout our conversations, in order? Mention ONLY and ONLY six items.",
+            "answer": "You mentioned these ideas in this order: 1) Considering a recommendation about a philosophical book and recalling a past meeting, 2) Discussing a moral dilemma and debating free will in a social setting, 3) Leaning towards a particular philosophical stance and applying it to a new personal habit, 4) Reflecting on a thought experiment about simulated happiness and its ethical implications, 5) Contemplating accountability and philosophical perspectives after a significant conversation, 6) Using a classic identity paradox to reflect on personal change and core values.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 6,
+            "conversation_references": [
+                "Session 32: Book recommendation and past meeting",
+                "Session 50: Moral dilemma debate",
+                "Session 78: Philosophical stance and journaling",
+                "Session 98: Simulated happiness thought experiment",
+                "Session 176: Accountability and philosophical perspectives",
+                "Session 218: Identity paradox and personal reflection"
+            ],
+            "ordering_tested": [
+                "1st: Book recommendation and past meeting",
+                "2nd: Moral dilemma debate",
+                "3rd: Philosophical stance and journaling",
+                "4th: Simulated happiness thought experiment",
+                "5th: Accountability and philosophical perspectives",
+                "6th: Identity paradox and personal reflection"
+            ],
+            "source_chat_ids": [
+                32,
+                50,
+                78,
+                98,
+                176,
+                218
+            ],
+            "rubric": [
+                "Book recommendation and past meeting",
+                "Moral dilemma debate",
+                "Philosophical stance and journaling",
+                "Simulated happiness thought experiment",
+                "Accountability and philosophical perspectives",
+                "Identity paradox and personal reflection"
+            ],
+            "llm_response": "1. Tanya's moral dilemmas about free will and their influence on your own beliefs.\n2. How questioning the concept of free will might impact your relationship with Stephen.\n3. Declining a $12,000 bonus due to ethical concerns and debating hard determinism versus libertarianism with Shelly.\n4. Reducing your work hours (a 30% workload cut) and its impact on your belief in free will.\n5. How brain plasticity and neural predictions affect your belief in free will and personal responsibility.\n6. Whether believing in free will can help you cope with anxiety spikes related to balancing job demands and family expectations.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch3.jsonl:12-16 [score=0.0158 vector=0.5908 keyword=7.6254] ==========\non and documented the factors that influenced it.\\n\\nAction: Deciding to take a risk on a new project at work.\\n\\nInfluencing Factors:\\n- Internal:\\n  - Desire for professional growth\\n  "
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "How long had I been with the person I mentioned meeting at that festival before we started dating?",
+            "answer": "You said you had been with Stephen for 5 years, and you met him at the Montserrat Film Festival in 2018.",
+            "difficulty": "medium",
+            "question_type": "duration_recall",
+            "conversation_reference": "Turn 1: Early mention of relationship details",
+            "key_facts_tested": [
+                "duration: 5 years",
+                "meeting event: Montserrat Film Festival",
+                "relationship start timing"
+            ],
+            "source_chat_ids": [
+                1
+            ],
+            "rubric": [
+                "LLM response should state: 5 years"
+            ],
+            "llm_response": "The provided context does not state how long you were with Stephen before you started dating; it only mentions that you met at the Montserrat Film Festival in 2018 and have been in a relationship for 5 years.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-10-20/free-will-script-and-schedule-update.md:11-47 [score=0.0143 vector=0.2683 keyword=5.0009] ==========\n## Creative Project: Free Will Script Development\n\n- **Pitch Strategy**: User decided on October 15 to pitch the free will script to the Montserrat Film Festival to target"
+            }
+        },
+        {
+            "question": "What steps did you recommend I take to prepare for the challenges and uncertainties that come with changing my work environment?",
+            "answer": "I suggested that you conduct thorough research on the new company’s mission and financial health, talk to current employees to understand the culture, clarify workload and performance expectations, mentally prepare for increased pressure, consult colleagues with startup experience, build a support network, review the full compensation package including equity, adjust your budget accordingly, and focus on professional development by enhancing relevant skills and expanding your network.",
+            "difficulty": "hard",
+            "question_type": "Problem-Solution Context",
+            "conversation_reference": "Assistant's detailed advice on preparing for the transition to the startup environment and managing workload and pressure",
+            "key_facts_tested": [
+                "research company mission and financial health",
+                "talk to current employees",
+                "clarify workload and expectations",
+                "mental preparation for pressure",
+                "consult colleagues with startup experience",
+                "build support network",
+                "review compensation including equity",
+                "budget adjustment",
+                "professional development and networking"
+            ],
+            "extraction_challenge": "LLM must integrate multiple preparation and coping strategies scattered across the assistant's advice in different conversation turns to summarize the comprehensive plan",
+            "source_chat_ids": [
+                39,
+                41
+            ],
+            "rubric": [
+                "LLM response should state: conduct thorough research on the new company’s mission and financial health",
+                "LLM response should state: talk to current employees to understand the culture",
+                "LLM response should state: clarify workload and performance expectations",
+                "LLM response should state: mentally prepare for increased pressure",
+                "LLM response should state: consult colleagues with startup experience",
+                "LLM response should state: build a support network",
+                "LLM response should state: review the full compensation package including equity",
+                "LLM response should state: adjust your budget accordingly"
+            ],
+            "llm_response": "Based on the retrieved context, the recommended steps to prepare for the transition and challenges of a new startup environment include:\n\n1. **Due Diligence**: Research the company's mission, values, and financial health, and speak with current employees or founders to understand the culture.\n2. **Understand Workload and Pressure**: Clarify expectations regarding hours and performance metrics, and prepare mentally for a fast-paced, demanding environment.\n3. **Build a Network and Support System**: Consult colleagues with startup experience for insights, and establish a support network of friends, family, and mentors.\n4. **Financial Planning**: Review the full compensation package (including equity/stock options), adjust your budget, and ensure you have an emergency fund.\n5. **Professional Development**: Identify skills you need to develop, take relevant courses, and start networking within the startup ecosystem.\n6. **Develop a Backup Plan**: Maintain your professional network and create a contingency plan in case the startup does not work out. \n7. **Family Involvement**: Have open, transparent conversations with your family about the risks, reassure them of your financial safety net, and involve them in the process.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch1.jsonl:38-42 [score=0.0162 vector=0.4473 keyword=7.4726] ==========\nu share an example of a time when you felt you had complete free will in making a decision?\\\"\\n\\n3. **Industry and Career**:\\n   - \\\"How do you think free will plays a role in career deci"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "What are some common expectations people have when meeting someone for the first time?",
+            "instruction_being_tested": "Always include cultural context when I ask about social norms.",
+            "expected_compliance": "Response should incorporate information about how these expectations vary across different cultures and societies.",
+            "compliance_indicators": [
+                "mention of cultural differences",
+                "examples from multiple regions or traditions",
+                "explanation of how context influences behavior"
+            ],
+            "non_compliance_signs": [
+                "generic or universal statements without cultural variation",
+                "ignoring cultural influences",
+                "only one cultural perspective given"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "content_inclusion",
+            "source_chat_ids": [
+                134,
+                136,
+                138
+            ],
+            "rubric": [
+                "LLM response should contain: mention of cultural differences",
+                "LLM response should contain: examples from multiple regions or traditions"
+            ],
+            "llm_response": "Based on the retrieved context, there is no information provided about common expectations people have when meeting someone for the first time.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:18-22 [score=0.0159 vector=0.2473 keyword=7.6190] ==========\nitation**: Spend 20 minutes meditating to clear your mind and reduce stress.\\n- **Reflection**: Write down your thoughts and feelings about the project in your journal.\\n- **Decision**: A"
+            }
+        },
+        {
+            "question": "What can you tell me about existentialism?",
+            "instruction_being_tested": "Always provide detailed summaries when I ask about philosophical concepts.",
+            "expected_compliance": "Response should include itemized costs, specific amounts for different categories, and detailed breakdown rather than just a total estimate",
+            "compliance_indicators": [
+                "itemized list of costs",
+                "specific dollar amounts",
+                "category-by-category breakdown",
+                "detailed cost analysis"
+            ],
+            "non_compliance_signs": [
+                "only total estimate given",
+                "vague cost ranges",
+                "no itemization",
+                "general budget discussion without specifics"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                66
+            ],
+            "rubric": [
+                "LLM response should contain: category-by-category breakdown",
+                "LLM response should contain: detailed simmary of philosophical concepts"
+            ],
+            "llm_response": "Based on the retrieved context, there is no information provided about existentialism. \n\n**Concise answer:** Not mentioned in the retrieved context.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch1.jsonl:68-70 [score=0.2764] ==========\nob offer. Consider factors such as salary, benefits, work environment, growth opportunities, and work-life balance.\\n   - **Long-Term Impact**: Think about how each option will impact your career trajectory and perso"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "By what date am I aiming to complete all my onboarding modules?",
+            "answer": "By April 22",
+            "difficulty": "easy",
+            "update_type": "goal_date_adjustment",
+            "tests_retention_of": "updated target completion date for onboarding modules",
+            "conversation_references": [
+                "I set a goal to complete all onboarding modules by April 25, aiming for 95% quiz scores.",
+                "I adjusted my onboarding goal to complete all modules by April 22 to better align with the startup’s revised schedule."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original April 25 deadline instead of the updated April 22 date",
+            "source_chat_ids": {
+                "original_info": [
+                    108
+                ],
+                "updated_info": []
+            },
+            "rubric": [
+                "LLM response should state: April 22"
+            ],
+            "llm_response": "April 25, 2024",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:36-40 [score=0.0162 vector=0.5674 keyword=10.2372] ==========\ne a balanced schedule that includes time for work, relaxation, and personal interests. This can help prevent burnout and maintain your overall well-being.\\n   - **Set Boundaries**: Estab"
+            }
+        },
+        {
+            "question": "When is my final decision meeting scheduled to take place?",
+            "answer": "The final decision meeting is scheduled for March 30 to allow more time for thorough evaluation.",
+            "difficulty": "easy",
+            "update_type": "timeline_rescheduling",
+            "tests_retention_of": "updated timing of the final decision meeting",
+            "conversation_references": [
+                "I’m deciding whether to accept a $95,000 offer from a streaming startup or stay at my current $85,000 job.",
+                "I rescheduled my final decision meeting to March 30 to allow more time for thorough evaluation of the startup offer."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original timing of the final decision meeting as being earlier or not specified.",
+            "source_chat_ids": {
+                "original_info": [
+                    38,
+                    40
+                ],
+                "updated_info": [
+                    64
+                ]
+            },
+            "rubric": [
+                "LLM response should state: March 30"
+            ],
+            "llm_response": "Based on the provided context, the exact new date is not specified. You mentioned rescheduling the final meeting to have more time before making the right decision on **March 30**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-06-01/career-moves-and-scheduled-events.md:15-44 [score=0.0156 vector=0.4128 keyword=7.7140] ==========\n## Career Progression and Role Adjustments\n\n- Background includes prior experience as a producer in the TV and film production industry.\n- Accepted a position at a streaming "
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "Considering the financial opportunities I declined—a raise, a freelance project, and a bonus—how do the total amounts I turned down compare, and what might this suggest about my priorities?",
+            "answer": "You declined a $10,000 raise, a $5,000 freelance project, and a $12,000 bonus, totaling $27,000. This suggests you prioritized ethical concerns and long-term career stability over immediate financial gain.",
+            "difficulty": "medium",
+            "reasoning_type": "categorized_aggregation",
+            "sessions_required": 3,
+            "conversation_references": [
+                "56-57",
+                "82-83",
+                "170-175"
+            ],
+            "reasoning_steps": [
+                "Identify the amounts declined in each session: raise ($10,000), freelance project ($5,000), bonus ($12,000).",
+                "Sum these amounts to find the total financial opportunities declined.",
+                "Analyze the nature of each declined opportunity to infer underlying priorities (ethical concerns, career focus, onboarding).",
+                "Synthesize the total declined amount with the reasons to understand the user's overall decision-making priorities."
+            ],
+            "source_chat_ids": [
+                56,
+                57,
+                82,
+                83,
+                170,
+                171,
+                172,
+                173,
+                174,
+                175
+            ],
+            "rubric": [
+                "LLM response should state: You declined a $10,000 raise",
+                "LLM response should state: You declined a $5,000 freelance project",
+                "LLM response should state: You declined a $12,000 bonus",
+                "LLM response should state: You declined a total of $27,000",
+                "LLM response should state: you prioritized ethical concerns and long-term career stability over immediate financial gain"
+            ],
+            "llm_response": "Based on the retrieved context, the total amount of the specified financial opportunities you turned down is **$27,000** ($10,000 raise + $5,000 freelance project + $12,000 bonus). \n\nThis suggests that you prioritize **ethical integrity, long-term career stability, and personal values/work-life balance** over immediate short-term financial gain.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:10-14 [score=0.0162 vector=0.4749 keyword=16.5959] ==========\nocus on a high-priority project, trust in the colleague's abilities, and desire to develop their skills.  \\n**Intention**: Improve efficiency on the high-priority project and provide dev"
+            }
+        },
+        {
+            "question": "How have my anniversary celebrations and discussions about free will with Stephen evolved in terms of location and topics we've focused on together?",
+            "answer": "You celebrated your anniversary twice at two different restaurants: The Coral Reef and The Sunset Grill on Bay Street. Initially, you focused on celebrating the milestone, then shifted to exploring how questioning free will might affect your relationship, including communication, trust, and decision-making in daily life and specific scenarios like moving for a job.",
+            "difficulty": "medium",
+            "reasoning_type": "evolution_tracking",
+            "sessions_required": 4,
+            "conversation_references": [
+                "chat_id: 74",
+                "chat_id: 164",
+                "chat_id: 166",
+                "chat_id: 168"
+            ],
+            "reasoning_steps": [
+                "Identify the two different anniversary celebrations and their locations mentioned in separate sessions.",
+                "Analyze how the user's focus shifted from celebrating the relationship milestone to reflecting on free will's impact on the relationship.",
+                "Compare the initial general reflections with later detailed discussions about free will influencing daily decisions and specific scenarios.",
+                "Synthesize the progression from celebration to philosophical discussions and planned ongoing conversations."
+            ],
+            "source_chat_ids": [
+                74,
+                164,
+                166,
+                168
+            ],
+            "rubric": [
+                "LLM response should state: You celebrated your anniversary twice at two different restaurants",
+                "LLM response should state: you focused on celebrating the milestone, then shifted to exploring how questioning free will might affect your relationship"
+            ],
+            "llm_response": "Based on the retrieved context, your anniversary celebrations and discussions with Stephen have evolved as follows:\n\n*   **Anniversary Celebrations (Locations & Evolution):** You shifted from a historical pattern of zero formal anniversary observances to instituting fresh commemorative rituals featuring curated dining experiences. Specific locations include **The Sunset Grill on Bay Street** (where you celebrated your 5-year milestone on May 20) and **The Coral Reef restaurant**.\n*   **Free Will Discussions (Topics & Evolution):** Your conversations evolved from initial doubts about personal agency and balancing discipline with free will to deeper explorations of **compatibilism, brain plasticity, neural predictions, and the intersection of free will with faith/spiritual growth**. These discussions are structured through **weekly Sunday 6 PM check-ins** and are culminating in a planned **joint talk on free will and faith on November 10**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:72-76 [score=0.0163 vector=0.6489 keyword=12.0846] ==========\nfor both of us. What do you value in our relationship?\\\"\\n\\n### Conclusion\\n\\nBy initiating an open and honest conversation with Stephen, you can gain insight into both of your perspecti"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm trying to decide how to approach a complex problem that has both practical and emotional aspects. How would you suggest I proceed?",
+            "preference_being_tested": "I prefer making decisions based on logical reasoning rather than emotional impulses, reflecting my practical nature.",
+            "expected_compliance": "Response should emphasize logical analysis and practical considerations over emotional or impulsive factors, aligning with the user's preference for reasoned decision-making.",
+            "compliance_indicators": [
+                "focuses on logical steps or frameworks",
+                "prioritizes practical outcomes",
+                "avoids suggesting emotionally driven approaches",
+                "references reasoning or evidence-based methods"
+            ],
+            "non_compliance_signs": [
+                "recommends decisions based on feelings or intuition",
+                "emphasizes emotional impact over logic",
+                "suggests impulsive or spontaneous actions",
+                "ignores practical considerations"
+            ],
+            "difficulty": "medium",
+            "preference_type": "decision_criteria",
+            "source_chat_ids": [
+                54
+            ],
+            "rubric": [
+                "LLM response should contain: focuses on logical steps or frameworks",
+                "LLM response should contain: avoids suggesting emotionally driven approaches"
+            ],
+            "llm_response": "Based on your established preference for logical reasoning and careful planning, you should approach the problem by systematically analyzing the practical factors while using specific tools to manage the emotional aspects. \n\n**Suggested Steps:**\n1. **Apply Logical Analysis**: List the pros and cons of your options, evaluate how they align with your long-term goals, and objectively assess the environment or situation.\n2. **Seek External Perspectives**: Consult trusted mentors, colleagues, or friends to gain objective insights and mitigate personal biases.\n3. **Prioritize Tasks**: Use the **Eisenhower Box** to categorize and prioritize actionable steps based on urgency and importance.\n4. **Manage Emotional Aspects**: Engage in **mindfulness practices** (like meditation) and **reflective journaling** to process feelings, reduce anxiety, and ensure your choices align with your core values.\n\n**Concise Answer:** \nApply logical analysis (pros/cons, long-term goals) and manage emotions via mindfulness and journaling.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch1.jsonl:52-56 [score=0.0157 vector=0.3389 keyword=8.4513] ==========\nm and how it relates to your decision-making process, including the concept of free will.\\n\\n### The Trolley Problem\\n\\nThe Trolley Problem typically presents two scenarios:\\n\\n1. **Switc"
+            }
+        },
+        {
+            "question": "How would you suggest I organize my day to stay on track with my responsibilities?",
+            "preference_being_tested": "I prefer structured daily routines, so I set 7 AM wake-up and 9 PM sleep times to maintain productivity.",
+            "expected_compliance": "Response should incorporate or acknowledge a consistent daily schedule that aligns with fixed wake-up and sleep times, supporting a structured routine.",
+            "compliance_indicators": [
+                "recommends a daily plan with consistent timing",
+                "mentions scheduling activities around fixed wake and sleep hours",
+                "suggests routines that emphasize regularity and structure"
+            ],
+            "non_compliance_signs": [
+                "suggests irregular or highly flexible timing",
+                "ignores fixed wake-up or sleep times",
+                "recommends spontaneous or unstructured daily plans"
+            ],
+            "difficulty": "medium",
+            "preference_type": "routine structure",
+            "source_chat_ids": [
+                106
+            ],
+            "rubric": [
+                "LLM response should contain: recommends a daily plan with consistent timing",
+                "LLM response should contain: suggests routines that emphasize regularity and structure"
+            ],
+            "llm_response": "Start with morning meditation and intention journaling, prioritize tasks using the Eisenhower Box, block out specific times in a planner with reminders, practice single-tasking using the Pomodoro Technique, and end with an evening progress review.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch3.jsonl:51-54 [score=0.0158 vector=0.5342 keyword=5.6898] ==========\n\"id\":\"45362036618d4e0088bb4748203953aa\",\"metadata\":{},\"created_at\":\"2024-06-01T00:00:00\",\"finished_at\":null,\"usage\":null}\n{\"name\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"You're welc"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you summarize how I've managed my relationship and work commitments with Stephen over time?",
+            "ideal_summary": "Over several conversations, you navigated balancing your professional responsibilities and personal relationship with Stephen through thoughtful communication and planning. Initially, you declined a meeting with Stephen to focus on a startup offer, and the assistant advised clear, timely communication and proposing alternatives to maintain trust. Later, concerns arose about scheduling a work call on your anniversary, leading to strategies for transparent communication, apologizing, and planning special celebrations to make up for the conflict. You then agreed to limit work trips to three per quarter to respect relationship boundaries, and the assistant helped you develop a plan involving open discussions, prioritizing important trips, leveraging technology, delegating tasks, and scheduling quarterly reviews to balance career growth with personal commitments. Throughout, you also explored how your belief in free will, supported by a University of Cambridge study, influences your motivation and decision-making, which you planned to track through daily journaling to gain deeper self-awareness and maintain resilience. This progression shows a thoughtful integration of personal values, relationship care, and professional ambitions.",
+            "difficulty": "medium",
+            "summarization_type": "progressive_relationship",
+            "bullet_points_covered": 5,
+            "conversation_sessions": 5,
+            "key_elements_tested": [
+                "relationship management",
+                "work-life balance",
+                "communication strategies",
+                "personal motivation",
+                "decision-making evolution"
+            ],
+            "synthesis_required": "Integrating relationship dynamics, work commitments, and personal growth into a coherent narrative showing development over time",
+            "source_chat_ids": [
+                58,
+                59,
+                60,
+                61,
+                74,
+                75,
+                110,
+                111,
+                112,
+                113,
+                258,
+                259,
+                260,
+                261,
+                262,
+                263
+            ],
+            "rubric": [
+                "LLM response should contain: you declined a meeting with Stephen to focus on a startup offer",
+                "LLM response should contain: concerns arose about scheduling a work call on your anniversary, leading to strategies for transparent communication, apologizing, and planning special celebrations",
+                "LLM response should contain: agreed to limit work trips to three per quarter to respect relationship boundaries",
+                "LLM response should contain: you also explored how your belief in free will, supported by a University of Cambridge study, influences your motivation and decision-making"
+            ],
+            "llm_response": "Based on the retrieved context, you have managed your relationship and work commitments with Stephen through the following actions:\n\n*   **Limiting Travel:** Agreed to limit work trips to a maximum of three per quarter starting in June.\n*   **Reducing Workload:** Planned a 30% workload reduction starting July 1 to spend more quality time with family and align with personal values.\n*   **Regular Communication:** Established weekly check-ins to discuss relationship dynamics, time management, and philosophical topics like free will.\n*   **Setting Boundaries:** Actively working on setting clear work-hour boundaries and sharing household responsibilities to balance professional ambitions with relationship needs and Montserrat's cultural expectations. \n*   **Navigating Conflicts:** Addressing scheduling conflicts, such as managing a work call scheduled on your March 20 anniversary and planning to make it up to him.\n\n**Concise Answer:**\nLimiting work trips, reducing workload by 30%, establishing weekly check-ins, and setting boundaries to balance career and relationship.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:68-72 [score=0.0162 vector=0.5474 keyword=13.5280] ==========\noutcome.\\n\\nIf you have any specific concerns or need further guidance, feel free to share them, and we can explore additional strategies to help you navigate this decision effectively. "
+            }
+        },
+        {
+            "question": "Can you summarize how I navigated my career decisions and philosophical reflections throughout our conversations?",
+            "ideal_summary": "Over the course of our discussions, you explored balancing your established career in TV/film production with your personal values and the concept of free will. Initially, you reflected on aligning your work with your passions, particularly storytelling and mentoring emerging talent, and considered volunteering or consulting to engage more meaningfully. Later, you faced a significant career choice between staying in your current role or accepting a higher-paying offer at a streaming startup, weighing factors like stability, growth, and workload. After choosing the startup, you experienced anxiety about the probation period and questioned past decisions, such as declining freelance projects to focus on onboarding. Concurrently, you grappled with philosophical questions about free will, especially after declining a substantial bonus on ethical grounds, debating perspectives like hard determinism and libertarianism. Throughout, you integrated these reflections with practical steps, journaling, and discussions with mentors, illustrating a journey of professional evolution intertwined with deep personal and philosophical growth.",
+            "difficulty": "medium",
+            "summarization_type": "complex_decision_journey",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                1,
+                3,
+                5,
+                39,
+                71,
+                83,
+                171,
+                175
+            ],
+            "key_elements_tested": [
+                "career decision-making",
+                "philosophical reflection",
+                "personal values alignment",
+                "progression of thought",
+                "integration of practical and ethical considerations"
+            ],
+            "synthesis_required": "Combining career choices, personal values, and philosophical debates into a coherent narrative showing development and interplay",
+            "source_chat_ids": [
+                1,
+                3,
+                5,
+                39,
+                40,
+                41,
+                70,
+                71,
+                82,
+                83,
+                170,
+                171,
+                172,
+                173,
+                174,
+                175
+            ],
+            "rubric": [
+                "LLM response should contain: you reflected on aligning your work with your passions, particularly storytelling and mentoring emerging talent, and considered volunteering or consulting",
+                "LLM response should contain: you faced a significant career choice between staying in your current role or accepting a higher-paying offer at a streaming startup, weighing factors like stability, growth, and workload",
+                "LLM response should contain: you experienced anxiety about the probation period and questioned past decisions, such as declining freelance projects to focus on onboarding",
+                "LLM response should contain: you grappled with philosophical questions about free will, especially after declining a substantial bonus on ethical grounds"
+            ],
+            "llm_response": "You navigated your career transitions (accepting a $95,000 startup offer, declining an unethical bonus, and reducing your workload by 30%) by applying compatibilist philosophy and the Ship of Theseus thought experiment to maintain your core identity, supported by a 58-day journaling practice that improved decision clarity by 40%.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch3.jsonl:74-78 [score=0.0153 vector=0.4846 keyword=5.7856] ==========\n represent the changes I've made over time. How can I apply this to understand my identity and changes in my career?\\\"\\n- **Stephen**: \\\"That's a great way to look at it. The Ship of Thes"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days passed between when I decided to reject the raise and when I rescheduled my final meeting to give myself more time?",
+            "answer": "18 days passed between when you rejected the raise on March 12 and when you rescheduled your final meeting on March 30.",
+            "difficulty": "medium",
+            "temporal_type": "inferential_duration_calculation",
+            "time_points": [
+                "March 12: rejected raise",
+                "March 30: rescheduled final meeting"
+            ],
+            "conversation_references": [
+                "chat_id 56: raise rejection discussion",
+                "chat_id 64: meeting rescheduling concern"
+            ],
+            "calculation_required": "March 30 - March 12 = 18 days",
+            "source_chat_ids": {
+                "first_event": [
+                    56
+                ],
+                "second_event": [
+                    64
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 18 days",
+                "LLM response should state: from March 12 till March 30"
+            ],
+            "llm_response": "25 days (from March 12 to April 6)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch2.jsonl:14-18 [score=0.0158 vector=0.4897 keyword=8.7845] ==========\nprocess and the potential time constraints, it seems reasonable that declining the $5,000 freelance project was a prudent decision. Focusing on your new job's onboarding tasks can help yo"
+            }
+        },
+        {
+            "question": "How many days had I been journaling when I noted my 40% improvement in decision clarity?",
+            "answer": "I had been journaling daily for 58 days when I noted my 40% improvement in decision clarity on May 31.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "Started journaling around April 5",
+                "40% improvement noted on May 31 after 58 days of journaling"
+            ],
+            "conversation_references": [
+                "Session 80: journaling started around April 5",
+                "Session 146: 58 days of journaling and improvement on May 31"
+            ],
+            "calculation_required": "May 31 - April 5 ≈ 58 days",
+            "source_chat_ids": {
+                "first_event": [
+                    80
+                ],
+                "second_event": [
+                    146
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 58 days",
+                "LLM response should state: from April 5 till May 31"
+            ],
+            "llm_response": "58 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_12_batch3.jsonl:1-8 [score=0.0163 vector=0.8003 keyword=16.3357] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I've been journaling daily for 58 days to improve my decision clarity, and I'm wondering if this habit formation will help me make better c"
+            }
+        }
+    ]
+}

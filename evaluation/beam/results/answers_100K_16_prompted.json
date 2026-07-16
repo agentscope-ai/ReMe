@@ -1,0 +1,636 @@
+{
+    "abstention": [
+        {
+            "question": "What are Alexis’s specific plans and strategies for launching the freelance design business in January 2025?",
+            "ideal_response": "Based on the provided chat, there is no information related to Alexis’s specific plans or strategies for launching the freelance design business.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "Alexis’s business launch is mentioned but no detailed plans or strategies are described.",
+            "plan_reference": "Batch 4, Bullet 2",
+            "rubric": [
+                "Based on the provided chat, there is no information related to Alexis’s specific plans or strategies for launching the freelance design business"
+            ],
+            "llm_response": "The retrieved context does not detail Alexis's specific plans and strategies for the launch. It only mentions her projected initial revenue of $2,000 per month and Darryl's strategies to support the business (reducing his work hours to 30/week for logistical/administrative support and allocating household funds for business reinvestment). \n\n**Concise answer:** \nNot specified in context; only her $2,000/month revenue projection and Darryl's logistical and financial support plans are mentioned.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch5.jsonl:1-6 [score=0.0162 vector=0.6665 keyword=13.4701] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What's the best way to support Alexis's design business, which has already earned $2,500 in the first 6 weeks, exceeding projections, and h"
+            }
+        },
+        {
+            "question": "What was Alexis’s reaction when I insisted on prioritizing the car savings over the vacation in September 2024?",
+            "ideal_response": "Based on the provided chat, there is no information related to Alexis’s emotional reaction to prioritizing car savings over the vacation.",
+            "difficulty": "hard",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The decision is mentioned but no emotional or subjective response from Alexis is described.",
+            "plan_reference": "Batch 3, Bullet 18",
+            "rubric": [
+                "Based on the provided chat, there is no information related to Alexis’s emotional reaction to prioritizing car savings over the vacation"
+            ],
+            "llm_response": "The provided context does not mention Alexis's reaction to prioritizing the car savings over the vacation.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-09-02/financial-planning-and-budget-strategies.md:13-48 [score=0.0154 vector=0.5342 keyword=7.2771] ==========\n## Freelance Work & Career Decisions\n\n- Accepted a freelance contract proposed by Natalie starting September 10 for $8,000 over 4 months. Declined a competing producer"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have U been using Excel to track my daily expenses?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have been using Excel to track your daily expenses, but you also mentioned that you have never used Excel for tracking expenses. Which statement is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Use of Excel for tracking expenses",
+            "conversation_references": [
+                "Session 32: Using Excel to track expenses",
+                "Session 62: Never used Excel for tracking"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    32
+                ],
+                "second_statement": [
+                    62
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have been using Excel to track your daily expenses",
+                "LLM response should mention: you also mentioned that you have never used Excel for tracking expenses",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, since March 1.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch1.jsonl:12-16 [score=0.0159 vector=0.5610 keyword=4.9751] ==========\n*Regular Reviews:** Check your progress regularly and adjust your spending if needed to stay on track.\\n\\n### Additional Tips\\n- **Budget Buffer:** Consider adding a small buffer to your "
+            }
+        },
+        {
+            "question": "Have I ever attended any financial workshops before?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have never attended any financial workshops, but you also mentioned a friend recommending a specific workshop. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "attendance at financial workshops",
+            "conversation_references": [
+                "chat_id 66",
+                "chat_id 118"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    66
+                ],
+                "second_statement": [
+                    118
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never attended any financial workshops",
+                "LLM response should mention: you also mentioned a friend recommending a specific workshop",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Based on the retrieved context, you explicitly stated, \"I've never attended any financial workshops.\" \n\nConcise: No.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch2.jsonl:52-56 [score=0.0164 vector=0.5249 keyword=8.6239] ==========\n progress regularly, and stay motivated. By following these steps, you can successfully meet your financial goal and have a robust emergency fund in place. Keep up the good work and conti"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you walk me through the order in which I brought up different financial planning topics during our chats, in order? Mention ONLY and ONLY four items.",
+            "answer": "You mentioned the financial planning topics in this order: 1) Talking about money-saving tips shared by my friend, 2) Considering a paid workshop on investment basics and my savings goal, 3) Being invited to a financial literacy book club meeting and preparing for it, 4) Discussing compromises on holiday gift budgets and how to handle similar situations in the future.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 4,
+            "conversation_references": [
+                "Session 22: Money-saving tips",
+                "Session 66: Investment workshop and savings goal",
+                "Session 132: Book club meeting",
+                "Session 256: Holiday gift budget compromise"
+            ],
+            "ordering_tested": [
+                "1st: Money-saving tips",
+                "2nd: Investment workshop and savings goal",
+                "3rd: Book club meeting",
+                "4th: Budget compromise advice"
+            ],
+            "source_chat_ids": [
+                22,
+                66,
+                132,
+                256
+            ],
+            "rubric": [
+                "Money-saving tips",
+                "Investment workshop and savings goal",
+                "Book club meeting",
+                "Budget compromise advice"
+            ],
+            "llm_response": "1. Sharing household finances with spouse\n2. Financial tips for retired mother\n3. Saving for an emergency fund\n4. Planning for a family car purchase",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch3.jsonl:14-18 [score=0.0151 vector=0.4402 keyword=8.2725] ==========\nd financial topics.\\n   - This is a good opportunity to clarify any confusing points or to seek advice on specific financial issues.\\n\\n4. **Group Activities**:\\n   - Some book clubs inco"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different ways I’ve been managing stress and financial concerns throughout our chats, in order? Mention ONLY and ONLY four items.",
+            "answer": "You mentioned these topics in this order: 1) Stress related to managing irregular income and upcoming tax season (chat_id 24, 26), 2) Starting 20-minute evening walks to reduce stress since May 15 (chat_id 94, 96), 3) Tracking sleep improvements with a Fitbit since July and linking it to stress reduction (chat_id 160, 162, 164), 4) Beginning weekly meditation sessions on Sundays since Nov 24 and wondering about their impact on financial decisions (chat_id 244).",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 4,
+            "conversation_references": [
+                "Session 24 & 26: Financial stress and income management",
+                "Session 94 & 96: Evening walks for stress relief",
+                "Session 160, 162 & 164: Sleep tracking and stress correlation",
+                "Session 244: Meditation and financial decision impact"
+            ],
+            "ordering_tested": [
+                "1st: Financial stress and income concerns",
+                "2nd: Evening walks for stress",
+                "3rd: Sleep tracking improvements",
+                "4th: Meditation and financial decisions"
+            ],
+            "source_chat_ids": [
+                24,
+                26,
+                94,
+                96,
+                160,
+                162,
+                164,
+                244
+            ],
+            "rubric": [
+                "Financial stress and income concerns",
+                "Evening walks for stress",
+                "Sleep tracking improvements",
+                "Meditation and financial decisions"
+            ],
+            "llm_response": "1. 20-minute evening walks (June 2024)\n2. Tracking sleep with a Fitbit (September 2024)\n3. Weekly meditation sessions (December 2024)\n4. Weekly journaling (March 2025)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch5.jsonl:22-26 [score=0.0162 vector=0.4805 keyword=8.2680] ==========\n.\\n  - **Update Records:** Update financial records and investment tracking tools.\\n- **Follow-Up:**\\n  - **Next Review Date:** Schedule next review (July 1, 2025).\\n  - **Monitoring:** S"
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "What monthly amount did I say I’m currently paying for my place on Bay Street?",
+            "answer": "You said your current rent is $1,200 per month for a 3-bedroom on Bay Street.",
+            "difficulty": "medium",
+            "question_type": "number_recall",
+            "conversation_reference": "Turn 1: User mentions current rent early in conversation",
+            "key_facts_tested": [
+                "monthly rent amount: $1,200",
+                "location: Bay Street",
+                "unit type: 3-bedroom"
+            ],
+            "source_chat_ids": [
+                30
+            ],
+            "rubric": [
+                "LLM response should state: $1,200 per month"
+            ],
+            "llm_response": "$1,200",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch1.jsonl:30-34 [score=0.0163 vector=0.4636 keyword=7.5638] ==========\n on these, you can better control your overall spending and ensure you are not overspending in these categories.\\n\\n### Cons of Tracking Expenses Over $20\\n1. **Potential Oversight of Sma"
+            }
+        },
+        {
+            "question": "What approach did you recommend to balance my current finances and timeline so I could steadily build up my savings despite starting with a partial amount already set aside?",
+            "answer": "I recommended calculating the remaining amount needed after accounting for what you had already saved, then dividing that by the number of months left until your deadline to determine a monthly savings target. I also suggested automating transfers, adjusting spending categories, and exploring ways to increase income to meet that target within the timeframe.",
+            "difficulty": "hard",
+            "question_type": "Problem-Solution Context",
+            "conversation_reference": "Multiple turns: User's initial savings and goal, assistant's breakdown of remaining amount, timeline, monthly savings calculation, and budgeting advice",
+            "key_facts_tested": [
+                "initial savings amount",
+                "total savings goal",
+                "deadline date",
+                "calculation of monthly savings needed",
+                "budget adjustments",
+                "income increase suggestions"
+            ],
+            "extraction_challenge": "LLM must integrate the user's starting point with the assistant's detailed plan involving timeline, remaining amount, monthly savings target, and budgeting strategies to explain how the goal can be met",
+            "source_chat_ids": [
+                34,
+                35
+            ],
+            "rubric": [
+                "LLM response should state: I recommended calculating the remaining amount needed after accounting for what you had already saved",
+                "LLM response should state: dividing the remaining amount by the number of months left until your deadline to determine a monthly savings target",
+                "LLM response should state: suggested automating transfers, adjusting spending categories, and exploring ways to increase income"
+            ],
+            "llm_response": "Calculate the remaining amount needed, determine the monthly savings required based on your timeline, automate your transfers, and regularly monitor and adjust your budget.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch3.jsonl:56-62 [score=0.0152 vector=0.5366 keyword=10.7514] ==========\nnsure that you consistently meet your financial goals without the temptation to spend the money elsewhere. Here are some steps and considerations to help you make an informed decision:\\n"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "How much am I allowed to spend on my holiday plans?",
+            "instruction_being_tested": "Always confirm budget caps when I ask about holiday spending.",
+            "expected_compliance": "Response should include a clear confirmation of any spending limits or maximum amounts allowed for holiday expenses.",
+            "compliance_indicators": [
+                "explicit mention of spending limits",
+                "confirmation of maximum allowed amount",
+                "clear statement of budget constraints"
+            ],
+            "non_compliance_signs": [
+                "ignoring spending limits",
+                "providing general advice without limits",
+                "no mention of any caps or maximum amounts"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "confirmation_instruction",
+            "source_chat_ids": [
+                268
+            ],
+            "rubric": [
+                "LLM response should contain: explicit mention of spending limits"
+            ],
+            "llm_response": "Based on the retrieved context, your holiday spending limits are:\n- **$450** for holiday gifts (raised from the original $400 cap).\n- **$300** approved for Ashlee's holiday medical supplies.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch4.jsonl:52-56 [score=0.0159 vector=0.4768 keyword=4.6073] ==========\nto refine your financial plans and strategies.\\n\\n### 6. **Maintain Financial Discipline**\\n\\n1. **Avoid Impulse Spending**:\\n   - Be mindful of impulse purchases and stick to your budget"
+            }
+        },
+        {
+            "question": "What are my current financial goals for this year?",
+            "instruction_being_tested": "Always highlight changes in budget allocations when I ask about financial goals.",
+            "expected_compliance": "Response should clearly indicate any changes in how funds are distributed or allocated compared to previous periods when discussing financial goals.",
+            "compliance_indicators": [
+                "mention of shifts in fund distribution",
+                "identification of differences in allocation",
+                "clear emphasis on what has changed in the financial plan"
+            ],
+            "non_compliance_signs": [
+                "only listing goals without noting any changes",
+                "ignoring differences in fund distribution",
+                "general financial goals without reference to allocation shifts"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "content_highlighting",
+            "source_chat_ids": [
+                208
+            ],
+            "rubric": [
+                "LLM response should contain: mention of shifts in fund distribution"
+            ],
+            "llm_response": "Based on the most recent records (March 2025), your current active financial goals are:\n\n1. **Home Renovation**: Accumulate $10,000 by December 2027 (with a $400/month savings allocation).\n2. **Family Car**: Accumulate $15,000 by 2027 (you recently reached a $5,000 milestone).\n3. **Emergency Fund**: Maintain your emergency fund (currently holding $4,000, which covers 3.5 months of living expenses). \n\n*(Note: You have also fully paid off your personal loan and credit card debt, and are maintaining a zero balance on your credit cards).*",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch3.jsonl:8-14 [score=0.0141 vector=0.4353 keyword=2.2526] ==========\nus) = $2,585\\n\\n### Impact of Freelance Contract\\n- **Additional Income**: $2,000/month for 4 months\\n- **Net Effect on Cash Flow**: \\n  - Current Net Income: $65,000/year (approximately $"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "What is the monthly grocery budget Alexis and I have agreed on?",
+            "answer": "$550",
+            "difficulty": "easy",
+            "update_type": "budget_increase",
+            "tests_retention_of": "updated grocery budget amount",
+            "conversation_references": [
+                "Spouse: Alexis and I agreed on a $500 monthly joint budget for groceries starting Sept 1, up from $400.",
+                "The grocery budget was further increased to $550 monthly starting September 15 to accommodate dietary changes."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the $500 monthly budget instead of the updated $550 amount",
+            "source_chat_ids": {
+                "original_info": [
+                    126
+                ],
+                "updated_info": [
+                    204,
+                    206
+                ]
+            },
+            "rubric": [
+                "LLM response should state: $550"
+            ],
+            "llm_response": "Based on the retrieved context, the current monthly grocery budget you and Alexis have agreed on is **$550**. (It was originally increased to $500 in September 2024 and subsequently raised to and maintained at $550 per month starting December 1, 2024).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch4.jsonl:12-18 [score=0.0162 vector=0.6626 keyword=4.8634] ==========\nld implement?\\\"\\n\\n### Example Questions to Ask Alexis\\n- \\\"Do you think I can realistically manage the additional workload without compromising our current responsibilities?\\\"\\n- \\\"How d"
+            }
+        },
+        {
+            "question": "What is my total budget for holiday gifts this year?",
+            "answer": "$450",
+            "difficulty": "easy",
+            "update_type": "budget_revision",
+            "tests_retention_of": "updated holiday gift budget amount",
+            "conversation_references": [
+                "Budget Planning: Increased grocery budget to $550/month starting Dec 1 due to holiday meals and guests.",
+                "Information Update: The holiday gift budget was adjusted to $450 after including additional family members."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original $400 gift budget instead of the updated $450 amount",
+            "source_chat_ids": {
+                "original_info": [
+                    250
+                ],
+                "updated_info": [
+                    266
+                ]
+            },
+            "rubric": [
+                "LLM response should state: $450"
+            ],
+            "llm_response": "Based on the retrieved context, your total budget for holiday gifts was originally set at $400 but was subsequently raised to **$450**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch4.jsonl:56-58 [score=0.0162 vector=0.6270 keyword=7.9900] ==========\nr one person, adjust by spending less on another person or finding a more affordable gift.\\n\\n### Example Plan\\n\\n1. **Alexis**: $100\\n   - **Gift Idea**: Personalized photo album + exper"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "How much money had I saved in total by the time I reached 60% of my emergency fund goal?",
+            "answer": "1200 dollars",
+            "difficulty": "easy",
+            "reasoning_type": "simple_status_tracking",
+            "sessions_required": 2,
+            "conversation_references": [
+                "chat_id: 34",
+                "chat_id: 76"
+            ],
+            "reasoning_steps": [
+                "Identify the total emergency fund goal amount from the first session.",
+                "Note the percentage of the goal reached and the amount saved from the second session.",
+                "Calculate or recall the amount saved when 60% of the goal was reached."
+            ],
+            "source_chat_ids": [
+                34,
+                76
+            ],
+            "rubric": [
+                "LLM response should state: 1200 dollars"
+            ],
+            "llm_response": "$1,200",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch2.jsonl:48-52 [score=0.0163 vector=0.6201 keyword=8.0373] ==========\nead books, articles, and blogs about personal finance to stay informed and inspired.\\n   - **Workshops and Seminars**: Attend financial workshops and seminars to gain new insights and str"
+            }
+        },
+        {
+            "question": "How will increasing our grocery budget while taking on the freelance contract affect my ability to support Ashlee's medical bills and still meet my savings goals?",
+            "answer": "Increasing the grocery budget raises monthly expenses, but the freelance contract's additional income more than offsets this. After accounting for higher groceries and Ashlee's medical bills, you still have substantial extra funds to accelerate your emergency and car savings goals while maintaining support for Ashlee.",
+            "difficulty": "hard",
+            "reasoning_type": "complex_multi_hop_calculation",
+            "sessions_required": 5,
+            "conversation_references": [
+                "Household finances sharing and budgeting with Alexis",
+                "Managing day-to-day spending habits",
+                "Supporting Ashlee's medical bills responsibly",
+                "Adjusting grocery budget and freelance contract impact",
+                "Balancing financial support and savings goals"
+            ],
+            "reasoning_steps": [
+                "Identify the original grocery budget and the agreed increase amount.",
+                "Calculate the new total monthly expenses including the increased grocery budget and Ashlee's medical bills.",
+                "Incorporate the additional monthly income from the freelance contract into the total income.",
+                "Determine the net monthly cash flow after expenses and additional income.",
+                "Analyze how the net cash flow supports ongoing medical bill assistance and accelerates savings goals."
+            ],
+            "source_chat_ids": [
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                108,
+                109,
+                126,
+                127
+            ],
+            "rubric": [
+                "LLM response should state: Increasing the grocery budget raises monthly expenses",
+                "LLM response should state: the freelance contract's additional income more than offsets this",
+                "LLM response should state: After accounting for higher groceries and Ashlee's medical bills, you still have substantial extra funds to accelerate your emergency"
+            ],
+            "llm_response": "The $2,000/month freelance income easily offsets the $100 grocery budget increase, leaving $4,832 in net monthly income after expenses. This comfortably covers Ashlee's $350 medical bills and allows you to accelerate your savings goals, such as allocating an additional $500/month to both your emergency and car purchase funds.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch4.jsonl:1-8 [score=0.0160 vector=0.7471 keyword=11.4988] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm worried about Ashlee's medical expenses, especially with the request for $300 by Dec 10, and I've already approved the budget for it, s"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I want to set up a system to track my monthly expenses and stick to a dining out budget of $200 starting next month. How would you suggest I organize this?",
+            "preference_being_tested": "I prefer straightforward budgeting methods over complex apps, favoring Excel for control and customization.",
+            "expected_compliance": "Response should focus on using simple, customizable tools like Excel rather than recommending complex budgeting apps or software.",
+            "compliance_indicators": [
+                "suggests Excel or spreadsheet-based solutions",
+                "offers step-by-step guidance for manual tracking",
+                "avoids recommending specialized budgeting apps or platforms"
+            ],
+            "non_compliance_signs": [
+                "recommends complex budgeting apps or software",
+                "suggests automated or app-based solutions without spreadsheet options",
+                "ignores user's control and customization needs"
+            ],
+            "difficulty": "medium",
+            "preference_type": "tool choice and method",
+            "source_chat_ids": [
+                50
+            ],
+            "rubric": [
+                "LLM response should contain: suggests Excel or spreadsheet-based solutions",
+                "LLM response should contain: avoids recommending specialized budgeting apps or platforms"
+            ],
+            "llm_response": "Divide the $200 monthly budget into $50 weekly limits, track spending using Excel (with conditional formatting), YNAB (with subcategories), or a cash envelope system, and schedule weekly reviews alongside meal planning to prevent overspending.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch1.jsonl:52-56 [score=0.0159 vector=0.6846 keyword=9.7370] ==========\nn     - Food (Groceries)\\n     - Dining Out\\n     - Transportation\\n     - Entertainment\\n     - Miscellaneous\\n     - Emergency Fund\\n     - Medical Bills\\n     - Taxes\\n\\n#### 4. **Ente"
+            }
+        },
+        {
+            "question": "I'm looking to reduce my monthly expenses. What are some ways you suggest I could do that?",
+            "preference_being_tested": "I prefer cutting recurring expenses over one-time purchases to improve monthly cash flow.",
+            "expected_compliance": "Response should focus on identifying and suggesting reductions in recurring expenses rather than one-time purchases, aligning with the user's preference to improve monthly cash flow.",
+            "compliance_indicators": [
+                "recommends cutting subscriptions or regular bills",
+                "prioritizes ongoing monthly costs for reduction",
+                "avoids emphasizing one-time purchases or expenses"
+            ],
+            "non_compliance_signs": [
+                "only suggests one-time purchase cuts",
+                "ignores recurring expenses",
+                "focuses on single large purchases instead of ongoing costs"
+            ],
+            "difficulty": "medium",
+            "preference_type": "decision_criteria",
+            "source_chat_ids": [
+                102
+            ],
+            "rubric": [
+                "LLM response should contain: suggests Excel or spreadsheet-based solutions",
+                "LLM response should contain: avoids emphasizing one-time purchases or expenses"
+            ],
+            "llm_response": "Based on the retrieved context, you can reduce your monthly expenses by:\n\n*   **Canceling or downgrading** unused subscriptions, memberships, and switching from cable to cheaper streaming services.\n*   **Negotiating** utility, internet, and phone bills, and shopping around or bundling insurance policies.\n*   **Reducing dining out** by meal planning, cooking at home, packing lunches, and buying groceries in bulk.\n*   **Improving home efficiency** with LED bulbs, programmable thermostats, sealed leaks, and low-flow water fixtures.\n*   **Lowering transportation costs** by using public transit, carpooling, or ride-sharing.\n*   **Managing debt** by refinancing high-interest loans or consolidating debt. \n*   **Utilizing discounts**, coupons, loyalty programs, and taking on DIY projects instead of paying for professional services.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch1.jsonl:20-24 [score=0.0159 vector=0.5356 keyword=6.3683] ==========\ning for healthcare costs, considering long-term care insurance, investing wisely, staying informed about scams, utilizing senior resources, and having regular financial check-ins, you can"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you summarize how my approach to managing finances with Alexis has developed over time?",
+            "ideal_summary": "Over the course of our discussions, your approach to managing finances with Alexis has evolved significantly. Initially, you shared household finances since 2020 and sought advice on whether this was a good strategy. You received guidance on the benefits and challenges of shared finances, including the importance of open communication, joint and separate accounts, and regular budget reviews. As concerns about day-to-day spending habits arose, you explored strategies like setting daily spending limits, maintaining transparency through sharing receipts, and using Excel to track expenses. Later, you made specific budget compromises, such as adjusting the dining out budget to $200 monthly, and received advice on how to validate and stick to this limit through planning and tracking. You also considered Alexis's suggestion to switch to a joint savings account to improve transparency, emphasizing shared financial goals and regular check-ins. Further, you agreed to increase the grocery budget and evaluated how additional freelance income could support your financial goals. Finally, you planned to reduce your work hours to support Alexis's freelance business and focus more on financial planning, adjusting your budget accordingly and exploring ways to maintain your financial goals despite reduced income. Throughout, your financial management approach has become more structured, communicative, and adaptive to changing circumstances.",
+            "difficulty": "medium",
+            "summarization_type": "progressive_overview",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                13,
+                15,
+                53,
+                65,
+                127,
+                253
+            ],
+            "key_elements_tested": [
+                "financial management evolution",
+                "budget adjustments",
+                "communication strategies",
+                "income and expense balancing",
+                "supporting partner's business"
+            ],
+            "synthesis_required": "Integrating financial strategies, budget changes, communication improvements, and lifestyle adjustments into a coherent narrative",
+            "source_chat_ids": [
+                13,
+                15,
+                53,
+                65,
+                127,
+                253
+            ],
+            "rubric": [
+                "LLM response should contain: you shared household finances since 2020 and sought advice on whether this was a good strategy",
+                "LLM response should contain: You received guidance on the benefits and challenges of shared finances, including the importance of open communication, joint and separate accounts, and regular budget reviews",
+                "LLM response should contain: you explored strategies like setting daily spending limits, maintaining transparency through sharing receipts, and using Excel to track expenses",
+                "LLM response should contain: you made specific budget compromises, such as adjusting the dining out budget to $200 monthly, and received advice on how to validate and stick to this limit",
+                "LLM response should contain: You also considered Alexis's suggestion to switch to a joint savings account to improve transparency, emphasizing shared financial goals and regular check-ins",
+                "LLM response should contain: you agreed to increase the grocery budget and evaluated how additional freelance income could support your financial goals",
+                "LLM response should contain: you planned to reduce your work hours to support Alexis's freelance business and focus more on financial planning"
+            ],
+            "llm_response": "Based on the retrieved context, your approach to managing finances with Alexis has developed through the following stages:\n\n*   **2020 (Initial Setup):** You began sharing household finances.\n*   **Early 2024 (Structure & Transparency):** To manage day-to-day expenses, you implemented daily spending limits, utilized joint and separate accounts, tracked expenses using Excel, and committed to transparent receipt sharing. You also successfully compromised on a $200 monthly dining-out budget.\n*   **Mid-to-Late 2024 (Collaboration & Life Adjustments):** You worked together to adjust the budget for unexpected family medical expenses and holiday spending. You also made the joint decision to reduce your work hours to 30 per week starting in January 2025 to free up time and support her upcoming freelance business launch.\n*   **Early 2025 (Business Support & Formal Agreements):** Following the launch of Alexis's design business, you allocated $200–$320 monthly to support it. You resolved a disagreement regarding profit reinvestment by establishing a $1,000 permanent cash reserve and agreeing to split remaining profits equally. You also instituted regular discussions and quarterly reviews to ensure ongoing alignment.\n\n**Concise Answer:**\nEvolved from basic shared finances to structured daily tracking, culminating in active collaboration, reduced work hours, and formal profit-sharing agreements to support Alexis's business.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch5.jsonl:1-6 [score=0.0154 vector=0.6528 keyword=3.8808] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What's the best way to support Alexis's design business, which has already earned $2,500 in the first 6 weeks, exceeding projections, and ho"
+            }
+        },
+        {
+            "question": "Can you give me a summary of how my financial planning and budgeting efforts have developed over our conversations?",
+            "ideal_summary": "Over the course of our discussions, your approach to managing your finances has evolved through several key stages. Initially, you focused on reducing your housing expenses by exploring options like negotiating rent, considering roommates, and optimizing your current living situation. As you moved forward, you shifted to managing your budgeting tools, deciding to use Excel for tracking investments such as index funds and ETFs, and learning how to automate price updates to save time. Concurrently, you addressed concerns about controlling discretionary spending, particularly dining out, by setting stricter budgets, planning meals at home, and using tracking apps to stay accountable. Finally, you adapted your budget to seasonal changes, like increasing your grocery budget for holiday meals, while balancing this with reductions in other areas to maintain progress toward your broader financial goals. Throughout, you have progressively refined your strategies to create a sustainable and flexible financial plan.",
+            "difficulty": "medium",
+            "summarization_type": "chronological_development",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                31,
+                83,
+                87,
+                193,
+                231
+            ],
+            "key_elements_tested": [
+                "budget adjustments",
+                "expense management",
+                "investment tracking",
+                "behavioral changes",
+                "financial goal balancing"
+            ],
+            "synthesis_required": "Integrating multiple financial topics and their evolution into a coherent narrative showing progression and cause-effect",
+            "source_chat_ids": [
+                31,
+                83,
+                87,
+                193,
+                231
+            ],
+            "rubric": [
+                "LLM response should contain: you focused on reducing your housing expenses by exploring options like negotiating rent, considering roommates, and optimizing your current living situation",
+                "LLM response should contain: you shifted to managing your budgeting tools, deciding to use Excel for tracking investments such as index funds and ETFs, and learning how to automate price updates to save time",
+                "LLM response should contain: you addressed concerns about controlling discretionary spending, particularly dining out, by setting stricter budgets, planning meals at home",
+                "LLM response should contain: you adapted your budget to seasonal changes, like increasing your grocery budget for holiday meals, while balancing this with reductions in other areas"
+            ],
+            "llm_response": "Your financial planning progressed from establishing custom Excel budgets and a $2,000 emergency fund in early 2024 to eliminating all debt, adopting conservative investments, and achieving a $4,000 emergency fund and $5,000 car fund by March 2025, alongside supporting your spouse's business launch and adding a $10,000 home renovation goal.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch1.jsonl:12-16 [score=0.0155 vector=0.4944 keyword=5.0515] ==========\n*Regular Reviews:** Check your progress regularly and adjust your spending if needed to stay on track.\\n\\n### Additional Tips\\n- **Budget Buffer:** Consider adding a small buffer to your "
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days had I been tracking my daily expenses before I felt frustrated enough to consider stopping?",
+            "answer": "I had been tracking my daily expenses for 3 months before I felt frustrated enough to consider stopping on May 30.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "Started tracking expenses on March 1",
+                "Considered stopping on May 30"
+            ],
+            "conversation_references": [
+                "Session 1: Started tracking expenses",
+                "Session 2: Considered stopping tracking"
+            ],
+            "calculation_required": "May 30 - March 1 = 90 days (approximately 3 months)",
+            "source_chat_ids": {
+                "first_event": [
+                    32
+                ],
+                "second_event": [
+                    72
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 90 days",
+                "LLM response should state: from March 1 till May 30"
+            ],
+            "llm_response": "Based on the retrieved context, you had been tracking your daily expenses for **3 months** (approximately **90 days**, or exactly 91 days from your start date of March 1 to May 30) before feeling frustrated enough to consider stopping.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch2.jsonl:8-12 [score=0.0164 vector=0.5410 keyword=13.0967] ==========\nider using a budgeting app like Mint, which automates much of the tracking process. This can save you time and reduce the manual effort required.\\n   - **Batch Entry**: Instead of enterin"
+            }
+        },
+        {
+            "question": "How long did it take me to reach my full emergency fund goal after I had saved $1,200 by early June?",
+            "answer": "It took about 86 days to reach the full $2,000 emergency fund goal after having $1,200 saved by June 5, since the goal was reached on August 30.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "June 5: reached $1,200",
+                "August 30: reached $2,000 goal"
+            ],
+            "conversation_references": [
+                "Session 1: saving progress by June 5",
+                "Session 2: goal reached on August 30"
+            ],
+            "calculation_required": "August 30 - June 5 = 86 days",
+            "source_chat_ids": {
+                "first_event": [
+                    76
+                ],
+                "second_event": [
+                    146
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 86 days",
+                "LLM response should state: from June 5 till August 30"
+            ],
+            "llm_response": "Based on the retrieved context, you reached your full $2,000 emergency fund goal on **August 30, 2024**, which was **nearly 3 months** after saving $1,200 on June 5, 2024.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_16_batch2.jsonl:12-18 [score=0.0162 vector=0.5991 keyword=9.9217] ==========\n. It saves you $65 per month, which can be redirected to various financial goals, helping you achieve them faster and reducing overall financial stress.\\n\\n### Next Steps\\n1. **Continue T"
+            }
+        }
+    ]
+}

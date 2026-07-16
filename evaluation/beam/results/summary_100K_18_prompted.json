@@ -1,0 +1,21 @@
+{
+    "chat_size": "100K",
+    "case_id": "18",
+    "mode": "prompted",
+    "overall_score": 0.6125,
+    "total_questions": 20,
+    "per_type_scores": {
+        "abstention": 0.0,
+        "contradiction_resolution": 0.375,
+        "event_ordering": 0.5833333333333333,
+        "information_extraction": 0.625,
+        "instruction_following": 1.0,
+        "knowledge_update": 0.5,
+        "multi_session_reasoning": 1.0,
+        "preference_following": 1.0,
+        "summarization": 0.41666666666666663,
+        "temporal_reasoning": 0.625
+    },
+    "answers_file": "/home/jiangniurou.xyf/projects/ReMe/evaluation/beam/results/answers_100K_18_prompted.json",
+    "evaluation_file": "/home/jiangniurou.xyf/projects/ReMe/evaluation/beam/results/evaluation_100K_18_prompted.json"
+}

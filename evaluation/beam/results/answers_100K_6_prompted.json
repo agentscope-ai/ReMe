@@ -1,0 +1,649 @@
+{
+    "abstention": [
+        {
+            "question": "What specific advice did Bryan give about updating the LinkedIn profile in April 2024?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific advice Bryan gave about updating the LinkedIn profile.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "Bryan’s collaboration on LinkedIn profile update is mentioned but no detailed advice is provided.",
+            "plan_reference": "Batch 2, Bullet 6",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific advice Bryan gave about updating the LinkedIn profile"
+            ],
+            "llm_response": "Based on the provided context, there is no mention of the specific advice Bryan gave regarding the LinkedIn profile; the text only states that they collaborated on simultaneous profile updates on April 20, 2024 (and notes that for the *resume*, Bryan wanted a focus solely on TV roles). \n\n**Concise Answer:**\nThe context does not specify his advice, only that they collaborated on simultaneous updates.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:10-15 [score=0.0163 vector=0.5537 keyword=9.5864] ==========\nretention.\\n\\n### Final Resume Section\\n\\n#### Professional Experience\\n**Television/Film Producer**\\n*East Janethaven, Montserrat | 2010 - Present*\\n\\n- Led a strategic content overhaul t"
+            }
+        },
+        {
+            "question": "What specific modules are included in the LinkedIn Learning ATS optimization course?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific content or modules of the LinkedIn Learning ATS optimization course.",
+            "difficulty": "hard",
+            "abstention_type": "unavailable_information",
+            "why_unanswerable": "The course is mentioned with progress percentages but no curriculum details are provided.",
+            "plan_reference": "Batch 1, Bullets 11 and 21",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific content of the LinkedIn Learning ATS optimization course"
+            ],
+            "llm_response": "The retrieved context does not specify the exact modules included in the LinkedIn Learning ATS optimization course.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:42-46 [score=0.0160 vector=0.5811 keyword=5.6094] ==========\nizations to promote inclusivity and diversity in film and television**, leading to a 30% increase in community participation.\\n- **Facilitated workshops and training sessions to empower lo"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have I ever enrolled in any courses or training programs on ATS optimization?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you enrolled in a LinkedIn Learning course on ATS optimization and completed part of it, but you also mentioned never enrolling in any ATS optimization courses or training programs. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Enrollment in ATS optimization courses",
+            "conversation_references": [
+                "Session 22: Partial course completion",
+                "Session 48: Never enrolled statement"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    22
+                ],
+                "second_statement": [
+                    48
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you enrolled in a LinkedIn Learning course on ATS optimization",
+                "LLM response should mention: you also mentioned never enrolling in any ATS optimization courses",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Initially no, but you later enrolled in a LinkedIn Learning ATS optimization course (completing 90% by April 28, 2024) and a UK employment law and resume compliance training program (starting November 10, 2024).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:46-50 [score=0.0164 vector=0.5303 keyword=8.1756] ==========\nwords that are likely to appear in job descriptions.\\n- **Save as Plain Text or PDF**: Save your resume in a format that is easily readable by ATS systems, such as plain text or PDF.\\n\\nBy"
+            }
+        },
+        {
+            "question": "Have I ever attended any workshops or training sessions related to resume standards or ATS optimization?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you attended a workshop on international resume standards, but you also mentioned never attending any workshops or training sessions related to resume standards or ATS optimization. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "attendance of workshops or training on resume standards and ATS optimization",
+            "conversation_references": [
+                "Session 82: Attended workshop",
+                "Session 96: Never attended workshops"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    82
+                ],
+                "second_statement": [
+                    96
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you attended a workshop on international resume standards",
+                "LLM response should mention: you also mentioned never attending any workshops or training sessions",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Initially no, but you later attended an international resume standards workshop on May 3, 2024, and completed ATS optimization and resume compliance training courses.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:44-48 [score=0.0162 vector=0.6138 keyword=8.8008] ==========\nu can significantly improve your resume and increase your chances of getting more callbacks. Stay proactive, network effectively, and continuously update your skills to remain competitive "
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you list the order in which I brought up different aspects of improving my professional profile and resume throughout our conversations in order? Mention ONLY and ONLY six items.",
+            "answer": "You mentioned aspects of improving your professional profile and resume in this order: 1) Concerns about passing applicant tracking systems and seeking help from a close partner on budgeting and networking strategies, 2) Collaboration with a colleague on updating a LinkedIn profile and increasing visibility, 3) Considering adding transferable skills based on advice from another contact, 4) Including a recent raise recommended by the partner and asking about salary negotiation tips, 5) Discussing insights from a conversation about adapting resumes for international markets and portfolio performance metrics, 6) Planning to share job descriptions and feedback with the partner to refine keywords and highlight diverse community experience.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 6,
+            "conversation_references": [
+                "Session 4: ATS concerns and partner's budgeting/networking advice",
+                "Session 60: LinkedIn profile collaboration and visibility increase",
+                "Session 110: Transferable skills suggestion from another contact",
+                "Session 156: Recent raise addition and salary negotiation tips",
+                "Session 206: Resume adaptation for international markets and portfolio views",
+                "Session 6: Sharing job descriptions and refining keywords with partner"
+            ],
+            "ordering_tested": [
+                "1st: ATS concerns and partner's advice",
+                "2nd: LinkedIn profile collaboration",
+                "3rd: Transferable skills suggestion",
+                "4th: Raise addition and negotiation tips",
+                "5th: International resume adaptation and portfolio metrics",
+                "6th: Sharing job descriptions and keyword refinement"
+            ],
+            "source_chat_ids": [
+                4,
+                60,
+                110,
+                156,
+                206,
+                6
+            ],
+            "rubric": [
+                "ATS concerns and partner's advice",
+                "LinkedIn profile collaboration",
+                "Transferable skills suggestion",
+                "Raise addition and negotiation tips",
+                "International resume adaptation and portfolio metrics",
+                "Sharing job descriptions and keyword refinement"
+            ],
+            "llm_response": "1. Concerns about age and salary affecting job applications\n2. Building a portfolio-ready resume that passes ATS\n3. Including experience working with diverse Caribbean communities\n4. Using structured bullet points with quantified achievements\n5. Showcasing a calm and logical demeanor\n6. Incorporating specific keywords like \"project management\" and \"budget oversight\"",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch5.jsonl:37-40 [score=0.0160 vector=0.5215 keyword=11.6145] ==========\noss-cultural communication skills gained from Caribbean and UK collaborations to my resume, and I'm wondering if this will be enough to showcase my cultural competence to potential employ"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different aspects of my career development and relocation plans in our conversations, in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned these aspects in this order: 1) Concerns about my subscription service for resume compatibility, 2) Using a tool to improve my resume keyword match, 3) Updating my professional profile headline, 4) Preparing for an upcoming panel interview, 5) Researching and deciding on a short-term rental for relocation.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 5,
+            "conversation_references": [
+                "Session 18: Subscription service for resume",
+                "Session 56: Resume keyword improvement tool",
+                "Session 108: Professional profile headline update",
+                "Session 176: Panel interview preparation",
+                "Session 244: Short-term rental research for relocation"
+            ],
+            "ordering_tested": [
+                "1st: Subscription service concern",
+                "2nd: Resume keyword tool usage",
+                "3rd: Profile headline update",
+                "4th: Interview preparation",
+                "5th: Rental research for relocation"
+            ],
+            "source_chat_ids": [
+                18,
+                56,
+                108,
+                176,
+                244
+            ],
+            "rubric": [
+                "Subscription service concern",
+                "Resume keyword tool usage",
+                "Profile headline update",
+                "Interview preparation",
+                "Rental research for relocation"
+            ],
+            "llm_response": "1. Using structured bullet points for ATS readability (March 15, 2024)\n2. A $5,000 relocation allowance for a Vancouver role (May 2, 2024)\n3. Postponing a family reunion for a $15,000 budget proposal (July 7, 2024)\n4. $1,200 monthly health insurance premiums (September 10, 2024)\n5. Negotiating a £90,000 salary offer with a UK employer (November 18, 2024)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:36-42 [score=0.0164 vector=0.4368 keyword=13.3360] ==========\nyour skills and demonstrate the recognition you have received from your professional network.\\n\\n### Example Interview Response\\n\\n---\\n\\n**Interviewer:** Can you tell us about your proje"
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "How much does my subscription to the service I’m using for my resume cost each month?",
+            "answer": "$12.99 per month",
+            "difficulty": "easy",
+            "question_type": "numerical_precision",
+            "conversation_reference": "Turn 1: USER mentions the $12.99/month Canva Pro subscription",
+            "key_facts_tested": [
+                "subscription cost",
+                "monthly price"
+            ],
+            "source_chat_ids": [
+                18
+            ],
+            "rubric": [
+                "LLM response should state: $12.99 per month"
+            ],
+            "llm_response": "$12.99",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch5.jsonl:14-18 [score=0.0162 vector=0.4856 keyword=5.2790] ==========\nts resume builder and optimization tools.\\n- **Website**: [Resumonk](https://resumonk.com/)\\n\\n### 5. **Hiration**\\n- **Features**: Hiration provides an AI-driven resume builder and career"
+            }
+        },
+        {
+            "question": "What approach did you recommend for weaving certain important terms into different sections of my resume to make it more effective?",
+            "answer": "I recommended integrating the key terms naturally across multiple sections of your resume, including the professional summary, work experience, skills section, education and certifications, and any additional sections like a portfolio. I also suggested using action verbs, providing relevant context, repeating keywords appropriately without redundancy, and using synonyms to maintain a natural flow.",
+            "difficulty": "hard",
+            "question_type": "context_based_recall",
+            "conversation_reference": "Multiple turns: initial user discovery of keyword impact, assistant's detailed strategies for keyword integration across resume sections",
+            "key_facts_tested": [
+                "integration of keywords in professional summary",
+                "use of keywords in work experience with action verbs",
+                "dedicated skills section for keywords",
+                "including keywords in education and certifications",
+                "adding keywords in portfolio or additional sections",
+                "tips on natural inclusion, relevant context, multiple occurrences, and synonyms"
+            ],
+            "extraction_challenge": "LLM must synthesize the assistant's multi-part advice on how to incorporate keywords effectively across various resume sections and stylistic tips, connecting scattered details into a coherent strategy.",
+            "source_chat_ids": [
+                24,
+                25
+            ],
+            "rubric": [
+                "LLM response should state: recommended integrating the key terms naturally across multiple sections of your resume",
+                "LLM response should state: recommended including the professional summary, work experience, skills section, education and certifications, and any additional sections like a portfolio",
+                "LLM response should state: suggested using action verbs, providing relevant context, repeating keywords appropriately without redundancy, and using synonyms to maintain a natural flow"
+            ],
+            "llm_response": "Use keywords naturally within the context of your bullet points rather than listing them separately, and strategically place them across the Summary/Profile, Professional Experience, and Skills sections.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch3.jsonl:24-26 [score=0.0158 vector=0.5576 keyword=5.4590] ==========\nur resume is versatile and can pass through various applicant tracking systems (ATS). Here are some key reasons why Karen recommended this approach:\\n\\n### 1. **Versatility and Adaptabilit"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "How should I organize the information about my past jobs?",
+            "instruction_being_tested": "Always use structured bullet points with quantified achievements when I ask about resume formatting preferences.",
+            "expected_compliance": "Response should include structured bullet points that highlight measurable accomplishments rather than general descriptions.",
+            "compliance_indicators": [
+                "use of bullet points",
+                "inclusion of specific numbers or metrics",
+                "clear presentation of achievements",
+                "organized listing of job details"
+            ],
+            "non_compliance_signs": [
+                "paragraph format",
+                "vague or qualitative descriptions only",
+                "lack of measurable results",
+                "unordered or unstructured information"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                46
+            ],
+            "rubric": [
+                "LLM response should contain: use of bullet points",
+                "LLM response should contain: inclusion of specific numbers or metrics"
+            ],
+            "llm_response": "In reverse chronological order, including job title, company name, location, dates of employment, and key responsibilities and achievements.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:1-7 [score=0.0157 vector=0.4624 keyword=3.2193] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried about my resume, I'm 60 and earning $85,000 annually, will that be a problem for me when applying for jobs, you know, consi"
+            }
+        },
+        {
+            "question": "How should I desing my resume?",
+            "instruction_being_tested": "Always maintain a minimalist resume style with clear headings when I ask about resume design preferences.",
+            "expected_compliance": "Response should follow a minimalist approach with distinct section titles to organize content clearly.",
+            "compliance_indicators": [
+                "use of simple layout",
+                "clear and separate section titles",
+                "concise presentation",
+                "no cluttered or overly complex design"
+            ],
+            "non_compliance_signs": [
+                "overly detailed or decorative layout",
+                "lack of clear section separation",
+                "excessive information in one area",
+                "complex or busy formatting"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                194
+            ],
+            "rubric": [
+                "LLM response should contain: use of simple layout",
+                "LLM response should contain: clear and separate section titles"
+            ],
+            "llm_response": "Use a simple, clean, text-based format with standard fonts, clear headings, and consistent bullet points, avoiding complex layouts, columns, tables, and graphics.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:44-48 [score=0.0157 vector=0.5059 keyword=0.1932] ==========\nu can significantly improve your resume and increase your chances of getting more callbacks. Stay proactive, network effectively, and continuously update your skills to remain competitive "
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "How many interviews have I secured for executive producer roles during the recent period?",
+            "answer": "You secured 5 interviews for executive producer roles during that period.",
+            "difficulty": "easy",
+            "update_type": "interview_count_increase",
+            "tests_retention_of": "updated number of interviews secured",
+            "conversation_references": [
+                "I secured 3 interviews for executive producer roles between April 25 and May 1, 2024.",
+                "The number of interviews secured increased to 5 between April 25 and May 1, 2024, reflecting growing interest in my profile."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original count of 3 interviews instead of the updated 5 interviews.",
+            "source_chat_ids": {
+                "original_info": [
+                    62
+                ],
+                "updated_info": [
+                    92
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 5 interviews"
+            ],
+            "llm_response": "Between 3 and 5",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:10-15 [score=0.0162 vector=0.5718 keyword=7.2986] ==========\nretention.\\n\\n### Final Resume Section\\n\\n#### Professional Experience\\n**Television/Film Producer**\\n*East Janethaven, Montserrat | 2010 - Present*\\n\\n- Led a strategic content overhaul t"
+            }
+        },
+        {
+            "question": "How many women have I highlighted as mentees in my portfolio to showcase my mentoring efforts in Caribbean media?",
+            "answer": "7 women",
+            "difficulty": "easy",
+            "update_type": "quantity_increase",
+            "tests_retention_of": "number of mentees highlighted in portfolio",
+            "conversation_references": [
+                "Cultural & Social:Diversity: Added a section on mentoring women in Caribbean media to my portfolio, highlighting 5 mentees’ success stories.",
+                "Information Update: The number of mentees highlighted in my portfolio increased to 7, reflecting expanded mentoring activities."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original number of 5 mentees instead of the updated 7",
+            "source_chat_ids": {
+                "original_info": [
+                    182
+                ],
+                "updated_info": [
+                    192
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 7 women"
+            ],
+            "llm_response": "Based on the retrieved context, you initially highlighted **5** women in your portfolio to showcase your mentoring efforts in Caribbean media (though a later update notes your total number of mentees increased to 7). \n\n**5**",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch4.jsonl:32-37 [score=0.0164 vector=0.6040 keyword=27.9421] ==========\nnk you for offering this comprehensive health insurance plan. I appreciate the coverage it provides. However, the $1,200 monthly premium is quite high. Could we discuss the possibility of"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "How many different areas have I focused on updating or improving based on my messages about my resume, portfolio, and salary negotiation?",
+            "answer": "Four areas: salary negotiation, portfolio project selection, resume international standards, and remote leadership skills.",
+            "difficulty": "easy",
+            "reasoning_type": "simple_cross_session_facts",
+            "sessions_required": 4,
+            "conversation_references": [
+                "28",
+                "72",
+                "122",
+                "158"
+            ],
+            "reasoning_steps": [
+                "Identify the topic mentioned in the salary negotiation message.",
+                "Identify the focus on portfolio project selection in the portfolio message.",
+                "Identify the focus on international resume standards in the resume message.",
+                "Identify the focus on remote leadership skills in the remote work message."
+            ],
+            "source_chat_ids": [
+                28,
+                72,
+                122,
+                158
+            ],
+            "rubric": [
+                "LLM response should state: Four areas",
+                "LLM response should state: salary negotiation",
+                "LLM response should state: portfolio project selection",
+                "LLM response should state: resume international standards",
+                "LLM response should state: remote leadership skills"
+            ],
+            "llm_response": "Based on your messages, you have focused on updating or improving **3** different areas: your resume, your portfolio, and your salary negotiation strategies.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:28-32 [score=0.0164 vector=0.5356 keyword=10.0555] ==========\n### Project 1: [Project Name]\\n- **Role**: Producer\\n- **Description**: Directed and coordinated the production of a successful television series, ensuring timely delivery and adherence t"
+            }
+        },
+        {
+            "question": "Considering my progress, achievements, and interview successes, how can I best sequence my resume updates to maximize ATS compatibility and increase interview callbacks?",
+            "answer": "You should first integrate key ATS optimization concepts from your course progress, then highlight your recent interview feedback and quantified achievements, followed by prominently featuring your completed digital media leadership courses with high scores, and finally tailor each resume version to specific job descriptions to maximize ATS compatibility and interview callbacks.",
+            "difficulty": "hard",
+            "reasoning_type": "strategic_synthesis",
+            "sessions_required": 4,
+            "conversation_references": [
+                "Course progress and resume optimization concerns",
+                "Leveraging interview successes to improve resume",
+                "Highlighting completed digital media leadership courses",
+                "User's timeline and achievements across sessions"
+            ],
+            "reasoning_steps": [
+                "Identify the current state of course completion and key ATS optimization strategies the user has learned but not fully applied.",
+                "Analyze the user's recent success in securing multiple interviews and extract actionable feedback and achievements to incorporate into the resume.",
+                "Incorporate the user's recent completion of advanced digital media leadership courses with high scores as a strong credential to enhance resume credibility.",
+                "Synthesize these elements into a prioritized sequence of resume updates that first ensures ATS compatibility, then leverages interview insights, and finally highlights new certifications to maximize callbacks."
+            ],
+            "source_chat_ids": [
+                22,
+                92,
+                136,
+                23,
+                93,
+                137
+            ],
+            "rubric": [
+                "LLM response should state: integrate key ATS optimization concepts from your course progres",
+                "LLM response should state: highlight your recent interview feedback and quantified achievements",
+                "LLM response should state: prominently featuring your completed digital media leadership courses with high scores",
+                "LLM response should state: tailor each resume version to specific job descriptions to maximize ATS compatibility and interview callbacks"
+            ],
+            "llm_response": "Based on your established protocols and testing workflows, the best sequence for your resume updates is:\n\n1. **Format & Structure**: Apply clean, text-based formatting (standard fonts, no tables/graphics) and save as .txt, .doc, or PDF. \n2. **Tailor & Localize**: Adapt to specific regional standards (e.g., UK \"CV\" with GBP/metrics vs. Canadian \"resume\") and integrate targeted industry keywords and strong action verbs.\n3. **Quantify Achievements**: Structure your experience using bullet points that highlight quantified achievements and metrics (e.g., viewership spikes, revenue, budget oversight).\n4. **Iterative ATS Testing**: Upload to ATS simulators (e.g., Jobscan, Resumonk, TopResume) to view the parsed version, check for formatting issues, and verify keyword density.\n5. **Adjust & Finalize**: Refine the content based on simulator feedback, re-test until achieving a high compatibility/match score, then finalize and save.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:1-6 [score=0.0158 vector=0.5845 keyword=12.0087] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda motivated now that I've completed 90% of my ATS optimization course by April 28, 2024, so can you help me figure out how to use th"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm updating my portfolio and want to include some samples. What types of content would you suggest I add?",
+            "preference_being_tested": "I prefer integrating video samples over static images in my portfolio to better showcase my production skills.",
+            "expected_compliance": "Response should recommend including video samples as part of the portfolio content rather than focusing solely on static images or other formats, reflecting the user's preference for video integration.",
+            "compliance_indicators": [
+                "suggests adding video samples",
+                "mentions video as a key content type",
+                "prioritizes dynamic or multimedia content over static images"
+            ],
+            "non_compliance_signs": [
+                "only suggests static images",
+                "ignores video content options",
+                "recommends formats unrelated to video or images"
+            ],
+            "difficulty": "medium",
+            "preference_type": "content format preference",
+            "source_chat_ids": [
+                74
+            ],
+            "rubric": [
+                "LLM response should contain: suggests adding video samples",
+                "LLM response should contain: mentions video as a key content type",
+                "LLM response should contain: prioritizes dynamic or multimedia content over static images"
+            ],
+            "llm_response": "Based on the retrieved context, you should add the following types of content to your portfolio samples:\n\n*   **Video clips** (1-3 minutes long) with thumbnail images\n*   **Behind-the-scenes footage** \n*   **Screenshots** of key scenes\n*   **Infographics and data visualizations** (charts/graphs showing metrics like viewer retention, engagement, and revenue)\n*   **Transcripts or captions** for accessibility\n*   **Testimonials and endorsements** from clients, collaborators, or industry leaders\n*   **Contextual narratives** detailing the project's background, creative process, and final outcomes/metrics",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:26-30 [score=0.0164 vector=0.6128 keyword=7.7678] ==========\nions**: Create dedicated sections on your portfolio site where visitors can click to view specific video samples.\\n- **Thumbnail Links**: Use thumbnail images that link to the full video o"
+            }
+        },
+        {
+            "question": "I'm applying for a job in the UK. How should I format it?",
+            "preference_being_tested": "I prefer tailoring resumes specifically for each country’s ATS standards rather than using a generic global version.",
+            "expected_compliance": "Response should recommend formatting the resume according to the UK-specific ATS standards rather than suggesting a generic or global resume format.",
+            "compliance_indicators": [
+                "mentions UK-specific ATS formatting",
+                "advises customizing resume for UK job market",
+                "avoids suggesting a one-size-fits-all resume template"
+            ],
+            "non_compliance_signs": [
+                "recommends a generic global resume format",
+                "ignores country-specific ATS requirements",
+                "suggests using the same resume for all countries"
+            ],
+            "difficulty": "medium",
+            "preference_type": "decision_criteria",
+            "source_chat_ids": [
+                222
+            ],
+            "rubric": [
+                "LLM response should contain: mentions UK-specific ATS formatting",
+                "LLM response should contain: avoids suggesting a one-size-fits-all resume template"
+            ],
+            "llm_response": "For a UK job application, you should format your document as a \"Curriculum Vitae\" (CV) rather than a resume. Based on the provided context, here are the specific formatting guidelines:\n\n*   **Title & Language:** Title the document \"Curriculum Vitae\" (CV). Use British English spelling and grammar, and use GBP (British Pounds) for any monetary amounts.\n*   **Dates:** Use the UK date format (DD/MM/YYYY) consistently.\n*   **Layout & ATS Optimization:** Use a clean, plain-text layout without complex formatting, tables, columns, or images. Stick to standard fonts (Arial, Calibri, or Times New Roman) in 10-12 point sizes. Submit the file as a PDF or Word document.\n*   **Contact Information:** Include your full name, full address (with city, postcode, and country), phone number with country code, professional email, and optionally your LinkedIn profile URL.\n*   **Professional Summary:** Include a brief overview of your key qualifications and career goals.\n*   **Education:** List in reverse chronological order. Include the institution, degree, field of study, graduation year, and importantly, your grades or class of degree (e.g., First Class, Upper Second, Lower Second, Third).\n*   **Work Experience:** List in reverse chronological order. Include job titles, company names, locations, and dates of employment. Use bullet points with strong action verbs and quantified achievements.\n*   **Skills & Certifications:** Include dedicated sections for technical/soft skills (using industry-specific keywords) and relevant training or certifications.\n*   **References:** Do not include actual references on the CV; simply state that \"References are available upon request.\"\n\n**Concise Answer:**\nUK CV format using British English, DD/MM/YYYY dates, ATS-friendly plain text layout, and an Education section that includes grades/class of degree.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch5.jsonl:56-60 [score=0.0162 vector=0.6226 keyword=5.8769] ==========\nonal guidance or specific advice on any of these points?\",\"id\":\"78dc080d14134b18bedfe82591eb6bce\"}],\"role\":\"assistant\",\"id\":\"ecf5db9ce19748e88496b25c4ef10f81\",\"metadata\":{},\"created_at\":\"2"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you give me a summary of how I worked on improving my resume and job application strategy over time?",
+            "ideal_summary": "Over the course of our conversations, you expressed concerns about age discrimination and the effectiveness of your resume in passing applicant tracking systems. Initially, you received advice on tailoring your resume to highlight relevant skills, achievements, and recent experience while using modern language and formats to downplay age-related biases. You then considered involving your partner Joshua, who has expertise in project budgeting and networking, to help optimize your resume with keyword integration and clearer articulation of your budget management experience. You also explored adding a section on your work with diverse Caribbean communities to showcase cultural competence. Subsequently, you used tools like Jobscan to improve keyword matching and received guidance on formatting, quantifying achievements, and including a professional summary to enhance ATS compatibility. Finally, you planned to incorporate transferable skills such as remote team leadership, emphasizing adaptability and strategic planning, to further strengthen your resume. Throughout this process, your approach evolved from general concerns to targeted, data-driven resume optimization strategies, integrating both personal support and technological tools to increase your chances of success in the job market.",
+            "difficulty": "medium",
+            "summarization_type": "progressive_overview",
+            "bullet_points_covered": 5,
+            "conversation_sessions": 4,
+            "key_elements_tested": [
+                "resume improvement",
+                "job application strategy",
+                "use of external help",
+                "ATS optimization",
+                "skill highlighting"
+            ],
+            "synthesis_required": "Combining advice, personal actions, and tool usage into a coherent narrative showing progression and development",
+            "source_chat_ids": [
+                1,
+                5,
+                7,
+                57,
+                111
+            ],
+            "rubric": [
+                "LLM response should contain: you received advice on tailoring your resume to highlight relevant skills, achievements, and recent experience",
+                "LLM response should contain: considered involving your partner Joshua, who has expertise in project budgeting and networking, to help optimize your resume with keyword integration",
+                "LLM response should contain: explored adding a section on your work with diverse Caribbean communities to showcase cultural competence",
+                "LLM response should contain: you used tools like Jobscan to improve keyword matching and received guidance on formatting, quantifying achievements, and including a professional summary",
+                "LLM response should contain: you planned to incorporate transferable skills such as remote team leadership, emphasizing adaptability and strategic planning"
+            ],
+            "llm_response": "Your resume and application strategy evolved in three main phases:\n\n*   **Early 2024:** Completed ATS optimization training, used tools like Textio and Jobscan to improve keywords and action verbs, redesigned your Squarespace portfolio, and learned international formatting standards (UK/Canada).\n*   **Mid 2024:** Tailored your resume specifically for StreamWave's ATS, highlighted remote leadership and quantitative storytelling metrics, and updated your LinkedIn branding.\n*   **Late 2024:** Targeted UK roles by taking GDPR/UK employment law training, using AI to increase keyword density by 22%, optimizing for ATS v3.2 (achieving an 18% ranking improvement), and highlighting a proactive $3,500 relocation strategy.\n\n**Concise Answer:** Progressed from foundational ATS keyword optimization and portfolio building to advanced AI-driven tailoring, international compliance training, and strategic relocation positioning.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:1-7 [score=0.0161 vector=0.5029 keyword=6.8417] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried about my resume, I'm 60 and earning $85,000 annually, will that be a problem for me when applying for jobs, you know, consi"
+            }
+        },
+        {
+            "question": "Can you summarize how my resume development and job application strategy progressed over the past few months?",
+            "ideal_summary": "Over the course of several months, you worked on tailoring your resume specifically for the film, television, and digital media industries, starting with defining your goals and gathering relevant information. You focused on creating a professional summary and structuring your resume with clear sections, incorporating strong action verbs and integrating your portfolio. To ensure ATS compatibility, you adapted your resume design using Canva Pro, emphasizing simple templates, standard fonts, and avoiding graphics or tables, while also converting your resume to a text-based format and using ATS simulators for validation. Concurrently, you balanced your time between interview preparation and workshops by setting clear goals, creating structured daily schedules, and reducing social media usage to free up time. After securing multiple interviews, you leveraged feedback to further refine your resume by tailoring it to job descriptions, quantifying achievements, highlighting transferable skills, and including community engagement. Additionally, you sought to showcase your warm and charismatic nature effectively within your resume by using action verbs, providing specific examples of rapport-building, and ensuring ATS-friendly formatting. Finally, you updated your resume to reflect your latest certification and promotion, emphasizing these achievements in your professional summary, work experience, skills, and certifications sections, all while maintaining ATS optimization and preparing a complementary cover letter to highlight your enthusiasm and networking success.",
+            "difficulty": "medium",
+            "summarization_type": "progressive_overview",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                15,
+                19,
+                71,
+                93,
+                139,
+                191
+            ],
+            "key_elements_tested": [
+                "resume tailoring process",
+                "ATS compatibility strategies",
+                "time management and prioritization",
+                "leveraging interview feedback",
+                "personal branding and recent updates"
+            ],
+            "synthesis_required": "Integrating multiple facets of resume development, application strategy, and personal branding into a coherent narrative showing progression and refinement",
+            "source_chat_ids": [
+                15,
+                19,
+                71,
+                93,
+                139,
+                191
+            ],
+            "rubric": [
+                "LLM response should contain: you worked on tailoring your resume specifically for the film, television, and digital media industries, starting with defining your goals and gathering relevant information",
+                "LLM response should contain: You focused on creating a professional summary and structuring your resume with clear sections, incorporating strong action verbs and integrating your portfolio",
+                "LLM response should contain: you adapted your resume design using Canva Pro, emphasizing simple templates, standard fonts, and avoiding graphics or tables",
+                "LLM response should contain: converted your resume to a text-based format and using ATS simulators for validation",
+                "LLM response should contain: you balanced your time between interview preparation and workshops by setting clear goals, creating structured daily schedules, and reducing social media usage",
+                "LLM response should contain: you leveraged feedback to further refine your resume by tailoring it to job descriptions, quantifying achievements and highlighting transferable skills",
+                "LLM response should contain: you sought to showcase your warm and charismatic nature effectively within your resume by using action verbs, providing specific examples of rapport-building",
+                "LLM response should contain: you updated your resume to reflect your latest certification and promotion, emphasizing these achievements in your professional summary, work experience, skills, and certifications sections"
+            ],
+            "llm_response": "Based on the retrieved context, your resume development and job application strategy progressed chronologically as follows:\n\n*   **Spring 2024 (March–May):** Initiated multi-phase ATS optimization (using Jobscan, Textio, Resumonk), international formatting (UK/Canada), and a Squarespace portfolio redesign. This targeted $95k+ streaming roles and resulted in 3–5 interviews.\n*   **Summer 2024 (July):** Secured a $98k Digital Media Executive Producer role at StreamWave. Tailored your resume with 12 industry-specific keywords and quantified achievements (e.g., 40% viewership increase) to align with StreamWave's AI-driven ATS.\n*   **Fall 2024 (September):** Promoted to Senior Executive Producer ($110k salary). Adopted a minimalist, ATS-friendly resume architecture that improved your ranking by 18% in StreamWave's parser v3.2, and deployed a new portfolio featuring 20 projects. \n*   **Late Fall 2024 (November):** Pivoted to the UK job market and London relocation. Enrolled in UK employment law/resume compliance training, added cross-cultural communication competencies, and utilized AI tools to boost keyword density by 22% ahead of a UK streaming company interview (targeting a £99k salary).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch2.jsonl:41-44 [score=0.0154 vector=0.4866 keyword=4.4925] ==========\ndata\":{},\"created_at\":\"2024-05-02T00:00:00\",\"finished_at\":null,\"usage\":null}\n{\"name\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Absolutely! Highlighting your community engagement and so"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days do I have between the deadline to tailor my resume for film, television, and digital media and the date I want to be ready to apply confidently for executive producer roles?",
+            "answer": "There are 52 days between the April 10, 2024 deadline to tailor your resume for film, television, and digital media and the June 1, 2024 target date to be ready to apply confidently for executive producer roles.",
+            "difficulty": "medium",
+            "temporal_type": "inferential_duration_calculation",
+            "time_points": [
+                "April 10, 2024: resume tailored for film, television, and digital media deadline",
+                "June 1, 2024: ready to apply confidently for executive producer roles"
+            ],
+            "conversation_references": [
+                "chat_id 14: tailoring resume deadline",
+                "chat_id 16: executive producer application readiness"
+            ],
+            "calculation_required": "June 1, 2024 - April 10, 2024 = 52 days",
+            "source_chat_ids": {
+                "first_event": [
+                    14
+                ],
+                "second_event": [
+                    16
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 52 days",
+                "LLM response should state: from April 10, 2024 till June 1, 2024"
+            ],
+            "llm_response": "52 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch1.jsonl:14-18 [score=0.0163 vector=0.7031 keyword=15.1568] ==========\ntribution\\nFilm Promoter\\n[Company Name], [Location]\\n[Month Year] - [Month Year]\\n- Promoted film releases through strategic marketing campaigns.\\n- Negotiated distribution deals with va"
+            }
+        },
+        {
+            "question": "How many days were there between when I postponed my family reunion and when I planned to celebrate my promotion with Linda?",
+            "answer": "There were 64 days between postponing the family reunion on July 10 and celebrating the promotion with Linda on September 12.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "July 10: family reunion postponed",
+                "September 12: promotion celebration planned"
+            ],
+            "conversation_references": [
+                "Session 1: family reunion postponement",
+                "Session 2: promotion celebration planning"
+            ],
+            "calculation_required": "September 12 - July 10 = 64 days",
+            "source_chat_ids": {
+                "first_event": [
+                    120
+                ],
+                "second_event": [
+                    186
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 64 days",
+                "LLM response should state: from July 10 till September 12"
+            ],
+            "llm_response": "64 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_6_batch4.jsonl:37-42 [score=0.0162 vector=0.4932 keyword=10.6063] ==========\nmy close friend Linda at The Blue Lagoon on September 12, and I was wondering if you could give me some tips on how to politely decline if she asks me to pick up the check, considering I'"
+            }
+        }
+    ]
+}

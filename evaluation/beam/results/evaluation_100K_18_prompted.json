@@ -1,0 +1,338 @@
+{
+    "abstention": [
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly states that there is no information available regarding the specific advice or leadership strategies Patrick shared during the phone call, acting as a negative constraint against providing such details. The response completely fails to comply by hallucinating and providing specific advice ('building trust', 'being adaptable', 'regular check-ins and open communication') instead of correctly stating that the provided context lacks this information."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion states that 'there is no information related to format of the virtual therapy sessions with Sara' in the provided chat. This is a negative constraint indicating that such information does not exist in the source material, and therefore the LLM should not provide or fabricate format details. However, the response directly violates this by claiming specific format information was found in the retrieved context (Zoom, camera, microphone, internet connection). The response provides information that the rubric explicitly states does not exist, which constitutes a clear failure to comply with the criterion. The prohibited element (format information) is present when it should be absent."
+                }
+            ]
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to explicitly state that there is contradictory information. The provided response merely presents two pieces of information (never having attended workshops in the past, and planning to attend one in the future) without identifying, stating, or implying that this information is contradictory. Since the required element is completely missing, the response fails to comply with the rubric."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly states that the user had 'never attended any workshops or professional development events,' which perfectly matches the requirement specified in the rubric criterion. The semantic meaning is fully preserved, demonstrating complete compliance."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric requires the response to mention that the user mentioned being registered for a workshop. The response states that the user was 'planning to attend a Workflow Optimization workshop,' which is a semantic equivalent to being registered for a workshop, preserving the intent of future attendance. It also correctly attributes this to the user ('you stated that... you were planning to attend'), fully satisfying the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention 'which statement is correct.' The response provides information about what was stated (never attended workshops, planning to attend one on March 15, 2024), but it does not explicitly identify or evaluate which statement among options is correct. The response describes a situation and references what 'you stated' but fails to make a clear determination about correctness among multiple statements. The required element (explicitly mentioning which statement is correct) is absent from the response."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to explicitly state that there is contradictory information. The provided response merely confirms the delegation of tasks to Greg in March and starting April 2, but it completely fails to mention or point out any contradiction or conflicting information. Since the required element is entirely missing, the response does not comply with the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention that 'You said you have never delegated any tasks to Greg or other colleagues.' However, the response states the opposite - it claims that the user delegated 30% of editing tasks to Greg starting April 2 and a late-night editing session in March. The required element (acknowledging the user's statement about never delegating tasks) is completely absent, and the response actually contradicts this requirement by asserting that delegation did occur. This represents a complete failure to comply with the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to mention that the user delegated a portion of their editing tasks to Greg. The response explicitly states 'you delegated 30% of your editing tasks to Greg', which is a direct semantic equivalent to delegating 'a portion' of editing tasks to him. Therefore, the positive requirement is fully satisfied."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention which statement is correct. The provided response does not identify, compare, or mention any statements being correct or incorrect; it merely confirms details about delegating tasks to Greg. Therefore, the required element is completely missing, resulting in a score of 0.0."
+                }
+            ]
+        }
+    ],
+    "event_ordering": [
+        {
+            "llm_judge_score": 0.9166666666666666,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the presence of a 'Workshop suggestion.' Item 1 in the response explicitly states 'Patrick suggesting a March 15 workflow optimization workshop,' which clearly satisfies this positive requirement. The response includes a workshop suggestion as required by the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires 'Relaxation technique discussion.' The response clearly addresses this by including: (1) Item 2 mentions 'Patrick suggesting progressive muscle relaxation after an April 3 meeting,' and (2) Item 3 explicitly references 'An upcoming meeting to discuss applying the progressive muscle relaxation technique.' Progressive muscle relaxation is a well-known relaxation technique, and the response discusses it in multiple items. The criterion is fully satisfied."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes 'A May 15 meeting where Patrick shared interview tips' (item 4), which fully satisfies the rubric criterion requiring the mention of an interview tips meeting."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes mentions of a leadership advice call, specifically noting 'A call from Patrick congratulating the user on a new role and advising on leadership strategies' and 'An upcoming July 15 mentorship call to ask Patrick for leadership advice.' This fully satisfies the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion asks for 'Stress management follow-up.' The response includes item 2 ('Patrick suggesting progressive muscle relaxation after an April 3 meeting') and item 3 ('An upcoming meeting to discuss applying the progressive muscle relaxation technique'). Progressive muscle relaxation is a well-known stress management technique, and item 3 explicitly describes a follow-up meeting to discuss applying this technique. Together, these items clearly demonstrate a stress management follow-up, fully satisfying the rubric criterion."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion of 'Leadership implementation'. While it includes items related to leadership (such as advising on leadership strategies and asking for leadership advice in items 5 and 6), these refer more to discussing or seeking advice on leadership rather than the actual implementation of leadership practices. Additionally, the response includes several unrelated items (workflow optimization, progressive muscle relaxation, interview tips) that do not pertain to the rubric criterion, indicating only partial focus and execution on the required topic."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.6666666666666666,
+                "recall": 0.6666666666666666,
+                "f1": 0.6666666666666666,
+                "tau_norm": 0.7592592592592593,
+                "final_score": 0.5061728395061729,
+                "semantic_alignment": {
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "f1": 0,
+                    "tau_norm": 0.1470588235294118,
+                    "final_score": 0.0
+                }
+            }
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires 'Work collaboration stress and meeting strategies.' The response partially addresses this criterion: Point 1 mentions 'Collaborating with Greg on editing schedules' (work collaboration), and points 2-4 address stress management (burnout workshops, managing burnout signs, progressive muscle relaxation). However, the response does not explicitly address 'meeting strategies' - there is no mention of strategies for conducting, participating in, or managing meetings. Since one component (work collaboration and stress) is present but another component (meeting strategies) is absent, this represents partial compliance with the rubric criterion."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires both 'Weekend getaway' and 'burnout sharing' to be addressed. The response does address burnout-related topics (workshops for burnout and stress, managing early signs of burnout, and progressive muscle relaxation for feeling drained), which partially covers the 'burnout' aspect. However, 'burnout sharing' specifically implies discussing or sharing burnout experiences with someone, which is not clearly present - the collaboration with Greg is about editing schedules, not burnout. Additionally, there is no mention whatsoever of a 'weekend getaway' in the response. Since only one of the two required elements is partially addressed (burnout is mentioned but not clearly 'shared'), and the weekend getaway element is completely absent, this represents partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response completely fails to address the rubric criterion of 'Anniversary dinner nervousness and planning.' Instead, it discusses unrelated topics such as collaborating on editing schedules, burnout workshops, managing fatigue, and progressive muscle relaxation. There is no mention of an anniversary dinner, nervousness related to it, or any planning for such an event."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to include or address a 'surprise celebration' and 'returning the favor'. The provided response discusses collaborating on editing schedules, burnout workshops, managing burnout signs, and progressive muscle relaxation. It completely fails to mention or address either a surprise celebration or returning the favor. Therefore, the required elements are missing, resulting in no compliance."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0,
+                "tau_norm": 0.1363636363636364,
+                "final_score": 0.0,
+                "semantic_alignment": {
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "f1": 0,
+                    "tau_norm": 0.1363636363636364,
+                    "final_score": 0.0
+                }
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response includes '79-year-old', which is semantically equivalent to the rubric's requirement of stating '79 years old'. The meaning and numerical value are perfectly preserved, satisfying the criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes the phrase 'senior producer', which fully satisfies the positive requirement specified in the rubric criterion."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The response correctly states that the user considered attending the event because their mentor suggested it, satisfying a portion of the rubric. However, it completely omits the specific details that the mentor is a 'senior producer' and '79 years old'. Because it includes some of the required elements but misses key descriptive constraints specified in the rubric, it demonstrates partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to state that the recommendation influenced the user to: (1) review the agenda, (2) assess current project deadlines, and (3) plan task delegation with the team. While the response mentions that 'Patrick's recommendation influenced their decision,' it fails to include any of the three specific required actions. Instead, the response describes different planned actions: consulting Patrick for insights on workshop relevance, potential benefits, and how to apply new techniques. None of these correspond to reviewing the agenda, assessing project deadlines, or planning task delegation. Since the core required elements (the three specific actions the recommendation influenced) are entirely absent, this represents no compliance with the rubric criterion."
+                }
+            ]
+        }
+    ],
+    "instruction_following": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response provides a concise, bulleted list summarizing the tracked metrics (job satisfaction, deadline reduction, workflow speed, and tension reduction). This effectively fulfills the rubric's requirement for the response to contain a 'short summary'."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to contain 'key points only,' meaning it should be concise and present only essential information without unnecessary elaboration. The response complies fully with this requirement: it presents four key metrics (job satisfaction, deadline reduction, workflow speed, tension reduction) in a concise bullet-point format with minimal elaboration (only one brief parenthetical note about PMR practice). The response is focused, structured, and contains only the essential progress data points without verbose explanations or unnecessary details."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response 'March 15, 2024' perfectly matches the required 'Month Day, Year' format specified in the rubric criterion. It fully complies with the positive requirement."
+                }
+            ]
+        }
+    ],
+    "knowledge_update": [
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to state '4 hours of overtime'. The response mentions '5 hours' of overtime (reduced by April 7) and '0 hours' (in July), but does not mention '4 hours of overtime' anywhere in the response. The required element is completely absent, and instead different overtime values are provided. This represents a failure to comply with the positive requirement specified in the rubric."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to state 'May 20'. The provided response is exactly 'May 20', which fully and accurately satisfies the positive requirement of the rubric."
+                }
+            ]
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes the phrase 'setting email boundaries after 7 PM', which directly satisfies the positive requirement in the rubric criterion to state 'email boundaries after 7 PM'. The meaning is perfectly preserved, demonstrating complete compliance."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly mentions a 'weekend getaway to Blue Bay Resort', which semantically satisfies the rubric's requirement to state 'weekend getaway at Blue Bay Resort'. The minor preposition difference ('to' instead of 'at') does not change the meaning, demonstrating complete compliance."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly states that one of the events is an 'anniversary dinner' at 'The Coral Reef' in 'East Janethaven'. The addition of '5th' adds specificity but perfectly preserves the semantic meaning of the required element. All components of the rubric criterion are fully satisfied."
+                }
+            ]
+        }
+    ],
+    "preference_following": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly suggests both Trello and Google Calendar, as well as several other similar digital apps (such as Asana, Monday.com, Jira, Microsoft To-Do, Apple Calendar, etc.) for organizing tasks and appointments. This fully satisfies the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion is a negative constraint requiring the response to avoid recommending paper planners or physical organizers. The response exclusively lists digital software tools (e.g., Trello, Asana, Google Calendar) and abstract productivity methodologies (e.g., Time Blocking, Pomodoro Technique). It does not mention or recommend any paper planners, physical notebooks, or physical organizers. The response is also fully responsive to the implied question about organizing tasks and appointments. Therefore, it completely satisfies the negative constraint."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response fully complies with the rubric criterion by explicitly suggesting a comprehensive list of morning self-care activities, including hydrating, stretching, practicing mindfulness, engaging in gratitude, and eating a nutritious breakfast. The content is directly on-topic and thoroughly addresses the requirement."
+                }
+            ]
+        }
+    ],
+    "summarization": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to indicate that the user began limiting work emails after 7 PM. The response explicitly mentions 'establishing a strict 7:00 PM work/email cutoff' as one of the main adjustments. This phrase is a semantic equivalent to limiting work emails after 7 PM, meaning the required element is fully present and accurately conveyed."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to contain a specific goal to cut weekly hours from 55 to 40 by April 30. The response mentions various adjustments like 'reducing overtime to 4 hours,' establishing a 7:00 PM cutoff, delegating tasks, and other productivity measures, but it does NOT contain the specific goal of cutting weekly hours from 55 to 40, nor does it mention the April 30 deadline. The required element with its specific numerical targets (55 to 40 hours) and timeframe (by April 30) is completely absent from the response."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It mentions scheduling 'self-care blocks,' which satisfies the requirement for blocked self-care time. However, it fails to specify that this time is blocked on 'Tuesdays and Thursdays,' instead describing the blocks as 'bi-weekly morning.' Because the specific days of the week are omitted, the execution of the requirement is incomplete."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires three specific elements: (1) added daily meditation, (2) started therapy on March 10, and (3) agreed to delegate tasks to Greg to avoid late-night editing sessions. Evaluating the response: (1) Daily meditation is NOT mentioned - the response mentions 'nightly journaling' and 'bi-weekly morning self-care blocks' but not meditation. (2) Starting therapy on March 10 is NOT mentioned at all. (3) Delegating tasks IS mentioned, but the response does not specify delegating to Greg specifically, nor does it mention the reason being to avoid late-night editing sessions. The response is responsive to the general topic of March 2024 adjustments but only partially addresses one of the three required elements (delegating tasks without the specific details about Greg and late-night editing). With one partially present element and two completely absent elements, this warrants a score of 0.5 for partial compliance."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires three elements: (1) tracked overtime reduction, (2) began journaling nightly, and (3) registered for a March 15 workflow workshop. Evaluating the response: (1) 'reducing overtime to 4 hours' mentions overtime reduction with a specific figure, which partially satisfies 'tracked overtime reduction' though the explicit tracking aspect isn't stated; (2) 'starting nightly journaling' is semantically equivalent to 'began journaling nightly' - this element is present; (3) 'registered for a March 15 workflow workshop' is completely absent from the response - there is no mention of registering for any workshop or the March 15 date. Since one element is fully present, one is partially addressed, and one is entirely missing, the response demonstrates partial compliance with the rubric criterion."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.3333333333333333,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to mention: (1) the timeframe 'Between April and May 2024', (2) reduced work hours, (3) reduced stress, (4) delegation to Greg specifically, (5) daily yoga, and (6) support group involvement. The response partially complies: it mentions 'Reduced work hours' ✓, 'reduced anxiety/nervousness' (semantically equivalent to stress) ✓, and 'delegated tasks' but does NOT specify delegation to Greg ✗. The response omits the specific timeframe (April-May 2024) ✗, does not mention daily yoga (only vague 'wellness routines') ✗, and does not mention support group involvement ✗. With approximately 2-3 of 6 required elements present, this constitutes partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly requires the response to include three specific elements: attending therapy, resolving workplace conflicts, and spending restorative time with David. The response provided lists entirely different activities (reducing work hours, wellness routines, updating portfolio, mock interviews with Erica) and fails to mention therapy, conflict resolution, or David. As none of the required elements are present, the response does not comply with the rubric."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It addresses several key elements: (1) mock interviews are covered ('completed three mock interviews with Erica'), (2) portfolio updates are present ('updated portfolio with 7 projects'), and (3) stress management is addressed ('reduced anxiety/nervousness by 30-40% via wellness routines'). However, the element of 'receiving mentorship and coaching to boost confidence' is not explicitly mentioned—while Erica conducted mock interviews, the response does not frame this as mentorship or coaching for confidence-building. Additionally, the timeframe 'By May' is not explicitly stated in the response. Since most but not all required elements are present, and some are implicit rather than explicit, this constitutes partial compliance."
+                }
+            ]
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "llm_judge_score": 0.75,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly states '2 days' as the difference between the two dates, which perfectly satisfies the rubric criterion requiring the LLM to state '2 days'."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to state the range 'from March 5 till March 7'. The response mentions both 'March 5' and 'March 7', identifying them as the start dates for two separate events, and calculates the difference between them. However, it does not frame these dates as a continuous range or period ('from March 5 till March 7') as required by the rubric. Because it includes the correct dates but fails to state them as the specified range, it demonstrates partial compliance."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response exactly states '14 days', which fully complies with the rubric criterion requiring the LLM to state '14 days'."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric explicitly requires the response to state the specific date range 'from April 21 till May 5'. The response '14 days' only provides the duration of the period and completely omits the required start and end dates. Since a duration is not a semantically equivalent form of a specific date range, the required element is missing, justifying a score of 0.0."
+                }
+            ]
+        }
+    ]
+}

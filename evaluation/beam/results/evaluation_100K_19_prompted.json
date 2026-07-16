@@ -1,0 +1,362 @@
+{
+    "abstention": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to indicate that there is no information related to the specific terms and conditions of the $10,000 trust. The response explicitly states 'the specific terms and conditions for this trust are not detailed in the provided text,' which is semantically equivalent to the rubric requirement. The response correctly conveys that the specific terms and conditions of the $10,000 trust are not available in the provided context, fully satisfying the negative constraint specified in the rubric."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion states that 'there is no information related to Kimberly and Bradley's emotional reactions to the $7,000 fund suggestion.' The response fully complies with this criterion by explicitly stating 'there is no information regarding Kimberly and Bradley's emotional reaction to the $7,000 fund' and reiterating in the concise answer that 'The provided context does not mention their emotional reaction.' The response is on-topic, directly addresses the question about emotional reactions, and correctly conveys that such information is absent from the context. This represents complete compliance with the rubric criterion."
+                }
+            ]
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric requires the response to state that there is contradictory information. The response explicitly contrasts two conflicting pieces of information derived from the context: the existence of scheduled/planned meetings to discuss the will versus the user's note that no will documents were ever completed or signed. By using the transition 'However' to juxtapose these facts, the response semantically conveys the existence of a discrepancy or contradiction in the retrieved information, satisfying the requirement through meaning and presentation of the conflict."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response successfully mentions that the user has 'scheduled and planned meetings with Stephanie' and contextualizes this with working 'with an attorney.' This semantically captures the rubric's requirement to mention that the user said they have a meeting planned with attorney Stephanie, satisfying the criterion through acceptable paraphrasing."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to mention that the user has never met 'her' (presumably Stephanie). While the response discusses scheduled meetings with Stephanie and notes that the user has never completed or signed will documents with an attorney, it completely fails to mention that the user has never actually met her. Therefore, the required element is missing, resulting in a score of 0.0."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention which statement is correct (presumably from a set of options in the original question). The provided response merely summarizes facts about scheduled meetings and the lack of a signed will, but it completely fails to identify, select, or mention which specific statement is correct. Therefore, the required element is missing, resulting in a score of 0.0."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.125,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric explicitly requires the LLM response to state that there is contradictory information. The provided response ('Yes, you have used WillMaker Pro to draft your will.') completely fails to mention or acknowledge any contradictory information. Therefore, it does not comply with the rubric criterion at all."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to mention that the user drafted their will including guardianship details. The response successfully acknowledges that the user drafted their will ('used WillMaker Pro to draft your will'), but it completely omits any mention of 'guardianship details'. Because only part of the required compound statement is present, it demonstrates partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to mention that the user never used WillMaker Pro or any digital software to draft their will. The response states the exact opposite ('Yes, you have used WillMaker Pro to draft your will'), completely failing to include the required information and directly contradicting the rubric criterion. Therefore, it receives a score of 0.0."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention which statement is correct. The provided response ('Yes, you have used WillMaker Pro to draft your will.') does not identify, evaluate, or mention which statement is correct, thus completely failing to satisfy the positive requirement of the rubric."
+                }
+            ]
+        }
+    ],
+    "event_ordering": [
+        {
+            "llm_judge_score": 0.4,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion is 'Estate plan inclusion,' which is a positive requirement asking whether the response addresses the topic of including someone in an estate plan. The response explicitly lists 'Including him in the estate plan' as item 1, which directly and clearly addresses the estate plan inclusion criterion. Additionally, item 5 ('Including him as a beneficiary') further reinforces the estate plan inclusion theme. The response fully complies with the rubric criterion by explicitly mentioning estate plan inclusion."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires mention of both 'Gift' and 'beneficiary'. The response includes 'beneficiary' explicitly in item 5 ('Including him as a beneficiary'), satisfying that part of the criterion. However, there is no mention of 'gift' or any semantically equivalent concept (such as 'bequest', 'present', 'inheritance as a gift') anywhere in the response. Since only one of the two required elements is present, this represents partial compliance with the rubric criterion."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires both 'Family meeting' AND 'executor role' to be addressed. The response adequately covers the executor role through multiple items (items 2, 3, and 4 mention executor selection, being executor, and executor duties). However, there is no mention of a 'family meeting' in the response - while item 3 mentions 'family reactions,' this is about worrying about reactions, not about holding or discussing a family meeting. Since one of the two required elements (executor role) is present but the other (family meeting) is absent, this constitutes partial compliance, warranting a score of 0.5."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires a discussion about an emergency fund. The provided response is a list of topics related to estate planning, executors, and beneficiaries, and it completely lacks any mention or discussion of an emergency fund. Therefore, it fails to comply with the positive requirement of the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion 'Planning further discussion' is a positive requirement expecting the response to actively propose, structure, or invite further discussion (e.g., suggesting next steps, asking the user which topic to explore first, or outlining an approach to talk through the issues). The response merely provides a bare list of topics (estate plan, executor decisions, family reactions, etc.) without any conversational framing, actionable plan, or invitation to discuss them further. Therefore, it fails to demonstrate the required element of planning further discussion."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.2,
+                "recall": 0.2,
+                "f1": 0.20000000000000004,
+                "tau_norm": 0.3666666666666667,
+                "final_score": 0.07333333333333335,
+                "semantic_alignment": {
+                    "precision": 0.4,
+                    "recall": 0.4,
+                    "f1": 0.4000000000000001,
+                    "tau_norm": 0.5,
+                    "final_score": 0.20000000000000004
+                }
+            }
+        },
+        {
+            "llm_judge_score": 0.5714285714285714,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response fully complies with the rubric criterion 'Parents and will concern'. It explicitly addresses concerns related to the user's parents (point 1: leaving $50,000 each and a $100,000 ongoing care fund) as well as multiple concerns regarding the will (point 2: ensuring children are taken care of in the will; point 3: securing the original will in a fireproof safe; point 7: finalizing the will by a specific date). Both elements of the criterion are clearly present and accurately addressed."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion is a compound requirement asking for both 'Asset allocation' and 'power of attorney'. The response successfully addresses asset allocation by detailing the distribution of specific funds (e.g., $50,000 each for parents, a $100,000 ongoing care fund, and provisions for the children). However, it completely fails to mention or address 'power of attorney' or any semantic equivalent (such as granting legal authority to a proxy or agent). Because only one of the two required elements is present, the response demonstrates partial compliance."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires the presence of both a 'care fund clause' and a 'trustee'. The response successfully addresses the care fund by mentioning a '$100,000 ongoing care fund for your parents'. However, it completely fails to mention a 'trustee' or any equivalent role responsible for managing the fund. Because only one of the two required elements is present, the response demonstrates partial compliance."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly mentions the '$5,000 emergency fund for guardianship expenses' in points 4 and 5. This directly addresses and fully satisfies the rubric criterion regarding the kids' guardianship emergency fund."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly mentions the care fund amount, stating a plan to leave a '$100,000 ongoing care fund for your parents.' This satisfies the rubric criterion regarding the care fund amount update by clearly identifying the specific monetary value allocated for the care fund."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to include a 'separate trust consideration.' However, the provided response lists various estate planning tasks (such as leaving specific funds, updating the will, installing a safe, and considering life insurance) but completely fails to mention or consider setting up a separate trust. Because the required element is entirely missing, the response does not comply with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires a discussion of tax implications. The provided response lists various estate planning, guardianship, and will-related tasks (such as leaving funds to parents, securing documents, and setting up emergency funds), but it completely fails to mention or discuss any tax implications, estate taxes, or tax consequences associated with these financial and legal decisions. Therefore, the required element is entirely missing."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.14285714285714285,
+                "recall": 0.14285714285714285,
+                "f1": 0.14285714285714285,
+                "tau_norm": 0.2142857142857143,
+                "final_score": 0.030612244897959183,
+                "semantic_alignment": {
+                    "precision": 0.14285714285714285,
+                    "recall": 0.14285714285714285,
+                    "f1": 0.14285714285714285,
+                    "tau_norm": 0.2142857142857143,
+                    "final_score": 0.030612244897959183
+                }
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to state '12 miles away'. The response '12 miles' semantically conveys the exact same distance and meaning. Under the semantic tolerance rules, paraphrases and equivalent expressions that preserve intent are accepted. Thus, the response fully complies with the requirement."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the LLM response to state '3 years'. The response provided is exactly '3 years', which is a complete and exact match to the required element. The response fully complies with the positive requirement specified in the rubric."
+                }
+            ]
+        }
+    ],
+    "instruction_following": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to provide detailed explanations of legal terms. While the response does include brief, parenthetical definitions for a few legal terms (e.g., explaining a 'revocation clause' as being 'to invalidate all prior wills and codicils' and an 'attestation clause' as being 'to confirm the signatures of the testator and witnesses'), these are short glosses rather than 'detailed explanations.' Furthermore, other legal terms used in the text, such as 'codicils' and 'testator,' are not explained at all. Therefore, the response only partially complies with the requirement."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly requires the response to contain software version numbers. The provided response lists several software tools and services (LastPass, My Legacy, SecureSafe, Google Drive, Dropbox, iCloud) but does not mention any specific version numbers associated with them. Therefore, the required element is missing."
+                }
+            ]
+        }
+    ],
+    "knowledge_update": [
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly requires the response to state that the probate process takes '5-7 months'. The response states it takes '6-9 months', which is a different numerical range and therefore incorrect according to the rubric. The required element is missing/incorrect."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the LLM response to state '12%'. The response provided is exactly '12%', which fully satisfies the positive requirement of the rubric."
+                }
+            ]
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the response to state 'Three children'. The response states '**3** children', which is numerically equivalent to 'three' according to the semantic tolerance rules for numbers. The required element is fully present and accurate."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5714285714285714,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to state six specific assets. However, the response explicitly states that there are only 5 specific assets and lists exactly 5 items (home, Adobe subscription, savings, film equipment, and Toyota RAV4). Because the response fails to provide the required six assets, it does not comply with the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the LLM response to state 'home'. The response explicitly lists 'Your $350,000 home on 45 Coral Bay Rd' as the first item in the estate planning inventory, fully satisfying the positive requirement."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes the phrase 'vacation home' in the explanatory note at the end of the text. This fully satisfies the rubric's positive requirement that the LLM response should state 'vacation home'."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly lists 'A 2018 Toyota RAV4' as item number 5 in the estate planning inventory. This fully satisfies the rubric criterion which requires the LLM response to state '2018 Toyota RAV4'."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes '$15,000 in film equipment' as the fourth item in the estate planning inventory. This fully satisfies the rubric criterion requiring the LLM to state 'film equipment'."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the LLM response to state 'fireproof safe'. However, the provided response does not mention a fireproof safe anywhere in the text. It only lists five specific assets (home, Adobe subscription, savings, film equipment, Toyota RAV4) and mentions placeholder examples (vacation home, antique books, grandfather's watch). Since the required element is completely missing, the response fails to comply with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to state 'original will.' The response discusses estate planning inventory and lists 5 assets, and mentions 'will templates' in a note at the bottom. However, 'will templates' is semantically different from 'original will' - templates are placeholder/example documents, while an original will refers to an actual will document. The response does not contain or reference 'original will' anywhere. Since the required element is missing, this constitutes no compliance with the rubric criterion."
+                }
+            ]
+        }
+    ],
+    "preference_following": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly mentions 'digital software like WillMaker Pro' as a tool to simplify the process of making and saving future changes to a will. This directly satisfies the rubric criterion of mentioning digital will updating tools."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly lists 'organizational skills' as one of the factors to consider when choosing an executor, directly satisfying the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to recommend Douglas based on his organizational abilities. While the response mentions 'organizational skills' as a general factor to consider when choosing an executor, it completely fails to mention or recommend Douglas. Therefore, the required element is missing."
+                }
+            ]
+        }
+    ],
+    "summarization": [
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to include information about seeking guidance on including Douglas in the estate plan, detailing how to list assets, and specifying provisions for him. The response successfully specifies provisions for Douglas by noting his role as executor and his 20% beneficiary allocation. However, it completely omits any mention of seeking guidance specifically regarding his inclusion in the estate plan, and it does not detail the process or guidance on how to list assets. Because it only partially satisfies the compound requirement, it receives a score of 0.5 for partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response does not contain any mention of a decision between naming Douglas or Kevin as executor, nor does it discuss weighing factors such as responsibility, legal knowledge, and family opinions. It simply states that Douglas accepted the role of executor and lists Kevin as a paralegal/advisor. Therefore, the required element is completely missing, resulting in no compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response does not mention organizing a family meeting, discussing executor roles openly, exploring co-executor options, or reaching a consensus regarding the executor. It merely states that Douglas formally accepted the role of executor at a specific location and date. Since none of the required elements from the rubric criterion are present, the response fails to comply."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially addresses the rubric criterion but has notable gaps. It mentions Douglas formally accepted the executor role and provides some evidence of defining roles (executor, guardian, advisors team) and providing resources (WillMaker Pro software, 1Password enterprise vault for executor access, biometric fireproof safe). However, the response does NOT explicitly describe efforts to ensure Douglas 'fully understands his executor duties' - it only states he accepted the role. Additionally, while it mentions 'resolving a prior disagreement with Douglas' regarding charitable giving, it does not describe establishing any formal 'conflict resolution mechanisms' as the rubric requires. The response touches on some elements (role definition, some resources) but is missing key components: explicit work on Douglas's understanding of duties and established conflict resolution mechanisms. This partial coverage justifies a 0.5 score."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It successfully mentions the establishment of a $5,000 emergency fund for guardianship expenses. However, it completely omits the key actions required by the rubric: planning a conversation with Douglas about this fund and preparing to discuss potential costs and management strategies. Because only one part of the compound requirement is present while the main contextual actions are missing, it warrants a partial compliance score."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response mentions Kevin as a paralegal on the advisory team and as a beneficiary, but it completely fails to address the specific requirement of the rubric. There is no mention of preparing for Kevin to review the will draft, organizing documents for him, summarizing wishes for his review, or identifying specific areas of concern. Since none of the required elements from the rubric criterion are present in the response, it receives a score of 0.0."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.125,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It successfully addresses the need to finalize the will and ensure it meets Montserrat's legal requirements (mentioning 'Verify alignment with Montserrat's 2025 estate and electronic signature laws'). However, it fails to mention planning meetings specifically with 'attorney Stephanie,' instead providing generic advice to 'consult your attorney.' Because it captures the core legal and finalization elements but misses the specific entity and action regarding Stephanie, it warrants a partial compliance score."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to contain the specific element that 'Stephanie guided you through drafting, reviewing, selecting witnesses, signing, and optional notarization.' The provided response is a generic, step-by-step guide for preparing a will and completely fails to mention 'Stephanie' or any narrative of her guiding the user through the process. Because the core required entity and action are entirely absent, the response does not comply with the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to contain information about learning how to prepare notarized affidavits for guardianship to help speed up probate. While the response mentions 'guardianship for minor children' and signing the will 'in the presence of... a notary,' it completely fails to mention notarized affidavits specifically for guardianship or the concept of speeding up probate. The required element is missing."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to include a specific statement about later confirming with attorney Diana that Montserrat now accepts electronic will signatures and that this offers more convenience. The response only provides a generic instruction to 'Verify alignment with Montserrat's 2025 estate and electronic signature laws, and consult your attorney.' It completely omits the specific attorney (Diana), the act of confirmation, and the mention of convenience. Therefore, the required element is missing."
+                }
+            ]
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion explicitly requires the response to state '21 days'. The provided response is exactly '21 days', which fully satisfies the positive requirement of the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly requires the response to state the specific date range 'from March 25 till April 15'. The response only provides the duration ('21 days') and completely omits the required start and end dates. Therefore, it fails to comply with the positive requirement of the rubric."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion requires the LLM response to state '40 days'. The response to evaluate is exactly '40 days', which perfectly matches the required element. The response fully complies with the rubric criterion, demonstrating complete compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric explicitly requires the response to state the specific date range 'from March 22 till May 1'. The response only provides a duration ('40 days') without mentioning the actual start and end dates. Since the required dates are completely missing, it fails to comply with the positive requirement of the rubric criterion."
+                }
+            ]
+        }
+    ]
+}

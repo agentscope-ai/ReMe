@@ -14,7 +14,7 @@ evaluation:
   filter_future_sessions: true
 
 reme:
-  config: "longmemeval.yaml"
+  config: "lme.yaml"
   dream_trigger_hour: 23
   dream_scan_days: 2
   dream_max_units: 5

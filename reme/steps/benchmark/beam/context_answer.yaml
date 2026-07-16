@@ -1,0 +1,18 @@
+user_message: |
+  You are an assistant that MUST answer questions using ONLY the information provided in the context below.
+
+  STRICT INSTRUCTIONS:
+  1. Answer ONLY based on the provided context
+  2. Do NOT use your internal knowledge
+
+  CONTEXT:
+  {context}
+
+  QUESTION:
+  {question}
+
+  ANSWER REQUIREMENTS:
+  - Be direct and concise
+  - Only output the answer to the question without any explanation
+
+  RESPONSE:

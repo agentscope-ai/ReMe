@@ -1,14 +1,15 @@
-# LongMemEval evaluation config — based on default.yaml
+# BEAM benchmark config — based on longmemeval.yaml (split)
 # All background/cron jobs are converted to base (manually callable).
-# Use with: resolve_app_config(config="longmemeval.yaml", ...)
+# Use with: resolve_app_config(config="beam.yaml", ...)
 
 service:
   backend: http
 
 jobs:
-  bench_query_job:
+  # ── BEAM agentic answer (ReAct agent + search tool) ──
+  agentic_answer:
     backend: base
-    description: "Benchmark query job"
+    description: "BEAM agentic answer job (ReAct agent with search tool)"
     watch_dirs: []
     watch_suffixes: []
     parameters:
@@ -24,37 +25,61 @@ jobs:
       required:
         - query
     steps:
-      - backend: bench_query_step
+      - backend: beam_agentic_answer_step
         agent_wrapper: bench
 
-  # ── LLM-as-Judge for evaluating answers ──
+  # ── BEAM rubric-based LLM-as-Judge ──
   answer_judge:
     backend: base
-    description: "LLM-as-Judge: evaluate agent answer against golden answer"
+    description: "BEAM rubric-based LLM-as-Judge: evaluate response against rubric criteria"
     watch_dirs: []
     watch_suffixes: []
     parameters:
       type: object
       properties:
-        query:
+        llm_response:
           type: string
-          description: "The question being asked"
-        agent_answer:
+          description: "The model's response to evaluate"
+        rubric:
+          type: array
+          description: "List of rubric criteria to check"
+          items:
+            type: string
+        probing_question:
           type: string
-          description: "The model's answer to evaluate"
-        golden_answer:
-          type: string
-          description: "The correct/golden answer"
+          description: "The original probing question"
+          default: ""
         question_type:
           type: string
-          description: "The question type for prompt selection"
+          description: "BEAM question type (e.g. event_ordering)"
           default: ""
       required:
-        - query
-        - agent_answer
-        - golden_answer
+        - llm_response
+        - rubric
     steps:
-      - backend: answer_judge_step
+      - backend: beam_rubric_judge_step
+        agent_wrapper: judge
+
+  # ── BEAM context-based answer generation (aligned with BEAM original prompt) ──
+  context_answer:
+    backend: base
+    description: "Generate answer from retrieved memory context using BEAM's original RAG prompt."
+    watch_dirs: []
+    watch_suffixes: []
+    parameters:
+      type: object
+      properties:
+        retrieved_context:
+          type: string
+          description: "Concatenated memory chunks from search"
+        question:
+          type: string
+          description: "The probing question to answer"
+      required:
+        - retrieved_context
+        - question
+    steps:
+      - backend: beam_context_answer_step
         agent_wrapper: judge
 
   # ── Manual index update (replaces index_update_loop background) ──
@@ -201,6 +226,14 @@ jobs:
         end_date:
           type: string
           description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+        # vector_weight:
+        #   type: number
+        #   description: >-
+        #     Optional weight balancing vector similarity vs BM25 keyword matching in the
+        #     RRF fusion. Recommended value is 0.7, which provides a good balance between
+        #     semantic (vector) similarity and lexical (BM25) matching. Values close to 0
+        #     emphasize BM25 keyword matching, values close to 1 emphasize vector semantic
+        #     similarity.
       required:
         - query
     steps:
@@ -477,13 +510,13 @@ components:
       backend: ${LLM_BACKEND:-openai}
       model: ${JUDGE_MODEL_NAME:-qwen3.7-max}
       stream: false
-      context_size: 32000
+      context_size: 200000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}
       parameters:
-        max_tokens: 2048
+        max_tokens: 65536
         thinking_enable: false
     prompted:
       backend: ${LLM_BACKEND:-openai}

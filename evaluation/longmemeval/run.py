@@ -32,7 +32,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root for evaluation items
-_WORKSPACE_ROOT = _PROJECT_ROOT / "memory_workspaces"
+_WORKSPACE_ROOT = _PROJECT_ROOT / "memory_workspaces/longmemeval-s"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -203,22 +203,6 @@ async def judge_response_via_job(
         "question_type": question_type,
     }
 
-# ---------------------------------------------------------------------------
-# Prompted-answer system prompt (non-agentic, direct LLM generation)
-# ---------------------------------------------------------------------------
-PROMPTED_SYSTEM_PROMPT = (
-    "You are a memory retrieval assistant. You will be given retrieved memory chunks "
-    "and a question. Think carefully step by step about the retrieved context, "
-    "then output ONLY the direct factual answer.\n\n"
-    "## Rules\n"
-    "- Answer based ONLY on the retrieved context provided below.\n"
-    "- Output ONLY the direct factual answer — no reasoning in the final output, "
-    "no elaboration, no mention of the retrieval process.\n"
-    # "- If the information is not found in the context, reply: 'Information not found.'"
-)
-
-PROMPTED_TEMPORAL_HINT = "\n\nCurrent time context: {query_time}\n"
-
 
 # ---------------------------------------------------------------------------
 # Main evaluation pipeline
@@ -236,7 +220,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     """
     from reme import Application
     from reme.config import resolve_app_config
-    from reme.enumeration import ComponentEnum
 
     reme_cfg = eval_config["reme"]
     dream_trigger_hour = reme_cfg.get("dream_trigger_hour", 23)
@@ -389,7 +372,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             # ── Phase 3: Digest update ────────────────────────────────
             await app.run_job("digest_update")
 
-        # ── Phase 4: Ask question via bench_query_job (ReAct agent) ──
+        # ── Phase 4: Ask question via agentic_answer job (ReAct agent) ──
         question = item["question"]
         question_date_raw = item.get("question_date", "")
         question_dt = parse_haystack_date(question_date_raw) if question_date_raw else None
@@ -399,7 +382,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         )
 
         query_resp = await app.run_job(
-            "bench_query_job",
+            "agentic_answer",
             query=question,
             query_time=query_time,
         )
@@ -413,50 +396,14 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         logger.info(
             f"[Item {item_index}] Asking (prompted): {question[:80]}...",
         )
-        prompted_llm = app.context.components[ComponentEnum.AS_LLM]["prompted"]
-
-        # Search for relevant chunks
-        search_resp = await app.run_job("search", query=question, limit=15)
-        search_context = (search_resp.answer or "").strip()
-        search_hit_count = (search_resp.metadata or {}).get("counts", {}).get("returned", 0)
-        logger.info(f"[Item {item_index}] Prompted search: {search_hit_count} hit(s)")
-
-        if not search_context:
-            search_context = "(no search results found)"
-
-        # Build prompted prompt
-        prompted_sys = PROMPTED_SYSTEM_PROMPT
-        if query_time:
-            prompted_sys += PROMPTED_TEMPORAL_HINT.format(query_time=query_time)
-
-        prompted_user_content = (
-            f"## Retrieved Memory Context\n\n{search_context}\n\n"
-            f"## Question\n{question}\n\n"
-            f"Please provide the direct factual answer based on the above context."
+        prompted_resp = await app.run_job(
+            "context_answer",
+            question=question,
+            query_time=query_time,
         )
-
-        from agentscope.message import Msg as PromptedMsg
-
-        prompted_messages = [
-            PromptedMsg(name="system", role="system", content=[{"type": "text", "text": prompted_sys}]),
-            PromptedMsg(name="user", role="user", content=[{"type": "text", "text": prompted_user_content}]),
-        ]
-
-        prompted_input_tokens = 0
-        prompted_output_tokens = 0
-        try:
-            prompted_chat_resp = await prompted_llm.model(prompted_messages)
-            prompted_raw_text = ""
-            for block in prompted_chat_resp.content:
-                if hasattr(block, "text"):
-                    prompted_raw_text += block.text
-            prompted_response = prompted_raw_text.strip()
-            if prompted_chat_resp.usage is not None:
-                prompted_input_tokens = prompted_chat_resp.usage.input_tokens
-                prompted_output_tokens = prompted_chat_resp.usage.output_tokens
-        except Exception as e:
-            logger.warning(f"[Item {item_index}] Prompted LLM call failed: {e}")
-            prompted_response = ""
+        prompted_response = (prompted_resp.answer or "").strip()
+        prompted_input_tokens = (prompted_resp.metadata or {}).get("input_tokens", 0)
+        prompted_output_tokens = (prompted_resp.metadata or {}).get("output_tokens", 0)
 
         logger.info(
             f"[Item {item_index}] Prompted tokens: input={prompted_input_tokens} output={prompted_output_tokens}",

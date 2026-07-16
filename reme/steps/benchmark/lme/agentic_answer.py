@@ -1,11 +1,11 @@
-"""Benchmark query step – ReAct agent that answers questions using the search tool."""
+"""LongMemEval agentic answer step – ReAct agent that answers questions using the search tool."""
 
 import os
 import threading
 
-from ..base_step import BaseStep
-from ...components import R
-from ...enumeration import ChunkEnum
+from ...base_step import BaseStep
+from ....components import R
+from ....enumeration import ChunkEnum
 
 # ---------------------------------------------------------------------------
 # Process-safe & thread-safe counter for unique tool_context_id.
@@ -21,12 +21,12 @@ def _next_tool_context_id() -> str:
     with _TOOL_CTX_LOCK:
         _TOOL_CTX_SEQ += 1
         seq = _TOOL_CTX_SEQ
-    return f"bench_query_{os.getpid()}_{seq}"
+    return f"lme_agentic_answer_{os.getpid()}_{seq}"
 
 
-@R.register("bench_query_step")
-class BenchQueryStep(BaseStep):
-    """Answer a benchmark query via ReAct agent with access to the search tool.
+@R.register("lme_agentic_answer_step")
+class LmeAgenticAnswerStep(BaseStep):
+    """Answer a LongMemEval query via ReAct agent with access to the search tool.
 
     The agent uses the ``agent_wrapper`` component in ReAct mode, calling the
     ``search`` job tool to retrieve relevant memory chunks before generating
@@ -43,21 +43,6 @@ class BenchQueryStep(BaseStep):
 
     MAX_ITERATION = 10
 
-    DEFAULT_SYS_PROMPT = (
-        "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n"
-        "- Your total time of tool calls should be at most 9 times\n\n"
-        "## Search Strategy\n"
-        "- You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.\n"
-        "## Draft Tool\n"
-        "- Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.\n"
-        "## Answer Rules\n"
-        "- Answer based ONLY on retrieved context.\n"
-        "- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n"
-        "- If information is not founded or not sufficient after multiple searches, reply: 'Information not found.'"
-    )
-
-    TEMPORAL_HINT = "\nCurrent time context: {query_time}\n"
-
     async def execute(self):
         assert self.context is not None
         query: str = self.context.get("query", "")
@@ -69,9 +54,9 @@ class BenchQueryStep(BaseStep):
             return self.context.response
 
         # Build system prompt with optional temporal context
-        sys_prompt = self.DEFAULT_SYS_PROMPT
+        sys_prompt = self.get_prompt("system_prompt")
         if query_time:
-            sys_prompt += self.TEMPORAL_HINT.format(query_time=query_time)
+            sys_prompt += "\n" + self.prompt_format("temporal_hint", query_time=query_time)
 
         wrapper_kwargs = {
             "system_prompt": sys_prompt,

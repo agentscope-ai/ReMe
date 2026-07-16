@@ -1,3 +1,7 @@
+# LmeContextAnswerStep does not use prompt_format().
+# Prompts are built in Python via _build_system_prompt / _build_user_prompt.
+# This file is kept as a placeholder so PromptHandler.load_prompt_by_class
+# does not emit a missing-file warning.
 user_message: |
   I will give you several history chats between you and a user. Please answer the question
   based on the relevant chat history. Answer the question step by step: first extract all the

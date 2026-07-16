@@ -1,0 +1,611 @@
+{
+    "abstention": [
+        {
+            "question": "What are the qualifications or expertise of the podiatrist whose article I read about Primeknit reducing blister risk?",
+            "ideal_response": "Based on the provided chat, there is no information related to the podiatrist’s qualifications or expertise.",
+            "difficulty": "hard",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The podiatrist article is referenced but no author details or credentials are given.",
+            "plan_reference": "Batch 2, Bullet 8",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the podiatrist’s qualifications or expertise"
+            ],
+            "llm_response": "Based on the provided context, there is no information regarding the specific name, qualifications, or expertise of the podiatrist whose article you read. The text only refers generally to \"podiatrist research\" and \"podiatrists.\"",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch2.jsonl:15-20 [score=0.0164 vector=0.5874 keyword=19.1630] ==========\n\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"The Primeknit upper on my Ultraboost seems really breathable, I mean, it was great during that 3-mile walk on April 2, but how does it com"
+            }
+        },
+        {
+            "question": "What was the atmosphere like during the sneaker art exhibit Lauren and I attended at the Montserrat Museum?",
+            "ideal_response": "Based on the provided chat, there is no information related to the atmosphere of the sneaker art exhibit.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The event is mentioned but no descriptive details about the atmosphere are given.",
+            "plan_reference": "Batch 4, Bullet 14",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the atmosphere of the sneaker art exhibit"
+            ],
+            "llm_response": "Based on the retrieved context, there is no information provided about the atmosphere during the sneaker art exhibit at the Montserrat Museum. The context only mentions that the exhibition deepened Lauren's interest in sneakers and catalyzed her enthusiasm for footwear design. \n\n**Concise Answer:**\nNot mentioned in the provided context.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch5.jsonl:8-14 [score=0.0160 vector=0.5269 keyword=3.4323] ==========\n Converse often release vibrant colorways.\\n   - **Budget Constraints**: With only $75 left in your budget, you might need to look for deals or clearance items. Alternatively, consider pur"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have I ever met Kyle or been to any sneaker expos?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you've known Kyle and met him at a sneaker expo, but you also said you've never met Kyle or attended any sneaker expos. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Meeting Kyle and attending sneaker expos",
+            "conversation_references": [
+                "Session 14: Meeting Kyle at sneaker expo",
+                "Session 60: Never met Kyle or attended sneaker expos"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    14
+                ],
+                "second_statement": [
+                    60
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you've known Kyle and met him at a sneaker expo",
+                "LLM response should mention: you also said you've never met Kyle or attended any sneaker expos",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you met Kyle at a sneaker expo in Bridgetown, Barbados, in 2018 (although you had never previously attended a sneaker expo prior to that event).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-03-12.md:5-8 [score=0.0158 vector=0.5234 keyword=2.5146] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-03-12/sneaker-selection-and-purchase-plan.md]] name: sneaker-selection-and-purchase-plan description: Comprehensive record of Darryl's sneaker evaluation process, including a"
+            }
+        },
+        {
+            "question": "Have I ever placed an online order for sneakers before?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you placed an online order for sneakers, but you also mentioned that you've never placed any online sneaker orders. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Online sneaker ordering experience",
+            "conversation_references": [
+                "Session 70: Order placed",
+                "Session 114: Never placed order"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    70
+                ],
+                "second_statement": [
+                    114
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you placed an online order for sneakers",
+                "LLM response should mention: you also mentioned that you've never placed any online sneaker orders",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "No.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch2.jsonl:54-54 [score=0.0163 vector=0.6875 keyword=6.6140] ==========\n with a neighbor, depending on your preferences and the carrier's policies.\\n\\n4. **Inspect Upon Arrival**:\\n   - When your order arrives, inspect the package for any damage.\\n   - Open t"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you list the order in which I brought up different sneaker shopping experiences and related details throughout our conversations in order? Mention ONLY and ONLY four items.",
+            "answer": "You mentioned sneaker shopping experiences and related details in this order: 1) Planning a visit to a specific store on Main Street, 2) Placing an online order with a discount code, 3) Visiting the same store to try a particular running shoe, 4) Trying another shoe model at the same store and discussing sizing preferences.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 4,
+            "conversation_references": [
+                "Session 34: Planning store visit",
+                "Session 70: Online order and discount",
+                "Session 118: In-store shoe trial",
+                "Session 200: Trying another shoe and sizing"
+            ],
+            "ordering_tested": [
+                "1st: Store visit planning",
+                "2nd: Online order with discount",
+                "3rd: Trying running shoe in store",
+                "4th: Trying another shoe and sizing"
+            ],
+            "source_chat_ids": [
+                34,
+                70,
+                118,
+                200
+            ],
+            "rubric": [
+                "Store visit planning",
+                "Online order with discount",
+                "Trying running shoe in store",
+                "Trying another shoe and sizing"
+            ],
+            "llm_response": "1. Planning a visit to Foot Locker on Main Street, East Janethaven (March 12, 2024)\n2. Deciding whether to wait until April 10 for a discount to purchase sneakers (April 2, 2024)\n3. Planning a shopping trip with Kyle to East Janethaven Mall for a SneakerLab cleaning kit (May 10, 2024)\n4. Returning and reordering Adidas Ultraboosts due to heel slippage and sizing issues (June 20, 2024)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch2.jsonl:54-54 [score=0.0160 vector=0.6206 keyword=8.4493] ==========\n with a neighbor, depending on your preferences and the carrier's policies.\\n\\n4. **Inspect Upon Arrival**:\\n   - When your order arrives, inspect the package for any damage.\\n   - Open t"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different safety and comfort features of my sneakers during our chats, in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned the sneaker features in this order: 1) Concerns about injury risk on uneven terrain and need for good grip soles, 2) The traction benefits of the Continental rubber outsole on Ultraboosts, 3) Considering switching to Brooks Ghost to avoid shin splints after May 5, 4) The reflective panels on New Balance 990v5 improving night visibility, 5) Using Nike Dunk Low with orthotic insoles and how they work with the Zoom Air unit for responsiveness.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 5,
+            "conversation_references": [
+                "Session 54: Injury risk and grip soles",
+                "Session 94: Traction of Continental outsole",
+                "Session 138: Switching to Brooks Ghost for shin splints",
+                "Session 184: Reflective panels on New Balance 990v5",
+                "Session 262: Orthotic insoles in Nike Dunk Low and Zoom Air unit"
+            ],
+            "ordering_tested": [
+                "1st: Injury risk and grip soles",
+                "2nd: Traction of Continental outsole",
+                "3rd: Switching to Brooks Ghost for shin splints",
+                "4th: Reflective panels on New Balance 990v5",
+                "5th: Orthotic insoles and Zoom Air responsiveness"
+            ],
+            "source_chat_ids": [
+                54,
+                94,
+                138,
+                184,
+                262
+            ],
+            "rubric": [
+                "Injury risk and grip soles",
+                "Traction of Continental outsole",
+                "Switching to Brooks Ghost for shin splints",
+                "Reflective panels on New Balance 990v5",
+                "Orthotic insoles and Zoom Air responsiveness"
+            ],
+            "llm_response": "1. Full-length air sole\n2. Primeknit upper\n3. Boost midsole\n4. Pigskin mesh upper\n5. Orthotic insoles",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:22-28 [score=0.0162 vector=0.6079 keyword=6.7661] ==========\n: Point out the full-length air sole unit, which provides excellent cushioning and a responsive feel.\\n   - **Breathability**: Mention the seamless upper that offers a comfortable and bre"
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "When am I planning to visit the store on Main Street in East Janethaven?",
+            "answer": "Next Saturday at 3 PM",
+            "difficulty": "easy",
+            "question_type": "context_date/time",
+            "conversation_reference": "Turn 1: I'm planning to visit Foot Locker on Main Street, East Janethaven, next Saturday at 3 PM...",
+            "key_facts_tested": [
+                "day of visit",
+                "time of visit",
+                "location of visit"
+            ],
+            "source_chat_ids": [
+                34
+            ],
+            "rubric": [
+                "LLM response should state: Next Saturday at 3 PM"
+            ],
+            "llm_response": "Saturday, March 16, 2024, at 4:00 PM (initially mentioned in conversation as \"next Saturday at 3 PM\").",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:34-40 [score=0.0157 vector=0.2981 keyword=13.3713] ==========\n Comfort**: If you prioritize long-distance comfort and support, both are excellent, but the React Infinity Run is specifically designed for long runs and daily wear.\\n\\n### Final Recomm"
+            }
+        },
+        {
+            "question": "Which option did I say I chose after trying both at the store?",
+            "answer": "You said you chose the Adidas Ultraboost over the Nike React Infinity Run after trying both on March 30 at Foot Locker.",
+            "difficulty": "medium",
+            "question_type": "preference_recall",
+            "conversation_reference": "Turn 1: Initial choice and comparison mentioned",
+            "key_facts_tested": [
+                "choice: Adidas Ultraboost",
+                "alternative: Nike React Infinity Run",
+                "date: March 30",
+                "location: Foot Locker"
+            ],
+            "source_chat_ids": [
+                1
+            ],
+            "rubric": [
+                "LLM response should state: Adidas Ultraboost"
+            ],
+            "llm_response": "Adidas Ultraboost",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:34-40 [score=0.0153 vector=0.3755 keyword=1.9163] ==========\n Comfort**: If you prioritize long-distance comfort and support, both are excellent, but the React Infinity Run is specifically designed for long runs and daily wear.\\n\\n### Final Recomme"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "What features I should pay attnetion to in sneakers?",
+            "instruction_being_tested": "Always highlight health benefits when I ask about sneaker features.",
+            "expected_compliance": "Response should include information about how the sneakers benefit health, such as support, comfort, or injury prevention, rather than just general features.",
+            "compliance_indicators": [
+                "mentions of foot support",
+                "impact on posture",
+                "comfort related to physical well-being",
+                "injury prevention aspects"
+            ],
+            "non_compliance_signs": [
+                "only style or color described",
+                "focus on materials without health context",
+                "no mention of physical benefits",
+                "general features without health relevance"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "content_instruction",
+            "source_chat_ids": [
+                160
+            ],
+            "rubric": [
+                "LLM response should contain: comfort related to physical well-being",
+                "LLM response should contain: injury prevention aspects"
+            ],
+            "llm_response": "Based on the retrieved context, you should pay attention to the following features:\n- **Durable Upper**: Robust construction and breathable materials (e.g., Primeknit, engineered mesh).\n- **Solid Soles**: Cushioning midsoles (e.g., Boost, DNA LOFT) for shock absorption and rubber outsoles for durability.\n- **Good Traction**: Patterned designs and rubber outsoles for grip.\n- **Comfort**: Good cushioning and a proper, snug fit.\n- **Support**: Adequate arch support and stability.\n- **Breathability**: Ventilation and moisture-wicking materials to keep feet cool and dry.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch4.jsonl:52-54 [score=0.0159 vector=0.6499 keyword=2.1845] ==========\nconstruction.\\n- **Comfort and Support**: Provides good cushioning and support.\\n- **Breathability**: Natural materials and mesh upper offer good breathability.\\n\\n### 6. **Salomon X Ultr"
+            }
+        },
+        {
+            "question": "What materials are commonly used in making modern sneakers, and what should I know about their overall quality?",
+            "instruction_being_tested": "Always mention sustainability features when I ask about sneaker materials.",
+            "expected_compliance": "Response should include information about sustainability aspects related to the sneaker materials in addition to the materials themselves.",
+            "compliance_indicators": [
+                "mentions eco-friendly materials",
+                "references recycled or renewable components",
+                "discusses environmental impact of materials"
+            ],
+            "non_compliance_signs": [
+                "only lists materials without any sustainability info",
+                "ignores environmental aspects",
+                "provides generic material description without added context"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "content_inclusion",
+            "source_chat_ids": [
+                214
+            ],
+            "rubric": [
+                "LLM response should contain: mentions eco-friendly materials",
+                "LLM response should contain: discusses environmental impact of materials"
+            ],
+            "llm_response": "Based on the provided context, modern sneakers commonly use materials such as Primeknit, engineered/pigskin mesh, natural fibers (merino wool, eucalyptus), TPU pellets, specialized foams, and rubber or recycled plastic outsoles. Overall, they are high-quality, durable, and breathable, offering advanced cushioning, adaptive fits, and increasingly sustainable components, though they require proper care and maintenance to ensure longevity.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch4.jsonl:48-52 [score=0.0153 vector=0.5142 keyword=3.5038] ==========\n At $50 per pair, the service is relatively affordable, especially if it can significantly improve the condition and appearance of your sneakers.\\n- **Value**: Consider the cost of replac"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "What time should I plan to visit Foot Locker next Saturday?",
+            "answer": "4 PM",
+            "difficulty": "easy",
+            "update_type": "schedule_rescheduling",
+            "tests_retention_of": "updated visit time for Foot Locker",
+            "conversation_references": [
+                "Planning a visit to Foot Locker on Main Street, East Janethaven, next Saturday at 3 PM.",
+                "I rescheduled my Foot Locker visit to 4 PM next Saturday to better fit my filming schedule."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original 3 PM visit time instead of the updated 4 PM time",
+            "source_chat_ids": {
+                "original_info": [
+                    34
+                ],
+                "updated_info": [
+                    56
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 4 PM"
+            ],
+            "llm_response": "Based on the retrieved context, you initially planned to visit at 3 PM but later decided to reschedule your appointments to visit at **4 PM**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:34-40 [score=0.0163 vector=0.6089 keyword=7.8742] ==========\n Comfort**: If you prioritize long-distance comfort and support, both are excellent, but the React Infinity Run is specifically designed for long runs and daily wear.\\n\\n### Final Recomme"
+            }
+        },
+        {
+            "question": "What is my annual budget for buying sneakers?",
+            "answer": "$650",
+            "difficulty": "easy",
+            "update_type": "budget_revision",
+            "tests_retention_of": "updated sneaker budget amount",
+            "conversation_references": [
+                "Financial & Budget Labels: Budget Limit: Spent $575 on sneakers this year, within my $600 annual budget.",
+                "Information Update: My sneaker budget for the year increased slightly to $650 to accommodate new acquisitions."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original $600 budget instead of the updated $650 amount",
+            "source_chat_ids": {
+                "original_info": [
+                    186
+                ],
+                "updated_info": [
+                    212
+                ]
+            },
+            "rubric": [
+                "LLM response should state: $650"
+            ],
+            "llm_response": "$650",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-08-05.md:5-8 [score=0.0163 vector=0.5571 keyword=4.9984] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-08-05/sneaker-collection-budget-and-festival-prep.md]] name: sneaker-collection-budget-and-festival-prep description: Comprehensive log covering the purchase of limited editi"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "How many different shoe sizes have I mentioned across my messages?",
+            "answer": "Two sizes: 11 and 11.5",
+            "difficulty": "easy",
+            "reasoning_type": "simple_cross_session_facts",
+            "sessions_required": 2,
+            "conversation_references": [
+                "Choosing between Adidas Ultraboost and Nike React Infinity Run",
+                "Considering returning Adidas Ultraboost size 11 and reordering size 11.5"
+            ],
+            "reasoning_steps": [
+                "Identify the shoe size mentioned in the first user message about deciding between shoes (size not specified here).",
+                "Find the shoe sizes mentioned in the later user message about returning and reordering Adidas Ultraboost (sizes 11 and 11.5).",
+                "Count the distinct sizes mentioned across these messages."
+            ],
+            "source_chat_ids": [
+                32,
+                116
+            ],
+            "rubric": [
+                "LLM response should state: Two sizes: 11 and 11.5"
+            ],
+            "llm_response": "Based on your messages, you have mentioned **3** different shoe sizes (size 11, size 11.5, and size 10.5).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:16-22 [score=0.0155 vector=0.4963 keyword=2.8480] ==========\na trendy and stylish option that can turn heads.\\n\\n### Durability and Quality\\n- **High-Quality Materials**: Nike uses high-quality materials in their Air Max sneakers, ensuring they can"
+            }
+        },
+        {
+            "question": "How does the price I paid for the Ultraboost compare to my original budget limit for sneakers?",
+            "answer": "The price you paid for the Ultraboost is below your original budget limit of $200.",
+            "difficulty": "easy",
+            "reasoning_type": "simple_comparison",
+            "sessions_required": 2,
+            "conversation_references": [
+                "budget limit for sneakers",
+                "price paid for Ultraboost with discount"
+            ],
+            "reasoning_steps": [
+                "Identify the original budget limit for sneakers from the first session.",
+                "Identify the discounted price paid for the Ultraboost from the later session.",
+                "Compare the discounted price to the original budget limit to see if it is within budget."
+            ],
+            "source_chat_ids": [
+                38,
+                72
+            ],
+            "rubric": [
+                "LLM response should state: price you paid for the Ultraboost is below your original budget limit of $200"
+            ],
+            "llm_response": "The $153 price paid is well within the $200 budget limit.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch2.jsonl:8-15 [score=0.0164 vector=0.6885 keyword=16.6282] ==========\nassistant\",\"content\":[{\"type\":\"text\",\"text\":\"That sounds like a great decision! The Adidas Ultraboosts are a fantastic choice given your needs for comfort, support, and style. Taking adva"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm looking to buy a new pair of sneakers soon. Can you suggest some options I might like?",
+            "preference_being_tested": "I prefer sneakers with a sleek, modern look in neutral colors like black or gray.",
+            "expected_compliance": "Response should recommend sneakers that align with a sleek, modern style and neutral colors such as black or gray, reflecting the user's stated taste.",
+            "compliance_indicators": [
+                "recommends sneakers described as sleek or modern",
+                "includes options in neutral colors like black or gray",
+                "avoids suggesting brightly colored or bulky styles"
+            ],
+            "non_compliance_signs": [
+                "recommends sneakers with bright or unconventional colors",
+                "suggests bulky or retro styles that don't fit sleek/modern description",
+                "ignores color and style preferences entirely"
+            ],
+            "difficulty": "medium",
+            "preference_type": "style and color preference",
+            "source_chat_ids": [
+                28,
+                30
+            ],
+            "rubric": [
+                "LLM response should contain: recommends sneakers described as sleek or modern",
+                "LLM response should contain: includes options in neutral colors like black or gray"
+            ],
+            "llm_response": "Based on the retrieved context, here are the sneaker options recommended for your daily wear, walking goals, and need for comfort and arch support:\n\n*   **Adidas Ultraboost**: Excellent cushioning, energy return, and a breathable Primeknit upper ideal for high humidity. \n*   **Brooks Ghost 14**: Features DNA LOFT cushioning, a segmented crash pad for impact absorption, and enhanced medial post support for arch strain.\n*   **New Balance 990v5**: A classic, durable, and comfortable option with good arch support and eco-friendly materials.\n*   **Nike React Infinity Run**: Designed for long-distance comfort and daily wear with soft, responsive React foam.\n*   **Nike Air Max 270 / 270 React**: Offers a stylish, modern look with a large visible air unit for responsive cushioning. \n\n**Concise Answer:**\nAdidas Ultraboost, Brooks Ghost 14, New Balance 990v5, Nike React Infinity Run, and Nike Air Max 270.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:16-22 [score=0.0158 vector=0.5337 keyword=5.4350] ==========\na trendy and stylish option that can turn heads.\\n\\n### Durability and Quality\\n- **High-Quality Materials**: Nike uses high-quality materials in their Air Max sneakers, ensuring they can"
+            }
+        },
+        {
+            "question": "I'm looking to get a new pair of shoes soon. What options would you suggest for different occasions?",
+            "preference_being_tested": "I prefer mixing brands to match activity and style needs",
+            "expected_compliance": "Response should include recommendations from multiple brands tailored to different activities or styles rather than suggesting a single brand or type for all uses",
+            "compliance_indicators": [
+                "mentions multiple brands",
+                "suggests different shoes for different occasions or activities",
+                "acknowledges variety in style and function"
+            ],
+            "non_compliance_signs": [
+                "recommends only one brand for all occasions",
+                "ignores activity or style differences",
+                "suggests a one-size-fits-all option"
+            ],
+            "difficulty": "medium",
+            "preference_type": "brand and usage variety",
+            "source_chat_ids": [
+                148
+            ],
+            "rubric": [
+                "LLM response should contain: mentions multiple brands",
+                "LLM response should contain: suggests different shoes for different occasions or activities"
+            ],
+            "llm_response": "Based on the retrieved context, here are the suggested options for different occasions:\n\n* **Running**: Brooks Ghost 14 (or Brooks Glycerin 19)\n* **Daily Wear, Casual, & Work**: Adidas Ultraboost, New Balance 990v5, Nike Air VaporMax, Allbirds Wool Runner, Common Projects Achilles Low, and Veja V-10 (black sneakers are specifically recommended for work versatility).\n* **Hiking**: Salomon X Ultra 3 GTX and Merrell Moab 2\n* **Festivals & Concrete Surfaces**: Adidas Ultraboost, New Balance 990v5, Nike Air Max 270, Brooks Ghost 14, and Converse Chuck Taylor All Star Pro\n* **High Humidity / Quick-Dry**: Adidas Ultraboost, Brooks Ghost 14, New Balance Fresh Foam 1080v11, and Nike Air Zoom Pegasus 38\n\n**Concise Answer:**\nBrooks Ghost 14 for running; Adidas Ultraboost, New Balance 990v5, and Nike Air VaporMax for daily/casual wear; Salomon X Ultra 3 GTX and Merrell Moab 2 for hiking; and Adidas Ultraboost, Nike Air Max 270, and Brooks Ghost 14 for festivals and high humidity.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch5.jsonl:40-45 [score=0.0157 vector=0.5039 keyword=3.6533] ==========\nEnjoy**: Take pride in your completed collection and enjoy wearing your new sneakers.\\n\\n### Conclusion\\n\\nGiven that you are only slightly over budget by $50 and have savings to cover it"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you give me a summary of how my sneaker preferences and choices have developed over our conversations?",
+            "ideal_summary": "Over the course of our discussions, your sneaker preferences and choices evolved through several stages. Initially, you sought comfortable daily wear options suitable for an active lifestyle, leading to recommendations like the Adidas Ultraboost, Nike Air Zoom Pegasus 38, and others known for cushioning and support. You then focused on specific details such as sizing and breaking in the Ultraboosts to maximize comfort. Later, you considered Allbirds, influenced by your partner Lauren's preference, weighing their comfort, sustainability, and minimalist style against your existing Ultraboosts. This led to plans to try Allbirds to see how they compare. Subsequently, you evaluated loyalty between Brooks for running and Adidas for casual wear, reflecting on your 3-mile run experience and deciding to commit to Brooks Ghost 14 for running due to its cushioning and support, while continuing with Adidas Ultraboost for casual use. Finally, you explored options for hiking shoes suitable for Montserrat's Oriole Trail, comparing New Balance 990v5 with hiking-specific models like Salomon X Ultra 3 GTX and Merrell Moab 2, focusing on traction and moisture-wicking properties, with a recommendation toward specialized hiking footwear for better performance. Throughout, your choices show a progression from general comfort and style considerations to more activity-specific needs and environmental factors, culminating in a well-rounded sneaker collection tailored to various uses.",
+            "difficulty": "medium",
+            "summarization_type": "progressive_overview",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                1,
+                3,
+                81,
+                141,
+                203
+            ],
+            "key_elements_tested": [
+                "preference evolution",
+                "activity-specific considerations",
+                "comparison and decision-making",
+                "comfort and technical features",
+                "progressive refinement of choices"
+            ],
+            "synthesis_required": "Integrating multiple product recommendations, user preferences, and activity contexts into a coherent narrative showing development over time",
+            "source_chat_ids": [
+                1,
+                3,
+                81,
+                141,
+                203
+            ],
+            "rubric": [
+                "LLM response should contain: you sought comfortable daily wear options suitable for an active lifestyle, leading to recommendations like the Adidas Ultraboost",
+                "LLM response should contain: You then focused on specific details such as sizing and breaking in the Ultraboosts to maximize comfort",
+                "LLM response should contain: you considered Allbirds, influenced by your partner Lauren's preference, weighing their comfort, sustainability, and minimalist style against your existing Ultraboosts",
+                "LLM response should contain: This led to plans to try Allbirds to see how they compare",
+                "LLM response should contain: you evaluated loyalty between Brooks for running and Adidas for casual wear, reflecting on your 3-mile run experience and deciding to commit to Brooks Ghost 14 for running",
+                "LLM response should contain: you explored options for hiking shoes suitable for Montserrat's Oriole Trail, comparing New Balance 990v5 with hiking-specific models like Salomon X Ultra 3 GTX and Merrell Moab 2"
+            ],
+            "llm_response": "Your sneaker preferences evolved from initially seeking basic comfort for a 10,000-step daily walking goal to a highly strategic, biomechanically-tailored approach. You adopted a \"brand-mixing\" philosophy—using the Brooks Ghost 14 specifically for running and the Adidas Ultraboost (size 11.5) for casual wear—to accommodate your mild flat feet, shin splints history, and Montserrat's humid climate. As you progressed toward an 8-pair annual collection goal, you began acquiring limited editions (such as the New Balance 990v5 \"Montserrat Blue\" and Nike Dunk Low \"Montserrat Pride\"), implemented a sneaker rotation strategy to prevent plantar fasciitis, integrated orthotic insoles for arch support, and balanced your neutral athleisure work style with the minimalist preferences of your partner, Lauren.\n\n**Concise Answer:**\nEvolution from basic walking comfort to a strategic, biomechanically-tailored \"brand-mixing\" collection focused on injury prevention, limited editions, and climate adaptation.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch4.jsonl:17-22 [score=0.0154 vector=0.5005 keyword=4.9553] ==========\ner culture after seeing my new collection on June 19, and I'm wondering if I should get him a pair that fits his style, maybe something that's a mix of modern and vintage aesthetics ->-> "
+            }
+        },
+        {
+            "question": "Can you give me a quick summary of the sneaker options and advice we've talked about for my daily wear and activities?",
+            "ideal_summary": "You explored several comfortable sneaker options for daily wear, including Adidas Ultraboost, Nike Air Zoom Pegasus 38, New Balance 990v5, Saucony Ride ISO 4, Brooks Ghost 14, and Asics Gel-Kayano 28. You showed particular interest in the Adidas Ultraboost for its cushioning and energy return, and received sizing and break-in tips for them. Later, you considered Allbirds as a comfortable, sustainable alternative favored by your partner, with advice on their features and how they compare to Ultraboosts. Additionally, you evaluated Brooks Ghost 14 for running and Adidas Ultraboost for casual wear based on your recent experiences, deciding to commit to Brooks for running and Adidas for daily use. Finally, for hiking on Montserrat's Oriole Trail, you were advised that specialized hiking shoes like Salomon X Ultra 3 GTX or Merrell Moab 2 would be better than New Balance 990v5 due to terrain and moisture-wicking needs.",
+            "difficulty": "easy",
+            "summarization_type": "simple_topic_summary",
+            "bullet_points_covered": 3,
+            "conversation_sessions": 0,
+            "key_elements_tested": [
+                "basic information combination",
+                "simple cross-session condensation",
+                "straightforward overview"
+            ],
+            "synthesis_required": "Combining basic details from multiple sessions into a clear, concise summary",
+            "source_chat_ids": [
+                1,
+                3,
+                81,
+                83,
+                141,
+                143,
+                203,
+                205
+            ],
+            "rubric": [
+                "LLM response should contain: You explored several comfortable sneaker options for daily wear, including Adidas Ultraboost, Nike Air Zoom Pegasus 38, New Balance 990v5, Saucony Ride ISO 4, Brooks Ghost 14, and Asics Gel-Kayano 28",
+                "LLM response should contain: You showed particular interest in the Adidas Ultraboost for its cushioning and energy return, and received sizing and break-in tips for them",
+                "LLM response should contain: you considered Allbirds as a comfortable, sustainable alternative favored by your partner, with advice on their features and how they compare to Ultraboosts",
+                "LLM response should contain: you evaluated Brooks Ghost 14 for running and Adidas Ultraboost for casual wear based on your recent experiences, deciding to commit to Brooks for running and Adidas for daily use",
+                "LLM response should contain: you were advised that specialized hiking shoes like Salomon X Ultra 3 GTX or Merrell Moab 2 would be better than New Balance 990v5"
+            ],
+            "llm_response": "Based on the retrieved context, here is a summary of the sneaker options and advice discussed for your activities:\n\n**Sneaker Options by Activity:**\n*   **Running:** **Brooks Ghost 14** (Recommended for your 3-mile runs; features DNA LOFT cushioning, a segmented crash pad for impact absorption, and good arch support for mild flat feet).\n*   **Daily Wear & High Humidity:** **Adidas Ultraboost** (Recommended in size 11.5 to prevent heel slippage; features 85% energy return, sustainable/breathable Primeknit upper for Montserrat's climate, and versatile athleisure styling).\n*   **Festival & Long Days on Concrete:** **Sneaker Rotation Strategy** (Rotating multiple pairs like the Nike Dunk Low with orthotic insoles, New Balance 990v5, and Brooks Ghost 14 to prevent foot fatigue, plantar fasciitis, and arch strain).\n*   **For Lauren (Minimalist Style):** **Nike Air VaporMax** or **Allbirds Wool Runner** (Clean lines, full-length air sole, and eco-friendly materials).\n*   **Collection:** Completed your 8-pair goal, highlighted by the limited edition **New Balance 990v5 \"Montserrat Blue\"**.\n\n**Key Advice & Maintenance:**\n*   **Sizing & Fit:** Track brand-specific sizing (e.g., sizing up to 11.5 in Adidas), break shoes in gradually, and use moisture-wicking socks. \n*   **Care:** Maintain shoes with a SneakerLab cleaning kit and consider the $50/pair professional restoration service at East Janethaven Mall.\n*   **Sustainability:** Prioritize models with eco-friendly materials (e.g., Parley Ocean Plastic, recycled polyester, Flyleather).\n\n**Concise Answer:**\nBrooks Ghost 14 for running, Adidas Ultraboost (size 11.5) for daily wear, and a multi-shoe rotation strategy for long festival days.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch1.jsonl:22-28 [score=0.0153 vector=0.6265 keyword=4.5372] ==========\n: Point out the full-length air sole unit, which provides excellent cushioning and a responsive feel.\\n   - **Breathability**: Mention the seamless upper that offers a comfortable and bre"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days passed between when I got the size 11 Ultraboost and when I reordered the size 11.5?",
+            "answer": "One day passed between when I got the size 11 Ultraboost on April 30 and when I reordered the size 11.5 on May 1.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "April 30: received size 11 Ultraboost",
+                "May 1: reordered size 11.5 Ultraboost"
+            ],
+            "conversation_references": [
+                "Session 1: initial purchase and return consideration"
+            ],
+            "calculation_required": "May 1 - April 30 = 1 day",
+            "source_chat_ids": {
+                "first_event": [
+                    116
+                ],
+                "second_event": [
+                    116
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 1 day",
+                "LLM response should state: from April 30 till May 1"
+            ],
+            "llm_response": "1 day",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch3.jsonl:1-8 [score=0.0163 vector=0.6426 keyword=7.5440] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm considering returning the Adidas Ultraboost size 11 I got on April 30 because of slight heel slippage, and I've already reordered size 1"
+            }
+        },
+        {
+            "question": "How many months are there between when I planned to reach my daily walking goal and the festival I’m preparing my sneaker outfit for?",
+            "answer": "There are about 4 months between April 15, 2024, when I planned to reach my daily walking goal, and August 22, 2024, the date of the festival I’m preparing my sneaker outfit for.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "April 15, 2024: daily walking goal deadline",
+                "August 22, 2024: festival date"
+            ],
+            "conversation_references": [
+                "Session 1: walking goal planning",
+                "Session 2: festival preparation"
+            ],
+            "calculation_required": "August 22, 2024 - April 15, 2024 ≈ 4 months",
+            "source_chat_ids": {
+                "first_event": [
+                    36
+                ],
+                "second_event": [
+                    270
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 4 months",
+                "LLM response should state: from April 15, 2024 till August 22, 2024"
+            ],
+            "llm_response": "4 months",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_15_batch5.jsonl:51-54 [score=0.0159 vector=0.5513 keyword=6.9984] ==========\nuld be aware of?\",\"id\":\"a72ae61f642f4eb29c3b9d94d58c7703\"}],\"role\":\"user\",\"id\":\"5f79979eea83416a984d8e2ec8453ea4\",\"metadata\":{},\"created_at\":\"2024-08-05T00:00:00\",\"finished_at\":null,\"usag"
+            }
+        }
+    ]
+}

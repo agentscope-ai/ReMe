@@ -6,8 +6,8 @@ from ...base_step import BaseStep
 from ....components import R
 
 
-@R.register("answer_judge_step")
-class AnswerJudgeStep(BaseStep):
+@R.register("lme_answer_judge_step")
+class LmeAnswerJudgeStep(BaseStep):
     """Evaluate whether an agent answer is correct against a golden answer."""
 
     PROMPT_KEYS_BY_QUESTION_TYPE = {
@@ -36,13 +36,13 @@ class AnswerJudgeStep(BaseStep):
         question_type: str = self.context.get("question_type", "")
 
         if not query:
-            raise ValueError("answer_judge_step requires non-empty query")
+            raise ValueError("lme_answer_judge_step requires non-empty query")
         if not agent_answer:
-            raise ValueError("answer_judge_step requires non-empty agent_answer")
+            raise ValueError("lme_answer_judge_step requires non-empty agent_answer")
         if not golden_answer:
-            raise ValueError("answer_judge_step requires non-empty golden_answer")
+            raise ValueError("lme_answer_judge_step requires non-empty golden_answer")
         if self.agent_wrapper is None:
-            raise RuntimeError("answer_judge_step requires agent_wrapper")
+            raise RuntimeError("lme_answer_judge_step requires agent_wrapper")
 
         judge_prompt_key = self._judge_prompt_key(question_type)
         user_prompt_key = (

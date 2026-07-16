@@ -1,0 +1,613 @@
+{
+    "abstention": [
+        {
+            "question": "What specific advice or leadership strategies did Patrick share during the July 1 phone call?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific advice or leadership strategies Patrick shared during the July 1 phone call.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "Patrick’s congratulatory call is mentioned but no details on advice or strategies are given.",
+            "plan_reference": "Mentor: Patrick congratulated me on July 1 via phone call, advising on leadership strategies (Batch 4, Bullet 3)",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific advice or leadership strategies Patrick shared during the July 1 phone call"
+            ],
+            "llm_response": "Based on the retrieved context, during the phone call, Patrick shared advice emphasizing the importance of **building trust**, **being adaptable**, and the value of **regular check-ins and open communication**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch4.jsonl:36-40 [score=0.0162 vector=0.5005 keyword=15.3608] ==========\nme**\\n- **Action**: Use downtime for lighter tasks or relaxation.\\n- **Example**: Take short breaks to stretch or meditate.\\n- **Tool**: Use a timer or reminder app.\\n\\n#### 8. **Evaluat"
+            }
+        },
+        {
+            "question": "Could you provide details about the format of the virtual therapy sessions with Sara?",
+            "ideal_response": "Based on the provided chat, there is no information related to the structure and format of the virtual therapy sessions with Sara.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "Therapy sessions are mentioned but no specifics about their format or structure are provided.",
+            "plan_reference": "Therapy: Scheduled first virtual session March 10 via Zoom; attended sessions in later batches (Batch 1, Bullet 13; Batch 2, Bullet 10; Batch 3, Bullet 10; Batch 4, Bullet 10)",
+            "rubric": [
+                "Based on the provided chat, there is no information related to format of the virtual therapy sessions with Sara"
+            ],
+            "llm_response": "Based on the retrieved context, the virtual therapy sessions with Sara are conducted **via Zoom** (requiring a camera, microphone, and internet connection).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:70-74 [score=0.0164 vector=0.6689 keyword=16.0633] ==========\nelmed with my workload and stress levels. I'm hoping we can work together to find some strategies to manage my stress and improve my well-being.\\\"\\n\\n5. **Be Honest and Open**\\n   - **Sh"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have I ever attended any workshops or professional development events?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have never attended any workshops or professional development events, but you also mentioned being registered for a workshop. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Workshop attendance",
+            "conversation_references": [
+                "chat_id: 126",
+                "chat_id: 128, 102, 104, 106"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    126
+                ],
+                "second_statement": [
+                    128,
+                    102,
+                    104,
+                    106
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never attended any workshops or professional development events",
+                "LLM response should mention: you also mentioned being registered for a workshop",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Based on the retrieved context, as of March 3, 2024, you stated that you had **never attended any workshops or professional development events**, though you were planning to attend a Workflow Optimization workshop on March 15, 2024.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:128-132 [score=0.0163 vector=0.5361 keyword=12.2160] ==========\nanaging teams.\\n\\n3. **Industry-Specific Training**\\n   - **Topics**: Technical skills relevant to your field, such as software training, project management, or creative skills.\\n   - "
+            }
+        },
+        {
+            "question": "Have I ever delegated any of my tasks to Greg or other colleagues?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have never delegated any tasks to Greg or other colleagues, but you also mentioned delegating a portion of your editing tasks to Greg. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Task delegation to Greg or colleagues",
+            "conversation_references": [
+                "Session 188: Never delegated tasks",
+                "Session 150: Delegated 30% of editing tasks"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    188
+                ],
+                "second_statement": [
+                    150
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never delegated any tasks to Greg or other colleagues",
+                "LLM response should mention: you also mentioned delegating a portion of your editing tasks to Greg",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you delegated 30% of your editing tasks to Greg starting April 2, and also delegated a late-night editing session to him in March.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch2.jsonl:56-58 [score=0.0164 vector=0.6523 keyword=8.3115] ==========\nwering behavioral and technical questions.\\n   - **Timeline:** Mock interviews completed by April 27.\\n\\n4. **Network and Build Connections**\\n   - **Action:** Research the company and re"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you walk me through the order in which I brought up different aspects of my interactions with Patrick throughout our conversations, in order? Mention ONLY and ONLY six items.",
+            "answer": "You mentioned your interactions with Patrick in this order: 1) Considering attending a workshop he suggested, 2) Planning to discuss a relaxation technique he recommended, 3) Having a meeting where he shared interview tips, 4) Receiving his advice on leadership strategies, 5) Following up on stress management insights, 6) Implementing his leadership advice in your new role.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 6,
+            "conversation_references": [
+                "Session 30: Workshop suggestion",
+                "Session 138: Relaxation technique discussion",
+                "Session 196: Interview tips meeting",
+                "Session 254: Leadership advice call",
+                "Session 198: Stress management follow-up",
+                "Session 258: Leadership implementation"
+            ],
+            "ordering_tested": [
+                "1st: Workshop suggestion",
+                "2nd: Relaxation technique discussion",
+                "3rd: Interview tips meeting",
+                "4th: Leadership advice call",
+                "5th: Stress management follow-up",
+                "6th: Leadership implementation"
+            ],
+            "source_chat_ids": [
+                30,
+                138,
+                196,
+                254,
+                198,
+                258
+            ],
+            "rubric": [
+                "Workshop suggestion",
+                "Relaxation technique discussion",
+                "Interview tips meeting",
+                "Leadership advice call",
+                "Stress management follow-up",
+                "Leadership implementation"
+            ],
+            "llm_response": "1. Patrick suggesting a March 15 workflow optimization workshop.\n2. Patrick suggesting progressive muscle relaxation after an April 3 meeting.\n3. An upcoming meeting to discuss applying the progressive muscle relaxation technique.\n4. A May 15 meeting where Patrick shared interview tips.\n5. A call from Patrick congratulating the user on a new role and advising on leadership strategies.\n6. An upcoming July 15 mentorship call to ask Patrick for leadership advice.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch2.jsonl:6-12 [score=0.0161 vector=0.4678 keyword=11.7304] ==========\nipate, or anything else you'd like to try first?\",\"id\":\"c2ae108e88cf43c8938fdbae81e336eb\"}],\"role\":\"assistant\",\"id\":\"cf5a1975d089406ebfd0cc0dcc23b603\",\"metadata\":{},\"created_at\":\"2024-04-"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different personal and work-related challenges during our chats, in order? Mention ONLY and ONLY four items.",
+            "answer": "You mentioned these challenges in this order: 1) Stress about collaborating with a colleague on editing schedules and improving meeting productivity (chat_id 24, 26, 28), 2) Planning a weekend getaway and debating whether to share feelings of burnout (chat_id 146), 3) Nervousness about an upcoming anniversary dinner and wanting to make it special (chat_id 202, 204), 4) Reflecting on a surprise celebration for a promotion and thinking about how to reciprocate (chat_id 262).",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 4,
+            "conversation_references": [
+                "Session 24, 26, 28: Work collaboration and meeting productivity",
+                "Session 146: Weekend getaway and burnout discussion",
+                "Session 202, 204: Anniversary dinner planning",
+                "Session 262: Surprise celebration and reciprocation"
+            ],
+            "ordering_tested": [
+                "1st: Work collaboration stress and meeting strategies",
+                "2nd: Weekend getaway and burnout sharing",
+                "3rd: Anniversary dinner nervousness and planning",
+                "4th: Surprise celebration and returning the favor"
+            ],
+            "source_chat_ids": [
+                [
+                    24,
+                    26,
+                    28
+                ],
+                [
+                    146
+                ],
+                [
+                    202,
+                    204
+                ],
+                [
+                    262
+                ]
+            ],
+            "rubric": [
+                "Work collaboration stress and meeting strategies",
+                "Weekend getaway and burnout sharing",
+                "Anniversary dinner nervousness and planning",
+                "Surprise celebration and returning the favor"
+            ],
+            "llm_response": "1. Collaborating with Greg on editing schedules\n2. Considering workshops for burnout and stress\n3. Managing early signs of burnout (fatigue, irritability, and sleep issues)\n4. Applying progressive muscle relaxation to cope with feeling drained",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch2.jsonl:6-12 [score=0.0153 vector=0.4453 keyword=8.8407] ==========\nipate, or anything else you'd like to try first?\",\"id\":\"c2ae108e88cf43c8938fdbae81e336eb\"}],\"role\":\"assistant\",\"id\":\"cf5a1975d089406ebfd0cc0dcc23b603\",\"metadata\":{},\"created_at\":\"2024-04-1"
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "What was the age and role of the mentor who suggested I attend the workshop?",
+            "answer": "My mentor is 79 years old and is a senior producer.",
+            "difficulty": "easy",
+            "question_type": "numerical_precision",
+            "conversation_reference": "Turn 1: USER message in chat_id 30",
+            "key_facts_tested": [
+                "mentor's age",
+                "mentor's role"
+            ],
+            "source_chat_ids": [
+                30
+            ],
+            "rubric": [
+                "LLM response should state: 79 years old",
+                "LLM response should state: senior producer"
+            ],
+            "llm_response": "79-year-old senior producer",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:32-38 [score=0.0162 vector=0.4553 keyword=8.6862] ==========\nkshop. How do you feel about these considerations, and is there anything specific you would like to add or modify in your decision-making process?\",\"id\":\"3300adc484ba447f871a7f34d1a2b28e\""
+            }
+        },
+        {
+            "question": "How did I come to consider attending that event, and what role did my mentor play in influencing my decision and preparation?",
+            "answer": "You considered attending the event because your mentor, a senior producer who is 79 years old, suggested it to you. His recommendation influenced you to review the agenda, assess your current project deadlines, and plan task delegation with your team to ensure minimal disruption. You also planned to seek his input and support during your absence to make the most of the workshop.",
+            "difficulty": "hard",
+            "question_type": "Discovery and Learning Process",
+            "conversation_reference": "Multiple turns: initial user mention of mentor's suggestion, assistant's advice on consulting mentor and preparing for the workshop, user's plan to review agenda and delegate tasks",
+            "key_facts_tested": [
+                "mentor's role as senior producer",
+                "mentor's age",
+                "mentor's suggestion to attend the workshop",
+                "workshop date and location",
+                "preparation steps including agenda review and team communication"
+            ],
+            "extraction_challenge": "LLM must integrate the user's initial mention of the mentor's suggestion with the assistant's detailed advice on preparation and the user's follow-up plans, synthesizing mentor influence, event details, and preparation steps from multiple conversation parts",
+            "source_chat_ids": [
+                30,
+                31,
+                32,
+                33,
+                34,
+                35
+            ],
+            "rubric": [
+                "LLM response should state: considered attending the event because your mentor, a senior producer who is 79 years old, suggested it to you",
+                "LLM response should state: His recommendation influenced you to review the agenda, assess your current project deadlines, and plan task delegation with your team"
+            ],
+            "llm_response": "The user considered attending the March 15 workflow optimization workshop because their mentor, Patrick, suggested it. Patrick's recommendation influenced their decision, and they planned to consult him for insights on the workshop's relevance, potential benefits, and how to apply the new techniques.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:29-32 [score=0.0161 vector=0.2935 keyword=8.6791] ==========\n352a34434ca81458ffeec6b657\",\"metadata\":{},\"created_at\":\"2024-03-03T00:00:00\",\"finished_at\":null,\"usage\":null}\n{\"name\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"That sounds like a grea"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "How is my progress coming along so far?",
+            "instruction_being_tested": "Always provide concise summaries when I ask about progress updates.",
+            "expected_compliance": "Response should be brief and to the point, summarizing the current status without unnecessary detail.",
+            "compliance_indicators": [
+                "short summary",
+                "key points only",
+                "no extra elaboration",
+                "focused update"
+            ],
+            "non_compliance_signs": [
+                "long detailed explanation",
+                "excessive information",
+                "verbose response",
+                "off-topic details"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                184,
+                186
+            ],
+            "rubric": [
+                "LLM response should contain: short summary",
+                "LLM response should contain: key points only"
+            ],
+            "llm_response": "Based on your tracked metrics, your progress is as follows:\n- **Job satisfaction:** Increased from 70% to 85%\n- **Deadline reduction:** 40%\n- **Workflow speed:** Improved by 15%\n- **Tension reduction:** 35% (from evening PMR practice)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch2.jsonl:6-12 [score=0.0161 vector=0.3462 keyword=2.9338] ==========\nipate, or anything else you'd like to try first?\",\"id\":\"c2ae108e88cf43c8938fdbae81e336eb\"}],\"role\":\"assistant\",\"id\":\"cf5a1975d089406ebfd0cc0dcc23b603\",\"metadata\":{},\"created_at\":\"2024-04-1"
+            }
+        },
+        {
+            "question": "Could you remind me of the date of the Workflow Optimization workshop I registered for at the East Janethaven Media Center?",
+            "instruction_being_tested": "Always format dates as \"Month Day, Year\" when I ask about scheduling details.",
+            "expected_compliance": "Response should present the date using the Month Day, Year format without deviation.",
+            "compliance_indicators": [
+                "date shown as Month Day, Year",
+                "e.g., April 27, 2024",
+                "no numeric-only or alternative date formats"
+            ],
+            "non_compliance_signs": [
+                "dates in numeric formats like 04/27/2024",
+                "dates spelled out differently",
+                "ambiguous or incomplete date information"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                120
+            ],
+            "rubric": [
+                "LLM response should contain: date shown as Month Day, Year"
+            ],
+            "llm_response": "March 15, 2024",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:32-38 [score=0.0164 vector=0.7007 keyword=24.5412] ==========\nkshop. How do you feel about these considerations, and is there anything specific you would like to add or modify in your decision-making process?\",\"id\":\"3300adc484ba447f871a7f34d1a2b28e"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "How many hours of overtime have I tracked most recently?",
+            "answer": "4 hours of overtime",
+            "difficulty": "easy",
+            "update_type": "overtime reduction",
+            "tests_retention_of": "reduced overtime hours tracked",
+            "conversation_references": [
+                "Tracked 12 hours of overtime in February, aiming to cut that by 50% in March.",
+                "I managed to reduce my tracked overtime in March to just 4 hours, significantly surpassing my initial goal."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original 12 hours of overtime instead of the reduced 4 hours",
+            "source_chat_ids": {
+                "original_info": [
+                    90
+                ],
+                "updated_info": [
+                    114
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 4 hours of overtime"
+            ],
+            "llm_response": "Based on the retrieved context, you most recently tracked reducing your weekly overtime to **5 hours** (by April 7). Subsequent notes from July indicate you enforced a strict 40-hour work limit and rejected all overtime requests (effectively 0 hours).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:92-96 [score=0.0162 vector=0.5493 keyword=5.5505] ==========\nGiven that you did 12 hours of overtime in February, your target for March would be to limit overtime to 6 hours or less. Here are some strategies to help you achieve this goal:\\n\\n### 1."
+            }
+        },
+        {
+            "question": "When is the deadline for submitting my application for the senior producer role at Montserrat Media Corp?",
+            "answer": "The deadline is May 20.",
+            "difficulty": "easy",
+            "update_type": "deadline_extension",
+            "tests_retention_of": "extended application deadline date",
+            "conversation_references": [
+                "Considering applying for a senior producer role at Montserrat Media Corp; application deadline May 10.",
+                "The deadline for the senior producer role application was extended to May 20, giving me extra preparation time."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original May 10 deadline instead of the extended May 20 deadline.",
+            "source_chat_ids": {
+                "original_info": [
+                    170
+                ],
+                "updated_info": [
+                    182
+                ]
+            },
+            "rubric": [
+                "LLM response should state: May 20"
+            ],
+            "llm_response": "May 20",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch2.jsonl:50-56 [score=0.0162 vector=0.6963 keyword=24.3149] ==========\nack and Support**\\n   - **Daily Feedback:** Provide daily feedback to team members to help them improve and grow.\\n   - **Resource Allocation:** Ensure team members have the necessary re"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "Between setting email boundaries after 7 PM and establishing work-free Sundays, which boundary did I decide to start first?",
+            "answer": "You decided to start setting email boundaries after 7 PM first, before establishing work-free Sundays.",
+            "difficulty": "easy",
+            "reasoning_type": "simple_comparison",
+            "sessions_required": 2,
+            "conversation_references": [
+                "setting email boundaries",
+                "work-free Sundays boundary"
+            ],
+            "reasoning_steps": [
+                "Identify when you planned to start limiting work emails after 7 PM.",
+                "Identify when you set clear work-free Sundays.",
+                "Compare which boundary was decided on earlier."
+            ],
+            "source_chat_ids": [
+                48,
+                216
+            ],
+            "rubric": [
+                "LLM response should state: email boundaries after 7 PM"
+            ],
+            "llm_response": "Based on the retrieved context, you decided to start **setting email boundaries after 7 PM** first (with a start date of March 5), before establishing work-free Sundays (which started on May 5).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:50-55 [score=0.0164 vector=0.6997 keyword=16.6125] ==========\nk or two to ease the transition.\\n\\nBy following these steps, you can set effective boundaries around work emails while minimizing any negative impact on your work. How do you feel about"
+            }
+        },
+        {
+            "question": "What two special events am I planning with David, and where will they take place?",
+            "answer": "I am planning a weekend getaway at Blue Bay Resort and an anniversary dinner at The Coral Reef, East Janethaven.",
+            "difficulty": "easy",
+            "reasoning_type": "simple_cross_session_facts",
+            "sessions_required": 2,
+            "conversation_references": [
+                "planning weekend getaway",
+                "anniversary dinner plans"
+            ],
+            "reasoning_steps": [
+                "Identify the event and location mentioned for the weekend getaway.",
+                "Identify the event and location mentioned for the anniversary dinner.",
+                "Combine both events and their locations into one answer."
+            ],
+            "source_chat_ids": [
+                146,
+                202
+            ],
+            "rubric": [
+                "LLM response should state: weekend getaway at Blue Bay Resort",
+                "LLM response should state: an anniversary dinner at The Coral Reef, East Janethaven"
+            ],
+            "llm_response": "Based on the retrieved context, the two special events you are planning with David are:\n1. A **5th anniversary dinner** at **The Coral Reef** in East Janethaven.\n2. A **weekend getaway** to **Blue Bay Resort**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch3.jsonl:12-16 [score=0.0164 vector=0.4653 keyword=13.1219] ==========\ne more comfortable and articulate during the interview.\\n\\n### . **Expand Your Network**\\n   - **Connect with Others**: Share your positive experience with colleagues, friends, and famil"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm trying to organize my tasks and appointments more effectively. What tools or methods would you suggest I use to keep everything on track?",
+            "preference_being_tested": "I prefer using digital tools like Trello and Google Calendar over paper planners for task organization.",
+            "expected_compliance": "Response should recommend digital task and calendar management tools rather than paper-based planners or analog methods, aligning with the user's preference for digital organization.",
+            "compliance_indicators": [
+                "suggests Trello, Google Calendar, or similar digital apps",
+                "mentions integrations or syncing features",
+                "avoids recommending paper planners or physical organizers"
+            ],
+            "non_compliance_signs": [
+                "recommends paper planners or notebooks",
+                "focuses on analog or manual methods",
+                "ignores digital tool options"
+            ],
+            "difficulty": "medium",
+            "preference_type": "tool choice",
+            "source_chat_ids": [
+                84,
+                86,
+                88
+            ],
+            "rubric": [
+                "LLM response should contain: suggests Trello, Google Calendar, or similar digital apps",
+                "LLM response should contain: avoids recommending paper planners or physical organizers"
+            ],
+            "llm_response": "Based on the retrieved context, here are the suggested tools and methods to organize tasks and appointments:\n\n**Tools:**\n*   **Task & Project Management:** Trello, Asana, Monday.com, Jira, Microsoft To-Do, Cozi\n*   **Digital Calendars:** Google Calendar, Apple Calendar\n*   **Automation & Integration:** IFTTT (e.g., to sync Trello cards with Google Calendar events), Zapier\n*   **Time Tracking:** Toggl, RescueTime, Clockify\n\n**Methods:**\n*   **Time Blocking:** Allocating specific time slots in your calendar for different tasks and setting 10-minute wrap-up reminders.\n*   **Eisenhower Matrix:** Categorizing tasks into four quadrants (urgent/important) to prioritize effectively.\n*   **Pomodoro Technique:** Working in focused intervals (e.g., 25 minutes) followed by short breaks.\n*   **Task Breakdown:** Breaking large projects into smaller subtasks and using checklists.\n*   **Regular Reviews:** Conducting daily end-of-day reflections and weekly reviews to assess progress and adjust schedules.\n*   **Visual Cues & Reminders:** Using timers, calendar alerts, and out-of-office auto-replies to enforce boundaries and stay on track.\n\n**Concise Answer:** \nDigital calendars and task managers (Google Calendar, Trello, Asana) combined with time blocking, the Eisenhower Matrix, and the Pomodoro Technique.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch4.jsonl:48-50 [score=0.0154 vector=0.4773 keyword=7.2073] ==========\nke writing a thank-you note or bringing home a small gift.\\n\\n### 8. **Be Present During Date Nights**\\n- **Action**: Fully engage in date nights without work-related distractions.\\n- **E"
+            }
+        },
+        {
+            "question": "What are some ways I can structure my daily self-care routine to feel more energized throughout the day?",
+            "preference_being_tested": "I prefer morning self-care routines over evening ones to boost daytime energy.",
+            "expected_compliance": "Response should focus on recommending or optimizing self-care activities that take place in the morning to enhance daytime energy, rather than suggesting evening routines.",
+            "compliance_indicators": [
+                "suggests morning self-care activities",
+                "emphasizes timing of routines in the morning",
+                "avoids recommending primarily evening routines",
+                "aligns advice with boosting energy during the day"
+            ],
+            "non_compliance_signs": [
+                "recommends mostly evening self-care routines",
+                "ignores timing of routines",
+                "focuses on nighttime or pre-sleep activities",
+                "does not address daytime energy enhancement"
+            ],
+            "difficulty": "medium",
+            "preference_type": "time-of-day preference",
+            "source_chat_ids": [
+                164
+            ],
+            "rubric": [
+                "LLM response should contain: suggests morning self-care activities"
+            ],
+            "llm_response": "Based on the retrieved context, you can structure your morning self-care routine to boost daytime energy by incorporating the following steps:\n\n1. **Wake Up Consistently**: Wake up at the same time every day to regulate your circadian rhythm.\n2. **Hydrate First Thing**: Drink a glass of water (optionally with lemon or cucumber) immediately upon waking.\n3. **Stretch or Do Light Yoga**: Spend 5-10 minutes loosening your muscles and increasing blood flow.\n4. **Practice Mindfulness or Meditation**: Dedicate 5-10 minutes to center yourself and reduce stress.\n5. **Engage in Gratitude**: Spend a few minutes reflecting on or journaling about things you are thankful for.\n6. **Have a Nutritious Breakfast**: Eat a balanced meal with protein, healthy fats, and complex carbohydrates.\n7. **Plan Your Day**: Spend a few minutes setting clear goals and priorities.\n8. **Exercise (Optional)**: Add a short workout, like a brisk walk or HIIT session, to boost energy and metabolism. \n\n**Additional Tips**: Limit screen time in the morning to avoid distractions, and create a relaxing environment using essential oils, soft lighting, or calming music.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:62-66 [score=0.0161 vector=0.5576 keyword=8.8046] ==========\n **No Distractions**: Turn off notifications and avoid any work-related activities during this time.\\n\\n2. **Consistency**\\n   - **Routine**: Make self-care a regular part of your routine"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you summarize the main lifestyle and career adjustments I made in March 2024 to manage stress and improve balance?",
+            "ideal_summary": "In March 2024, you began limiting work emails after 7 PM, set a goal to cut weekly hours from 55 to 40 by April 30, and blocked self-care time on Tuesdays and Thursdays. You added daily meditation, started therapy on March 10, and agreed to delegate tasks to Greg to avoid late-night editing sessions. You tracked overtime reduction, began journaling nightly, and registered for a March 15 workflow workshop.",
+            "difficulty": "easy",
+            "summarization_type": "",
+            "bullet_points_covered": 3,
+            "key_elements_tested": [
+                "Work-life balance strategies",
+                "Health and self-care routines",
+                "Delegation and workshop participation"
+            ],
+            "synthesis_required": "",
+            "source_chat_ids": [],
+            "rubric": [
+                "LLM response should contain: you began limiting work emails after 7 PM",
+                "LLM response should contain: set a goal to cut weekly hours from 55 to 40 by April 30",
+                "LLM response should contain: blocked self-care time on Tuesdays and Thursdays",
+                "LLM response should contain: added daily meditation, started therapy on March 10, and agreed to delegate tasks to Greg to avoid late-night editing sessions",
+                "LLM response should contain: You tracked overtime reduction, began journaling nightly, and registered for a March 15 workflow workshop"
+            ],
+            "llm_response": "In March 2024, your main adjustments included reducing overtime to 4 hours, establishing a strict 7:00 PM work/email cutoff, delegating tasks, declining a $5,000 freelance contract, starting nightly journaling, scheduling bi-weekly morning self-care blocks, and implementing Trello/Pomodoro workflow optimizations.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-04-10/burnout-recovery-workplace-adjustments-and-career-planning.md:11-43 [score=0.0149 vector=0.4971 keyword=6.4117] ==========\n## Wellness & Burnout Recovery Strategies\n\n- Reduced weekly work hours to 45 by April 1 to combat workplace burnout, though physical drain and low mo"
+            }
+        },
+        {
+            "question": "Summarize my major progress between April and May 2024 as she prepared for the senior producer role.",
+            "ideal_summary": "Between April and May 2024, you reduced your work hours and stress through delegation to Greg, daily yoga, and support group involvement. You attended therapy, resolved workplace conflicts, and spent restorative time with David. By May, you focused on interview preparation for the senior producer role—scheduling mock interviews, updating her portfolio, practicing stress management, and receiving mentorship and coaching to boost confidence.",
+            "difficulty": "",
+            "summarization_type": "",
+            "bullet_points_covered": 3,
+            "key_elements_tested": [
+                "Delegation and stress management in April",
+                "Therapy and support system contributions",
+                "Interview preparation activities in May"
+            ],
+            "synthesis_required": "",
+            "source_chat_ids": [],
+            "rubric": [
+                "LLM response should contain: Between April and May 2024, you reduced your work hours and stress through delegation to Greg, daily yoga, and support group involvement",
+                "LLM response should contain: You attended therapy, resolved workplace conflicts, and spent restorative time with David",
+                "LLM response should contain: By May, you focused on interview preparation for the senior producer role—scheduling mock interviews, updating her portfolio, practicing stress management, and receiving mentorship and coaching to boost confidence"
+            ],
+            "llm_response": "Reduced work hours and delegated tasks, reduced anxiety/nervousness by 30-40% via wellness routines, updated portfolio with 7 projects, rejected freelance work to prioritize the application, maintained daily prep blocks, and completed three mock interviews with Erica.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-05-20/senior-producer-interview-prep.md:10-35 [score=0.0162 vector=0.6377 keyword=9.0353] ==========\n### Interview Logistics & Schedule\n\n- Preparing for the Senior Producer interview scheduled for May 25, 2024.\n- Conducted three mock interviews with Erica at Erica's home office"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days after I started limiting work emails after 7 PM did I begin blocking time for self-care on Tuesday and Thursday mornings?",
+            "answer": "I started limiting work emails after 7 PM on March 5, and then began blocking time for self-care on Tuesday and Thursday mornings starting March 7, so 2 days elapsed between these events.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "March 5: limiting work emails after 7 PM starts",
+                "March 7: blocking self-care time on Tuesday and Thursday mornings starts"
+            ],
+            "conversation_references": [
+                "chat_id 48",
+                "chat_id 60"
+            ],
+            "calculation_required": "March 7 - March 5 = 2 days",
+            "source_chat_ids": {
+                "first_event": [
+                    48
+                ],
+                "second_event": [
+                    60
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 2 days",
+                "LLM response should state: from March 5 till March 7"
+            ],
+            "llm_response": "Based on the retrieved context, you started the policy of not checking work emails after 7 PM on **March 5**, and you began blocking time for self-care on **March 7, 2024**. \n\nThis is a difference of **2 days**.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_18_batch1.jsonl:62-66 [score=0.0160 vector=0.6138 keyword=13.9924] ==========\n **No Distractions**: Turn off notifications and avoid any work-related activities during this time.\\n\\n2. **Consistency**\\n   - **Routine**: Make self-care a regular part of your routin"
+            }
+        },
+        {
+            "question": "How many days after my weekend getaway with David did I start setting clear work-free Sundays?",
+            "answer": "I started setting clear work-free Sundays 14 days after my weekend getaway with David on April 20-21, beginning on May 5.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "April 20-21: weekend getaway",
+                "May 5: work-free Sundays start"
+            ],
+            "conversation_references": [
+                "Session 1: Weekend getaway planning",
+                "Session 2: Setting work-free Sundays"
+            ],
+            "calculation_required": "May 5 - April 21 = 14 days",
+            "source_chat_ids": {
+                "first_event": [
+                    146
+                ],
+                "second_event": [
+                    216
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 14 days",
+                "LLM response should state: from April 21 till May 5"
+            ],
+            "llm_response": "14 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-05-20/interpersonal-commitments-support-network.md:10-32 [score=0.0160 vector=0.5649 keyword=9.9399] ==========\n### Relationship Milestones & Celebrations\n\n- Planned a special 5th anniversary dinner with partner David on May 18, 2024, located at The Coral Reef in East Janethave"
+            }
+        }
+    ]
+}

@@ -1,0 +1,398 @@
+{
+    "abstention": [
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly and accurately states that there is no mention of the specific advice Bryan gave regarding the LinkedIn profile in the provided context. This perfectly aligns with the rubric criterion, which requires the model to indicate the absence of this specific information."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion is a negative constraint stating that the response should not include specific content information about the LinkedIn Learning ATS optimization course (because such information is not available in the provided context). The response correctly acknowledges this limitation by stating 'The retrieved context does not specify the exact modules included in the LinkedIn Learning ATS optimization course.' This response: (1) is responsive to the apparent question about the course, (2) does not fabricate or provide specific content details about the course, and (3) accurately reflects the absence of information as required by the rubric. The response fully complies with the negative constraint by appropriately indicating the unavailability of specific course content information."
+                }
+            ]
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "llm_judge_score": 0.375,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the LLM response to explicitly state that there is contradictory information. The provided response merely describes a sequence of events ('Initially no, but you later enrolled...') and does not mention or indicate the presence of any contradictory information. Therefore, it fails to meet the positive requirement of the rubric."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly mentions that the user 'enrolled in a LinkedIn Learning ATS optimization course,' which fully satisfies the rubric's positive requirement to mention enrolling in a LinkedIn Learning course on ATS optimization. The semantic meaning is perfectly preserved despite minor phrasing differences."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires the response to mention that the user previously stated they 'never enrolling in any ATS optimization courses.' The response begins with 'Initially no,' which implicitly acknowledges that at some prior point the user indicated they had not enrolled. However, this is a vague and indirect acknowledgment rather than an explicit reference to the user's statement about 'never enrolling' in ATS optimization courses. The response then proceeds to describe subsequent enrollments, which addresses the topic but does not clearly or explicitly reference the user's prior claim as the rubric requires. This constitutes partial compliance - the response touches on the prior negative enrollment status but does not adequately capture the specific requirement to mention the user's statement about never enrolling."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to mention which statement is correct. The response provided discusses course enrollments (a LinkedIn Learning ATS optimization course and a UK employment law and resume compliance training program) but does not address or identify which statement is correct. The required element - mentioning which statement is correct - is completely absent from the response, resulting in no compliance with the rubric criterion."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion is a positive requirement asking the response to explicitly state that 'there is contradictory information'. The provided response ('Initially no, but you later attended...') presents a chronological narrative or a resolved timeline of events. It does not identify the information as contradictory, nor does it use semantic equivalents such as 'discrepancy', 'conflict', or 'inconsistent sources'. Instead of flagging the contradiction as requested, the model attempts to synthesize the facts into a coherent sequence. Therefore, the required element is missing."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric requires the response to mention that the user attended a workshop on international resume standards. The response explicitly states 'you later attended an international resume standards workshop on May 3, 2024', which semantically satisfies the requirement by confirming the attendance at the specified workshop. Therefore, it fully complies with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the LLM response to explicitly mention or acknowledge that the user previously stated/mentioned never attending any workshops or training sessions. While the response says 'Initially no,' which implies a prior negative status regarding attendance, it completely fails to reference the user's act of mentioning or stating this fact (e.g., 'As you mentioned earlier...'). Because the core requirement to acknowledge the user's prior statement is missing, the response does not comply with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to mention 'which statement is correct.' The provided response discusses attending an international resume standards workshop on May 3, 2024, and completing ATS optimization and resume compliance training courses. It does not address or mention anything about which statement is correct. The required element is completely absent from the response, resulting in no compliance with the rubric criterion."
+                }
+            ]
+        }
+    ],
+    "event_ordering": [
+        {
+            "llm_judge_score": 0.3333333333333333,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion is a compound requirement asking for both 'ATS concerns' and 'partner's advice'. The response successfully addresses 'ATS concerns' in point 2 by mentioning 'Building a portfolio-ready resume that passes ATS'. However, there is no mention of 'partner's advice' or any synonymous concept anywhere in the provided response. Because only one of the two required elements is present, the response demonstrates partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response completely fails to address or mention 'LinkedIn profile collaboration.' It focuses entirely on resume building, ATS optimization, and general job application strategies without any reference to LinkedIn or collaborative efforts regarding a professional profile. Therefore, it does not comply with the positive requirement of the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires 'Transferable skills suggestion' - meaning the response should suggest skills that can be transferred across roles, industries, or contexts. Examining the six items in the response: (1) concerns about age/salary are not skills, (2) building an ATS-ready resume is a task not a transferable skill, (3) experience with diverse Caribbean communities could represent a transferable skill (cultural competency) but is not framed or suggested as such, (4) structured bullet points is a formatting technique, (5) calm and logical demeanor is a personal trait but not explicitly suggested as transferable to new contexts, (6) 'project management' and 'budget oversight' are mentioned as keywords to incorporate, not as transferable skills with explanation of their applicability. While some items tangentially relate to skills (project management, budget oversight, working with diverse communities), none are explicitly framed or suggested as transferable skills. The response reads more as a resume/job application checklist rather than providing transferable skills suggestions. The core requirement of the rubric criterion is not satisfied."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to provide tips on raise addition and negotiation. The response only mentions 'concerns about age and salary affecting job applications' and focuses on resume building, ATS optimization, and keywords. It completely fails to provide any actual tips or advice on negotiating a raise or salary, thus missing the required element entirely."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response successfully addresses the rubric criterion of 'International resume adaptation and portfolio metrics'. It covers international adaptation by including 'experience working with diverse Caribbean communities', and it addresses portfolio and metrics by mentioning a 'portfolio-ready resume' and the use of 'quantified achievements'. All required semantic elements of the rubric are present in the response."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion requires the response to address two elements: 'Sharing job descriptions' and 'keyword refinement'. The response successfully addresses 'keyword refinement' in point 6 by explicitly mentioning the incorporation of specific keywords like 'project management' and 'budget oversight'. However, the response does not explicitly mention 'sharing job descriptions' or the review/analysis of job postings provided by the user. While the keywords likely originate from job descriptions, the specific element regarding the sharing or handling of the descriptions themselves is absent from the text. Therefore, the response demonstrates partial compliance."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0,
+                "tau_norm": 0.1470588235294118,
+                "final_score": 0.0,
+                "semantic_alignment": {
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "f1": 0,
+                    "tau_norm": 0.1470588235294118,
+                    "final_score": 0.0
+                }
+            }
+        },
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to address 'Subscription service concern.' The response provided is a list of five items covering topics such as ATS readability, relocation allowance, budget proposals, health insurance premiums, and salary negotiation. None of these items relate to subscription services or express any concerns about subscription services. The required element (subscription service concern) is completely absent from the response, indicating no compliance with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to demonstrate or mention 'Resume keyword tool usage'. The provided response lists various career and financial events, including formatting for 'ATS readability', but makes no mention of using a resume keyword tool (such as Jobscan, Resume Worded, or similar keyword optimization tools). Since the required element is completely absent, the response fails to comply with the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires a 'Profile headline update'. The provided response consists of a list of five bullet points detailing various career, financial, and personal events with associated dates (e.g., relocation allowance, health insurance premiums, salary negotiation). It does not contain any profile headline, nor does it suggest or demonstrate an update to a professional profile headline (such as a LinkedIn or resume headline). Therefore, the required element is completely missing."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The response does not address the rubric criterion of 'Interview preparation'. It simply lists five specific, dated personal or professional events/achievements (such as relocation allowances, health insurance premiums, and salary negotiations) without providing any advice, strategies, or context related to preparing for an interview. Additionally, the question is missing (indicated by '<question>'), and the response fails to demonstrate any clear connection to interview preparation."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires 'Rental research for relocation' to be present in the response. While the response mentions relocation-related topics (such as a $5,000 relocation allowance for Vancouver and salary negotiations), it does not contain any rental research. There is no mention of searching for rental properties, comparing housing options, investigating rental markets, or any housing/accommodation research for a relocation scenario. The relocation allowance mentioned is a financial benefit, not rental research. Since the required element (rental research) is completely absent from the response, this represents no compliance with the rubric criterion."
+                }
+            ],
+            "event_ordering": {
+                "precision": 0.0,
+                "recall": 0.0,
+                "f1": 0,
+                "tau_norm": 0.14285714285714285,
+                "final_score": 0.0,
+                "semantic_alignment": {
+                    "precision": 0.0,
+                    "recall": 0.0,
+                    "f1": 0,
+                    "tau_norm": 0.14285714285714285,
+                    "final_score": 0.0
+                }
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The response correctly provides the monetary value ($12.99) but omits the billing frequency ('per month') which is explicitly required by the rubric criterion. While the numerical value is accurate, the statement is incomplete without the time unit, constituting partial compliance."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.6666666666666666,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response fully complies with the rubric criterion. The rubric requires the LLM to recommend integrating key terms naturally across multiple sections of the resume. The response does exactly this by: (1) recommending to 'Use keywords naturally within the context of your bullet points' which addresses natural integration of key terms, and (2) recommending to 'strategically place them across the Summary/Profile, Professional Experience, and Skills sections' which explicitly addresses placing them across multiple sections of the resume. Both elements of the rubric criterion are satisfied with semantic equivalents."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It mentions the Summary/Profile (professional summary), Professional Experience (work experience), and Skills sections, satisfying three of the required elements. However, it completely omits any mention of education and certifications, as well as additional sections like a portfolio. Because it includes some but not all of the required sections, it receives a score for partial compliance."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires the response to state four elements: (1) using action verbs, (2) providing relevant context, (3) repeating keywords appropriately without redundancy, and (4) using synonyms to maintain a natural flow. The response addresses some of these partially: it mentions using keywords 'naturally within the context' (partially addressing context and natural keyword usage) and suggests not listing keywords separately (touching on avoiding redundancy). However, the response completely omits mention of 'action verbs' and 'synonyms' - two of the four required elements. Since approximately half of the required elements are present or partially addressed while two key elements are entirely missing, this constitutes partial compliance."
+                }
+            ]
+        }
+    ],
+    "instruction_following": [
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric explicitly requires the use of bullet points. The provided response is a single continuous sentence without any bullet points, list formatting, or itemization. Therefore, it completely fails to satisfy the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the inclusion of specific numbers or metrics in the LLM's response. The provided response ('In reverse chronological order, including job title, company name, location, dates of employment, and key responsibilities and achievements.') does not contain any numbers, metrics, or quantifiable data. Therefore, it completely fails to satisfy the positive requirement of the rubric."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly advises the user to 'Use a simple, clean, text-based format' and to avoid 'complex layouts,' which semantically fulfills the rubric criterion of containing the 'use of simple layout.' The response directly addresses the concept of layout and formatting, satisfying the positive requirement."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to contain clear and separate section titles. The provided response is a single sentence and does not include any section titles, headings, or distinct sections. Therefore, it completely fails to meet the positive requirement of the rubric."
+                }
+            ]
+        }
+    ],
+    "knowledge_update": [
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to state '5 interviews'. The response provides a range ('Between 3 and 5') instead of the specific number 5, and it completely omits the word 'interviews'. Therefore, it fails to comply with the rubric criterion."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.0,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to state '7 women'. The response explicitly states '5 women' as the initial number highlighted and concludes with the final answer of '5'. Although it mentions the number 7 in passing regarding the total number of mentees, it fails to correctly identify and state '7 women' as the required answer. Therefore, the required element is incorrect/missing."
+                }
+            ]
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "llm_judge_score": 0.2,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the LLM response to state 'Four areas'. However, the response explicitly states '3 different areas' and lists only three areas (resume, portfolio, and salary negotiation strategies). Since the response provides the incorrect number of areas (3 instead of 4), it fails to comply with the rubric requirement."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly includes the phrase 'salary negotiation' (within 'salary negotiation strategies'), fully satisfying the positive requirement of the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to state 'portfolio project selection'. While the response mentions 'your portfolio', it does not mention or discuss 'project selection' in relation to the portfolio. Therefore, the required element is missing, resulting in no compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to state 'resume international standards' (or a semantic equivalent). While the response does mention 'resume' as one of three areas the user has focused on, it completely fails to mention 'international standards' or any equivalent concept (such as global standards, international benchmarks, worldwide best practices, etc.). The required element regarding international standards is entirely absent from the response, resulting in no compliance with the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to state 'remote leadership skills'. The provided response discusses updating a resume, portfolio, and salary negotiation strategies, but it completely fails to mention 'remote leadership skills' or any semantic equivalent. Therefore, the required positive element is missing, resulting in no compliance."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to state to 'integrate key ATS optimization concepts from your course progress.' While the response does discuss ATS optimization concepts (such as formatting, keywords, and using ATS simulators), it completely omits any reference to the user's 'course progress' or integrating concepts derived from a course. Because this specific required element is missing, the response fails to comply with the rubric."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric criterion is a compound statement requiring the response to state both 'highlight your recent interview feedback' and 'quantified achievements'. The response successfully addresses the second part by explicitly advising the user to 'highlight quantified achievements and metrics' in step 3. However, it completely omits any mention of highlighting 'recent interview feedback' (it only mentions 'simulator feedback' in step 5). Because only one of the two required elements is present, the response demonstrates partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to state something about 'prominently featuring your completed digital media leadership courses with high scores'. The provided response discusses general resume update sequences, including formatting, tailoring, quantifying achievements, and ATS testing, but completely omits any mention of digital media leadership courses or featuring them with high scores. Therefore, the required element is entirely missing, resulting in a score of 0.0."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It addresses the core concepts of 'tailoring' (Step 2) and 'ATS compatibility' (Steps 4 and 5), which aligns with the general intent of the rubric. However, it fails to fully satisfy the specific requirements in two key areas: (1) The rubric explicitly requires advising to 'tailor each resume version to specific job descriptions,' but the response suggests tailoring to 'regional standards' and 'industry keywords,' which is a broader and distinct approach. (2) The rubric requires stating the goal of maximizing 'interview callbacks,' which is not explicitly mentioned in the response (it focuses on 'compatibility/match scores' instead). Therefore, the response is relevant and contains semantic overlaps but does not fully execute the specific statement required."
+                }
+            ]
+        }
+    ],
+    "preference_following": [
+        {
+            "llm_judge_score": 0.8333333333333334,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly suggests adding 'Video clips' and 'Behind-the-scenes footage' to the portfolio samples. 'Video clips' is a direct semantic equivalent to 'video samples', fully satisfying the positive requirement of the rubric criterion."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly lists 'Video clips' and 'Behind-the-scenes footage' as recommended types of content to add to the portfolio samples. This fully satisfies the rubric criterion of mentioning video as a key content type."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response lists dynamic/multimedia content (video clips, behind-the-scenes footage) at the top of the list, which suggests some implicit prioritization through ordering. However, the response does not explicitly state that dynamic or multimedia content should be prioritized over static images. Additionally, the majority of items in the list are actually static content (screenshots, infographics, transcripts, testimonials, contextual narratives). While dynamic content appears first, the response presents it as one option among many rather than explicitly prioritizing it. This constitutes partial compliance - the element is partially present through ordering but lacks explicit prioritization language."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 1.0,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response explicitly addresses ATS formatting within the context of a UK job application. It includes a dedicated 'Layout & ATS Optimization' section detailing the use of a clean, plain-text layout, standard fonts, and acceptable file types, and reiterates an 'ATS-friendly plain text layout' in the concise answer. This fully satisfies the rubric's requirement to mention ATS formatting specific to the UK context."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion is a negative constraint requiring the LLM to avoid suggesting a one-size-fits-all resume template. The response provides general formatting guidelines, best practices, and structural advice for a UK CV (such as using British English, specific date formats, ATS optimization, and including grades/class of degree) rather than providing a rigid, fill-in-the-blank, one-size-fits-all template. The prohibited element is absent, and the response is fully compliant with the constraint."
+                }
+            ]
+        }
+    ],
+    "summarization": [
+        {
+            "llm_judge_score": 0.4,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response semantically satisfies the rubric criterion. It describes the user tailoring their resume (e.g., 'Tailored your resume specifically for StreamWave's ATS') and highlighting relevant skills and achievements (e.g., 'highlighted remote leadership and quantitative storytelling metrics'). While the exact word 'advice' is not used, the mention of completing 'ATS optimization training' and using optimization tools semantically covers receiving guidance/advice. The focus on the 2024 timeline and specific recent metrics covers the 'recent experience' aspect. Therefore, the core requirements of the rubric are fully met."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to mention considering involving the user's partner Joshua, who has expertise in project budgeting and networking, to help optimize the resume with keyword integration. The provided response details the evolution of the resume and application strategy across three phases, mentioning tools like Textio, Jobscan, and AI for keyword optimization, but it completely fails to mention Joshua, his expertise, or any involvement of a partner in the process. Therefore, the required element is entirely missing."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to explore adding a section on work with diverse Caribbean communities to showcase cultural competence. The provided response discusses ATS optimization, portfolio building, remote leadership, UK roles, GDPR training, and relocation strategy, but makes absolutely no mention of Caribbean communities, cultural competence, or adding any such section. Therefore, the required element is completely missing, resulting in a score of 0.0."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It successfully mentions using tools like Jobscan to improve keywords ('used tools like Textio and Jobscan to improve keywords'), receiving guidance/learning about formatting ('learned international formatting standards'), and quantifying achievements ('quantitative storytelling metrics'). However, it completely omits any mention of receiving guidance on including a professional summary. Because it addresses most, but not all, of the compound elements required by the rubric, it earns a partial compliance score."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The response explicitly mentions highlighting 'remote leadership,' which satisfies the 'remote team leadership' component of the rubric. However, it fails to mention 'adaptability' or 'strategic planning' as emphasized transferable skills. While the response references 'strategic relocation positioning,' this refers to a specific application tactic rather than the transferable skill of strategic planning required by the criterion. Thus, the response is only partially compliant."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.25,
+            "llm_judge_responses": [
+                {
+                    "score": 0.5,
+                    "reason": "The response partially complies with the rubric criterion. It addresses the requirement of tailoring a resume for the digital media industry (mentioning 'Digital Media Executive Producer', 'streaming roles', and 'Tailored your resume with 12 industry-specific keywords'). However, it fails to explicitly mention the 'film' and 'television' industries. Furthermore, the response completely omits the required starting phase of 'defining your goals and gathering relevant information,' instead beginning the chronological progression with ATS optimization and portfolio redesign. Because it captures the tailoring aspect for digital media but misses the other specified industries and the initial goal-definition/information-gathering steps, it earns a partial compliance score."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to explicitly mention four specific elements: creating a professional summary, structuring the resume with clear sections, incorporating strong action verbs, and integrating a portfolio. The provided response describes a chronological timeline of job applications, ATS optimization, and salary negotiations. While it mentions a portfolio (Squarespace redesign/deployment), it completely omits the professional summary, clear sections (referring only to 'architecture'), and strong action verbs (referring instead to 'keywords' and 'quantified achievements'). Since the majority of the required compound elements are missing, the response does not comply with the rubric."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion requires the response to mention adapting the resume design using Canva Pro, emphasizing simple templates, standard fonts, and avoiding graphics or tables. The provided response discusses resume development and mentions adopting a 'minimalist, ATS-friendly resume architecture,' but it completely omits any mention of Canva Pro, simple templates, standard fonts, or the avoidance of graphics and tables. Therefore, the required elements are missing, resulting in a score of 0.0."
+                },
+                {
+                    "score": 0.5,
+                    "reason": "The rubric requires two elements: converting the resume to a text-based format and using ATS simulators for validation. The response successfully addresses the second element by mentioning the use of ATS optimization tools and simulators (Jobscan, Textio, Resumonk, and StreamWave's parser). However, it completely omits any mention of converting the resume to a 'text-based format' (it only mentions adopting a 'minimalist, ATS-friendly resume architecture'). Because only one of the two required elements is present, the response demonstrates partial compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to contain information about balancing time between interview preparation and workshops by setting clear goals, creating structured daily schedules, and reducing social media usage. The provided response focuses entirely on resume development, ATS optimization, job applications, and career progression (e.g., securing a role at StreamWave, UK job market pivot). It completely omits any mention of interview preparation, workshops, goal setting, daily schedules, or social media usage. Therefore, the required elements are entirely missing, resulting in a score of 0.0."
+                },
+                {
+                    "score": 1.0,
+                    "reason": "The response fully complies with the rubric criterion by semantically covering all required elements. It demonstrates leveraging feedback to refine the resume by referencing ATS parser results ('improved your ranking by 18% in StreamWave's parser v3.2'). It explicitly addresses tailoring to job descriptions ('targeted $95k+ streaming roles', 'align with StreamWave's AI-driven ATS' using '12 industry-specific keywords'), quantifying achievements ('quantified achievements (e.g., 40% viewership increase)'), and highlighting transferable skills ('added cross-cultural communication competencies' for the UK market pivot). All components are present and accurately executed through semantic equivalents."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to mention that the user sought to showcase their warm and charismatic nature within their resume by using action verbs and providing specific examples of rapport-building. The provided response focuses entirely on ATS optimization, industry-specific keywords, quantified achievements, minimalist formatting, and cross-cultural communication competencies. It completely omits any mention of a warm and charismatic nature, rapport-building, or the strategic use of action verbs to convey these traits. Therefore, the required element is missing, resulting in no compliance."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric requires the response to state that the user updated their resume to reflect their latest certification and promotion, specifically emphasizing these achievements in the professional summary, work experience, skills, and certifications sections. While the response mentions a promotion ('Promoted to Senior Executive Producer') and adding 'competencies', it completely fails to mention a 'latest certification' (only mentioning enrollment in training). Furthermore, it does not mention updating or emphasizing these achievements in the specific required resume sections (professional summary, work experience, skills, and certifications sections). Because the core requirements of the rubric criterion are missing, the response does not comply."
+                }
+            ]
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The response exactly states '52 days', which fully satisfies the positive requirement specified in the rubric criterion."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric explicitly requires the response to state the specific dates 'from April 10, 2024 till June 1, 2024'. The response only provides the calculated duration ('52 days') and completely omits the required dates. Therefore, it fails to comply with the positive requirement of the rubric."
+                }
+            ]
+        },
+        {
+            "llm_judge_score": 0.5,
+            "llm_judge_responses": [
+                {
+                    "score": 1.0,
+                    "reason": "The rubric criterion explicitly requires the response to state '64 days'. The response provided is exactly '64 days', which fully satisfies the requirement."
+                },
+                {
+                    "score": 0.0,
+                    "reason": "The rubric criterion explicitly requires the response to state the date range 'from July 10 till September 12'. While the response '64 days' correctly calculates the duration between these two dates, it fails to actually state the dates themselves as mandated by the rubric. Because the required element (the specific date range) is completely missing from the response, it receives a score of 0.0."
+                }
+            ]
+        }
+    ]
+}

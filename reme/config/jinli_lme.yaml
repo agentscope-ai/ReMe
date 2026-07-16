@@ -43,6 +43,14 @@ jobs:
         end_date:
           type: string
           description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+        vector_weight:
+          type: number
+          description: >-
+            Optional weight balancing vector similarity vs BM25 keyword matching in the
+            RRF fusion. Recommended value is 0.7, which provides a good balance between
+            semantic (vector) similarity and lexical (BM25) matching. Values close to 0
+            emphasize BM25 keyword matching, values close to 1 emphasize vector semantic
+            similarity.
       required:
         - query
     steps:

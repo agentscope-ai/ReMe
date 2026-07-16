@@ -1,0 +1,670 @@
+{
+    "abstention": [
+        {
+            "question": "What was the agenda for the Montserrat Writers’ Festival where Crystal met Michael?",
+            "ideal_response": "Based on the provided chat, there is no information related to the agenda of the Montserrat Writers’ Festival.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The festival is mentioned as a meeting place but no agenda or event details are provided.",
+            "plan_reference": "Batch 1 mentions meeting Michael at Montserrat Writers’ Festival on Jan 15, 2024, but no agenda details.",
+            "rubric": [
+                "Based on the provided chat, there is no information related to related to the agenda of the Montserrat Writers’ Festival"
+            ],
+            "llm_response": "The retrieved context does not mention the agenda for the Montserrat Writers' Festival. \n\n**Concise Answer:** Not mentioned in the provided context.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-06-01/writing-process-feedback-and-productivity.md:13-49 [score=0.0162 vector=0.6147 keyword=17.7890] ==========\n## Goals & Performance Metrics\n\n- By 2024-06-01, Crystal achieved a writing milestone of 20,000 total words, exceeding the initial target of 15,000 words by 33%.\n- B"
+            }
+        },
+        {
+            "question": "Could you share the key points Carla covered in her editing checklist revealed during the April 7 call?",
+            "ideal_response": "Based on the provided chat, there is no information related to the key points in Carla’s editing checklist.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "Carla’s checklist is mentioned but no details or contents are provided.",
+            "plan_reference": "Batch 2 mentions Carla revealing her editing checklist on April 7 but no further details.",
+            "rubric": [
+                "Based on the provided chat, there is no information related to related to the key points in Carla’s editing checklist"
+            ],
+            "llm_response": "Based on the retrieved context, the specific key points of Carla's checklist are not detailed, but it notes the checklist was used to identify passive constructions and systematically address common writing issues (which successfully reduced passive voice by 18%).\n\nIdentifying passive constructions and addressing common issues.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:7-14 [score=0.0161 vector=0.5776 keyword=12.9731] ==========\ned_at\":null,\"usage\":null}\n{\"name\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"That sounds like a sensible decision given your current constraints. Sticking with the tools you're already"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Do I usually feel anxious about my grammar accuracy after receiving feedback?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have felt anxious about your grammar accuracy after feedback, but you also mentioned that you've never felt anxious about it. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Feeling anxious about grammar accuracy after feedback",
+            "conversation_references": [
+                "Session 56: Feeling anxious about grammar accuracy",
+                "Session 68: Never felt anxious about grammar accuracy"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    56,
+                    58
+                ],
+                "second_statement": [
+                    68
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have felt anxious about your grammar accuracy after feedback",
+                "LLM response should mention: you also mentioned that you've never felt anxious about it",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you mentioned feeling anxious about your grammar accuracy after receiving feedback from Joseph on February 28.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch1.jsonl:70-70 [score=0.0164 vector=0.7256 keyword=14.9452] ==========\nng.\\n   - **Regular Practice**: Consistent practice and review can help you feel more comfortable with your writing skills.\\n\\n4. **Understanding of Feedback**:\\n   - **Clear Communicati"
+            }
+        },
+        {
+            "question": "Have I ever completed a first draft of a screenplay?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you completed your first draft of a screenplay, but you also mentioned that you've never completed a first draft of any screenplay. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "completion of first screenplay draft",
+            "conversation_references": [
+                "Session 82: Completed first draft and confidence boost",
+                "Session 174: Never completed a first draft"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    82
+                ],
+                "second_statement": [
+                    174
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you completed your first draft of a screenplay",
+                "LLM response should mention: you also mentioned that you've never completed a first draft of any screenplay",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you completed the first draft of your screenplay on April 1.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch3.jsonl:48-52 [score=0.0153 vector=0.5181 keyword=4.3888] ==========\n up with beta readers for clarification on vague comments.\\n   - Set up a discussion forum for collaborative feedback.\\n\\n6. **Reflect and Adjust**:\\n   - Regularly review progress and ef"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you walk me through the order in which I brought up different aspects of my writing journey throughout our conversations, in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned aspects of your writing journey in this order: 1) Meeting and sharing script editing tips, 2) Completing your first draft and feeling a confidence boost, 3) Preparing for and managing nerves about a writing workshop you co-hosted, 4) Reflecting on the positive feedback and satisfaction rating from that workshop, 5) Planning your revision process focusing on dialogue clarity, passive voice, character development, plot structure, and peer review.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 5,
+            "conversation_references": [
+                "Session 6: Meeting and script tips",
+                "Session 82: First draft and confidence",
+                "Session 182: Workshop nerves",
+                "Session 238: Workshop feedback",
+                "Session 84: Revision planning"
+            ],
+            "ordering_tested": [
+                "1st: Meeting and script tips",
+                "2nd: First draft and confidence",
+                "3rd: Workshop nerves",
+                "4th: Workshop feedback",
+                "5th: Revision planning"
+            ],
+            "source_chat_ids": [
+                6,
+                82,
+                182,
+                238,
+                84
+            ],
+            "rubric": [
+                "Meeting and script tips",
+                "First draft and confidence",
+                "Workshop nerves",
+                "Workshop feedback",
+                "Revision planning"
+            ],
+            "llm_response": "1. Improving dialogue and peer review sessions (March 3)\n2. Using active voice and celebrating 10,000 words (April 10)\n3. Shifting to a conversational tone and implementing GitHub for versioning (June 1)\n4. Coping with writing anxiety and reducing passive voice (June 1)\n5. Surpassing 30,000 words (August 15)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-03-03.md:5-8 [score=0.0154 vector=0.5020 keyword=4.0007] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-03-03/writing-improvement-journey-and-screenplay-planning.md]] name: writing-improvement-journey-and-screenplay-planning description: Comprehensive extraction of a 45-year-ol"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different aspects of my collaboration with Carla throughout our conversations in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned aspects of your collaboration with Carla in this order: 1) Concern about Carla reviewing your first 10 pages by a certain date, 2) Your passive voice reduction after Carla shared her editing checklist, 3) Worries about tone adjustments prioritized with Carla for key scenes and feedback, 4) Planning the joint editing webinar with Carla and strategies to promote it, 5) Discussing engagement steps with the guild leadership and incentives for the webinar.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 5,
+            "conversation_references": [
+                "Session 52: Review timing concern",
+                "Session 78: Passive voice reduction and checklist",
+                "Session 176: Tone adjustments and feedback",
+                "Session 228: Webinar planning and promotion",
+                "Sessions 230 & 232: Engagement and incentives discussion"
+            ],
+            "ordering_tested": [
+                "1st: Review timing concern",
+                "2nd: Passive voice reduction and checklist",
+                "3rd: Tone adjustments and feedback",
+                "4th: Webinar planning and promotion",
+                "5th: Engagement and incentives discussion"
+            ],
+            "source_chat_ids": [
+                52,
+                78,
+                176,
+                228,
+                230,
+                232
+            ],
+            "rubric": [
+                "Review timing concern",
+                "Passive voice reduction and checklist",
+                "Tone adjustments and feedback",
+                "Webinar planning and promotion",
+                "Engagement and incentives discussion"
+            ],
+            "llm_response": "1. Carla reviewing the first 10 pages by March 20\n2. Using Carla's editing checklist to reduce passive voice\n3. Prioritizing tone adjustments for 3 key scenes with Carla\n4. Promoting the joint editing webinar with Carla\n5. Reflecting on hosting the September 10 webinar with Carla",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:36-42 [score=0.0157 vector=0.4175 keyword=6.8031] ==========\nhe same page.\\n\\n3. **Maintain Momentum**:\\n   - **Daily Goals**: Set small, achievable goals for each writing session to maintain momentum.\\n   - **Positive Reinforcement**: Celebrate sm"
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "When did I say I met Michael at the festival?",
+            "answer": "You said you met Michael at the Montserrat Writers’ Festival on January 15, 2024.",
+            "difficulty": "medium",
+            "question_type": "date_recall",
+            "conversation_reference": "Turn 1: Date mentioned early in meeting description",
+            "key_facts_tested": [
+                "date: January 15, 2024",
+                "event: Montserrat Writers’ Festival",
+                "person: Michael"
+            ],
+            "source_chat_ids": [
+                6
+            ],
+            "rubric": [
+                "LLM response should state: January 15, 2024"
+            ],
+            "llm_response": "The provided context does not state that you met Michael at the festival; it only mentions that you attended the Montserrat Literary Festival on May 18, 2024, and met 30 writers and editors.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch4.jsonl:32-36 [score=0.0152 vector=0.3706 keyword=3.1651] ==========\nsitive impression and open the door for future opportunities.\\n- **Stay Connected**: Keep in touch with the organizers and any contacts you make during the process. This can help you stay"
+            }
+        },
+        {
+            "question": "How did you recommend structuring my writing process to maintain steady progress and stay motivated throughout the weeks leading up to my deadline?",
+            "answer": "I suggested breaking down the overall target into daily and weekly word count goals, setting fixed or flexible writing times, creating an outline and scene breakdown for organization, using motivational techniques like visualizing success and rewarding milestones, involving an accountability partner, and incorporating stress management practices to help maintain focus and confidence.",
+            "difficulty": "hard",
+            "question_type": "Context-Based Recall",
+            "conversation_reference": "Multiple turns: User's goal setting, assistant's detailed strategies on scheduling, motivation, organization, and stress management",
+            "key_facts_tested": [
+                "daily and weekly word count targets",
+                "writing schedule with fixed and flexible sessions",
+                "outline and scene breakdown for organization",
+                "motivational techniques including visualization and rewards",
+                "accountability partner involvement",
+                "stress management methods"
+            ],
+            "extraction_challenge": "LLM must integrate various advice elements scattered across the assistant's detailed response to explain the comprehensive approach recommended for steady progress and motivation.",
+            "source_chat_ids": [
+                21
+            ],
+            "rubric": [
+                "LLM response should state: breaking down the overall target into daily and weekly word count goals",
+                "LLM response should state: setting fixed or flexible writing times",
+                "LLM response should state: creating an outline and scene breakdown for organization",
+                "LLM response should state: using motivational techniques like visualizing success and rewarding milestones",
+                "LLM response should state: involving an accountability partner",
+                "LLM response should state: incorporating stress management practices to help maintain focus and confidence"
+            ],
+            "llm_response": "Breaking down weekly goals into daily targets, establishing a consistent routine with scheduled sessions or short bursts, tracking progress, taking regular breaks, varying writing locations, and celebrating milestones with rewards.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:58-62 [score=0.0155 vector=0.6211 keyword=6.3004] ==========\n500 words is a significant achievement! Maintaining this pace requires careful planning and a sustainable approach. Here are some strategies to help you sustain your productivity:\\n\\n### "
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "When was the Montserrat Writers’ Festival?",
+            "instruction_being_tested": "Always format dates as \"Month Day, Year\" when I ask about timeline details.",
+            "expected_compliance": "Response should present the date in the specified format with the full month name, day, and year.",
+            "compliance_indicators": [
+                "Month Day, Year format",
+                "full month name",
+                "numerical day and year"
+            ],
+            "non_compliance_signs": [
+                "numeric-only dates",
+                "abbreviated month names",
+                "dates without day or year",
+                "other date formats"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                66
+            ],
+            "rubric": [
+                "LLM response should contain: Month Day, Year format"
+            ],
+            "llm_response": "January 15, 2024",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-10-05/screenplay-dramedy-completion-and-publishing-strategy.md:10-50 [score=0.0160 vector=0.4924 keyword=6.3408] ==========\n## Project Completion & Development Timeline\n\n- On 2024-10-01, the Screenwriter completed the final draft with a total word count of 35,000 words, represe"
+            }
+        },
+        {
+            "question": "How much progress have we made on the edits so far?",
+            "instruction_being_tested": "Always provide percentage improvements when I ask about editing progress.",
+            "expected_compliance": "Response should include percentage improvements indicating how much editing progress has been made.",
+            "compliance_indicators": [
+                "percentage values showing progress",
+                "numeric progress indicators expressed as percentages"
+            ],
+            "non_compliance_signs": [
+                "only qualitative descriptions",
+                "no numeric progress given",
+                "general statements without percentages"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                172
+            ],
+            "rubric": [
+                "LLM response should contain: percentage values showing progress"
+            ],
+            "llm_response": "Based on the retrieved context, the quantitative editing progress includes:\n- **Dialogue clarity** improved by 25%\n- **Passive voice** reduced to 10% (down from an initial 18% reduction)\n- **Tone consistency** increased by 22%\n- **Flesch-Kincaid readability score** raised from 65 to 72\n- **Filler word density** decreased by 20%\n- **Average scene length** reduced by 12% (specifically in scenes 4 and 7)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:48-52 [score=0.0155 vector=0.4727 keyword=3.4084] ==========\netailed plan to guide you through the process:\\n\\n### Hybrid Approach Plan\\n\\n#### Step 1: Initial Edits with AI Tools\\n1. **Use AI Tools**:\\n   - **Grammarly**: Catch basic grammar and s"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "What is my weekly word count target for my writing goals?",
+            "answer": "1,350 words per week",
+            "difficulty": "easy",
+            "update_type": "goal_adjustment",
+            "tests_retention_of": "updated weekly word count target",
+            "conversation_references": [
+                "Writing Goals: Targeting 1,200 words per week, tracking progress with Google Docs word count stats.",
+                "Information Update: The weekly word count target was adjusted to 1,350 words after reviewing progress in early March."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original target of 1,200 words per week instead of the updated 1,350 words",
+            "source_chat_ids": {
+                "original_info": [
+                    22
+                ],
+                "updated_info": [
+                    64
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 1,350 words"
+            ],
+            "llm_response": "Based on the retrieved context, your weekly word count target has evolved over time:\n- **1,800 words** (Most recent target as of August 2024 for your October 1 deadline)\n- **1,500 words** (Target as of April 2024)\n- **1,350 words** (Adjusted target in March 2024)\n- **1,200 words** (Initial target in early March 2024) \n\n**Current Target:** 1,800 words per week.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch1.jsonl:66-70 [score=0.0162 vector=0.6675 keyword=8.2791] ==========\nechnique**: Use the Pomodoro Technique to stay focused. For example:\\n     - **25 Minutes**: Write continuously for 25 minutes.\\n     - **5 Minutes**: Take a 5-minute break.\\n   - **Adjus"
+            }
+        },
+        {
+            "question": "What deadline should I aim for to submit my peer-reviewed draft to the local writing group?",
+            "answer": "April 25",
+            "difficulty": "easy",
+            "update_type": "deadline_extension",
+            "tests_retention_of": "extended deadline date for draft submission",
+            "conversation_references": [
+                "Deadline Management: Set April 20 deadline for peer-reviewed draft submission to local writing group.",
+                "Information Update: The April 20 deadline was extended to April 25 to accommodate additional peer review feedback."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original April 20 deadline instead of the extended April 25 date",
+            "source_chat_ids": {
+                "original_info": [
+                    86
+                ],
+                "updated_info": [
+                    168,
+                    170
+                ]
+            },
+            "rubric": [
+                "LLM response should state: April 25"
+            ],
+            "llm_response": "April 20",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch5.jsonl:1-6 [score=0.0160 vector=0.5806 keyword=8.3874] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried about the upcoming peer review on September 25, and I was wondering if you could help me prepare, considering Joseph and I"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "How much did I increase my weekly word count goal from the start until April 9?",
+            "answer": "I increased my weekly word count goal by 300 words, from 1,200 to 1,500 words.",
+            "difficulty": "easy",
+            "reasoning_type": "simple_comparison",
+            "sessions_required": 2,
+            "conversation_references": [
+                "chat_id: 22",
+                "chat_id: 126"
+            ],
+            "reasoning_steps": [
+                "Identify the initial weekly word count goal mentioned in the first session.",
+                "Identify the updated weekly word count goal mentioned in the later session.",
+                "Calculate the difference between the updated and initial weekly goals."
+            ],
+            "source_chat_ids": [
+                22,
+                126
+            ],
+            "rubric": [
+                "LLM response should state: costs 300 words",
+                "LLM response should state: from 1,200 to 1,500 words"
+            ],
+            "llm_response": "300 words (from 1,200 to 1,500 words)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:100-106 [score=0.0160 vector=0.6934 keyword=7.5866] ==========\ne newly written content.\\n  - **7 PM - 9 PM**: Write 500 new words.\\n\\n- **April 19 (Thursday)**:\\n  - **9 AM - 12 PM**: Incorporate feedback and write 500 new words.\\n  - **1 PM - 4 PM"
+            }
+        },
+        {
+            "question": "Considering the improvements I reported from Joseph's peer reviews, Amy's Zoom sessions, and the detailed critiques from beta readers, how should I prioritize balancing external feedback with my own vision to maximize overall writing progress?",
+            "answer": "You should first categorize and prioritize major recurring issues from all feedback sources, focusing on those that align with your core vision. Implement tentative changes in a separate draft, seek additional trusted opinions, and iteratively refine while tracking progress to maintain your unique voice and maximize improvement.",
+            "difficulty": "hard",
+            "reasoning_type": "strategic_synthesis",
+            "sessions_required": 4,
+            "conversation_references": [
+                "chat_id 12-15 (Joseph's peer review sessions and momentum)",
+                "chat_id 70-73 (Amy's Zoom peer review and dialogue clarity improvements)",
+                "chat_id 178-181 (Beta readers' detailed critiques and balancing feedback with vision)",
+                "chat_id 14 (User's commitment to structured sessions and expanding peer group)"
+            ],
+            "reasoning_steps": [
+                "Identify the specific improvements reported from Joseph's peer review sessions and Amy's Zoom sessions, noting the types of progress (e.g., draft quality, dialogue clarity).",
+                "Recognize the volume and nature of detailed critiques from beta readers and the user's concern about balancing their feedback with personal vision.",
+                "Synthesize the need to categorize feedback from multiple sources to detect overlapping major issues that impact writing quality.",
+                "Analyze how the user’s commitment to structured sessions and expanding peer groups can support iterative revisions and feedback loops.",
+                "Determine that prioritizing feedback that aligns with the user’s core vision while making tentative adjustments allows for maintaining authenticity and maximizing progress.",
+                "Incorporate the strategy of seeking additional trusted opinions post-adjustment to validate changes and refine further.",
+                "Conclude that tracking changes and reflecting on progress across all feedback sources ensures balanced integration of external input and personal goals."
+            ],
+            "source_chat_ids": [
+                12,
+                14,
+                15,
+                70,
+                71,
+                72,
+                73,
+                178,
+                179,
+                180,
+                181
+            ],
+            "rubric": [
+                "LLM response should state: categorize and prioritize major recurring issues from all feedback sources",
+                "LLM response should state: Implement tentative changes in a separate draft",
+                "seek additional trusted opinions",
+                "LLM response should state: iteratively refine while tracking progress to maintain your unique voice"
+            ],
+            "llm_response": "Categorize feedback, prioritize recurring issues mentioned by multiple readers, ensure suggestions align with your original vision and core themes, make tentative adjustments in isolated drafts, and validate changes with a mentor like Carla.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch3.jsonl:1-8 [score=0.0162 vector=0.6450 keyword=25.2274] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried about the tone adjustments Carla and I prioritized for those 3 key scenes on May 28, can you help me figure out if we're "
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm planning my editing schedule for the week. How would you suggest breaking up my work sessions?",
+            "preference_being_tested": "I prefer editing in short 30-minute bursts rather than marathon sessions to maintain focus and reduce burnout.",
+            "expected_compliance": "Response should recommend dividing editing work into shorter, manageable sessions rather than long continuous blocks, aligning with the user's approach to maintain focus and avoid burnout.",
+            "compliance_indicators": [
+                "suggests 30-minute or similarly short sessions",
+                "recommends breaks between sessions",
+                "avoids proposing long, uninterrupted editing periods",
+                "mentions pacing strategies that prevent fatigue"
+            ],
+            "non_compliance_signs": [
+                "recommends marathon or very long editing sessions",
+                "ignores session length and pacing",
+                "suggests continuous work without breaks",
+                "does not address session structuring"
+            ],
+            "difficulty": "medium",
+            "preference_type": "work_rhythm",
+            "source_chat_ids": [
+                50
+            ],
+            "rubric": [
+                "LLM response should contain: suggests 30-minute or similarly short sessions",
+                "LLM response should contain: avoids proposing long, uninterrupted editing periods"
+            ],
+            "llm_response": "Use the Pomodoro Technique (e.g., 25 minutes of work followed by a 5-minute break, or 30 minutes of work with a 10-minute break), rotate between different editing tasks (such as grammar, clarity, and tone), and take active or mindful breaks to prevent fatigue.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch1.jsonl:51-56 [score=0.0164 vector=0.6621 keyword=9.8000] ==========\nre out how to maintain this pace without burning out? ->-> 1,16\",\"id\":\"6d6537ec171c47f5905708a25f49422d\"}],\"role\":\"user\",\"id\":\"3bcd4ed887e6428c8a288a68601efc38\",\"metadata\":{},\"created_at\""
+            }
+        },
+        {
+            "question": "I'm about to start editing a draft and want to make the process efficient. How would you suggest I approach the editing steps?",
+            "preference_being_tested": "I prefer using AI-assisted editing tools for tone calibration rather than manual revisions to save time.",
+            "expected_compliance": "Response should incorporate or prioritize AI-assisted editing tools in the workflow for tone calibration, reflecting the user's preference for saving time through automation rather than relying solely on manual revisions.",
+            "compliance_indicators": [
+                "recommends starting with AI-assisted tools",
+                "mentions using AI tools to handle tone calibration",
+                "suggests minimizing manual revisions to save time",
+                "proposes a workflow that leverages AI editing capabilities"
+            ],
+            "non_compliance_signs": [
+                "only suggests manual editing steps",
+                "ignores AI-assisted tools for tone calibration",
+                "recommends fully manual revision process",
+                "does not address efficiency or automation in editing"
+            ],
+            "difficulty": "medium",
+            "preference_type": "tool usage",
+            "source_chat_ids": [
+                114,
+                116,
+                118
+            ],
+            "rubric": [
+                "LLM response should contain: recommends starting with AI-assisted toolss",
+                "LLM response should contain: mentions using AI tools to handle tone calibration"
+            ],
+            "llm_response": "Based on the provided context, the suggested efficient editing workflow is:\n\n1. **Initial Draft**: Write your draft using preferred tools.\n2. **AI Tool Edits**: Use AI tools (like Grammarly and Hemingway Editor) to catch basic errors and improve clarity.\n3. **Peer Review**: Have peers review the draft for feedback.\n4. **Refinement**: Make adjustments based on peer feedback and AI suggestions.\n5. **Find a Freelance Editor**: Research and contact potential freelance editors.\n6. **Final Review**: Hire a freelance editor for a final review to ensure high-quality output.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:32-36 [score=0.0150 vector=0.5376 keyword=4.8687] ==========\nnd time?\\n     - What are your rates?\\n\\n5. **Negotiate Terms**:\\n   - **Rate and Scope**: Discuss the rate and scope of the work. Be clear about what you expect in terms of the number of"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you summarize how my writing skills and confidence have developed through my learning and interactions over time?",
+            "ideal_summary": "Your journey to improve your writing skills began with a focus on foundational self-editing techniques, emphasizing reading widely, writing regularly, and learning grammar basics. You then honed in on grammar and sentence clarity, incorporating tools like Grammarly and practicing active voice and conciseness. Building on this, you leveraged your weekly script editing sessions with Michael by adopting structured feedback, targeted writing exercises, and analyzing published works to specifically improve dialogue. Later, your confidence received a significant boost after co-hosting a writing workshop, which you managed by thorough preparation and engagement strategies. To maintain momentum, you set clear goals, continued learning through courses and reading, practiced regularly, sought constructive feedback, tracked your progress, and expanded your network, all while nurturing a positive mindset. This progression reflects a comprehensive and evolving approach to developing your writing skills and confidence over time.",
+            "difficulty": "medium",
+            "summarization_type": "learning_journey",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                1,
+                3,
+                7,
+                9,
+                183,
+                241
+            ],
+            "key_elements_tested": [
+                "skill development",
+                "confidence building",
+                "practice and feedback",
+                "use of tools and resources",
+                "progression over time"
+            ],
+            "synthesis_required": "Integrating multiple phases of learning, practice, feedback, and confidence growth into a coherent narrative",
+            "source_chat_ids": [
+                1,
+                3,
+                7,
+                9,
+                183,
+                241
+            ],
+            "rubric": [
+                "LLM response should contain: Your journey began with a focus on foundational self-editing techniques, emphasizing reading widely, writing regularly, and learning grammar basics",
+                "LLM response should contain: you leveraged your weekly script editing sessions with Michael by adopting structured feedback",
+                "LLM response should contain: targeted writing exercises, and analyzing published works to specifically improve dialogue",
+                "LLM response should contain: your confidence received a significant boost after co-hosting a writing workshop, which you managed by thorough preparation and engagement strategies",
+                "LLM response should contain: you set clear goals, continued learning through courses and reading, practiced regularly, sought constructive feedback, tracked your progress, and expanded your network"
+            ],
+            "llm_response": "Improved readability (65 to 78 Flesch-Kincaid), reduced passive voice to 10% and filler words by 20%, boosted grammar accuracy by 10%, and grew confidence from 4/10 to 9/10 through draft completion, tool integration, and active peer networking.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch1.jsonl:70-70 [score=0.0162 vector=0.5322 keyword=7.1045] ==========\nng.\\n   - **Regular Practice**: Consistent practice and review can help you feel more comfortable with your writing skills.\\n\\n4. **Understanding of Feedback**:\\n   - **Clear Communicatio"
+            }
+        },
+        {
+            "question": "Can you summarize how my writing has progressed and the strategies I've used to improve it over time?",
+            "ideal_summary": "Your writing progress has shown notable development through several focused efforts and feedback cycles. Initially, peer reviews, especially with Amy, led to a 25% improvement in dialogue clarity, motivating you to maintain momentum by setting specific goals, using tools like Grammarly and Hemingway, and tracking progress with Google Docs and Scrivener. You then addressed passive voice reduction, decreasing it from 18% to 10% by applying Carla's editing checklist and actively rewriting sentences in active voice, supported by consistent peer feedback and writing tools. To enhance tone consistency, you leveraged Jasper AI for a 22% improvement and explored additional AI tools such as ProWritingAid and Grammarly Premium, combined with techniques like defining tone and iterative editing. Most recently, integrating ProWritingAid further improved your grammar accuracy by 10%, prompting consideration of supplementary resources like workshops, books, and peer reviews to continue advancing your writing skills. Throughout this journey, you have progressively refined your writing through a combination of feedback, targeted practice, tool usage, and strategic planning.",
+            "difficulty": "medium",
+            "summarization_type": "chronological_development",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                70,
+                71,
+                72,
+                73,
+                78,
+                79,
+                80,
+                81,
+                90,
+                91,
+                186,
+                187,
+                220,
+                221
+            ],
+            "key_elements_tested": [
+                "progress tracking",
+                "feedback incorporation",
+                "tool utilization",
+                "skill improvement",
+                "strategic planning"
+            ],
+            "synthesis_required": "Integrating multiple phases of writing improvement into a coherent narrative showing progression and cause-effect",
+            "source_chat_ids": [
+                70,
+                71,
+                72,
+                73,
+                78,
+                79,
+                80,
+                81,
+                90,
+                91,
+                186,
+                187,
+                220,
+                221
+            ],
+            "rubric": [
+                "LLM response should contain: peer reviews, especially with Amy, led to a 25% improvement in dialogue clarity, motivating you to maintain momentum by setting specific goals",
+                "LLM response should contain: addressed passive voice reduction, decreasing it from 18% to 10% by applying Carla's editing checklist and actively rewriting sentences in active voice",
+                "LLM response should contain: you leveraged Jasper AI for a 22% improvement and explored additional AI tools such as ProWritingAid and Grammarly Premium",
+                "LLM response should contain: integrating ProWritingAid further improved your grammar accuracy by 10%, prompting consideration of supplementary resources like workshops, books, and peer reviews to continue advancing your writing skills"
+            ],
+            "llm_response": "**Progress:** Completed a 30,000+ word final draft, improved Flesch-Kincaid readability (from 65 to 78), reduced passive voice (from 18% to 10%), and cut filler words by 20%. \n\n**Strategies:** Utilized editing tools (Grammarly, Readable.com, Scrivener, Google Docs), applied structural techniques (active voice, shorter sentences, outlines, scene cards), maintained consistent writing routines, incorporated peer/beta feedback, and managed writing anxiety with mindfulness practices (Headspace).",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:92-96 [score=0.0157 vector=0.5693 keyword=3.3666] ==========\n-up days to make up for any missed writing sessions.\\n\\n6. **Reflect and Plan**:\\n   - **Reflection**: Take time to reflect on what you've accomplished and what you've learned.\\n   - **Pl"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days are there between when I logged 3,600 words and my deadline to complete the full screenplay draft?",
+            "answer": "There are 43 days between when I logged 3,600 words on March 3 and my deadline to complete the screenplay draft on April 15.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "March 3: logged 3,600 words",
+                "April 15: screenplay draft deadline"
+            ],
+            "conversation_references": [
+                "Session 54: logged 3,600 words",
+                "Session 20: screenplay draft deadline"
+            ],
+            "calculation_required": "April 15 - March 3 = 43 days",
+            "source_chat_ids": {
+                "first_event": [
+                    54
+                ],
+                "second_event": [
+                    20
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 43 days",
+                "LLM response should state: from March 3 till April 15"
+            ],
+            "llm_response": "43 days (from March 3, 2024, to April 15, 2024)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch2.jsonl:106-106 [score=0.0156 vector=0.6929 keyword=6.7854] ==========\ne a significant milestone, especially given your background as a TV/film producer. Here are some tips to help you stay motivated and finish your 5,000-word draft:\\n\\n### Tips to Stay Mo"
+            }
+        },
+        {
+            "question": "How many days passed between when I started my 30-day editing challenge and when I completed the 15-day clarity editing challenge?",
+            "answer": "The 30-day editing challenge started on April 2, and the 15-day clarity editing challenge ran from May 10 to May 25, so 38 days passed between the start of the first challenge and the start of the second.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "April 2: start of 30-day editing challenge",
+                "May 10: start of 15-day clarity editing challenge"
+            ],
+            "conversation_references": [
+                "Session 1: 30-day editing challenge start",
+                "Session 2: 15-day clarity editing challenge completion"
+            ],
+            "calculation_required": "May 10 - April 2 = 38 days",
+            "source_chat_ids": {
+                "first_event": [
+                    88
+                ],
+                "second_event": [
+                    218
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 38 days",
+                "LLM response should state: from April 2 till May 10"
+            ],
+            "llm_response": "53 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_10_batch3.jsonl:42-44 [score=0.0160 vector=0.6343 keyword=8.3751] ==========\nting 30 writers and editors is a fantastic opportunity to expand your network and improve your writing skills. Here are some strategies to leverage this experience and get more feedback f"
+            }
+        }
+    ]
+}

@@ -1,0 +1,647 @@
+{
+    "abstention": [
+        {
+            "question": "What was discussed during the 10 AM meeting at the Montserrat Film Office on March 20?",
+            "ideal_response": "Based on the provided chat, there is no information related to the specific details of the 10 AM meeting at the Montserrat Film Office on March 20.",
+            "difficulty": "medium",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The meeting is mentioned only as a scheduling conflict without any agenda or discussion details.",
+            "plan_reference": "Batch 1, Bullet 19",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the specific details of the 10 AM meeting at the Montserrat Film Office on March 20"
+            ],
+            "llm_response": "Based on the retrieved context, there is no information provided about what was actually discussed during the meeting. The context only mentions that Crystal had a scheduled professional commitment to attend a 10:00 AM meeting at the Montserrat Film Office on March 20, 2024. \n\n**Concise Answer:**\nNot mentioned in the provided context.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-03-12.md:5-8 [score=0.0164 vector=0.5830 keyword=16.9274] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-03-12/family-movie-marathon-planning-and-recommendations.md]] name: family-movie-marathon-planning-and-recommendations description: Crystal, a TV/film producer from Montserr"
+            }
+        },
+        {
+            "question": "Can you share the recipe or ingredients for Emily’s homemade popcorn seasoning mix?",
+            "ideal_response": "Based on the provided chat, there is no information related to the detailed recipe or ingredients for Emily’s homemade popcorn seasoning mix.",
+            "difficulty": "hard",
+            "abstention_type": "missing_detail",
+            "why_unanswerable": "The seasoning mix is mentioned but no recipe or ingredient details are given.",
+            "plan_reference": "Batch 2, Bullet 9 and Batch 3, Bullet 4",
+            "rubric": [
+                "Based on the provided chat, there is no information related to the detailed recipe or ingredients for Emily’s homemade popcorn seasoning mix"
+            ],
+            "llm_response": "Based on the retrieved context, the specific recipe or ingredients for Emily's homemade popcorn seasoning mix are not provided. It is only described as a \"savory\" proprietary spice blend that she authored and contributed. \n\n**Not provided in the context (described only as a savory proprietary spice blend).**",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch2.jsonl:48-54 [score=0.0163 vector=0.4543 keyword=12.1183] ==========\nh for several servings)\\n\\n5. **Hot Chocolate (Inspired by Winter Movies)**\\n   - **Ingredients:** Cocoa powder, milk, sugar, and marshmallows.\\n   - **Preparation:** Heat milk and cocoa"
+            }
+        }
+    ],
+    "contradiction_resolution": [
+        {
+            "question": "Have I ever made a watchlist for family movie marathons before?",
+            "ideal_answer": "I noticed you've mentioned contradictory information about this. You said you have never made a watchlist for family movie marathons before, but you also have a goal to finalize a watchlist. Could you clarify which is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Experience making watchlists for family movie marathons",
+            "conversation_references": [
+                "Session 50: Never made a watchlist",
+                "Session 72: Goal to finalize a watchlist"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    50
+                ],
+                "second_statement": [
+                    72
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never made a watchlist for family movie marathons",
+                "LLM response should mention: you also have a goal to finalize a watchlist",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Based on the retrieved context, you stated: \"I'm kinda new to making watchlists for family movie marathons, so I've never done this before.\" \n\n**No, you have never done it before.**",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch1.jsonl:47-52 [score=0.0164 vector=0.6372 keyword=6.2076] ==========\nf54c9998cca305c9026b64\"}],\"role\":\"user\",\"id\":\"0d0cb98eef1647338df1707c660e836e\",\"metadata\":{},\"created_at\":\"2024-03-12T00:00:00\",\"finished_at\":null,\"usage\":null}\n{\"name\":\"assistant\",\"cont"
+            }
+        },
+        {
+            "question": "Have I ever invited Mason or Michael to join any family movie events?",
+            "ideal_answer": "I notice you've mentioned contradictory information about this. You said you have never invited Mason or Michael to any family movie events, but you also mentioned inviting Mason and Michael to a session where Mason confirmed and Michael declined. Which statement is correct?",
+            "difficulty": "clear",
+            "contradiction_type": "never_statement_violation",
+            "topic_questioned": "Invitations to Mason and Michael for family movie events",
+            "conversation_references": [
+                "Session 108: Never invited statement",
+                "Session 148: Invitation and responses"
+            ],
+            "tests_for": "LLM should detect contradiction and request clarification instead of giving definitive answer",
+            "source_chat_ids": {
+                "first_statement": [
+                    108
+                ],
+                "second_statement": [
+                    148
+                ]
+            },
+            "rubric": [
+                "LLM response should state: there is contradictory information",
+                "LLM response should mention: You said you have never invited Mason or Michael to any family movie events",
+                "LLM response should mention: you also mentioned inviting Mason and Michael to a session where Mason confirmed and Michael declined",
+                "LLM response should mention: which statement is correct?"
+            ],
+            "llm_response": "Yes, you have invited both Mason and Michael to family movie events, including the April 7 afternoon session and a May 12 virtual watch party.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch2.jsonl:54-54 [score=0.0161 vector=0.5542 keyword=6.7814] ==========\n:[{\"type\":\"text\",\"text\":\"Of course! Inviting Mason and Michael to your family movie events is a great idea. Here are some family-friendly movies that are suitable for ages 2 to 77 and are"
+            }
+        }
+    ],
+    "event_ordering": [
+        {
+            "question": "Can you walk me through the order in which I brought up different planning details for my movie marathons across our conversations in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned the planning details in this order: 1) Scheduling the movie marathon with snack and activity breaks for April 6-7, 2) Adjusting the schedule due to a family member's arrival on April 7 and shifting the start time, 3) Planning a movie marathon for May 11-12 including guest considerations and start time, 4) Discussing the streaming quality settings and snack budget for the May 11 event, 5) Reviewing the overall plan for the May 11-12 marathon including attendee count and outdoor screening logistics.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 5,
+            "conversation_references": [
+                "Session 20: Initial marathon scheduling with breaks",
+                "Session 122: Schedule adjustment for family arrival",
+                "Session 168: Planning marathon with guest and timing considerations",
+                "Session 170 & 172: Streaming quality and snack budget discussion",
+                "Session 224: Final review of marathon plan and attendee logistics"
+            ],
+            "ordering_tested": [
+                "1st: Initial scheduling with breaks",
+                "2nd: Schedule adjustment for arrival",
+                "3rd: Marathon planning with guests and timing",
+                "4th: Streaming quality and budget details",
+                "5th: Final plan review and attendee logistics"
+            ],
+            "source_chat_ids": [
+                20,
+                122,
+                168,
+                170,
+                172,
+                224
+            ],
+            "rubric": [
+                "Initial scheduling with breaks",
+                "Schedule adjustment for arrival",
+                "Marathon planning with guests and timing",
+                "Streaming quality and budget details",
+                "Final plan review and attendee logistics"
+            ],
+            "llm_response": "1. Selecting movies on existing subscriptions within a $100 budget\n2. Creating a watchlist for the first time\n3. Finalizing the watchlist and checking movie availability\n4. Renting \"Paddington 2\"\n5. Preparing themed snacks and activities",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-05-15.md:5-10 [score=0.0162 vector=0.6206 keyword=6.3385] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-05-15/family-movie-marathon-logistics-and-technical-setup.md]] name: family-movie-marathon-logistics-and-technical-setup description: Technical operations record for the May"
+            }
+        },
+        {
+            "question": "Can you walk me through the order in which I brought up different ideas and contributions related to my movie nights across our conversations, in order? Mention ONLY and ONLY five items.",
+            "answer": "You mentioned these ideas and contributions in this order: 1) Inviting close friends from college and considering their movie preferences, 2) Suggesting a specific movie choice that fits everyone's taste, 3) Mentioning a friend's suggestion for an animated movie and a snack contribution, 4) Discussing fun activities involving music and entertainment contributions from friends, 5) Highlighting the role of a playlist in enhancing a karaoke night and the close friendship dynamics involved, 6) Bringing up board games and a gift card as part of post-movie entertainment and appreciation.",
+            "difficulty": "medium",
+            "ordering_type": "mention_sequence",
+            "total_mentions": 6,
+            "conversation_references": [
+                "Session 14: Inviting friends and movie preferences",
+                "Session 16: Movie choice suggestion",
+                "Session 72: Animated movie suggestion and snack contribution",
+                "Session 182: Music and entertainment activities",
+                "Session 246: Playlist and friendship dynamics",
+                "Session 130: Board games and gift card"
+            ],
+            "ordering_tested": [
+                "Inviting friends and preferences",
+                "Movie choice suggestion",
+                "Animated movie and snack",
+                "Music and entertainment activities",
+                "Playlist and friendship dynamics",
+                "Board games and gift card"
+            ],
+            "source_chat_ids": [
+                14,
+                16,
+                72,
+                182,
+                246,
+                130
+            ],
+            "rubric": [
+                "Inviting friends and preferences",
+                "Movie choice suggestion",
+                "Animated movie and snack",
+                "Music and entertainment activities",
+                "Playlist and friendship dynamics",
+                "Board games and gift card"
+            ],
+            "llm_response": "1. Planning an April 6-7 family movie marathon and selecting \"Forrest Gump\" (March 12)\n2. Considering an outdoor movie night and rescheduling a craft session to accommodate Amy's rest (March 28)\n3. Postponing \"Avengers: Endgame\" and seeking nostalgic films after watching \"Coco\" (April 8)\n4. Inviting Lily and her parents and incorporating Mason's game night suggestion (May 3)\n5. Adding \"Coco\" and \"Wish\" soundtracks to the family playlist and establishing a monthly movie tradition (May 15)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch4.jsonl:54-58 [score=0.0151 vector=0.5000 keyword=3.9777] ==========\n   - **Why it fits:** Quick and easy to prepare, mini sandwiches can be arranged in a fun and magical way.\\n   - **How to Make:** Make mini sandwiches with deli meat, cheese, and veggies."
+            }
+        }
+    ],
+    "information_extraction": [
+        {
+            "question": "How far away did I say my parents live from me, and in which town?",
+            "answer": "You said my parents live 15 miles away in West Janethaven.",
+            "difficulty": "medium",
+            "question_type": "location_and_distance_recall",
+            "conversation_reference": "Turn 6: User mentions parents' location and distance",
+            "key_facts_tested": [
+                "distance: 15 miles",
+                "location: West Janethaven"
+            ],
+            "source_chat_ids": [
+                6
+            ],
+            "rubric": [
+                "LLM response should state: 15 miles away in West Janethaven"
+            ],
+            "llm_response": "15 miles away in West Janethaven",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch4.jsonl:58-58 [score=0.0155 vector=0.2329 keyword=3.5315] ==========\nsounds like a great plan. Reaching out to Lily and her parents to ask about their preferences and any dietary restrictions is a thoughtful step that will help ensure everyone feels comfor"
+            }
+        },
+        {
+            "question": "How did the shared interests between me and my partner influence the movie options you recommended for our evening?",
+            "answer": "You and your partner share a love for classic movies, which led me to suggest timeless classic films that would evoke nostalgic memories of your meeting at the film festival in Miami.",
+            "difficulty": "hard",
+            "question_type": "Relationship and Connection Context",
+            "conversation_reference": "User's mention of planning a movie night with partner Thomas and shared love for classic films; Assistant's recommendations of classic movies tied to their shared passion and meeting context",
+            "key_facts_tested": [
+                "partner's age and name",
+                "shared love for classic movies",
+                "meeting at a film festival in Miami on June 15, 2020",
+                "classic movie recommendations linked to their shared interests"
+            ],
+            "extraction_challenge": "LLM must integrate the user's relationship details with the assistant's tailored movie suggestions, connecting the partner's identity, shared interests, and meeting context to the recommended films",
+            "source_chat_ids": [
+                12,
+                13
+            ],
+            "rubric": [
+                "LLM response should state: You and your partner share a love for classic movies, which led me to suggest timeless classic films that would evoke nostalgic memories of your meeting at the film festival in Miami"
+            ],
+            "llm_response": "Your shared love for classic films and passion for cinema (having met at a film festival) led to the recommendation of timeless classic movies such as \"Casablanca,\" \"Gone with the Wind,\" \"It's a Wonderful Life,\" \"The Maltese Falcon,\" \"Singin' in the Rain,\" and \"Vertigo.\"",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch5.jsonl:12-16 [score=0.0159 vector=0.4363 keyword=6.2006] ==========\nn   - **Platform**: Amazon Prime Video, Google Play, Vudu\\n   - **Rating**: R\\n   - **Why**: This film follows Jesse and Celine, two strangers who meet on a train and decide to spend a ni"
+            }
+        }
+    ],
+    "instruction_following": [
+        {
+            "question": "What movies would you recommend for me to watch?",
+            "instruction_being_tested": "Always include platform availability details when I ask about movie options.",
+            "expected_compliance": "Response should include information about where each recommended movie can be watched or streamed.",
+            "compliance_indicators": [
+                "mention of streaming services",
+                "platform names listed",
+                "availability on specific apps or websites"
+            ],
+            "non_compliance_signs": [
+                "only movie titles given",
+                "no mention of where to watch",
+                "general movie descriptions without platform info"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "format_instruction",
+            "source_chat_ids": [
+                52
+            ],
+            "rubric": [
+                "LLM response should contain: mention of streaming services",
+                "LLM response should contain: platform names listed"
+            ],
+            "llm_response": "Based on the retrieved context, for your romantic date night with Thomas, the recommended movies are:\n- **\"The Notebook\"** (2004)\n- **\"Before Sunrise\"** (1995)\n- **\"Eternal Sunshine of the Spotless Mind\"** (2004)\n- **\"Love Actually\"** (2003)\n- **\"P.S. I Love You\"** (2007)",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch1.jsonl:1-9 [score=0.0157 vector=0.4878 keyword=3.1090] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried about finding the right movies for my kids, Francis and Michelle, so can you help me find something they'll both enjoy, co"
+            }
+        },
+        {
+            "question": "What snacks do you recommend for me to try?",
+            "instruction_being_tested": "Always confirm allergy information when I ask about snack options.",
+            "expected_compliance": "Response should include a confirmation or inquiry about any allergies before suggesting snack options.",
+            "compliance_indicators": [
+                "asking about allergies",
+                "confirming allergy details",
+                "checking for allergy concerns before recommending snacks"
+            ],
+            "non_compliance_signs": [
+                "directly suggesting snacks without any allergy check",
+                "ignoring potential allergy considerations",
+                "providing snack options without any related questions"
+            ],
+            "difficulty": "medium",
+            "instruction_type": "behavioral_instruction",
+            "source_chat_ids": [
+                104,
+                106
+            ],
+            "rubric": [
+                "LLM response should contain: asking about allergies",
+                "LLM response should contain: checking for allergy concerns before recommending snacks"
+            ],
+            "llm_response": "Based on the finalized $70 budget plan for your May 11-12 movie marathon, the recommended snacks are:\n\n*   **Colombian coffee and hot chocolate** \n*   **Tropical fruit platter** (mangoes, papayas, and bananas)\n*   **Popcorn with custom seasonings** (cinnamon sugar, caramel, or spicy chili-lime)\n*   **Churros** (served with chocolate sauce for dipping)\n*   **Homemade banana bread** \n\n*(Note: For other themed events, star-shaped cookies, blue punch, fruit skewers, mini sandwiches, and themed cupcakes from The Sweet Spot bakery were also recommended.)*",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch3.jsonl:1-8 [score=0.0152 vector=0.3618 keyword=2.2453] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What movies would you recommend for a family weekend like ours, considering Michelle's love for \\\"Coco\\\" and Francis enjoying \\\"Paddington 2"
+            }
+        }
+    ],
+    "knowledge_update": [
+        {
+            "question": "What is my snack budget for ordering themed treats for the movie marathon?",
+            "answer": "$75",
+            "difficulty": "easy",
+            "update_type": "budget_revision",
+            "tests_retention_of": "updated snack budget amount including themed drinks",
+            "conversation_references": [
+                "Snack Budget: Increased snack budget to $65 after deciding to order from The Sweet Spot bakery on Market Street for themed cupcakes.",
+                "The snack budget was adjusted to $75 after adding a special order of themed drinks for the marathon weekend."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original $65 budget instead of the updated $75 amount",
+            "source_chat_ids": {
+                "original_info": [
+                    66
+                ],
+                "updated_info": [
+                    102
+                ]
+            },
+            "rubric": [
+                "LLM response should state: $75"
+            ],
+            "llm_response": "$85",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch2.jsonl:48-54 [score=0.0155 vector=0.6685 keyword=4.0921] ==========\nh for several servings)\\n\\n5. **Hot Chocolate (Inspired by Winter Movies)**\\n   - **Ingredients:** Cocoa powder, milk, sugar, and marshmallows.\\n   - **Preparation:** Heat milk and cocoa "
+            }
+        },
+        {
+            "question": "How many cupcakes did I order for the event?",
+            "answer": "30 cupcakes",
+            "difficulty": "easy",
+            "update_type": "quantity_increase",
+            "tests_retention_of": "updated number of cupcakes ordered",
+            "conversation_references": [
+                "Snack Preparation: Used Emily’s popcorn seasoning recipe and ordered 24 cupcakes from The Sweet Spot, costing $58 total, well received by guests.",
+                "The number of cupcakes ordered increased to 30 after Emily’s recipe proved very popular with guests."
+            ],
+            "potential_confusion": "LLM might incorrectly recall the original order of 24 cupcakes instead of the updated 30 cupcakes",
+            "source_chat_ids": {
+                "original_info": [
+                    132
+                ],
+                "updated_info": [
+                    156
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 30 cupcakes"
+            ],
+            "llm_response": "20 cupcakes",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-05-15/family-movie-marathon-logistics-and-technical-setup.md:12-38 [score=0.0161 vector=0.3760 keyword=3.5051] ==========\n## Operational Schedules & Attendance\n\n- **May 11–12 Movie Marathon Execution**: The event scheduled a start time of 2:00 PM on May 11 after a request by Am"
+            }
+        }
+    ],
+    "multi_session_reasoning": [
+        {
+            "question": "How many unique movies have I planned to watch across all my family movie marathons, considering the titles I mentioned for April 6-7 and April 8?",
+            "answer": "13 unique movies",
+            "difficulty": "medium",
+            "reasoning_type": "categorized_aggregation",
+            "sessions_required": 4,
+            "conversation_references": [
+                "18",
+                "56-59",
+                "110-115"
+            ],
+            "reasoning_steps": [
+                "Identify the 5 movies planned for April 6-7 from the first session.",
+                "List the 8 movies mentioned in the watchlist for April 6-7 in the second session.",
+                "Extract the 5 recommended movies for April 8 from the later sessions.",
+                "Combine all movie titles from these sessions and count unique titles, avoiding duplicates."
+            ],
+            "source_chat_ids": [
+                18,
+                56,
+                57,
+                58,
+                59,
+                110,
+                111,
+                112,
+                113,
+                114,
+                115
+            ],
+            "rubric": [
+                "LLM response should state: 13 unique movies"
+            ],
+            "llm_response": "17",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch2.jsonl:1-8 [score=0.0159 vector=0.6230 keyword=8.1122] ==========\n{\"name\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"I'm kinda worried that my watchlist for the family movie marathon on April 6-7 might not be finalized yet, so can you help me figure out if "
+            }
+        },
+        {
+            "question": "Considering my current streaming subscriptions, snack budget for a family movie weekend, and past rental savings, how can I optimize my total monthly entertainment spending while maximizing simultaneous streaming and exclusive content access?",
+            "answer": "To optimize your monthly entertainment spending, maintain Netflix and Disney+ subscriptions for simultaneous streaming and family-friendly content, add HBO Max only if exclusive shows justify the extra cost, and use individual rentals like for \"Paddington 2\" to save money instead of subscribing to additional monthly plans. Allocate your snack budget within $65 for themed treats without increasing overall costs. This balances content variety, device access, and cost-efficiency.",
+            "difficulty": "hard",
+            "reasoning_type": "strategic_synthesis",
+            "sessions_required": 4,
+            "conversation_references": [
+                "chat_id 26: User's current subscriptions and HBO Max consideration",
+                "chat_id 66: Family movie weekend snack budget and streaming needs",
+                "chat_id 142: User's past rental savings experience",
+                "chat_id 27: Cost and content analysis of adding HBO Max"
+            ],
+            "reasoning_steps": [
+                "Identify current monthly costs from Netflix and Disney+ subscriptions and potential addition of HBO Max.",
+                "Analyze the snack budget increase for the family movie weekend and ensure it fits within overall entertainment spending.",
+                "Incorporate the user's past strategy of saving money by renting movies individually instead of subscribing to additional monthly plans.",
+                "Evaluate simultaneous streaming capabilities across platforms to maximize device access without extra subscriptions.",
+                "Synthesize these factors to recommend a balanced approach that maximizes exclusive content access and device flexibility while minimizing total monthly expenses."
+            ],
+            "source_chat_ids": [
+                26,
+                27,
+                66,
+                142
+            ],
+            "rubric": [
+                "LLM response should state: maintain Netflix and Disney+ subscriptions for simultaneous streaming and family-friendly content",
+                "LLM response should state: maintain HBO Max only if exclusive shows justify the extra cost",
+                "LLM response should state: use individual rentals like for \"Paddington 2\" to save money instead of subscribing to additional monthly plans",
+                "LLM response should state: Allocate your snack budget within $65 for themed treats without increasing overall costs"
+            ],
+            "llm_response": "Decline HBO Max to stay within the $100 budget, prioritize existing Netflix/Disney+ titles over $3.99 Amazon rentals, upgrade to 200 Mbps internet ($20/month) for simultaneous 4K streaming, and allocate $50 for snacks.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch3.jsonl:33-38 [score=0.0163 vector=0.5757 keyword=17.8299] ==========\nwhere I saved $3.99 by renting instead of subscribing to Amazon Prime monthly plan? ->-> 3,14\",\"id\":\"4f18c80ed5eb4bd695bed5e61e7c45e6\"}],\"role\":\"user\",\"id\":\"70c2c11970d243d4bc374820b32ff"
+            }
+        }
+    ],
+    "preference_following": [
+        {
+            "question": "I'm planning a movie night for my family. Can you suggest some good options we might all enjoy?",
+            "preference_being_tested": "I prioritize movies with positive family reviews and avoid those with more than 10% negative audience ratings to ensure enjoyment.",
+            "expected_compliance": "Response should recommend movies that have positive family feedback and low negative audience ratings, aligning with the user's desire for enjoyable family-friendly films.",
+            "compliance_indicators": [
+                "mentions family-friendly movies",
+                "avoids recommending movies with high negative audience ratings",
+                "references audience or family reviews positively",
+                "suggests titles similar to previously liked family movies"
+            ],
+            "non_compliance_signs": [
+                "recommends movies with poor family reviews",
+                "includes movies with high negative audience ratings",
+                "ignores family suitability in recommendations",
+                "suggests movies known for mixed or negative audience feedback"
+            ],
+            "difficulty": "medium",
+            "preference_type": "decision_criteria",
+            "source_chat_ids": [
+                92
+            ],
+            "rubric": [
+                "LLM response should contain: mentions family-friendly movies",
+                "LLM response should contain: references audience or family reviews positively"
+            ],
+            "llm_response": "The Lion King, Moana, Coco, Encanto, The Incredibles, Zootopia, and Paddington",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch1.jsonl:9-16 [score=0.0162 vector=0.4766 keyword=5.3521] ==========\nng that can bring a smile to everyone's face and maybe spark some good conversations. Any classics or hidden gems you can suggest?\",\"id\":\"f6c237bf844149e9badb99751cf657d9\"}],\"role\":\"user\","
+            }
+        },
+        {
+            "question": "Can you suggest some movies that would be good for Michelle to watch?",
+            "preference_being_tested": "I prioritize movies with language options and subtitles to support Michelle’s bilingual learning in English and Spanish.",
+            "expected_compliance": "Response should include movies that offer multiple language options and subtitles, supporting bilingual learning in English and Spanish.",
+            "compliance_indicators": [
+                "mentions movies with language options",
+                "includes availability of subtitles",
+                "recommends titles suitable for bilingual learning",
+                "acknowledges both English and Spanish language support"
+            ],
+            "non_compliance_signs": [
+                "recommends movies without language options or subtitles",
+                "ignores bilingual aspect",
+                "suggests movies only in one language without subtitles",
+                "does not address language or subtitle features"
+            ],
+            "difficulty": "medium",
+            "preference_type": "content_features",
+            "source_chat_ids": [
+                200
+            ],
+            "rubric": [
+                "LLM response should contain: mentions movies with language options",
+                "LLM response should contain: includes availability of subtitles"
+            ],
+            "llm_response": "Based on the retrieved context, suitable movie suggestions for Michelle include:\n\n\"Coco,\" \"Moana,\" \"Zootopia,\" \"Encanto,\" \"Inside Out,\" \"The Incredibles,\" \"Up,\" \"Turning Red,\" \"Onward,\" \"Strange World,\" \"The One and Only Ivan,\" \"Frozen,\" \"The Little Mermaid,\" \"Beauty and the Beast,\" \"Sing,\" \"Tangled,\" \"Despicable Me,\" \"Trolls,\" \"The Lion King,\" \"Soul,\" and \"Paddington 2.\"",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch2.jsonl:38-42 [score=0.0162 vector=0.4976 keyword=6.1786] ==========\nilm about a young boy discovering his unique powers within a family of extraordinary abilities.\\n\\n6. **\\\"The Incredibles\\\"** - Available on Disney+\\n   - **Audience Rating:** 97% on Rott"
+            }
+        }
+    ],
+    "summarization": [
+        {
+            "question": "Can you give me a summary of how I planned and organized my family movie events and related activities over the past few months?",
+            "ideal_summary": "Over the course of several conversations, you planned multiple family movie events with careful consideration of participants, timing, and preferences. Initially, you sought movie recommendations suitable for young children with differing ages, focusing on adventure, comedy, and educational themes to engage both toddlers and older kids. Later, you coordinated a family weekend in early April, adjusting movie choices to accommodate guests who preferred quieter films in the evening, and created a detailed viewing schedule balancing fun and relaxation. You also explored ways to save money on movie rentals, comparing rental costs versus subscription fees and identifying strategies like using discount codes and library resources. Finally, you organized a family-friendly movie marathon in May, factoring in guests' schedules and dietary preferences, planning themed snacks within a budget, and ensuring smooth streaming quality. Throughout, your planning evolved to balance entertainment, budget, and guest needs, resulting in well-structured, enjoyable movie experiences.",
+            "difficulty": "medium",
+            "summarization_type": "chronological_development",
+            "bullet_points_covered": 5,
+            "conversation_sessions": [
+                0,
+                1,
+                2,
+                62,
+                63,
+                168,
+                169,
+                170,
+                171,
+                172,
+                173
+            ],
+            "key_elements_tested": [
+                "event planning progression",
+                "movie selection criteria",
+                "budget and cost-saving strategies",
+                "schedule coordination",
+                "guest preferences and accommodations"
+            ],
+            "synthesis_required": "Integrating multiple planning stages and considerations into a coherent narrative showing evolution and adaptation",
+            "source_chat_ids": [
+                0,
+                1,
+                2,
+                62,
+                63,
+                168,
+                169,
+                170,
+                171,
+                172,
+                173
+            ],
+            "rubric": [
+                "LLM response should contain: you sought movie recommendations suitable for young children with differing ages, focusing on adventure, comedy, and educational themes to engage both toddlers and older kids",
+                "LLM response should contain: you coordinated a family weekend in early April, adjusting movie choices to accommodate guests who preferred quieter films in the evening",
+                "LLM response should contain: You also explored ways to save money on movie rentals, comparing rental costs versus subscription fees",
+                "LLM response should contain: you organized a family-friendly movie marathon in May, factoring in guests' schedules and dietary preferences"
+            ],
+            "llm_response": "Over the past few months, you organized monthly family movie marathons (April, May, and an upcoming June event) by enforcing a strict 4-hour weekend planning protocol to balance professional deadlines. Your organization encompassed:\n\n*   **Content & Activities:** Curating PG-rated, educational, and culturally diverse animated films (with bilingual subtitles), alongside interactive activities like arts and crafts, board games, and karaoke.\n*   **Logistics & Tech:** Utilizing a home theater (120-inch screen, Dolby Atmos, blackout curtains) and outdoor projector setups, enforcing a 65-decibel outdoor audio limit, and hosting virtual guests via Teleparty.\n*   **Budget & Catering:** Managing strict $75–$85 snack budgets featuring themed, allergy-safe (nut/gluten/dairy-free) treats sourced from local vendors like The Sweet Spot bakery and Market Street. \n\n**Concise Summary:** \nOrganized monthly family movie marathons featuring curated educational films, strict allergy-safe snack budgets, home theater/outdoor tech setups, and interactive activities, all managed via a 4-hour weekend planning protocol.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch4.jsonl:46-51 [score=0.0146 vector=0.4683 keyword=7.2704] ==========\nideas within your $30 budget:\\n\\n- **Star-Shaped Cookies**\\n- **Blue Punch**\\n- **Popcorn with Custom Seasonings**\\n- **Fruit Skewers**\\n- **Mini Sandwiches**\\n\\nEnjoy your outdoor movie "
+            }
+        },
+        {
+            "question": "Can you give me a summary of what happened with the project?",
+            "ideal_summary": "The project started with initial planning and resource gathering, followed by the main development phase where key tasks were completed. Finally, the project moved into testing and review to ensure everything met the requirements.",
+            "difficulty": "easy",
+            "summarization_type": "basic_development_summary",
+            "bullet_points_covered": 3,
+            "conversation_sessions": 3,
+            "key_elements_tested": [
+                "basic timeline overview",
+                "simple fact combination",
+                "clear narrative flow"
+            ],
+            "synthesis_required": "Combining straightforward details from multiple points into a brief summary",
+            "source_chat_ids": [
+                4,
+                9,
+                13
+            ],
+            "rubric": [
+                "LLM response should contain: The project started with initial planning and resource gathering",
+                "LLM response should contain: initial planning and resource gathering followed by the main development phase where key tasks were completed",
+                "LLM response should contain: the project moved into testing and review to ensure everything met the requirements"
+            ],
+            "llm_response": "The project involved the successful planning and execution of a May 11-12 family movie marathon for 18 attendees, featuring curated films, an $85 themed snack budget, outdoor and virtual screenings, and home theater upgrades, followed by the initiation of planning for a subsequent event on June 15.",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch3.jsonl:42-46 [score=0.0136 vector=0.2172 keyword=2.0705] ==========\nk Break\\n  - Banana bread\\n  - Cupcakes from The Sweet Spot\\n  - Dessert bars\\n- **11:45 AM - 1:15 PM:** \\\"Spirit: Stallion of the Cimarron\\\" (PG)\\n\\n#### Day 3\\n- **10:00 AM - 11:30 AM:*"
+            }
+        }
+    ],
+    "temporal_reasoning": [
+        {
+            "question": "How many days passed between my meeting at the Montserrat Film Office and when I finished watching all the movies despite the nap delay?",
+            "answer": "11 days passed between the meeting at Montserrat Film Office on March 20 and completing all the movies on April 6 despite the 2-hour nap delay.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "March 20: meeting at Montserrat Film Office",
+                "April 6 afternoon: completed watching movies despite nap delay"
+            ],
+            "conversation_references": [
+                "Session 1: Planning watchlist with meeting on March 20",
+                "Session 2: Completing movies on April 6 with nap delay"
+            ],
+            "calculation_required": "April 6 - March 20 = 17 days",
+            "source_chat_ids": {
+                "first_event": [
+                    46
+                ],
+                "second_event": [
+                    154
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 17 days",
+                "LLM response should state: from March 20 till April 6"
+            ],
+            "llm_response": "17 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== daily/2024-03-12.md:5-8 [score=0.0162 vector=0.5132 keyword=12.2233] ==========\n<!-- notes:auto -->\n\n- [[daily/2024-03-12/family-movie-marathon-planning-and-recommendations.md]] name: family-movie-marathon-planning-and-recommendations description: Crystal, a TV/film producer from Montserr"
+            }
+        },
+        {
+            "question": "How many days are there between when I need to finalize my movie list for the family weekend and when Mason suggested adding the game night?",
+            "answer": "There are 6 days between finalizing the movie list by May 5 and Mason's suggestion to add the game night on May 11.",
+            "difficulty": "easy",
+            "temporal_type": "duration_calculation",
+            "time_points": [
+                "May 5: finalize movie list",
+                "May 11: game night suggested"
+            ],
+            "conversation_references": [
+                "Session 3: finalizing movie list",
+                "Session 3: game night suggestion"
+            ],
+            "calculation_required": "May 11 - May 5 = 6 days",
+            "source_chat_ids": {
+                "first_event": [
+                    208
+                ],
+                "second_event": [
+                    208
+                ]
+            },
+            "rubric": [
+                "LLM response should state: 6 days",
+                "LLM response should state: from May 5 till May 11"
+            ],
+            "llm_response": "6 days",
+            "_metadata": {
+                "search_hits": 15,
+                "search_context_preview": "========== session/dialog/beam_100K_14_batch4.jsonl:46-51 [score=0.0164 vector=0.6943 keyword=17.2362] ==========\nideas within your $30 budget:\\n\\n- **Star-Shaped Cookies**\\n- **Blue Punch**\\n- **Popcorn with Custom Seasonings**\\n- **Fruit Skewers**\\n- **Mini Sandwiches**\\n\\nEnjoy your outdoor movie"
+            }
+        }
+    ]
+}
