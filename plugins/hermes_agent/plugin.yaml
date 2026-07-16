@@ -2,5 +2,3 @@ name: reme
 version: 0.1.0
 description: "ReMe file-native long-term memory for Hermes Agent."
 pip_dependencies: []
-hooks:
-  - on_session_switch

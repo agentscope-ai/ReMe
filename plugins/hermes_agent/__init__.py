@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
 import os
+import queue
 import re
 import tempfile
+import threading
 import time
 
 from pathlib import Path
@@ -23,8 +26,10 @@ _CONFIG_FILENAME = "reme.json"
 _DEFAULT_CONFIG: dict[str, Any] = {
     "endpoint": "http://127.0.0.1:2333",
     "request_timeout": 600.0,
+    "recall_timeout": 5.0,
     "health_timeout": 2.0,
     "health_retry_seconds": 30.0,
+    "shutdown_timeout": 30.0,
     "recall_limit": 5,
 }
 _NON_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
@@ -86,14 +91,24 @@ class ReMeMemoryProvider(MemoryProvider):
     def __init__(self) -> None:
         self._client: ReMeHttpClient | None = None
         self._endpoint = str(_DEFAULT_CONFIG["endpoint"])
+        self._recall_timeout = float(_DEFAULT_CONFIG["recall_timeout"])
         self._health_timeout = float(_DEFAULT_CONFIG["health_timeout"])
         self._health_retry_seconds = float(_DEFAULT_CONFIG["health_retry_seconds"])
+        self._shutdown_timeout = float(_DEFAULT_CONFIG["shutdown_timeout"])
         self._recall_limit = int(_DEFAULT_CONFIG["recall_limit"])
         self._service_available = False
         self._next_health_probe = 0.0
+        self._next_recall_attempt = 0.0
+        self._next_write_attempt = 0.0
         self._session_id = ""
         self._profile_id = "default"
         self._write_enabled = True
+        self._accept_writes = True
+        self._write_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self._write_thread: threading.Thread | None = None
+        self._write_thread_lock = threading.Lock()
+        self._shutdown_started = False
+        self._atexit_registered = False
 
     @property
     def name(self) -> str:
@@ -111,11 +126,16 @@ class ReMeMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         """Load profile configuration and probe ReMe without blocking startup."""
+        with self._write_thread_lock:
+            if self._write_thread is not None and self._write_thread.is_alive():
+                raise RuntimeError("Cannot reinitialize ReMe while its previous writer is still running")
         hermes_home = str(kwargs.get("hermes_home") or "") or None
         config = _load_config(hermes_home)
         self._endpoint = str(config["endpoint"])
+        self._recall_timeout = _positive_float(config, "recall_timeout")
         self._health_timeout = _positive_float(config, "health_timeout")
         self._health_retry_seconds = _positive_float(config, "health_retry_seconds")
+        self._shutdown_timeout = _positive_float(config, "shutdown_timeout")
         self._recall_limit = _positive_int(config, "recall_limit")
         self._session_id = str(session_id or "")
         self._profile_id = str(kwargs.get("agent_identity") or "default")
@@ -123,6 +143,15 @@ class ReMeMemoryProvider(MemoryProvider):
         self._client = ReMeHttpClient(self._endpoint, timeout=_positive_float(config, "request_timeout"))
         self._service_available = False
         self._next_health_probe = 0.0
+        self._next_recall_attempt = 0.0
+        self._next_write_attempt = 0.0
+        self._accept_writes = True
+        self._write_queue = queue.Queue()
+        self._write_thread = None
+        self._shutdown_started = False
+        if not self._atexit_registered:
+            atexit.register(self._atexit_shutdown)
+            self._atexit_registered = True
 
         if not self._ensure_service(force=True):
             logger.warning(
@@ -168,19 +197,6 @@ class ReMeMemoryProvider(MemoryProvider):
             if os.path.exists(tmp_name):
                 os.unlink(tmp_name)
 
-    def get_status_config(self, provider_config: dict[str, Any]) -> dict[str, Any]:
-        """Expose a live connection summary through `hermes memory status`."""
-        del provider_config
-        config = _load_config()
-        endpoint = str(config["endpoint"])
-        try:
-            client = ReMeHttpClient(endpoint, timeout=_positive_float(config, "request_timeout"))
-            response = client.health(timeout=_positive_float(config, "health_timeout"))
-            answer = str(response.get("answer") or "healthy")
-            return {"endpoint": endpoint, "status": answer}
-        except (ReMeServiceError, ValueError) as exc:
-            return {"endpoint": endpoint, "status": f"unavailable: {exc}"}
-
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """Automatic recall and capture add no model-visible tool schemas."""
         return []
@@ -189,13 +205,18 @@ class ReMeMemoryProvider(MemoryProvider):
         """Recall relevant memory before Hermes sends a turn to the model."""
         del session_id
         query = str(query or "").strip()
-        if not query or not self._ensure_service():
+        if not query or time.monotonic() < self._next_recall_attempt or not self._ensure_service():
             return ""
         assert self._client is not None
         try:
-            response = self._client.call("search", {"query": query, "limit": self._recall_limit})
+            response = self._client.call(
+                "search",
+                {"query": query, "limit": self._recall_limit},
+                timeout=self._recall_timeout,
+            )
         except ReMeServiceError as exc:
-            self._mark_unavailable("retrieval", exc)
+            self._next_recall_attempt = time.monotonic() + self._health_retry_seconds
+            logger.warning("ReMe retrieval failed at %s: %s", self._endpoint, exc)
             return ""
         answer = response.get("answer")
         return answer.strip() if isinstance(answer, str) else ""
@@ -208,7 +229,7 @@ class ReMeMemoryProvider(MemoryProvider):
         session_id: str = "",
         messages: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
-        """Record one completed turn; Hermes dispatches this method off-thread."""
+        """Queue one completed turn without blocking Hermes on ReMe's LLM."""
         del messages
         user = str(user_content or "").strip()
         assistant = str(assistant_content or "").strip()
@@ -218,9 +239,9 @@ class ReMeMemoryProvider(MemoryProvider):
         if not routed_session:
             logger.warning("ReMe skipped a completed turn because Hermes supplied no session id")
             return
-        if not self._ensure_service():
+        if not self._accept_writes:
             logger.warning(
-                "ReMe did not record completed turn for session %s because the service is unavailable",
+                "ReMe did not record completed turn for session %s because the provider is shutting down",
                 _scoped_session_id(self._profile_id, routed_session),
             )
             return
@@ -232,13 +253,9 @@ class ReMeMemoryProvider(MemoryProvider):
                 {"name": "assistant", "role": "assistant", "content": assistant},
             ],
         }
-        assert self._client is not None
-        try:
-            self._client.call("auto_memory", payload)
-        except ReMeServiceError as exc:
-            self._mark_unavailable("recording", exc)
+        if not self._enqueue_write(payload):
             logger.warning(
-                "ReMe did not record completed turn for session %s",
+                "ReMe did not record completed turn for session %s because the provider is shutting down",
                 payload["session_id"],
             )
 
@@ -257,10 +274,105 @@ class ReMeMemoryProvider(MemoryProvider):
             self._session_id = str(new_session_id)
 
     def shutdown(self) -> None:
-        """Release provider state after Hermes drains pending writes."""
-        self._client = None
+        """Drain queued writes for a bounded interval, then release state."""
+        with self._write_thread_lock:
+            if self._shutdown_started:
+                return
+            self._shutdown_started = True
+            self._accept_writes = False
+            thread = self._write_thread
+            if thread is not None:
+                self._write_queue.put(None)
+        if thread is not None:
+            thread.join(timeout=self._shutdown_timeout)
+            if thread.is_alive():
+                abandoned = self._discard_queued_writes()
+                logger.warning(
+                    "ReMe shutdown timed out after %.1fs; abandoned %d queued write(s) "
+                    "and the in-flight write may not finish before process exit",
+                    self._shutdown_timeout,
+                    abandoned,
+                )
+            else:
+                self._client = None
+        else:
+            self._client = None
         self._service_available = False
         self._next_health_probe = 0.0
+
+    def _atexit_shutdown(self) -> None:
+        try:
+            self.shutdown()
+        except Exception as exc:  # pragma: no cover - interpreter teardown safety
+            logger.debug("ReMe atexit shutdown failed: %s", exc)
+
+    def _discard_queued_writes(self) -> int:
+        abandoned = 0
+        while True:
+            try:
+                payload = self._write_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                if payload is not None:
+                    abandoned += 1
+            finally:
+                self._write_queue.task_done()
+        self._write_queue.put(None)
+        return abandoned
+
+    def _enqueue_write(self, payload: dict[str, Any]) -> bool:
+        with self._write_thread_lock:
+            if not self._accept_writes:
+                return False
+            if self._write_thread is None:
+                self._write_thread = threading.Thread(
+                    target=self._write_loop,
+                    args=(self._write_queue,),
+                    daemon=True,
+                    name="reme-memory-writer",
+                )
+                self._write_thread.start()
+            self._write_queue.put(payload)
+            return True
+
+    def _write_loop(self, write_queue: queue.Queue[dict[str, Any] | None]) -> None:
+        try:
+            while True:
+                payload = write_queue.get()
+                try:
+                    if payload is None:
+                        return
+                    self._record_payload(payload)
+                finally:
+                    write_queue.task_done()
+        finally:
+            if not self._accept_writes:
+                self._client = None
+
+    def _record_payload(self, payload: dict[str, Any]) -> None:
+        if time.monotonic() < self._next_write_attempt:
+            logger.warning(
+                "ReMe did not record completed turn for session %s because writes are cooling down",
+                payload["session_id"],
+            )
+            return
+        if not self._ensure_service():
+            logger.warning(
+                "ReMe did not record completed turn for session %s because the service is unavailable",
+                payload["session_id"],
+            )
+            return
+        assert self._client is not None
+        try:
+            self._client.call("auto_memory", payload)
+        except ReMeServiceError as exc:
+            self._next_write_attempt = time.monotonic() + self._health_retry_seconds
+            logger.warning("ReMe recording failed at %s: %s", self._endpoint, exc)
+            logger.warning(
+                "ReMe did not record completed turn for session %s",
+                payload["session_id"],
+            )
 
     def _ensure_service(self, *, force: bool = False) -> bool:
         if self._client is None:

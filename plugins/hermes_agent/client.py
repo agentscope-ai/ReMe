@@ -62,8 +62,8 @@ class ReMeHttpClient:
             raise ReMeServiceError("ReMe returned invalid JSON") from exc
         if not isinstance(result, dict):
             raise ReMeServiceError("ReMe returned a non-object response")
-        if result.get("success") is False:
-            raise ReMeServiceError(str(result.get("answer") or "ReMe action failed"))
+        if result.get("success") is not True:
+            raise ReMeServiceError(str(result.get("answer") or "ReMe action did not report success"))
         return result
 
     def health(self, *, timeout: float) -> dict[str, Any]:
@@ -71,6 +71,6 @@ class ReMeHttpClient:
         result = self.call("health_check", timeout=timeout)
         metadata = result.get("metadata")
         health = metadata.get("health") if isinstance(metadata, dict) else None
-        if isinstance(health, dict) and health.get("healthy") is False:
-            raise ReMeServiceError("ReMe reported unhealthy components")
+        if not isinstance(health, dict) or health.get("healthy") is not True:
+            raise ReMeServiceError("ReMe did not report a healthy component snapshot")
         return result

@@ -55,8 +55,10 @@ The file supports these optional settings:
 {
   "endpoint": "http://127.0.0.1:2333",
   "request_timeout": 600.0,
+  "recall_timeout": 5.0,
   "health_timeout": 2.0,
   "health_retry_seconds": 30.0,
+  "shutdown_timeout": 30.0,
   "recall_limit": 5
 }
 ```
@@ -68,11 +70,15 @@ configured. Starting a Hermes session performs a fresh endpoint health check.
 
 - `prefetch` calls ReMe `search` and returns only its recalled text. Hermes wraps
   that text in its protected memory-context block.
-- `sync_turn` sends the completed user/assistant turn to ReMe `auto_memory` with
-  a filename-safe ID derived from the Hermes profile and conversation.
+- `sync_turn` queues the completed user/assistant turn for a serial background
+  writer, which calls ReMe `auto_memory` with a filename-safe ID derived from
+  the Hermes profile and conversation.
 - Cron, flush, and subagent contexts do not write conversational memory.
 - A failed health check disables recall and recording until the retry cooldown
-  expires. Recall returns no context; a skipped or failed recording is logged as
-  a warning instead of blocking the Hermes conversation loop.
-- `shutdown` releases provider state; ReMe remains an independently managed
-  service.
+  expires. Retrieval and recording failures use independent cooldowns, so one
+  action cannot disable the other while the ReMe service remains healthy.
+- Recall uses its own short timeout so a slow ReMe search cannot stall the
+  Hermes model call for the longer automatic-memory timeout.
+- `shutdown` gives queued writes a bounded drain interval; ReMe remains an
+  independently managed service. An idempotent process-exit hook uses the same
+  drain path when a Hermes surface does not call provider shutdown directly.
