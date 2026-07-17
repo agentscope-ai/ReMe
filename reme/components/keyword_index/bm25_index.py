@@ -21,6 +21,7 @@ import math
 import pickle
 import re
 from collections import Counter
+from collections.abc import KeysView
 from pathlib import Path
 
 import numpy as np
@@ -96,7 +97,7 @@ class BM25Index(BaseKeywordIndex):
     @property
     def n_docs(self) -> int:
         """Number of live (non-deleted) documents."""
-        return 0 if self._deleted.size == 0 else int((~self._deleted).sum())
+        return len(self._doc_id_to_idx)
 
     @property
     def total_len(self) -> int:
@@ -108,6 +109,11 @@ class BM25Index(BaseKeywordIndex):
         """Average length of live documents, used for BM25 length normalization."""
         n = self.n_docs
         return self.total_len / n if n > 0 else 0.0
+
+    @property
+    def document_ids(self) -> KeysView[str]:
+        """Return live document IDs without materializing per-document token metadata."""
+        return self._doc_id_to_idx.keys()
 
     @property
     def doc_meta(self) -> dict[str, dict]:

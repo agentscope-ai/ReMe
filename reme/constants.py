@@ -14,3 +14,7 @@ TRUNCATION_NOTICE_MARKER = "<<TRUNCATION_NOTICE>>"
 # read_image step: oversized images above this threshold return path & metadata
 # only (no base64) to keep LLM context budgets safe.
 DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+# Background content-processing jobs skip files above this size. File watchers
+# and catalogs still track them so deletes and later size reductions are seen.
+DEFAULT_MAX_FILE_BYTES = 20 * 1024 * 1024

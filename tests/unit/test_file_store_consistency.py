@@ -3,6 +3,8 @@
 # pylint: disable=protected-access
 
 import asyncio
+import base64
+import json
 import os
 import tempfile
 
@@ -10,7 +12,9 @@ import numpy as np
 import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore
+from reme.components.file_store import local_file_store as local_file_store_module
 from reme.schema import FileChunk, FileNode
+from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 class temp_chdir:
@@ -72,6 +76,17 @@ class UnhealthyCountingEmbeddingStore(CountingFakeEmbeddingStore):
         return False
 
 
+class HealthCountingEmbeddingStore(FakeEmbeddingStore):
+    """Fake provider that records eager health checks."""
+
+    def __init__(self):
+        self.health_calls = 0
+
+    async def health_check(self, _timeout: float = 2.0) -> bool:
+        self.health_calls += 1
+        return True
+
+
 class WrongDimEmbeddingStore(FakeEmbeddingStore):
     """Fake embedding store that returns vectors with the wrong dimension."""
 
@@ -82,6 +97,23 @@ class WrongDimEmbeddingStore(FakeEmbeddingStore):
         for chunk_node in nodes:
             chunk_node.embedding = np.array([1.0], dtype=np.float16)
         return nodes
+
+
+class CountOnlyKeywordIndex:
+    """Keyword backend that knows its size but cannot expose document IDs."""
+
+    def __init__(self, n_docs: int):
+        self.n_docs = n_docs
+        self.reset_docs = None
+
+    @property
+    def document_ids(self):
+        """Signal that exact live IDs are unavailable."""
+        raise NotImplementedError
+
+    async def reset_index(self, docs):
+        """Record the documents requested for rebuilding."""
+        self.reset_docs = docs
 
 
 def run(coro):
@@ -120,6 +152,23 @@ def test_keyword_only_upsert_removes_old_chunks_and_docs():
     run(go())
 
 
+def test_start_does_not_health_check_embedding_without_backfill():
+    """Hot startup keeps local vector retrieval independent of provider health."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_lazy_embedding_health", embedding_store="")
+            embedding_store = HealthCountingEmbeddingStore()
+            store.embedding_store = embedding_store
+            await store.start()
+
+            assert embedding_store.health_calls == 0
+            assert store.embedding_store is embedding_store
+            await store.close()
+
+    run(go())
+
+
 def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
     """Loading persisted chunks repairs a missing keyword index."""
 
@@ -145,6 +194,101 @@ def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
 
             assert store.keyword_index.index_file.exists()
             assert [c.id for c in await store.keyword_search("uniquerepairword", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
+def test_keyword_sync_rebuilds_when_backend_only_exposes_matching_count():
+    """Matching counts cannot prove that a backend contains the expected IDs."""
+
+    async def go():
+        store = LocalFileStore(name="t_count_only_keyword", embedding_store="")
+        store.file_chunks = {
+            "expected": chunk("expected", "expected.md", "expected content"),
+        }
+        keyword_index = CountOnlyKeywordIndex(n_docs=1)
+        store.keyword_index = keyword_index
+
+        await store._sync_keyword_index_from_chunks()
+
+        assert keyword_index.reset_docs == {"expected": "expected content"}
+
+    run(go())
+
+
+def test_chunk_persistence_uses_compact_embedding_and_round_trips():
+    """Chunk persistence avoids JSON float lists while preserving float16 vectors."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_compact_embedding", embedding_store="")
+            await store.start()
+            original = chunk("a", "a.md", "alpha text", source="test")
+            original.embedding = np.array([0.25, -1.5, 3.0], dtype=np.float16)
+            store.file_chunks[original.id] = original
+            await store.dump()
+
+            payload = json.loads(next(read_jsonl_zst(store.chunks_path)))
+            assert "embedding" not in payload
+            assert isinstance(payload["_embedding_f16_b64"], str)
+            assert base64.b64decode(payload["_embedding_f16_b64"]) == original.embedding.astype("<f2").tobytes()
+
+            store.file_chunks.clear()
+            await store.load()
+            restored = store.file_chunks[original.id]
+            np.testing.assert_array_equal(restored.embedding, original.embedding)
+            assert restored.embedding.dtype == np.float16
+            assert restored.metadata == {"source": "test"}
+            await store.close()
+
+    run(go())
+
+
+def test_vector_search_batches_candidates_and_preserves_stable_ties(monkeypatch):
+    """Local vector search limits matrix size and retains insertion order for ties."""
+
+    async def go():
+        store = LocalFileStore(name="t_vector_batches", embedding_store="")
+        store.embedding_store = FakeEmbeddingStore()
+        for index in range(5):
+            candidate = chunk(str(index), f"{index}.md", "alpha")
+            candidate.embedding = np.array([1.0, 0.0], dtype=np.float16)
+            store.file_chunks[candidate.id] = candidate
+
+        batch_sizes = []
+        original_similarity = local_file_store_module.batch_cosine_similarity
+
+        def recording_similarity(query, matrix):
+            batch_sizes.append(len(matrix))
+            return original_similarity(query, matrix)
+
+        monkeypatch.setattr(local_file_store_module, "_VECTOR_SEARCH_BATCH_SIZE", 2)
+        monkeypatch.setattr(local_file_store_module, "batch_cosine_similarity", recording_similarity)
+
+        results = await store.vector_search("alpha", 3, {})
+
+        assert batch_sizes == [2, 2, 1]
+        assert [result.id for result in results] == ["0", "1", "2"]
+
+    run(go())
+
+
+def test_chunk_persistence_loads_legacy_json_embedding_list():
+    """Existing indexes with JSON float-list embeddings remain readable."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_legacy_embedding", embedding_store="")
+            await store.start()
+            original = chunk("legacy", "legacy.md", "legacy text")
+            original.embedding = np.array([0.5, 1.5], dtype=np.float16)
+            write_jsonl_zst(store.chunks_path, [original.model_dump_json()])
+
+            await store.load()
+            restored = store.file_chunks[original.id]
+            np.testing.assert_array_equal(restored.embedding, original.embedding)
+            assert restored.embedding.dtype == np.float16
             await store.close()
 
     run(go())

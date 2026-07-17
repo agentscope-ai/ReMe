@@ -1,6 +1,10 @@
 """In-memory file store with compressed JSONL persistence on close."""
 
+import base64
 import datetime
+import heapq
+import json
+from collections.abc import Iterable
 from contextlib import suppress
 
 import numpy as np
@@ -16,6 +20,9 @@ from ...utils import batch_cosine_similarity
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 CachedEmbedding = tuple[str, np.ndarray]
+_EMBEDDING_F16_B64_FIELD = "_embedding_f16_b64"
+_EMBEDDING_F16_DTYPE = np.dtype("<f2")
+_VECTOR_SEARCH_BATCH_SIZE = 1024
 
 
 @R.register("local")
@@ -61,9 +68,6 @@ class LocalFileStore(BaseFileStore):
     async def _start(self) -> None:
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()
-        if self.embedding_store is not None and not await self.embedding_store.health_check():
-            self.logger.warning(f"{self.name}: embedding unhealthy, vector disabled")
-            self.embedding_store = None
         await self.load()
 
     async def _close(self) -> None:
@@ -98,7 +102,7 @@ class LocalFileStore(BaseFileStore):
         chunk.embedding = None
         return True
 
-    def _drop_stale_embeddings(self, chunks: list[FileChunk], context: str) -> None:
+    def _drop_stale_embeddings(self, chunks: Iterable[FileChunk], context: str) -> None:
         for chunk in chunks:
             self._drop_stale_embedding(chunk, context)
 
@@ -112,7 +116,7 @@ class LocalFileStore(BaseFileStore):
             for line in read_jsonl_zst(self.chunks_path, self.encoding):
                 line = line.strip()
                 if line:
-                    chunk = FileChunk.model_validate_json(line)
+                    chunk = self._deserialize_chunk(line)
                     self.file_chunks[chunk.id] = chunk
             self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             self._invalidate_stale_embeddings()
@@ -121,11 +125,35 @@ class LocalFileStore(BaseFileStore):
         except Exception as e:
             self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
 
+    @staticmethod
+    def _deserialize_chunk(line: str) -> FileChunk:
+        """Read compact vectors while retaining legacy JSON-list compatibility."""
+        payload = json.loads(line)
+        encoded = payload.pop(_EMBEDDING_F16_B64_FIELD, None)
+        if encoded is not None:
+            raw = base64.b64decode(encoded, validate=True)
+            if len(raw) % _EMBEDDING_F16_DTYPE.itemsize:
+                raise ValueError("Invalid float16 embedding byte length")
+            payload["embedding"] = np.frombuffer(raw, dtype=_EMBEDDING_F16_DTYPE)
+        return FileChunk.model_validate(payload)
+
+    @staticmethod
+    def _serialize_chunk(chunk: FileChunk) -> str:
+        """Serialize embeddings without expanding float16 values into Python floats."""
+        payload = chunk.model_dump(mode="json", exclude={"embedding"})
+        if chunk.embedding is not None:
+            embedding = np.asarray(chunk.embedding, dtype=_EMBEDDING_F16_DTYPE)
+            if embedding.ndim != 1:
+                raise ValueError("FileChunk embedding must be one-dimensional")
+            raw = np.ascontiguousarray(embedding).tobytes()
+            payload[_EMBEDDING_F16_B64_FIELD] = base64.b64encode(raw).decode("ascii")
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
     def _invalidate_stale_embeddings(self) -> None:
         """Drop persisted embeddings whose dimension no longer matches the active model."""
         if self.embedding_store is None:
             return
-        self._drop_stale_embeddings(list(self.file_chunks.values()), "load")
+        self._drop_stale_embeddings(self.file_chunks.values(), "load")
 
     async def _backfill_missing_embeddings(self) -> None:
         """Embed persisted chunks that predate embedding being enabled."""
@@ -162,16 +190,12 @@ class LocalFileStore(BaseFileStore):
         if not docs:
             return
 
-        expected_ids = set(docs)
+        expected_ids = docs.keys()
         live_ids = None
         with suppress(Exception):
-            live_ids = set(getattr(self.keyword_index, "doc_meta", {}).keys())
+            live_ids = self.keyword_index.document_ids
 
         if live_ids == expected_ids:
-            return
-
-        n_docs = getattr(self.keyword_index, "n_docs", None)
-        if live_ids is None and n_docs == len(expected_ids):
             return
 
         self.logger.warning(f"{self.name}: keyword index mismatch with chunks; rebuilding {len(docs)} docs")
@@ -181,7 +205,11 @@ class LocalFileStore(BaseFileStore):
         """Atomically rewrite the JSONL, then cascade dump into keyword_index and file_graph."""
         assert self.file_graph is not None
         try:
-            write_jsonl_zst(self.chunks_path, (c.model_dump_json() for c in self.file_chunks.values()), self.encoding)
+            write_jsonl_zst(
+                self.chunks_path,
+                (self._serialize_chunk(c) for c in self.file_chunks.values()),
+                self.encoding,
+            )
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
@@ -318,7 +346,7 @@ class LocalFileStore(BaseFileStore):
     # -- search ---------------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_store is None or not query:
+        if self.embedding_store is None or not query or limit <= 0:
             return []
 
         try:
@@ -334,23 +362,45 @@ class LocalFileStore(BaseFileStore):
             )
             return []
 
-        candidates = [
-            c
-            for c in self.file_chunks.values()
-            if self._embedding_dim_matches(c.embedding) and self._matches_search_filter(c, search_filter)
-        ]
-        if not candidates:
-            return []
+        top: list[tuple[float, int, FileChunk]] = []
+        candidates: list[FileChunk] = []
+        embeddings: list[np.ndarray] = []
+        order = 0
 
-        candidate_embeddings = np.stack([c.embedding for c in candidates])
-        similarities = batch_cosine_similarity(query_embedding.reshape(1, -1), candidate_embeddings)[0]
+        def score_batch() -> None:
+            nonlocal order
+            if not candidates:
+                return
+            matrix = np.stack(embeddings)
+            similarities = batch_cosine_similarity(query_embedding.reshape(1, -1), matrix)[0]
+            for candidate, similarity in zip(candidates, similarities):
+                score = float(similarity)
+                item = (score, -order, candidate)
+                if len(top) < limit:
+                    heapq.heappush(top, item)
+                elif item[:2] > top[0][:2]:
+                    heapq.heapreplace(top, item)
+                order += 1
+            candidates.clear()
+            embeddings.clear()
 
-        results = [
-            c.model_copy(update={"scores": {"vector": float(s), "score": float(s)}})
-            for c, s in zip(candidates, similarities)
+        for candidate in self.file_chunks.values():
+            if not self._embedding_dim_matches(candidate.embedding) or not self._matches_search_filter(
+                candidate,
+                search_filter,
+            ):
+                continue
+            candidates.append(candidate)
+            embeddings.append(candidate.embedding)
+            if len(candidates) >= _VECTOR_SEARCH_BATCH_SIZE:
+                score_batch()
+        score_batch()
+
+        ranked = sorted(top, key=lambda item: (-item[0], -item[1]))
+        return [
+            candidate.model_copy(update={"scores": {"vector": score, "score": score}})
+            for score, _neg_order, candidate in ranked
         ]
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results[:limit]
 
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         if not self.keyword_index:

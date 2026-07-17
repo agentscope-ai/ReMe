@@ -340,6 +340,48 @@ class AutoResourceStep(BaseStep):
             self.logger.warning(f"[{self.name}] resource missing file_path={file_path}")
             return
 
+        skip_read = False
+        try:
+            size_bytes = abs_path.stat().st_size
+        except OSError as exc:
+            self.context.response.success = False
+            self.context.response.answer = f"Failed to inspect resource file: {file_path}: {exc}"
+            self.context.response.metadata.update(
+                {
+                    "path": file_path,
+                    "action": "failed",
+                    "error": str(exc),
+                    "modified": False,
+                },
+            )
+            self.logger.warning(f"[{self.name}] resource stat failed file_path={file_path} error={exc}")
+            skip_read = True
+        if not skip_read:
+            max_file_bytes = self.max_file_bytes()
+            if size_bytes > max_file_bytes:
+                self.context.response.success = True
+                self.context.response.answer = (
+                    f"Skipped oversized resource file: {file_path} ({size_bytes} > {max_file_bytes} bytes)"
+                )
+                self.context.response.metadata.update(
+                    {
+                        "path": file_path,
+                        "action": "skipped",
+                        "reason": "file_too_large",
+                        "oversized": True,
+                        "size_bytes": size_bytes,
+                        "max_file_bytes": max_file_bytes,
+                        "modified": False,
+                    },
+                )
+                self.logger.warning(
+                    f"[{self.name}] skip oversized resource file_path={file_path} "
+                    f"size_bytes={size_bytes} max_file_bytes={max_file_bytes}",
+                )
+                skip_read = True
+        if skip_read:
+            return
+
         self.logger.info(f"[{self.name}] read resource start file_path={file_path}")
         async with aiofiles.open(abs_path, encoding="utf-8", errors="replace") as f:
             file_content = await f.read()
@@ -433,6 +475,9 @@ class AutoResourceStep(BaseStep):
 
     async def _handle_change(self, file_path: str, raw_change) -> dict:
         assert self.context is not None
+        # Handlers write item-scoped fields into the shared response. Start each
+        # change with a fresh mapping so one result cannot inherit another's metadata.
+        self.context.response.metadata = {}
         file_path = self.to_workspace_relative(file_path) if file_path and Path(file_path).is_absolute() else file_path
         if not file_path:
             self.context.response.success = False

@@ -30,16 +30,26 @@ class BaseAsEmbedding(BaseComponent):
 
     @property
     def dimensions(self) -> int:
-        """Return the embedding dimension size."""
-        assert self.model is not None
-        return self.model.dimensions
+        """Return configured dimensions without forcing provider construction."""
+        if self.model is not None:
+            return self.model.dimensions
+        dimensions = self.kwargs.get("dimensions")
+        if dimensions is None:
+            raise RuntimeError("Embedding dimensions are required before provider initialization.")
+        return int(dimensions)
 
     async def __call__(self, inputs: list[Any], **kwargs) -> list[list[float]]:
+        self._ensure_model()
         assert self.model is not None
         response = await self.model(inputs, **kwargs)  # pylint: disable=not-callable
         return response.embeddings
 
     async def _start(self) -> None:
+        """Defer provider construction until the first remote embedding call."""
+        return None
+
+    def _ensure_model(self) -> None:
+        """Construct the provider on demand while keeping dimensions locally available."""
         if self.model is not None:
             return
 
@@ -50,7 +60,8 @@ class BaseAsEmbedding(BaseComponent):
         if model_cls is None:
             raise ValueError(f"{self.credential_cls.__name__} does not support embeddings.")
 
-        dimensions = kwargs.pop("dimensions")
+        dimensions = self.dimensions
+        kwargs.pop("dimensions", None)
         params_dict = kwargs.pop("parameters", None)
         parameters = model_cls.Parameters(**params_dict) if params_dict else None
 

@@ -98,8 +98,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
         size = self.max_batch_size
-        batches = [misses[i : i + size] for i in range(0, len(misses), size)]
-        for batch in batches:
+        for start in range(0, len(misses), size):
+            batch = misses[start : start + size]
             for idx, key, emb in await self._compute_batch(batch, **kwargs):
                 results[idx] = emb
                 self._cache_put(key, emb)

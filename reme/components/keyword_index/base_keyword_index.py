@@ -1,6 +1,7 @@
 """Abstract base class for keyword indexes (BM25 and other lexical backends)."""
 
 from abc import abstractmethod
+from collections.abc import Set
 
 from ..base_component import BaseComponent
 from ..tokenizer import BaseTokenizer
@@ -24,6 +25,11 @@ class BaseKeywordIndex(BaseComponent):
 
     async def _close(self) -> None:
         await self.dump()
+
+    @property
+    def document_ids(self) -> Set[str]:
+        """Return live document IDs without materializing per-document metadata."""
+        raise NotImplementedError(f"{type(self).__name__} does not expose live document IDs")
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize a single text into a list of tokens."""

@@ -8,7 +8,7 @@ InitChangesStep writes its result into ``context["changes"]`` for a
 downstream ``update_index_step`` to consume; tests assert against that key.
 """
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,too-many-lines
 
 import asyncio
 import datetime
@@ -16,7 +16,7 @@ import os
 import tempfile
 import warnings
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from watchfiles import Change
 
@@ -39,6 +39,7 @@ from reme.steps.index import (
     InitChangesStep,
     LogChangesStep,
     UpdateCatalogStep,
+    UpdateIndexStep,
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
@@ -461,6 +462,79 @@ def test_update_catalog_relative_path_uses_workspace():
     asyncio.run(run())
 
 
+def test_update_index_skips_oversized_file_and_clears_stale_index():
+    """Oversized content is not read and any previous index entry is removed."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "small")
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker()
+            await fs.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {
+                    ComponentEnum.FILE_CHUNKER: {"default": chunker},
+                }
+                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+
+                added = await step(
+                    RuntimeContext(
+                        changes=[{"change": "added", "path": str(source)}],
+                        max_file_bytes=10,
+                    ),
+                )
+                assert added.success is True
+                assert {node.path for node in await fs.get_nodes()} == {"daily/a.md"}
+
+                source.write_text("now too large", encoding="utf-8")
+                modified = await step(
+                    RuntimeContext(
+                        changes=[{"change": "modified", "path": str(source)}],
+                        max_file_bytes=10,
+                    ),
+                )
+
+                assert modified.success is True
+                assert modified.answer[0]["skipped"] is True
+                assert modified.answer[0]["reason"] == "file_too_large"
+                assert await fs.get_nodes() == []
+            finally:
+                await chunker.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_update_index_handles_file_removed_before_stat():
+    """A file disappearing after is_file is reported without aborting the batch."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            step = UpdateIndexStep(app_context=_make_app_context(Path.cwd()))
+            results = []
+
+            with (
+                patch.object(Path, "is_file", return_value=True),
+                patch.object(Path, "stat", side_effect=FileNotFoundError("file disappeared")),
+            ):
+                item = await step._try_build_item(Change.modified, "Updating", "daily/a.md", results)
+
+            assert item is None
+            assert results == [
+                {
+                    "change": "modified",
+                    "path": "daily/a.md",
+                    "success": False,
+                    "error": "file disappeared",
+                },
+            ]
+
+    asyncio.run(run())
+
+
 def test_index_update_loop_init_dispatch_updates_store_across_batches():
     """index_update_loop init scan dispatches to update_index_step and preserves final store state."""
 
@@ -713,6 +787,123 @@ def test_auto_resource_batch_deleted_changes():
             finally:
                 await fs.close()
         print("✓ test_auto_resource_batch_deleted_changes passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_skips_oversized_file_before_reading():
+    """Oversized resources are reported as successful skips without an agent call."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        changes=[{"change": "added", "path": str(source)}],
+                        max_file_bytes=4,
+                    ),
+                )
+
+                result = resp.metadata["results"][0]
+                assert resp.success is True
+                assert result["metadata"]["oversized"] is True
+                assert result["metadata"]["reason"] == "file_too_large"
+                assert resp.metadata["modified"] is False
+                assert wrapper.inputs == ""
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_batch_keeps_result_metadata_isolated():
+    """Oversized metadata from one resource does not leak into the next result."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                large = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
+                small = write_file(cwd / "resource" / "2026-01-01" / "small.txt", "ok")
+                second_large = write_file(cwd / "resource" / "2026-01-01" / "second-large.txt", "also large")
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(
+                    RuntimeContext(
+                        changes=[
+                            {"change": "added", "path": str(large)},
+                            {"change": "added", "path": str(small)},
+                            {"change": "added", "path": str(second_large)},
+                        ],
+                        max_file_bytes=4,
+                    ),
+                )
+
+                large_metadata = resp.metadata["results"][0]["metadata"]
+                small_metadata = resp.metadata["results"][1]["metadata"]
+                second_large_metadata = resp.metadata["results"][2]["metadata"]
+                assert large_metadata["oversized"] is True
+                assert large_metadata["reason"] == "file_too_large"
+                assert "oversized" not in small_metadata
+                assert "reason" not in small_metadata
+                assert "size_bytes" not in small_metadata
+                assert second_large_metadata["oversized"] is True
+                assert "created" not in second_large_metadata
+                assert "agent_session_id" not in second_large_metadata
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_handles_file_removed_before_stat():
+    """A resource disappearing after is_file becomes one failed batch result."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = write_file(cwd / "resource" / "2026-01-01" / "vanishing.txt", "content")
+                original_stat = Path.stat
+                source_stat_calls = 0
+
+                def disappearing_stat(path, *args, **kwargs):
+                    nonlocal source_stat_calls
+                    if path == source:
+                        source_stat_calls += 1
+                        if source_stat_calls > 1:
+                            raise FileNotFoundError("file disappeared")
+                    return original_stat(path, *args, **kwargs)
+
+                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                with patch.object(Path, "stat", disappearing_stat):
+                    resp = await step(
+                        RuntimeContext(changes=[{"change": "added", "path": str(source)}]),
+                    )
+
+                result = resp.metadata["results"][0]
+                assert resp.success is False
+                assert result["success"] is False
+                assert result["metadata"]["action"] == "failed"
+                assert result["metadata"]["error"] == "file disappeared"
+            finally:
+                await fs.close()
 
     asyncio.run(run())
 

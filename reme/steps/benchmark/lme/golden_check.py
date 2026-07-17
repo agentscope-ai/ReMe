@@ -3,8 +3,8 @@
 Consumes ``session_review.json`` produced by ``lme_session_review_step`` and
 hands its extracted session information to an agent that is equipped with the
 ``python_execute`` tool. The agent uses ``python_execute`` only as a scratchpad
-for the hard reasoning (checking the golden answer and cross-checking the
-filtered ``answer_session_ids``); the final verdict is not the
+for checking the golden answer; ``answer_session_ids`` are outside the audit
+scope. The final verdict is not the
 raw Python stdout but a *structured* object extracted from the whole conversation
 via ``output_schema``. Sessions dated after ``question_date`` are filtered
 upstream by ``lme_session_review_step`` and are not included in this
@@ -36,8 +36,7 @@ _VERDICT_SCHEMA = {
     "properties": {
         "reasoning": {
             "type": "string",
-            "description": "用中文写出详细的推理过程：先说明证据支持的答案，再逐步判断 golden_answer "
-            "是否正确，以及 answer_session_ids 是否恰好正确。",
+            "description": "用中文写出详细的推理过程：先说明证据支持的答案，再判断 " "golden_answer 是否正确。",
         },
         "golden_answer_correct": {
             "type": "boolean",
@@ -45,26 +44,14 @@ _VERDICT_SCHEMA = {
         },
         "true_answer": {
             "type": "string",
-            "description": "仅当 golden_answer_correct 为 false 时填写：证据支持的正确答案（证据不足时填 "
-            "'unknown'）。golden_answer_correct 为 true 时填空字符串。",
-        },
-        "answer_session_ids_correct": {
-            "type": "boolean",
-            "description": "answer_session_ids 是否恰好是支持答案所需的会话（多、少、无关的 id 都算错误）。",
-        },
-        "true_answer_session_ids": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "仅当 answer_session_ids_correct 为 false 时填写：真正支持答案的 session id 列表。"
-            "answer_session_ids_correct 为 true 时填空列表。",
+            "description": "仅当 golden_answer_correct 为 false 时填写：证据支持的正确答案"
+            "（证据不足时填 'unknown'）。golden_answer_correct 为 true 时填空字符串。",
         },
     },
     "required": [
         "reasoning",
         "golden_answer_correct",
         "true_answer",
-        "answer_session_ids_correct",
-        "true_answer_session_ids",
     ],
     "additionalProperties": False,
 }
@@ -110,8 +97,6 @@ class GoldenCheckStep(BaseStep):
         question_type = str(query.get("question_type") or "").strip()
         question_date = str(query.get("question_date") or "").strip()
         golden_answer = str(golden.get("answer") or "").strip()
-        answer_session_ids = golden.get("answer_session_ids_filter_illegal") or []
-
         if not question:
             raise ValueError(f"{review_path} does not contain a question")
 
@@ -120,7 +105,6 @@ class GoldenCheckStep(BaseStep):
             "question_type": question_type,
             "question_date": question_date,
             "golden_answer": golden_answer,
-            "answer_session_ids": answer_session_ids,
             "session_summaries": session_summaries,
         }
         user_prompt = self.prompt_format(
@@ -129,7 +113,6 @@ class GoldenCheckStep(BaseStep):
             question_type=question_type,
             question_date=question_date,
             golden_answer=golden_answer,
-            answer_session_ids=", ".join(str(s) for s in answer_session_ids) or "(none)",
             num_session_summaries=len(session_summaries),
             payload_json=json.dumps(prompt_input, ensure_ascii=False, indent=2),
         )
@@ -173,6 +156,10 @@ class GoldenCheckStep(BaseStep):
         if not isinstance(verdict, dict):
             self.logger.warning(f"[{self.name}] no structured verdict; falling back to free text")
             verdict = {"reasoning": (result.get("result") or "").strip()}
+        # Retain the legacy fields for readers of existing check_golden.json
+        # artifacts. They are compatibility placeholders, not audit results.
+        verdict["answer_session_ids_correct"] = True
+        verdict["true_answer_session_ids"] = []
 
         # Slim output: do NOT duplicate session_review.json (referenced by path);
         # keep only the compact session_summaries and the verdict.
