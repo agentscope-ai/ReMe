@@ -238,8 +238,7 @@ ReMe 作为本地记忆服务运行，并提供 CLI、HTTP API、MCP server 和 
 |------------------------------------------------------|-------------------------------------------------------------------|-----------------------------------------------------------------|
 | **QwenPaw**                                          | 通过 Python SDK 嵌入 ReMe。                                            | 复用应用自身生命周期和模型配置，同时保持 memory 本地、文件化。                             |
 | **Claude Code**                                      | 以 MCP service 启动 ReMe，并安装 [plugins/reme](plugins/reme)。           | MCP recall tools、`reme-memory` skill，以及自动记录会话的 Stop hook。       |
-| **Codex**                                            | 使用 [Codex wrapper](docs/zh/codex_wrapper.md)，或安装 [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md)。 | 原生 reply/stream、MCP ReMe jobs、repo skills、resume/fork 和 structured output。 |
-| **Other CLI-capable agents (OpenClaw/Hermes)**       | 复制或安装 [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索/读取/写入记忆，并调用 `auto_memory`、`auto_dream` 和 `proactive`。 |
+| **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | 复制或安装 [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索/读取/写入记忆，并调用 `auto_memory`、`auto_dream` 和 `proactive`。 |
 
 <p align="center"><b>集成演示</b></p>
 
