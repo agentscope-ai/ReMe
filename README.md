@@ -248,7 +248,8 @@ agents can choose the path that fits their runtime while sharing the same local 
 |------------------------------------------------------|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
 | **QwenPaw**                                          | Embed ReMe via the Python SDK.                                              | Reuse the app's own lifecycle and model config while keeping memory local and file-based.     |
 | **Claude Code**                                      | Start ReMe as an MCP service and install [plugins/reme](plugins/reme).      | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically. |
-| **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Search/read/write memory and call `auto_memory`, `auto_dream`, and `proactive` via the CLI.   |
+| **Codex**                                            | Use the [Codex wrapper](docs/en/codex_wrapper.md) or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Native reply/streaming, ReMe jobs over MCP, repo skills, resume/fork, and structured output. |
+| **Other CLI-capable agents (OpenClaw/Hermes)**       | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Search/read/write memory and call `auto_memory`, `auto_dream`, and `proactive` via the CLI.   |
 
 <p align="center"><b>Integration demos</b></p>
 

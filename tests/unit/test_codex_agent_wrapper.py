@@ -6,18 +6,20 @@ import asyncio
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import stat
 import sys
 from types import SimpleNamespace
 
 import pytest
 from openai_codex.generated.v2_all import TokenUsageBreakdown
+from pydantic import BaseModel
 
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.agent_wrapper.codex_mcp_server import _load_job_names, _make_tool, build_server
 from reme.components.job import BackgroundJob
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import Response
+from reme.schema import ApplicationConfig, Response
 
 
 class _Job:
@@ -42,6 +44,14 @@ def _wrapper(tmp_path, **kwargs):
         workspace_dir=str(tmp_path),
         mem_session_dir="mem_session",
         components={ComponentEnum.AS_LLM: {}},
+        model_dump=lambda **_kwargs: {
+            "workspace_dir": str(tmp_path),
+            "enable_logo": False,
+            "log_to_console": False,
+            "log_to_file": False,
+            "jobs": {},
+            "components": {},
+        },
     )
     context = SimpleNamespace(app_config=config, jobs={job.name: job})
     return CodexAgentWrapper(app_context=context, **kwargs), job
@@ -57,7 +67,7 @@ def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
     assert config["command"]
     assert config["enabled_tools"] == ["search"]
     assert "reme.components.agent_wrapper.codex_mcp_server" in config["args"]
-    assert config["args"][config["args"].index("--config") + 1] == "custom.yaml"
+    assert config["args"][config["args"].index("--config") + 1] == str(tmp_path / "custom.yaml")
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
 
 
@@ -70,7 +80,9 @@ def test_thread_config_preserves_other_mcp_servers(tmp_path):
         },
     )
 
-    assert set(config["mcp_servers"]) == {"docs", "reme_jobs"}
+    assert "docs" in config["mcp_servers"]
+    assert len(config["mcp_servers"]) == 2
+    assert next(name for name in config["mcp_servers"] if name != "docs").startswith("reme_jobs_")
 
 
 def test_mcp_config_rejects_background_jobs(tmp_path):
@@ -167,6 +179,88 @@ async def test_stdio_bridge_starts_and_lists_selected_job(tmp_path):
     assert [tool.name for tool in tools] == ["empty"]
 
 
+@pytest.mark.asyncio
+async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
+    config_path = tmp_path / "bridge.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "service": {"backend": "mcp"},
+                "workspace_dir": str(tmp_path / "workspace"),
+                "jobs": {
+                    "empty": {
+                        "backend": "base",
+                        "description": "Empty",
+                        "parameters": {"type": "object", "properties": {}},
+                        "steps": [],
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "reme.components.agent_wrapper.codex_mcp_server",
+        "--config",
+        str(config_path),
+        "--workspace",
+        str(tmp_path / "workspace"),
+        "--jobs",
+        '["empty"]',
+        cwd=str(Path(__file__).resolve().parents[2]),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1"},
+        },
+    }
+    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+    proc.stdin.write((json.dumps(request) + "\n").encode())
+    await proc.stdin.drain()
+    first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=10)
+    message = json.loads(first_line)
+    assert message["jsonrpc"] == "2.0"
+    assert message["id"] == 1
+    proc.terminate()
+    await asyncio.wait_for(proc.wait(), timeout=10)
+    stdout = first_line + await proc.stdout.read()
+    stderr = (await proc.stderr.read()).decode()
+    assert b"Loading config" not in stdout
+    assert b"INFO" not in stdout
+    assert b"WARNING" not in stdout
+    assert b"2026-" not in stdout
+    assert "Failed to parse JSONRPC message" not in stderr
+    assert "Invalid JSON" not in stderr
+
+
+def test_sdk_responds_to_interactive_approval_server_requests():
+    from openai_codex.client import CodexClient
+
+    client = CodexClient()
+    assert client._default_approval_handler(
+        "item/commandExecution/requestApproval",
+        {},
+    ) == {  # pylint: disable=protected-access
+        "decision": "accept",
+    }
+    assert client._default_approval_handler(
+        "item/fileChange/requestApproval",
+        {},
+    ) == {  # pylint: disable=protected-access
+        "decision": "accept",
+    }
+
+
 def test_event_to_chunks_maps_content_usage_and_completion():
     content_event = SimpleNamespace(
         method="item/agentMessage/delta",
@@ -230,6 +324,9 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
         async def __aexit__(self, _exc_type, _exc, _tb):
             return None
 
+        async def close(self):
+            return None
+
         async def thread_start(self, **_kwargs):
             return FakeThread()
 
@@ -242,11 +339,325 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
     assert result["structured_output"] == {"ok": True}
 
 
-def test_individual_codex_skills_fail_explicitly(tmp_path):
+def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
-    (tmp_path / "skills" / "one").mkdir(parents=True)
-    with pytest.raises(NotImplementedError, match="skills='all'"):
-        wrapper._ensure_skills(["one"])  # pylint: disable=protected-access
+    for name in ("reme_memory", "qwenpaw_memory"):
+        source = tmp_path / "skills" / name
+        source.mkdir(parents=True)
+        (source / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
+    existing = tmp_path / ".agents" / "skills" / "user_skill"
+    existing.mkdir(parents=True)
+    marker = existing / "marker"
+    marker.write_text("keep", encoding="utf-8")
+
+    wrapper._ensure_skills("all")  # pylint: disable=protected-access
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+    for name in ("reme_memory", "qwenpaw_memory"):
+        target = tmp_path / ".agents" / "skills" / name
+        assert target.is_symlink()
+        assert target.resolve() == (tmp_path / "skills" / name).resolve()
+
+
+def test_codex_skills_support_single_name_and_are_idempotent(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+    source = tmp_path / "skills" / "one"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("# one", encoding="utf-8")
+
+    wrapper._ensure_skills("one")  # pylint: disable=protected-access
+    wrapper._ensure_skills(["one"])  # pylint: disable=protected-access
+
+    assert (tmp_path / ".agents" / "skills" / "one").resolve() == source.resolve()
+
+
+@pytest.mark.parametrize("kind", ["directory", "external_link"])
+def test_codex_skills_preserve_conflicts(tmp_path, kind):
+    wrapper, _job = _wrapper(tmp_path)
+    source = tmp_path / "skills" / "one"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("# one", encoding="utf-8")
+    target = tmp_path / ".agents" / "skills" / "one"
+    target.parent.mkdir(parents=True)
+    if kind == "directory":
+        target.mkdir()
+        (target / "marker").write_text("keep", encoding="utf-8")
+    else:
+        external = tmp_path / "external"
+        external.mkdir()
+        target.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(FileExistsError, match="Codex skill conflict"):
+        wrapper._ensure_skills("one")  # pylint: disable=protected-access
+    assert target.exists()
+
+
+@pytest.mark.parametrize("create_dir", [False, True])
+def test_codex_skills_reject_missing_or_invalid_skill(tmp_path, create_dir):
+    wrapper, _job = _wrapper(tmp_path)
+    if create_dir:
+        (tmp_path / "skills" / "missing_manifest").mkdir(parents=True)
+        name = "missing_manifest"
+    else:
+        name = "missing"
+    with pytest.raises(FileNotFoundError):
+        wrapper._ensure_skills(name)  # pylint: disable=protected-access
+
+
+def test_codex_skills_do_not_modify_codex_home(tmp_path):
+    codex_home = tmp_path / "codex-home"
+    marker = codex_home / "skills" / "marker"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("keep", encoding="utf-8")
+    wrapper, _job = _wrapper(tmp_path, codex_home=codex_home)
+    source = tmp_path / "skills" / "one"
+    source.mkdir(parents=True)
+    (source / "SKILL.md").write_text("# one", encoding="utf-8")
+
+    wrapper._ensure_skills("one")  # pylint: disable=protected-access
+
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_effective_mcp_config_snapshot_is_private_and_removed_on_close(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+    config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
+    snapshot = Path(config["args"][config["args"].index("--config") + 1])
+    assert snapshot.exists()
+    assert stat.S_IMODE(snapshot.stat().st_mode) == 0o600
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["workspace_dir"] == str(tmp_path)
+
+    async def close_started_wrapper():
+        await wrapper.start()
+        await wrapper.close()
+
+    asyncio.run(close_started_wrapper())
+    assert not snapshot.exists()
+
+
+@pytest.mark.asyncio
+async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    app_config = ApplicationConfig(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "mcp"},
+        jobs={
+            "only_custom": {
+                "backend": "base",
+                "description": "Parent-only inline job",
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [],
+            },
+            "referenced_helper": {
+                "backend": "base",
+                "description": "A normal job that custom jobs may reference.",
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [],
+            },
+        },
+    )
+    job = _Job("only_custom")
+    context = SimpleNamespace(app_config=app_config, jobs={"only_custom": job})
+    wrapper = CodexAgentWrapper(app_context=context)
+    server_config = wrapper._mcp_server_config({"job_tools": ["only_custom"]})  # pylint: disable=protected-access
+    transport = StdioTransport(
+        command=server_config["command"],
+        args=server_config["args"],
+        cwd=server_config["cwd"],
+    )
+
+    await wrapper.start()
+    async with Client(transport, timeout=10) as client:
+        tools = await client.list_tools()
+        snapshot = Path(server_config["args"][server_config["args"].index("--config") + 1])
+        assert snapshot.exists()
+        assert set(json.loads(snapshot.read_text(encoding="utf-8"))["jobs"]) == {
+            "only_custom",
+            "referenced_helper",
+        }
+    await wrapper.close()
+
+    assert [tool.name for tool in tools] == ["only_custom"]
+    assert not snapshot.exists()
+
+
+@pytest.mark.asyncio
+async def test_open_thread_defaults_to_full_access(tmp_path):
+    from openai_codex import ApprovalMode, Sandbox
+
+    wrapper, _job = _wrapper(tmp_path)
+    observed = {}
+
+    class FakeCodex:
+        async def thread_start(self, **kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(id="thread-1")
+
+    await wrapper._open_thread(FakeCodex(), {})  # pylint: disable=protected-access
+
+    assert observed["approval_mode"] == ApprovalMode.auto_review
+    assert observed["sandbox"] == Sandbox.full_access
+
+
+@pytest.mark.asyncio
+async def test_resume_reuses_tool_context_and_rejects_context_change(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+
+    class FakeCodex:
+        async def thread_start(self, **_kwargs):
+            return SimpleNamespace(id="thread-1")
+
+        async def thread_resume(self, _thread_id, **_kwargs):
+            return SimpleNamespace(id="thread-1")
+
+    await wrapper._open_thread(FakeCodex(), {"tool_context_id": "ctx-a"})  # pylint: disable=protected-access
+    await wrapper._open_thread(  # pylint: disable=protected-access
+        FakeCodex(),
+        {"resume": "thread-1", "tool_context_id": "ctx-a"},
+    )
+    with pytest.raises(ValueError, match="cannot change"):
+        await wrapper._open_thread(  # pylint: disable=protected-access
+            FakeCodex(),
+            {"resume": "thread-1", "tool_context_id": "ctx-b"},
+        )
+
+
+class _StructuredModel(BaseModel):
+    ok: bool
+
+
+@pytest.mark.parametrize("schema", [_StructuredModel(ok=True), str])
+def test_output_schema_rejects_instances_and_arbitrary_classes(tmp_path, schema):
+    wrapper, _job = _wrapper(tmp_path)
+    with pytest.raises(TypeError, match="JSON schema dict or BaseModel class"):
+        wrapper._merged_kwargs({"output_schema": schema})  # pylint: disable=protected-access
+
+
+def test_output_schema_normalizes_model_class_and_preserves_dict(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+
+    assert (
+        wrapper._merged_kwargs({"output_schema": _StructuredModel})["output_schema"]  # pylint: disable=protected-access
+        == _StructuredModel.model_json_schema()
+    )
+    assert (
+        wrapper._merged_kwargs({"output_schema": schema})["output_schema"] is schema
+    )  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    clients = []
+    observed_schemas = []
+    close_count = 0
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def run(self, _inputs, **kwargs):
+            observed_schemas.append(kwargs["output_schema"])
+            return _TurnResult(final_response=json.dumps({"ok": True}))
+
+    class FakeCodex:
+        def __init__(self, _config):
+            clients.append(self)
+
+        async def __aenter__(self):
+            return self
+
+        async def close(self):
+            nonlocal close_count
+            close_count += 1
+
+        async def thread_start(self, **_kwargs):
+            return FakeThread()
+
+    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
+
+    await wrapper.start()
+    result = await wrapper.reply("first", output_schema=_StructuredModel)
+    await wrapper.close()
+
+    assert result["structured_output"] == {"ok": True}
+    assert observed_schemas == [_StructuredModel.model_json_schema()]
+    assert len(clients) == 1
+    assert close_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("schema", [{}, _StructuredModel])
+async def test_reply_stream_rejects_output_schema(tmp_path, schema):
+    wrapper, _job = _wrapper(tmp_path)
+
+    with pytest.raises(NotImplementedError, match="Structured output is not supported"):
+        await anext(wrapper.reply_stream("answer", output_schema=schema))
+
+
+@pytest.mark.asyncio
+async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+
+    class FakeCodex:
+        def __init__(self, _config):
+            pass
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
+
+    await wrapper.start()
+    first = await wrapper._get_codex({"api_key": "one"})  # pylint: disable=protected-access
+    assert await wrapper._get_codex({"api_key": "one"}) is first  # pylint: disable=protected-access
+    with pytest.raises(RuntimeError, match="configuration changed"):
+        await wrapper._get_codex({"api_key": "two"})  # pylint: disable=protected-access
+    await wrapper.close()
+
+
+@pytest.mark.parametrize("review_status", ["approved", "denied"])
+def test_event_to_chunks_maps_approval_started_and_completed(review_status):
+    action = {"type": "futureApprovalAction", "value": "preserved"}
+    review = {"status": review_status, "rationale": "policy"}
+    started = SimpleNamespace(
+        method="item/autoApprovalReview/started",
+        payload=SimpleNamespace(
+            action=action,
+            review=review,
+            review_id="review-1",
+            target_item_id="item-1",
+            turn_id="turn-1",
+        ),
+    )
+    completed = SimpleNamespace(
+        method="item/autoApprovalReview/completed",
+        payload=SimpleNamespace(
+            action=action,
+            review=review,
+            review_id="review-1",
+            target_item_id="item-1",
+            turn_id="turn-1",
+            decision_source={"type": "guardian"},
+        ),
+    )
+
+    started_chunk = CodexAgentWrapper._event_to_chunks(started, "thread-1")[0]  # pylint: disable=protected-access
+    completed_chunk = CodexAgentWrapper._event_to_chunks(completed, "thread-1")[0]  # pylint: disable=protected-access
+
+    assert started_chunk.chunk_type == ChunkEnum.APPROVAL
+    assert started_chunk.chunk == action
+    assert started_chunk.metadata["status"] == "started"
+    assert completed_chunk.metadata["status"] == "completed"
+    assert completed_chunk.metadata["review"]["status"] == review_status
+    assert completed_chunk.metadata["decision_source"] == {"type": "guardian"}
 
 
 def test_codex_home_expands_user_directory(tmp_path):
@@ -254,10 +665,18 @@ def test_codex_home_expands_user_directory(tmp_path):
     assert wrapper.session_path == Path.home() / ".codex"
 
 
+def test_named_default_mcp_config_remains_supported(tmp_path):
+    wrapper, _job = _wrapper(tmp_path, mcp_config="default")
+    assert wrapper._mcp_config_source({}) == "default"  # pylint: disable=protected-access
+
+
 def test_default_config_provides_codex_oauth_wrapper(monkeypatch):
     monkeypatch.delenv("CODEX_HOME", raising=False)
     config = resolve_app_config(log_config=False)
     oauth = config["components"]["agent_wrapper"]["codex_oauth"]
+    codex = config["components"]["agent_wrapper"]["codex"]
     assert oauth["backend"] == "codex"
     assert oauth["codex_home"] == "~/.codex"
+    assert oauth["sandbox"] == "full-access"
     assert "api_key" not in oauth
+    assert codex["sandbox"] == "full-access"

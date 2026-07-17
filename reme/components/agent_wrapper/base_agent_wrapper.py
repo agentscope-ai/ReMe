@@ -64,10 +64,17 @@ class BaseAgentWrapper(BaseComponent):
 
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
-        if isinstance(schema, type) and issubclass(schema, BaseModel):
-            schema = schema.model_json_schema()
-        self.kwargs["output_schema"] = schema
+        self.kwargs["output_schema"] = self._normalize_output_schema(schema)
         return self
+
+    @staticmethod
+    def _normalize_output_schema(schema: Any) -> dict | None:
+        """Return a JSON-serializable output schema shared by every backend."""
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            return schema.model_json_schema()
+        if schema is None or isinstance(schema, dict):
+            return schema
+        raise TypeError("output_schema must be a JSON schema dict or BaseModel class")
 
     def _resolve_job_tools(self, job_tools: list[str]) -> list["BaseJob"]:
         """Resolve job name strings to BaseJob instances via app_context."""
@@ -84,7 +91,17 @@ class BaseAgentWrapper(BaseComponent):
 
     def _merged_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Merge component defaults with call-time kwargs; call-time values win."""
-        return {**self.kwargs, **kwargs}
+        merged = {**self.kwargs, **kwargs}
+        if "output_schema" in merged:
+            merged["output_schema"] = self._normalize_output_schema(merged["output_schema"])
+        return merged
+
+    def _merged_stream_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Merge stream options and reject unsupported structured output."""
+        merged = self._merged_kwargs(kwargs)
+        if merged.get("output_schema") is not None:
+            raise NotImplementedError("Structured output is not supported by reply_stream()")
+        return merged
 
     @staticmethod
     def _chunk(chunk_type: ChunkEnum = ChunkEnum.CONTENT, **kwargs: Any) -> StreamChunk:

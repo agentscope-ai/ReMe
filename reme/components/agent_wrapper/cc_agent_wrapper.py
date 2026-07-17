@@ -2,7 +2,6 @@
 
 import json
 import os
-import shutil
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from pathlib import Path
@@ -134,6 +133,7 @@ class CcAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by Claude Code SDK."""
 
     DEFAULT_DISALLOWED_TOOLS = ["WebSearch"]
+    SYSTEM_PROMPT_MODES = {"append", "replace"}
 
     @staticmethod
     def _first_non_empty(*values: Any) -> str:
@@ -188,6 +188,24 @@ class CcAgentWrapper(BaseAgentWrapper):
             env["ANTHROPIC_AUTH_TOKEN"] = api_key
         return env
 
+    @classmethod
+    def _apply_system_prompt_mode(cls, kwargs: dict[str, Any]) -> None:
+        """Translate the configured prompt mode into Claude SDK semantics."""
+        mode = kwargs.pop("system_prompt_mode", "replace")
+        if mode not in cls.SYSTEM_PROMPT_MODES:
+            allowed = ", ".join(sorted(cls.SYSTEM_PROMPT_MODES))
+            raise ValueError(f"Unknown system_prompt_mode {mode!r}; expected one of: {allowed}")
+
+        if mode == "append" and "system_prompt" in kwargs:
+            prompt = kwargs["system_prompt"]
+            if not isinstance(prompt, str):
+                raise TypeError("system_prompt must be a string when system_prompt_mode='append'")
+            kwargs["system_prompt"] = {
+                "type": "preset",
+                "preset": "claude_code",
+                "append": prompt,
+            }
+
     @property
     def session_path(self) -> Path:
         """Directory used for persisted Claude Code sessions."""
@@ -195,26 +213,55 @@ class CcAgentWrapper(BaseAgentWrapper):
             return self.workspace_path / "mem_session"
         return self.workspace_path / self.app_context.app_config.mem_session_dir
 
-    def _ensure_claude_skill_dir(self, config_dir: Path) -> None:
-        """Expose project skills through Claude Code skill discovery locations."""
+    def _ensure_claude_skill_dir(self, config_dir: Path, skills: list[str] | str) -> None:
+        """Add selected project skills to Claude Code discovery locations."""
         project_skills = self.project_skills_root
-        if not project_skills.exists():
+        if not project_skills.is_dir():
+            return
+
+        if skills == "all":
+            skill_names = sorted(path.name for path in project_skills.iterdir() if path.is_dir())
+        else:
+            skill_names = list(dict.fromkeys(skills))
+
+        for skill_name in skill_names:
+            if not skill_name or Path(skill_name).name != skill_name or skill_name in {".", ".."}:
+                raise ValueError(f"Invalid skill name: {skill_name!r}")
+
+        sources = {
+            skill_name: project_skills / skill_name
+            for skill_name in skill_names
+            if (project_skills / skill_name).is_dir()
+        }
+        if not sources:
             return
 
         for target in (self.project_path / ".claude" / "skills", config_dir / "skills"):
-            target.parent.mkdir(parents=True, exist_ok=True)
             try:
-                if target.exists() or target.is_symlink():
+                # Migrate directory-level links created by older ReMe versions.
+                if target.is_symlink():
                     if target.resolve() == project_skills.resolve():
-                        continue
-                    if target.is_dir() and not target.is_symlink():
-                        shutil.rmtree(target)
-                    else:
                         target.unlink()
+                    else:
+                        self.logger.warning(f"Preserving existing Claude Code skills link: {target}")
+                        continue
+                elif target.exists() and not target.is_dir():
+                    self.logger.warning(f"Preserving existing Claude Code skills path: {target}")
+                    continue
 
-                target.symlink_to(project_skills, target_is_directory=True)
+                target.mkdir(parents=True, exist_ok=True)
+                for skill_name, source in sources.items():
+                    skill_target = target / skill_name
+                    if skill_target.is_symlink():
+                        if skill_target.resolve() != source.resolve():
+                            self.logger.warning(f"Preserving existing Claude Code skill link: {skill_target}")
+                        continue
+                    if skill_target.exists():
+                        self.logger.warning(f"Preserving existing Claude Code skill path: {skill_target}")
+                        continue
+                    skill_target.symlink_to(source, target_is_directory=True)
             except OSError as exc:
-                self.logger.warning(f"Failed to link Claude Code skills directory {target}: {exc}")
+                self.logger.warning(f"Failed to link Claude Code skills into {target}: {exc}")
 
     @classmethod
     def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None):
@@ -239,7 +286,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         from claude_agent_sdk import create_sdk_mcp_server
         from claude_agent_sdk.types import ClaudeAgentOptions
 
-        kwargs = self._merged_kwargs(kwargs)
+        self._apply_system_prompt_mode(kwargs)
 
         skills = kwargs.get("skills")
         if isinstance(skills, str) and skills != "all":
@@ -281,7 +328,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
         if opts.skills is not None:
-            self._ensure_claude_skill_dir(claude_config_dir)
+            self._ensure_claude_skill_dir(claude_config_dir, opts.skills)
         opts.session_store = opts.session_store or CcFileSessionStore(self.session_path / "claude_code")
 
         job_tools: list[str] = kwargs.get("job_tools", [])
@@ -293,7 +340,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             opts.mcp_servers["mcp_server"] = server
             opts.allowed_tools.extend(job.name for job in resolved_jobs)
 
-        if output_schema := kwargs.get("output_schema"):
+        if (output_schema := kwargs.get("output_schema")) is not None:
             opts.output_format = {"type": "json_schema", "schema": output_schema}
 
         if not isinstance(inputs, str):
@@ -492,6 +539,7 @@ class CcAgentWrapper(BaseAgentWrapper):
     async def reply(self, inputs: Any, **kwargs) -> dict:
         from claude_agent_sdk import query, ResultMessage
 
+        kwargs = self._merged_kwargs(kwargs)
         opts = self._build_options(inputs, stream=False, **kwargs)
 
         last_msg = None
@@ -507,8 +555,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             "last_message": asdict(last_msg),
             "result": last_msg.result,
         }
-        output_schema = kwargs.get("output_schema") or self.kwargs.get("output_schema")
-        if output_schema and last_msg.structured_output:
+        if kwargs.get("output_schema") is not None:
             result["structured_output"] = last_msg.structured_output
         return result
 
@@ -517,6 +564,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         from claude_agent_sdk import query, ResultMessage, AssistantMessage, StreamEvent, UserMessage
         from claude_agent_sdk.types import RateLimitEvent
 
+        kwargs = self._merged_stream_kwargs(kwargs)
         opts = self._build_options(inputs, stream=True, **kwargs)
 
         block_ids: dict[int, str] = {}

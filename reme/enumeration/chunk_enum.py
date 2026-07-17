@@ -45,6 +45,7 @@ class ChunkEnum(str, Enum):
     # Tool interaction
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    APPROVAL = "approval"
 
     # Metadata & terminal
     USAGE = "usage"

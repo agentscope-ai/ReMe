@@ -1,13 +1,16 @@
 """Codex Python SDK backend for the unified agent wrapper."""
 
+import asyncio
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from dataclasses import fields, is_dataclass
 from enum import Enum
+import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
+import tempfile
 from typing import Any
 
 from .base_agent_wrapper import BaseAgentWrapper
@@ -21,10 +24,16 @@ from ...utils.env_utils import load_env
 class CodexAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by the Codex Python SDK."""
 
-    def __init__(self, mcp_config: str = "default", codex_home: str | Path | None = None, **kwargs):
+    def __init__(self, mcp_config: str | None = None, codex_home: str | Path | None = None, **kwargs):
         super().__init__(**kwargs)
         self.mcp_config = mcp_config
         self._codex_home = codex_home
+        self._codex: Any | None = None
+        self._codex_config: Any | None = None
+        self._client_lock = asyncio.Lock()
+        self._turn_lock = asyncio.Lock()
+        self._mcp_snapshot_path: Path | None = None
+        self._thread_tool_contexts: dict[str, str] = {}
 
     @staticmethod
     def _first_non_empty(*values: Any) -> str:
@@ -55,28 +64,84 @@ class CodexAgentWrapper(BaseAgentWrapper):
             return self.workspace_path / "mem_session" / "codex"
         return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
 
-    def _ensure_skills(self, skills: list[str] | str | None) -> None:
-        """Expose ReMe project skills through the Codex home directory."""
-        if skills is None or not self.project_skills_root.exists():
-            return
-        if skills != "all":
-            raise NotImplementedError(
-                "Codex currently supports skills='all'; selecting individual skills is unsupported",
-            )
+    @property
+    def wrapper_session_path(self) -> Path:
+        """ReMe-owned session data, kept separate from a shared OAuth CODEX_HOME."""
+        if self.app_context is None:
+            return self.workspace_path / "mem_session" / "codex"
+        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
 
-        target = self.session_path / "skills"
-        target.parent.mkdir(parents=True, exist_ok=True)
+    def _ensure_skills(self, skills: list[str] | str | None) -> None:
+        """Expose selected project skills through Codex's repo-level directory."""
+        if skills is None:
+            return
+        if skills == "all":
+            if not self.project_skills_root.is_dir():
+                raise FileNotFoundError(f"Project skills directory not found: {self.project_skills_root}")
+            names = sorted(
+                path.name
+                for path in self.project_skills_root.iterdir()
+                if path.is_dir() and (path / "SKILL.md").is_file()
+            )
+        else:
+            names = [skills] if isinstance(skills, str) else list(skills)
+            names = list(dict.fromkeys(names))
+
+        target_root = self.workspace_path / ".agents" / "skills"
+        target_root.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            if not name or Path(name).name != name or name in {".", ".."}:
+                raise ValueError(f"Invalid skill name: {name!r}")
+            source = self.project_skills_root / name
+            if not source.is_dir():
+                raise FileNotFoundError(f"Skill directory not found: {source}")
+            if not (source / "SKILL.md").is_file():
+                raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
+
+            target = target_root / name
+            if target.is_symlink():
+                if target.resolve() == source.resolve():
+                    continue
+                raise FileExistsError(f"Codex skill conflict: {target} points to {target.resolve(strict=False)}")
+            if target.exists():
+                raise FileExistsError(f"Codex skill conflict: {target} already exists and was preserved")
+            relative_source = os.path.relpath(source, target.parent)
+            target.symlink_to(relative_source, target_is_directory=True)
+
+    def _explicit_mcp_config(self, kwargs: dict[str, Any]) -> str | None:
+        value = kwargs.get("mcp_config") if "mcp_config" in kwargs else self.mcp_config
+        if value is None:
+            return None
+        source = Path(str(value)).expanduser()
+        if source.suffix in {".yaml", ".yml", ".json"}:
+            if not source.is_absolute():
+                source = self.workspace_path / source
+            return str(source.absolute())
+        return str(value)
+
+    def _effective_config_snapshot(self) -> Path:
+        """Create one private snapshot that remains valid for the client lifetime."""
+        if self._mcp_snapshot_path is not None:
+            return self._mcp_snapshot_path
+        if self.app_context is None:
+            raise RuntimeError("Cannot snapshot MCP config without an app_context")
+        snapshot_dir = self.wrapper_session_path / "reme-mcp"
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        fd, raw_path = tempfile.mkstemp(prefix="config-", suffix=".json", dir=snapshot_dir)
         try:
-            if target.exists() or target.is_symlink():
-                if target.resolve() == self.project_skills_root.resolve():
-                    return
-                if target.is_dir() and not target.is_symlink():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink()
-            target.symlink_to(self.project_skills_root, target_is_directory=True)
-        except OSError as exc:
-            self.logger.warning(f"Failed to link Codex skills directory {target}: {exc}")
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
+        except BaseException:
+            with suppress(OSError):
+                os.close(fd)
+            Path(raw_path).unlink(missing_ok=True)
+            raise
+        self._mcp_snapshot_path = Path(raw_path)
+        return self._mcp_snapshot_path
+
+    def _mcp_config_source(self, kwargs: dict[str, Any]) -> str:
+        return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
 
     def _build_client_config(self, kwargs: dict[str, Any]):
         from openai_codex import CodexConfig
@@ -130,7 +195,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if unsupported:
             raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
 
-        config_source = str(kwargs.get("mcp_config") or self.mcp_config)
+        config_source = self._mcp_config_source(kwargs)
         return {
             "command": sys.executable,
             "args": [
@@ -156,7 +221,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         config = dict(kwargs.get("config") or {})
         if server := self._mcp_server_config(kwargs):
             servers = dict(config.get("mcp_servers") or {})
-            servers["reme_jobs"] = server
+            server_key = hashlib.sha256(json.dumps(server, sort_keys=True).encode()).hexdigest()[:12]
+            servers[f"reme_jobs_{server_key}"] = server
             config["mcp_servers"] = servers
         return config or None
 
@@ -177,6 +243,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork_session = bool(kwargs.get("fork_session", False))
         if fork_session and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
+        requested_tool_context = str(kwargs.get("tool_context_id") or "")
+        if not fork_session and thread_id in self._thread_tool_contexts:
+            if requested_tool_context != self._thread_tool_contexts[thread_id]:
+                raise ValueError("tool_context_id cannot change when resuming a Codex thread")
 
         common = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),
@@ -186,14 +256,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
-            "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.workspace_write),
+            "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
         if fork_session:
-            return await codex.thread_fork(thread_id, ephemeral=kwargs.get("ephemeral"), **common)
-        if thread_id:
-            return await codex.thread_resume(thread_id, **common)
-        return await codex.thread_start(ephemeral=kwargs.get("ephemeral"), **common)
+            thread = await codex.thread_fork(thread_id, ephemeral=kwargs.get("ephemeral"), **common)
+        elif thread_id:
+            thread = await codex.thread_resume(thread_id, **common)
+        else:
+            thread = await codex.thread_start(ephemeral=kwargs.get("ephemeral"), **common)
+        self._thread_tool_contexts[thread.id] = requested_tool_context
+        return thread
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
@@ -210,6 +283,35 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "service_tier": kwargs.get("service_tier"),
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
+
+    async def _get_codex(self, kwargs: dict[str, Any]) -> Any:
+        """Lazily start one app-server and reject launch-config changes while it is live."""
+        from openai_codex import AsyncCodex
+
+        config = self._build_client_config(kwargs)
+        async with self._client_lock:
+            if self._codex is not None:
+                if config != self._codex_config:
+                    raise RuntimeError("Codex client configuration changed; close the wrapper before reconfiguring it")
+                return self._codex
+            codex = AsyncCodex(config)
+            self._codex = codex
+            self._codex_config = config
+            return codex
+
+    async def _close(self) -> None:
+        """Close the persistent app-server and remove its private config snapshot."""
+        async with self._client_lock:
+            codex, self._codex = self._codex, None
+            self._codex_config = None
+            self._thread_tool_contexts.clear()
+            try:
+                if codex is not None:
+                    await codex.close()
+            finally:
+                if self._mcp_snapshot_path is not None:
+                    self._mcp_snapshot_path.unlink(missing_ok=True)
+                    self._mcp_snapshot_path = None
 
     @classmethod
     def _serialize(cls, value: Any) -> Any:
@@ -229,11 +331,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Run one Codex turn and return its final response."""
         if not isinstance(inputs, str):
             raise NotImplementedError("Only string input is supported for Codex.")
-        from openai_codex import AsyncCodex
-
         kwargs = self._merged_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
-        async with AsyncCodex(self._build_client_config(kwargs)) as codex:
+        async with self._turn_lock:
+            codex = await self._get_codex(kwargs)
             thread = await self._open_thread(codex, kwargs)
             result = await thread.run(inputs, **self._turn_kwargs(kwargs))
 
@@ -285,6 +386,29 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     block_id=payload.item_id,
                     tool_call_id=payload.item_id,
                     chunk=payload.message,
+                ),
+            ]
+        if method in {"item/autoApprovalReview/started", "item/autoApprovalReview/completed"}:
+            action = cls._serialize(payload.action)
+            review = cls._serialize(payload.review)
+            review_id = payload.review_id
+            target_item_id = getattr(payload, "target_item_id", None)
+            status = "started" if method.endswith("/started") else "completed"
+            decision_source = cls._serialize(getattr(payload, "decision_source", None))
+            return [
+                cls._chunk(
+                    ChunkEnum.APPROVAL,
+                    session_id=session_id,
+                    block_id=target_item_id or review_id,
+                    tool_call_id=target_item_id,
+                    chunk=action,
+                    metadata={
+                        "review_id": review_id,
+                        "status": status,
+                        "review": review,
+                        "decision_source": decision_source,
+                        "turn_id": payload.turn_id,
+                    },
                 ),
             ]
         if method in {"item/started", "item/completed"}:
@@ -348,11 +472,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Stream Codex app-server notifications as unified chunks."""
         if not isinstance(inputs, str):
             raise NotImplementedError("Only string input is supported for Codex.")
-        from openai_codex import AsyncCodex
-
-        kwargs = self._merged_kwargs(kwargs)
+        kwargs = self._merged_stream_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
-        async with AsyncCodex(self._build_client_config(kwargs)) as codex:
+        async with self._turn_lock:
+            codex = await self._get_codex(kwargs)
             thread = await self._open_thread(codex, kwargs)
             turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
             async for event in turn.stream():

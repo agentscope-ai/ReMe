@@ -78,6 +78,8 @@ def main() -> None:
         workspace_dir=str(Path(args.workspace).absolute()),
         enable_logo=False,
         log_to_console=False,
+        log_to_file=False,
+        log_config=False,
     )
     # The bridge needs ordinary jobs available for nested job references, but
     # must not start workspace watchers or cron loops in this short-lived child.
