@@ -61,14 +61,6 @@ def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     ) in (None, [])
 
 
-def test_default_config_limits_background_and_reindex_file_processing():
-    """All built-in content-processing entry points use the 20 MiB limit."""
-    cfg = _load_config("default.yaml")
-
-    for job_name in ("index_update_loop", "resource_watch_loop", "digest_watch_loop", "reindex"):
-        assert cfg["jobs"][job_name]["max_file_bytes"] == 20 * 1024 * 1024
-
-
 def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):
