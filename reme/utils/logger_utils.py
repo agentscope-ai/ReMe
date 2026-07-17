@@ -3,10 +3,12 @@
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
 _logger = None
+_logger_lock = threading.RLock()
 
 _LOGURU_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}"
 _STDLIB_FORMAT = "%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
@@ -58,6 +60,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
 
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
+        handler.close()
 
     formatter = logging.Formatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
 
@@ -98,11 +101,17 @@ def get_logger(
     """Return the global logger, initializing sinks on first call (or when force_init)."""
     global _logger
 
-    if _logger is not None and not force_init:
-        return _logger
+    # ReMe can be embedded multiple times in one process.  Hosts may construct
+    # those applications concurrently, while both logging backends reconfigure
+    # a process-global logger via a remove-then-add sequence.  Keep the whole
+    # check/reconfigure/publish transaction atomic so concurrent force_init
+    # calls cannot leave duplicate sinks or handlers behind.
+    with _logger_lock:
+        if _logger is not None and not force_init:
+            return _logger
 
-    if _enable_loguru():
-        _logger = _init_loguru(log_dir, level, log_to_console, log_to_file)
-    else:
-        _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file)
-    return _logger
+        if _enable_loguru():
+            _logger = _init_loguru(log_dir, level, log_to_console, log_to_file)
+        else:
+            _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file)
+        return _logger

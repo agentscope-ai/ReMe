@@ -304,7 +304,7 @@ class _TurnResult:
 
 
 def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
 
     class FakeThread:
         id = "thread-1"
@@ -326,6 +326,9 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
 
         async def close(self):
             return None
+
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
 
         async def thread_start(self, **_kwargs):
             return FakeThread()
@@ -553,7 +556,7 @@ def test_output_schema_normalizes_model_class_and_preserves_dict(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
     clients = []
     observed_schemas = []
     close_count = 0
@@ -575,6 +578,9 @@ async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, mo
         async def close(self):
             nonlocal close_count
             close_count += 1
+
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
 
         async def thread_start(self, **_kwargs):
             return FakeThread()
@@ -657,6 +663,9 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
         def __init__(self, _config):
             pass
 
+        async def login_api_key(self, _api_key):
+            return None
+
         async def close(self):
             return None
 
@@ -669,6 +678,74 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
     with pytest.raises(RuntimeError, match="configuration changed"):
         await wrapper._get_codex({"api_key": "two"})  # pylint: disable=protected-access
     await wrapper.close()
+
+
+def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    monkeypatch.setenv("CODEX_API_KEY", "ambient-key")
+    monkeypatch.setenv("CODEX_BASE_URL", "https://ambient.example.test/v1")
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
+
+    auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
+        {
+            "auth_mode": "oauth",
+            "api_key": "explicit-key",
+            "base_url": "https://explicit.example.test/v1",
+        },
+    )
+    config = wrapper._build_client_config({}, auth)  # pylint: disable=protected-access
+
+    assert auth.mode == "oauth"
+    assert auth.api_key == ""
+    assert auth.base_url == ""
+    assert "OPENAI_API_KEY" not in config.env
+    assert 'forced_login_method="chatgpt"' in config.config_overrides
+    assert not any(value.startswith("openai_base_url=") for value in config.config_overrides)
+
+
+@pytest.mark.asyncio
+async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    observed = {}
+
+    class FakeCodex:
+        def __init__(self, config):
+            observed["config"] = config
+
+        async def login_api_key(self, api_key):
+            observed["api_key"] = api_key
+
+        async def close(self):
+            observed["closed"] = True
+
+    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
+
+    await wrapper.start()
+    await wrapper._get_codex(  # pylint: disable=protected-access
+        {
+            "auth_mode": "api_key",
+            "api_key": "explicit-key",
+            "base_url": "https://proxy.example.test/v1",
+        },
+    )
+    await wrapper.close()
+
+    config = observed["config"]
+    assert observed["api_key"] == "explicit-key"
+    assert "OPENAI_API_KEY" not in config.env
+    assert 'openai_base_url="https://proxy.example.test/v1"' in config.config_overrides
+    assert 'forced_login_method="api"' in config.config_overrides
+    assert observed["closed"] is True
+
+
+def test_api_key_mode_requires_key(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    for name in ("CODEX_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="requires a non-empty API key"):
+        wrapper._resolve_auth_config({"auth_mode": "api_key"})  # pylint: disable=protected-access
 
 
 @pytest.mark.parametrize("review_status", ["approved", "denied"])
@@ -724,7 +801,9 @@ def test_default_config_provides_codex_oauth_wrapper(monkeypatch):
     oauth = config["components"]["agent_wrapper"]["codex_oauth"]
     codex = config["components"]["agent_wrapper"]["codex"]
     assert oauth["backend"] == "codex"
+    assert oauth["auth_mode"] == "oauth"
     assert oauth["codex_home"] == "~/.codex"
     assert oauth["sandbox"] == "full-access"
     assert "api_key" not in oauth
+    assert codex["auth_mode"] == "api_key"
     assert codex["sandbox"] == "full-access"

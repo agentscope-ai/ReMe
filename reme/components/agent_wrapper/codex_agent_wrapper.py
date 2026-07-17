@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import suppress
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 import hashlib
 import json
@@ -20,6 +20,15 @@ from ...schema import StreamChunk
 from ...utils.env_utils import load_env
 
 
+@dataclass(frozen=True)
+class _CodexAuthConfig:
+    """Resolved authentication settings for one Codex app-server."""
+
+    mode: str
+    api_key: str = ""
+    base_url: str = ""
+
+
 @R.register("codex")
 class CodexAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by the Codex Python SDK."""
@@ -30,6 +39,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         self._codex_home = codex_home
         self._codex: Any | None = None
         self._codex_config: Any | None = None
+        self._codex_auth_config: _CodexAuthConfig | None = None
         self._client_lock = asyncio.Lock()
         self._turn_lock = asyncio.Lock()
         self._mcp_snapshot_path: Path | None = None
@@ -143,8 +153,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
     def _mcp_config_source(self, kwargs: dict[str, Any]) -> str:
         return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
 
-    def _build_client_config(self, kwargs: dict[str, Any]):
-        from openai_codex import CodexConfig
+    def _resolve_auth_config(self, kwargs: dict[str, Any]) -> _CodexAuthConfig:
+        """Resolve one explicit Codex auth mode without letting OAuth inherit API credentials."""
+        requested_mode = str(kwargs.get("auth_mode") or "auto").lower()
+        if requested_mode not in {"auto", "api_key", "oauth"}:
+            raise ValueError("auth_mode must be one of: auto, api_key, oauth")
+        if requested_mode == "oauth":
+            return _CodexAuthConfig(mode="oauth")
 
         credential = kwargs.get("credential") if isinstance(kwargs.get("credential"), dict) else {}
         default_credential = self._default_llm_credential()
@@ -156,6 +171,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
             os.getenv("LLM_API_KEY"),
             default_credential.get("api_key"),
         )
+        if requested_mode == "api_key" and not api_key:
+            raise ValueError("auth_mode='api_key' requires a non-empty API key")
+        if not api_key:
+            return _CodexAuthConfig(mode="oauth")
+
         base_url = self._first_non_empty(
             kwargs.get("base_url"),
             credential.get("base_url"),
@@ -164,17 +184,22 @@ class CodexAgentWrapper(BaseAgentWrapper):
             os.getenv("LLM_BASE_URL"),
             default_credential.get("base_url"),
         )
+        return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
+
+    def _build_client_config(self, kwargs: dict[str, Any], auth: _CodexAuthConfig | None = None):
+        from openai_codex import CodexConfig
+
+        auth = auth or self._resolve_auth_config(kwargs)
 
         project_env = self.project_path / ".env"
         env = load_env(project_env) if project_env.exists() else load_env()
         self.session_path.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(self.session_path)
-        if api_key:
-            env["OPENAI_API_KEY"] = api_key
 
         overrides = list(kwargs.get("config_overrides") or [])
-        if base_url:
-            overrides.append(f"openai_base_url={json.dumps(base_url)}")
+        if auth.base_url:
+            overrides.append(f"openai_base_url={json.dumps(auth.base_url)}")
+        overrides.append(f"forced_login_method={json.dumps('api' if auth.mode == 'api_key' else 'chatgpt')}")
         return CodexConfig(
             codex_bin=kwargs.get("codex_bin"),
             config_overrides=tuple(overrides),
@@ -288,15 +313,27 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Lazily start one app-server and reject launch-config changes while it is live."""
         from openai_codex import AsyncCodex
 
-        config = self._build_client_config(kwargs)
+        auth = self._resolve_auth_config(kwargs)
+        config = self._build_client_config(kwargs, auth)
         async with self._client_lock:
             if self._codex is not None:
-                if config != self._codex_config:
+                if config != self._codex_config or auth != self._codex_auth_config:
                     raise RuntimeError("Codex client configuration changed; close the wrapper before reconfiguring it")
                 return self._codex
             codex = AsyncCodex(config)
+            try:
+                if auth.mode == "api_key":
+                    await codex.login_api_key(auth.api_key)
+                else:
+                    account = await codex.account()
+                    if account.account is None:
+                        raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
+            except BaseException:
+                await codex.close()
+                raise
             self._codex = codex
             self._codex_config = config
+            self._codex_auth_config = auth
             return codex
 
     async def _close(self) -> None:
@@ -304,6 +341,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         async with self._client_lock:
             codex, self._codex = self._codex, None
             self._codex_config = None
+            self._codex_auth_config = None
             self._thread_tool_contexts.clear()
             try:
                 if codex is not None:
