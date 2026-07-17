@@ -106,6 +106,10 @@ class FaissLocalFileStore(LocalFileStore):
         if len(self._tombstones) >= self.max_tombstones:
             self._rebuild_index()
 
+    async def _after_embedding_backfill(self) -> None:
+        """Make newly backfilled vectors visible to FAISS before persistence."""
+        self._rebuild_index()
+
     # -- persistence ------------------------------------------------------
 
     async def load(self) -> None:

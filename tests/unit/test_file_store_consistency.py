@@ -37,6 +37,7 @@ class FakeEmbeddingStore:
     """Small deterministic embedding provider used by file-store tests."""
 
     dimensions = 2
+    max_batch_size = 10
 
     def _embed(self, text: str) -> np.ndarray:
         if "beta" in text or "fresh" in text:
@@ -85,6 +86,19 @@ class HealthCountingEmbeddingStore(FakeEmbeddingStore):
     async def health_check(self, _timeout: float = 2.0) -> bool:
         self.health_calls += 1
         return True
+
+
+class BlockingEmbeddingStore(FakeEmbeddingStore):
+    """Fake provider that proves startup does not await remote backfill."""
+
+    def __init__(self):
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **kwargs) -> list[FileChunk]:
+        self.started.set()
+        await self.release.wait()
+        return await super().get_node_embeddings(nodes, **kwargs)
 
 
 class WrongDimEmbeddingStore(FakeEmbeddingStore):
@@ -217,6 +231,35 @@ def test_keyword_sync_rebuilds_when_backend_only_exposes_matching_count():
     run(go())
 
 
+def test_keyword_sync_rebuilds_in_progress_batches(monkeypatch):
+    """Foreground keyword repair uses bounded batches suitable for progress reporting."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_keyword_progress", embedding_store="")
+            await store.start()
+            store.file_chunks = {str(index): chunk(str(index), f"{index}.md", f"content {index}") for index in range(5)}
+            await store.keyword_index.clear()
+
+            batch_sizes = []
+            original_add_docs = store.keyword_index.add_docs
+
+            async def recording_add_docs(docs):
+                batch_sizes.append(len(docs))
+                await original_add_docs(docs)
+
+            monkeypatch.setattr(local_file_store_module, "_KEYWORD_REBUILD_BATCH_SIZE", 2)
+            monkeypatch.setattr(store.keyword_index, "add_docs", recording_add_docs)
+
+            await store._sync_keyword_index_from_chunks()
+
+            assert batch_sizes == [2, 2, 1]
+            assert set(store.keyword_index.document_ids) == set(store.file_chunks)
+            await store.close()
+
+    run(go())
+
+
 def test_chunk_persistence_uses_compact_embedding_and_round_trips():
     """Chunk persistence avoids JSON float lists while preserving float16 vectors."""
 
@@ -315,7 +358,7 @@ def test_same_chunk_id_with_changed_text_gets_new_embedding():
 
 
 def test_load_backfills_missing_embeddings_from_persisted_chunks():
-    """Loading old chunks after enabling embeddings backfills and persists vectors."""
+    """Startup backfills old chunks in the background and persists vectors."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -330,9 +373,9 @@ def test_load_backfills_missing_embeddings_from_persisted_chunks():
             await store.close()
 
             store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
-            await store.start()
             store.embedding_store = FakeEmbeddingStore()
-            await store.load()
+            await store.start()
+            await store._embedding_backfill_task
 
             assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
             assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
@@ -347,8 +390,61 @@ def test_load_backfills_missing_embeddings_from_persisted_chunks():
     run(go())
 
 
+def test_start_does_not_wait_for_embedding_backfill():
+    """Remote embedding repair runs after the file store becomes ready."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = LocalFileStore(name="t_background_embedding", embedding_store="")
+            await seed.start()
+            seed.file_chunks = {"a": chunk("a", "a.md", "alpha text")}
+            await seed.dump()
+            await seed.close()
+
+            store = LocalFileStore(name="t_background_embedding", embedding_store="")
+            fake = BlockingEmbeddingStore()
+            store.embedding_store = fake
+            await store.start()
+
+            await asyncio.wait_for(fake.started.wait(), timeout=1)
+            assert store.is_started
+            assert store.file_chunks["a"].embedding is None
+
+            fake.release.set()
+            await store._embedding_backfill_task
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            await store.close()
+
+    run(go())
+
+
+def test_background_embedding_backfill_uses_provider_batch_size():
+    """Embedding repair reports progress over the provider's bounded batches."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = LocalFileStore(name="t_embedding_batches", embedding_store="")
+            await seed.start()
+            seed.file_chunks = {str(index): chunk(str(index), f"{index}.md", f"content {index}") for index in range(5)}
+            await seed.dump()
+            await seed.close()
+
+            store = LocalFileStore(name="t_embedding_batches", embedding_store="")
+            fake = CountingFakeEmbeddingStore()
+            fake.max_batch_size = 2
+            store.embedding_store = fake
+            await store.start()
+            await store._embedding_backfill_task
+
+            assert [len(batch) for batch in fake.node_embedding_calls] == [2, 2, 1]
+            assert all(chunk.embedding is not None for chunk in store.file_chunks.values())
+            await store.close()
+
+    run(go())
+
+
 def test_load_skips_backfill_when_embedding_health_check_fails():
-    """Backfill disables embeddings before batching when the provider is unhealthy."""
+    """Background backfill disables embeddings before batching when the provider is unhealthy."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -359,10 +455,10 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
             await store.close()
 
             store = LocalFileStore(name="t_embedding_backfill_unhealthy", embedding_store="")
-            await store.start()
             fake = UnhealthyCountingEmbeddingStore()
             store.embedding_store = fake
-            await store.load()
+            await store.start()
+            await store._embedding_backfill_task
 
             assert not fake.node_embedding_calls
             assert store.embedding_store is None
@@ -386,10 +482,10 @@ def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
             await store.close()
 
             store = LocalFileStore(name="t_embedding_stale_dim", embedding_store="")
-            await store.start()
             fake = CountingFakeEmbeddingStore()
             store.embedding_store = fake
-            await store.load()
+            await store.start()
+            await store._embedding_backfill_task
 
             assert fake.node_embedding_calls == [["a"]]
             assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]

@@ -1,6 +1,7 @@
 """Tests for logging configuration handoff during app startup."""
 
 import concurrent.futures
+import logging
 import threading
 import time
 
@@ -21,6 +22,30 @@ class DummyLogger:
     def info(self, *_args, **_kwargs):
         """No-op."""
         return None
+
+
+def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, capsys):
+    """Stdlib logs should use QwenPaw's level/path/time/message layout."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REME_DISABLE_LOGURU", "true")
+    source_path = tmp_path / "src" / "qwenpaw" / "worker.py"
+    record = logging.LogRecord(
+        name="reme",
+        level=logging.INFO,
+        pathname=str(source_path),
+        lineno=42,
+        msg="Memory index loaded",
+        args=(),
+        exc_info=None,
+    )
+    record.created = 0
+
+    logger = logger_utils.get_logger(log_to_file=False, force_init=True)
+    logger.handle(record)
+
+    formatted_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
+    assert capsys.readouterr().out == (f"INFO src/qwenpaw/worker.py:42 | {formatted_time} | Memory index loaded\n")
+    logger_utils.get_logger(log_to_console=False, log_to_file=False, force_init=True)
 
 
 def test_resolve_app_config_does_not_create_file_logger(monkeypatch):

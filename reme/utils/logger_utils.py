@@ -11,8 +11,26 @@ _logger = None
 _logger_lock = threading.RLock()
 
 _LOGURU_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}"
-_STDLIB_FORMAT = "%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
+_STDLIB_FORMAT = "%(levelname)s %(source_path)s:%(lineno)d | %(asctime)s | %(message)s"
 _STDLIB_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+
+class _QwenPawStdlibFormatter(logging.Formatter):
+    """Format stdlib records consistently with QwenPaw host logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        source_path = record.pathname
+        cwd = os.getcwd()
+        try:
+            if os.path.commonpath([source_path, cwd]) == cwd:
+                source_path = os.path.relpath(source_path, cwd)
+        except ValueError:
+            # Paths on different Windows drives cannot be compared.
+            pass
+
+        # QwenPaw prefixes console records with a cwd-relative source path.
+        record.source_path = source_path
+        return super().format(record)
 
 
 def _enable_loguru() -> bool:
@@ -62,7 +80,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
         logger.removeHandler(handler)
         handler.close()
 
-    formatter = logging.Formatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
+    formatter = _QwenPawStdlibFormatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
 
     if log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
