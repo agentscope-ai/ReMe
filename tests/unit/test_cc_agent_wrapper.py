@@ -124,6 +124,7 @@ def test_default_claude_code_system_prompt_mode_is_replace():
 
 
 def test_build_options_accepts_empty_output_schema(tmp_path):
+    """An empty schema remains a valid structured-output request."""
     opts = _wrapper(tmp_path)._build_options("hello", output_schema={})
 
     assert opts.output_format == {"type": "json_schema", "schema": {}}
@@ -131,6 +132,7 @@ def test_build_options_accepts_empty_output_schema(tmp_path):
 
 @pytest.mark.asyncio
 async def test_reply_preserves_falsy_structured_output(tmp_path, monkeypatch):
+    """Falsy structured output is returned instead of being discarded."""
     from claude_agent_sdk import ResultMessage
 
     message = ResultMessage(
@@ -159,12 +161,13 @@ async def test_reply_preserves_falsy_structured_output(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "wrapper_factory",
     [
-        lambda tmp_path: _wrapper(tmp_path),
+        _wrapper,
         lambda tmp_path: AsAgentWrapper(as_llm="", app_context=ApplicationContext(workspace_dir=str(tmp_path))),
     ],
 )
 @pytest.mark.parametrize("schema", [{}, {"type": "object"}])
 async def test_reply_stream_rejects_output_schema(tmp_path, wrapper_factory, schema):
+    """Streaming wrappers reject structured-output schemas consistently."""
     wrapper = wrapper_factory(tmp_path)
 
     with pytest.raises(NotImplementedError, match="Structured output is not supported"):

@@ -68,6 +68,7 @@ def _child_pids(root_pid: int) -> set[int]:
 
 @pytest.mark.asyncio
 async def test_live_codex_reply_stream_tools_skills_resume_fork_approval_and_close(tmp_path):
+    """Exercise the live Codex wrapper contract when explicitly enabled."""
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     project_skill = Path(__file__).resolve().parents[2] / "skills" / "reme_memory"
