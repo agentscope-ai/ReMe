@@ -25,7 +25,6 @@ import yaml
 from pydantic import ValidationError
 
 
-from .base_file_chunker import BaseFileChunker
 from .default_file_chunker import DefaultFileChunker
 from ..component_registry import R
 from ...schema import (
@@ -99,26 +98,22 @@ def _toc_join(*parts: str) -> str:
 
 
 @R.register("markdown")
-class MarkdownFileChunker(BaseFileChunker):
+class MarkdownFileChunker(DefaultFileChunker):
     """Markdown chunker with breadcrumb context and adjacent-section packing."""
 
     def __init__(
         self,
         encoding: str = "utf-8",
-        chunk_chars: int = 10000,
+        chunk_byte_size: int = 10000,
         embed_toc: bool = True,
         max_ast_sections: int | None = 100,
-        default_chunker: str = "default",
         include_frontmatter_in_metadata: bool = False,
         include_frontmatter_keys_in_metadata: list[str] | None = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.encoding = encoding
-        self.chunk_chars = max(100, chunk_chars)
+        super().__init__(encoding=encoding, chunk_byte_size=chunk_byte_size, **kwargs)
         self.embed_toc = embed_toc
         self.max_ast_sections = max(0, max_ast_sections) if max_ast_sections is not None else None
-        self.default_chunker = self.bind(default_chunker, BaseFileChunker, optional=False)
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
         self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
@@ -211,10 +206,8 @@ class MarkdownFileChunker(BaseFileChunker):
         return count
 
     def _chunk_plain_text(self, content: str, path: str, line_offset: int) -> list[FileChunk]:
-        """Use the default byte chunker while preserving original Markdown lines."""
-        if not isinstance(self.default_chunker, DefaultFileChunker):
-            raise RuntimeError("DefaultFileChunker dependency is unavailable; call start() before chunk().")
-        chunks = self.default_chunker.chunk_content(content, path, parse_links=True)
+        """Use inherited byte chunking while preserving original Markdown lines."""
+        chunks = self.chunk_content(content, path, parse_links=True)
         if line_offset:
             for chunk in chunks:
                 chunk.start_line += line_offset
@@ -329,12 +322,11 @@ class MarkdownFileChunker(BaseFileChunker):
             heading = f"{'#' * node.level} {node.heading or ''}"
             subtree_text = _toc_join(heading, node.text)
 
-        if subtree_text and len(subtree_text) <= self.chunk_chars:
+        if subtree_text and self._byte_len(self._compose_text(prefix, subtree_text)) <= self.chunk_byte_size:
             return [
                 self._make_chunk(
                     prefix,
                     subtree_text,
-                    "",
                     node.start_line,
                     node.end_line,
                     path,
@@ -342,7 +334,7 @@ class MarkdownFileChunker(BaseFileChunker):
             ]
 
         if node.kind == "body":
-            return self._split_leaf(node, prefix, "", path, renderer)
+            return self._split_leaf(node, prefix, path, renderer)
 
         child_ancestors = ancestors
         if node.kind == "section":
@@ -365,28 +357,32 @@ class MarkdownFileChunker(BaseFileChunker):
                 return
             if cache is not None:
                 candidate = _toc_join(cache.text, text)
-                if len(candidate) <= self.chunk_chars:
+                candidate_size = self._byte_len(candidate)
+                if candidate_size <= self.chunk_byte_size:
                     cache.text = candidate
                     cache.end_line = end_line
-                    if len(candidate) == self.chunk_chars:
+                    if candidate_size == self.chunk_byte_size:
                         flush_cache()
                     return
                 flush_cache()
 
-            cache_text = _toc_join(new_prefix, text) if self.embed_toc else text
+            cache_text = self._compose_text(new_prefix, text)
             cache = FileChunk(
                 path=path,
                 start_line=start_line,
                 end_line=end_line,
                 text=cache_text,
             )
-            if len(cache_text) >= self.chunk_chars:
+            if self._byte_len(cache_text) >= self.chunk_byte_size:
                 flush_cache()
+
+        if heading:
+            append_to_cache(heading, node.start_line, node.start_line, prefix)
 
         for child in node.children:
             child_heading = f"{'#' * child.level} {child.heading or ''}" if child.kind == "section" else ""
             child_text = _toc_join(child_heading, child.text) if child_heading else child.text
-            if len(child_text) <= self.chunk_chars:
+            if self._byte_len(child_text) <= self.chunk_byte_size:
                 append_to_cache(child_text, child.start_line, child.end_line, child_prefix)
                 continue
 
@@ -394,45 +390,14 @@ class MarkdownFileChunker(BaseFileChunker):
             chunks.extend(self._chunk_node(child, child_ancestors, path, renderer))
 
         flush_cache()
-        if node.kind == "section":
-            if not chunks:
-                return [
-                    self._make_chunk(
-                        prefix,
-                        heading,
-                        "",
-                        node.start_line,
-                        node.start_line,
-                        path,
-                    ),
-                ]
-            first_content = self._without_prefix(chunks[0].text, child_prefix)
-            chunks[0] = self._make_chunk(
-                prefix,
-                _toc_join(heading, first_content),
-                "",
-                node.start_line,
-                chunks[0].end_line,
-                path,
-            )
         return chunks
-
-    def _without_prefix(self, text: str, prefix: str) -> str:
-        """Remove a breadcrumb that this chunker prepended to ``text``."""
-        if not self.embed_toc or not prefix:
-            return text
-        if text == prefix:
-            return ""
-        marker = f"{prefix}\n\n"
-        return text[len(marker) :] if text.startswith(marker) else text
 
     # -- Leaf splitters: build (text, start, end) units, hand off to packer
 
     def _split_leaf(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         renderer,
     ) -> list[FileChunk]:
@@ -444,18 +409,17 @@ class MarkdownFileChunker(BaseFileChunker):
 
         block = body.block
         if isinstance(block, Table):
-            return self._split_table(body, before, after, path)
+            return self._split_table(body, breadcrumb, path)
         if isinstance(block, CodeFence):
-            return self._split_code(body, before, after, path)
+            return self._split_code(body, breadcrumb, path)
         if isinstance(block, List):
-            return self._split_list(body, before, after, path, renderer)
-        return self._split_lines(body, before, after, path)
+            return self._split_list(body, breadcrumb, path, renderer)
+        return self._split_lines(body, breadcrumb, path)
 
     def _split_table(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Repeat header + separator on every chunk."""
@@ -473,8 +437,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(text, line_of(i), line_of(i)) for i, text in enumerate(data)]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap=f"{header}\n{{inner}}",
@@ -483,8 +446,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_code(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Repeat fence opener + closer on every chunk."""
@@ -499,8 +461,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(indent + ln, start + i, start + i) for i, ln in enumerate(raw.split("\n"))]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap=f"{opener}\n{{inner}}\n{fence}",
@@ -510,8 +471,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_list(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         renderer,
     ) -> list[FileChunk]:
@@ -520,7 +480,7 @@ class MarkdownFileChunker(BaseFileChunker):
 
         items = [c for c in (body.block.children or []) if isinstance(c, ListItem)]
         if not items:
-            return self._split_lines(body, before, after, path)
+            return self._split_lines(body, breadcrumb, path)
         units: list[tuple[str, int, int]] = []
         line_offset = body.start_line - (getattr(body.block, "line_number", None) or body.start_line)
         for it in items:
@@ -531,8 +491,7 @@ class MarkdownFileChunker(BaseFileChunker):
             units.append((text, line, line + text.count("\n")))
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap="{inner}",
@@ -541,8 +500,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_lines(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Last-resort line-greedy split for paragraphs / quotes / html."""
@@ -550,8 +508,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(line, start + i, start + i) for i, line in enumerate(body.text.split("\n"))]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap="{inner}",
@@ -560,8 +517,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _emit_packed(
         self,
         units: list[tuple[str, int, int]],
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         joiner: str,
         wrap: str,
@@ -569,49 +525,52 @@ class MarkdownFileChunker(BaseFileChunker):
     ) -> list[FileChunk]:
         """Greedy-pack units into ``wrap`` envelopes; emit each piece.
 
-        Envelope (table header, code fence) counts against ``chunk_chars``;
-        TOC (when on) is additive prefix/suffix downstream. Oversized
-        units overflow rather than truncate. Multi-piece outputs get
-        ``[Part X/N]`` markers; single pieces don't.
+        Envelope (table header, code fence), breadcrumb, separators and the
+        largest possible ``[Part X/N]`` marker all count against
+        ``chunk_byte_size``. Oversized atomic units overflow rather than
+        truncate. Multi-piece outputs get part markers; single pieces don't.
         """
-        envelope = len(wrap.replace("{inner}", ""))
-        budget = max(64, self.chunk_chars - envelope)
-        sep_len = len(joiner)
+        envelope = self._byte_len(wrap.replace("{inner}", ""))
+        breadcrumb_overhead = self._breadcrumb_overhead(breadcrumb)
+        part_marker = len(units) > 1
+        marker_overhead = self._byte_len(f"[Part {len(units)}/{len(units)}]\n\n") if part_marker else 0
+        budget = self.chunk_byte_size - envelope - breadcrumb_overhead - marker_overhead
+        sep_len = self._byte_len(joiner)
 
         parts: list[tuple[str, int, int]] = []
         bucket: list[tuple[str, int, int]] = []
-        bucket_chars = 0
+        bucket_bytes = 0
 
         def flush() -> None:
-            nonlocal bucket, bucket_chars
+            nonlocal bucket, bucket_bytes
             if not bucket:
                 return
             inner = joiner.join(t for t, _, _ in bucket)
             parts.append((inner, bucket[0][1], bucket[-1][2]))
             bucket = []
-            bucket_chars = 0
+            bucket_bytes = 0
 
         for text, s, e in units:
             if not text and not allow_empty:
                 continue
             sep = sep_len if bucket else 0
-            if bucket_chars + sep + len(text) > budget:
+            text_size = self._byte_len(text)
+            if bucket_bytes + sep + text_size > budget:
                 flush()
                 sep = 0
             bucket.append((text, s, e))
-            bucket_chars += sep + len(text)
+            bucket_bytes += sep + text_size
         flush()
 
         total = len(parts)
         return [
             self._make_chunk(
-                before,
+                breadcrumb,
                 (
                     f"[Part {idx}/{total}]\n\n{wrap.replace('{inner}', inner)}"
                     if total > 1
                     else wrap.replace("{inner}", inner)
                 ),
-                after,
                 s,
                 e,
                 path,
@@ -623,19 +582,47 @@ class MarkdownFileChunker(BaseFileChunker):
 
     def _make_chunk(
         self,
-        before: str,
+        breadcrumb: str,
         content: str,
-        after: str,
         start_line: int,
         end_line: int,
         path: str,
     ) -> FileChunk:
-        """Build one ``FileChunk`` — text is ``before + content + after``
-        when ``embed_toc``, otherwise just ``content``."""
-        text = _toc_join(before, content, after) if self.embed_toc else content
+        """Build one chunk with an optional ancestor-heading breadcrumb."""
+        text = self._compose_text(breadcrumb, content)
         return FileChunk(
             path=path,
             start_line=start_line,
             end_line=end_line,
             text=text,
         ).set_hash_id()
+
+    def _breadcrumb_overhead(self, breadcrumb: str) -> int:
+        """Return the breadcrumb and separator cost before one content string."""
+        if not self.embed_toc or not breadcrumb:
+            return 0
+        return self._byte_len(_toc_join(breadcrumb, "x")) - 1
+
+    def _compose_text(self, breadcrumb: str, content: str) -> str:
+        """Compose a chunk and trim breadcrumbs when they consume its budget."""
+        if not self.embed_toc or not breadcrumb:
+            return content
+        full = _toc_join(breadcrumb, content)
+        if self._byte_len(full) <= self.chunk_byte_size:
+            return full
+
+        available = self.chunk_byte_size - self._byte_len(content) - 2
+        if available <= 0:
+            return content
+
+        breadcrumb_parts = breadcrumb.split("\n\n")
+        for start in range(len(breadcrumb_parts)):
+            retained = "\n\n".join(breadcrumb_parts[start:])
+            candidate = _toc_join(retained, content)
+            if self._byte_len(candidate) <= self.chunk_byte_size:
+                return candidate
+        return content
+
+    def _byte_len(self, text: str) -> int:
+        """Return encoded size used by the shared byte chunking contract."""
+        return len(text.encode(self.encoding))

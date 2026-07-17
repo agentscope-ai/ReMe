@@ -399,7 +399,6 @@ components:
       supported_extensions: [ "md" ]
       embed_toc: true
       max_ast_sections: 100
-      default_chunker: default
     default:
       backend: default
       supported_extensions: [ "json", "jsonl" ]

@@ -56,7 +56,6 @@ def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     markdown = cfg["components"]["file_chunker"]["markdown"]
     assert markdown["embed_toc"] is True
     assert markdown["max_ast_sections"] == 100
-    assert markdown["default_chunker"] == "default"
     assert markdown["include_frontmatter_in_metadata"] is False
     # Allow-list defaults to empty; combined with the False above, chunk metadata stays empty.
     assert markdown["include_frontmatter_keys_in_metadata"] == [] or markdown.get(
