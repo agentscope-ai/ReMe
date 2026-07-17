@@ -145,6 +145,20 @@ def chunk(chunk_id: str, path: str, text: str, **metadata) -> FileChunk:
     return FileChunk(id=chunk_id, path=path, text=text, start_line=1, end_line=1, metadata=metadata)
 
 
+async def set_chunks_with_graph(store: LocalFileStore, chunks: dict[str, FileChunk]) -> None:
+    """Seed a graph/chunk snapshot that satisfies the persistence invariant."""
+    store.file_chunks = chunks
+    chunk_ids_by_path: dict[str, list[str]] = {}
+    for chunk_node in chunks.values():
+        chunk_ids_by_path.setdefault(chunk_node.path, []).append(chunk_node.id)
+    nodes = []
+    for path, chunk_ids in chunk_ids_by_path.items():
+        file_node = node(path)
+        file_node.chunk_ids = chunk_ids
+        nodes.append(file_node)
+    await store.file_graph.upsert_nodes(nodes)
+
+
 def test_keyword_only_upsert_removes_old_chunks_and_docs():
     """Keyword-only upsert removes stale chunks and keyword documents."""
 
@@ -213,6 +227,77 @@ def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
     run(go())
 
 
+def test_load_clears_graph_when_persisted_chunks_are_missing():
+    """A surviving graph must not hide a missing chunk store from reindex."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = LocalFileStore(name="t_missing_chunks", embedding_store="")
+            await seed.start()
+            indexed_node = node("memory.md")
+            await seed.upsert(
+                [(indexed_node, [chunk("memory-chunk", "memory.md", "remember this")])],
+            )
+            await seed.close()
+
+            seed.chunks_path.unlink()
+            store = LocalFileStore(name="t_missing_chunks", embedding_store="")
+            await store.start()
+
+            assert store.file_chunks == {}
+            assert await store.get_nodes() == []
+            assert set(store.keyword_index.document_ids) == set()
+            await store.close()
+
+    run(go())
+
+
+def test_load_clears_graph_and_chunks_when_chunk_sets_partially_diverge():
+    """Missing and orphaned chunks invalidate the atomic derived snapshot."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_torn_chunks", embedding_store="")
+            await store.start()
+            indexed_node = node("memory.md")
+            indexed_node.chunk_ids = ["kept", "missing"]
+            await store.file_graph.upsert_nodes([indexed_node])
+            store.file_chunks = {
+                "kept": chunk("kept", "memory.md", "kept text"),
+                "orphaned": chunk("orphaned", "old.md", "orphaned text"),
+            }
+
+            repaired = await store._repair_graph_chunk_consistency()
+
+            assert repaired is True
+            assert store.file_chunks == {}
+            assert await store.get_nodes() == []
+            await store.close()
+
+    run(go())
+
+
+def test_load_clears_stale_keyword_index_when_chunks_are_empty():
+    """An empty chunk store is still an exact state BM25 must mirror."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = LocalFileStore(name="t_empty_chunk_keyword", embedding_store="")
+            await seed.start()
+            await seed.keyword_index.add_docs({"stale": "stale keyword document"})
+            await seed.close()
+
+            store = LocalFileStore(name="t_empty_chunk_keyword", embedding_store="")
+            await store.start()
+
+            assert store.file_chunks == {}
+            assert set(store.keyword_index.document_ids) == set()
+            assert not store.keyword_index.index_file.exists()
+            await store.close()
+
+    run(go())
+
+
 def test_keyword_sync_rebuilds_when_backend_only_exposes_matching_count():
     """Matching counts cannot prove that a backend contains the expected IDs."""
 
@@ -269,7 +354,7 @@ def test_chunk_persistence_uses_compact_embedding_and_round_trips():
             await store.start()
             original = chunk("a", "a.md", "alpha text", source="test")
             original.embedding = np.array([0.25, -1.5, 3.0], dtype=np.float16)
-            store.file_chunks[original.id] = original
+            await set_chunks_with_graph(store, {original.id: original})
             await store.dump()
 
             payload = json.loads(next(read_jsonl_zst(store.chunks_path)))
@@ -327,6 +412,10 @@ def test_chunk_persistence_loads_legacy_json_embedding_list():
             original = chunk("legacy", "legacy.md", "legacy text")
             original.embedding = np.array([0.5, 1.5], dtype=np.float16)
             write_jsonl_zst(store.chunks_path, [original.model_dump_json()])
+            await set_chunks_with_graph(store, {})
+            legacy_node = node("legacy.md")
+            legacy_node.chunk_ids = [original.id]
+            await store.file_graph.upsert_nodes([legacy_node])
 
             await store.load()
             restored = store.file_chunks[original.id]
@@ -397,7 +486,7 @@ def test_start_does_not_wait_for_embedding_backfill():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             seed = LocalFileStore(name="t_background_embedding", embedding_store="")
             await seed.start()
-            seed.file_chunks = {"a": chunk("a", "a.md", "alpha text")}
+            await set_chunks_with_graph(seed, {"a": chunk("a", "a.md", "alpha text")})
             await seed.dump()
             await seed.close()
 
@@ -425,7 +514,10 @@ def test_background_embedding_backfill_uses_provider_batch_size():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             seed = LocalFileStore(name="t_embedding_batches", embedding_store="")
             await seed.start()
-            seed.file_chunks = {str(index): chunk(str(index), f"{index}.md", f"content {index}") for index in range(5)}
+            await set_chunks_with_graph(
+                seed,
+                {str(index): chunk(str(index), f"{index}.md", f"content {index}") for index in range(5)},
+            )
             await seed.dump()
             await seed.close()
 
@@ -450,7 +542,7 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = LocalFileStore(name="t_embedding_backfill_unhealthy", embedding_store="")
             await store.start()
-            store.file_chunks = {"a": chunk("a", "a.md", "alpha text")}
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
             await store.dump()
             await store.close()
 
@@ -477,7 +569,7 @@ def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
             await store.start()
             stale = chunk("a", "a.md", "alpha text")
             stale.embedding = np.array([1.0], dtype=np.float16)
-            store.file_chunks = {"a": stale}
+            await set_chunks_with_graph(store, {"a": stale})
             await store.dump()
             await store.close()
 

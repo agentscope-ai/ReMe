@@ -117,18 +117,47 @@ class LocalFileStore(BaseFileStore):
 
     async def load(self) -> None:
         """Load chunks from the JSONL file into memory; missing file is a no-op."""
-        if not self.chunks_path.exists():
-            return
-        try:
-            for line in read_jsonl_zst(self.chunks_path, self.encoding):
-                line = line.strip()
-                if line:
-                    chunk = self._deserialize_chunk(line)
-                    self.file_chunks[chunk.id] = chunk
-            self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
-            await self._sync_keyword_index_from_chunks()
-        except Exception as e:
-            self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+        if self.chunks_path.exists():
+            try:
+                for line in read_jsonl_zst(self.chunks_path, self.encoding):
+                    line = line.strip()
+                    if line:
+                        chunk = self._deserialize_chunk(line)
+                        self.file_chunks[chunk.id] = chunk
+                self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
+            except Exception as e:
+                self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+
+        await self._repair_graph_chunk_consistency()
+        await self._sync_keyword_index_from_chunks()
+
+    async def _repair_graph_chunk_consistency(self) -> bool:
+        """Clear torn graph/chunk state so the filesystem scan rebuilds it.
+
+        ``InitChangesStep`` uses file-graph nodes as the indexed-file snapshot.
+        A graph that survives a missing, truncated, or stale chunk store would
+        otherwise make the source files look up to date and permanently hide
+        the broken search index.
+        """
+        assert self.file_graph is not None
+        nodes = await self.file_graph.get_nodes()
+        graph_chunk_ids = {chunk_id for node in nodes for chunk_id in node.chunk_ids}
+        stored_chunk_ids = set(self.file_chunks)
+        missing = graph_chunk_ids - stored_chunk_ids
+        orphaned = stored_chunk_ids - graph_chunk_ids
+        if not missing and not orphaned:
+            return False
+
+        self.logger.warning(
+            f"{self.name}: graph/chunk mismatch: nodes={len(nodes)}, graph_chunks={len(graph_chunk_ids)}, "
+            f"stored_chunks={len(stored_chunk_ids)}, missing={len(missing)}, orphaned={len(orphaned)}; "
+            "clearing derived index state for automatic rebuild",
+        )
+        # Clearing graph nodes is required: the next InitChangesStep scan will
+        # then classify every watched source file as added and rebuild graph,
+        # chunks, and search indexes from the user-owned files.
+        await self.clear()
+        return True
 
     @staticmethod
     def _deserialize_chunk(line: str) -> FileChunk:
@@ -261,13 +290,10 @@ class LocalFileStore(BaseFileStore):
 
     async def _sync_keyword_index_from_chunks(self) -> None:
         """Repair keyword index when its persisted state does not match chunks."""
-        if not self.keyword_index or not self.file_chunks:
+        if not self.keyword_index:
             return
 
         docs = {cid: chunk.text for cid, chunk in self.file_chunks.items() if chunk.text}
-        if not docs:
-            return
-
         expected_ids = set(docs)
         live_ids = None
         with suppress(Exception):
