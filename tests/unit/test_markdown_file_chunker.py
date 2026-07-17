@@ -11,8 +11,11 @@ a markdown-to-FileNode transformer.
 import asyncio
 import os
 import tempfile
+from unittest.mock import patch
 
-from reme.components.file_chunker import MarkdownFileChunker
+from reme.components import ApplicationContext
+from reme.components.file_chunker import DefaultFileChunker, MarkdownFileChunker
+from reme.enumeration import ComponentEnum
 
 
 class temp_chdir:
@@ -183,6 +186,64 @@ def test_parse_small_body_one_chunk():
     asyncio.run(run())
 
 
+def test_parse_small_children_are_cached_without_recursive_calls():
+    """An oversized parent greedily caches fitting children without recursing into them."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            sections = "\n\n".join(f"# Section-{i}\n\n{'x' * 30}" for i in range(6))
+            path = _write_md(tmp, "small-children.md", sections)
+            chunker = MarkdownFileChunker(chunk_chars=100, embed_toc=False)
+            with patch.object(
+                chunker,
+                "_chunk_node",
+                wraps=chunker._chunk_node,
+            ) as chunk_node:
+                _, chunks = await chunker.chunk(path)
+
+            assert chunk_node.call_count == 1
+            assert 1 < len(chunks) < 6
+            assert all(len(chunk.text) <= chunker.chunk_chars for chunk in chunks)
+
+    asyncio.run(run())
+
+
+def test_parse_child_cache_flushes_at_exact_limit():
+    """A cache reaching ``chunk_chars`` is finalized before the next child."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            path = _write_md(tmp, "exact-cache.md", f"# A\n\n{'x' * 95}\n\n# B\n\ny")
+            chunker = MarkdownFileChunker(chunk_chars=100)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) == 2
+            assert len(chunks[0].text) == chunker.chunk_chars
+            assert chunks[0].text.startswith("# A")
+            assert chunks[1].text == "# B\n\ny"
+
+    asyncio.run(run())
+
+
+def test_parse_oversized_child_flushes_parent_cache():
+    """Recursive child chunks do not merge across the parent cache boundary."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            leaves = "\n\n".join(f"## L{i}\n\n{'x' * 10}" for i in range(6))
+            body = f"# A\n\na\n\n# Large\n\n{leaves}\n\n# C\n\nc"
+            path = _write_md(tmp, "recursive-boundary.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=100, embed_toc=False)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) == 4
+            assert chunks[0].text == "# A\n\na"
+            assert chunks[-2].text == f"## L5\n\n{'x' * 10}"
+            assert chunks[-1].text == "# C\n\nc"
+
+    asyncio.run(run())
+
+
 def test_parse_oversized_body_splits():
     """A body exceeding chunk_chars triggers multiple chunks."""
 
@@ -312,6 +373,172 @@ def test_parse_embed_toc_prefixes_chunk_text():
     asyncio.run(run())
 
 
+def test_parse_embed_toc_is_enabled_by_default():
+    """The default adds bounded ancestor breadcrumbs without a full outline."""
+    chunker = MarkdownFileChunker()
+    assert chunker.embed_toc is True
+    assert chunker.max_ast_sections == 100
+
+
+def test_count_sections_ignores_fenced_headings_and_supports_setext():
+    """The AST preflight counts real headings without parsing fenced examples."""
+    content = "# Real\n\n```markdown\n# Fake\nFake too\n---\n```\n\nSetext\n===\n"
+    assert MarkdownFileChunker._count_sections(content) == 2
+    assert MarkdownFileChunker._count_sections(content, stop_after=1) == 2
+
+
+def test_parse_excessive_sections_uses_plain_text_without_ast():
+    """Too many sections preserve Markdown metadata while bypassing mistletoe."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            app_context = ApplicationContext(workspace_dir=tmp)
+            default_chunker = DefaultFileChunker(
+                name="default",
+                app_context=app_context,
+                chunk_byte_size=160,
+                overlap_byte_size=20,
+            )
+            app_context.components[ComponentEnum.FILE_CHUNKER] = {"default": default_chunker}
+            sections = "\n\n".join(f"# Section-{i}\n\n{'x' * 40} [[target.md]]" for i in range(4))
+            body = f"---\nname: fallback\n---\n{sections}"
+            _write_md(tmp, "fallback.md", body)
+            path = os.path.join(tmp, "fallback.md")
+            chunker = MarkdownFileChunker(
+                app_context=app_context,
+                chunk_chars=100,
+                embed_toc=True,
+                max_ast_sections=2,
+                include_frontmatter_in_metadata=True,
+            )
+            await default_chunker.start()
+            await chunker.start()
+            try:
+                with (
+                    patch(
+                        "mistletoe.block_token.Document",
+                        side_effect=AssertionError("fallback must not construct an AST"),
+                    ),
+                    patch.object(
+                        default_chunker,
+                        "chunk_content",
+                        wraps=default_chunker.chunk_content,
+                    ) as chunk_content,
+                ):
+                    node, chunks = await chunker.chunk(path)
+                assert chunker.default_chunker is default_chunker
+                assert chunk_content.call_count == 1
+            finally:
+                await chunker.close()
+                await default_chunker.close()
+
+            assert len(chunks) > 1
+            assert chunks[0].start_line == 4
+            assert node.front_matter.name == "fallback"
+            assert node.chunk_ids == [chunk.id for chunk in chunks]
+            assert {(link.target_path, link.source_path) for link in node.links} == {
+                ("target.md", "fallback.md"),
+            }
+            assert all(chunk.metadata == {"name": "fallback"} for chunk in chunks)
+            for i in range(4):
+                assert any(f"# Section-{i}" in chunk.text for chunk in chunks)
+
+    asyncio.run(run())
+
+
+def test_parse_section_limit_is_inclusive_for_ast():
+    """A document at the configured section limit still takes the AST path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            path = _write_md(tmp, "at-limit.md", "# A\n\na\n\n# B\n\nb")
+            chunker = MarkdownFileChunker(max_ast_sections=2)
+            with patch.object(chunker, "_build_tree", wraps=chunker._build_tree) as build_tree:
+                _, chunks = await chunker.chunk(path)
+
+            assert build_tree.call_count == 1
+            assert len(chunks) == 1
+
+    asyncio.run(run())
+
+
+def test_parse_small_sections_are_merged_and_headings_preserved():
+    """Adjacent small sections share chunks without losing their headings."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            sections = "\n\n".join(f"## Section-{i:03d}\n\nfact-{i:03d}" for i in range(40))
+            path = _write_md(tmp, "sections.md", f"# Root\n\n{sections}")
+            chunker = MarkdownFileChunker(chunk_chars=200, embed_toc=False)
+            _, chunks = await chunker.chunk(path)
+
+            assert 1 < len(chunks) < 40
+            for i in range(40):
+                heading = f"## Section-{i:03d}"
+                assert sum(chunk.text.count(heading) for chunk in chunks) == 1
+
+    asyncio.run(run())
+
+
+def test_parse_embed_toc_uses_breadcrumbs_without_sibling_duplication():
+    """TOC context repeats ancestors, not parallel section headings."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            sections = "\n\n".join(f"## Parallel-{i:03d}\n\nfact-{i:03d}" for i in range(40))
+            path = _write_md(tmp, "breadcrumbs.md", f"# Root\n\n{sections}")
+            chunker = MarkdownFileChunker(chunk_chars=200, embed_toc=True)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) > 1
+            assert all("# Root" in chunk.text for chunk in chunks)
+            for i in range(40):
+                heading = f"## Parallel-{i:03d}"
+                assert sum(chunk.text.count(heading) for chunk in chunks) == 1
+
+    asyncio.run(run())
+
+
+def test_parse_heading_heavy_output_grows_linearly():
+    """A thousand parallel sections remain a small, linear number of chunks."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            sections = "\n\n".join(f"## Observation-{i:04d}\n\nsynthetic fact" for i in range(1000))
+            body = f"# Root\n\n{sections}"
+            path = _write_md(tmp, "linear.md", body)
+            chunker = MarkdownFileChunker(chunk_chars=10000, embed_toc=True, max_ast_sections=None)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) < 10
+            assert sum(len(chunk.text) for chunk in chunks) < 2 * len(body)
+
+    asyncio.run(run())
+
+
+def test_parse_nested_sections_merge_within_recursive_context():
+    """Nested continuations retain their branch breadcrumb after recursive merging."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            branches = []
+            for branch, fact in (("A", "a"), ("B", "b")):
+                leaves = "\n\n".join(f"### {branch}{i}\n\n{fact * 45}" for i in range(4))
+                branches.append(f"## {branch}\n\n{leaves}")
+            branch_text = "\n\n".join(branches)
+            path = _write_md(tmp, "nested.md", f"# Root\n\n{branch_text}")
+            chunker = MarkdownFileChunker(chunk_chars=150, embed_toc=True)
+            _, chunks = await chunker.chunk(path)
+
+            assert len(chunks) == 4
+            assert all(len(chunk.text) <= chunker.chunk_chars for chunk in chunks)
+            assert chunks[1].text.startswith("# Root\n\n## A\n\n### A2")
+            assert chunks[2].text.startswith("# Root\n\n## B\n\n### B0")
+            assert "## B" not in chunks[1].text
+
+    asyncio.run(run())
+
+
 def test_parse_frontmatter_preserves_original_line_numbers():
     """Chunk line ranges are 1-based and refer to the original file, including frontmatter."""
 
@@ -371,6 +598,9 @@ if __name__ == "__main__":
     test_parse_frontmatter_only()
     test_parse_frontmatter_metadata_is_opt_in()
     test_parse_small_body_one_chunk()
+    test_parse_small_children_are_cached_without_recursive_calls()
+    test_parse_child_cache_flushes_at_exact_limit()
+    test_parse_oversized_child_flushes_parent_cache()
     test_parse_oversized_body_splits()
     test_parse_chunk_ids_match_node_chunk_ids()
     test_parse_links_literal_targets()
@@ -379,6 +609,14 @@ if __name__ == "__main__":
     test_parse_links_deduped()
     test_parse_min_chunk_chars_clamped()
     test_parse_embed_toc_prefixes_chunk_text()
+    test_parse_embed_toc_is_enabled_by_default()
+    test_count_sections_ignores_fenced_headings_and_supports_setext()
+    test_parse_excessive_sections_uses_plain_text_without_ast()
+    test_parse_section_limit_is_inclusive_for_ast()
+    test_parse_small_sections_are_merged_and_headings_preserved()
+    test_parse_embed_toc_uses_breadcrumbs_without_sibling_duplication()
+    test_parse_heading_heavy_output_grows_linearly()
+    test_parse_nested_sections_merge_within_recursive_context()
     test_parse_frontmatter_preserves_original_line_numbers()
     test_parse_frontmatter_offsets_split_table_rows()
     test_parse_bad_frontmatter_does_not_abort_chunking()

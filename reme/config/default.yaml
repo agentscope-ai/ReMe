@@ -705,6 +705,9 @@ components:
     markdown:
       backend: markdown
       supported_extensions: [ "md" ]
+      embed_toc: true
+      max_ast_sections: 100
+      default_chunker: default
       include_frontmatter_in_metadata: false
       include_frontmatter_keys_in_metadata: []  # empty = all non-empty frontmatter keys
     json:

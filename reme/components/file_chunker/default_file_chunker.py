@@ -59,7 +59,7 @@ class DefaultFileChunker(BaseFileChunker):
             content = text
             links = []
 
-        chunks = self._chunk_content(content, rel_path, parse_links=is_markdown)
+        chunks = self.chunk_content(content, rel_path, parse_links=is_markdown)
         chunk_ids = [c.id for c in chunks]
         return (
             FileNode(
@@ -97,7 +97,7 @@ class DefaultFileChunker(BaseFileChunker):
         s, e = spans[idx]
         return (s, e) if s < pos < e else None
 
-    def _chunk_content(self, content: str, rel_path: str, parse_links: bool = True) -> list[FileChunk]:
+    def chunk_content(self, content: str, rel_path: str, parse_links: bool = True) -> list[FileChunk]:
         """Split content into overlapping byte-range chunks, avoiding cuts inside wikilinks.
 
         When ``parse_links`` is False, skip wikilink span computation and boundary checks
