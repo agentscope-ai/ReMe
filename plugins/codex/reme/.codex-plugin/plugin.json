@@ -1,0 +1,26 @@
+{
+  "name": "reme",
+  "version": "0.1.0",
+  "description": "File-native long-term memory for Codex, backed by a running ReMe MCP server. A memory skill recalls long-term knowledge on demand; recording is automatic via a Stop hook that records each session in the background.",
+  "author": {
+    "name": "EconML team of Alibaba Tongyi Lab",
+    "email": "jinli.yl@alibaba-inc.com"
+  },
+  "homepage": "https://reme.agentscope.io/",
+  "repository": "https://github.com/agentscope-ai/ReMe",
+  "license": "Apache-2.0",
+  "keywords": ["memory", "reme", "mcp", "long-term-memory", "agent"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "ReMe Memory",
+    "shortDescription": "File-native long-term memory for Codex",
+    "longDescription": "Persistent, file-native memory for Codex. Recall past conversations, preferences, and decisions on demand; every session is automatically recorded in the background via a Stop hook.",
+    "developerName": "EconML team of Alibaba Tongyi Lab",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://reme.agentscope.io/",
+    "brandColor": "#10A37F"
+  }
+}
