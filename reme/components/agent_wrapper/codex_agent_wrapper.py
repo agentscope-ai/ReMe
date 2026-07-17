@@ -478,6 +478,18 @@ class CodexAgentWrapper(BaseAgentWrapper):
             codex = await self._get_codex(kwargs)
             thread = await self._open_thread(codex, kwargs)
             turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
-            async for event in turn.stream():
-                for chunk in self._event_to_chunks(event, thread.id):
-                    yield chunk
+            stream = turn.stream()
+            completed = False
+            try:
+                async for event in stream:
+                    if event.method == "turn/completed":
+                        completed = True
+                    for chunk in self._event_to_chunks(event, thread.id):
+                        yield chunk
+            finally:
+                if not completed:
+                    try:
+                        await turn.interrupt()
+                    except Exception as exc:  # pylint: disable=broad-exception-caught
+                        self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
+                await stream.aclose()

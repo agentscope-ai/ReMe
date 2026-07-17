@@ -602,6 +602,54 @@ async def test_reply_stream_rejects_output_schema(tmp_path, schema):
 
 
 @pytest.mark.asyncio
+async def test_reply_stream_interrupts_turn_when_consumer_closes_early(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    stream_closed = False
+    interrupt_count = 0
+
+    class FakeTurn:
+        id = "turn-1"
+
+        async def stream(self):
+            nonlocal stream_closed
+            try:
+                yield SimpleNamespace(
+                    method="turn/started",
+                    payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)),
+                )
+                await asyncio.Event().wait()
+            finally:
+                stream_closed = True
+
+        async def interrupt(self):
+            nonlocal interrupt_count
+            interrupt_count += 1
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def turn(self, _inputs, **_kwargs):
+            return FakeTurn()
+
+    async def get_codex(_kwargs):
+        return SimpleNamespace()
+
+    async def open_thread(_codex, _kwargs):
+        return FakeThread()
+
+    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
+    monkeypatch.setattr(wrapper, "_open_thread", open_thread)
+
+    stream = wrapper.reply_stream("answer")
+    first = await anext(stream)
+    assert first.chunk_type == ChunkEnum.REPLY_START
+    await stream.aclose()
+
+    assert interrupt_count == 1
+    assert stream_closed
+
+
+@pytest.mark.asyncio
 async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path)
 
