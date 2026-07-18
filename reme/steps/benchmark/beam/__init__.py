@@ -9,5 +9,5 @@ __all__ = [
     "BeamAgenticAnswerStep",
     "BeamRubricJudgeStep",
     "BeamContextAnswerStep",
-    "BeamAutoMemoryStep"
+    "BeamAutoMemoryStep",
 ]
