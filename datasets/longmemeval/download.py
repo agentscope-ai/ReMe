@@ -5,6 +5,7 @@ Usage:
     python download.py --all     # same as above
     python download.py --m-only  # only download longmemeval_m_cleaned.json
 """
+
 import os
 import sys
 import urllib.request
@@ -20,6 +21,7 @@ ALL_FILES = [
 
 
 def download_file(filename: str):
+    """Download a single file from the mirror to the target directory."""
     url = f"{BASE_URL}/{filename}"
     dest = os.path.join(TARGET_DIR, filename)
 

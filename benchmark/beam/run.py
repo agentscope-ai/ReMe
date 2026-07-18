@@ -45,13 +45,22 @@ logger = logging.getLogger("beam")
 
 # Noisy library loggers silenced by default
 _NOISY_LOGGERS = [
-    "httpx", "httpcore", "openai", "uvicorn", "multipart",
-    "asyncio", "watchfiles", "filelock",
+    "httpx",
+    "httpcore",
+    "openai",
+    "uvicorn",
+    "multipart",
+    "asyncio",
+    "watchfiles",
+    "filelock",
 ]
 
 
-def setup_logging(log_level: str, reme_log_level: str,
-                   log_dir: str | None = None):
+def setup_logging(
+    log_level: str,
+    reme_log_level: str,
+    log_dir: str | None = None,
+):
     """Configure logging for the eval runner and reme internals.
 
     Args:
@@ -86,8 +95,11 @@ def setup_logging(log_level: str, reme_log_level: str,
         os.environ["REME_LOG_DIR"] = log_dir
 
 
-def _configure_worker(log_level: str, reme_log_level: str,
-                       log_dir: str | None = None):
+def _configure_worker(
+    log_level: str,
+    reme_log_level: str,
+    log_dir: str | None = None,
+):
     """Set up logging inside a multiprocessing worker process.
 
     Must be called at the top of each worker because child processes inherit
@@ -112,6 +124,7 @@ def _configure_worker(log_level: str, reme_log_level: str,
 
     # Re-initialize loguru for reme internals at the desired level
     from reme.utils import get_logger
+
     reme_log_dir = log_dir or "logs"
     get_logger(log_dir=reme_log_dir, level=reme_log_level.upper(), force_init=True)
 
@@ -162,7 +175,7 @@ def load_beam_chat(chat_path: Path, chat_size: str, case_id: str) -> list[dict]:
       - date: str (YYYY-MM-DD)  — derived from the *first* turn's time
       - messages: list[dict] with name, role, content, created_at
     """
-    with open(chat_path) as f:
+    with open(chat_path, encoding="utf-8") as f:
         batches = json.load(f)
 
     sessions = []
@@ -200,18 +213,22 @@ def load_beam_chat(chat_path: Path, chat_size: str, case_id: str) -> list[dict]:
 
             for msg in turn:
                 role = msg["role"]
-                messages.append({
-                    "name": role,
-                    "role": role,
-                    "content": msg["content"],
-                    "created_at": dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                })
+                messages.append(
+                    {
+                        "name": role,
+                        "role": role,
+                        "content": msg["content"],
+                        "created_at": dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    },
+                )
 
-        sessions.append({
-            "session_id": f"beam_{chat_size}_{case_id}_batch{batch_num}",
-            "date": first_dt.strftime("%Y-%m-%d"),
-            "messages": messages,
-        })
+        sessions.append(
+            {
+                "session_id": f"beam_{chat_size}_{case_id}_batch{batch_num}",
+                "date": first_dt.strftime("%Y-%m-%d"),
+                "messages": messages,
+            },
+        )
 
     return sessions
 
@@ -223,7 +240,7 @@ def get_available_cases(beam_root: Path, chat_size: str) -> list[str]:
         return []
     return sorted(
         [d.name for d in chats_dir.iterdir() if d.is_dir()],
-        key=lambda x: int(x),
+        key=int,
     )
 
 
@@ -275,8 +292,13 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 # ---------------------------------------------------------------------------
 # BEAM rubric-based LLM-as-Judge
 # ---------------------------------------------------------------------------
-async def judge_answer(app, question: str, llm_response: str,
-                       rubric: list[str], question_type: str = "") -> dict:
+async def judge_answer(
+    app,
+    question: str,
+    llm_response: str,
+    rubric: list[str],
+    question_type: str = "",
+) -> dict:
     """Judge an answer via the answer_judge job (beam_rubric_judge_step)."""
     judge_resp = await app.run_job(
         "answer_judge",
@@ -320,10 +342,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     modes = eval_config["evaluation"].get("modes", ["prompted", "agentic"])
 
     chat_path = beam_root / "chats" / chat_size / case_id / "chat.json"
-    probing_questions_path = (
-        beam_root / "chats" / chat_size / case_id
-        / "probing_questions" / "probing_questions.json"
-    )
+    probing_questions_path = beam_root / "chats" / chat_size / case_id / "probing_questions" / "probing_questions.json"
 
     if not chat_path.exists():
         raise FileNotFoundError(f"Chat file not found: {chat_path}")
@@ -331,8 +350,11 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         raise FileNotFoundError(f"Probing questions not found: {probing_questions_path}")
 
     logger.info(
-        f"[Case {case_id}] size={chat_size} modes={modes}"
-        + (" [eval_only]" if eval_only else ""),
+        "[Case %s] size=%s modes=%s%s",
+        case_id,
+        chat_size,
+        modes,
+        " [eval_only]" if eval_only else "",
     )
 
     # Workspace setup
@@ -343,7 +365,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     if eval_only:
         if not case_dir.exists() or not Path(workspace_dir).exists():
             logger.warning(
-                f"[Case {case_id}] eval_only: workspace not found at {case_dir}, skipping"
+                f"[Case {case_id}] eval_only: workspace not found at {case_dir}, skipping",
             )
             return {
                 "case_id": case_id,
@@ -363,9 +385,14 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         reme_log_dir = os.environ.get("REME_LOG_DIR")
         if reme_log_dir:
             from reme.utils import get_logger
-            get_logger(log_dir=reme_log_dir, level=os.environ.get("REME_LOG_LEVEL", "INFO"),
-                       log_to_console=output_cfg.get("log_to_console", True),
-                       log_to_file=True, force_init=True)
+
+            get_logger(
+                log_dir=reme_log_dir,
+                level=os.environ.get("REME_LOG_LEVEL", "INFO"),
+                log_to_console=output_cfg.get("log_to_console", True),
+                log_to_file=True,
+                force_init=True,
+            )
 
     cfg = resolve_app_config(
         config=eval_config["reme"]["config"],
@@ -389,7 +416,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 logger.info(
                     f"[Case {case_id}] Ingesting session {i+1}/{len(sessions)}: "
                     f"id={session['session_id']} date={session['date']} "
-                    f"msgs={len(session['messages'])}"
+                    f"msgs={len(session['messages'])}",
                 )
                 resp = await app.run_job(
                     "auto_memory",
@@ -401,8 +428,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     logger.warning(f"[Case {case_id}] auto_memory failed: {resp.answer}")
                 else:
                     logger.info(
-                        f"[Case {case_id}] auto_memory success: "
-                        f"{resp.answer[:100] if resp.answer else ''}"
+                        f"[Case {case_id}] auto_memory success: " f"{resp.answer[:100] if resp.answer else ''}",
                     )
                 await app.run_job("index_update")
                 sessions_ingested += 1
@@ -413,7 +439,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
             logger.info(f"[Case {case_id}] Ingestion complete.")
 
         # ── Phase 2: Answer + Judge probing questions ───────────────
-        with open(probing_questions_path) as f:
+        with open(probing_questions_path, encoding="utf-8") as f:
             probing_questions = json.load(f)
 
         total_questions = sum(len(v) for v in probing_questions.values())
@@ -424,8 +450,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
         for q_type in probing_questions:
             logger.info(
-                f"[Case {case_id}] Question type: {q_type} "
-                f"({len(probing_questions[q_type])} questions)"
+                f"[Case {case_id}] Question type: {q_type} " f"({len(probing_questions[q_type])} questions)",
             )
 
             for i, q in enumerate(probing_questions[q_type]):
@@ -433,8 +458,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 question = q["question"]
                 rubric = q.get("rubric", [])
                 logger.info(
-                    f"[Case {case_id}] [{q_idx}/{total_questions}] "
-                    f"{q_type} Q{i+1}: {question[:100]}..."
+                    f"[Case {case_id}] [{q_idx}/{total_questions}] " f"{q_type} Q{i+1}: {question[:100]}...",
                 )
 
                 q_result = {
@@ -448,7 +472,8 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 if "prompted" in modes:
                     try:
                         prompted_answer, prompted_meta = await answer_question_prompted(
-                            app, question
+                            app,
+                            question,
                         )
                     except Exception as e:
                         logger.error(f"[Case {case_id}] Prompted answer failed: {e}")
@@ -462,11 +487,14 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     # Judge prompted answer
                     logger.info(f"[Case {case_id}] Judging prompted ({q_type})...")
                     prompted_judgment = await judge_answer(
-                        app, question, prompted_answer, rubric, question_type=q_type,
+                        app,
+                        question,
+                        prompted_answer,
+                        rubric,
+                        question_type=q_type,
                     )
                     logger.info(
-                        f"[Case {case_id}] Prompted score: "
-                        f"{prompted_judgment['llm_judge_score']:.3f}"
+                        f"[Case {case_id}] Prompted score: " f"{prompted_judgment['llm_judge_score']:.3f}",
                     )
 
                     q_result["prompted_response"] = prompted_answer
@@ -477,7 +505,8 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 if "agentic" in modes:
                     try:
                         agentic_answer, agentic_meta = await answer_question_agentic(
-                            app, question
+                            app,
+                            question,
                         )
                     except Exception as e:
                         logger.error(f"[Case {case_id}] Agentic answer failed: {e}")
@@ -491,11 +520,14 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     # Judge agentic answer
                     logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
                     agentic_judgment = await judge_answer(
-                        app, question, agentic_answer, rubric, question_type=q_type,
+                        app,
+                        question,
+                        agentic_answer,
+                        rubric,
+                        question_type=q_type,
                     )
                     logger.info(
-                        f"[Case {case_id}] Agentic score: "
-                        f"{agentic_judgment['llm_judge_score']:.3f}"
+                        f"[Case {case_id}] Agentic score: " f"{agentic_judgment['llm_judge_score']:.3f}",
                     )
 
                     q_result["agentic_response"] = agentic_answer
@@ -548,8 +580,12 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(config_path: str | None = None, log_level: str = "INFO",
-         reme_log_level: str = "INFO", eval_only: bool = False):
+def main(
+    config_path: str | None = None,
+    log_level: str = "INFO",
+    reme_log_level: str = "INFO",
+    eval_only: bool = False,
+):
     """Run the BEAM evaluation pipeline.
 
     Args:
@@ -596,8 +632,11 @@ def main(config_path: str | None = None, log_level: str = "INFO",
         return
 
     logger.info(
-        f"Evaluating {len(case_ids)} case(s) for chat_size={chat_size}: {case_ids}"
-        + (" [eval_only: query+judge only]" if eval_only else "")
+        "Evaluating %d case(s) for chat_size=%s: %s%s",
+        len(case_ids),
+        chat_size,
+        case_ids,
+        " [eval_only: query+judge only]" if eval_only else "",
     )
 
     # Resolve parallelism
@@ -609,10 +648,7 @@ def main(config_path: str | None = None, log_level: str = "INFO",
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build task args
-    task_args = [
-        (eval_config, case_id, log_level, reme_log_level, eval_only, log_dir_abs)
-        for case_id in case_ids
-    ]
+    task_args = [(eval_config, case_id, log_level, reme_log_level, eval_only, log_dir_abs) for case_id in case_ids]
 
     # Progress tracking
     total_items = len(task_args)
@@ -689,7 +725,6 @@ def main(config_path: str | None = None, log_level: str = "INFO",
 
     for mode in modes:
         mode_key = f"{mode}_judgment"
-        mode_resp_key = f"{mode}_response"
 
         # Per-type stats
         type_scores: dict[str, list[float]] = {}
@@ -731,10 +766,7 @@ def main(config_path: str | None = None, log_level: str = "INFO",
         parts = [f"Case {case_id}: {n_sessions} sessions, {n_qs} questions"]
         for mode in modes:
             mode_key = f"{mode}_judgment"
-            scores = [
-                q.get(mode_key, {}).get("llm_judge_score", 0.0)
-                for q in case_result.get("questions", [])
-            ]
+            scores = [q.get(mode_key, {}).get("llm_judge_score", 0.0) for q in case_result.get("questions", [])]
             if scores:
                 avg = sum(scores) / len(scores)
                 parts.append(f"{mode}={avg:.3f}")
@@ -768,7 +800,8 @@ if __name__ == "__main__":
         help="Log level for reme internal logs — loguru (default: INFO)",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Shortcut for --log-level WARNING --reme-log-level WARNING",
     )

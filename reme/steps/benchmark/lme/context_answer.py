@@ -69,8 +69,7 @@ class LmeContextAnswerStep(BaseStep):
             self.logger.warning(f"[{self.name}] LLM call failed: {e}")
 
         self.logger.info(
-            f"[{self.name}] tokens: input={input_tokens} output={output_tokens} "
-            f"search_hits={search_hit_count}",
+            f"[{self.name}] tokens: input={input_tokens} output={output_tokens} " f"search_hits={search_hit_count}",
         )
 
         self.context.response.success = True

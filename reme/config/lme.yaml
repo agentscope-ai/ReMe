@@ -187,7 +187,7 @@ jobs:
       required:
         - messages
     steps:
-      - backend: auto_memory_step
+      - backend: lme_auto_memory_step
 
   # ── Reindex (full rebuild) ──
   reindex:
@@ -212,7 +212,7 @@ jobs:
         # end_date:
         #   type: string
         #   description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
-      
+
   search:
     backend: base
     description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."

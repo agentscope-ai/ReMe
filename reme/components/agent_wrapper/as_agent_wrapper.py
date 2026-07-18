@@ -272,7 +272,6 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
-        tool_defaults: dict[str, dict] = kwargs.get("tool_defaults", {})
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         tool_context_id = kwargs.get("tool_context_id")
@@ -286,7 +285,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,
-        ) # tools存储FunctionTool类型的对象
+        )  # tools存储FunctionTool类型的对象
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)

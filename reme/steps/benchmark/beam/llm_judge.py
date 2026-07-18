@@ -39,7 +39,9 @@ def _parse_json_response(response: str) -> dict:
 
     if response.startswith("```"):
         match = re.search(
-            r"```(?:json)?\s*(\[.*\]|\{.*\})\s*```", response, re.DOTALL,
+            r"```(?:json)?\s*(\[.*\]|\{.*\})\s*```",
+            response,
+            re.DOTALL,
         )
         if match:
             response = match.group(1).strip()
@@ -55,7 +57,7 @@ def _parse_json_response(response: str) -> dict:
         try:
             return json.loads(json_part)
         except Exception as e:
-            raise ValueError(f"Found possible JSON but failed to parse it: {e}")
+            raise ValueError(f"Found possible JSON but failed to parse it: {e}") from e
 
     raise ValueError("No valid JSON found in response.")
 
@@ -177,15 +179,19 @@ def _event_ordering_score(
     tau_b, _ = kendalltau(
         to_rank(reference_canon),
         to_rank(system_canon),
-        variant="b", method="auto",
+        variant="b",
+        method="auto",
     )
     tau_b_norm = (tau_b + 1) / 2 if tau_b is not None else 0
 
     final_score = tau_b_norm * f1
-    return dict(
-        precision=precision, recall=recall, f1=f1,
-        tau_norm=tau_b_norm, final_score=final_score,
-    )
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tau_norm": tau_b_norm,
+        "final_score": final_score,
+    }
 
 
 @R.register("beam_rubric_judge_step")
@@ -206,7 +212,9 @@ class BeamRubricJudgeStep(BaseStep):
     """
 
     as_embedding: BaseAsEmbedding = Ref(
-        BaseAsEmbedding, ComponentEnum.AS_EMBEDDING, optional=True,
+        BaseAsEmbedding,
+        ComponentEnum.AS_EMBEDDING,
+        optional=True,
     )
 
     async def execute(self):
@@ -230,11 +238,7 @@ class BeamRubricJudgeStep(BaseStep):
         total_score = 0.0
 
         for item in rubric:
-            prompt = (
-                judge_template
-                .replace("<rubric_item>", item)
-                .replace("<llm_response>", llm_response)
-            )
+            prompt = judge_template.replace("<rubric_item>", item).replace("<llm_response>", llm_response)
 
             result = await self.agent_wrapper.reply(prompt)
             raw = (result.get("result") or "").strip()
@@ -262,14 +266,16 @@ class BeamRubricJudgeStep(BaseStep):
 
         self.context.response.success = True
         self.context.response.answer = str(llm_judge_score)
-        self.context.response.metadata.update({
-            "llm_judge_score": llm_judge_score,
-            "llm_judge_responses": llm_judge_responses,
-            "rubric": rubric,
-            "llm_response": llm_response,
-            "probing_question": probing_question,
-            "question_type": question_type,
-        })
+        self.context.response.metadata.update(
+            {
+                "llm_judge_score": llm_judge_score,
+                "llm_judge_responses": llm_judge_responses,
+                "rubric": rubric,
+                "llm_response": llm_response,
+                "probing_question": probing_question,
+                "question_type": question_type,
+            },
+        )
 
         # ----- event_ordering extra metrics -----
         # Replicates BEAM's evaluate_event_ordering: system_list = llm_response.split("\n")
