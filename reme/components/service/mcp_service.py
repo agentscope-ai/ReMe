@@ -139,12 +139,23 @@ class MCPService(BaseService):
     def add_job(self, job: BaseJob) -> bool:
         """Register a non-stream job as an MCP tool; StreamJobs are unsupported."""
         from fastmcp.tools import FunctionTool
+        import json as _json
 
         if isinstance(job, StreamJob):
             return False
 
         async def execute_tool(**kwargs):
             response = await job(**kwargs)
+            # When metadata carries structured data, return a JSON envelope
+            # so MCP consumers can access file lists, search results, etc.
+            # For tools whose metadata is empty the plain answer string is
+            # returned as before.
+            if response.metadata:
+                return _json.dumps(
+                    {"answer": response.answer, "metadata": response.metadata},
+                    ensure_ascii=False,
+                    default=str,
+                )
             return response.answer
 
         self.service.add_tool(
