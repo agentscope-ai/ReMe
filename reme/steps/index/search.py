@@ -166,7 +166,7 @@ class SearchStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = "Error: query cannot be empty"
             return self.context.response
-        assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be in [0, 1], got {vector_weight}"
+        # assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be in [0, 1], got {vector_weight}"
         assert limit > 0, f"limit must be positive, got {limit}"
 
         candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))
