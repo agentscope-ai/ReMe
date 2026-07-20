@@ -92,6 +92,9 @@ Prompted token 消耗：总 input 13,109,924 (平均 26,220/题)，总 output 31
 
 
 
+
+
+
 现在的进展：
 1. 初步修复了longmemeval，大约有56（11.2%）个case与原始不一致；答案为unknown的case从29(3.8%)增加到了67(13.4%)。temporal reasoning类型受影响最大。
 2. 使用新的groundtruth测评，agentic和prompted分别提升到了88.8%和86.4%

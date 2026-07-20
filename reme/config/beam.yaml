@@ -499,7 +499,8 @@ components:
       model: ${LLM_MODEL_NAME:-qwen3.6-flash}
       stream: true
       context_size: 200000
-      max_retries: 3
+      max_retries: 5
+      retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}
@@ -511,7 +512,8 @@ components:
       model: ${JUDGE_MODEL_NAME:-qwen3.7-max}
       stream: false
       context_size: 200000
-      max_retries: 3
+      max_retries: 5
+      retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}
@@ -523,7 +525,8 @@ components:
       model: ${PROMPTED_MODEL_NAME:-qwen3.7-max}
       stream: false
       context_size: 400000
-      max_retries: 3
+      max_retries: 5
+      retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}
@@ -535,7 +538,8 @@ components:
       model: ${BENCH_MODEL_NAME:-qwen3.7-max}
       stream: true
       context_size: 400000
-      max_retries: 3
+      max_retries: 5
+      retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}

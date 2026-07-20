@@ -728,7 +728,9 @@ def main(
 
         # Per-type stats
         type_scores: dict[str, list[float]] = {}
+        type_binary_scores: dict[str, list[float]] = {}
         all_scores: list[float] = []
+        all_binary_scores: list[float] = []
 
         for case_result in results:
             if "error" in case_result:
@@ -736,21 +738,34 @@ def main(
             for q in case_result.get("questions", []):
                 judgment = q.get(mode_key, {})
                 score = judgment.get("llm_judge_score", 0.0)
+                # Binary: convert each rubric item score to 0/1, then average
+                judge_responses = judgment.get("llm_judge_responses", [])
+                if judge_responses:
+                    binary_scores_per_item = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
+                    binary_score = sum(binary_scores_per_item) / len(binary_scores_per_item)
+                else:
+                    binary_score = 1.0 if score > 0.99 else 0.0
                 qtype = q["question_type"]
                 if qtype not in type_scores:
                     type_scores[qtype] = []
+                    type_binary_scores[qtype] = []
                 type_scores[qtype].append(score)
+                type_binary_scores[qtype].append(binary_score)
                 all_scores.append(score)
+                all_binary_scores.append(binary_score)
 
         print(f"\n  ── {mode.upper()} ──")
         if all_scores:
             for qtype in sorted(type_scores.keys()):
                 scores = type_scores[qtype]
                 avg = sum(scores) / len(scores) if scores else 0
-                print(f"    {qtype:<40s}: {avg:.3f}  ({len(scores)} Qs)")
+                bin_scores = type_binary_scores[qtype]
+                bin_avg = sum(bin_scores) / len(bin_scores) if bin_scores else 0
+                print(f"    {qtype:<40s}: {avg:.3f}  binary={bin_avg:.3f}  ({len(scores)} Qs)")
             overall = sum(all_scores) / len(all_scores) if all_scores else 0
+            binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
             print(f"    {'-'*38}")
-            print(f"    {'OVERALL':<40s}: {overall:.3f}  ({len(all_scores)} Qs)")
+            print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
         else:
             print("    (no results)")
 
@@ -766,10 +781,22 @@ def main(
         parts = [f"Case {case_id}: {n_sessions} sessions, {n_qs} questions"]
         for mode in modes:
             mode_key = f"{mode}_judgment"
-            scores = [q.get(mode_key, {}).get("llm_judge_score", 0.0) for q in case_result.get("questions", [])]
+            questions = case_result.get("questions", [])
+            scores = [q.get(mode_key, {}).get("llm_judge_score", 0.0) for q in questions]
             if scores:
                 avg = sum(scores) / len(scores)
-                parts.append(f"{mode}={avg:.3f}")
+                # Binary: convert each rubric item score to 0/1, then average per question, then average across questions
+                bin_scores = []
+                for q in questions:
+                    judge_responses = q.get(mode_key, {}).get("llm_judge_responses", [])
+                    if judge_responses:
+                        item_bins = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
+                        bin_scores.append(sum(item_bins) / len(item_bins))
+                    else:
+                        s = q.get(mode_key, {}).get("llm_judge_score", 0.0)
+                        bin_scores.append(1.0 if s > 0.99 else 0.0)
+                bin_avg = sum(bin_scores) / len(bin_scores)
+                parts.append(f"{mode}={avg:.3f} binary={bin_avg:.3f}")
         print(f"    {' | '.join(parts)}")
 
     print("=" * 70)
