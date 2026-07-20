@@ -2,17 +2,22 @@
 """ReMe Stop hook: fire-and-forget auto-memory for the current session.
 
 Codex runs this on the ``Stop`` event and feeds the hook payload as JSON
-on stdin. We read only ``session_id`` from it and hand that to ReMe's server-side
-``auto_memory_cc`` tool over the (already-running) MCP server — the server
-resolves *this* session's transcript on disk and records the durable facts. No
-messages are sent from here; the agent never has to record by hand.
+on stdin. We read ``session_id`` and ``transcript_path`` from it and hand those
+to ReMe's server-side ``auto_memory_codex`` tool over the (already-running) MCP
+server — the server reads the transcript from the given path and records the
+durable facts. No messages are sent from here; the agent never has to record by
+hand.
 
 The actual run spins up an inner agent and can take a while, so we detach
-(double-fork) and return immediately: stopping is never blocked. Any failure is
-logged, never surfaced — recording is best-effort.
+(double-fork on Unix / CREATE_NEW_PROCESS_GROUP on Windows) and return
+immediately: stopping is never blocked. Any failure is logged, never
+surfaced — recording is best-effort.
 """
 
 from __future__ import annotations
+
+# Many small with-statements in this script; reusing file-handle names is fine.
+# pylint: disable=redefined-outer-name
 
 import json
 import os
@@ -39,12 +44,28 @@ def _plugin_root() -> str:
     )
 
 
+def _result_status(result: dict | None) -> str:
+    """Classify a JSON-RPC tool result for logging.
+
+    Returns one of: ``ok``, ``skipped``, ``error``, ``no-response``.
+    """
+    if result is None:
+        return "no-response"
+    if "error" in result:
+        return "error"
+    r = result.get("result", {}) if isinstance(result, dict) else {}
+    meta = r.get("metadata", {}) if isinstance(r, dict) else {}
+    if isinstance(meta, dict) and meta.get("n_messages") == 0:
+        return "skipped"
+    return "ok"
+
+
 def _server_url() -> str:
     """ReMe MCP endpoint. Prefer the bundled .mcp.json so it stays in sync."""
     mcp_json = os.path.join(_plugin_root(), ".mcp.json")
     try:
-        with open(mcp_json, encoding="utf-8") as f:
-            url = json.load(f)["mcpServers"]["reme"]["url"]
+        with open(mcp_json, encoding="utf-8") as fh:
+            url = json.load(fh)["mcpServers"]["reme"]["url"]
             if url:
                 return url
     except Exception:
@@ -62,8 +83,8 @@ def _log(session_id: str, status: str, detail: str = "") -> None:
         line = f"{stamp} session={session_id} {status}"
         if detail:
             line += f" {detail}"
-        with open(os.path.join(log_dir, "auto_memory_hook.log"), "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        with open(os.path.join(log_dir, "auto_memory_hook.log"), "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
     except Exception:
         pass
 
@@ -153,23 +174,31 @@ def main() -> None:
         payload = {}
 
     session_id = payload.get("session_id") or ""
-    if not session_id:
+    transcript_path = payload.get("transcript_path") or ""
+
+    if not session_id and not transcript_path:
         return  # nothing to anchor a recording on
 
-    # Detach before the slow agent run. Without fork() (e.g. Windows) we fall
-    # through and run inline — correct, just not async.
+    # Detach before the slow agent run. Without fork() (e.g. Windows) we re-spawn
+    # this same script as a fully detached subprocess.
     if hasattr(os, "fork"):
         _daemonize()
+    else:
+        _spawn_detached(payload)
+        return
 
     url = _server_url()
+    tool = "auto_memory_codex"
+    arguments = {"transcript_path": transcript_path, "session_id": session_id}
     try:
-        result = _mcp_call(url, "auto_memory_cc", {"session_id": session_id})
-        if result is None:
-            _log(session_id, "no-response")
-        elif "error" in result:
-            _log(session_id, "error", json.dumps(result["error"], ensure_ascii=False)[:500])
+        result = _mcp_call(url, tool, arguments)
+        status = _result_status(result)
+        if status == "error":
+            _log(session_id, status, json.dumps(result["error"], ensure_ascii=False)[:500])
+        elif status == "skipped":
+            _log(session_id, status, f"transcript_path={transcript_path}")
         else:
-            _log(session_id, "ok")
+            _log(session_id, status)
     except urllib.error.URLError as exc:
         # Server not running / unreachable — expected when ReMe isn't started.
         _log(session_id, "unreachable", str(exc.reason))
@@ -177,5 +206,50 @@ def main() -> None:
         _log(session_id, "exception", repr(exc)[:500])
 
 
+def _spawn_detached(payload: dict) -> None:
+    """Windows-compatible detachment: re-spawn as a fully detached subprocess."""
+    import subprocess
+    import tempfile
+
+    # Write payload to a temp file so the child can read it.
+    fd, tmp = tempfile.mkstemp(prefix="reme-hook-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        return
+
+    # Fire-and-forget: we intentionally don't wait for the child (no `with`).
+    # pylint: disable-next=consider-using-with
+    subprocess.Popen(
+        [sys.executable, __file__, "--payload-file", tmp],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        close_fds=True,
+    )
+
+
 if __name__ == "__main__":
-    main()
+    # --payload-file is the Windows detach path: the parent already wrote the
+    # hook payload to a temp file and re-spawned us detached. Read from the file
+    # and proceed without daemonizing again (no fork available on Windows).
+    if len(sys.argv) > 2 and sys.argv[1] == "--payload-file":
+        try:
+            with open(sys.argv[2], encoding="utf-8") as fh:
+                sys.stdin = fh
+        except Exception:
+            pass
+        else:
+            main()
+            try:
+                os.unlink(sys.argv[2])
+            except OSError:
+                pass
+    else:
+        main()
