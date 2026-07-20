@@ -86,6 +86,20 @@ def test_ensure_claude_skill_dir_rejects_paths_as_skill_names(tmp_path):
         _wrapper(tmp_path)._ensure_claude_skill_dir(tmp_path / "config", ["../outside"])
 
 
+def test_configured_skills_are_added_without_filtering_existing_skills(tmp_path):
+    """A selected ReMe skill does not become Claude's runtime skill allowlist."""
+    project_skills = tmp_path / "skills"
+    (project_skills / "one").mkdir(parents=True)
+    (project_skills / "two").mkdir()
+
+    opts = _wrapper(tmp_path)._build_options("hello", skills=["one"])
+
+    assert opts.skills == "all"
+    for root in _skill_roots(tmp_path):
+        assert (root / "one").resolve() == (project_skills / "one").resolve()
+        assert not (root / "two").exists()
+
+
 def test_system_prompt_mode_replace_preserves_current_behavior(tmp_path):
     """Replace mode passes a string system prompt directly to the SDK."""
     opts = _wrapper(tmp_path)._build_options(

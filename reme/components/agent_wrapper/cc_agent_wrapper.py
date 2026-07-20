@@ -233,9 +233,15 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         self._apply_system_prompt_mode(kwargs)
 
-        skills = kwargs.get("skills")
-        if isinstance(skills, str) and skills != "all":
-            kwargs["skills"] = [skills]
+        selected_skills = kwargs.get("skills")
+        if isinstance(selected_skills, str) and selected_skills != "all":
+            selected_skills = [selected_skills]
+
+        # ReMe's ``skills`` option selects project skills to add. Claude's SDK
+        # treats a list as an allowlist, so pass ``all`` after linking the
+        # selection to keep previously discovered Claude skills available.
+        if selected_skills is not None:
+            kwargs["skills"] = "all"
 
         if "setting_sources" not in kwargs and kwargs.get("skills") is None:
             kwargs["setting_sources"] = []
@@ -276,8 +282,8 @@ class CcAgentWrapper(BaseAgentWrapper):
         opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
-        if opts.skills is not None:
-            self._ensure_claude_skill_dir(claude_config_dir, opts.skills)
+        if selected_skills is not None:
+            self._ensure_claude_skill_dir(claude_config_dir, selected_skills)
         opts.session_store = opts.session_store or CcFileSessionStore(self.session_path / "claude_code")
 
         job_tools: list[str] = kwargs.get("job_tools", [])
