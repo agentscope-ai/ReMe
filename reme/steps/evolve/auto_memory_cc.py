@@ -15,7 +15,7 @@ abstraction and avoids the ``Msg`` round-trip entirely:
    defer to :class:`AutoMemoryStep` for the daily-note write/merge.
 
 Both the read (Claude Code side) and the copy (ReMe side) use the same
-file-backed SessionStore, just rooted at different directories.
+file-backed SessionStore with the SDK's project/session key layout.
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ class AutoMemoryCCStep(AutoMemoryStep):
 
     # Sub-directory under the session dir holding ReMe's copy of CC transcripts.
     _CC_STORE_SUBDIR = "claude_code"
+    _REME_PROJECT_KEY = "claude_code"
 
     async def execute(self):
         assert self.context is not None
@@ -72,7 +73,7 @@ class AutoMemoryCCStep(AutoMemoryStep):
         return
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{session_id}.jsonl]]"
+        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{self._REME_PROJECT_KEY}/{session_id}.jsonl]]"
 
     # ----- session: Claude Code side <-> ReMe CC SessionStore ----------------
 
@@ -81,8 +82,8 @@ class AutoMemoryCCStep(AutoMemoryStep):
         transcript_dir = self._resolve_transcript_dir(session_id)
         if transcript_dir is None:
             return []
-        store = CcFileSessionStore(transcript_dir)
-        return await store.load({"session_id": session_id}) or []
+        store = CcFileSessionStore(self._projects_dir())
+        return await store.load({"project_key": transcript_dir.name, "session_id": session_id}) or []
 
     async def _save_cc_session(self, session_id: str, cc_entries: list[dict]) -> list[dict]:
         """Copy raw CC entries into ReMe's CC SessionStore; return the increment.
@@ -96,7 +97,7 @@ class AutoMemoryCCStep(AutoMemoryStep):
         if not session_id:
             return []
         store = self._reme_cc_store()
-        key = {"session_id": session_id}
+        key = {"project_key": self._REME_PROJECT_KEY, "session_id": session_id}
         cc_entries = [e for e in cc_entries if isinstance(e, dict) and e.get("uuid")]
         existing = await store.load(key) or []
         seen = {e.get("uuid") for e in existing if isinstance(e, dict) and e.get("uuid")}

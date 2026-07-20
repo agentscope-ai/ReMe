@@ -49,6 +49,49 @@ def test_default_config_registers_daily_write_job():
     assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
 
 
+def test_demo_config_registers_llm_jobs():
+    """The demo config exposes both request and streaming LLM examples."""
+    cfg = _load_config("demo.yaml")
+
+    llm_job = cfg["jobs"]["llm_demo"]
+    assert llm_job["backend"] == "base"
+    assert llm_job["steps"] == [{"backend": "llm_demo_step", "agent_wrapper": "as"}]
+    assert llm_job["query"] == "Use the add tool to calculate 1 + 2 and return the result."
+    assert llm_job["parameters"]["properties"]["query"]["default"] == llm_job["query"]
+    assert "required" not in llm_job["parameters"]
+
+    stream_job = cfg["jobs"]["stream_llm_demo"]
+    assert stream_job["backend"] == "stream"
+    assert stream_job["steps"] == [{"backend": "stream_llm_demo_step", "agent_wrapper": "as"}]
+    assert stream_job["query"] == llm_job["query"]
+    assert stream_job["parameters"]["properties"]["query"]["default"] == stream_job["query"]
+    assert "required" not in stream_job["parameters"]
+
+    assert cfg["components"]["as_llm"]["default"]["backend"] == "openai"
+    assert cfg["components"]["as_llm"]["default"]["model"] == "qwen3.7-max"
+    assert cfg["components"]["as_llm"]["default"]["context_size"] == 200000
+    assert cfg["components"]["as_llm"]["default"]["max_retries"] == 3
+    assert cfg["components"]["as_llm"]["default"]["parameters"] == {
+        "max_tokens": 65536,
+        "thinking_enable": False,
+    }
+    wrappers = cfg["components"]["agent_wrapper"]
+    assert wrappers["as"]["backend"] == "agentscope"
+    assert wrappers["as"]["job_tools"] == ["add"]
+    assert wrappers["as"]["context_config"] == {
+        "trigger_ratio": 0.8,
+        "reserve_ratio": 0.1,
+        "tool_result_limit": 50000,
+    }
+    assert wrappers["as"]["model_config"] == {"max_retries": 1}
+    assert wrappers["cc"]["backend"] == "claude_code"
+    assert wrappers["cc"]["model"] == "qwen3.7-max"
+    assert wrappers["cc"]["job_tools"] == ["add"]
+    assert wrappers["codex"]["backend"] == "codex"
+    assert wrappers["codex"]["auth_mode"] == "oauth"
+    assert wrappers["codex"]["job_tools"] == ["add"]
+
+
 def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     """Markdown frontmatter-to-chunk metadata is disabled by default for compatibility."""
     cfg = _load_config("default.yaml")

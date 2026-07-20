@@ -68,7 +68,7 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
         try:
             os.makedirs(log_dir, exist_ok=True)
             current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            log_filepath = os.path.join(log_dir, f"{current_ts}.log")
+            log_filepath = os.path.join(log_dir, f"{current_ts}_{os.getpid()}.log")
 
             logger.add(
                 log_filepath,
@@ -116,6 +116,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
     if log_to_file:
         try:
             os.makedirs(log_dir, exist_ok=True)
+            # Keep stdlib file naming aligned with QwenPaw logging.
             current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             log_filepath = os.path.join(log_dir, f"{current_ts}.log")
 

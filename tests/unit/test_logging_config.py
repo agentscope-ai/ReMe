@@ -1,10 +1,12 @@
 """Tests for logging configuration handoff during app startup."""
 
 import concurrent.futures
+from datetime import datetime
 import io
 import logging
 import threading
 import time
+from unittest.mock import Mock
 
 import pytest
 
@@ -23,6 +25,20 @@ class DummyLogger:
     def info(self, *_args, **_kwargs):
         """No-op."""
         return None
+
+
+def test_loguru_filename_includes_start_time_and_process_id(monkeypatch, tmp_path):
+    """Independent ReMe processes should write to distinct Loguru files."""
+    fixed_datetime = Mock()
+    fixed_datetime.now.return_value = datetime(2026, 7, 20, 15, 42, 18)
+    monkeypatch.setattr(logger_utils, "datetime", fixed_datetime)
+    monkeypatch.setattr(logger_utils.os, "getpid", lambda: 31247)
+
+    logger = logger_utils._init_loguru(str(tmp_path), "INFO", False, True)  # pylint: disable=protected-access
+    try:
+        assert (tmp_path / "2026-07-20_15-42-18_31247.log").is_file()
+    finally:
+        logger.remove()
 
 
 def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, capsys):

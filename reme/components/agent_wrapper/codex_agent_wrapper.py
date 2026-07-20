@@ -3,8 +3,8 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import suppress
-from dataclasses import dataclass, fields, is_dataclass
-from enum import Enum
+from dataclasses import dataclass
+from functools import partial
 import hashlib
 import json
 import os
@@ -12,6 +12,17 @@ from pathlib import Path
 import sys
 import tempfile
 from typing import Any
+
+from openai_codex import ApprovalMode, AsyncCodex, AsyncThread, CodexConfig, RunInput, Sandbox
+from openai_codex.types import (
+    Notification,
+    Personality,
+    ReasoningEffort,
+    ReasoningSummary,
+    ThreadSource,
+    ThreadStartSource,
+)
+from pydantic_core import to_jsonable_python
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
@@ -32,12 +43,14 @@ class _CodexAuthConfig:
 class CodexAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by the Codex Python SDK."""
 
+    SDK_PACKAGE = "openai-codex"
+
     def __init__(self, mcp_config: str | None = None, codex_home: str | Path | None = None, **kwargs):
         super().__init__(**kwargs)
         self.mcp_config = mcp_config
         self._codex_home = codex_home
-        self._codex: Any | None = None
-        self._codex_config: Any | None = None
+        self._codex: AsyncCodex | None = None
+        self._codex_config: CodexConfig | None = None
         self._codex_auth_config: _CodexAuthConfig | None = None
         self._client_lock = asyncio.Lock()
         self._turn_lock = asyncio.Lock()
@@ -152,12 +165,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
         base_url = base_url if isinstance(base_url, str) else ""
         return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
 
-    def _build_client_config(self, kwargs: dict[str, Any], auth: _CodexAuthConfig | None = None):
-        from openai_codex import CodexConfig
-
+    def _build_client_config(
+        self,
+        kwargs: dict[str, Any],
+        auth: _CodexAuthConfig | None = None,
+    ) -> CodexConfig:
         auth = auth or self._resolve_auth_config(kwargs)
 
-        env = self.subprocess_environment
+        env = dict(self.subprocess_environment)
         self.session_path.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(self.session_path)
 
@@ -167,11 +182,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
         overrides.append(f"forced_login_method={json.dumps('api' if auth.mode == 'api_key' else 'chatgpt')}")
         return CodexConfig(
             codex_bin=kwargs.get("codex_bin"),
+            launch_args_override=(
+                tuple(kwargs["launch_args_override"]) if kwargs.get("launch_args_override") is not None else None
+            ),
             config_overrides=tuple(overrides),
             cwd=str(self.cwd),
             env=env,
             client_name="reme",
             client_title="ReMe",
+            experimental_api=bool(kwargs.get("experimental_api", True)),
         )
 
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
@@ -222,9 +241,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             return default
         return value if isinstance(value, enum_cls) else enum_cls(value)
 
-    async def _open_thread(self, codex: Any, kwargs: dict[str, Any]):
-        from openai_codex import ApprovalMode, Sandbox
-
+    async def _open_thread(self, codex: AsyncCodex, kwargs: dict[str, Any]) -> AsyncThread:
         resume = kwargs.get("resume") or ""
         session_id = kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
@@ -249,19 +266,30 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
+        personality = self._enum(Personality, kwargs.get("personality"))
+        thread_source = self._enum(ThreadSource, kwargs.get("thread_source"))
         if fork_session:
-            thread = await codex.thread_fork(thread_id, ephemeral=kwargs.get("ephemeral"), **common)
+            thread = await codex.thread_fork(
+                thread_id,
+                ephemeral=kwargs.get("ephemeral"),
+                thread_source=thread_source,
+                **common,
+            )
         elif thread_id:
-            thread = await codex.thread_resume(thread_id, **common)
+            thread = await codex.thread_resume(thread_id, personality=personality, **common)
         else:
-            thread = await codex.thread_start(ephemeral=kwargs.get("ephemeral"), **common)
+            thread = await codex.thread_start(
+                ephemeral=kwargs.get("ephemeral"),
+                personality=personality,
+                service_name=kwargs.get("service_name"),
+                session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
+                thread_source=thread_source,
+                **common,
+            )
         self._thread_tool_contexts[thread.id] = requested_tool_context
         return thread
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        from openai_codex import ApprovalMode, Sandbox
-        from openai_codex.generated.v2_all import Personality, ReasoningEffort, ReasoningSummary
-
         return {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
             "cwd": str(self.cwd),
@@ -274,10 +302,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
 
-    async def _get_codex(self, kwargs: dict[str, Any]) -> Any:
+    async def _get_codex(self, kwargs: dict[str, Any]) -> AsyncCodex:
         """Lazily start one app-server and reject launch-config changes while it is live."""
-        from openai_codex import AsyncCodex
-
         auth = self._resolve_auth_config(kwargs)
         config = self._build_client_config(kwargs, auth)
         async with self._client_lock:
@@ -316,24 +342,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     self._mcp_snapshot_path.unlink(missing_ok=True)
                     self._mcp_snapshot_path = None
 
-    @classmethod
-    def _serialize(cls, value: Any) -> Any:
-        if hasattr(value, "model_dump"):
-            return value.model_dump(mode="json", by_alias=True)
-        if isinstance(value, Enum):
-            return value.value
-        if is_dataclass(value):
-            return {field.name: cls._serialize(getattr(value, field.name)) for field in fields(value)}
-        if isinstance(value, dict):
-            return {key: cls._serialize(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [cls._serialize(item) for item in value]
-        return value
+    @staticmethod
+    def _serialize(value: Any) -> Any:
+        return to_jsonable_python(value, by_alias=True)
 
-    async def reply(self, inputs: Any, **kwargs) -> dict:
+    async def reply(self, inputs: RunInput, **kwargs) -> dict:
         """Run one Codex turn and return its final response."""
-        if not isinstance(inputs, str):
-            raise NotImplementedError("Only string input is supported for Codex.")
         kwargs = self._merged_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
         async with self._turn_lock:
@@ -356,26 +370,21 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return response
 
     @classmethod
-    def _item_data(cls, item: Any) -> tuple[Any, str, str]:
-        item = item.root if hasattr(item, "root") else item
-        return item, getattr(item, "type", ""), getattr(item, "id", "")
-
-    @classmethod
     # pylint: disable=too-many-return-statements
-    def _event_to_chunks(cls, event: Any, session_id: str) -> list[StreamChunk]:
+    def _event_to_chunks(cls, event: Notification, session_id: str) -> list[StreamChunk]:
         """Convert one Codex app-server notification to unified stream chunks."""
         method, payload = event.method, event.payload
+        make_chunk = partial(cls._chunk, session_id=session_id)
         if method == "turn/started":
-            return [cls._chunk(ChunkEnum.REPLY_START, session_id=session_id, metadata={"turn_id": payload.turn.id})]
+            return [make_chunk(ChunkEnum.REPLY_START, metadata={"turn_id": payload.turn.id})]
         if method == "item/agentMessage/delta":
-            return [cls._chunk(ChunkEnum.CONTENT, session_id=session_id, block_id=payload.item_id, chunk=payload.delta)]
+            return [make_chunk(ChunkEnum.CONTENT, block_id=payload.item_id, chunk=payload.delta)]
         if method in {"item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/plan/delta"}:
-            return [cls._chunk(ChunkEnum.THINK, session_id=session_id, block_id=payload.item_id, chunk=payload.delta)]
+            return [make_chunk(ChunkEnum.THINK, block_id=payload.item_id, chunk=payload.delta)]
         if method in {"item/commandExecution/outputDelta", "item/fileChange/outputDelta"}:
             return [
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.TOOL_RESULT,
-                    session_id=session_id,
                     block_id=payload.item_id,
                     tool_call_id=payload.item_id,
                     chunk=payload.delta,
@@ -383,9 +392,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ]
         if method == "item/mcpToolCall/progress":
             return [
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.TOOL_RESULT,
-                    session_id=session_id,
                     block_id=payload.item_id,
                     tool_call_id=payload.item_id,
                     chunk=payload.message,
@@ -399,9 +407,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
             status = "started" if method.endswith("/started") else "completed"
             decision_source = cls._serialize(getattr(payload, "decision_source", None))
             return [
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.APPROVAL,
-                    session_id=session_id,
                     block_id=target_item_id or review_id,
                     tool_call_id=target_item_id,
                     chunk=action,
@@ -415,16 +422,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ),
             ]
         if method in {"item/started", "item/completed"}:
-            item, item_type, item_id = cls._item_data(payload.item)
+            item = payload.item.root
+            item_type, item_id = item.type, item.id
             tool_types = {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall"}
             if item_type not in tool_types:
                 return []
             name = getattr(item, "tool", None) or item_type
             chunk_type = ChunkEnum.TOOL_CALL if method == "item/started" else ChunkEnum.TOOL_RESULT
             return [
-                cls._chunk(
+                make_chunk(
                     chunk_type,
-                    session_id=session_id,
                     block_id=item_id,
                     tool_call_id=item_id,
                     tool_call_name=name,
@@ -435,9 +442,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
             usage = payload.token_usage.last
             data = cls._serialize(usage)
             return [
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.USAGE,
-                    session_id=session_id,
                     chunk=data,
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
@@ -445,9 +451,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ]
         if method == "error":
             return [
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.ERROR,
-                    session_id=session_id,
                     chunk=payload.error.message,
                     metadata={"will_retry": payload.will_retry},
                 ),
@@ -455,26 +460,32 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if method == "turn/completed":
             turn = payload.turn
             chunks = []
-            if getattr(turn, "error", None):
-                chunks.append(cls._chunk(ChunkEnum.ERROR, session_id=session_id, chunk=turn.error.message))
+            if turn.error:
+                chunks.append(make_chunk(ChunkEnum.ERROR, chunk=turn.error.message))
             chunks.append(
-                cls._chunk(
+                make_chunk(
                     ChunkEnum.REPLY_END,
-                    session_id=session_id,
                     metadata={
                         "turn_id": turn.id,
-                        "status": getattr(turn.status, "value", str(turn.status)),
+                        "status": turn.status.value,
                         "duration_ms": turn.duration_ms,
                     },
                 ),
             )
             return chunks
+        if getattr(payload, "turn_id", None):
+            return [
+                make_chunk(
+                    ChunkEnum.DATA,
+                    block_id=getattr(payload, "item_id", None),
+                    chunk=cls._serialize(payload),
+                    metadata={"codex_method": method},
+                ),
+            ]
         return []
 
-    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+    async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream Codex app-server notifications as unified chunks."""
-        if not isinstance(inputs, str):
-            raise NotImplementedError("Only string input is supported for Codex.")
         kwargs = self._merged_stream_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
         async with self._turn_lock:

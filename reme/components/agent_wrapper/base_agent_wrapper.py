@@ -2,8 +2,9 @@
 
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
+from importlib import metadata
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -19,10 +20,17 @@ class BaseAgentWrapper(BaseComponent):
     """Abstract base for agent wrapper components with swappable backends."""
 
     component_type = ComponentEnum.AGENT_WRAPPER
+    SDK_PACKAGE: ClassVar[str | None] = None
 
     def __init__(self, cwd: str | Path | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._cwd = cwd
+        if self.SDK_PACKAGE:
+            try:
+                sdk_version = metadata.version(self.SDK_PACKAGE)
+            except metadata.PackageNotFoundError:
+                sdk_version = "unknown"
+            self.logger.info(f"Agent SDK package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:

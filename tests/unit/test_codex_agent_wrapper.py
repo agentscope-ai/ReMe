@@ -290,6 +290,30 @@ def test_event_to_chunks_maps_content_usage_and_completion():
     assert completed[0].metadata["status"] == "completed"
 
 
+def test_event_to_chunks_preserves_new_turn_scoped_notifications():
+    from openai_codex.types import Notification
+    from openai_codex.generated.v2_all import TurnDiffUpdatedNotification
+
+    event = Notification(
+        method="turn/diff/updated",
+        payload=TurnDiffUpdatedNotification(
+            threadId="thread-1",
+            turnId="turn-1",
+            diff="diff --git a/a b/a",
+        ),
+    )
+
+    chunk = CodexAgentWrapper._event_to_chunks(event, "thread-1")[0]  # pylint: disable=protected-access
+
+    assert chunk.chunk_type == ChunkEnum.DATA
+    assert chunk.chunk == {
+        "threadId": "thread-1",
+        "turnId": "turn-1",
+        "diff": "diff --git a/a b/a",
+    }
+    assert chunk.metadata == {"codex_method": "turn/diff/updated"}
+
+
 @dataclass
 class _TurnResult:
     final_response: str
@@ -326,12 +350,42 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
         async def thread_start(self, **_kwargs):
             return FakeThread()
 
-    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     result = asyncio.run(wrapper.reply("answer", output_schema={"type": "object"}))
 
     assert result["session_id"] == "thread-1"
     assert result["structured_output"] == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_reply_accepts_latest_sdk_run_input(tmp_path, monkeypatch):
+    from openai_codex import LocalImageInput, TextInput
+
+    wrapper, _job = _wrapper(tmp_path)
+    inputs = [TextInput("describe this image"), LocalImageInput("image.png")]
+    observed = {}
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def run(self, run_input, **_kwargs):
+            observed["input"] = run_input
+            return _TurnResult(final_response="done")
+
+    async def get_codex(_kwargs):
+        return SimpleNamespace()
+
+    async def open_thread(_codex, _kwargs):
+        return FakeThread()
+
+    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
+    monkeypatch.setattr(wrapper, "_open_thread", open_thread)
+
+    result = await wrapper.reply(inputs)
+
+    assert observed["input"] is inputs
+    assert result["last_message"] == "done"
 
 
 def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
@@ -500,6 +554,53 @@ async def test_open_thread_defaults_to_full_access(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_open_thread_forwards_latest_sdk_options(tmp_path):
+    from openai_codex.types import Personality, ThreadSource, ThreadStartSource
+
+    wrapper, _job = _wrapper(tmp_path)
+    observed = {}
+
+    class FakeCodex:
+        async def thread_start(self, **kwargs):
+            observed["start"] = kwargs
+            return SimpleNamespace(id="thread-1")
+
+        async def thread_resume(self, _thread_id, **kwargs):
+            observed["resume"] = kwargs
+            return SimpleNamespace(id="thread-1")
+
+        async def thread_fork(self, _thread_id, **kwargs):
+            observed["fork"] = kwargs
+            return SimpleNamespace(id="thread-2")
+
+    codex = FakeCodex()
+    await wrapper._open_thread(  # pylint: disable=protected-access
+        codex,
+        {
+            "personality": "friendly",
+            "service_name": "reme",
+            "session_start_source": "startup",
+            "thread_source": "user",
+        },
+    )
+    await wrapper._open_thread(  # pylint: disable=protected-access
+        codex,
+        {"session_id": "thread-1", "personality": "pragmatic"},
+    )
+    await wrapper._open_thread(  # pylint: disable=protected-access
+        codex,
+        {"session_id": "thread-1", "fork_session": True, "thread_source": "subagent"},
+    )
+
+    assert observed["start"]["personality"] == Personality.friendly
+    assert observed["start"]["service_name"] == "reme"
+    assert observed["start"]["session_start_source"] == ThreadStartSource.startup
+    assert observed["start"]["thread_source"] == ThreadSource.user
+    assert observed["resume"]["personality"] == Personality.pragmatic
+    assert observed["fork"]["thread_source"] == ThreadSource.subagent
+
+
+@pytest.mark.asyncio
 async def test_resume_reuses_tool_context_and_rejects_context_change(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
 
@@ -577,7 +678,7 @@ async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, mo
         async def thread_start(self, **_kwargs):
             return FakeThread()
 
-    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     await wrapper.start()
     result = await wrapper.reply("first", output_schema=_StructuredModel)
@@ -660,7 +761,7 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
         async def close(self):
             return None
 
-    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     await wrapper.start()
     first = await wrapper._get_codex({"api_key": "one"})  # pylint: disable=protected-access
@@ -683,13 +784,18 @@ def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeyp
             "base_url": "https://explicit.example.test/v1",
         },
     )
-    config = wrapper._build_client_config({}, auth)  # pylint: disable=protected-access
+    config = wrapper._build_client_config(  # pylint: disable=protected-access
+        {"launch_args_override": ["codex", "app-server", "--listen", "stdio://"]},
+        auth,
+    )
 
     assert auth.mode == "oauth"
     assert auth.api_key == ""
     assert auth.base_url == ""
     assert "OPENAI_API_KEY" not in config.env
     assert config.env["TOOL_ENV"] == "preserved"
+    assert config.launch_args_override == ("codex", "app-server", "--listen", "stdio://")
+    assert "CODEX_HOME" not in wrapper.app_context.app_config.environment
     assert 'forced_login_method="chatgpt"' in config.config_overrides
     assert not any(value.startswith("openai_base_url=") for value in config.config_overrides)
 
@@ -709,7 +815,7 @@ async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch)
         async def close(self):
             observed["closed"] = True
 
-    monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     await wrapper.start()
     await wrapper._get_codex(  # pylint: disable=protected-access

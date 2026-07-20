@@ -109,6 +109,8 @@ class BypassAnalysisBash(Bash):
 class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
 
+    SDK_PACKAGE = "agentscope"
+
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
