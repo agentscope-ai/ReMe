@@ -1,21 +1,8 @@
-"""auto_memory_codex — record a Codex session, resolved from its transcript path.
+"""auto_memory_codex — record a Codex session from its transcript path.
 
-The ReMe Codex plugin's Stop hook hands the server a ``session_id`` and
-``transcript_path`` (the Codex transcript JSONL file). Unlike
-:class:`AutoMemoryCCStep` — which searches ``~/.claude/projects`` for Claude Code
-transcripts — Codex already tells the hook exactly where the transcript lives.
-So this step:
-
-1. **resolves** the transcript path, with fallback when the hook provides a stale
-   or non-existent path (known Codex bug with ``--continue`` and git worktrees).
-2. **loads** the transcript entries, supporting both Codex's native format
-   (``response_item`` / ``developer`` / ``input_text``) and Claude Code's format
-   (``user`` / ``assistant`` / ``text``) as a compatibility fallback.
-3. **saves** the *raw* entries into ReMe's own SessionStore — ``append`` dedups
-   by record ``uuid``, so this both copies the conversation into ReMe and tells
-   us the **increment** since the last stop.
-4. renders only that increment into plain ``{role, name, content}`` messages and
-   defers to :class:`AutoMemoryStep` for the daily-note write/merge.
+The Codex plugin's Stop hook provides ``session_id`` and ``transcript_path``.
+This step validates the path, loads the JSONL transcript, deduplicates by
+payload id, renders messages, and delegates to AutoMemoryStep.
 """
 
 from __future__ import annotations
@@ -43,13 +30,14 @@ _INJECTED_TAGS = (
     "<bash-stderr>",
 )
 _TOOL_EXCERPT = 200
+_SESSIONS_SUBDIR = "sessions"
 
 
 @R.register("auto_memory_codex_step")
 class AutoMemoryCodexStep(AutoMemoryStep):
-    """Resolve a Codex transcript path to its *new* turns, then reuse AutoMemoryStep."""
+    """Step that reads a Codex JSONL transcript and records new turns."""
 
-    _CC_STORE_SUBDIR = "codex"
+    _STORE_SUBDIR = "codex"
 
     async def execute(self):
         assert self.context is not None
@@ -64,10 +52,16 @@ class AutoMemoryCodexStep(AutoMemoryStep):
             )
             return
 
-        # Resolve the real transcript path (with fallback for stale paths).
+        # Resolve and validate the transcript path.
         resolved = await self._resolve_transcript_path(transcript_path, session_id)
-        if resolved:
-            transcript_path = resolved
+        if resolved is None:
+            self.context.response.success = False
+            self.context.response.answer = "Error: could not resolve transcript path"
+            self.logger.warning(
+                f"[{self.name}] unresolved transcript session_id={session_id!r} " f"given={transcript_path!r}",
+            )
+            return
+        transcript_path = resolved
 
         entries = await self._load_codex_transcript(transcript_path)
         new_entries = await self._save_codex_session(session_id, entries)
@@ -85,34 +79,40 @@ class AutoMemoryCodexStep(AutoMemoryStep):
         return
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{session_id}.jsonl]]"
+        return f"[[{self._session_dir()}/{self._STORE_SUBDIR}/{session_id}.jsonl]]"
 
-    # ----- transcript path resolution ---------------------------------------
+    # ----- path resolution & validation -------------------------------------
 
     @staticmethod
     def _codex_sessions_dir() -> Path:
-        """Return the root directory where Codex stores session transcripts."""
+        """Codex session storage root (``$CODEX_HOME/sessions``)."""
         codex_home = os.environ.get("CODEX_HOME", "~/.codex")
-        return Path(codex_home).expanduser() / "sessions"
+        return Path(codex_home).expanduser() / _SESSIONS_SUBDIR
+
+    def _validate_transcript_path(self, path: Path) -> bool:
+        """Check *path* is under ``$CODEX_HOME/sessions``."""
+        try:
+            path.resolve().relative_to(self._codex_sessions_dir().resolve())
+            return True
+        except ValueError:
+            return False
 
     async def _resolve_transcript_path(
         self,
         transcript_path: str,
         session_id: str,
     ) -> str | None:
-        """Resolve the real transcript path, with fallback for stale paths.
-
-        Known Codex bugs: ``transcript_path`` in the Stop hook payload can point
-        to a stale session (after ``--continue`` / ``--resume``) or to a
-        non-existent path (inside git worktrees). When the given path doesn't
-        exist, search the Codex sessions directory for a JSONL file matching
-        ``session_id`` (newest match wins).
-        """
+        """Resolve transcript path, with fallback search when the path doesn't exist."""
         if not transcript_path:
             return None
         path = Path(os.path.expanduser(transcript_path))
         if path.is_file():
-            return transcript_path  # happy path — path is valid
+            if not self._validate_transcript_path(path):
+                self.logger.warning(
+                    f"[{self.name}] transcript_path outside sessions dir: {path}",
+                )
+                return None
+            return transcript_path
 
         self.logger.info(
             f"[{self.name}] transcript_path not found, searching for session_id={session_id!r}",
@@ -121,7 +121,8 @@ class AutoMemoryCodexStep(AutoMemoryStep):
         if not sessions_dir.is_dir():
             return None
 
-        pattern = f"{session_id}.jsonl" if session_id else "*.jsonl"
+        # Codex names files rollout-<timestamp>-<session_id>.jsonl.
+        pattern = f"rollout-*-{session_id}.jsonl" if session_id else "*.jsonl"
         candidates = sorted(
             sessions_dir.glob(f"**/{pattern}"),
             key=lambda p: p.stat().st_mtime if p.is_file() else 0,
@@ -139,7 +140,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
     # ----- transcript loading -----------------------------------------------
 
     async def _load_codex_transcript(self, transcript_path: str) -> list[dict]:
-        """Load Codex transcript entries from the provided path."""
+        """Read JSONL transcript entries from disk."""
         if not transcript_path:
             return []
         path = Path(os.path.expanduser(transcript_path))
@@ -155,65 +156,58 @@ class AutoMemoryCodexStep(AutoMemoryStep):
     # ----- session dedup / store --------------------------------------------
 
     async def _save_codex_session(self, session_id: str, entries: list[dict]) -> list[dict]:
-        """Copy raw Codex entries into ReMe's SessionStore; return the increment.
-
-        Only identity-bearing entries are copied: every conversational entry
-        carries a ``uuid``, while uuid-less rows are control bookkeeping that
-        would otherwise re-copy on every stop. Dedup against the already-stored
-        uuids yields exactly the turns added since the previous stop.
-        """
+        """Dedup entries by ``payload.id`` and store the increment."""
         if not session_id:
             return []
         store = self._codex_store()
         key = {"session_id": session_id}
-        entries = [e for e in entries if isinstance(e, dict) and e.get("uuid")]
+        # Only keep rows with a payload id — conversational entries.
+        entries = [
+            e for e in entries if isinstance(e, dict) and isinstance(e.get("payload"), dict) and e["payload"].get("id")
+        ]
         existing = await store.load(key) or []
-        seen = {e.get("uuid") for e in existing if isinstance(e, dict) and e.get("uuid")}
-        increment = [e for e in entries if e.get("uuid") not in seen]
+        seen = {
+            e["payload"]["id"]
+            for e in existing
+            if isinstance(e, dict) and isinstance(e.get("payload"), dict) and e["payload"].get("id")
+        }
+        increment = [e for e in entries if e["payload"]["id"] not in seen]
         await store.append(key, increment)
         return increment
 
     def _codex_store(self) -> CcFileSessionStore:
-        root = self.file_store.workspace_path / self._session_dir() / self._CC_STORE_SUBDIR
+        root = self.file_store.workspace_path / self._session_dir() / self._STORE_SUBDIR
         return CcFileSessionStore(root)
 
     # ----- rendering: raw Codex entries -> plain agent messages -------------
 
     @classmethod
     def _codex_entries_to_messages(cls, entries: list[dict]) -> list[dict[str, str]]:
-        """Render Codex transcript entries into ``{role, name, content}`` messages.
-
-        Codex stores entries as ``type: "response_item"`` with
-        ``message.role: "developer"`` (assistant) or ``"user"``, and
-        ``input_text`` content blocks. Non-conversation entries (system
-        prompts, queue operations) are skipped.
-        """
+        """Render ``response_item`` rows into ``{role, name, content}`` dicts."""
         messages: list[dict[str, str]] = []
         for record in entries:
             if not isinstance(record, dict):
                 continue
             if record.get("type") != "response_item":
                 continue
-            msg = cls._render_codex_record(record)
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("type") != "message":
+                continue
+            msg = cls._render_codex_payload(payload)
             if msg:
                 messages.append(msg)
         return messages
 
     @classmethod
-    def _render_codex_record(cls, record: dict) -> dict[str, str] | None:
-        """Render a single Codex ``response_item`` into a message dict."""
-        message = record.get("message") or {}
-        if not isinstance(message, dict):
-            return None
-
-        role = message.get("role", "")
-        # Codex uses "developer" for assistant turns, "user" for user turns.
-        if role == "developer":
-            role = "assistant"
+    def _render_codex_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Extract role + rendered text from a message payload."""
+        role = payload.get("role", "")
         if role not in ("user", "assistant"):
             return None
 
-        content = message.get("content", "")
+        content = payload.get("content", "")
         text = cls._render_codex_content(content)
         if not text or cls._is_injected_only(text):
             return None
@@ -221,11 +215,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
 
     @classmethod
     def _render_codex_content(cls, content: Any) -> str:
-        """Render Codex content blocks into plain text.
-
-        Codex uses ``input_text`` blocks (cf. Claude Code's ``text``). Tool use
-        and tool result blocks follow the same shape as CC and are handled here.
-        """
+        """Render Codex content blocks (input_text/output_text/tool_use) to text."""
         if isinstance(content, str):
             return content.strip()
         if not isinstance(content, list):
@@ -236,8 +226,8 @@ class AutoMemoryCodexStep(AutoMemoryStep):
             if not isinstance(block, dict):
                 continue
             btype = block.get("type")
-            if btype in ("text", "input_text"):
-                if t := (block.get("text") or block.get("input_text") or "").strip():
+            if btype in ("text", "input_text", "output_text"):
+                if t := (block.get("text") or "").strip():
                     parts.append(t)
             elif btype == "tool_use":
                 name = block.get("name", "?")

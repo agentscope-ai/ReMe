@@ -20,6 +20,8 @@ import auto_memory  # noqa: E402
 
 
 class TestResultStatus:
+    """Tests for the _result_status function (checks MCP answer text)."""
+
     def test_no_response_on_none(self):
         assert auto_memory._result_status(None) == "no-response"
 
@@ -27,32 +29,26 @@ class TestResultStatus:
         result = {"error": {"code": -32600, "message": "Invalid Request"}}
         assert auto_memory._result_status(result) == "error"
 
-    def test_skipped_when_n_messages_zero(self):
+    def test_skipped_when_answer_starts_with_skipped(self):
+        """ReMe MCP returns only answer text, metadata is stripped."""
         result = {
             "result": {
                 "content": [{"type": "text", "text": "Skipped: no messages"}],
-                "metadata": {"date": "2026-07-20", "modified": False, "n_messages": 0},
             },
         }
         assert auto_memory._result_status(result) == "skipped"
 
-    def test_ok_when_messages_present(self):
+    def test_ok_when_answer_has_content(self):
         result = {
             "result": {
                 "content": [{"type": "text", "text": "Recorded facts about the auth rewrite."}],
-                "metadata": {
-                    "date": "2026-07-20",
-                    "path": "daily/2026-07-20/some-note.md",
-                    "modified": True,
-                    "n_messages": 3,
-                },
             },
         }
         assert auto_memory._result_status(result) == "ok"
 
-    def test_ok_without_metadata(self):
-        """Result without a metadata block should default to 'ok'."""
-        result = {"result": {"content": [{"type": "text", "text": "Done."}]}}
+    def test_ok_with_empty_content(self):
+        """Empty content array should default to 'ok'."""
+        result = {"result": {"content": []}}
         assert auto_memory._result_status(result) == "ok"
 
     def test_ok_with_non_dict_result(self):

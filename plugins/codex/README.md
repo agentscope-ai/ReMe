@@ -8,12 +8,13 @@ knowledge runs server-side in ReMe.
 ## What you get
 
 - **MCP tools** from the `reme` server: `search`, `traverse`, `daily_list`, `frontmatter_read`,
-  `read`, `auto_memory_cc`, and more.
+  `read`, `auto_memory_codex`, and more.
 - **Stop hook** (`hooks/auto_memory.py`) — when a session ends it calls ReMe's server-side
-  `auto_memory_cc` tool in a detached background process, passing **only the session id**. The server
-  resolves that session's transcript on disk and records the durable facts into today's daily note.
-  Recording is fully automatic and asynchronous — the agent never records by hand, and stopping is
-  never delayed. Best-effort: if the server is down it logs and gives up silently.
+  `auto_memory_codex` tool in a detached background process, passing the session id and transcript
+  path from Codex's hook payload. The server reads the transcript JSONL and records the durable
+  facts into today's daily note. Recording is fully automatic and asynchronous — the agent never
+  records by hand, and stopping is never delayed. Best-effort: if the server is down it logs and
+  gives up silently.
 - **Skill** `reme-memory` — recall long-term memory before answering (semantic `search`, topological
   `traverse`, state `daily_list`/`frontmatter_read`, then `read` with citations), plus a server
   status check. Recording is handled silently by the Stop hook.

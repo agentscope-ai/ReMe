@@ -48,14 +48,23 @@ def _result_status(result: dict | None) -> str:
     """Classify a JSON-RPC tool result for logging.
 
     Returns one of: ``ok``, ``skipped``, ``error``, ``no-response``.
+    Because ReMe's MCP transport only returns ``answer`` (metadata is
+    dropped), we inspect the answer text directly.
     """
     if result is None:
         return "no-response"
     if "error" in result:
         return "error"
+    # Extract the answer text from the MCP content array.
     r = result.get("result", {}) if isinstance(result, dict) else {}
-    meta = r.get("metadata", {}) if isinstance(r, dict) else {}
-    if isinstance(meta, dict) and meta.get("n_messages") == 0:
+    content = r.get("content", []) if isinstance(r, dict) else []
+    answer = ""
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                answer = (block.get("text") or "").strip()
+                break
+    if answer.startswith("Skipped"):
         return "skipped"
     return "ok"
 
@@ -237,19 +246,22 @@ def _spawn_detached(payload: dict) -> None:
 
 if __name__ == "__main__":
     # --payload-file is the Windows detach path: the parent already wrote the
-    # hook payload to a temp file and re-spawned us detached. Read from the file
-    # and proceed without daemonizing again (no fork available on Windows).
+    # hook payload to a temp file and re-spawned us detached. Parse the payload
+    # first (before the with-block closes the file), then invoke main with it
+    # set as stdin.
     if len(sys.argv) > 2 and sys.argv[1] == "--payload-file":
+        payload_file = sys.argv[2]
         try:
-            with open(sys.argv[2], encoding="utf-8") as fh:
-                sys.stdin = fh
+            with open(payload_file, encoding="utf-8") as fh:
+                payload_raw = fh.read()
         except Exception:
-            pass
-        else:
+            payload_raw = None
+        if payload_raw:
+            sys.stdin = __import__("io").StringIO(payload_raw)
             main()
-            try:
-                os.unlink(sys.argv[2])
-            except OSError:
-                pass
+        try:
+            os.unlink(payload_file)
+        except OSError:
+            pass
     else:
         main()
