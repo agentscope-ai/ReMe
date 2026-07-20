@@ -71,10 +71,27 @@ class LocalFileStore(BaseFileStore):
     # -- lifecycle ------------------------------------------------------------
 
     async def _start(self) -> None:
+        started_at = time.monotonic()
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()
+
+        load_started_at = time.monotonic()
         await self.load()
+        self.logger.info(
+            f"{self.name}: file store load complete: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - load_started_at:.3f}s",
+        )
+
+        backfill_started_at = time.monotonic()
         self._start_embedding_backfill()
+        self.logger.info(
+            f"{self.name}: embedding backfill scheduling complete: "
+            f"scheduled={self._embedding_backfill_task is not None}, "
+            f"elapsed={time.monotonic() - backfill_started_at:.3f}s",
+        )
+        self.logger.info(
+            f"{self.name}: file store startup complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
 
     async def _close(self) -> None:
         await self._cancel_embedding_backfill()
@@ -117,6 +134,8 @@ class LocalFileStore(BaseFileStore):
 
     async def load(self) -> None:
         """Load chunks from the JSONL file into memory; missing file is a no-op."""
+        started_at = time.monotonic()
+        chunk_load_started_at = time.monotonic()
         if self.chunks_path.exists():
             try:
                 for line in read_jsonl_zst(self.chunks_path, self.encoding):
@@ -127,9 +146,29 @@ class LocalFileStore(BaseFileStore):
                 self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             except Exception as e:
                 self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+        self.logger.info(
+            f"{self.name}: chunk store load complete: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - chunk_load_started_at:.3f}s",
+        )
 
-        await self._repair_graph_chunk_consistency()
+        graph_repair_started_at = time.monotonic()
+        graph_repaired = await self._repair_graph_chunk_consistency()
+        self.logger.info(
+            f"{self.name}: graph consistency check complete: repaired={graph_repaired}, "
+            f"elapsed={time.monotonic() - graph_repair_started_at:.3f}s",
+        )
+
+        keyword_sync_started_at = time.monotonic()
         await self._sync_keyword_index_from_chunks()
+        keyword_backend = type(self.keyword_index).__name__ if self.keyword_index is not None else "disabled"
+        keyword_docs = getattr(self.keyword_index, "n_docs", 0) if self.keyword_index is not None else 0
+        self.logger.info(
+            f"{self.name}: BM25/keyword index sync complete: backend={keyword_backend}, docs={keyword_docs}, "
+            f"elapsed={time.monotonic() - keyword_sync_started_at:.3f}s",
+        )
+        self.logger.info(
+            f"{self.name}: file store load phases complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
 
     async def _repair_graph_chunk_consistency(self) -> bool:
         """Clear torn graph/chunk state so the filesystem scan rebuilds it.
@@ -191,13 +230,32 @@ class LocalFileStore(BaseFileStore):
 
     def _start_embedding_backfill(self) -> None:
         """Schedule startup embedding repair without delaying component readiness."""
-        if not self.embedding_store or not self.file_chunks:
+        started_at = time.monotonic()
+        if not self.embedding_store:
+            self.logger.info(
+                f"{self.name}: embedding backfill skipped: reason=embedding_disabled, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
+            return
+        if not self.file_chunks:
+            self.logger.info(
+                f"{self.name}: embedding backfill skipped: reason=no_chunks, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
         if self._embedding_backfill_task is not None and not self._embedding_backfill_task.done():
+            self.logger.info(
+                f"{self.name}: embedding backfill scheduling skipped: reason=already_running, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
         self._embedding_backfill_task = asyncio.create_task(
             self._backfill_missing_embeddings(),
             name=f"embedding-backfill:{self.name}",
+        )
+        self.logger.info(
+            f"{self.name}: embedding backfill scheduled: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - started_at:.3f}s",
         )
 
     async def _cancel_embedding_backfill(self) -> None:
@@ -229,20 +287,39 @@ class LocalFileStore(BaseFileStore):
 
     async def _backfill_missing_embeddings(self) -> None:
         """Background-repair persisted chunks that do not have usable vectors."""
+        started_at = time.monotonic()
         if not self.embedding_store or not self.file_chunks:
+            self.logger.info(
+                f"{self.name}: embedding backfill finished without work: "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
 
+        scan_started_at = time.monotonic()
         self._invalidate_stale_embeddings()
         missing = [chunk for chunk in self.file_chunks.values() if chunk.text and chunk.embedding is None]
+        self.logger.info(
+            f"{self.name}: embedding backfill scan complete: chunks={len(self.file_chunks)}, "
+            f"missing={len(missing)}, elapsed={time.monotonic() - scan_started_at:.3f}s",
+        )
         if not missing:
+            self.logger.info(
+                f"{self.name}: embedding backfill complete: filled=0/0, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
 
         total = len(missing)
         batch_size = max(1, int(getattr(self.embedding_store, "max_batch_size", 10)))
-        started_at = time.monotonic()
         self.logger.info(f"{self.name}: embedding backfill started: total={total}, batch_size={batch_size}")
         try:
-            if not await self.embedding_store.health_check():
+            health_check_started_at = time.monotonic()
+            is_healthy = await self.embedding_store.health_check()
+            self.logger.info(
+                f"{self.name}: embedding health check complete: healthy={is_healthy}, "
+                f"elapsed={time.monotonic() - health_check_started_at:.3f}s",
+            )
+            if not is_healthy:
                 self._disable_embedding("backfill health check failed")
                 self.logger.warning(
                     f"{self.name}: embedding backfill failed: processed=0/{total}, reason=health check failed",
@@ -250,13 +327,20 @@ class LocalFileStore(BaseFileStore):
                 return
 
             processed = 0
+            batch_count = 0
+            embedding_started_at = time.monotonic()
             next_percent = _PROGRESS_LOG_PERCENT_STEP
             for start in range(0, total, batch_size):
                 batch = missing[start : start + batch_size]
                 await self.embedding_store.get_node_embeddings(batch)
                 self._drop_stale_embeddings(batch, "backfill")
                 processed += len(batch)
+                batch_count += 1
                 next_percent = self._log_progress("embedding backfill", processed, total, next_percent)
+            self.logger.info(
+                f"{self.name}: embedding batches complete: processed={processed}/{total}, "
+                f"batches={batch_count}, elapsed={time.monotonic() - embedding_started_at:.3f}s",
+            )
         except asyncio.CancelledError:
             elapsed = time.monotonic() - started_at
             self.logger.info(
