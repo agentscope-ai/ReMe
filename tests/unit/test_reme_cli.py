@@ -13,22 +13,29 @@ from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 
 
-def test_package_import_does_not_require_openai_codex():
-    """The base package remains importable without the optional Codex SDK."""
+def test_package_import_does_not_require_optional_agent_sdks():
+    """The base package remains importable without Claude or Codex SDKs."""
     script = """
 import importlib.abc
 import sys
 
 
-class BlockOpenAICodex(importlib.abc.MetaPathFinder):
+class BlockOptionalAgentSDKs(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
-        if fullname == "openai_codex" or fullname.startswith("openai_codex."):
-            raise ModuleNotFoundError("blocked optional Codex SDK", name=fullname)
+        blocked = ("claude_agent_sdk", "openai_codex")
+        if any(fullname == name or fullname.startswith(f"{name}.") for name in blocked):
+            raise ModuleNotFoundError(f"blocked optional SDK: {fullname}", name=fullname)
         return None
 
 
-sys.meta_path.insert(0, BlockOpenAICodex())
+sys.meta_path.insert(0, BlockOptionalAgentSDKs())
 import reme
+
+assert not any(
+    name == sdk or name.startswith(f"{sdk}.")
+    for name in sys.modules
+    for sdk in ("claude_agent_sdk", "openai_codex")
+)
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
