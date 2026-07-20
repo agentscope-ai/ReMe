@@ -11,7 +11,7 @@ from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
 from reme.components.application_context import ApplicationContext
-from reme.enumeration import ComponentEnum
+from reme.enumeration import ChunkEnum, ComponentEnum
 
 # pylint: disable=protected-access
 
@@ -27,7 +27,9 @@ def _skill_roots(tmp_path: Path) -> tuple[Path, Path]:
     )
 
 
-def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing(tmp_path):
+def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing(
+    tmp_path,
+):
     """Selected workspace skills are added while unrelated Claude skills remain."""
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
@@ -114,7 +116,11 @@ def test_sdk_native_system_prompt_preset_is_preserved(tmp_path):
     """System prompt dictionaries pass directly to the latest SDK."""
     opts = _wrapper(tmp_path)._build_options(
         "hello",
-        system_prompt={"type": "preset", "preset": "claude_code", "append": "custom prompt"},
+        system_prompt={
+            "type": "preset",
+            "preset": "claude_code",
+            "append": "custom prompt",
+        },
     )
 
     assert opts.system_prompt == {
@@ -134,7 +140,10 @@ def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
     }
     wrapper.app_context.app_config.components[ComponentEnum.AS_LLM] = {
         "default": SimpleNamespace(
-            credential={"api_key": "default-key", "base_url": "https://default.example.test"},
+            credential={
+                "api_key": "default-key",
+                "base_url": "https://default.example.test",
+            },
         ),
     }
     for name in ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_API_KEY", "LLM_API_KEY"):
@@ -164,6 +173,64 @@ def test_build_options_accepts_empty_output_schema(tmp_path):
     opts = _wrapper(tmp_path)._build_options("hello", output_schema={})
 
     assert opts.output_format == {"type": "json_schema", "schema": {}}
+
+
+def test_build_options_uses_native_sessions_and_allows_file_checkpointing(tmp_path):
+    """Local Claude transcripts remain the default and do not conflict with checkpoints."""
+    opts = _wrapper(tmp_path)._build_options("hello", enable_file_checkpointing=True)
+
+    assert opts.enable_file_checkpointing is True
+    assert opts.session_store is None
+    assert opts.env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "mem_session" / "claude_config")
+
+
+def test_build_options_preserves_explicit_session_store(tmp_path):
+    """Callers can still opt into the SDK's external transcript mirror."""
+    store = CcFileSessionStore(tmp_path / "mirror")
+
+    opts = _wrapper(tmp_path)._build_options("hello", session_store=store)
+
+    assert opts.session_store is store
+
+
+def test_job_tools_reject_non_mapping_mcp_config_instead_of_discarding_it(tmp_path, monkeypatch):
+    """Adding ReMe tools never silently replaces an SDK MCP config path."""
+    wrapper = _wrapper(tmp_path)
+    job = SimpleNamespace(name="remember", description="Remember", parameters={})
+    monkeypatch.setattr(wrapper, "_resolve_job_tools", lambda _names: [job])
+
+    with pytest.raises(ValueError, match="mcp_servers to be a mapping"):
+        wrapper._build_options("hello", job_tools=["remember"], mcp_servers=tmp_path / "mcp.json")
+
+
+def test_job_tools_merge_with_mapping_mcp_config(tmp_path, monkeypatch):
+    """Existing MCP configuration remains reusable beside ReMe tools."""
+    wrapper = _wrapper(tmp_path)
+    job = SimpleNamespace(name="remember", description="Remember", parameters={})
+    monkeypatch.setattr(wrapper, "_resolve_job_tools", lambda _names: [job])
+    external = {"type": "http", "url": "https://mcp.example.test"}
+    mcp_servers = {"external": external}
+    allowed_tools = ["Read"]
+
+    first = wrapper._build_options(
+        "hello",
+        job_tools=["remember"],
+        mcp_servers=mcp_servers,
+        allowed_tools=allowed_tools,
+    )
+    second = wrapper._build_options(
+        "hello",
+        job_tools=["remember"],
+        mcp_servers=mcp_servers,
+        allowed_tools=allowed_tools,
+    )
+
+    assert mcp_servers == {"external": external}
+    assert allowed_tools == ["Read"]
+    for opts in (first, second):
+        assert opts.mcp_servers["external"] is external
+        assert opts.mcp_servers[wrapper.MCP_SERVER_NAME]["type"] == "sdk"
+        assert opts.allowed_tools == ["Read", "remember"]
 
 
 @pytest.mark.asyncio
@@ -223,7 +290,11 @@ def test_latest_sdk_server_tool_blocks_are_converted():
         {
             "type": "content_block_start",
             "index": 0,
-            "content_block": {"type": "server_tool_use", "id": "tool-1", "name": "web_search"},
+            "content_block": {
+                "type": "server_tool_use",
+                "id": "tool-1",
+                "name": "web_search",
+            },
         },
     )
     message = AssistantMessage(
@@ -235,7 +306,48 @@ def test_latest_sdk_server_tool_blocks_are_converted():
     assert call is not None and call.chunk_type.value == "tool_call"
     assert len(results) == 1
     assert results[0].chunk_type.value == "tool_result"
-    assert results[0].chunk == {"tool_use_id": "tool-1", "content": {"type": "web_search_result"}}
+    assert results[0].chunk == {
+        "tool_use_id": "tool-1",
+        "content": {"type": "web_search_result"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_reply_stream_emits_one_reply_end_for_normal_sdk_lifecycle(tmp_path, monkeypatch):
+    """Message delta reports usage while message stop is the sole lifecycle end."""
+    from claude_agent_sdk import ResultMessage, StreamEvent
+
+    async def query(**_kwargs):
+        for event in (
+            {
+                "type": "message_start",
+                "message": {"id": "message-1", "role": "assistant"},
+            },
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 2},
+            },
+            {"type": "message_stop"},
+        ):
+            yield StreamEvent(uuid="event-1", session_id="session-1", event=event)
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            usage={"input_tokens": 1, "output_tokens": 2},
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
+
+    assert sum(chunk.chunk_type == ChunkEnum.REPLY_END for chunk in chunks) == 1
+    delta_usage = next(chunk for chunk in chunks if chunk.metadata.get("stop_reason") == "end_turn")
+    assert delta_usage.chunk_type == ChunkEnum.USAGE
+    assert delta_usage.output_tokens == 2
 
 
 @pytest.mark.asyncio
@@ -295,6 +407,29 @@ async def test_reply_stream_uses_error_result_as_terminal_error(tmp_path, monkey
 
 
 @pytest.mark.asyncio
+async def test_reply_stream_does_not_hide_unrelated_error_after_error_result(tmp_path, monkeypatch):
+    """Only the SDK's exact trailing process error is suppressed."""
+    from claude_agent_sdk import ResultMessage
+
+    async def query(**_kwargs):
+        yield ResultMessage(
+            subtype="error_during_execution",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=True,
+            num_turns=1,
+            session_id="session-1",
+            errors=["tool failed"],
+        )
+        raise RuntimeError("unrelated store failure")
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+
+    with pytest.raises(RuntimeError, match="unrelated store failure"):
+        _ = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
+
+
+@pytest.mark.asyncio
 async def test_reply_stream_reports_session_mirror_errors(tmp_path, monkeypatch):
     """The latest SDK's non-fatal mirror failures remain visible to callers."""
     from claude_agent_sdk import MirrorErrorMessage, ResultMessage
@@ -318,8 +453,11 @@ async def test_reply_stream_reports_session_mirror_errors(tmp_path, monkeypatch)
     monkeypatch.setattr("claude_agent_sdk.query", query)
     chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
 
-    errors = [chunk for chunk in chunks if chunk.chunk_type.value == "error"]
-    assert [chunk.chunk for chunk in errors] == ["Session mirror failed: disk full"]
+    diagnostics = [chunk for chunk in chunks if chunk.metadata.get("event") == "session_mirror_error"]
+    assert len(diagnostics) == 1
+    assert diagnostics[0].chunk_type == ChunkEnum.DATA
+    assert diagnostics[0].chunk == "Session mirror failed: disk full"
+    assert not any(chunk.chunk_type == ChunkEnum.ERROR for chunk in chunks)
 
 
 @pytest.mark.asyncio

@@ -39,20 +39,65 @@ class _CodexAuthConfig:
     base_url: str = ""
 
 
+@dataclass(frozen=True)
+class _CodexLaunchConfig:
+    """Options fixed for the lifetime of one Codex app-server."""
+
+    auth_mode: str
+    api_key: str
+    base_url: str
+    codex_bin: str | None
+    config_overrides: tuple[str, ...]
+    experimental_api: bool
+
+
 @R.register("codex")
 class CodexAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by the Codex Python SDK."""
 
     SDK_PACKAGE = "openai-codex"
+    _CLIENT_OPTION_NAMES = frozenset(
+        {
+            "api_key",
+            "auth_mode",
+            "base_url",
+            "codex_bin",
+            "codex_home",
+            "config_overrides",
+            "cwd",
+            "experimental_api",
+            "launch_args_override",
+        },
+    )
 
-    def __init__(self, mcp_config: str | None = None, codex_home: str | Path | None = None, **kwargs):
+    # pylint: disable=too-many-arguments
+    def __init__(
+        self,
+        mcp_config: str | None = None,
+        codex_home: str | Path | None = None,
+        *,
+        auth_mode: str = "auto",
+        api_key: str = "",
+        base_url: str = "",
+        codex_bin: str | None = None,
+        config_overrides: list[str] | tuple[str, ...] | None = None,
+        experimental_api: bool = True,
+        **kwargs,
+    ) -> None:
+        if "launch_args_override" in kwargs:
+            raise TypeError("launch_args_override is not supported; configure codex_bin instead")
         super().__init__(**kwargs)
         self.mcp_config = mcp_config
         self._codex_home = codex_home
+        self._launch_config = _CodexLaunchConfig(
+            auth_mode=auth_mode,
+            api_key=api_key,
+            base_url=base_url,
+            codex_bin=codex_bin,
+            config_overrides=tuple(config_overrides or ()),
+            experimental_api=experimental_api,
+        )
         self._codex: AsyncCodex | None = None
-        self._codex_config: CodexConfig | None = None
-        self._codex_auth_config: _CodexAuthConfig | None = None
-        self._client_lock = asyncio.Lock()
         self._turn_lock = asyncio.Lock()
         self._mcp_snapshot_path: Path | None = None
         self._thread_tool_contexts: dict[str, str] = {}
@@ -146,52 +191,53 @@ class CodexAgentWrapper(BaseAgentWrapper):
     def _mcp_config_source(self, kwargs: dict[str, Any]) -> str:
         return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
 
-    def _resolve_auth_config(self, kwargs: dict[str, Any]) -> _CodexAuthConfig:
-        """Resolve Codex authentication exclusively from the wrapper configuration."""
-        requested_mode = str(kwargs.get("auth_mode") or "auto").lower()
+    @staticmethod
+    def _resolve_auth_config(auth_mode: str, api_key: str = "", base_url: str = "") -> _CodexAuthConfig:
+        """Resolve login from wrapper options.
+
+        The Codex child process still inherits the parent process environment.
+        """
+        requested_mode = str(auth_mode or "auto").lower()
         if requested_mode not in {"auto", "api_key", "oauth"}:
             raise ValueError("auth_mode must be one of: auto, api_key, oauth")
         if requested_mode == "oauth":
             return _CodexAuthConfig(mode="oauth")
 
-        api_key = kwargs.get("api_key")
         api_key = api_key if isinstance(api_key, str) else ""
         if requested_mode == "api_key" and not api_key:
             raise ValueError("auth_mode='api_key' requires a non-empty API key")
         if not api_key:
             return _CodexAuthConfig(mode="oauth")
 
-        base_url = kwargs.get("base_url")
         base_url = base_url if isinstance(base_url, str) else ""
         return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
 
-    def _build_client_config(
-        self,
-        kwargs: dict[str, Any],
-        auth: _CodexAuthConfig | None = None,
-    ) -> CodexConfig:
-        auth = auth or self._resolve_auth_config(kwargs)
-
+    def _build_client_config(self, auth: _CodexAuthConfig) -> CodexConfig:
         env = dict(self.subprocess_environment)
         self.session_path.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(self.session_path)
 
-        overrides = list(kwargs.get("config_overrides") or [])
+        overrides = list(self._launch_config.config_overrides)
         if auth.base_url:
             overrides.append(f"openai_base_url={json.dumps(auth.base_url)}")
-        overrides.append(f"forced_login_method={json.dumps('api' if auth.mode == 'api_key' else 'chatgpt')}")
+        login_method = "api" if auth.mode == "api_key" else "chatgpt"
+        overrides.append(f"forced_login_method={json.dumps(login_method)}")
         return CodexConfig(
-            codex_bin=kwargs.get("codex_bin"),
-            launch_args_override=(
-                tuple(kwargs["launch_args_override"]) if kwargs.get("launch_args_override") is not None else None
-            ),
+            codex_bin=self._launch_config.codex_bin,
             config_overrides=tuple(overrides),
             cwd=str(self.cwd),
             env=env,
             client_name="reme",
             client_title="ReMe",
-            experimental_api=bool(kwargs.get("experimental_api", True)),
+            experimental_api=self._launch_config.experimental_api,
         )
+
+    @classmethod
+    def _reject_client_options(cls, kwargs: dict[str, Any]) -> None:
+        invalid = sorted(cls._CLIENT_OPTION_NAMES.intersection(kwargs))
+        if invalid:
+            names = ", ".join(invalid)
+            raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
 
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         from ..job import BackgroundJob, StreamJob
@@ -302,37 +348,33 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
 
-    async def _get_codex(self, kwargs: dict[str, Any]) -> AsyncCodex:
-        """Lazily start one app-server and reject launch-config changes while it is live."""
-        auth = self._resolve_auth_config(kwargs)
-        config = self._build_client_config(kwargs, auth)
-        async with self._client_lock:
-            if self._codex is not None:
-                if config != self._codex_config or auth != self._codex_auth_config:
-                    raise RuntimeError("Codex client configuration changed; close the wrapper before reconfiguring it")
-                return self._codex
-            codex = AsyncCodex(config)
-            try:
-                if auth.mode == "api_key":
-                    await codex.login_api_key(auth.api_key)
-                else:
-                    account = await codex.account()
-                    if account.account is None:
-                        raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
-            except BaseException:
-                await codex.close()
-                raise
-            self._codex = codex
-            self._codex_config = config
-            self._codex_auth_config = auth
-            return codex
+    async def _get_codex(self) -> AsyncCodex:
+        """Lazily start the component-owned client from its fixed launch configuration."""
+        if self._codex is not None:
+            return self._codex
+        auth = self._resolve_auth_config(
+            self._launch_config.auth_mode,
+            self._launch_config.api_key,
+            self._launch_config.base_url,
+        )
+        codex = AsyncCodex(self._build_client_config(auth))
+        try:
+            if auth.mode == "api_key":
+                await codex.login_api_key(auth.api_key)
+            else:
+                account = await codex.account()
+                if account.account is None:
+                    raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
+        except BaseException:
+            await codex.close()
+            raise
+        self._codex = codex
+        return codex
 
     async def _close(self) -> None:
         """Close the persistent app-server and remove its private config snapshot."""
-        async with self._client_lock:
+        async with self._turn_lock:
             codex, self._codex = self._codex, None
-            self._codex_config = None
-            self._codex_auth_config = None
             self._thread_tool_contexts.clear()
             try:
                 if codex is not None:
@@ -348,10 +390,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     async def reply(self, inputs: RunInput, **kwargs) -> dict:
         """Run one Codex turn and return its final response."""
+        self._reject_client_options(kwargs)
         kwargs = self._merged_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
+        await self.start()
         async with self._turn_lock:
-            codex = await self._get_codex(kwargs)
+            codex = await self._get_codex()
             thread = await self._open_thread(codex, kwargs)
             result = await thread.run(inputs, **self._turn_kwargs(kwargs))
 
@@ -486,10 +530,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream Codex app-server notifications as unified chunks."""
+        self._reject_client_options(kwargs)
         kwargs = self._merged_stream_kwargs(kwargs)
         self._ensure_skills(kwargs.get("skills"))
+        await self.start()
         async with self._turn_lock:
-            codex = await self._get_codex(kwargs)
+            codex = await self._get_codex()
             thread = await self._open_thread(codex, kwargs)
             turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
             stream = turn.stream()

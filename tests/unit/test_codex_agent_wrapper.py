@@ -1,6 +1,6 @@
 """Unit tests for the Codex agent wrapper and its FastMCP bridge."""
 
-# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
+# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access,too-many-lines
 
 import asyncio
 from dataclasses import dataclass
@@ -320,7 +320,8 @@ class _TurnResult:
     status: str = "completed"
 
 
-def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
+@pytest.mark.asyncio
+async def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
 
     class FakeThread:
@@ -352,7 +353,8 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
 
     monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
-    result = asyncio.run(wrapper.reply("answer", output_schema={"type": "object"}))
+    result = await wrapper.reply("answer", output_schema={"type": "object"})
+    await wrapper.close()
 
     assert result["session_id"] == "thread-1"
     assert result["structured_output"] == {"ok": True}
@@ -362,7 +364,7 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
 async def test_reply_accepts_latest_sdk_run_input(tmp_path, monkeypatch):
     from openai_codex import LocalImageInput, TextInput
 
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
     inputs = [TextInput("describe this image"), LocalImageInput("image.png")]
     observed = {}
 
@@ -373,16 +375,23 @@ async def test_reply_accepts_latest_sdk_run_input(tmp_path, monkeypatch):
             observed["input"] = run_input
             return _TurnResult(final_response="done")
 
-    async def get_codex(_kwargs):
-        return SimpleNamespace()
+    class FakeCodex:
+        def __init__(self, _config):
+            pass
 
-    async def open_thread(_codex, _kwargs):
-        return FakeThread()
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
 
-    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
-    monkeypatch.setattr(wrapper, "_open_thread", open_thread)
+        async def close(self):
+            return None
+
+        async def thread_start(self, **_kwargs):
+            return FakeThread()
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     result = await wrapper.reply(inputs)
+    await wrapper.close()
 
     assert observed["input"] is inputs
     assert result["last_message"] == "done"
@@ -701,7 +710,7 @@ async def test_reply_stream_rejects_output_schema(tmp_path, schema):
 
 @pytest.mark.asyncio
 async def test_reply_stream_interrupts_turn_when_consumer_closes_early(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
     stream_closed = False
     interrupt_count = 0
 
@@ -729,31 +738,101 @@ async def test_reply_stream_interrupts_turn_when_consumer_closes_early(tmp_path,
         async def turn(self, _inputs, **_kwargs):
             return FakeTurn()
 
-    async def get_codex(_kwargs):
-        return SimpleNamespace()
+    class FakeCodex:
+        def __init__(self, _config):
+            pass
 
-    async def open_thread(_codex, _kwargs):
-        return FakeThread()
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
 
-    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
-    monkeypatch.setattr(wrapper, "_open_thread", open_thread)
+        async def close(self):
+            return None
+
+        async def thread_start(self, **_kwargs):
+            return FakeThread()
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     stream = wrapper.reply_stream("answer")
     first = await anext(stream)
     assert first.chunk_type == ChunkEnum.REPLY_START
     await stream.aclose()
+    await wrapper.close()
 
     assert interrupt_count == 1
     assert stream_closed
 
 
 @pytest.mark.asyncio
-async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+async def test_close_waits_for_active_turn(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
+    turn_started = asyncio.Event()
+    release_turn = asyncio.Event()
+    client_closed = asyncio.Event()
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def run(self, _inputs, **_kwargs):
+            turn_started.set()
+            await release_turn.wait()
+            return _TurnResult(final_response="done")
 
     class FakeCodex:
         def __init__(self, _config):
             pass
+
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
+
+        async def close(self):
+            client_closed.set()
+
+        async def thread_start(self, **_kwargs):
+            return FakeThread()
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
+
+    await wrapper.start()
+    reply_task = asyncio.create_task(wrapper.reply("answer"))
+    await turn_started.wait()
+    close_task = asyncio.create_task(wrapper.close())
+    await asyncio.sleep(0)
+
+    assert not client_closed.is_set()
+    assert not close_task.done()
+
+    release_turn.set()
+    result = await reply_task
+    await close_task
+
+    assert result["last_message"] == "done"
+    assert client_closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_component_start_keeps_optional_client_lazy(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path, auth_mode="api_key", api_key="")
+
+    def fail_if_constructed(_config):
+        raise AssertionError("Codex client should be lazy")
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", fail_if_constructed)
+
+    await wrapper.start()
+    await wrapper.close()
+
+    assert wrapper._codex is None
+
+
+@pytest.mark.asyncio
+async def test_client_config_is_fixed_for_component_lifetime(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path, auth_mode="api_key", api_key="one")
+    clients = []
+
+    class FakeCodex:
+        def __init__(self, _config):
+            clients.append(self)
 
         async def login_api_key(self, _api_key):
             return None
@@ -764,37 +843,64 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
     monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     await wrapper.start()
-    first = await wrapper._get_codex({"api_key": "one"})  # pylint: disable=protected-access
-    assert await wrapper._get_codex({"api_key": "one"}) is first  # pylint: disable=protected-access
-    with pytest.raises(RuntimeError, match="configuration changed"):
-        await wrapper._get_codex({"api_key": "two"})  # pylint: disable=protected-access
+    assert await wrapper._get_codex() is clients[0]  # pylint: disable=protected-access
+    with pytest.raises(TypeError, match="configured on the wrapper: api_key"):
+        await wrapper.reply("answer", api_key="two")
     await wrapper.close()
+
+    assert len(clients) == 1
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("auth_mode", "oauth"),
+        ("base_url", "https://example.test/v1"),
+        ("codex_bin", "/tmp/codex"),
+        ("codex_home", "/tmp/codex-home"),
+        ("config_overrides", ['model="test"']),
+        ("cwd", "/tmp"),
+        ("experimental_api", False),
+        ("launch_args_override", ["codex", "app-server"]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_reply_rejects_call_time_client_options(tmp_path, name, value):
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
+
+    with pytest.raises(TypeError, match=f"configured on the wrapper: {name}"):
+        await wrapper.reply("answer", **{name: value})
+
+    assert wrapper._codex is None
+
+
+def test_constructor_rejects_launch_args_override(tmp_path):
+    with pytest.raises(TypeError, match="configure codex_bin instead"):
+        _wrapper(tmp_path, launch_args_override=["codex", "app-server"])
 
 
 def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(
+        tmp_path,
+        auth_mode="oauth",
+        api_key="explicit-key",
+        base_url="https://explicit.example.test/v1",
+    )
     wrapper.app_context.app_config.environment = {"TOOL_ENV": "preserved"}
     monkeypatch.setenv("CODEX_API_KEY", "ambient-key")
     monkeypatch.setenv("CODEX_BASE_URL", "https://ambient.example.test/v1")
 
     auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
-        {
-            "auth_mode": "oauth",
-            "api_key": "explicit-key",
-            "base_url": "https://explicit.example.test/v1",
-        },
+        "oauth",
+        "explicit-key",
+        "https://explicit.example.test/v1",
     )
-    config = wrapper._build_client_config(  # pylint: disable=protected-access
-        {"launch_args_override": ["codex", "app-server", "--listen", "stdio://"]},
-        auth,
-    )
+    config = wrapper._build_client_config(auth)  # pylint: disable=protected-access
 
     assert auth.mode == "oauth"
     assert auth.api_key == ""
     assert auth.base_url == ""
-    assert "OPENAI_API_KEY" not in config.env
     assert config.env["TOOL_ENV"] == "preserved"
-    assert config.launch_args_override == ("codex", "app-server", "--listen", "stdio://")
     assert "CODEX_HOME" not in wrapper.app_context.app_config.environment
     assert 'forced_login_method="chatgpt"' in config.config_overrides
     assert not any(value.startswith("openai_base_url=") for value in config.config_overrides)
@@ -802,7 +908,12 @@ def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeyp
 
 @pytest.mark.asyncio
 async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
+    wrapper, _job = _wrapper(
+        tmp_path,
+        auth_mode="api_key",
+        api_key="explicit-key",
+        base_url="https://proxy.example.test/v1",
+    )
     observed = {}
 
     class FakeCodex:
@@ -818,24 +929,17 @@ async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch)
     monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
 
     await wrapper.start()
-    await wrapper._get_codex(  # pylint: disable=protected-access
-        {
-            "auth_mode": "api_key",
-            "api_key": "explicit-key",
-            "base_url": "https://proxy.example.test/v1",
-        },
-    )
+    await wrapper._get_codex()  # pylint: disable=protected-access
     await wrapper.close()
 
     config = observed["config"]
     assert observed["api_key"] == "explicit-key"
-    assert "OPENAI_API_KEY" not in config.env
     assert 'openai_base_url="https://proxy.example.test/v1"' in config.config_overrides
     assert 'forced_login_method="api"' in config.config_overrides
     assert observed["closed"] is True
 
 
-def test_api_key_mode_uses_only_wrapper_config(tmp_path, monkeypatch):
+def test_auth_selection_uses_explicit_wrapper_options(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path)
     wrapper.app_context.app_config.components[ComponentEnum.AS_LLM]["default"] = SimpleNamespace(
         credential={"api_key": "default-key", "base_url": "https://default.example.test/v1"},
@@ -846,11 +950,8 @@ def test_api_key_mode_uses_only_wrapper_config(tmp_path, monkeypatch):
         monkeypatch.setenv(name, "https://ambient.example.test/v1")
 
     auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
-        {
-            "auth_mode": "api_key",
-            "api_key": "configured-key",
-            "credential": {"api_key": "nested-key", "base_url": "https://nested.example.test/v1"},
-        },
+        "api_key",
+        "configured-key",
     )
 
     assert auth.mode == "api_key"
@@ -859,10 +960,7 @@ def test_api_key_mode_uses_only_wrapper_config(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="requires a non-empty API key"):
         wrapper._resolve_auth_config(  # pylint: disable=protected-access
-            {
-                "auth_mode": "api_key",
-                "credential": {"api_key": "nested-key", "base_url": "https://nested.example.test/v1"},
-            },
+            "api_key",
         )
 
 
