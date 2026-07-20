@@ -59,12 +59,26 @@ Then start a Codex session, type `/plugins`, find "ReMe Memory" in the marketpla
 it. Restart Codex, then confirm the `reme` MCP server tools are available (e.g. `search`,
 `traverse`). The `reme-memory` skill can then recall memory and report server health.
 
+### Trust the plugin hook
+
+Codex skips hooks from non-managed plugins until you explicitly trust them. After installing,
+open `/hooks` in Codex, find the **ReMe** Stop hook, review it, and mark it as trusted. Without
+this step the automatic background recording is silently disabled — the skill will still be able
+to recall memory, but new sessions will not be recorded.
+
+## Supported platforms
+
+- **macOS / Linux**: full support. The Stop hook double-forks so recording never blocks shutdown.
+- **Windows**: supported with Python 3 on `PATH`. The hook re-spawns itself as a detached
+  subprocess (`CREATE_NEW_PROCESS_GROUP`) to avoid blocking.
+
 ## Notes
 
 - The plugin's MCP server URL lives in `plugins/reme/.mcp.json`. Keep it in sync with how you start
   ReMe (host/port). The Stop hook reads this same file to find the server (override with `REME_HOST`
   / `REME_PORT` env vars).
-- The Stop hook needs `python3` on `PATH`. The hook receives `PLUGIN_ROOT` (and `CLAUDE_PLUGIN_ROOT`
-  as a compat alias). It logs to `plugins/reme/logs/auto_memory_hook.log`.
+- The Stop hook needs `python3` on `PATH` (use `python` on Windows). The hook receives
+  `PLUGIN_ROOT` (and `CLAUDE_PLUGIN_ROOT` as a compat alias). It logs to
+  `plugins/reme/logs/auto_memory_hook.log`.
 - The MCP tool-name prefix (`mcp__reme__…`) may include the server segment depending on your Codex
   version; the skill uses the `mcp__reme__*` wildcard so it works either way.

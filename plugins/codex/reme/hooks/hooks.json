@@ -7,6 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "commandWindows": "python \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
             "timeout": 30
           }
         ]
