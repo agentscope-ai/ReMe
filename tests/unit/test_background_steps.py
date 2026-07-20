@@ -18,6 +18,8 @@ import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
+import pytest
 from watchfiles import Change
 
 from reme.components.agent_wrapper import BaseAgentWrapper
@@ -462,6 +464,292 @@ def test_update_catalog_relative_path_uses_workspace():
     asyncio.run(run())
 
 
+def test_update_catalog_upserts_in_batches_of_at_most_100_files():
+    """Large change sets are committed incrementally instead of retained as one list."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index:03d}.md", "x") for index in range(205)]
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            batch_sizes = []
+            original_upsert = catalog.upsert
+
+            async def record_upsert(nodes):
+                batch_sizes.append(len(nodes))
+                await original_upsert(nodes)
+
+            try:
+                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+                changes = [{"change": "added", "path": str(path)} for path in paths]
+                available = MagicMock(available=8 * 1024 * 1024 * 1024)
+                with (
+                    patch.object(catalog, "upsert", side_effect=record_upsert),
+                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+                ):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is True
+                assert batch_sizes == [100, 100, 5]
+                assert len(await catalog.get_nodes()) == 205
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+def test_update_catalog_deletes_in_batches_of_at_most_100_paths():
+    """Large delete sets use the same bounded failure domain as upserts."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            deleted = [cwd / "daily" / f"{index:03d}.md" for index in range(205)]
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            batch_sizes = []
+            original_delete = catalog.delete
+
+            async def record_delete(paths):
+                batch_sizes.append(len(paths))
+                await original_delete(paths)
+
+            try:
+                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+                changes = [{"change": "deleted", "path": str(path)} for path in deleted]
+                with patch.object(catalog, "delete", side_effect=record_delete):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is True
+                assert batch_sizes == [100, 100, 5]
+                assert len(response.answer) == 205
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+def test_update_index_memory_budget_can_reduce_batches_to_one_file():
+    """A file larger than the target batch budget is still processed alone."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index}.md", f"# Note {index}\nbody\n") for index in range(3)]
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker(supported_extensions=["md"])
+            await fs.start()
+            await chunker.start()
+            batch_sizes = []
+            original_upsert = fs.upsert
+
+            async def record_upsert(items):
+                batch_sizes.append(len(items))
+                await original_upsert(items)
+
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+                changes = [{"change": "added", "path": str(path)} for path in paths]
+                available = MagicMock(available=1_000)
+                with (
+                    patch.object(fs, "upsert", side_effect=record_upsert),
+                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+                ):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is True
+                assert batch_sizes == [1, 1, 1]
+                assert len(await fs.get_nodes()) == 3
+            finally:
+                await chunker.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_update_catalog_memory_target_limits_cumulative_batch_size():
+    """The memory target applies to the accumulated batch, not only individual files."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            batch_sizes = []
+            original_upsert = catalog.upsert
+
+            async def record_upsert(nodes):
+                batch_sizes.append(len(nodes))
+                await original_upsert(nodes)
+
+            try:
+                step = UpdateCatalogStep(
+                    file_catalog=catalog,
+                    persist=False,
+                    batch_memory_target_bytes=64 * 1024,
+                    app_context=_make_app_context(cwd),
+                )
+                changes = [{"change": "added", "path": str(path)} for path in paths]
+                available = MagicMock(available=8 * 1024 * 1024 * 1024)
+                with (
+                    patch.object(catalog, "upsert", side_effect=record_upsert),
+                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+                ):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is True
+                assert batch_sizes == [2, 1]
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"batch_available_memory_ratio": float("nan")}, "batch_available_memory_ratio"),
+        ({"batch_memory_target_bytes": 0}, "batch_memory_target_bytes"),
+        ({"batch_memory_expansion_factor": float("inf")}, "batch_memory_expansion_factor"),
+    ],
+)
+def test_update_step_rejects_invalid_batch_memory_settings(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        UpdateCatalogStep(**kwargs)
+
+
+def test_update_catalog_continues_after_one_batch_fails():
+    """An upsert failure is isolated to its bounded batch and later files continue."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            original_upsert = catalog.upsert
+            call_count = 0
+
+            async def fail_first_batch(nodes):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise RuntimeError("batch failed")
+                await original_upsert(nodes)
+
+            try:
+                step = UpdateCatalogStep(
+                    file_catalog=catalog,
+                    persist=False,
+                    batch_max_files=2,
+                    app_context=_make_app_context(cwd),
+                )
+                changes = [{"change": "added", "path": str(path)} for path in paths]
+                available = MagicMock(available=8 * 1024 * 1024 * 1024)
+                with (
+                    patch.object(catalog, "upsert", side_effect=fail_first_batch),
+                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+                ):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is False
+                assert [result["success"] for result in response.answer] == [False, False, True]
+                assert [node.path for node in await catalog.get_nodes()] == ["daily/2.md"]
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+def test_update_catalog_yields_to_event_loop_while_building_batch():
+    """Synchronous file inspection does not monopolize the application event loop."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "alpha")
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            yielded = False
+            observed = []
+            original_upsert = catalog.upsert
+
+            def mark_yielded():
+                nonlocal yielded
+                yielded = True
+
+            async def observe_upsert(nodes):
+                observed.append(yielded)
+                await original_upsert(nodes)
+
+            try:
+                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+                asyncio.get_running_loop().call_soon(mark_yielded)
+                with patch.object(catalog, "upsert", side_effect=observe_upsert):
+                    response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+                assert response.success is True
+                assert observed == [True]
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+class _CountingEmbeddingStore:
+    dimensions = 2
+    max_batch_size = 10
+
+    def __init__(self):
+        self.calls = 0
+
+    async def get_node_embeddings(self, nodes, **_kwargs):
+        """Record one embedding call and populate deterministic vectors."""
+        self.calls += 1
+        for node in nodes:
+            node.embedding = np.array([1.0, 0.0], dtype=np.float16)
+        return nodes
+
+
+def test_update_index_modified_file_reuses_unchanged_embedding():
+    """The step relies on replace-aware upsert instead of deleting reusable chunks first."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "alpha")
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker(supported_extensions=["md"])
+            await fs.start()
+            await chunker.start()
+            embedding_store = _CountingEmbeddingStore()
+            fs.embedding_store = embedding_store
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+                await fs.upsert([await chunker.chunk(source)])
+                assert embedding_store.calls == 1
+
+                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+                with patch.object(fs, "delete", wraps=fs.delete) as delete_mock:
+                    response = await step(
+                        RuntimeContext(changes=[{"change": "modified", "path": str(source)}]),
+                    )
+
+                assert response.success is True
+                assert embedding_store.calls == 1
+                delete_mock.assert_not_awaited()
+            finally:
+                await chunker.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
 def test_update_index_skips_oversized_file_and_clears_stale_index():
     """Oversized content is not read and any previous index entry is removed."""
 
@@ -513,22 +801,49 @@ def test_update_index_handles_file_removed_before_stat():
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            step = UpdateIndexStep(app_context=_make_app_context(Path.cwd()))
-            results = []
+            step = UpdateIndexStep(persist=False, app_context=_make_app_context(Path.cwd()))
 
             with (
                 patch.object(Path, "is_file", return_value=True),
                 patch.object(Path, "stat", side_effect=FileNotFoundError("file disappeared")),
             ):
-                item = await step._try_build_item(Change.modified, "Updating", "daily/a.md", results)
+                response = await step(RuntimeContext(changes=[{"change": "modified", "path": "daily/a.md"}]))
 
-            assert item is None
-            assert results == [
+            assert response.success is False
+            assert response.answer == [
                 {
                     "change": "modified",
                     "path": "daily/a.md",
                     "success": False,
                     "error": "file disappeared",
+                },
+            ]
+
+    asyncio.run(run())
+
+
+def test_update_index_reports_memory_estimation_failure_without_aborting():
+    """A missing chunker is isolated to the affected file and returned as a normal failure."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.unknown", "alpha")
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {ComponentEnum.FILE_CHUNKER: {}}
+            step = UpdateIndexStep(persist=False, app_context=app_ctx)
+
+            response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+            assert response.success is False
+            assert response.answer == [
+                {
+                    "change": "added",
+                    "path": str(source),
+                    "success": False,
+                    "error": (
+                        f"No file chunker supports {source} (suffix='unknown') and no default chunker is configured"
+                    ),
                 },
             ]
 
