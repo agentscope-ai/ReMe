@@ -26,7 +26,7 @@ class ProactiveStep(BaseStep):
         if not abs_path.is_file():
             result.skipped, result.summary = True, f"Skipped: interests file not found at {rel_path}"
             self.logger.info(f"[{self.name}] skip missing path={rel_path}")
-            return self._finish(True, result)
+            return self._finish(True, result, include_content=include_content)
         try:
             self.logger.info(f"[{self.name}] read start path={rel_path}")
             result.content = abs_path.read_text(encoding="utf-8") if include_content else ""
@@ -37,15 +37,24 @@ class ProactiveStep(BaseStep):
         except Exception as e:  # noqa: BLE001
             result.error, result.summary = f"{type(e).__name__}: {e}", ""
             self.logger.error(f"[{self.name}] read failed path={rel_path}: {result.error}")
-            return self._finish(False, result)
+            return self._finish(False, result, include_content=include_content)
 
         result.summary = f"Read {len(result.topics)} proactive topic(s) from {rel_path}"
-        return self._finish(True, result)
+        return self._finish(True, result, include_content=include_content)
 
-    def _finish(self, success: bool, result: ProactiveResult):
+    def _finish(self, success: bool, result: ProactiveResult, *, include_content: bool):
         assert self.context is not None
         self.context.response.success = success
-        self.context.response.answer = result.summary if success else f"Error: {result.error}"
+        if not success:
+            self.context.response.answer = f"Error: {result.error}"
+        elif result.skipped:
+            self.context.response.answer = result.summary
+        else:
+            self.context.response.answer = {
+                "summary": result.summary,
+                "topics": result.topics,
+                **({"content": result.content} if include_content else {}),
+            }
         self.context.response.metadata.update(result.model_dump())
         self.logger.info(f"[{self.name}] finish success={success} answer={self.context.response.answer!r}")
         return self.context.response

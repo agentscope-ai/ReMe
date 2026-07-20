@@ -191,7 +191,7 @@ jobs:
           default: ""
         include_content:
           type: boolean
-          description: "whether to include the raw YAML content in response metadata"
+          description: "whether to include the raw YAML content in the response answer and metadata"
           default: true
     steps:
       - backend: proactive_step
