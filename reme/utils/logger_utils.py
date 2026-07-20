@@ -13,6 +13,20 @@ _logger_lock = threading.RLock()
 _LOGURU_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}"
 _STDLIB_FORMAT = "%(levelname)s %(source_path)s:%(lineno)d | %(asctime)s | %(message)s"
 _STDLIB_DATEFMT = "%Y-%m-%d %H:%M:%S"
+_QWENPAW_LOGGER_NAME = "qwenpaw"
+
+
+class _ForwardToLoggerHandler(logging.Handler):
+    """Forward records to a host logger without borrowing its handlers."""
+
+    def __init__(self, target_name: str) -> None:
+        super().__init__()
+        self.target_name = target_name
+
+    def emit(self, record: logging.LogRecord) -> None:
+        target = logging.getLogger(self.target_name)
+        if target.isEnabledFor(record.levelno):
+            target.handle(record)
 
 
 class _QwenPawStdlibFormatter(logging.Formatter):
@@ -73,12 +87,23 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
 
 def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bool):
     logger = logging.getLogger("reme")
-    logger.setLevel(level)
     logger.propagate = False
 
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
         handler.close()
+
+    qwenpaw_logger = logging.getLogger(_QWENPAW_LOGGER_NAME)
+    if qwenpaw_logger.handlers:
+        # QwenPaw owns the screen and file handlers. Forwarding keeps ReMe's
+        # logger object stable for modules that cache it at import time, while
+        # allowing future QwenPaw handlers (for example qwenpaw.log) to take
+        # effect without another ReMe reconfiguration.
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(_ForwardToLoggerHandler(_QWENPAW_LOGGER_NAME))
+        return logger
+
+    logger.setLevel(level)
 
     formatter = _QwenPawStdlibFormatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
 

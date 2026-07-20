@@ -1,6 +1,7 @@
 """Tests for logging configuration handoff during app startup."""
 
 import concurrent.futures
+import io
 import logging
 import threading
 import time
@@ -46,6 +47,84 @@ def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, 
     formatted_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
     assert capsys.readouterr().out == (f"INFO src/qwenpaw/worker.py:42 | {formatted_time} | Memory index loaded\n")
     logger_utils.get_logger(log_to_console=False, log_to_file=False, force_init=True)
+
+
+def test_stdlib_forwards_screen_and_file_logs_to_qwenpaw(monkeypatch, tmp_path):
+    """Embedded stdlib logging should reuse QwenPaw's active sinks."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REME_DISABLE_LOGURU", "true")
+    monkeypatch.setattr(logger_utils, "_logger", None)
+
+    qwenpaw_logger = logging.getLogger("qwenpaw")
+    original_handlers = list(qwenpaw_logger.handlers)
+    original_level = qwenpaw_logger.level
+    original_propagate = qwenpaw_logger.propagate
+    for handler in original_handlers:
+        qwenpaw_logger.removeHandler(handler)
+
+    console_stream = io.StringIO()
+    console_handler = logging.StreamHandler(console_stream)
+    file_path = tmp_path / "qwenpaw.log"
+    file_handler = logging.FileHandler(file_path, encoding="utf-8")
+    formatter = logging.Formatter("%(levelname)s | %(message)s")
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+    qwenpaw_logger.addHandler(console_handler)
+    qwenpaw_logger.addHandler(file_handler)
+    qwenpaw_logger.setLevel(logging.INFO)
+    qwenpaw_logger.propagate = False
+
+    reme_logger = logging.getLogger("reme")
+    try:
+        logger = logger_utils.get_logger(
+            log_to_console=True,
+            log_to_file=True,
+            force_init=True,
+        )
+        logger.info("Memory index loaded")
+        file_handler.flush()
+
+        assert console_stream.getvalue() == "INFO | Memory index loaded\n"
+        assert file_path.read_text(encoding="utf-8") == "INFO | Memory index loaded\n"
+        assert not (tmp_path / "logs").exists()
+        assert len(reme_logger.handlers) == 1
+        assert reme_logger.handlers[0].target_name == "qwenpaw"
+    finally:
+        for handler in list(reme_logger.handlers):
+            reme_logger.removeHandler(handler)
+            handler.close()
+        qwenpaw_logger.removeHandler(console_handler)
+        qwenpaw_logger.removeHandler(file_handler)
+        console_handler.close()
+        file_handler.close()
+        for handler in original_handlers:
+            qwenpaw_logger.addHandler(handler)
+        qwenpaw_logger.setLevel(original_level)
+        qwenpaw_logger.propagate = original_propagate
+
+
+def test_explicit_loguru_enable_keeps_original_backend(monkeypatch):
+    """An explicit false value must continue to select Loguru unchanged."""
+    sentinel_logger = object()
+    calls = []
+
+    def fake_init(*args, **kwargs):
+        calls.append((args, kwargs))
+        return sentinel_logger
+
+    monkeypatch.setenv("REME_DISABLE_LOGURU", "false")
+    monkeypatch.setattr(logger_utils, "_logger", None)
+    monkeypatch.setattr(logger_utils, "_init_loguru", fake_init)
+    monkeypatch.setattr(
+        logger_utils,
+        "_init_stdlib",
+        lambda *_args, **_kwargs: pytest.fail("stdlib backend selected"),
+    )
+
+    result = logger_utils.get_logger(force_init=True)
+
+    assert result is sentinel_logger
+    assert len(calls) == 1
 
 
 def test_resolve_app_config_does_not_create_file_logger(monkeypatch):
