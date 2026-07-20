@@ -2,7 +2,6 @@
 
 import asyncio
 import math
-import os
 from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Callable
@@ -17,41 +16,6 @@ from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 
-_BATCH_MAX_FILES_ENV = "REME_BATCH_MAX_FILES"
-_BATCH_AVAILABLE_MEMORY_RATIO_ENV = "REME_BATCH_AVAILABLE_MEMORY_RATIO"
-_BATCH_MEMORY_TARGET_BYTES_ENV = "REME_BATCH_MEMORY_TARGET_BYTES"
-_BATCH_MEMORY_EXPANSION_FACTOR_ENV = "REME_BATCH_MEMORY_EXPANSION_FACTOR"
-
-
-def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError as e:
-        raise ValueError(f"{name} must be an integer") from e
-
-
-def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except ValueError as e:
-        raise ValueError(f"{name} must be a number") from e
-
-
-DEFAULT_BATCH_MAX_FILES = _env_int(_BATCH_MAX_FILES_ENV, 100)
-DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO = _env_float(_BATCH_AVAILABLE_MEMORY_RATIO_ENV, 0.10)
-DEFAULT_BATCH_MEMORY_TARGET_BYTES = _env_int(_BATCH_MEMORY_TARGET_BYTES_ENV, 512 * 1024 * 1024)
-DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR = _env_float(_BATCH_MEMORY_EXPANSION_FACTOR_ENV, 8.0)
-_FILE_MEMORY_OVERHEAD_BYTES = 32 * 1024
-_CHUNK_MEMORY_OVERHEAD_BYTES = 4 * 1024
-_ESTIMATED_CHUNK_BYTES = 10_000
-_FLOAT16_BYTES = 2
-
 
 class ChangeApplyStep(BaseStep):
     """Shared added/modified/deleted handling for index update targets."""
@@ -62,10 +26,14 @@ class ChangeApplyStep(BaseStep):
     def __init__(
         self,
         persist: bool | None = None,
-        batch_max_files: int = DEFAULT_BATCH_MAX_FILES,
-        batch_available_memory_ratio: float = DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO,
-        batch_memory_target_bytes: int = DEFAULT_BATCH_MEMORY_TARGET_BYTES,
-        batch_memory_expansion_factor: float = DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR,
+        batch_max_files: int = 100,
+        batch_available_memory_ratio: float = 0.10,
+        batch_memory_target_bytes: int = 512 * 1024 * 1024,
+        batch_memory_expansion_factor: float = 8.0,
+        file_memory_overhead_bytes: int = 32 * 1024,
+        chunk_memory_overhead_bytes: int = 4 * 1024,
+        estimated_chunk_bytes: int = 10_000,
+        float16_bytes: int = 2,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -74,6 +42,10 @@ class ChangeApplyStep(BaseStep):
         self.batch_available_memory_ratio = float(batch_available_memory_ratio)
         self.batch_memory_target_bytes = int(batch_memory_target_bytes)
         self.batch_memory_expansion_factor = float(batch_memory_expansion_factor)
+        self.file_memory_overhead_bytes = int(file_memory_overhead_bytes)
+        self.chunk_memory_overhead_bytes = int(chunk_memory_overhead_bytes)
+        self.estimated_chunk_bytes = int(estimated_chunk_bytes)
+        self.float16_bytes = int(float16_bytes)
         if self.batch_max_files <= 0:
             raise ValueError("batch_max_files must be greater than zero")
         if not math.isfinite(self.batch_available_memory_ratio) or not 0 < self.batch_available_memory_ratio <= 1:
@@ -82,6 +54,14 @@ class ChangeApplyStep(BaseStep):
             raise ValueError("batch_memory_target_bytes must be greater than zero")
         if not math.isfinite(self.batch_memory_expansion_factor) or self.batch_memory_expansion_factor <= 0:
             raise ValueError("batch_memory_expansion_factor must be finite and greater than zero")
+        if self.file_memory_overhead_bytes < 0:
+            raise ValueError("file_memory_overhead_bytes must be non-negative")
+        if self.chunk_memory_overhead_bytes < 0:
+            raise ValueError("chunk_memory_overhead_bytes must be non-negative")
+        if self.estimated_chunk_bytes <= 0:
+            raise ValueError("estimated_chunk_bytes must be greater than zero")
+        if self.float16_bytes <= 0:
+            raise ValueError("float16_bytes must be greater than zero")
 
     @abstractmethod
     async def build_item(self, path: Path) -> Any:
@@ -254,7 +234,7 @@ class ChangeApplyStep(BaseStep):
     def estimate_source_memory(self, path: Path, size_bytes: int) -> int:
         """Estimate one item before reading it so the current batch can flush first."""
         del path, size_bytes
-        return _FILE_MEMORY_OVERHEAD_BYTES
+        return self.file_memory_overhead_bytes
 
     def estimate_item_memory(self, item: Any, path: Path, size_bytes: int) -> int:
         """Estimate the retained memory for one built target item."""
@@ -357,7 +337,7 @@ class UpdateIndexStep(ChangeApplyStep):
 
     def estimate_source_memory(self, path: Path, size_bytes: int) -> int:
         chunker = self._resolve_chunker(path)
-        chunk_bytes = max(1, int(getattr(chunker, "chunk_byte_size", _ESTIMATED_CHUNK_BYTES)))
+        chunk_bytes = max(1, int(getattr(chunker, "chunk_byte_size", self.estimated_chunk_bytes)))
         estimated_chunks = max(1, (size_bytes + chunk_bytes - 1) // chunk_bytes)
         return self._estimate_index_memory(size_bytes, estimated_chunks)
 
@@ -375,12 +355,12 @@ class UpdateIndexStep(ChangeApplyStep):
         embedding_store = getattr(self.file_store, "embedding_store", None)
         if embedding_store is not None:
             try:
-                embedding_bytes = max(0, int(embedding_store.dimensions)) * _FLOAT16_BYTES
+                embedding_bytes = max(0, int(embedding_store.dimensions)) * self.float16_bytes
             except (AttributeError, TypeError, ValueError):
                 embedding_bytes = 0
         expanded_content = int(size_bytes * self.batch_memory_expansion_factor)
-        per_chunk = _CHUNK_MEMORY_OVERHEAD_BYTES + embedding_bytes
-        return expanded_content + _FILE_MEMORY_OVERHEAD_BYTES + max(0, chunk_count) * per_chunk
+        per_chunk = self.chunk_memory_overhead_bytes + embedding_bytes
+        return expanded_content + self.file_memory_overhead_bytes + max(0, chunk_count) * per_chunk
 
     async def chunk_file(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         """Chunk a file into (node, chunks)."""

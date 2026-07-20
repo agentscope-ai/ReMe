@@ -13,8 +13,6 @@ downstream ``update_index_step`` to consume; tests assert against that key.
 import asyncio
 import datetime
 import os
-import subprocess
-import sys
 import tempfile
 import warnings
 import weakref
@@ -618,6 +616,10 @@ def test_update_catalog_memory_target_limits_cumulative_batch_size():
         ({"batch_available_memory_ratio": float("nan")}, "batch_available_memory_ratio"),
         ({"batch_memory_target_bytes": 0}, "batch_memory_target_bytes"),
         ({"batch_memory_expansion_factor": float("inf")}, "batch_memory_expansion_factor"),
+        ({"file_memory_overhead_bytes": -1}, "file_memory_overhead_bytes"),
+        ({"chunk_memory_overhead_bytes": -1}, "chunk_memory_overhead_bytes"),
+        ({"estimated_chunk_bytes": 0}, "estimated_chunk_bytes"),
+        ({"float16_bytes": 0}, "float16_bytes"),
     ],
 )
 def test_update_step_rejects_invalid_batch_memory_settings(kwargs, message):
@@ -626,59 +628,27 @@ def test_update_step_rejects_invalid_batch_memory_settings(kwargs, message):
         UpdateCatalogStep(**kwargs)
 
 
-def test_update_step_reads_batch_defaults_from_environment():
-    """REME-prefixed environment variables populate constructor defaults at import time."""
-    env = {
-        **os.environ,
-        "REME_BATCH_MAX_FILES": "25",
-        "REME_BATCH_AVAILABLE_MEMORY_RATIO": "0.25",
-        "REME_BATCH_MEMORY_TARGET_BYTES": "1048576",
-        "REME_BATCH_MEMORY_EXPANSION_FACTOR": "4.5",
-    }
-    script = """
-from reme.steps.index.update_changes import UpdateCatalogStep
-step = UpdateCatalogStep()
-print(step.batch_max_files)
-print(step.batch_available_memory_ratio)
-print(step.batch_memory_target_bytes)
-print(step.batch_memory_expansion_factor)
-"""
-
-    output = subprocess.check_output([sys.executable, "-c", script], env=env, text=True)
-
-    assert output.splitlines() == ["25", "0.25", "1048576", "4.5"]
-
-
-def test_update_step_accepts_explicit_batch_setting():
-    """Explicit Step configuration overrides the constructor default."""
-    step = UpdateCatalogStep(batch_max_files=10)
-
-    assert step.batch_max_files == 10
-
-
-@pytest.mark.parametrize(
-    "env_name",
-    [
-        "REME_BATCH_MAX_FILES",
-        "REME_BATCH_AVAILABLE_MEMORY_RATIO",
-        "REME_BATCH_MEMORY_TARGET_BYTES",
-        "REME_BATCH_MEMORY_EXPANSION_FACTOR",
-    ],
-)
-def test_update_step_rejects_non_numeric_batch_environment_values(env_name):
-    """Invalid environment defaults fail with the responsible variable name."""
-    env = {**os.environ, env_name: "invalid"}
-
-    result = subprocess.run(
-        [sys.executable, "-c", "import reme.steps.index.update_changes"],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
+def test_update_step_accepts_configured_batch_memory_settings():
+    """Step configuration can override all batching and memory-estimation defaults."""
+    step = UpdateCatalogStep(
+        batch_max_files=25,
+        batch_available_memory_ratio=0.25,
+        batch_memory_target_bytes=1024 * 1024,
+        batch_memory_expansion_factor=4.5,
+        file_memory_overhead_bytes=1024,
+        chunk_memory_overhead_bytes=512,
+        estimated_chunk_bytes=5000,
+        float16_bytes=4,
     )
 
-    assert result.returncode != 0
-    assert env_name in result.stderr
+    assert step.batch_max_files == 25
+    assert step.batch_available_memory_ratio == 0.25
+    assert step.batch_memory_target_bytes == 1024 * 1024
+    assert step.batch_memory_expansion_factor == 4.5
+    assert step.file_memory_overhead_bytes == 1024
+    assert step.chunk_memory_overhead_bytes == 512
+    assert step.estimated_chunk_bytes == 5000
+    assert step.float16_bytes == 4
 
 
 @pytest.mark.parametrize("estimate_method", ["estimate_source_memory", "estimate_item_memory"])
