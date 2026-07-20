@@ -139,10 +139,13 @@ Configuration parsing supports:
 
 `BaseService.run_app()` executes in this order:
 
+Set the optional `service.jobs` list to restrict HTTP or MCP exposure to those job names. If omitted, all jobs with
+`enable_serve: true` remain eligible; an empty list exposes none. The whitelist does not override `enable_serve: false`.
+
 ```mermaid
 flowchart LR
     A["Service.build_service(app)"] --> B["read app.context.jobs"]
-    B --> C{"job.enable_serve == true?"}
+    B --> C{"enabled and selected by service.jobs?"}
     C -->|yes| D["Service.add_job(job)"]
     C -->|no| E["skip registration"]
     D --> F["Service.start_service(app)"]

@@ -20,8 +20,9 @@ class BaseService(BaseComponent):
 
     component_type = ComponentEnum.SERVICE
 
-    def __init__(self, **kwargs):
+    def __init__(self, jobs: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
+        self.jobs: set[str] | None = set(jobs) if jobs is not None else None
         # Underlying framework instance (FastAPI, FastMCP, ...); populated by build_service().
         self.service = None
 
@@ -64,9 +65,9 @@ class BaseService(BaseComponent):
         return lifespan
 
     def add_jobs(self, app: "Application") -> None:
-        """Register every job whose enable_serve flag is True."""
+        """Register service-enabled jobs, optionally restricted by the configured whitelist."""
         for name, job in app.context.jobs.items():
-            if not job.enable_serve:
+            if not job.enable_serve or (self.jobs is not None and name not in self.jobs):
                 continue
             try:
                 if self.add_job(job):

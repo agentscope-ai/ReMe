@@ -134,10 +134,13 @@ reme search query="memory" backend=mcp
 
 `BaseService.run_app()` 的顺序：
 
+可通过可选的 `service.jobs` 列表将 HTTP 或 MCP 仅暴露给指定 Job。未配置时，所有 `enable_serve: true` 的 Job
+仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。
+
 ```mermaid
 flowchart LR
     A["Service.build_service(app)"] --> B["读取 app.context.jobs"]
-    B --> C{"job.enable_serve == true?"}
+    B --> C{"已启用且被 service.jobs 选中？"}
     C -->|是| D["Service.add_job(job)"]
     C -->|否| E["跳过注册"]
     D --> F["Service.start_service(app)"]
