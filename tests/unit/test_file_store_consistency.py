@@ -717,6 +717,56 @@ def test_faiss_rebuilds_stale_sidecar_and_updates_same_id_text():
     run(go())
 
 
+def test_faiss_concurrent_dumps_are_serialized(monkeypatch):
+    """Concurrent persistence must not interleave writes to the FAISS sidecar pair."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            try:
+                store = FaissLocalFileStore(name="t_faiss_dump_lock", embedding_store="")
+            except ImportError:
+                pytest.skip("faiss is not installed")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            first_started = asyncio.Event()
+            release_first = asyncio.Event()
+            active_writers = 0
+            max_active_writers = 0
+            write_count = 0
+            original_write_sidecar = store._write_sidecar
+
+            async def blocking_write_sidecar():
+                nonlocal active_writers, max_active_writers, write_count
+                active_writers += 1
+                max_active_writers = max(max_active_writers, active_writers)
+                write_count += 1
+                if write_count == 1:
+                    first_started.set()
+                    await release_first.wait()
+                active_writers -= 1
+
+            monkeypatch.setattr(store, "_write_sidecar", blocking_write_sidecar)
+
+            first = asyncio.create_task(store.dump())
+            await first_started.wait()
+            second = asyncio.create_task(store.dump())
+            await asyncio.sleep(0)
+
+            assert active_writers == 1
+            assert max_active_writers == 1
+
+            release_first.set()
+            await asyncio.gather(first, second)
+            assert write_count == 2
+            assert max_active_writers == 1
+            monkeypatch.setattr(store, "_write_sidecar", original_write_sidecar)
+            await store.close()
+
+    run(go())
+
+
 def test_faiss_rebuild_skips_wrong_dimension_chunks():
     """FAISS rebuild should ignore chunks whose embedding dimensions do not match."""
 
