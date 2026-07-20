@@ -29,9 +29,7 @@ class ApplicationContext:
         self.components: dict[ComponentEnum, dict[str, "BaseComponent"]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
-        # Side-channel for service/transport-specific objects that don't fit
-        # the shared component/job model — e.g. MCPService publishes a
-        # ChannelSink under "channel_sink" so MCP-specific steps
-        # (claim_channel, channel_notify) can find it. Keep keys narrow:
-        # if a value is needed across services, promote it to a typed field.
+        # Side-channel for narrowly scoped runtime objects that don't fit the
+        # shared component/job model. If a value is needed across services,
+        # promote it to a typed field.
         self.metadata: dict[str, Any] = {}
