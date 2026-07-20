@@ -2,7 +2,26 @@
 
 The Codex plugin's Stop hook provides ``session_id`` and ``transcript_path``.
 This step validates the path, loads the JSONL transcript, deduplicates by
-payload id, renders messages, and delegates to AutoMemoryStep.
+payload id (or call_id), renders messages and tool calls, and delegates to
+AutoMemoryStep.
+
+The persisted Codex rollout schema (per the ``toolpath-codex`` parser and
+OpenAI's upstream types):
+
+* Top-level envelope: ``{"timestamp", "type", "payload"}``
+* ``response_item`` is the conversational row; ``payload.type`` discriminates:
+
+  * ``message`` — user/assistant text with ``role`` and ``content`` blocks
+    (``input_text`` / ``output_text``)
+  * ``function_call`` — model-invoked tool call: ``name``, ``arguments``
+    (JSON string), ``call_id``
+  * ``function_call_output`` — tool result: ``call_id``, ``output``
+  * ``custom_tool_call`` — custom tool: ``name``, ``input``, ``call_id``
+  * ``custom_tool_call_output`` — custom tool result: ``call_id``, ``output``
+  * ``reasoning`` — intentionally skipped (private model reasoning)
+
+* Other top-level types (``session_meta``, ``event_msg``, ``turn_context``,
+  ``session_state``, ``compacted``) are not conversational — they are skipped.
 """
 
 from __future__ import annotations
@@ -16,19 +35,6 @@ from .auto_memory import AutoMemoryStep
 from ...components import R
 from ...components.agent_wrapper import CcFileSessionStore
 
-# Claude Code injected tags — same filter as AutoMemoryCCStep.
-_INJECTED_TAGS = (
-    "<local-command-caveat>",
-    "<local-command-stdout>",
-    "<local-command-stderr>",
-    "<command-name>",
-    "<command-message>",
-    "<command-args>",
-    "<system-reminder>",
-    "<bash-input>",
-    "<bash-stdout>",
-    "<bash-stderr>",
-)
 _TOOL_EXCERPT = 200
 _SESSIONS_SUBDIR = "sessions"
 
@@ -156,22 +162,31 @@ class AutoMemoryCodexStep(AutoMemoryStep):
     # ----- session dedup / store --------------------------------------------
 
     async def _save_codex_session(self, session_id: str, entries: list[dict]) -> list[dict]:
-        """Dedup entries by ``payload.id`` and store the increment."""
+        """Dedup entries by payload id (or call_id) and store the increment.
+
+        ``message`` and ``function_call`` / ``custom_tool_call`` payloads carry
+        an ``id`` field.  ``function_call_output`` and
+        ``custom_tool_call_output`` use ``call_id`` instead.
+        """
         if not session_id:
             return []
         store = self._codex_store()
         key = {"session_id": session_id}
-        # Only keep rows with a payload id — conversational entries.
+        # Keep conversational entries: those with a payload id or call_id.
         entries = [
-            e for e in entries if isinstance(e, dict) and isinstance(e.get("payload"), dict) and e["payload"].get("id")
+            e
+            for e in entries
+            if isinstance(e, dict)
+            and isinstance(e.get("payload"), dict)
+            and (e["payload"].get("id") or e["payload"].get("call_id"))
         ]
         existing = await store.load(key) or []
         seen = {
-            e["payload"]["id"]
+            e["payload"].get("id") or e["payload"].get("call_id")
             for e in existing
-            if isinstance(e, dict) and isinstance(e.get("payload"), dict) and e["payload"].get("id")
+            if isinstance(e, dict) and isinstance(e.get("payload"), dict)
         }
-        increment = [e for e in entries if e["payload"]["id"] not in seen]
+        increment = [e for e in entries if (e["payload"].get("id") or e["payload"].get("call_id")) not in seen]
         await store.append(key, increment)
         return increment
 
@@ -183,7 +198,13 @@ class AutoMemoryCodexStep(AutoMemoryStep):
 
     @classmethod
     def _codex_entries_to_messages(cls, entries: list[dict]) -> list[dict[str, str]]:
-        """Render ``response_item`` rows into ``{role, name, content}`` dicts."""
+        """Render ``response_item`` rows into ``{role, name, content}`` dicts.
+
+        Handles all conversational payload types: ``message`` (user / assistant
+        text), ``function_call`` / ``custom_tool_call`` (agent tool invocations),
+        and ``function_call_output`` / ``custom_tool_call_output`` (tool results).
+        ``reasoning`` payloads are intentionally skipped.
+        """
         messages: list[dict[str, str]] = []
         for record in entries:
             if not isinstance(record, dict):
@@ -193,8 +214,6 @@ class AutoMemoryCodexStep(AutoMemoryStep):
             payload = record.get("payload")
             if not isinstance(payload, dict):
                 continue
-            if payload.get("type") != "message":
-                continue
             msg = cls._render_codex_payload(payload)
             if msg:
                 messages.append(msg)
@@ -202,20 +221,127 @@ class AutoMemoryCodexStep(AutoMemoryStep):
 
     @classmethod
     def _render_codex_payload(cls, payload: dict) -> dict[str, str] | None:
-        """Extract role + rendered text from a message payload."""
+        """Dispatch a single ``response_item`` payload to the correct renderer."""
+        ptype = payload.get("type", "")
+
+        if ptype == "message":
+            return cls._render_message_payload(payload)
+        if ptype == "function_call":
+            return cls._render_function_call_payload(payload)
+        if ptype == "function_call_output":
+            return cls._render_function_call_output_payload(payload)
+        if ptype == "custom_tool_call":
+            return cls._render_custom_tool_call_payload(payload)
+        if ptype == "custom_tool_call_output":
+            return cls._render_custom_tool_call_output_payload(payload)
+        # reasoning, etc. — intentionally skipped
+        return None
+
+    # -- message -----------------------------------------------------------
+
+    @classmethod
+    def _render_message_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Render a ``message`` payload (user or assistant turn)."""
         role = payload.get("role", "")
         if role not in ("user", "assistant"):
             return None
 
         content = payload.get("content", "")
         text = cls._render_codex_content(content)
-        if not text or cls._is_injected_only(text):
+        if not text:
             return None
         return {"role": role, "name": role, "content": text}
 
+    # -- function_call -----------------------------------------------------
+
+    @classmethod
+    def _render_function_call_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Render a ``function_call`` payload as a virtual assistant tool-use message.
+
+        ``arguments`` is a JSON string (per the upstream schema), not a dict.
+        We round-trip through :func:`json.loads` + :func:`json.dumps` for a
+        compact single-line representation.
+        """
+        name = payload.get("name", "?")
+        arguments = payload.get("arguments", "")
+        try:
+            args = json.dumps(json.loads(arguments), ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            args = str(arguments)
+        if len(args) > _TOOL_EXCERPT:
+            args = args[:_TOOL_EXCERPT] + "..."
+        return {
+            "role": "assistant",
+            "name": "assistant",
+            "content": f"[tool {name}({args})]",
+        }
+
+    # -- function_call_output ----------------------------------------------
+
+    @classmethod
+    def _render_function_call_output_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Render a ``function_call_output`` payload as a virtual tool-result message."""
+        output = payload.get("output", "")
+        excerpt = str(output).strip()
+        if len(excerpt) > _TOOL_EXCERPT:
+            excerpt = excerpt[:_TOOL_EXCERPT] + "..."
+        if not excerpt:
+            return None
+        return {
+            "role": "user",
+            "name": "user",
+            "content": f"[tool_result {excerpt}]",
+        }
+
+    # -- custom_tool_call --------------------------------------------------
+
+    @classmethod
+    def _render_custom_tool_call_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Render a ``custom_tool_call`` payload as a virtual assistant tool-use message.
+
+        ``input`` is a JSON string (per the upstream schema).
+        """
+        name = payload.get("name", "?")
+        raw_input = payload.get("input", "")
+        try:
+            inp = json.dumps(json.loads(raw_input), ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            inp = str(raw_input)
+        if len(inp) > _TOOL_EXCERPT:
+            inp = inp[:_TOOL_EXCERPT] + "..."
+        return {
+            "role": "assistant",
+            "name": "assistant",
+            "content": f"[tool {name}({inp})]",
+        }
+
+    # -- custom_tool_call_output -------------------------------------------
+
+    @classmethod
+    def _render_custom_tool_call_output_payload(cls, payload: dict) -> dict[str, str] | None:
+        """Render a ``custom_tool_call_output`` payload as a virtual tool-result message."""
+        output = payload.get("output", "")
+        excerpt = str(output).strip()
+        if len(excerpt) > _TOOL_EXCERPT:
+            excerpt = excerpt[:_TOOL_EXCERPT] + "..."
+        if not excerpt:
+            return None
+        return {
+            "role": "user",
+            "name": "user",
+            "content": f"[tool_result {excerpt}]",
+        }
+
+    # -- content blocks ----------------------------------------------------
+
     @classmethod
     def _render_codex_content(cls, content: Any) -> str:
-        """Render Codex content blocks (input_text/output_text/tool_use) to text."""
+        """Render Codex message content blocks to plain text.
+
+        Codex ``ContentPart`` only has ``input_text`` and ``output_text``
+        (both carry a ``text`` field).  Everything else is non-text and
+        intentionally skipped.
+        """
         if isinstance(content, str):
             return content.strip()
         if not isinstance(content, list):
@@ -225,34 +351,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
         for block in content:
             if not isinstance(block, dict):
                 continue
-            btype = block.get("type")
-            if btype in ("text", "input_text", "output_text"):
+            if block.get("type") in ("input_text", "output_text"):
                 if t := (block.get("text") or "").strip():
                     parts.append(t)
-            elif btype == "tool_use":
-                name = block.get("name", "?")
-                try:
-                    inp = json.dumps(block.get("input"), ensure_ascii=False)[:_TOOL_EXCERPT]
-                except (TypeError, ValueError):
-                    inp = str(block.get("input"))[:_TOOL_EXCERPT]
-                parts.append(f"[tool {name}({inp})]")
-            elif btype == "tool_result":
-                inner = block.get("content")
-                excerpt = cls._render_codex_content(inner) if isinstance(inner, list) else str(inner or "")
-                excerpt = excerpt.strip()
-                if len(excerpt) > _TOOL_EXCERPT:
-                    excerpt = excerpt[:_TOOL_EXCERPT] + "..."
-                parts.append(f"[tool_result {excerpt}]")
-            # thinking blocks are private reasoning -> dropped
         return "\n".join(p for p in parts if p).strip()
-
-    @staticmethod
-    def _is_injected_only(text: str) -> bool:
-        """Return True when a user turn is only Claude-Code-injected boilerplate."""
-        import re
-
-        stripped = text.strip()
-        if not stripped.startswith(_INJECTED_TAGS):
-            return False
-        remaining = re.sub(r"<([a-z-]+)>.*?</\1>", "", stripped, flags=re.DOTALL)
-        return len(remaining.strip()) < 16
