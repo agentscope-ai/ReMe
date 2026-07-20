@@ -136,6 +136,7 @@ reme search query="memory" backend=mcp
 
 可通过可选的 `service.jobs` 列表将 HTTP 或 MCP 仅暴露给指定 Job。未配置时，所有 `enable_serve: true` 的 Job
 仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。
+配置该列表后，缺失、禁用、不受支持或无效的已选 Job 会导致服务启动失败。
 
 ```mermaid
 flowchart LR
@@ -164,6 +165,9 @@ MCP service 行为：
 | 非 `StreamJob` 且 `enable_serve: true` | 注册为 MCP tool                    |
 | `StreamJob`                          | 当前跳过，不注册                        |
 | `BackgroundJob`                      | 构造时强制 `enable_serve=False`，不会暴露 |
+
+MCP 服务可通过 `injected_job_kwargs` 注入由服务端管理的参数，调用方不能覆盖这些参数。设置
+`tool_error_on_failure: true` 后，不成功的 ReMe `Response` 会作为 MCP tool error 返回。
 
 ## 4. Registry 与依赖注入
 

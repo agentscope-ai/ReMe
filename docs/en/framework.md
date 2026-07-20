@@ -141,6 +141,7 @@ Configuration parsing supports:
 
 Set the optional `service.jobs` list to restrict HTTP or MCP exposure to those job names. If omitted, all jobs with
 `enable_serve: true` remain eligible; an empty list exposes none. The whitelist does not override `enable_serve: false`.
+When the list is configured, a missing, disabled, unsupported, or invalid selected job fails service startup.
 
 ```mermaid
 flowchart LR
@@ -169,6 +170,9 @@ MCP service behavior:
 | Non-`StreamJob` with `enable_serve: true` | Registered as an MCP tool. |
 | `StreamJob` | Currently skipped and not registered. |
 | `BackgroundJob` | Forces `enable_serve=False` at construction and is never exposed. |
+
+MCP services can inject server-owned arguments with `injected_job_kwargs`; callers cannot override those arguments.
+Set `tool_error_on_failure: true` to expose an unsuccessful ReMe `Response` as an MCP tool error.
 
 ## 4. Registry and Dependency Injection
 

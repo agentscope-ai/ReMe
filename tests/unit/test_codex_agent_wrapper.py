@@ -15,7 +15,7 @@ from openai_codex.generated.v2_all import TokenUsageBreakdown
 from pydantic import BaseModel
 
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_mcp_server import _load_job_names, _make_tool, build_server
+from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
 from reme.components.job import BackgroundJob
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
@@ -62,11 +62,13 @@ def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
     wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
 
     config = wrapper._mcp_server_config(  # pylint: disable=protected-access
-        {"job_tools": ["search"], "tool_context_id": "ctx-1"},
+        {"job_tools": ["search", "search"], "tool_context_id": "ctx-1"},
     )
 
     assert config["command"]
     assert config["enabled_tools"] == ["search"]
+    assert config["args"].count("--job") == 1
+    assert config["args"][config["args"].index("--job") + 1] == "search"
     assert "reme.components.agent_wrapper.codex_mcp_server" in config["args"]
     assert config["args"][config["args"].index("--config") + 1] == str(tmp_path / "custom.yaml")
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
@@ -94,46 +96,36 @@ def test_mcp_config_rejects_background_jobs(tmp_path):
         wrapper._mcp_server_config({"job_tools": ["watch"]})
 
 
-def test_bridge_tool_injects_tool_context_id():
-    async def run():
-        job = _Job()
-        tool = _make_tool(job, "ctx-1")
-        result = await tool.run({"query": "alpha"})
-        assert job.calls == [{"query": "alpha", "tool_context_id": "ctx-1"}]
-        assert "found:alpha" in str(result.content)
-
-    asyncio.run(run())
-
-
-def test_bridge_rejects_caller_tool_context_id():
-    async def run():
-        job = _Job()
-        tool = _make_tool(job, "ctx-1")
-        with pytest.raises(Exception, match="managed by the Codex agent wrapper"):
-            await tool.run({"query": "alpha", "tool_context_id": "caller"})
-
-    asyncio.run(run())
-
-
-def test_build_server_registers_only_selected_jobs():
-    app = SimpleNamespace(
-        context=SimpleNamespace(jobs={"one": _Job("one"), "two": _Job("two")}),
-        start=lambda: None,
-        close=lambda: None,
+def test_prepare_config_reuses_selected_stdio_mcp_service():
+    prepared = _prepare_config(
+        {
+            "service": {"backend": "http"},
+            "jobs": {
+                "selected": {"backend": "base", "enable_serve": False},
+                "helper": {"backend": "base"},
+                "watch": {"backend": "background"},
+            },
+        },
+        ["selected"],
+        "ctx-1",
     )
 
-    async def run():
-        server = build_server(app, ["two"])
-        tools = await server.list_tools(run_middleware=False)
-        assert [tool.name for tool in tools] == ["two"]
+    assert prepared["service"] == {
+        "backend": "mcp",
+        "transport": "stdio",
+        "jobs": ["selected"],
+        "tool_error_on_failure": True,
+        "injected_job_kwargs": {"tool_context_id": "ctx-1"},
+    }
+    assert set(prepared["jobs"]) == {"selected", "helper"}
+    assert prepared["jobs"]["selected"]["enable_serve"] is True
 
-    asyncio.run(run())
 
-
-def test_load_job_names_validates_json_array():
-    assert _load_job_names('["one", "two"]') == ["one", "two"]
-    with pytest.raises(ValueError, match="JSON array"):
-        _load_job_names('{"one": true}')
+def test_prepare_config_rejects_missing_or_background_selected_jobs():
+    with pytest.raises(KeyError, match="missing"):
+        _prepare_config({"jobs": {}}, ["missing"])
+    with pytest.raises(KeyError, match="watch"):
+        _prepare_config({"jobs": {"watch": {"backend": "background"}}}, ["watch"])
 
 
 @pytest.mark.asyncio
@@ -168,8 +160,8 @@ async def test_stdio_bridge_starts_and_lists_selected_job(tmp_path):
             str(config_path),
             "--workspace",
             str(tmp_path / "workspace"),
-            "--jobs",
-            '["empty"]',
+            "--job",
+            "empty",
         ],
         cwd=str(Path(__file__).resolve().parents[2]),
     )
@@ -208,8 +200,8 @@ async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
         str(config_path),
         "--workspace",
         str(tmp_path / "workspace"),
-        "--jobs",
-        '["empty"]',
+        "--job",
+        "empty",
         cwd=str(Path(__file__).resolve().parents[2]),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,

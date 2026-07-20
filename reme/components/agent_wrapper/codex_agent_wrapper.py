@@ -177,7 +177,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         from ..job import BackgroundJob, StreamJob
 
-        job_names = list(kwargs.get("job_tools") or [])
+        job_names = list(dict.fromkeys(kwargs.get("job_tools") or []))
         if not job_names:
             return None
         jobs = self._resolve_job_tools(job_names)
@@ -186,20 +186,20 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
 
         config_source = self._mcp_config_source(kwargs)
+        args = [
+            "-m",
+            "reme.components.agent_wrapper.codex_mcp_server",
+            "--config",
+            config_source,
+            "--workspace",
+            str(self.workspace_path),
+        ]
+        for name in job_names:
+            args.extend(["--job", name])
+        args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
         return {
             "command": sys.executable,
-            "args": [
-                "-m",
-                "reme.components.agent_wrapper.codex_mcp_server",
-                "--config",
-                config_source,
-                "--workspace",
-                str(self.workspace_path),
-                "--jobs",
-                json.dumps(job_names),
-                "--tool-context-id",
-                str(kwargs.get("tool_context_id") or ""),
-            ],
+            "args": args,
             "cwd": str(self.project_path),
             "required": True,
             "enabled_tools": job_names,
