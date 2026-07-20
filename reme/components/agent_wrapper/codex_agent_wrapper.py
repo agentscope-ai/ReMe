@@ -1,5 +1,7 @@
 """Codex Python SDK backend for the unified agent wrapper."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import suppress
@@ -11,23 +13,30 @@ import os
 from pathlib import Path
 import sys
 import tempfile
-from typing import Any
-
-from openai_codex import ApprovalMode, AsyncCodex, AsyncThread, CodexConfig, RunInput, Sandbox
-from openai_codex.types import (
-    Notification,
-    Personality,
-    ReasoningEffort,
-    ReasoningSummary,
-    ThreadSource,
-    ThreadStartSource,
-)
-from pydantic_core import to_jsonable_python
+from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
+
+if TYPE_CHECKING:
+    from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
+    from openai_codex.types import Notification
+else:
+    # Keep the optional Codex SDK out of ReMe's package import path. Tests may
+    # also replace this value before the SDK is loaded.
+    AsyncCodex: Any = None
+
+
+def _get_async_codex_class():
+    """Return the optional Codex client class, importing its SDK on first use."""
+    global AsyncCodex  # pylint: disable=global-statement
+    if AsyncCodex is None:
+        from openai_codex import AsyncCodex as AsyncCodexClass
+
+        AsyncCodex = AsyncCodexClass
+    return AsyncCodex
 
 
 @dataclass(frozen=True)
@@ -213,6 +222,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
 
     def _build_client_config(self, auth: _CodexAuthConfig) -> CodexConfig:
+        from openai_codex import CodexConfig
+
         env = dict(self.subprocess_environment)
         self.session_path.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(self.session_path)
@@ -288,6 +299,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return value if isinstance(value, enum_cls) else enum_cls(value)
 
     async def _open_thread(self, codex: AsyncCodex, kwargs: dict[str, Any]) -> AsyncThread:
+        from openai_codex import ApprovalMode, Sandbox
+        from openai_codex.types import Personality, ThreadSource, ThreadStartSource
+
         resume = kwargs.get("resume") or ""
         session_id = kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
@@ -336,6 +350,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return thread
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        from openai_codex import ApprovalMode, Sandbox
+        from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
+
         return {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
             "cwd": str(self.cwd),
@@ -357,7 +374,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             self._launch_config.api_key,
             self._launch_config.base_url,
         )
-        codex = AsyncCodex(self._build_client_config(auth))
+        codex = _get_async_codex_class()(self._build_client_config(auth))
         try:
             if auth.mode == "api_key":
                 await codex.login_api_key(auth.api_key)
@@ -386,6 +403,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     @staticmethod
     def _serialize(value: Any) -> Any:
+        from pydantic_core import to_jsonable_python
+
         return to_jsonable_python(value, by_alias=True)
 
     async def reply(self, inputs: RunInput, **kwargs) -> dict:

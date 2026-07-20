@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 core = [
-    "agentscope==2.0.4",
+    "agentscope==2.0.4.post1",
     "claude-agent-sdk>=0.2.123",
     "faiss-cpu>=1.13.2",
     "jieba>=0.42.1",

@@ -1,6 +1,9 @@
 """Tests for the ReMe CLI entry helpers."""
 
 import asyncio
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +11,34 @@ import pytest
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
+
+
+def test_package_import_does_not_require_openai_codex():
+    """The base package remains importable without the optional Codex SDK."""
+    script = """
+import importlib.abc
+import sys
+
+
+class BlockOpenAICodex(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "openai_codex" or fullname.startswith("openai_codex."):
+            raise ModuleNotFoundError("blocked optional Codex SDK", name=fullname)
+        return None
+
+
+sys.meta_path.insert(0, BlockOpenAICodex())
+import reme
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_main_loads_env_before_calling_server(monkeypatch):
