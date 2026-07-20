@@ -15,6 +15,7 @@ import datetime
 import os
 import tempfile
 import warnings
+import weakref
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -618,8 +619,90 @@ def test_update_catalog_memory_target_limits_cumulative_batch_size():
     ],
 )
 def test_update_step_rejects_invalid_batch_memory_settings(kwargs, message):
+    """Invalid batch-memory settings fail during step construction."""
     with pytest.raises(ValueError, match=message):
         UpdateCatalogStep(**kwargs)
+
+
+@pytest.mark.parametrize("estimate_method", ["estimate_source_memory", "estimate_item_memory"])
+def test_update_catalog_memory_estimate_failure_processes_each_file_alone(estimate_method):
+    """Advisory estimate failures isolate files without skipping their updates."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(2)]
+            catalog = LocalFileCatalog(name="test_catalog")
+            await catalog.start()
+            batch_sizes = []
+            original_upsert = catalog.upsert
+
+            async def record_upsert(nodes):
+                batch_sizes.append(len(nodes))
+                await original_upsert(nodes)
+
+            try:
+                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+                changes = [{"change": "added", "path": str(path)} for path in paths]
+                with (
+                    patch.object(step, estimate_method, side_effect=RuntimeError("estimate failed")),
+                    patch.object(catalog, "upsert", side_effect=record_upsert),
+                ):
+                    response = await step(RuntimeContext(changes=changes))
+
+                assert response.success is True
+                assert batch_sizes == [1, 1]
+                assert len(await catalog.get_nodes()) == 2
+            finally:
+                await catalog.close()
+
+    asyncio.run(run())
+
+
+def test_update_catalog_releases_flushed_item_before_building_next_file():
+    """A one-file batch does not retain its payload while the next payload is built."""
+
+    class TrackedItem:
+        """Weak-referenceable payload used to observe the local item lifetime."""
+
+    class TrackingCatalogStep(UpdateCatalogStep):
+        """Catalog step that records whether the prior payload was released."""
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.previous_item = None
+            self.release_observations = []
+
+        async def build_item(self, path):
+            """Build a payload and inspect the preceding payload reference."""
+            del path
+            if self.previous_item is not None:
+                self.release_observations.append(self.previous_item() is None)
+            item = TrackedItem()
+            self.previous_item = weakref.ref(item)
+            return item
+
+        async def upsert_items(self, items):
+            """Discard the batch so only the apply loop could retain its payload."""
+            del items
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(2)]
+            step = TrackingCatalogStep(
+                persist=False,
+                batch_max_files=1,
+                app_context=_make_app_context(cwd),
+            )
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+
+            response = await step(RuntimeContext(changes=changes))
+
+            assert response.success is True
+            assert step.release_observations == [True]
+
+    asyncio.run(run())
 
 
 def test_update_catalog_continues_after_one_batch_fails():

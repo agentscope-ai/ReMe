@@ -103,15 +103,14 @@ class ChangeApplyStep(BaseStep):
                     continue
                 abs_path, size_bytes = inspected
                 preliminary_bytes = self._try_estimate_memory(
-                    change,
                     path,
-                    results,
                     self.estimate_source_memory,
                     abs_path,
                     size_bytes,
                 )
+                force_single_item_batch = preliminary_bytes is None
                 if preliminary_bytes is None:
-                    continue
+                    preliminary_bytes = memory_budget + 1
                 if items and self._batch_is_full(len(items), estimated_bytes, preliminary_bytes, memory_budget):
                     await self._flush_upsert_batch(change, items, ok_paths, estimated_bytes, results)
                     estimated_bytes = 0
@@ -121,16 +120,17 @@ class ChangeApplyStep(BaseStep):
                 if item is None:
                     continue
                 item_bytes = self._try_estimate_memory(
-                    change,
                     path,
-                    results,
                     self.estimate_item_memory,
                     item,
                     abs_path,
                     size_bytes,
                 )
                 if item_bytes is None:
-                    continue
+                    force_single_item_batch = True
+                    item_bytes = memory_budget + 1
+                elif force_single_item_batch:
+                    item_bytes = max(item_bytes, memory_budget + 1)
                 if items and self._batch_is_full(len(items), estimated_bytes, item_bytes, memory_budget):
                     await self._flush_upsert_batch(change, items, ok_paths, estimated_bytes, results)
                     estimated_bytes = 0
@@ -143,6 +143,7 @@ class ChangeApplyStep(BaseStep):
                     await self._flush_upsert_batch(change, items, ok_paths, estimated_bytes, results)
                     estimated_bytes = 0
                     memory_budget = self._batch_memory_budget()
+                del item
             if items:
                 await self._flush_upsert_batch(change, items, ok_paths, estimated_bytes, results)
         return results
@@ -202,18 +203,15 @@ class ChangeApplyStep(BaseStep):
 
     def _try_estimate_memory(
         self,
-        change: Change,
         path: str,
-        results: list[dict],
         estimate: Callable[..., int],
         *args: Any,
     ) -> int | None:
-        """Estimate one item without allowing advisory batching to abort the change set."""
+        """Return an advisory estimate, or ``None`` so the caller can isolate the item."""
         try:
             return max(0, int(estimate(*args)))
         except Exception as e:
-            self.logger.exception(f"Failed to estimate memory for {path}")
-            results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+            self.logger.warning(f"Failed to estimate memory for {path}; processing it alone: {e}")
             return None
 
     def _batch_memory_budget(self) -> int:
