@@ -17,18 +17,10 @@ from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
 
-DEFAULT_BATCH_MAX_FILES = 100
-DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO = 0.10
-DEFAULT_BATCH_MEMORY_TARGET_BYTES = 512 * 1024 * 1024
-DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR = 8.0
 _BATCH_MAX_FILES_ENV = "REME_BATCH_MAX_FILES"
 _BATCH_AVAILABLE_MEMORY_RATIO_ENV = "REME_BATCH_AVAILABLE_MEMORY_RATIO"
 _BATCH_MEMORY_TARGET_BYTES_ENV = "REME_BATCH_MEMORY_TARGET_BYTES"
 _BATCH_MEMORY_EXPANSION_FACTOR_ENV = "REME_BATCH_MEMORY_EXPANSION_FACTOR"
-_FILE_MEMORY_OVERHEAD_BYTES = 32 * 1024
-_CHUNK_MEMORY_OVERHEAD_BYTES = 4 * 1024
-_ESTIMATED_CHUNK_BYTES = 10_000
-_FLOAT16_BYTES = 2
 
 
 def _env_int(name: str, default: int) -> int:
@@ -51,6 +43,16 @@ def _env_float(name: str, default: float) -> float:
         raise ValueError(f"{name} must be a number") from e
 
 
+DEFAULT_BATCH_MAX_FILES = _env_int(_BATCH_MAX_FILES_ENV, 100)
+DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO = _env_float(_BATCH_AVAILABLE_MEMORY_RATIO_ENV, 0.10)
+DEFAULT_BATCH_MEMORY_TARGET_BYTES = _env_int(_BATCH_MEMORY_TARGET_BYTES_ENV, 512 * 1024 * 1024)
+DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR = _env_float(_BATCH_MEMORY_EXPANSION_FACTOR_ENV, 8.0)
+_FILE_MEMORY_OVERHEAD_BYTES = 32 * 1024
+_CHUNK_MEMORY_OVERHEAD_BYTES = 4 * 1024
+_ESTIMATED_CHUNK_BYTES = 10_000
+_FLOAT16_BYTES = 2
+
+
 class ChangeApplyStep(BaseStep):
     """Shared added/modified/deleted handling for index update targets."""
 
@@ -60,32 +62,18 @@ class ChangeApplyStep(BaseStep):
     def __init__(
         self,
         persist: bool | None = None,
-        batch_max_files: int | None = None,
-        batch_available_memory_ratio: float | None = None,
-        batch_memory_target_bytes: int | None = None,
-        batch_memory_expansion_factor: float | None = None,
+        batch_max_files: int = DEFAULT_BATCH_MAX_FILES,
+        batch_available_memory_ratio: float = DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO,
+        batch_memory_target_bytes: int = DEFAULT_BATCH_MEMORY_TARGET_BYTES,
+        batch_memory_expansion_factor: float = DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.persist = persist
-        self.batch_max_files = (
-            _env_int(_BATCH_MAX_FILES_ENV, DEFAULT_BATCH_MAX_FILES) if batch_max_files is None else int(batch_max_files)
-        )
-        self.batch_available_memory_ratio = (
-            _env_float(_BATCH_AVAILABLE_MEMORY_RATIO_ENV, DEFAULT_BATCH_AVAILABLE_MEMORY_RATIO)
-            if batch_available_memory_ratio is None
-            else float(batch_available_memory_ratio)
-        )
-        self.batch_memory_target_bytes = (
-            _env_int(_BATCH_MEMORY_TARGET_BYTES_ENV, DEFAULT_BATCH_MEMORY_TARGET_BYTES)
-            if batch_memory_target_bytes is None
-            else int(batch_memory_target_bytes)
-        )
-        self.batch_memory_expansion_factor = (
-            _env_float(_BATCH_MEMORY_EXPANSION_FACTOR_ENV, DEFAULT_BATCH_MEMORY_EXPANSION_FACTOR)
-            if batch_memory_expansion_factor is None
-            else float(batch_memory_expansion_factor)
-        )
+        self.batch_max_files = int(batch_max_files)
+        self.batch_available_memory_ratio = float(batch_available_memory_ratio)
+        self.batch_memory_target_bytes = int(batch_memory_target_bytes)
+        self.batch_memory_expansion_factor = float(batch_memory_expansion_factor)
         if self.batch_max_files <= 0:
             raise ValueError("batch_max_files must be greater than zero")
         if not math.isfinite(self.batch_available_memory_ratio) or not 0 < self.batch_available_memory_ratio <= 1:
