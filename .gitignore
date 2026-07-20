@@ -60,9 +60,7 @@ memory_workspaces/*/*
 !memory_workspaces/*/.gitkeep
 
 # LongMemEval raw data (download via download.py)
-datasets/longmemeval/longmemeval_oracle.json
-datasets/longmemeval/longmemeval_s_cleaned.json
-datasets/longmemeval/longmemeval_m_cleaned.json
+datasets/longmemeval/longmemeval_s_reme_cleaned.json
 
 # BEAM dataset (clone via git)
 datasets/BEAM/

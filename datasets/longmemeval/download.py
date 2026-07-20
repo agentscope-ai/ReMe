@@ -1,22 +1,25 @@
-"""Download LongMemEval dataset from hf-mirror.com
+"""Download the LongMemEval cleaned-S dataset used by ReMe.
+
+Source: https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2
+(downloaded via the hf-mirror.com mirror for reliability).
+
+The file ``longmemeval_s_reme_cleaned.json`` is saved under this directory using the same
+name as on the remote (``benchmark/longmemeval/config.yaml`` points to it).
 
 Usage:
-    python download.py           # download all files (skip existing)
-    python download.py --all     # same as above
-    python download.py --m-only  # only download longmemeval_m_cleaned.json
+    python download.py           # download cleaned-S (skip if it already exists)
 """
 
 import os
 import sys
 import urllib.request
 
-BASE_URL = "https://hf-mirror.com/datasets/xiaowu0162/longmemeval-cleaned/resolve/main"
+BASE_URL = "https://hf-mirror.com/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2/resolve/main"
 TARGET_DIR = os.path.dirname(os.path.abspath(__file__))
 
-ALL_FILES = [
-    "longmemeval_oracle.json",
-    "longmemeval_s_cleaned.json",
-    "longmemeval_m_cleaned.json",
+# Files to download (saved with the same name as on the remote).
+FILES = [
+    "longmemeval_s_reme_cleaned.json",
 ]
 
 
@@ -56,12 +59,7 @@ def _progress(block_num, block_size, total_size):
 
 
 if __name__ == "__main__":
-    if "--m-only" in sys.argv:
-        files = ["longmemeval_m_cleaned.json"]
-    else:
-        files = ALL_FILES
-
-    print(f"Downloading LongMemEval dataset to: {TARGET_DIR}\n")
-    for f in files:
-        download_file(f)
+    print(f"Downloading LongMemEval cleaned-S dataset to: {TARGET_DIR}\n")
+    for filename in FILES:
+        download_file(filename)
     print("\nAll files downloaded successfully!")

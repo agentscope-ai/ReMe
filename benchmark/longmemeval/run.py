@@ -601,39 +601,8 @@ def main(
     num_items = dataset_cfg.get("num_items", 1)
     raw_items = data[start : start + num_items]
 
-    # Load ground truth override if specified (replaces dataset answers by question_id)
-    gt_path = dataset_cfg.get("ground_truth_path")
-    gt_map: dict[str, str] = {}
-    if gt_path:
-        gt_full_path = _PROJECT_ROOT / gt_path
-        if gt_full_path.exists():
-            logger.info(f"Loading ground truth override from {gt_full_path}")
-            with open(gt_full_path, encoding="utf-8") as f:
-                gt_data = json.load(f)
-            gt_map = {entry["question_id"]: str(entry["answer"]) for entry in gt_data}
-            logger.info(f"Loaded {len(gt_map)} ground truth entries")
-        else:
-            logger.warning(f"ground_truth_path specified but file not found: {gt_full_path}")
-
-    # Apply ground truth override and build item list
-    items_with_idx = []
-    for orig_offset, item in enumerate(raw_items):
-        qid = item["question_id"]
-
-        if gt_map:
-            if qid in gt_map:
-                item = dict(item)  # shallow copy to avoid mutating original dataset
-                item["answer"] = gt_map[qid]
-                items_with_idx.append((start + orig_offset, item))
-            # If gt_map is active but qid not in it, skip this item (gt_map defines the evaluation set)
-        else:
-            items_with_idx.append((start + orig_offset, item))
-
-    if gt_map:
-        logger.info(
-            f"Ground truth override: {len(raw_items)} -> {len(items_with_idx)} items "
-            f"({len(gt_map)} ground truth entries loaded)",
-        )
+    # Build item list
+    items_with_idx = [(start + i, item) for i, item in enumerate(raw_items)]
 
     # Filter by question_type if specified
     question_types = dataset_cfg.get("question_types") or []
@@ -725,7 +694,7 @@ def main(
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = output_dir / f"results_{dataset_cfg['variant']}_{timestamp}.json"
+    output_file = output_dir / f"results_{timestamp}.json"
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     logger.info(f"Results saved to {output_file}")

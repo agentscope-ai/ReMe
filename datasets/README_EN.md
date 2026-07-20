@@ -2,31 +2,31 @@
 
 This directory contains datasets required for ReMe evaluation. Some datasets are large and excluded from Git version control — they must be downloaded manually.
 
-## LongMemEval
+## LongMemEval (cleaned-S)
 
-The LongMemEval dataset is hosted on HuggingFace and can be downloaded via the provided script (uses hf-mirror.com).
+ReMe uses only the **cleaned-S** split of LongMemEval, hosted on HuggingFace:
+[agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2)
+(the script downloads via the hf-mirror.com mirror).
+
+Download it with:
 
 ```bash
 cd datasets/longmemeval
 
-# Download all data files (existing files will be skipped automatically)
+# Download the cleaned-S data file (skipped automatically if it already exists)
 python download.py
-
-# Download only longmemeval_m_cleaned.json
-python download.py --m-only
 ```
 
 After downloading, the directory should contain:
 
 | File | Description |
 | --- | --- |
-| `longmemeval_oracle.json` | Oracle dataset |
-| `longmemeval_s_cleaned.json` | S-scale dataset |
-| `longmemeval_m_cleaned.json` | M-scale dataset |
-| `final_groundtruth_cleaned_s.json` | Cleaned ground truth for S-scale (included in repo) |
+| `longmemeval_s_reme_cleaned.json` | cleaned-S dataset with ground truth fields included |
 | `download.py` | Download script (included in repo) |
 
 > **Note**: The download script uses hf-mirror.com by default. To use a different mirror, modify `BASE_URL` in `download.py`.
+
+Once the download completes, follow [`benchmark/README.md`](../benchmark/README.md) to run the LongMemEval evaluation.
 
 ## BEAM
 

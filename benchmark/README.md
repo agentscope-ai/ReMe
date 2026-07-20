@@ -40,7 +40,7 @@ See [`datasets/README_EN.md`](../datasets/README_EN.md) for full details.
 
 ```bash
 cd datasets/longmemeval
-python download.py            # downloads all variants; skips existing files
+python download.py            # downloads the cleaned-S dataset; skips if already present
 ```
 
 **BEAM** (public repository, cloned into `datasets/`):
@@ -65,7 +65,7 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 
 ### Pipeline
 
-1. Load the dataset and (optionally) override answers via `ground_truth_path`.
+1. Load the dataset (ground truth is embedded in the data file).
 2. For each item, create an isolated workspace and ingest sessions in chronological order.
 3. Trigger `auto_dream` when consecutive sessions cross the configured hour (default 23:00).
 4. Answer each question in two modes — agentic (ReAct) and prompted (search + LLM).
@@ -75,9 +75,7 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 
 | Key | Meaning |
 | --- | --- |
-| `dataset.path` | Dataset file to evaluate (e.g. `longmemeval_s_cleaned.json`). |
-| `dataset.variant` | `oracle` / `s_cleaned` / `m_cleaned`; used in the output filename. |
-| `dataset.ground_truth_path` | Answer override file matched by `question_id`; defines the eval set. |
+| `dataset.path` | Dataset file to evaluate (e.g. `longmemeval_s_reme_cleaned.json`); ground truth is included. |
 | `dataset.start_index` / `num_items` | Slice of items to evaluate. |
 | `dataset.question_types` | Filter by question type; empty = all. |
 | `dataset.workspace_root` | Per-item workspace root (`memory_workspaces/longmemeval-s`). |
@@ -122,7 +120,7 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 ## 5. Outputs & Logs
 
 - **Results**: JSON files written to `output.dir`
-  (`results_<variant>_<timestamp>.json` for LongMemEval,
+  (`results_<timestamp>.json` for LongMemEval,
   `results_<chat_size>_<timestamp>.json` for BEAM). A summary with per-type
   accuracy/score is also printed to the console.
 - **Logs**: when `output.log_to_file` is enabled, per-run logs are written to
