@@ -17,7 +17,6 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
-from ...utils.env_utils import load_env
 
 
 @dataclass(frozen=True)
@@ -44,25 +43,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         self._turn_lock = asyncio.Lock()
         self._mcp_snapshot_path: Path | None = None
         self._thread_tool_contexts: dict[str, str] = {}
-
-    @staticmethod
-    def _first_non_empty(*values: Any) -> str:
-        for value in values:
-            if isinstance(value, str) and value:
-                return value
-        return ""
-
-    def _default_llm_credential(self) -> dict[str, Any]:
-        if self.app_context is None:
-            return {}
-        from ...enumeration import ComponentEnum
-
-        llm_configs = self.app_context.app_config.components.get(ComponentEnum.AS_LLM)
-        if not isinstance(llm_configs, dict):
-            return {}
-        default_llm = llm_configs.get("default")
-        credential = getattr(default_llm, "credential", None)
-        return credential if isinstance(credential, dict) else {}
 
     @property
     def session_path(self) -> Path:
@@ -154,36 +134,22 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
 
     def _resolve_auth_config(self, kwargs: dict[str, Any]) -> _CodexAuthConfig:
-        """Resolve one explicit Codex auth mode without letting OAuth inherit API credentials."""
+        """Resolve Codex authentication exclusively from the wrapper configuration."""
         requested_mode = str(kwargs.get("auth_mode") or "auto").lower()
         if requested_mode not in {"auto", "api_key", "oauth"}:
             raise ValueError("auth_mode must be one of: auto, api_key, oauth")
         if requested_mode == "oauth":
             return _CodexAuthConfig(mode="oauth")
 
-        credential = kwargs.get("credential") if isinstance(kwargs.get("credential"), dict) else {}
-        default_credential = self._default_llm_credential()
-        api_key = self._first_non_empty(
-            kwargs.get("api_key"),
-            credential.get("api_key"),
-            os.getenv("CODEX_API_KEY"),
-            os.getenv("OPENAI_API_KEY"),
-            os.getenv("LLM_API_KEY"),
-            default_credential.get("api_key"),
-        )
+        api_key = kwargs.get("api_key")
+        api_key = api_key if isinstance(api_key, str) else ""
         if requested_mode == "api_key" and not api_key:
             raise ValueError("auth_mode='api_key' requires a non-empty API key")
         if not api_key:
             return _CodexAuthConfig(mode="oauth")
 
-        base_url = self._first_non_empty(
-            kwargs.get("base_url"),
-            credential.get("base_url"),
-            os.getenv("CODEX_BASE_URL"),
-            os.getenv("OPENAI_BASE_URL"),
-            os.getenv("LLM_BASE_URL"),
-            default_credential.get("base_url"),
-        )
+        base_url = kwargs.get("base_url")
+        base_url = base_url if isinstance(base_url, str) else ""
         return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
 
     def _build_client_config(self, kwargs: dict[str, Any], auth: _CodexAuthConfig | None = None):
@@ -191,8 +157,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         auth = auth or self._resolve_auth_config(kwargs)
 
-        project_env = self.project_path / ".env"
-        env = load_env(project_env) if project_env.exists() else load_env()
+        env = self.subprocess_environment
         self.session_path.mkdir(parents=True, exist_ok=True)
         env["CODEX_HOME"] = str(self.session_path)
 

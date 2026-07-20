@@ -62,6 +62,13 @@ class BaseAgentWrapper(BaseComponent):
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
 
+    @property
+    def subprocess_environment(self) -> dict[str, str]:
+        """Configured environment variables for child agent processes."""
+        if self.app_context is None:
+            return {}
+        return self.app_context.app_config.environment
+
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
         self.kwargs["output_schema"] = self._normalize_output_schema(schema)

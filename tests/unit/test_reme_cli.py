@@ -28,6 +28,38 @@ def test_main_loads_env_before_calling_server(monkeypatch):
     assert events == ["load_env", ("call_server", "shell", {"cmd": "pwd"})]
 
 
+def test_main_saves_loaded_environment_in_start_config(monkeypatch):
+    """The startup config keeps the environment captured by the single global load."""
+    observed = {}
+
+    class FakeReMe:
+        """Capture the fully resolved application configuration."""
+
+        def __init__(self, **kwargs):
+            """Record the application startup configuration."""
+            observed["config"] = kwargs
+
+        def run_app(self):
+            """Record that application startup continued."""
+            observed["ran"] = True
+
+    main_globals = reme_module.main.__globals__
+    monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
+    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("start", {}))
+    monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
+    monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
+
+    reme_module.main()
+
+    assert observed == {
+        "config": {
+            "service": {"backend": "cli"},
+            "environment": {"TOOL_ENV": "configured"},
+        },
+        "ran": True,
+    }
+
+
 def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
     """``reme start job=...`` is translated into a one-shot cli service config."""
 

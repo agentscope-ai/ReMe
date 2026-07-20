@@ -1,7 +1,6 @@
 """Claude Code SDK backend for the unified agent wrapper."""
 
 import json
-import os
 from collections.abc import AsyncGenerator
 from dataclasses import asdict
 from pathlib import Path
@@ -11,7 +10,6 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
-from ...utils.env_utils import load_env
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -135,59 +133,6 @@ class CcAgentWrapper(BaseAgentWrapper):
     DEFAULT_DISALLOWED_TOOLS = ["WebSearch"]
     SYSTEM_PROMPT_MODES = {"append", "replace"}
 
-    @staticmethod
-    def _first_non_empty(*values: Any) -> str:
-        for value in values:
-            if isinstance(value, str) and value:
-                return value
-        return ""
-
-    def _default_llm_credential(self) -> dict[str, Any]:
-        """Return the default as_llm credential config, if available."""
-        if self.app_context is None:
-            return {}
-        components = self.app_context.app_config.components
-        llm_configs = components.get("as_llm") or components.get("AS_LLM") or components.get("as_llm".upper())
-        if llm_configs is None:
-            from ...enumeration import ComponentEnum
-
-            llm_configs = components.get(ComponentEnum.AS_LLM)
-        if not isinstance(llm_configs, dict):
-            return {}
-
-        default_llm = llm_configs.get("default")
-        credential = getattr(default_llm, "credential", None)
-        return credential if isinstance(credential, dict) else {}
-
-    def _claude_code_api_env(self, kwargs: dict[str, Any]) -> dict[str, str]:
-        """Resolve Anthropic-compatible API environment for Claude Code."""
-        credential = kwargs.get("credential") if isinstance(kwargs.get("credential"), dict) else {}
-        default_credential = self._default_llm_credential()
-
-        base_url = self._first_non_empty(
-            kwargs.get("base_url"),
-            credential.get("base_url"),
-            os.getenv("ANTHROPIC_BASE_URL"),
-            os.getenv("CLAUDE_CODE_BASE_URL"),
-            os.getenv("LLM_BASE_URL"),
-            default_credential.get("base_url"),
-        )
-        api_key = self._first_non_empty(
-            kwargs.get("api_key"),
-            credential.get("api_key"),
-            os.getenv("ANTHROPIC_AUTH_TOKEN"),
-            os.getenv("CLAUDE_CODE_API_KEY"),
-            os.getenv("LLM_API_KEY"),
-            default_credential.get("api_key"),
-        )
-
-        env: dict[str, str] = {}
-        if base_url:
-            env["ANTHROPIC_BASE_URL"] = base_url
-        if api_key:
-            env["ANTHROPIC_AUTH_TOKEN"] = api_key
-        return env
-
     @classmethod
     def _apply_system_prompt_mode(cls, kwargs: dict[str, Any]) -> None:
         """Translate the configured prompt mode into Claude SDK semantics."""
@@ -310,9 +255,13 @@ class CcAgentWrapper(BaseAgentWrapper):
                 setattr(opts, k, v)
 
         model = getattr(opts, "model", None) or kwargs.get("model")
-        project_env = self.project_path / ".env"
-        opts.env.update(load_env(project_env) if project_env.exists() else load_env())
-        extra_env_dict: dict = self._claude_code_api_env(kwargs)
+        opts.env.update(self.subprocess_environment)
+        api_key = kwargs.get("api_key")
+        base_url = kwargs.get("base_url")
+        extra_env_dict = {
+            "ANTHROPIC_AUTH_TOKEN": api_key if isinstance(api_key, str) else "",
+            "ANTHROPIC_BASE_URL": base_url if isinstance(base_url, str) else "",
+        }
         if model:
             extra_env_dict.update(
                 {

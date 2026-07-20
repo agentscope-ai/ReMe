@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,7 @@ from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.config import resolve_app_config
+from reme.enumeration import ComponentEnum
 
 # pylint: disable=protected-access
 
@@ -121,6 +123,41 @@ def test_default_claude_code_system_prompt_mode_is_replace():
     config = resolve_app_config(log_config=False)
 
     assert config["components"]["agent_wrapper"]["claude_code"]["system_prompt_mode"] == "replace"
+
+
+def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
+    """Claude Code credentials do not fall back to ambient or shared LLM configuration."""
+    wrapper = _wrapper(tmp_path)
+    wrapper.app_context.app_config.environment = {
+        "ANTHROPIC_AUTH_TOKEN": "application-key",
+        "ANTHROPIC_BASE_URL": "https://application.example.test",
+        "TOOL_ENV": "preserved",
+    }
+    wrapper.app_context.app_config.components[ComponentEnum.AS_LLM] = {
+        "default": SimpleNamespace(
+            credential={"api_key": "default-key", "base_url": "https://default.example.test"},
+        ),
+    }
+    for name in ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_API_KEY", "LLM_API_KEY"):
+        monkeypatch.setenv(name, "ambient-key")
+    for name in ("ANTHROPIC_BASE_URL", "CLAUDE_CODE_BASE_URL", "LLM_BASE_URL"):
+        monkeypatch.setenv(name, "https://ambient.example.test")
+    configured = wrapper._build_options(  # pylint: disable=protected-access
+        "hello",
+        api_key="configured-key",
+        base_url="https://configured.example.test",
+        credential={"api_key": "nested-key", "base_url": "https://nested.example.test"},
+    )
+    assert configured.env["ANTHROPIC_AUTH_TOKEN"] == "configured-key"
+    assert configured.env["ANTHROPIC_BASE_URL"] == "https://configured.example.test"
+    assert configured.env["TOOL_ENV"] == "preserved"
+
+    empty = wrapper._build_options(  # pylint: disable=protected-access
+        "hello",
+        credential={"api_key": "nested-key", "base_url": "https://nested.example.test"},
+    )
+    assert empty.env["ANTHROPIC_AUTH_TOKEN"] == ""
+    assert empty.env["ANTHROPIC_BASE_URL"] == ""
 
 
 def test_build_options_accepts_empty_output_schema(tmp_path):

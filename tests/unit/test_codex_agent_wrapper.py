@@ -43,6 +43,7 @@ def _wrapper(tmp_path, **kwargs):
     config = SimpleNamespace(
         workspace_dir=str(tmp_path),
         mem_session_dir="mem_session",
+        environment={},
         components={ComponentEnum.AS_LLM: {}},
         model_dump=lambda **_kwargs: {
             "workspace_dir": str(tmp_path),
@@ -334,7 +335,6 @@ def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
             return FakeThread()
 
     monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
 
     result = asyncio.run(wrapper.reply("answer", output_schema={"type": "object"}))
 
@@ -586,7 +586,6 @@ async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, mo
             return FakeThread()
 
     monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
 
     await wrapper.start()
     result = await wrapper.reply("first", output_schema=_StructuredModel)
@@ -670,7 +669,6 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
             return None
 
     monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
 
     await wrapper.start()
     first = await wrapper._get_codex({"api_key": "one"})  # pylint: disable=protected-access
@@ -682,9 +680,9 @@ async def test_persistent_client_rejects_launch_config_changes(tmp_path, monkeyp
 
 def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path)
+    wrapper.app_context.app_config.environment = {"TOOL_ENV": "preserved"}
     monkeypatch.setenv("CODEX_API_KEY", "ambient-key")
     monkeypatch.setenv("CODEX_BASE_URL", "https://ambient.example.test/v1")
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
 
     auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
         {
@@ -699,6 +697,7 @@ def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeyp
     assert auth.api_key == ""
     assert auth.base_url == ""
     assert "OPENAI_API_KEY" not in config.env
+    assert config.env["TOOL_ENV"] == "preserved"
     assert 'forced_login_method="chatgpt"' in config.config_overrides
     assert not any(value.startswith("openai_base_url=") for value in config.config_overrides)
 
@@ -719,7 +718,6 @@ async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch)
             observed["closed"] = True
 
     monkeypatch.setattr("openai_codex.AsyncCodex", FakeCodex)
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.load_env", lambda *_args: {})
 
     await wrapper.start()
     await wrapper._get_codex(  # pylint: disable=protected-access
@@ -739,13 +737,35 @@ async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch)
     assert observed["closed"] is True
 
 
-def test_api_key_mode_requires_key(tmp_path, monkeypatch):
+def test_api_key_mode_uses_only_wrapper_config(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path)
+    wrapper.app_context.app_config.components[ComponentEnum.AS_LLM]["default"] = SimpleNamespace(
+        credential={"api_key": "default-key", "base_url": "https://default.example.test/v1"},
+    )
     for name in ("CODEX_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "ambient-key")
+    for name in ("CODEX_BASE_URL", "OPENAI_BASE_URL", "LLM_BASE_URL"):
+        monkeypatch.setenv(name, "https://ambient.example.test/v1")
+
+    auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
+        {
+            "auth_mode": "api_key",
+            "api_key": "configured-key",
+            "credential": {"api_key": "nested-key", "base_url": "https://nested.example.test/v1"},
+        },
+    )
+
+    assert auth.mode == "api_key"
+    assert auth.api_key == "configured-key"
+    assert auth.base_url == ""
 
     with pytest.raises(ValueError, match="requires a non-empty API key"):
-        wrapper._resolve_auth_config({"auth_mode": "api_key"})  # pylint: disable=protected-access
+        wrapper._resolve_auth_config(  # pylint: disable=protected-access
+            {
+                "auth_mode": "api_key",
+                "credential": {"api_key": "nested-key", "base_url": "https://nested.example.test/v1"},
+            },
+        )
 
 
 @pytest.mark.parametrize("review_status", ["approved", "denied"])
