@@ -73,7 +73,7 @@ class AutoMemoryCCStep(AutoMemoryStep):
         return
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{self._REME_PROJECT_KEY}/{session_id}.jsonl]]"
+        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{session_id}.jsonl]]"
 
     # ----- session: Claude Code side <-> ReMe CC SessionStore ----------------
 
@@ -106,7 +106,7 @@ class AutoMemoryCCStep(AutoMemoryStep):
         return increment
 
     def _reme_cc_store(self) -> CcFileSessionStore:
-        root = self.file_store.workspace_path / self._session_dir() / self._CC_STORE_SUBDIR
+        root = self.file_store.workspace_path / self._session_dir()
         return CcFileSessionStore(root)
 
     @staticmethod
