@@ -624,6 +624,50 @@ def test_update_step_rejects_invalid_batch_memory_settings(kwargs, message):
         UpdateCatalogStep(**kwargs)
 
 
+@pytest.mark.parametrize(
+    ("env_name", "value", "attribute", "expected"),
+    [
+        ("REME_BATCH_MAX_FILES", "25", "batch_max_files", 25),
+        ("REME_BATCH_AVAILABLE_MEMORY_RATIO", "0.25", "batch_available_memory_ratio", 0.25),
+        ("REME_BATCH_MEMORY_TARGET_BYTES", "1048576", "batch_memory_target_bytes", 1048576),
+        ("REME_BATCH_MEMORY_EXPANSION_FACTOR", "4.5", "batch_memory_expansion_factor", 4.5),
+    ],
+)
+def test_update_step_reads_batch_defaults_from_environment(monkeypatch, env_name, value, attribute, expected):
+    """REME-prefixed environment variables override built-in batch defaults."""
+    monkeypatch.setenv(env_name, value)
+
+    step = UpdateCatalogStep()
+
+    assert getattr(step, attribute) == expected
+
+
+def test_update_step_explicit_batch_setting_overrides_environment(monkeypatch):
+    """Step configuration remains more specific than process-wide defaults."""
+    monkeypatch.setenv("REME_BATCH_MAX_FILES", "25")
+
+    step = UpdateCatalogStep(batch_max_files=10)
+
+    assert step.batch_max_files == 10
+
+
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        "REME_BATCH_MAX_FILES",
+        "REME_BATCH_AVAILABLE_MEMORY_RATIO",
+        "REME_BATCH_MEMORY_TARGET_BYTES",
+        "REME_BATCH_MEMORY_EXPANSION_FACTOR",
+    ],
+)
+def test_update_step_rejects_non_numeric_batch_environment_values(monkeypatch, env_name):
+    """Invalid environment defaults fail with the responsible variable name."""
+    monkeypatch.setenv(env_name, "invalid")
+
+    with pytest.raises(ValueError, match=env_name):
+        UpdateCatalogStep()
+
+
 @pytest.mark.parametrize("estimate_method", ["estimate_source_memory", "estimate_item_memory"])
 def test_update_catalog_memory_estimate_failure_processes_each_file_alone(estimate_method):
     """Advisory estimate failures isolate files without skipping their updates."""
