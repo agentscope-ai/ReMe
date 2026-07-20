@@ -580,7 +580,7 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(
+def main(  # pylint: disable=too-many-statements
     config_path: str | None = None,
     log_level: str = "INFO",
     reme_log_level: str = "INFO",
@@ -785,7 +785,7 @@ def main(
             scores = [q.get(mode_key, {}).get("llm_judge_score", 0.0) for q in questions]
             if scores:
                 avg = sum(scores) / len(scores)
-                # Binary: convert each rubric item score to 0/1, then average per question, then average across questions
+                # Binary: 0/1 per rubric item, average per question, then across questions
                 bin_scores = []
                 for q in questions:
                     judge_responses = q.get(mode_key, {}).get("llm_judge_responses", [])
