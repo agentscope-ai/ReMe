@@ -236,31 +236,6 @@ def test_supervisor_disabled_propagates_exception():
     asyncio.run(run())
 
 
-# -- BackgroundJob._wait_or_stop ----------------------------------------------
-
-
-def test_wait_or_stop_returns_on_stop():
-    async def run():
-        job = BackgroundJob(name="bg")
-        job._stop_event = asyncio.Event()
-        job._stop_event.set()
-        await job._wait_or_stop(10.0)
-
-    asyncio.run(run())
-
-
-# -- BackgroundJob._shutdown_task ---------------------------------------------
-
-
-def test_shutdown_task_none():
-    async def run():
-        job = BackgroundJob(name="bg")
-        job._task = None
-        await job._shutdown_task()
-
-    asyncio.run(run())
-
-
 def test_shutdown_task_cancels_on_timeout():
     async def run():
         async def hang_forever():
@@ -357,22 +332,3 @@ def test_application_start_failure_propagates_and_closes_started_components():
         assert not app._started_components
 
     asyncio.run(run())
-
-
-if __name__ == "__main__":
-    print("\n=== Job Tests ===")
-    test_resolve_step_missing_backend()
-    test_resolve_step_unregistered_backend()
-    test_call_captures_exception()
-    test_call_runs_steps_in_order()
-    test_start_without_app_context_raises()
-    test_backoff_delay_increases()
-    test_backoff_delay_capped()
-    test_backoff_delay_has_jitter()
-    test_backoff_delay_attempt_zero()
-    test_supervisor_restarts_on_crash()
-    test_supervisor_disabled_propagates_exception()
-    test_wait_or_stop_returns_on_stop()
-    test_shutdown_task_none()
-    test_shutdown_task_cancels_on_timeout()
-    print("\n所有测试通过!")

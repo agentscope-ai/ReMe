@@ -37,7 +37,7 @@ Parameters:
 | Parameter | Purpose |
 |---|---|
 | `date` | Date to read in `YYYY-MM-DD` format. When empty, use today in the application's timezone. |
-| `include_content` | Whether to return the raw YAML in metadata. Defaults to `true`. |
+| `include_content` | Whether to return the raw YAML in the answer and metadata. Defaults to `true`. |
 
 ## Input Contract
 
@@ -63,7 +63,9 @@ Only the `topics` list is parsed into structured results. Every topic requires a
 
 ## Return Value
 
-When the file is read successfully, `proactive_step` writes these values to standard response metadata:
+When the file is read successfully, `proactive_step` returns `summary` and `topics` in the primary answer. When
+`include_content=true`, the answer also contains `content`. The same result fields remain available in standard response
+metadata:
 
 | Field | Description |
 |---|---|
@@ -75,11 +77,26 @@ When the file is read successfully, `proactive_step` writes these values to stan
 | `error` | Read or parse error. |
 | `summary` | Short summary. |
 
-When the file exists and parses successfully, the answer looks like:
+When the file exists and parses successfully, the answer is structured data. For example:
 
-```text
-Read 3 proactive topic(s) from daily/2026-06-20/interests.yaml
+```json
+{
+  "summary": "Read 1 proactive topic(s) from daily/2026-06-20/interests.yaml",
+  "topics": [
+    {
+      "title": "Quality regression in the memory retrieval pipeline",
+      "reason": "The user has recently made repeated changes to search, node_search, and dream integration.",
+      "evidence": "daily/2026-06-20/session.md",
+      "keywords": ["memory search", "auto dream"],
+      "paths": ["daily/2026-06-20/session.md"]
+    }
+  ],
+  "content": "date: 2026-06-20\n..."
+}
 ```
+
+With `include_content=false`, the `content` field is omitted from the answer. Missing-file and read-error answers remain
+explicit `Skipped: ...` and `Error: ...` messages, respectively.
 
 A missing file is not an error. The call succeeds with a skipped result:
 

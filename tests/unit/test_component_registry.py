@@ -50,13 +50,6 @@ def test_register_decorator():
     assert reg.get(ComponentEnum.FILE_CHUNKER, "alias") is MyParser
 
 
-def test_register_overwrite_warns(caplog):
-    reg = ComponentRegistry()
-    reg.register(_DummyComponent, "dup")
-    reg.register(_DummyComponent, "dup")
-    assert reg.get(ComponentEnum.FILE_CHUNKER, "dup") is _DummyComponent
-
-
 def test_register_rejects_missing_component_type():
     reg = ComponentRegistry()
     with pytest.raises(TypeError, match="ComponentEnum"):

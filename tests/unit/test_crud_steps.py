@@ -168,8 +168,28 @@ def test_list_lists_files():
             payload = _metadata(step)
             assert set(payload["items"]) == {"topics/a.md", "topics/b.md", "topics/sub/c.md"}
             assert payload["count"] == 3
+            answer = step.context.response.answer
+            assert answer.startswith("Listed 3 file(s) under topics:\n")
+            assert all(f"- {item}" in answer for item in payload["items"])
             await store.close()
         print("✓ test_list_lists_files passed")
+
+    asyncio.run(run())
+
+
+def test_list_empty_directory_has_explicit_answer():
+    """list tells an LLM explicitly when the target directory has no files."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store()
+            (Path(tmp) / "topics").mkdir()
+            step = crud_list.ListStep(file_store=store)
+            await step(path="topics")
+            assert step.context.response.answer == "No files found under topics."
+            assert _metadata(step) == {"items": [], "count": 0}
+            await store.close()
+        print("✓ test_list_empty_directory_has_explicit_answer passed")
 
     asyncio.run(run())
 

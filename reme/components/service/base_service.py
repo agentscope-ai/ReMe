@@ -20,8 +20,9 @@ class BaseService(BaseComponent):
 
     component_type = ComponentEnum.SERVICE
 
-    def __init__(self, **kwargs):
+    def __init__(self, jobs: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
+        self.jobs: set[str] | None = set(jobs) if jobs is not None else None
         # Underlying framework instance (FastAPI, FastMCP, ...); populated by build_service().
         self.service = None
 
@@ -55,26 +56,42 @@ class BaseService(BaseComponent):
         @asynccontextmanager
         async def lifespan(_):
             await app.start()
-            service_info = json.dumps({"host": host, "port": port})
-            os.environ[REME_SERVICE_INFO] = service_info
-            self.logger.info(f"{self.name} started: {REME_SERVICE_INFO}={service_info}")
-            yield
-            await app.close()
+            try:
+                service_info = json.dumps({"host": host, "port": port})
+                os.environ[REME_SERVICE_INFO] = service_info
+                self.logger.info(f"{self.name} started: {REME_SERVICE_INFO}={service_info}")
+                yield
+            finally:
+                await app.close()
 
         return lifespan
 
     def add_jobs(self, app: "Application") -> None:
-        """Register every job whose enable_serve flag is True."""
+        """Register service-enabled jobs, optionally restricted by the configured whitelist."""
+        if self.jobs is not None:
+            missing = sorted(self.jobs.difference(app.context.jobs))
+            if missing:
+                raise KeyError(f"Service jobs not found: {', '.join(missing)}")
+            disabled = sorted(name for name in self.jobs if not app.context.jobs[name].enable_serve)
+            if disabled:
+                raise ValueError(f"Service jobs are not enabled for serving: {', '.join(disabled)}")
+
         for name, job in app.context.jobs.items():
-            if not job.enable_serve:
+            if not job.enable_serve or (self.jobs is not None and name not in self.jobs):
                 continue
             try:
-                if self.add_job(job):
-                    self.logger.info(f"Added job: {name}")
-                else:
-                    self.logger.warning(f"Skipped job: {name}")
+                added = self.add_job(job)
             except Exception as e:
+                if self.jobs is not None:
+                    raise
                 self.logger.error(f"Failed to add job {name}: {e}")
+                continue
+            if added:
+                self.logger.info(f"Added job: {name}")
+            elif self.jobs is not None:
+                raise TypeError(f"Service does not support job: {name}")
+            else:
+                self.logger.warning(f"Skipped job: {name}")
 
     def run_app(self, app: "Application") -> None:
         """Build the service, register jobs, then start serving (blocking)."""

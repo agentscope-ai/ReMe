@@ -57,7 +57,6 @@ from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 from ...utils import AsStateHandler
-from ...utils.env_utils import load_env
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -109,6 +108,8 @@ class BypassAnalysisBash(Bash):
 @R.register("agentscope")
 class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
+
+    SDK_PACKAGE = "agentscope"
 
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
@@ -256,11 +257,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             skills = [skills]
         return [str(self.project_skills_root / skill) for skill in skills]
 
-    def _load_tool_env(self) -> dict[str, str]:
-        """Load project environment variables for tools spawned by AgentScope."""
-        project_env = self.project_path / ".env"
-        return load_env(project_env) if project_env.exists() else load_env()
-
     async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
@@ -268,7 +264,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
         self._cleanup_expired_sessions()
-        self._load_tool_env()
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])

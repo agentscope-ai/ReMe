@@ -1,9 +1,11 @@
 """In-memory file store with compressed JSONL persistence on close."""
 
+import asyncio
 import base64
 import datetime
 import heapq
 import json
+import time
 from collections.abc import Iterable
 from contextlib import suppress
 
@@ -23,6 +25,8 @@ CachedEmbedding = tuple[str, np.ndarray]
 _EMBEDDING_F16_B64_FIELD = "_embedding_f16_b64"
 _EMBEDDING_F16_DTYPE = np.dtype("<f2")
 _VECTOR_SEARCH_BATCH_SIZE = 1024
+_PROGRESS_LOG_PERCENT_STEP = 10
+_KEYWORD_REBUILD_BATCH_SIZE = 200
 
 
 @R.register("local")
@@ -62,15 +66,35 @@ class LocalFileStore(BaseFileStore):
         self.store_version = store_version
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
+        self._embedding_backfill_task: asyncio.Task | None = None
 
     # -- lifecycle ------------------------------------------------------------
 
     async def _start(self) -> None:
+        started_at = time.monotonic()
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         await super()._start()
+
+        load_started_at = time.monotonic()
         await self.load()
+        self.logger.info(
+            f"{self.name}: file store load complete: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - load_started_at:.3f}s",
+        )
+
+        backfill_started_at = time.monotonic()
+        self._start_embedding_backfill()
+        self.logger.info(
+            f"{self.name}: embedding backfill scheduling complete: "
+            f"scheduled={self._embedding_backfill_task is not None}, "
+            f"elapsed={time.monotonic() - backfill_started_at:.3f}s",
+        )
+        self.logger.info(
+            f"{self.name}: file store startup complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
 
     async def _close(self) -> None:
+        await self._cancel_embedding_backfill()
         await self.dump()
         self.file_chunks.clear()
         await super()._close()
@@ -110,20 +134,69 @@ class LocalFileStore(BaseFileStore):
 
     async def load(self) -> None:
         """Load chunks from the JSONL file into memory; missing file is a no-op."""
-        if not self.chunks_path.exists():
-            return
-        try:
-            for line in read_jsonl_zst(self.chunks_path, self.encoding):
-                line = line.strip()
-                if line:
-                    chunk = self._deserialize_chunk(line)
-                    self.file_chunks[chunk.id] = chunk
-            self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
-            self._invalidate_stale_embeddings()
-            await self._sync_keyword_index_from_chunks()
-            await self._backfill_missing_embeddings()
-        except Exception as e:
-            self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+        started_at = time.monotonic()
+        chunk_load_started_at = time.monotonic()
+        if self.chunks_path.exists():
+            try:
+                for line in read_jsonl_zst(self.chunks_path, self.encoding):
+                    line = line.strip()
+                    if line:
+                        chunk = self._deserialize_chunk(line)
+                        self.file_chunks[chunk.id] = chunk
+                self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
+            except Exception as e:
+                self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
+        self.logger.info(
+            f"{self.name}: chunk store load complete: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - chunk_load_started_at:.3f}s",
+        )
+
+        graph_repair_started_at = time.monotonic()
+        graph_repaired = await self._repair_graph_chunk_consistency()
+        self.logger.info(
+            f"{self.name}: graph consistency check complete: repaired={graph_repaired}, "
+            f"elapsed={time.monotonic() - graph_repair_started_at:.3f}s",
+        )
+
+        keyword_sync_started_at = time.monotonic()
+        await self._sync_keyword_index_from_chunks()
+        keyword_backend = type(self.keyword_index).__name__ if self.keyword_index is not None else "disabled"
+        keyword_docs = getattr(self.keyword_index, "n_docs", 0) if self.keyword_index is not None else 0
+        self.logger.info(
+            f"{self.name}: BM25/keyword index sync complete: backend={keyword_backend}, docs={keyword_docs}, "
+            f"elapsed={time.monotonic() - keyword_sync_started_at:.3f}s",
+        )
+        self.logger.info(
+            f"{self.name}: file store load phases complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
+
+    async def _repair_graph_chunk_consistency(self) -> bool:
+        """Clear torn graph/chunk state so the filesystem scan rebuilds it.
+
+        ``InitChangesStep`` uses file-graph nodes as the indexed-file snapshot.
+        A graph that survives a missing, truncated, or stale chunk store would
+        otherwise make the source files look up to date and permanently hide
+        the broken search index.
+        """
+        assert self.file_graph is not None
+        nodes = await self.file_graph.get_nodes()
+        graph_chunk_ids = {chunk_id for node in nodes for chunk_id in node.chunk_ids}
+        stored_chunk_ids = set(self.file_chunks)
+        missing = graph_chunk_ids - stored_chunk_ids
+        orphaned = stored_chunk_ids - graph_chunk_ids
+        if not missing and not orphaned:
+            return False
+
+        self.logger.warning(
+            f"{self.name}: graph/chunk mismatch: nodes={len(nodes)}, graph_chunks={len(graph_chunk_ids)}, "
+            f"stored_chunks={len(stored_chunk_ids)}, missing={len(missing)}, orphaned={len(orphaned)}; "
+            "clearing derived index state for automatic rebuild",
+        )
+        # Clearing graph nodes is required: the next InitChangesStep scan will
+        # then classify every watched source file as added and rebuild graph,
+        # chunks, and search indexes from the user-owned files.
+        await self.clear()
+        return True
 
     @staticmethod
     def _deserialize_chunk(line: str) -> FileChunk:
@@ -155,51 +228,203 @@ class LocalFileStore(BaseFileStore):
             return
         self._drop_stale_embeddings(self.file_chunks.values(), "load")
 
-    async def _backfill_missing_embeddings(self) -> None:
-        """Embed persisted chunks that predate embedding being enabled."""
-        if not self.embedding_store or not self.file_chunks:
+    def _start_embedding_backfill(self) -> None:
+        """Schedule startup embedding repair without delaying component readiness."""
+        started_at = time.monotonic()
+        if not self.embedding_store:
+            self.logger.info(
+                f"{self.name}: embedding backfill skipped: reason=embedding_disabled, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
-
-        missing = [chunk for chunk in self.file_chunks.values() if chunk.text and chunk.embedding is None]
-        if not missing:
+        if not self.file_chunks:
+            self.logger.info(
+                f"{self.name}: embedding backfill skipped: reason=no_chunks, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
-
-        self.logger.info(f"{self.name}: backfilling embeddings for {len(missing)} chunks")
-        if not await self.embedding_store.health_check():
-            self._disable_embedding("backfill health check failed")
+        if self._embedding_backfill_task is not None and not self._embedding_backfill_task.done():
+            self.logger.info(
+                f"{self.name}: embedding backfill scheduling skipped: reason=already_running, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
             return
+        self._embedding_backfill_task = asyncio.create_task(
+            self._backfill_missing_embeddings(),
+            name=f"embedding-backfill:{self.name}",
+        )
+        self.logger.info(
+            f"{self.name}: embedding backfill scheduled: chunks={len(self.file_chunks)}, "
+            f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
 
+    async def _cancel_embedding_backfill(self) -> None:
+        """Cancel and collect the startup repair task during component shutdown."""
+        task = self._embedding_backfill_task
+        self._embedding_backfill_task = None
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
         try:
-            await self.embedding_store.get_node_embeddings(missing)
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            self.logger.exception(f"{self.name}: embedding backfill task failed during shutdown")
+
+    def _log_progress(self, operation: str, current: int, total: int, next_percent: int) -> int:
+        """Log progress at fixed percentage boundaries and return the next boundary."""
+        if total <= 0:
+            return 100
+        percent = min(100, current * 100 // total)
+        if current < total and percent < next_percent:
+            return next_percent
+        self.logger.info(f"{self.name}: {operation} progress: {current}/{total} ({percent}%)")
+        while next_percent <= percent:
+            next_percent += _PROGRESS_LOG_PERCENT_STEP
+        return next_percent
+
+    async def _backfill_missing_embeddings(self) -> None:
+        """Background-repair persisted chunks that do not have usable vectors."""
+        started_at = time.monotonic()
+        if not self.embedding_store or not self.file_chunks:
+            self.logger.info(
+                f"{self.name}: embedding backfill finished without work: "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
+            return
+
+        scan_started_at = time.monotonic()
+        self._invalidate_stale_embeddings()
+        missing = [chunk for chunk in self.file_chunks.values() if chunk.text and chunk.embedding is None]
+        self.logger.info(
+            f"{self.name}: embedding backfill scan complete: chunks={len(self.file_chunks)}, "
+            f"missing={len(missing)}, elapsed={time.monotonic() - scan_started_at:.3f}s",
+        )
+        if not missing:
+            self.logger.info(
+                f"{self.name}: embedding backfill complete: filled=0/0, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
+            return
+
+        total = len(missing)
+        batch_size = max(1, int(getattr(self.embedding_store, "max_batch_size", 10)))
+        self.logger.info(f"{self.name}: embedding backfill started: total={total}, batch_size={batch_size}")
+        try:
+            health_check_started_at = time.monotonic()
+            is_healthy = await self.embedding_store.health_check()
+            self.logger.info(
+                f"{self.name}: embedding health check complete: healthy={is_healthy}, "
+                f"elapsed={time.monotonic() - health_check_started_at:.3f}s",
+            )
+            if not is_healthy:
+                self._disable_embedding("backfill health check failed")
+                self.logger.warning(
+                    f"{self.name}: embedding backfill failed: processed=0/{total}, reason=health check failed",
+                )
+                return
+
+            processed = 0
+            batch_count = 0
+            embedding_started_at = time.monotonic()
+            next_percent = _PROGRESS_LOG_PERCENT_STEP
+            for start in range(0, total, batch_size):
+                batch = missing[start : start + batch_size]
+                await self.embedding_store.get_node_embeddings(batch)
+                self._drop_stale_embeddings(batch, "backfill")
+                processed += len(batch)
+                batch_count += 1
+                next_percent = self._log_progress("embedding backfill", processed, total, next_percent)
+            self.logger.info(
+                f"{self.name}: embedding batches complete: processed={processed}/{total}, "
+                f"batches={batch_count}, elapsed={time.monotonic() - embedding_started_at:.3f}s",
+            )
+        except asyncio.CancelledError:
+            elapsed = time.monotonic() - started_at
+            self.logger.info(
+                f"{self.name}: embedding backfill cancelled: processed={processed if 'processed' in locals() else 0}/"
+                f"{total}, elapsed={elapsed:.2f}s",
+            )
+            raise
         except Exception as e:
             self._disable_embedding(f"backfill: {type(e).__name__}: {e}")
+            elapsed = time.monotonic() - started_at
+            self.logger.exception(
+                f"{self.name}: embedding backfill failed: processed={processed if 'processed' in locals() else 0}/"
+                f"{total}, elapsed={elapsed:.2f}s",
+            )
             return
 
-        self._drop_stale_embeddings(missing, "backfill")
         filled = sum(1 for chunk in missing if chunk.embedding is not None)
+        elapsed = time.monotonic() - started_at
+        self.logger.info(
+            f"{self.name}: embedding backfill complete: filled={filled}/{total}, elapsed={elapsed:.2f}s",
+        )
         if filled:
-            self.logger.info(f"{self.name}: backfilled embeddings for {filled}/{len(missing)} chunks")
-            await self.dump()
+            try:
+                await self._after_embedding_backfill()
+                await self.dump()
+            except Exception:
+                self.logger.exception(f"{self.name}: failed to persist completed embedding backfill")
+
+    async def _after_embedding_backfill(self) -> None:
+        """Backend hook for refreshing derived vector indexes after backfill."""
 
     async def _sync_keyword_index_from_chunks(self) -> None:
         """Repair keyword index when its persisted state does not match chunks."""
-        if not self.keyword_index or not self.file_chunks:
+        if not self.keyword_index:
             return
 
         docs = {cid: chunk.text for cid, chunk in self.file_chunks.items() if chunk.text}
-        if not docs:
-            return
-
-        expected_ids = docs.keys()
+        expected_ids = set(docs)
         live_ids = None
         with suppress(Exception):
-            live_ids = self.keyword_index.document_ids
+            live_ids = set(self.keyword_index.document_ids)
 
         if live_ids == expected_ids:
             return
 
-        self.logger.warning(f"{self.name}: keyword index mismatch with chunks; rebuilding {len(docs)} docs")
-        await self.keyword_index.reset_index(docs)
+        missing_count = len(expected_ids - live_ids) if live_ids is not None else len(expected_ids)
+        extra_count = len(live_ids - expected_ids) if live_ids is not None else -1
+        indexed_count = len(live_ids) if live_ids is not None else getattr(self.keyword_index, "n_docs", -1)
+        self.logger.warning(
+            f"{self.name}: keyword index mismatch: indexed={indexed_count}, expected={len(expected_ids)}, "
+            f"missing={missing_count}, extra={extra_count}; rebuilding",
+        )
+        await self._rebuild_keyword_index(docs)
+
+    async def _rebuild_keyword_index(self, docs: dict[str, str]) -> None:
+        """Synchronously rebuild keyword search in batches with progress logs."""
+        assert self.keyword_index is not None
+        total = len(docs)
+        started_at = time.monotonic()
+        self.logger.info(
+            f"{self.name}: keyword index rebuild started: total={total}, batch_size={_KEYWORD_REBUILD_BATCH_SIZE}",
+        )
+        try:
+            # All built-in keyword indexes support clear/add/dump. Keep a fallback
+            # for third-party implementations that only expose reset_index.
+            if not all(hasattr(self.keyword_index, method) for method in ("clear", "add_docs", "dump")):
+                await self.keyword_index.reset_index(docs)
+                self._log_progress("keyword index rebuild", total, total, _PROGRESS_LOG_PERCENT_STEP)
+            else:
+                await self.keyword_index.clear()
+                items = list(docs.items())
+                next_percent = _PROGRESS_LOG_PERCENT_STEP
+                for start in range(0, total, _KEYWORD_REBUILD_BATCH_SIZE):
+                    batch = dict(items[start : start + _KEYWORD_REBUILD_BATCH_SIZE])
+                    await self.keyword_index.add_docs(batch)
+                    current = min(start + len(batch), total)
+                    next_percent = self._log_progress("keyword index rebuild", current, total, next_percent)
+                await self.keyword_index.dump()
+        except Exception:
+            elapsed = time.monotonic() - started_at
+            self.logger.exception(f"{self.name}: keyword index rebuild failed after {elapsed:.2f}s")
+            raise
+        elapsed = time.monotonic() - started_at
+        self.logger.info(f"{self.name}: keyword index rebuild complete: total={total}, elapsed={elapsed:.2f}s")
 
     async def dump(self) -> None:
         """Atomically rewrite the JSONL, then cascade dump into keyword_index and file_graph."""

@@ -2,8 +2,9 @@
 
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
+from importlib import metadata
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -19,10 +20,17 @@ class BaseAgentWrapper(BaseComponent):
     """Abstract base for agent wrapper components with swappable backends."""
 
     component_type = ComponentEnum.AGENT_WRAPPER
+    SDK_PACKAGE: ClassVar[str | None] = None
 
     def __init__(self, cwd: str | Path | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._cwd = cwd
+        if self.SDK_PACKAGE:
+            try:
+                sdk_version = metadata.version(self.SDK_PACKAGE)
+            except metadata.PackageNotFoundError:
+                sdk_version = "unknown"
+            self.logger.info(f"Agent SDK package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:
@@ -61,6 +69,13 @@ class BaseAgentWrapper(BaseComponent):
     def project_skills_root(self) -> Path:
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
+
+    @property
+    def subprocess_environment(self) -> dict[str, str]:
+        """Configured environment variables for child agent processes."""
+        if self.app_context is None:
+            return {}
+        return self.app_context.app_config.environment
 
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""

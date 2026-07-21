@@ -3,14 +3,48 @@
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
 _logger = None
+_logger_lock = threading.RLock()
 
 _LOGURU_FORMAT = "{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{line} | {function} | {message}"
-_STDLIB_FORMAT = "%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s"
+_STDLIB_FORMAT = "%(levelname)s %(source_path)s:%(lineno)d | %(asctime)s | %(message)s"
 _STDLIB_DATEFMT = "%Y-%m-%d %H:%M:%S"
+_QWENPAW_LOGGER_NAME = "qwenpaw"
+
+
+class _ForwardToLoggerHandler(logging.Handler):
+    """Forward records to a host logger without borrowing its handlers."""
+
+    def __init__(self, target_name: str) -> None:
+        super().__init__()
+        self.target_name = target_name
+
+    def emit(self, record: logging.LogRecord) -> None:
+        target = logging.getLogger(self.target_name)
+        if target.isEnabledFor(record.levelno):
+            target.handle(record)
+
+
+class _QwenPawStdlibFormatter(logging.Formatter):
+    """Format stdlib records consistently with QwenPaw host logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        source_path = record.pathname
+        cwd = os.getcwd()
+        try:
+            if os.path.commonpath([source_path, cwd]) == cwd:
+                source_path = os.path.relpath(source_path, cwd)
+        except ValueError:
+            # Paths on different Windows drives cannot be compared.
+            pass
+
+        # QwenPaw prefixes console records with a cwd-relative source path.
+        record.source_path = source_path
+        return super().format(record)
 
 
 def _enable_loguru() -> bool:
@@ -34,7 +68,7 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
         try:
             os.makedirs(log_dir, exist_ok=True)
             current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            log_filepath = os.path.join(log_dir, f"{current_ts}.log")
+            log_filepath = os.path.join(log_dir, f"{current_ts}_{os.getpid()}.log")
 
             logger.add(
                 log_filepath,
@@ -53,13 +87,25 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
 
 def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bool):
     logger = logging.getLogger("reme")
-    logger.setLevel(level)
     logger.propagate = False
 
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
+        handler.close()
 
-    formatter = logging.Formatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
+    qwenpaw_logger = logging.getLogger(_QWENPAW_LOGGER_NAME)
+    if qwenpaw_logger.handlers:
+        # QwenPaw owns the screen and file handlers. Forwarding keeps ReMe's
+        # logger object stable for modules that cache it at import time, while
+        # allowing future QwenPaw handlers (for example qwenpaw.log) to take
+        # effect without another ReMe reconfiguration.
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(_ForwardToLoggerHandler(_QWENPAW_LOGGER_NAME))
+        return logger
+
+    logger.setLevel(level)
+
+    formatter = _QwenPawStdlibFormatter(_STDLIB_FORMAT, datefmt=_STDLIB_DATEFMT)
 
     if log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
@@ -70,6 +116,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
     if log_to_file:
         try:
             os.makedirs(log_dir, exist_ok=True)
+            # Keep stdlib file naming aligned with QwenPaw logging.
             current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             log_filepath = os.path.join(log_dir, f"{current_ts}.log")
 
@@ -98,11 +145,17 @@ def get_logger(
     """Return the global logger, initializing sinks on first call (or when force_init)."""
     global _logger
 
-    if _logger is not None and not force_init:
-        return _logger
+    # ReMe can be embedded multiple times in one process.  Hosts may construct
+    # those applications concurrently, while both logging backends reconfigure
+    # a process-global logger via a remove-then-add sequence.  Keep the whole
+    # check/reconfigure/publish transaction atomic so concurrent force_init
+    # calls cannot leave duplicate sinks or handlers behind.
+    with _logger_lock:
+        if _logger is not None and not force_init:
+            return _logger
 
-    if _enable_loguru():
-        _logger = _init_loguru(log_dir, level, log_to_console, log_to_file)
-    else:
-        _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file)
-    return _logger
+        if _enable_loguru():
+            _logger = _init_loguru(log_dir, level, log_to_console, log_to_file)
+        else:
+            _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file)
+        return _logger

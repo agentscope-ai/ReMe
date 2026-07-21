@@ -1,6 +1,8 @@
 """FAISS-backed file store: chunk JSONL stays authoritative; FAISS replaces the linear vector scan."""
 
+import asyncio
 import json
+from uuid import uuid4
 
 import aiofiles
 import numpy as np
@@ -40,6 +42,7 @@ class FaissLocalFileStore(LocalFileStore):
         self._id_map: list[str] = []  # row -> chunk_id
         self._id_to_row: dict[str, int] = {}  # chunk_id -> row (live entries only)
         self._tombstones: set[int] = set()  # rows whose chunk_id was deleted
+        self._faiss_dump_lock = asyncio.Lock()
 
     @staticmethod
     def _import_faiss():
@@ -106,6 +109,10 @@ class FaissLocalFileStore(LocalFileStore):
         if len(self._tombstones) >= self.max_tombstones:
             self._rebuild_index()
 
+    async def _after_embedding_backfill(self) -> None:
+        """Make newly backfilled vectors visible to FAISS before persistence."""
+        self._rebuild_index()
+
     # -- persistence ------------------------------------------------------
 
     async def load(self) -> None:
@@ -157,26 +164,33 @@ class FaissLocalFileStore(LocalFileStore):
 
     async def dump(self) -> None:
         """Persist chunks JSONL via the parent, then write the FAISS sidecar atomically."""
-        await super().dump()
-        if self._faiss_index is None or self.embedding_store is None:
-            return
-        try:
-            self._compact_if_needed()
-            await self._write_sidecar()
-            self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
-        except Exception as e:
-            self.logger.exception(f"Failed to write FAISS index: {e}")
+        async with self._faiss_dump_lock:
+            await super().dump()
+            if self._faiss_index is None or self.embedding_store is None:
+                return
+            try:
+                self._compact_if_needed()
+                await self._write_sidecar()
+                self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
+            except Exception as e:
+                self.logger.exception(f"Failed to write FAISS index: {e}")
 
     async def _write_sidecar(self) -> None:
-        tmp_index = self.faiss_path.with_suffix(".tmp")
-        self._faiss.write_index(self._faiss_index, str(tmp_index))
-        tmp_index.replace(self.faiss_path)
+        token = uuid4().hex
+        tmp_index = self.faiss_path.with_name(f".{self.faiss_path.name}.{token}.tmp")
+        tmp_idmap = self.faiss_idmap_path.with_name(f".{self.faiss_idmap_path.name}.{token}.tmp")
+        payload = json.dumps({"id_map": list(self._id_map), "tombstones": sorted(self._tombstones)})
+        try:
+            self._faiss.write_index(self._faiss_index, str(tmp_index))
+            async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
+                await f.write(payload)
 
-        tmp_idmap = self.faiss_idmap_path.with_suffix(".tmp")
-        payload = json.dumps({"id_map": self._id_map, "tombstones": sorted(self._tombstones)})
-        async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
-            await f.write(payload)
-        tmp_idmap.replace(self.faiss_idmap_path)
+            # Publish only after both parts of the sidecar have been written successfully.
+            tmp_index.replace(self.faiss_path)
+            tmp_idmap.replace(self.faiss_idmap_path)
+        finally:
+            tmp_index.unlink(missing_ok=True)
+            tmp_idmap.unlink(missing_ok=True)
 
     # -- CRUD overrides ---------------------------------------------------
 

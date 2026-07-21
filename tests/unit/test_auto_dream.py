@@ -3,15 +3,18 @@
 import asyncio
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
+from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.schema import DreamState
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
+from reme.steps.evolve.dream.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
 
@@ -172,6 +175,88 @@ def test_topics_step_writes_only_target_date_interests():
             assert old_interests.read_text(encoding="utf-8") == "date: 2026-05-26\ntopics: []\n"
             assert dream["interests_paths"] == ["daily/2026-05-28/interests.yaml"]
             assert yaml.safe_load(target.read_text(encoding="utf-8"))["date"] == "2026-05-28"
+
+    asyncio.run(run())
+
+
+def test_proactive_answer_includes_topics_and_requested_content(tmp_path):
+    """Successful proactive reads expose useful data through the primary answer."""
+
+    async def run():
+        content = (
+            "date: 2026-05-28\n"
+            "topics:\n"
+            "  - title: Retrieval quality\n"
+            "    reason: Search behavior changed repeatedly.\n"
+            "    evidence: daily/2026-05-28/session.md\n"
+        )
+        _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", content)
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+        response = await step(
+            RuntimeContext(date="2026-05-28", include_content=True, file_store=_FileStore(tmp_path)),
+        )
+
+        assert response.success is True
+        assert response.answer == {
+            "summary": "Read 1 proactive topic(s) from daily/2026-05-28/interests.yaml",
+            "topics": [
+                {
+                    "title": "Retrieval quality",
+                    "reason": "Search behavior changed repeatedly.",
+                    "evidence": "daily/2026-05-28/session.md",
+                    "keywords": [],
+                    "paths": [],
+                },
+            ],
+            "content": content,
+        }
+        assert response.metadata["topics"] == response.answer["topics"]
+        assert response.metadata["content"] == content
+
+    asyncio.run(run())
+
+
+def test_proactive_answer_omits_unrequested_content(tmp_path):
+    """Raw YAML is absent from the primary answer when include_content is false."""
+
+    async def run():
+        _touch(
+            tmp_path / "daily" / "2026-05-28" / "interests.yaml",
+            "topics:\n  - title: Topic\n    reason: Reason\n",
+        )
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+        response = await step(
+            RuntimeContext(date="2026-05-28", include_content=False, file_store=_FileStore(tmp_path)),
+        )
+
+        assert response.success is True
+        assert "content" not in response.answer
+        assert response.answer["topics"][0]["title"] == "Topic"
+        assert response.metadata["content"] == ""
+
+    asyncio.run(run())
+
+
+def test_proactive_keeps_skipped_and_error_answers_explicit(tmp_path):
+    """Empty and failure outcomes remain distinguishable without reading metadata."""
+
+    async def run():
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+        skipped = await step(RuntimeContext(date="2026-05-28", file_store=_FileStore(tmp_path)))
+
+        assert skipped.success is True
+        assert skipped.answer == "Skipped: interests file not found at daily/2026-05-28/interests.yaml"
+        assert skipped.metadata["skipped"] is True
+
+        _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", "topics: []\n")
+        with patch("reme.steps.evolve.dream.proactive.load_yaml_topics", side_effect=ValueError("bad topics")):
+            failed = await step(RuntimeContext(date="2026-05-28", file_store=_FileStore(tmp_path)))
+
+        assert failed.success is False
+        assert failed.answer == "Error: ValueError: bad topics"
+        assert failed.metadata["error"] == "ValueError: bad topics"
 
     asyncio.run(run())
 

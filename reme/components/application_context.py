@@ -29,9 +29,9 @@ class ApplicationContext:
         self.components: dict[ComponentEnum, dict[str, "BaseComponent"]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
-        # Side-channel for service/transport-specific objects that don't fit
-        # the shared component/job model — e.g. MCPService publishes a
-        # ChannelSink under "channel_sink" so MCP-specific steps
-        # (claim_channel, channel_notify) can find it. Keep keys narrow:
-        # if a value is needed across services, promote it to a typed field.
+
+        # Application-lifetime shared state. Values remain available across Job and Step
+        # invocations while this Application is running, so Jobs may keep cross-call state here.
+        # This is in-memory state, not durable storage; use workspace files or a store when state
+        # must survive an Application restart.
         self.metadata: dict[str, Any] = {}

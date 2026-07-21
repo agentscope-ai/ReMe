@@ -92,7 +92,12 @@ class ListStep(BaseStep):
         items = self._format_relative(self._walk_files(target_dir, recursive, limit), workspace_dir)
 
         self.context.response.success = True
-        self.context.response.answer = f"Listed {len(items)} file(s) under {path or '.'}"
+        location = path or "."
+        if items:
+            rendered_items = "\n".join(f"- {item}" for item in items)
+            self.context.response.answer = f"Listed {len(items)} file(s) under {location}:\n{rendered_items}"
+        else:
+            self.context.response.answer = f"No files found under {location}."
         self.context.response.metadata.update({"items": items, "count": len(items)})
         self.logger.info(
             f"[{self.name}] listed dir={target_dir} recursive={recursive} count={len(items)} limit={limit}",

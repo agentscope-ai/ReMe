@@ -34,7 +34,7 @@ proactive:
 | 参数                | 作用                                     |
 |-------------------|----------------------------------------|
 | `date`            | 要读取的日期，格式为 `YYYY-MM-DD`。为空时使用应用时区中的今天。 |
-| `include_content` | 是否在 metadata 中返回 YAML 原文，默认 `true`。    |
+| `include_content` | 是否在 answer 和 metadata 中返回 YAML 原文，默认 `true`。 |
 
 ## 输入契约
 
@@ -59,7 +59,8 @@ topics:
 
 ## 返回结果
 
-成功读取时，`proactive_step` 会把结果写入标准 response metadata：
+成功读取时，`proactive_step` 会在主要 answer 中返回 `summary` 和 `topics`；当 `include_content=true` 时还会返回
+`content`。相同的结果字段也会保留在标准 response metadata 中：
 
 | 字段        | 说明                                     |
 |-----------|----------------------------------------|
@@ -71,11 +72,26 @@ topics:
 | `error`   | 读取或解析异常。                               |
 | `summary` | 简短摘要。                                  |
 
-文件存在且解析成功时，answer 类似：
+文件存在且解析成功时，answer 是结构化数据，例如：
 
-```text
-Read 3 proactive topic(s) from daily/2026-06-20/interests.yaml
+```json
+{
+  "summary": "Read 1 proactive topic(s) from daily/2026-06-20/interests.yaml",
+  "topics": [
+    {
+      "title": "记忆检索链路的质量回归",
+      "reason": "用户最近反复修改了 search、node_search 和 dream integration。",
+      "evidence": "daily/2026-06-20/session.md",
+      "keywords": ["memory search", "auto dream"],
+      "paths": ["daily/2026-06-20/session.md"]
+    }
+  ],
+  "content": "date: 2026-06-20\n..."
+}
 ```
+
+当 `include_content=false` 时，answer 不包含 `content` 字段。文件缺失和读取失败仍分别返回明确的
+`Skipped: ...` 和 `Error: ...` 消息。
 
 文件不存在时不会报错，而是成功返回 skipped：
 

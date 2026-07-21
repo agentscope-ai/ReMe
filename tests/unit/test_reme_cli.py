@@ -1,6 +1,9 @@
 """Tests for the ReMe CLI entry helpers."""
 
 import asyncio
+from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +11,41 @@ import pytest
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
+
+
+def test_package_import_does_not_require_optional_agent_sdks():
+    """The base package remains importable without Claude or Codex SDKs."""
+    script = """
+import importlib.abc
+import sys
+
+
+class BlockOptionalAgentSDKs(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        blocked = ("claude_agent_sdk", "openai_codex")
+        if any(fullname == name or fullname.startswith(f"{name}.") for name in blocked):
+            raise ModuleNotFoundError(f"blocked optional SDK: {fullname}", name=fullname)
+        return None
+
+
+sys.meta_path.insert(0, BlockOptionalAgentSDKs())
+import reme
+
+assert not any(
+    name == sdk or name.startswith(f"{sdk}.")
+    for name in sys.modules
+    for sdk in ("claude_agent_sdk", "openai_codex")
+)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_main_loads_env_before_calling_server(monkeypatch):
@@ -26,6 +64,38 @@ def test_main_loads_env_before_calling_server(monkeypatch):
     reme_module.main()
 
     assert events == ["load_env", ("call_server", "shell", {"cmd": "pwd"})]
+
+
+def test_main_saves_loaded_environment_in_start_config(monkeypatch):
+    """The startup config keeps the environment captured by the single global load."""
+    observed = {}
+
+    class FakeReMe:
+        """Capture the fully resolved application configuration."""
+
+        def __init__(self, **kwargs):
+            """Record the application startup configuration."""
+            observed["config"] = kwargs
+
+        def run_app(self):
+            """Record that application startup continued."""
+            observed["ran"] = True
+
+    main_globals = reme_module.main.__globals__
+    monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
+    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("start", {}))
+    monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
+    monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
+
+    reme_module.main()
+
+    assert observed == {
+        "config": {
+            "service": {"backend": "cli"},
+            "environment": {"TOOL_ENV": "configured"},
+        },
+        "ran": True,
+    }
 
 
 def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
