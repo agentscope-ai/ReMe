@@ -1,6 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .daily_paper import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection, SelectedPaper
 from .dream import (
     DreamExtractOutput,
     DreamState,
@@ -22,7 +23,7 @@ from .stream_chunk import StreamChunk
 __all__ = [
     "ApplicationConfig",
     "ComponentConfig",
-    "JobConfig",
+    "DailyBriefOutput",
     "DreamExtractOutput",
     "DreamState",
     "DreamTopic",
@@ -33,9 +34,14 @@ __all__ = [
     "FileLink",
     "FileNode",
     "IntegrateOutcome",
+    "JobConfig",
+    "PaperInfo",
+    "PaperNoteOutput",
+    "PaperSelection",
     "ProactiveResult",
     "Request",
     "Response",
+    "SelectedPaper",
     "StreamChunk",
     "TopicSelectionOutput",
 ]
