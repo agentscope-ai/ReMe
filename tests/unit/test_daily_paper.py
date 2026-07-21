@@ -11,7 +11,7 @@ from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
-from reme.schema import PaperInfo
+from reme.schema import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection
 from reme.steps.cookbook.daily_paper import (
     DailyPaperAnalyzeStep,
     DailyPaperCollectStep,
@@ -113,17 +113,16 @@ def test_history_exclusion_reads_prior_frontmatter_only(tmp_path: Path):
     assert found == {"2607.10001"}
 
 
-def test_standalone_config_has_backend_split_and_eight_am_cron():
-    """The standalone config schedules 08:00 and routes work to AS/CC."""
+def test_standalone_config_uses_only_claude_code_and_eight_am_cron():
+    """The standalone config schedules 08:00 and routes all agent work to CC."""
     config = _load_config("daily_cookbook")
 
     assert config.get("extends") is None
     assert config["jobs"]["daily_paper_cron"]["cron"] == "0 8 * * *"
     steps = config["jobs"]["daily_paper"]["steps"]
-    assert steps[2]["agent_wrapper"] == "default"
-    assert steps[3]["agent_wrapper"] == "claude_code"
-    assert steps[4]["agent_wrapper"] == "claude_code"
-    assert set(config["components"]["agent_wrapper"]) == {"default", "claude_code"}
+    assert {step.get("agent_wrapper") for step in steps[2:]} == {"claude_code"}
+    assert set(config["components"]["agent_wrapper"]) == {"claude_code"}
+    assert "as_llm" not in config["components"]
 
 
 @pytest.mark.asyncio
@@ -184,7 +183,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     monkeypatch.setattr(analyze.ArxivPdfClient, "download", fake_download)
     monkeypatch.setattr(analyze, "extract_pdf_text", fake_extract)
 
-    select_wrapper = _QueuedAgentWrapper(
+    cc_wrapper = _QueuedAgentWrapper(
         [
             {
                 "selection_reasoning": "Best remaining ranked paper.",
@@ -198,10 +197,6 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
                 ],
                 "alternates": [],
             },
-        ],
-    )
-    cc_wrapper = _QueuedAgentWrapper(
-        [
             {
                 "description": "Detailed note",
                 "body": "# Detailed reading\n\nEvidence [p. 1].",
@@ -226,7 +221,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
 
     await DailyPaperCollectStep(app_context=app_context)(context)
     await DailyPaperRankStep(app_context=app_context)(context)
-    await DailyPaperSelectStep(app_context=app_context, agent_wrapper=select_wrapper)(context)
+    await DailyPaperSelectStep(app_context=app_context, agent_wrapper=cc_wrapper)(context)
     await DailyPaperAnalyzeStep(app_context=app_context, agent_wrapper=cc_wrapper)(context)
     await DailyPaperDigestStep(app_context=app_context, agent_wrapper=cc_wrapper)(context)
 
@@ -246,6 +241,12 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert manifest["status"] == "complete"
     assert manifest["thinking"] == "Best remaining ranked paper."
     assert manifest["top_arxiv_ids"] == ["2607.10001"]
+    assert all(set(call["kwargs"]) == {"output_schema"} for call in cc_wrapper.calls)
+    assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
+        PaperSelection,
+        PaperNoteOutput,
+        DailyBriefOutput,
+    ]
 
     rerun = RuntimeContext(date="2026-07-21")
     await DailyPaperCollectStep(app_context=app_context)(rerun)

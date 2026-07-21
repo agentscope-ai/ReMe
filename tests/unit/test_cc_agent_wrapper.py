@@ -130,6 +130,13 @@ def test_sdk_native_system_prompt_preset_is_preserved(tmp_path):
     }
 
 
+def test_web_search_is_disallowed_by_default(tmp_path):
+    """Claude Code keeps its normal tools except for web search."""
+    opts = _wrapper(tmp_path)._build_options("hello")
+
+    assert opts.disallowed_tools == ["WebSearch"]
+
+
 def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
     """Claude Code credentials do not fall back to ambient or shared LLM configuration."""
     wrapper = _wrapper(tmp_path)
