@@ -1,0 +1,464 @@
+service:
+  backend: http
+jobs:
+  index_update_loop:
+    backend: background
+    max_file_bytes: 20971520
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    - resource_dir
+    watch_suffixes:
+    - md
+    - jsonl
+    steps:
+    - backend: init_changes_step
+      monitor_type: file_store
+      monitor_name: default
+      dispatch_steps:
+      - update_index_step
+    - backend: watch_changes_step
+      dispatch_steps:
+      - backend: update_index_step
+        persist: false
+  version:
+    backend: base
+    description: return reme package version
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: version_step
+  health_check:
+    backend: base
+    description: return a concise health-check snapshot of reme components
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: health_check_step
+  status:
+    backend: base
+    description: report memory estimates for stateful data components and process
+      RSS
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: status_step
+  help:
+    backend: base
+    description: list all registered jobs with their metadata
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: help_step
+  traverse:
+    backend: base
+    description: Walk the wikilink graph from a path.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: path
+        depth:
+          type: integer
+          description: hop limit
+          default: 1
+        direction:
+          type: string
+          enum:
+          - forward
+          - backward
+          - both
+          default: both
+      required:
+      - path
+    steps:
+    - backend: traverse_step
+  reindex:
+    backend: base
+    max_file_bytes: 20971520
+    description: wipe the file store and rebuild it from the existing files
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    - resource_dir
+    watch_suffixes:
+    - md
+    - jsonl
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: clear_store_step
+    - backend: init_changes_step
+      monitor_type: file_store
+      monitor_name: default
+      dispatch_steps:
+      - update_index_step
+  search:
+    backend: base
+    description: Hybrid workspace search (vector + BM25, RRF-fused).
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: search query
+        limit:
+          type: integer
+          description: max results
+          default: 5
+        min_score:
+          type: number
+          description: min fused score
+          default: 0.0
+        start_date:
+          type: string
+          description: optional inclusive start date filter (YYYY-MM-DD); results
+            earlier than this date are excluded
+        end_date:
+          type: string
+          description: optional inclusive end date filter (YYYY-MM-DD); results later
+            than this date are excluded
+      required:
+      - query
+    steps:
+    - backend: search_step
+      vector_weight: 0.7
+      candidate_multiplier: 5.0
+      expand_links: true
+      max_links_per_direction: 10
+  node_search:
+    backend: base
+    description: Digest node recall — given a candidate abstraction's name+description,
+      surface existing digest nodes similar enough to either dedup against or link
+      to as related.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: search query
+        limit:
+          type: integer
+          description: max digest nodes to return
+          default: 20
+      required:
+      - query
+    steps:
+    - backend: node_search_step
+      vector_weight: 0.7
+      candidate_multiplier: 5.0
+  daily_list:
+    backend: base
+    description: List notes under a single day.
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD; empty = today
+          default: ''
+    steps:
+    - backend: daily_list_step
+  daily_reindex:
+    backend: base
+    description: Rebuild the day-index page daily/<date>.md.
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD; empty = today
+          default: ''
+    steps:
+    - backend: daily_reindex_step
+  frontmatter_delete:
+    backend: base
+    description: Drop keys from a file's frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        keys:
+          type: array
+          description: keys to remove
+          items:
+            type: string
+      required:
+      - path
+      - keys
+    steps:
+    - backend: frontmatter_delete_step
+  frontmatter_read:
+    backend: base
+    description: Read a file's frontmatter as a dict.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: frontmatter_read_step
+  frontmatter_update:
+    backend: base
+    description: Merge key-values into a file's frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        metadata:
+          type: object
+          description: key-values to merge
+      required:
+      - path
+      - metadata
+    steps:
+    - backend: frontmatter_update_step
+  stat:
+    backend: base
+    description: Stat path (size, mtime, exists, is_dir, is_file).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: stat_step
+  list:
+    backend: base
+    description: List files under a workspace path.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative dir; empty = root
+          default: ''
+        recursive:
+          type: boolean
+          description: recurse
+          default: false
+        limit:
+          type: integer
+          description: max results
+          default: 100
+    steps:
+    - backend: list_step
+  move:
+    backend: base
+    description: Move / rename a workspace file; rewrites inbound wikilinks by default.
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: workspace-relative source
+        dst_path:
+          type: string
+          description: workspace-relative destination
+        overwrite:
+          type: boolean
+          description: overwrite if dst exists
+          default: false
+        retarget:
+          type: boolean
+          description: rewrite [[src]] → [[dst]] across the workspace
+          default: true
+      required:
+      - src_path
+      - dst_path
+    steps:
+    - backend: move_step
+  delete:
+    backend: base
+    description: Delete a workspace file or folder; returns surviving inbound wikilinks.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: delete_step
+  read:
+    backend: base
+    description: Read a markdown file under the workspace.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path; markdown only
+        start_line:
+          type: integer
+          description: first line (1-based, inclusive)
+        end_line:
+          type: integer
+          description: last line (1-based, inclusive)
+      required:
+      - path
+    steps:
+    - backend: read_step
+      with_neighbors: false
+      max_neighbors_per_direction: 10
+  read_image:
+    backend: base
+    description: Read an image file as base64 (workspace-relative path).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path; common image formats supported (png/jpg/jpeg/webp/gif/bmp/tiff/heic)
+      required:
+      - path
+    steps:
+    - backend: read_image_step
+      max_bytes: 5242880
+  write:
+    backend: base
+    description: Write a markdown file (create or overwrite) with name/description
+      frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path; markdown only
+        name:
+          type: string
+          description: frontmatter name
+        description:
+          type: string
+          description: frontmatter description
+        content:
+          type: string
+          description: body
+        metadata:
+          type: object
+          description: Optional extra frontmatter fields (md only).
+      required:
+      - path
+      - name
+      - description
+      - content
+    steps:
+    - backend: write_step
+  daily_write:
+    backend: base
+    description: Write a daily markdown note with conversation source frontmatter.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: daily note filename stem and frontmatter name
+        description:
+          type: string
+          description: frontmatter description
+        session_id:
+          type: string
+          description: source conversation session identifier
+        content:
+          type: string
+          description: body
+        date:
+          type: string
+          description: YYYY-MM-DD daily note date; empty = today
+          default: ''
+        metadata:
+          type: object
+          description: Optional extra frontmatter fields.
+      required:
+      - name
+      - description
+      - session_id
+      - content
+    steps:
+    - backend: daily_write_step
+  edit:
+    backend: base
+    description: Find-and-replace in a markdown file (all occurrences).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        old:
+          type: string
+          description: text to find
+        new:
+          type: string
+          description: replacement
+          default: ''
+      required:
+      - path
+      - old
+      - new
+    steps:
+    - backend: edit_step
+components:
+  tokenizer:
+    default:
+      backend: regex
+  file_graph:
+    default:
+      backend: local
+  file_catalog:
+    default:
+      backend: local
+    resource:
+      backend: local
+    digest:
+      backend: local
+    dream:
+      backend: local
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions:
+      - md
+      include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []
+    json:
+      backend: json
+      supported_extensions:
+      - json
+    jsonl:
+      backend: jsonl
+      supported_extensions:
+      - jsonl
+    default:
+      backend: default
+      supported_extensions:
+      - txt
+      - log
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+  file_store:
+    default:
+      backend: local
+      store_name: local
+      embedding_store: ''
+      keyword_index: default
+      file_graph: default
