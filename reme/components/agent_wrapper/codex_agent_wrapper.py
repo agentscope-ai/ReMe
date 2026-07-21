@@ -130,31 +130,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
-        if skills is None:
+        sources = self._resolve_project_skills(skills)
+        if not sources:
             return
-        if skills == "all":
-            if not self.project_skills_root.is_dir():
-                raise FileNotFoundError(f"Project skills directory not found: {self.project_skills_root}")
-            names = sorted(
-                path.name
-                for path in self.project_skills_root.iterdir()
-                if path.is_dir() and (path / "SKILL.md").is_file()
-            )
-        else:
-            names = [skills] if isinstance(skills, str) else list(skills)
-            names = list(dict.fromkeys(names))
 
-        target_root = self.workspace_path / ".agents" / "skills"
+        target_root = self.project_path / ".agents" / "skills"
         target_root.mkdir(parents=True, exist_ok=True)
-        for name in names:
-            if not name or Path(name).name != name or name in {".", ".."}:
-                raise ValueError(f"Invalid skill name: {name!r}")
-            source = self.project_skills_root / name
-            if not source.is_dir():
-                raise FileNotFoundError(f"Skill directory not found: {source}")
-            if not (source / "SKILL.md").is_file():
-                raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
-
+        for name, source in sources.items():
             target = target_root / name
             if target.is_symlink():
                 if target.resolve() == source.resolve():

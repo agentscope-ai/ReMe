@@ -44,24 +44,7 @@ class CcAgentWrapper(BaseAgentWrapper):
 
     def _ensure_claude_skill_dir(self, config_dir: Path, skills: list[str] | str) -> None:
         """Add selected project skills to Claude Code discovery locations."""
-        project_skills = self.project_skills_root
-        if not project_skills.is_dir():
-            return
-
-        if skills == "all":
-            skill_names = sorted(path.name for path in project_skills.iterdir() if path.is_dir())
-        else:
-            skill_names = list(dict.fromkeys(skills))
-
-        for skill_name in skill_names:
-            if not skill_name or Path(skill_name).name != skill_name or skill_name in {".", ".."}:
-                raise ValueError(f"Invalid skill name: {skill_name!r}")
-
-        sources = {
-            skill_name: project_skills / skill_name
-            for skill_name in skill_names
-            if (project_skills / skill_name).is_dir()
-        }
+        sources = self._resolve_project_skills(skills)
         if not sources:
             return
 

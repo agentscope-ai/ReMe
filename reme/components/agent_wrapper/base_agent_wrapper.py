@@ -22,9 +22,15 @@ class BaseAgentWrapper(BaseComponent):
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
 
-    def __init__(self, cwd: str | Path | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        cwd: str | Path | None = None,
+        project_path: str | Path | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._cwd = cwd
+        self._project_path = project_path
         if self.SDK_PACKAGE:
             try:
                 sdk_version = metadata.version(self.SDK_PACKAGE)
@@ -36,8 +42,7 @@ class BaseAgentWrapper(BaseComponent):
     def cwd(self) -> Path:
         """Working directory shared by the agent's shell and file tools.
 
-        Defaults to the project root (the workspace) — the same directory
-        Claude Code has always used. Override via the ``cwd`` init argument;
+        Defaults to the project root. Override via the ``cwd`` init argument;
         a relative value resolves against the workspace root.
         """
         if not self._cwd:
@@ -62,13 +67,52 @@ class BaseAgentWrapper(BaseComponent):
 
     @property
     def project_path(self) -> Path:
-        """Project root that contains shared assets such as skills."""
-        return self.workspace_path
+        """Project root containing shared assets such as skills.
+
+        A relative configured path resolves from the workspace so applications
+        can keep runtime data in a subdirectory such as ``.reme`` while loading
+        project assets from its parent. The workspace remains the default for
+        backward compatibility.
+        """
+        if not self._project_path:
+            return self.workspace_path
+        project_path = Path(self._project_path).expanduser()
+        if not project_path.is_absolute():
+            project_path = self.workspace_path / project_path
+        return project_path.resolve(strict=False)
 
     @property
     def project_skills_root(self) -> Path:
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
+
+    def _resolve_project_skills(self, skills: list[str] | str | None) -> dict[str, Path]:
+        """Resolve selected skill names to validated project directories."""
+        if skills is None:
+            return {}
+        if skills == "all":
+            if not self.project_skills_root.is_dir():
+                raise FileNotFoundError(f"Project skills directory not found: {self.project_skills_root}")
+            names = sorted(
+                path.name
+                for path in self.project_skills_root.iterdir()
+                if path.is_dir() and (path / "SKILL.md").is_file()
+            )
+        else:
+            names = [skills] if isinstance(skills, str) else list(skills)
+            names = list(dict.fromkeys(names))
+
+        sources: dict[str, Path] = {}
+        for name in names:
+            if not name or Path(name).name != name or name in {".", ".."}:
+                raise ValueError(f"Invalid skill name: {name!r}")
+            source = self.project_skills_root / name
+            if not source.is_dir():
+                raise FileNotFoundError(f"Skill directory not found: {source}")
+            if not (source / "SKILL.md").is_file():
+                raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
+            sources[name] = source
+        return sources
 
     @property
     def subprocess_environment(self) -> dict[str, str]:
