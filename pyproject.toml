@@ -52,6 +52,7 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "pypdf>=5.0.0",
+    "tushare>=1.4.29",
 ]
 dev = [
     "pre-commit",
