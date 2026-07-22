@@ -1,5 +1,6 @@
 """Focused tests for the daily-paper cookbook workflow."""
 
+from contextlib import asynccontextmanager
 import datetime as dt
 import importlib
 import json
@@ -29,6 +30,7 @@ from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
 from reme.utils import arxiv as arxiv_utils
+from reme.utils import huggingface_papers as hf_utils
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 
 
@@ -80,6 +82,42 @@ def test_hf_payload_and_html_normalization():
         '<a href="/papers/2607.16051">one</a><a href="/papers/2607.16051">dup</a>'
         '<a href="/papers/2607.10001">two</a>',
     ) == ["2607.16051", "2607.10001"]
+
+
+@pytest.mark.asyncio
+async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
+    """The owned HTTP client lives inside the temporary SSH proxy context."""
+    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
+    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+    events: list[str] = []
+    client_kwargs: dict = {}
+
+    @asynccontextmanager
+    async def fake_proxy(*, connect_timeout):
+        assert connect_timeout == 12.0
+        events.append("proxy-start")
+        yield "socks5://127.0.0.1:43123"
+        events.append("proxy-stop")
+
+    class FakeAsyncClient:
+        """Capture construction and close ordering without network access."""
+
+        def __init__(self, **kwargs):
+            client_kwargs.update(kwargs)
+
+        async def aclose(self):
+            """Record deterministic client cleanup."""
+            events.append("client-close")
+
+    monkeypatch.setattr(hf_utils, "ssh_socks_proxy", fake_proxy)
+    monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = hf_utils.HuggingFacePapersClient(timeout=12.0)
+    assert client.client is None
+    async with client:
+        assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
+
+    assert events == ["proxy-start", "client-close", "proxy-stop"]
 
 
 def test_rrf_and_memory_candidate_reserve():

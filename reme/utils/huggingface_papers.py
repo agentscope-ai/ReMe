@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import sys
 from collections.abc import Iterable
 from typing import Any
 
@@ -9,6 +10,7 @@ import httpx
 
 from ..schema import PaperInfo
 from .arxiv import ARXIV_ID_PATTERN
+from .proxy_utils import get_ssh_proxy_config, ssh_socks_proxy
 
 HF_BASE_URL = "https://huggingface.co"
 _PAPER_LINK_PATTERN = re.compile(
@@ -72,27 +74,55 @@ class HuggingFacePapersClient:
         detail_concurrency: int = 5,
     ) -> None:
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(
-            base_url=HF_BASE_URL,
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": "ReMe daily-paper cookbook"},
-        )
+        self._timeout = timeout
+        self._proxy_context = None
+        self.client = client
+        if self.client is None and get_ssh_proxy_config() is None:
+            self.client = self._new_client()
         self.max_retries = max(1, int(max_retries))
         self.detail_concurrency = max(1, int(detail_concurrency))
 
+    def _new_client(self, proxy: str | None = None) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "base_url": HF_BASE_URL,
+            "timeout": self._timeout,
+            "follow_redirects": True,
+            "headers": {"User-Agent": "ReMe daily-paper cookbook"},
+        }
+        if proxy is not None:
+            kwargs["proxy"] = proxy
+        return httpx.AsyncClient(**kwargs)
+
     async def __aenter__(self) -> "HuggingFacePapersClient":
+        if self.client is None:
+            self._proxy_context = ssh_socks_proxy(connect_timeout=self._timeout)
+            try:
+                proxy = await self._proxy_context.__aenter__()
+                self.client = self._new_client(proxy)
+            except BaseException:
+                await self._proxy_context.__aexit__(*sys.exc_info())
+                self._proxy_context = None
+                raise
         return self
 
-    async def __aexit__(self, *_args) -> None:
-        if self._owns_client:
-            await self.client.aclose()
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        try:
+            if self._owns_client and self.client is not None:
+                await self.client.aclose()
+        finally:
+            if self._proxy_context is not None:
+                await self._proxy_context.__aexit__(exc_type, exc_value, traceback)
+
+    def _require_client(self) -> httpx.AsyncClient:
+        if self.client is None:
+            raise RuntimeError("HuggingFacePapersClient must be used as an async context manager with SSH proxying")
+        return self.client
 
     async def _get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.get(path, params=params)
+                response = await self._require_client().get(path, params=params)
                 response.raise_for_status()
                 return response
             except httpx.HTTPError as exc:
