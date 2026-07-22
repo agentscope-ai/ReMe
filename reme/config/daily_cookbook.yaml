@@ -434,6 +434,13 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       job_tools: [search]
+      system_prompt:
+        type: preset
+        preset: claude_code
+        append: >-
+          Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, are at
+          daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at daily/YYYY-MM-DD/daily-paper-brief.md. Use search to
+          recall relevant notes across dates.
       permission_mode: bypassPermissions
     memory:
       backend: agentscope

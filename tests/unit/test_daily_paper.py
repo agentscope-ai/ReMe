@@ -324,7 +324,17 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         }
     ]
     assert {step.get("agent_wrapper") for step in agent_steps} == {"claude_code"}
-    assert config["components"]["agent_wrapper"]["claude_code"]["job_tools"] == ["search"]
+    claude_code = config["components"]["agent_wrapper"]["claude_code"]
+    assert claude_code["job_tools"] == ["search"]
+    assert claude_code["system_prompt"] == {
+        "type": "preset",
+        "preset": "claude_code",
+        "append": (
+            "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
+            "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
+            "daily/YYYY-MM-DD/daily-paper-brief.md. Use search to recall relevant notes across dates."
+        ),
+    }
     assert steps[-1] == {
         "backend": "dingtalk_markdown_send_step",
         "input_mapping": {"daily_paper_digest_path": "markdown_path"},
@@ -368,8 +378,8 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "file_graph": "default",
     }
     assert config["components"]["as_embedding"]["default"]["model"] == "text-embedding-v4"
-    assert config["components"]["agent_wrapper"]["claude_code"]["project_path"] == ".."
-    assert "skills" not in config["components"]["agent_wrapper"]["claude_code"]
+    assert claude_code["project_path"] == ".."
+    assert "skills" not in claude_code
 
 
 def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):
