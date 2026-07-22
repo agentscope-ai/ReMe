@@ -1,6 +1,5 @@
 """Application context: shared state container for components, jobs, and service."""
 
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -35,13 +34,4 @@ class ApplicationContext:
         # invocations while this Application is running, so Jobs may keep cross-call state here.
         # This is in-memory state, not durable storage; use workspace files or a store when state
         # must survive an Application restart.
-        #
-        # Per-key monotonic counters organized as a nested tree live here too: each node
-        # holds a ``value`` counter and a ``children`` dict keyed by the elements of the
-        # ``key`` list passed to :func:`reme.utils.counter.global_counter_next`. Sibling
-        # keys have independent counters; the root node acts as the global counter for an
-        # empty key. A single lock serializes all tree access and increments.
-        self.metadata: dict[str, Any] = {
-            "_counter_tree": {"value": 0, "children": {}},
-            "_counter_tree_lock": threading.Lock(),
-        }
+        self.metadata: dict[str, Any] = {}

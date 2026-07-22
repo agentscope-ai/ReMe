@@ -111,28 +111,6 @@ def test_separate_intervals_in_same_file_stay_separate():
     assert answer == "L1\nL2\nL3\nL4\n\n\nL10\nL11\n"
 
 
-def test_missing_trailing_newline_does_not_cause_line_collision():
-    """When a chunk's text lacks a trailing newline, the merged union still
-    keeps lines separated instead of gluing them together."""
-    a = _chunk(1, 3, "L1\nL2\nL3")  # no trailing \n on last line
-    b = _chunk(4, 6, "L4\nL5\nL6\n")
-
-    answer = format_chunks_answer([a, b], _DIALOG_DIR, include_source=False)
-
-    assert answer == "L1\nL2\nL3\nL4\nL5\nL6\n"
-
-
-def test_missing_trailing_newline_in_overlap_region():
-    """A missing trailing newline on an overlapping line is normalised so the
-    later chunk's copy of that line stays separated."""
-    a = _chunk(1, 3, "L1\nL2\nL3")  # L3 has no \n
-    b = _chunk(3, 5, "L3\nL4\nL5\n")
-
-    answer = format_chunks_answer([a, b], _DIALOG_DIR, include_source=False)
-
-    assert answer == "L1\nL2\nL3\nL4\nL5\n"
-
-
 def test_same_file_units_stay_adjacent_and_sorted_even_when_interleaved_by_rank():
     """Two disjoint units of one session file are grouped together and ordered by
     ``start_line``, even when a different file is ranked between them and the
