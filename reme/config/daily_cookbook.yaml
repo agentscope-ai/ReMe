@@ -365,11 +365,11 @@ jobs:
       - backend: daily_paper_collect_step
       - backend: daily_paper_rank_step
       - backend: daily_paper_select_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: daily_paper_analyze_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: daily_paper_digest_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: dingtalk_markdown_send_step
         input_mapping:
           daily_paper_digest_path: markdown_path
@@ -403,7 +403,7 @@ jobs:
     close_timeout: 10
     steps:
       - backend: dingtalk_wait_step
-        agent_wrapper: claude_code
+        agent_wrapper: dingtalk_wait
         app_key: ${DINGTALK_APP_KEY:-}
         app_secret: ${DINGTALK_APP_SECRET:-}
         robot_code: ${DINGTALK_ROBOT_CODE:-}
@@ -430,7 +430,14 @@ components:
         thinking_enable: false
 
   agent_wrapper:
-    claude_code:
+    daily_paper:
+      backend: claude_code
+      project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
+      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+    dingtalk_wait:
       backend: claude_code
       project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
       model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}

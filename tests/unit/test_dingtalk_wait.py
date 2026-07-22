@@ -286,7 +286,7 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
     assert job["steps"] == [
         {
             "backend": "dingtalk_wait_step",
-            "agent_wrapper": "claude_code",
+            "agent_wrapper": "dingtalk_wait",
             "app_key": "",
             "app_secret": "",
             "robot_code": "",
@@ -294,6 +294,17 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
             "worker_count": 4,
         },
     ]
+    dingtalk_wait = config["components"]["agent_wrapper"]["dingtalk_wait"]
+    assert dingtalk_wait["job_tools"] == ["search"]
+    assert dingtalk_wait["system_prompt"] == {
+        "type": "preset",
+        "preset": "claude_code",
+        "append": (
+            "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
+            "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
+            "daily/YYYY-MM-DD/daily-paper-brief.md. Use search to recall relevant notes across dates."
+        ),
+    }
     assert R.get(ComponentEnum.STEP, "dingtalk_wait_step") is DingTalkWaitStep
 
 

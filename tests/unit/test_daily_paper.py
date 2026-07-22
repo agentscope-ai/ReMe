@@ -323,18 +323,10 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
             "daily_paper_digest_step",
         }
     ]
-    assert {step.get("agent_wrapper") for step in agent_steps} == {"claude_code"}
-    claude_code = config["components"]["agent_wrapper"]["claude_code"]
-    assert claude_code["job_tools"] == ["search"]
-    assert claude_code["system_prompt"] == {
-        "type": "preset",
-        "preset": "claude_code",
-        "append": (
-            "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
-            "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
-            "daily/YYYY-MM-DD/daily-paper-brief.md. Use search to recall relevant notes across dates."
-        ),
-    }
+    assert {step.get("agent_wrapper") for step in agent_steps} == {"daily_paper"}
+    daily_paper = config["components"]["agent_wrapper"]["daily_paper"]
+    assert "job_tools" not in daily_paper
+    assert "system_prompt" not in daily_paper
     assert steps[-1] == {
         "backend": "dingtalk_markdown_send_step",
         "input_mapping": {"daily_paper_digest_path": "markdown_path"},
@@ -365,7 +357,7 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "dream_integrate_step": ("memory", "memory"),
         "dream_topics_step": ("memory", "memory"),
     }
-    assert set(config["components"]["agent_wrapper"]) == {"claude_code", "memory"}
+    assert set(config["components"]["agent_wrapper"]) == {"daily_paper", "dingtalk_wait", "memory"}
     memory_llm = config["components"]["as_llm"]["memory"]
     assert memory_llm["backend"] == "anthropic"
     assert memory_llm["model"] == "qwen3.7-max"
@@ -380,8 +372,8 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "file_graph": "default",
     }
     assert config["components"]["as_embedding"]["default"]["model"] == "text-embedding-v4"
-    assert claude_code["project_path"] == ".."
-    assert "skills" not in claude_code
+    assert daily_paper["project_path"] == ".."
+    assert "skills" not in daily_paper
 
 
 def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):
