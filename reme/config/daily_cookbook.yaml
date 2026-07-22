@@ -443,7 +443,7 @@ components:
       model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-      job_tools: [search]
+      job_tools: [search, tushare-data]
       system_prompt:
         type: preset
         preset: claude_code
