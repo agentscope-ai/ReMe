@@ -20,7 +20,6 @@ from reme.steps.cookbook.daily_paper import (
     DailyPaperSelectStep,
 )
 from reme.steps.cookbook.daily_paper import analyze, collect
-from reme.steps.cookbook.daily_paper.collect import load_historical_arxiv_ids
 from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 
@@ -103,7 +102,7 @@ def test_history_exclusion_reads_prior_frontmatter_only(tmp_path: Path):
         encoding="utf-8",
     )
 
-    found = load_historical_arxiv_ids(
+    found = DailyPaperCollectStep.load_historical_arxiv_ids(
         tmp_path,
         dt.date(2026, 7, 21),
         30,
@@ -123,6 +122,8 @@ def test_standalone_config_uses_only_claude_code_and_eight_am_cron():
     assert {step.get("agent_wrapper") for step in steps[2:]} == {"claude_code"}
     assert set(config["components"]["agent_wrapper"]) == {"claude_code"}
     assert "as_llm" not in config["components"]
+    assert config["components"]["agent_wrapper"]["claude_code"]["project_path"] == ".."
+    assert config["components"]["agent_wrapper"]["claude_code"]["skills"] == ["serper-search"]
 
 
 @pytest.mark.asyncio
@@ -175,13 +176,13 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
         target.write_bytes(b"%PDF-fake")
         return target
 
-    async def fake_extract(_path: Path, _max_pages: int, _max_chars: int):
+    def fake_extract(_self, _path: Path, _max_pages: int, _max_chars: int):
         """Return deterministic extracted text."""
         return "--- PAGE 1 ---\nPaper content", 1, False
 
     monkeypatch.setattr(collect, "HuggingFacePapersClient", _FakeHfClient)
     monkeypatch.setattr(analyze.ArxivPdfClient, "download", fake_download)
-    monkeypatch.setattr(analyze, "extract_pdf_text", fake_extract)
+    monkeypatch.setattr(analyze.DailyPaperAnalyzeStep, "_extract_pdf_text_sync", fake_extract)
 
     cc_wrapper = _QueuedAgentWrapper(
         [

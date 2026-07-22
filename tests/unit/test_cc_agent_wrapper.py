@@ -34,6 +34,8 @@ def test_ensure_claude_skill_dir_adds_selected_skills_without_replacing_existing
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
     (project_skills / "two").mkdir()
+    for name in ("one", "two"):
+        (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
     config_dir = tmp_path / "mem_session" / "claude_config"
 
     for root in _skill_roots(tmp_path):
@@ -55,6 +57,8 @@ def test_ensure_claude_skill_dir_all_adds_each_project_skill(tmp_path):
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
     (project_skills / "two").mkdir()
+    for name in ("one", "two"):
+        (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
     config_dir = tmp_path / "mem_session" / "claude_config"
 
     _wrapper(tmp_path)._ensure_claude_skill_dir(config_dir, "all")
@@ -69,6 +73,7 @@ def test_ensure_claude_skill_dir_preserves_existing_directory_link(tmp_path):
     """An existing skills link is user-owned and remains untouched."""
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
+    (project_skills / "one" / "SKILL.md").write_text("# one", encoding="utf-8")
     config_dir = tmp_path / "mem_session" / "claude_config"
     legacy_root = tmp_path / ".claude" / "skills"
     legacy_root.parent.mkdir(parents=True)
@@ -103,6 +108,8 @@ def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
     project_skills = tmp_path / "skills"
     (project_skills / "one").mkdir(parents=True)
     (project_skills / "two").mkdir()
+    for name in ("one", "two"):
+        (project_skills / name / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
 
     opts = _wrapper(tmp_path)._build_options("hello", skills=["one"])
 
@@ -110,6 +117,25 @@ def test_configured_skills_use_latest_sdk_allowlist(tmp_path):
     for root in _skill_roots(tmp_path):
         assert (root / "one").resolve() == (project_skills / "one").resolve()
         assert not (root / "two").exists()
+
+
+def test_configured_project_path_sources_skills_outside_workspace(tmp_path):
+    """Claude Code links project skills while keeping sessions in the workspace."""
+    project = tmp_path / "project"
+    workspace = project / ".reme"
+    skill = project / "skills" / "serper-search"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# Serper Search", encoding="utf-8")
+    wrapper = CcAgentWrapper(
+        app_context=ApplicationContext(workspace_dir=str(workspace)),
+        project_path="..",
+    )
+
+    opts = wrapper._build_options("hello", skills=["serper-search"])
+
+    assert opts.cwd == project
+    assert (project / ".claude" / "skills" / "serper-search").resolve() == skill
+    assert (workspace / "mem_session" / "claude_config" / "skills" / "serper-search").resolve() == skill
 
 
 def test_sdk_native_system_prompt_preset_is_preserved(tmp_path):

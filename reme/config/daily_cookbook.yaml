@@ -1,0 +1,89 @@
+app_name: ReMe Daily Cookbook
+workspace_dir: ${DAILY_PAPER_WORKSPACE_DIR:-.reme}
+timezone: Asia/Shanghai
+language: zh
+
+# This is a standalone application config. It intentionally does not inherit
+# default.yaml and listens on a separate port so it can run beside ReMe.
+service:
+  backend: http
+  host: ${DAILY_PAPER_HOST:-127.0.0.1}
+  port: ${DAILY_PAPER_PORT:-8001}
+
+jobs:
+  daily_paper:
+    backend: base
+    description: "Build detailed readings and a five-minute brief from Hugging Face weekly/monthly papers."
+    candidate_limit: &candidate_limit 20
+    memory_reserve: &memory_reserve 5
+    top_k: &top_k 3
+    rrf_k: &rrf_k 60
+    weekly_weight: &weekly_weight 0.7
+    history_days: &history_days 30
+    hf_timeout: &hf_timeout 30
+    hf_max_retries: &hf_max_retries 3
+    pdf_timeout: &pdf_timeout 90
+    max_pdf_bytes: &max_pdf_bytes 52428800
+    max_pdf_pages: &max_pdf_pages 80
+    max_pdf_chars: &max_pdf_chars 240000
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "Run date in YYYY-MM-DD; empty means today in Asia/Shanghai."
+          default: ""
+        force:
+          type: boolean
+          description: "Regenerate even when that day's final brief already exists."
+          default: false
+        top_k:
+          type: integer
+          description: "Number of papers selected by Claude Code."
+          default: 3
+        weekly_weight:
+          type: number
+          description: "Weekly contribution in reciprocal-rank fusion."
+          default: 0.7
+        history_days:
+          type: integer
+          description: "Prior recommendation window excluded by arXiv ID."
+          default: 30
+    steps: &daily_paper_steps
+      - backend: daily_paper_collect_step
+      - backend: daily_paper_rank_step
+      - backend: daily_paper_select_step
+        agent_wrapper: claude_code
+      - backend: daily_paper_analyze_step
+        agent_wrapper: claude_code
+      - backend: daily_paper_digest_step
+        agent_wrapper: claude_code
+
+  daily_paper_cron:
+    backend: cron
+    cron: "0 8 * * *"
+    candidate_limit: *candidate_limit
+    memory_reserve: *memory_reserve
+    top_k: *top_k
+    rrf_k: *rrf_k
+    weekly_weight: *weekly_weight
+    history_days: *history_days
+    hf_timeout: *hf_timeout
+    hf_max_retries: *hf_max_retries
+    pdf_timeout: *pdf_timeout
+    max_pdf_bytes: *max_pdf_bytes
+    max_pdf_pages: *max_pdf_pages
+    max_pdf_chars: *max_pdf_chars
+    steps: *daily_paper_steps
+
+components:
+  agent_wrapper:
+    claude_code:
+      backend: claude_code
+      project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
+      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+      skills:
+        - serper-search

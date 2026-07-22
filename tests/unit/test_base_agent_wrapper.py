@@ -1,11 +1,14 @@
 """Tests for shared agent wrapper behavior."""
 
+import sys
 from unittest.mock import MagicMock
 
 import pytest
 
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import base_agent_wrapper
+from reme.components.application_context import ApplicationContext
 from reme.components import base_component
 
 
@@ -55,3 +58,50 @@ def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch
 def test_agent_wrappers_declare_sdk_package(wrapper_class, sdk_package):
     """Each concrete backend identifies the distribution that provides its SDK."""
     assert wrapper_class.SDK_PACKAGE == sdk_package
+
+
+def test_project_path_is_independent_from_runtime_workspace(tmp_path):
+    """Project assets can live outside the runtime workspace."""
+    workspace = tmp_path / "project" / ".reme"
+    wrapper = _VersionedAgentWrapper(
+        app_context=ApplicationContext(workspace_dir=str(workspace)),
+        project_path="..",
+    )
+
+    assert wrapper.workspace_path == workspace
+    assert wrapper.project_path == tmp_path / "project"
+    assert wrapper.cwd == tmp_path / "project"
+    assert wrapper.project_skills_root == tmp_path / "project" / "skills"
+
+
+@pytest.mark.parametrize("wrapper_class", [AsAgentWrapper, CcAgentWrapper, CodexAgentWrapper])
+def test_agent_wrappers_share_project_skill_resolution(tmp_path, wrapper_class):
+    """Every backend resolves selected skills through the base project root."""
+    workspace = tmp_path / "project" / ".reme"
+    skill = tmp_path / "project" / "skills" / "one"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("# one", encoding="utf-8")
+    kwargs = {
+        "app_context": ApplicationContext(workspace_dir=str(workspace)),
+        "project_path": "..",
+    }
+    if wrapper_class is AsAgentWrapper:
+        kwargs["as_llm"] = ""
+    wrapper = wrapper_class(**kwargs)
+
+    assert wrapper._resolve_project_skills(["one", "one"]) == {"one": skill}  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_agentscope_backend_passes_configured_environment_to_bash(tmp_path, monkeypatch):
+    """AgentScope subprocesses receive config environment values explicitly."""
+    monkeypatch.setenv("REME_AGENT_ENV_TEST", "parent")
+    backend = WorkspaceBackend(str(tmp_path), {"REME_AGENT_ENV_TEST": "configured"})
+
+    result = await backend.exec_shell(
+        [sys.executable, "-c", "import os; print(os.environ['REME_AGENT_ENV_TEST'])"],
+        cwd=str(tmp_path),
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == b"configured\n"
