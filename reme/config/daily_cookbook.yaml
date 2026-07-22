@@ -57,14 +57,17 @@ jobs:
           default: 7
     steps:
       - backend: dream_extract_step
+        as_llm: memory
         agent_wrapper: memory
         file_catalog: dream
         topic_session_id: interests
         scan_days: 2
         max_units: 5
       - backend: dream_integrate_step
+        as_llm: memory
         agent_wrapper: memory
       - backend: dream_topics_step
+        as_llm: memory
         agent_wrapper: memory
         topic_count: 3
         topic_diversity_days: 7

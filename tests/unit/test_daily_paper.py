@@ -357,11 +357,13 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
     ]
     dream_steps = config["jobs"]["auto_dream"]["steps"]
     assert {
-        step["backend"]: step.get("agent_wrapper") for step in dream_steps if step["backend"] != "dream_finish_step"
+        step["backend"]: (step.get("as_llm"), step.get("agent_wrapper"))
+        for step in dream_steps
+        if step["backend"] != "dream_finish_step"
     } == {
-        "dream_extract_step": "memory",
-        "dream_integrate_step": "memory",
-        "dream_topics_step": "memory",
+        "dream_extract_step": ("memory", "memory"),
+        "dream_integrate_step": ("memory", "memory"),
+        "dream_topics_step": ("memory", "memory"),
     }
     assert set(config["components"]["agent_wrapper"]) == {"claude_code", "memory"}
     memory_llm = config["components"]["as_llm"]["memory"]
