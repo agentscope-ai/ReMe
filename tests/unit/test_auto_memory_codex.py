@@ -309,7 +309,10 @@ class TestResolvePath:
 
 @pytest.mark.asyncio
 async def test_load_jsonl(tmp_path: Path):
-    t = tmp_path / "r.jsonl"
+    # Simulate Codex's project/session layout: <project>/<session_id>.jsonl
+    project_dir = tmp_path / "my-project"
+    project_dir.mkdir()
+    t = project_dir / "r.jsonl"
     t.write_text("\n".join(json.dumps(_msg("user", pid=str(i))) for i in range(2)))
     result = await AutoMemoryCodexStep()._load_codex_transcript(str(t))
     assert len(result) == 2
