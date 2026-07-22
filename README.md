@@ -55,13 +55,11 @@ memory, then continuously indexes, links, and consolidates that memory for futur
   knowledge base that both users and agents can maintain.
 - **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
   reusable procedures, and periodic reflections as memory.
-- **Agent-powered information workflows**: Use cookbooks to turn external information into scheduled, file-native
-  outputs, such as ranking papers, analyzing PDFs, and generating a daily research brief.
 
 ## 📰 News
 
 - [2026.07] - Introduced optional Cookbook workflows, starting with
-  [Daily Paper](reme/steps/cookbook/daily_paper/) for scheduled paper discovery, agent-assisted PDF analysis, reusable
+  [Daily Paper](cookbook/daily_paper/README.md) for scheduled paper discovery, agent-assisted PDF analysis, reusable
   Markdown notes, and five-minute briefs.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -172,9 +170,9 @@ Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps.
 configuration; select the cookbook's standalone configuration when starting ReMe. Each new cookbook will be added as
 another row in this table.
 
-| Cookbook                                                                                    | Capability                                                                                                                                                                                                                          | Enable                                                                                                                               | Entry points and triggers                                                                                                          | Requirements                                                                                                                                                        | File outputs                                                                                                                                                                                                                                                                 |
-|---------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [Daily Paper](reme/steps/cookbook/daily_paper/) ([config](reme/config/daily_cookbook.yaml)) | Rank Hugging Face weekly/monthly papers, exclude yesterday's and recent recommendations, use the configured agent to select and analyze PDFs, and produce a five-minute brief. DingTalk delivery and agent chat are also supported. | `reme start config=daily_cookbook` starts a standalone HTTP service on `127.0.0.1:8001`; it can run beside the default ReMe service. | `daily_paper`: on demand<br>`daily_paper_cron`: every day at 08:00 (`Asia/Shanghai`)<br>`dingtalk_wait`: background DingTalk agent | Network access; choose AgentScope (`LLM_*`), Claude Code (`CLAUDE_CODE_*`), or Codex (`CODEX_*`/OAuth). DingTalk credentials are needed only for DingTalk features. | <code>resource/papers/&lt;arxiv-id&gt;.pdf<br>daily/<br>&nbsp;&nbsp;&nbsp;├── YYYY-MM-DD.md<br>&nbsp;&nbsp;&nbsp;└── YYYY-MM-DD/<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── paper-&lt;arxiv-id&gt;.md<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── daily-paper-brief.md</code> |
+| Cookbook    | Capability                                                                                                    | Introduction                             |
+|-------------|---------------------------------------------------------------------------------------------------------------|------------------------------------------|
+| Daily Paper | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. | [README](cookbook/daily_paper/README.md) |
 
 ## 📁 Memory System
 

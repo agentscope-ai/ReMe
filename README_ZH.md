@@ -48,12 +48,10 @@ Agent 能够可靠召回。
 - **Coding agents**：在接入 [Claude Code](plugins/reme) 等 coding agent 时，跨会话保留代码风格、项目背景、仓库决策和流程经验。
 - **LLM Wiki**：把对话、笔记和资料转化为可检索、可追溯、可链接的 Markdown 知识库，由用户和 Agent 共同维护。
 - **Self-evolving agents**：帮助 Agent 从经验中学习，把成功路径、失败尝试、可复用流程和阶段性反思沉淀为记忆。
-- **Agent 驱动的信息工作流**：通过 cookbook 将外部信息加工为定时生成、文件化保存的结果，例如论文排序、PDF
-  解读和每日研究简报。
 
 ## 📰 新闻
 
-- [2026.07] - 新增可选的 Cookbook 工作流，首个能力为 [每日论文](reme/steps/cookbook/daily_paper/)，支持定时发现论文、
+- [2026.07] - 新增可选的 Cookbook 工作流，首个能力为 [每日论文](cookbook/daily_paper/README_ZH.md)，支持定时发现论文、
   Agent 辅助解析 PDF、沉淀可复用的 Markdown 笔记并生成五分钟简报。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -163,9 +161,9 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的
 独立配置即可启用。后续新增的 cookbook 会继续在表格中按行追加。
 
-| Cookbook                                                                        | 能力                                                                                            | 开启方式                                                                                 | 入口与触发方式                                                                                          | 依赖条件                                                                                              | 文件产物                                                                                                                                                                                                                                                                         |
-|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [每日论文](reme/steps/cookbook/daily_paper/)（[配置](reme/config/daily_cookbook.yaml)） | 对 Hugging Face 周榜/月榜论文进行排序，排除昨日论文和近期已推荐论文，使用配置的 Agent 筛选并解析 PDF，生成五分钟论文简报；同时支持钉钉投递和 Agent 对话。 | `reme start config=daily_cookbook`：在 `127.0.0.1:8001` 启动独立 HTTP 服务，可与默认 ReMe 服务并行运行。 | `daily_paper`：手动执行<br>`daily_paper_cron`：每天 08:00（`Asia/Shanghai`）<br>`dingtalk_wait`：后台钉钉 Agent | 可访问网络；可选 AgentScope（`LLM_*`）、Claude Code（`CLAUDE_CODE_*`）或 Codex（`CODEX_*`/OAuth）。仅使用钉钉能力时需要钉钉凭据。 | <code>resource/papers/&lt;arxiv-id&gt;.pdf<br>daily/<br>&nbsp;&nbsp;&nbsp;├── YYYY-MM-DD.md<br>&nbsp;&nbsp;&nbsp;└── YYYY-MM-DD/<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── paper-&lt;arxiv-id&gt;.md<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── daily-paper-brief.md</code> |
+| Cookbook | 能力                                       | 介绍                                        |
+|----------|------------------------------------------|-------------------------------------------|
+| 每日论文     | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。 | [使用说明](cookbook/daily_paper/README_ZH.md) |
 
 ## 📁 记忆系统
 
