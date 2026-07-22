@@ -54,7 +54,7 @@ class BaseAgenticAnswerStep(BaseStep):
             tool_context_id = f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_local"
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["search", "add_draft", "read_all_draft"],
+            "job_tools": ["search", "add_draft", "read_all_draft","read"],
             "react_config": {"max_iters": self.MAX_ITERATION},
             "tool_context_id": tool_context_id,
         }

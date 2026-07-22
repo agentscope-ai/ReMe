@@ -5,6 +5,8 @@ system_prompt: |
   ## Search Strategy
   - You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.
   - Do not stop after the first relevant one unless you are confident that the information is sufficient.
+  - You can use 'read' tool to read specific parts of a specific file.
+  
   ## Draft Tool
   - Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.
   ## Answer Rules

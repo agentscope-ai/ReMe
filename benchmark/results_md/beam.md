@@ -23,14 +23,14 @@
 
 | 题型 | Prompted(limit=15) | Prompted Binary | Agentic | Agentic Binary |
 |---|---|---|---|---|
-| abstention | 0.464 | 0.464 | 0.514 | 0.514 |
-| contradiction_resolution | 0.079 | 0.068 | 0.373 | 0.339 |
-| event_ordering | 0.455 | 0.334 | 0.547 | 0.450 |
-| information_extraction | 0.653 | 0.589 | 0.818 | 0.764 |
-| instruction_following | 0.541 | 0.524 | 0.765 | 0.745 |
-| knowledge_update | 0.571 | 0.507 | 0.636 | 0.629 |
-| multi_session_reasoning | 0.426 | 0.324 | 0.593 | 0.540 |
-| preference_following | 0.718 | 0.676 | 0.838 | 0.824 |
-| summarization | 0.516 | 0.303 | 0.661 | 0.478 |
-| temporal_reasoning | 0.198 | 0.169 | 0.394 | 0.383 |
-| **OVERALL** | **0.462** | **0.396** | **0.614** | **0.567** |
+| abstention | 0.464 | 0.464 | 0.464 | 0.464 |
+| contradiction_resolution | 0.079 | 0.068 | 0.379 | 0.346 |
+| event_ordering | 0.455 | 0.334 | 0.535 | 0.442 |
+| information_extraction | 0.653 | 0.589 | 0.795 | 0.758 |
+| instruction_following | 0.541 | 0.524 | 0.774 | 0.758 |
+| knowledge_update | 0.571 | 0.507 | 0.693 | 0.679 |
+| multi_session_reasoning | 0.426 | 0.324 | 0.656 | 0.602 |
+| preference_following | 0.718 | 0.676 | 0.805 | 0.796 |
+| summarization | 0.516 | 0.303 | 0.672 | 0.504 |
+| temporal_reasoning | 0.198 | 0.169 | 0.462 | 0.448 |
+| **OVERALL** | **0.462** | **0.396** | **0.623** | **0.580** |
