@@ -295,6 +295,7 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
         },
     ]
     dingtalk_wait = config["components"]["agent_wrapper"]["dingtalk_wait"]
+    assert dingtalk_wait["skills"] == ["tushare-data"]
     assert dingtalk_wait["job_tools"] == ["search"]
     assert dingtalk_wait["system_prompt"] == {
         "type": "preset",
