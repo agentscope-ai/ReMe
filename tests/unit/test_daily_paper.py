@@ -1,8 +1,11 @@
 """Focused tests for the daily-paper cookbook workflow."""
 
 import datetime as dt
+import importlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 from unittest.mock import MagicMock
 
 import frontmatter
@@ -25,6 +28,7 @@ from reme.steps.cookbook.daily_paper import analyze, collect
 from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
+from reme.utils import arxiv as arxiv_utils
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 
 
@@ -116,6 +120,32 @@ def test_history_exclusion_reads_prior_frontmatter_only(tmp_path: Path):
     assert found == {"2607.10001"}
 
 
+@pytest.mark.asyncio
+async def test_arxiv_pdf_downloads_missing_cache_once(tmp_path: Path, monkeypatch):
+    """A missing PDF is downloaded atomically and then reused on the next lookup."""
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=b"%PDF-downloaded")
+
+    transport = httpx.MockTransport(handler)
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        arxiv_utils.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(transport=transport, **kwargs),
+    )
+    target = tmp_path / "resource" / "papers" / "2607.10001.pdf"
+    client = arxiv_utils.ArxivPdfClient()
+
+    assert await client.download("2607.10001", target) == target
+    assert await client.download("2607.10001", target) == target
+
+    assert target.read_bytes() == b"%PDF-downloaded"
+    assert [str(request.url) for request in requests] == ["https://arxiv.org/pdf/2607.10001"]
+
+
 def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
     """The standalone config schedules 08:00 and routes all agent work to CC."""
     for name in (
@@ -177,6 +207,33 @@ def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):
         "robot_code": "robot-code",
         "conversation_ids": "group-one,group-two",
     }
+
+
+def test_reme_import_does_not_require_optional_dingtalk_stream():
+    """Importing ReMe must not eagerly load the core-only DingTalk dependency."""
+    script = """
+import builtins
+
+original_import = builtins.__import__
+
+def guarded_import(name, *args, **kwargs):
+    if name == "dingtalk_stream":
+        raise ModuleNotFoundError("blocked optional dependency")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+import reme
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.asyncio
@@ -263,6 +320,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     )
     app_context = ApplicationContext(
         workspace_dir=str(tmp_path),
+        resource_dir="external-assets",
         timezone="Asia/Shanghai",
         language="zh",
     )
@@ -285,7 +343,10 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert context.response.metadata["excluded_history_count"] == 1
     note_path = tmp_path / "daily" / "2026-07-21" / "paper-2607.10001.md"
     digest_path = tmp_path / "daily" / "2026-07-21" / "daily-paper-brief.md"
-    assert frontmatter.load(note_path).metadata["arxiv_id"] == "2607.10001"
+    note = frontmatter.load(note_path)
+    assert note.metadata["arxiv_id"] == "2607.10001"
+    assert note.metadata["source_pdf"] == "[[external-assets/papers/2607.10001.pdf]]"
+    assert (tmp_path / "external-assets" / "papers" / "2607.10001.pdf").is_file()
     assert "[[daily/2026-07-21/paper-2607.10001.md]]" in digest_path.read_text(
         encoding="utf-8",
     )
@@ -345,7 +406,8 @@ async def test_dingtalk_markdown_sends_groups_serially_in_configured_order(tmp_p
         transport_kwargs.update(kwargs)
         return transport
 
-    monkeypatch.setattr(dingtalk_send.dingtalk_stream.DingTalkStreamClient, "get_access_token", get_access_token)
+    dingtalk_stream = importlib.import_module("dingtalk_stream")
+    monkeypatch.setattr(dingtalk_stream.DingTalkStreamClient, "get_access_token", get_access_token)
     monkeypatch.setattr(dingtalk_send.httpx, "AsyncHTTPTransport", ipv4_transport)
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
     context = RuntimeContext(markdown_path="daily/2026-07-21/daily-paper-brief.md")
@@ -400,8 +462,9 @@ async def test_existing_daily_paper_is_reused_and_sent_to_dingtalk(tmp_path: Pat
     )
     seen_payloads: list[dict] = []
 
+    dingtalk_stream = importlib.import_module("dingtalk_stream")
     monkeypatch.setattr(
-        dingtalk_send.dingtalk_stream.DingTalkStreamClient,
+        dingtalk_stream.DingTalkStreamClient,
         "get_access_token",
         lambda _client: "app-access-token",
     )

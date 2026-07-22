@@ -122,7 +122,8 @@ class _CardRenderer:
         body = body if len(body) <= _BLOCK_CHAR_LIMIT else f"{body[:_BLOCK_CHAR_LIMIT]}..."
         if block.chunk_type == ChunkEnum.TOOL_CALL:
             name = block.name or self._metadata_name(block) or "tool"
-            title = f"### 🔧 Tool Call · `{name.replace('`', "'")}`"
+            safe_name = name.replace("`", "'")
+            title = f"### 🔧 Tool Call · `{safe_name}`"
         else:
             title = "### 📦 Tool Result"
 

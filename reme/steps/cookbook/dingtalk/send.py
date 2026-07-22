@@ -4,7 +4,6 @@ import asyncio
 import json
 
 import aiofiles
-import dingtalk_stream
 import frontmatter
 import httpx
 
@@ -74,6 +73,8 @@ class DingTalkMarkdownSendStep(BaseStep):
         markdown = document.content.strip()
         if not markdown:
             raise ValueError(f"DingTalk Markdown file is empty: {raw_path}")
+
+        import dingtalk_stream  # pylint: disable=import-outside-toplevel
 
         title = self.title or str(document.metadata.get("name") or target.stem)
         token_client = dingtalk_stream.DingTalkStreamClient(
