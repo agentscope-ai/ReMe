@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import frontmatter
 import httpx
@@ -91,6 +91,7 @@ async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
     monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
     events: list[str] = []
     client_kwargs: dict = {}
+    logger = MagicMock()
 
     @asynccontextmanager
     async def fake_proxy(*, connect_timeout):
@@ -112,12 +113,45 @@ async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
     monkeypatch.setattr(hf_utils, "ssh_socks_proxy", fake_proxy)
     monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
 
-    client = hf_utils.HuggingFacePapersClient(timeout=12.0)
+    client = hf_utils.HuggingFacePapersClient(timeout=12.0, logger=logger)
     assert client.client is None
     async with client:
         assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
 
     assert events == ["proxy-start", "client-close", "proxy-stop"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
+    assert info_messages[-1] == "[HuggingFacePapersClient] SSH proxy closed"
+
+
+@pytest.mark.asyncio
+async def test_hf_client_logs_retry_after_http_error(monkeypatch):
+    """Transient HTTP failures report the attempt before retrying."""
+    attempts = 0
+    logger = MagicMock()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectTimeout("timed out", request=request)
+        return httpx.Response(200, json=[])
+
+    sleep = AsyncMock()
+    monkeypatch.setattr(hf_utils.asyncio, "sleep", sleep)
+    async with httpx.AsyncClient(
+        base_url="https://huggingface.co",
+        transport=httpx.MockTransport(handler),
+    ) as raw_client:
+        client = hf_utils.HuggingFacePapersClient(client=raw_client, max_retries=2, logger=logger)
+        paper_ids = await client.fetch_daily_ids("2026-07-22")
+
+    assert paper_ids == set()
+    assert attempts == 2
+    sleep.assert_awaited_once_with(0.25)
+    warning = logger.warning.call_args.args[0]
+    assert "request retry path=/api/daily_papers attempt=1/2" in warning
+    assert "error=ConnectTimeout detail=timed out" in warning
 
 
 def test_rrf_and_memory_candidate_reserve():
@@ -175,13 +209,87 @@ async def test_arxiv_pdf_downloads_missing_cache_once(tmp_path: Path, monkeypatc
         lambda **kwargs: async_client(transport=transport, **kwargs),
     )
     target = tmp_path / "resource" / "papers" / "2607.10001.pdf"
-    client = arxiv_utils.ArxivPdfClient()
+    logger = MagicMock()
+    client = arxiv_utils.ArxivPdfClient(logger=logger)
 
     assert await client.download("2607.10001", target) == target
     assert await client.download("2607.10001", target) == target
 
     assert target.read_bytes() == b"%PDF-downloaded"
     assert [str(request.url) for request in requests] == ["https://arxiv.org/pdf/2607.10001"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert "download start arxiv_id=2607.10001" in info_messages[0]
+    assert "download done arxiv_id=2607.10001" in info_messages[1]
+    assert "cache hit arxiv_id=2607.10001" in logger.debug.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
+    """The arXiv HTTP client closes before its temporary SSH proxy stops."""
+    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
+    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+    events: list[str] = []
+    client_kwargs: dict = {}
+    logger = MagicMock()
+
+    @asynccontextmanager
+    async def fake_proxy(*, connect_timeout):
+        assert connect_timeout == 12.0
+        events.append("proxy-start")
+        yield "socks5://127.0.0.1:43123"
+        events.append("proxy-stop")
+
+    class FakeResponse:
+        """Return one small, valid PDF stream."""
+
+        headers = {"content-length": "12"}
+
+        def raise_for_status(self):
+            """Match the successful httpx response interface."""
+
+        async def aiter_bytes(self):
+            """Yield the fake PDF body."""
+            yield b"%PDF-proxied"
+
+    class FakeStream:
+        """Async response context returned by the HTTP client."""
+
+        async def __aenter__(self):
+            return FakeResponse()
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+    class FakeAsyncClient:
+        """Capture client construction and cleanup without network access."""
+
+        def __init__(self, **kwargs):
+            """Capture HTTPX construction arguments."""
+            client_kwargs.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            events.append("client-close")
+
+        def stream(self, method, url):
+            """Return the fake streaming response context."""
+            assert (method, url) == ("GET", "https://arxiv.org/pdf/2607.10001")
+            return FakeStream()
+
+    monkeypatch.setattr(arxiv_utils, "ssh_socks_proxy", fake_proxy)
+    monkeypatch.setattr(arxiv_utils.httpx, "AsyncClient", FakeAsyncClient)
+    target = tmp_path / "2607.10001.pdf"
+
+    assert await arxiv_utils.ArxivPdfClient(timeout=12.0, logger=logger).download("2607.10001", target) == target
+
+    assert target.read_bytes() == b"%PDF-proxied"
+    assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
+    assert events == ["proxy-start", "client-close", "proxy-stop"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
+    assert any("SSH proxy closed arxiv_id=2607.10001" in message for message in info_messages)
 
 
 def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
