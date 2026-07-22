@@ -170,9 +170,9 @@ Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps.
 configuration; select the cookbook's standalone configuration when starting ReMe. Each new cookbook will be added as
 another row in this table.
 
-| Cookbook                                           | Capability                                                                                                    |
-|----------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| [Daily Paper](cookbook/daily_paper/README.md)      | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
+| Cookbook                                      | Capability                                                                                                    |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| [Daily Paper](cookbook/daily_paper/README.md) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
 
 ## 📁 Memory System
 
