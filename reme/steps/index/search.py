@@ -139,7 +139,21 @@ class SearchStep(BaseStep):
         query: str = (self.context.get("query", "") or "").strip()
         limit: int = int(self.context.get("limit") or _default_limit())
         min_score: float = float(self.context.get("min_score") or 0.0)
-        vector_weight: float = float(self.kwargs.get("vector_weight", 0.7))
+        # vector_weight: prefer agent-supplied context value; fallback to YAML kwargs / default 0.7.
+        # Convertible numeric inputs are clipped to [0.0, 1.0]; non-numeric inputs are silently ignored.
+        raw_vw = self.context.get("vector_weight")
+        vector_weight: float | None = None
+        if raw_vw is not None:
+            try:
+                vector_weight = float(raw_vw)
+            except (TypeError, ValueError):
+                self.logger.warning(
+                    f"[{self.name}] non-numeric vector_weight={raw_vw!r}; ignoring and using default 0.7",
+                )
+                vector_weight = None
+        if vector_weight is None:
+            vector_weight = float(self.kwargs.get("vector_weight", 0.7))
+        vector_weight = max(0.0, min(1.0, vector_weight))
         candidate_multiplier: float = float(self.kwargs.get("candidate_multiplier", 5.0))
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
@@ -152,7 +166,6 @@ class SearchStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = "Error: query cannot be empty"
             return self.context.response
-        assert 0.0 <= vector_weight <= 1.0, f"vector_weight must be in [0, 1], got {vector_weight}"
         assert limit > 0, f"limit must be positive, got {limit}"
 
         candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))

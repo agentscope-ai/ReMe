@@ -1,4 +1,4 @@
-"""auto_memory (lme) — AutoMemoryStep with timestamp interpolation and daily_write date default."""
+"""auto_memory (beam) — AutoMemoryStep with timestamp interpolation and daily_write date default."""
 
 from datetime import datetime, timedelta
 
@@ -115,8 +115,8 @@ def _interpolate_timestamps(items: list[dict]) -> list[dict]:
     return result
 
 
-@R.register("lme_auto_memory_step")
-class LmeAutoMemoryStep(AutoMemoryStep):
+@R.register("beam_auto_memory_step")
+class BeamAutoMemoryStep(AutoMemoryStep):
     """AutoMemoryStep variant that interpolates timestamps and pins daily_write to the resolved day."""
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:

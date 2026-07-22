@@ -4,14 +4,11 @@ system_prompt: |
 
   ## Search Strategy
   - You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.
-  - Do not stop after the first relevant one unless you are confident that the information is sufficient.
   ## Draft Tool
   - Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.
   ## Answer Rules
   - Answer based ONLY on retrieved context.
-  - If the memories contain contradictory information, integrate the context, query, and most importantly the timestamp of each memory to comprehensively determine the final answer.
   - Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.
-  - Do NOT invent or assume information that isn't in the memories.
   - If information is not founded or not sufficient after multiple searches, reply: 'Information not found.'
 
 temporal_hint: |

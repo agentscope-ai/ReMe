@@ -224,6 +224,22 @@ class AutoMemoryStep(BaseStep):
         days = [day for msg in messages if (day := extract_daily_date(msg.created_at))]
         return max(days) if days else None
 
+    def _build_messages(self, raw_messages: list) -> list[Msg]:
+        """Convert raw message payloads into ``Msg`` objects.
+
+        Overridable hook: subclasses can preprocess ``raw_messages`` (e.g. fill
+        in missing timestamps) before conversion.
+        """
+        return [self._to_msg(item) for item in raw_messages]
+
+    def _reply_extra_kwargs(self, day: str) -> dict:  # pylint: disable=unused-argument
+        """Extra keyword arguments for ``agent_wrapper.reply``.
+
+        Overridable hook: subclasses can inject additional reply options such
+        as per-tool defaults keyed on ``day``.
+        """
+        return {}
+
     # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
@@ -234,7 +250,7 @@ class AutoMemoryStep(BaseStep):
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
         current = now(tz)
 
-        messages: list[Msg] = [self._to_msg(item) for item in raw_messages]
+        messages: list[Msg] = self._build_messages(raw_messages)
         self.logger.info(
             f"[{self.name}] start session_id={session_id!r} raw_messages={len(raw_messages)} "
             f"messages={len(messages)} hint={bool(memory_hint)}",
@@ -300,6 +316,7 @@ class AutoMemoryStep(BaseStep):
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
             job_tools=self.create_tools if created else self.update_tools,
+            **self._reply_extra_kwargs(day),
         )
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 

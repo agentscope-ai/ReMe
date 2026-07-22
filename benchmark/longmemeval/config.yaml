@@ -1,0 +1,32 @@
+# LongMemEval evaluation configuration
+# This file controls what/how to evaluate.
+
+dataset:
+  path: "benchmark/datasets/longmemeval/longmemeval_s_reme_cleaned.json"
+  start_index: 0             # first item index
+  num_items: 500           # how many items to evaluate (starting from start_index)
+  max_sessions: 0            # 0 = all sessions; >0 = limit sessions per item for testing
+  question_types: []         # filter by question_type; empty list = no filtering (all types)
+  workspace_root: "benchmark/memory_workspaces/longmemeval-s"  # workspace root for item workspaces
+
+evaluation:
+  # LLM-as-judge uses the 'judge' as_llm component defined in lme.yaml
+  # Model and credentials are configured there (reading from .env)
+  # Judgment is always binary (yes/no) — defined in lme/llm_judge.yaml
+  num_workers: 32            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
+  filter_future_sessions: true  # true = only ingest sessions with timestamp <= question_date
+
+reme:
+  config: "lme.yaml" # reme config to use (in reme/config/)
+  # Dream trigger: when gap between consecutive sessions crosses this hour (23:00)
+  dream_trigger_hour: 23
+  # Dream scan_days for each trigger
+  dream_scan_days: 2
+  dream_max_units: 5
+
+output:
+  dir: "benchmark/results/longmemeval"
+  log_dir: "logs"                # log directory (relative to project root)
+  log_prefix: "longmemeval"      # benchmark name used in log filenames
+  log_to_console: true
+  log_to_file: true
