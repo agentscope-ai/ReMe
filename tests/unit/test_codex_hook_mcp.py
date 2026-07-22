@@ -202,6 +202,12 @@ def test_result_status_error_from_real_mcp_response():
     assert auto_memory._result_status(mcp_result) == "error"
 
 
+def test_result_status_error_from_answer_text():
+    """_result_status must detect 'Error:' in MCP answer text."""
+    mcp_result = _tool_result("Error: could not resolve transcript path")
+    assert auto_memory._result_status(mcp_result) == "error"
+
+
 def test_result_status_ok_from_real_mcp_response():
     mcp_result = _tool_result("Recorded 3 facts into daily/2026-07-20/auth.md")
     assert auto_memory._result_status(mcp_result) == "ok"

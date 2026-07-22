@@ -66,6 +66,8 @@ def _result_status(result: dict | None) -> str:
                 break
     if answer.startswith("Skipped"):
         return "skipped"
+    if answer.startswith("Error:"):
+        return "error"
     return "ok"
 
 

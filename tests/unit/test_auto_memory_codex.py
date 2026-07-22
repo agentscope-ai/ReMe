@@ -339,7 +339,8 @@ async def test_dedup_by_call_id(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_filters_rows_without_id_or_call_id(tmp_path, monkeypatch):
+async def test_id_less_entries_not_discarded(tmp_path, monkeypatch):
+    """Entries without payload.id or call_id are kept, using content hash for dedup."""
     step = AutoMemoryCodexStep()
     monkeypatch.setattr(step, "_codex_store", lambda: _store(tmp_path / "codex"))
     inc = await step._save_codex_session(
@@ -349,7 +350,50 @@ async def test_filters_rows_without_id_or_call_id(tmp_path, monkeypatch):
             {"type": "response_item", "payload": {"type": "message", "role": "user", "content": "no id"}},
         ],
     )
-    assert len(inc) == 1
+    assert len(inc) == 2  # both kept, id-less entry uses content hash
+
+
+@pytest.mark.asyncio
+async def test_id_less_message_rendered_and_deduped(tmp_path, monkeypatch):
+    """An id-less user message survives dedup and is rendered correctly."""
+    id_less = {
+        "type": "response_item",
+        "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "remember me"}]},
+    }
+    step = AutoMemoryCodexStep()
+    monkeypatch.setattr(step, "_codex_store", lambda: _store(tmp_path / "codex"))
+
+    # First save — saved
+    inc1 = await step._save_codex_session("s1", [id_less])
+    assert len(inc1) == 1
+
+    # Second save with same content — deduped, empty increment
+    inc2 = await step._save_codex_session("s1", [id_less])
+    assert len(inc2) == 0
+
+    # Rendering still works
+    msgs = AutoMemoryCodexStep._codex_entries_to_messages([id_less])
+    assert len(msgs) == 1
+    assert msgs[0]["content"] == "remember me"
+
+
+@pytest.mark.asyncio
+async def test_different_id_less_messages_not_collapsed(tmp_path, monkeypatch):
+    """Two id-less messages with different content get different hash keys,
+    so the second is not falsely treated as a duplicate."""
+    msg_a = {
+        "type": "response_item",
+        "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "I like Go"}]},
+    }
+    msg_b = {
+        "type": "response_item",
+        "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "I like Rust"}]},
+    }
+    step = AutoMemoryCodexStep()
+    monkeypatch.setattr(step, "_codex_store", lambda: _store(tmp_path / "codex"))
+
+    inc = await step._save_codex_session("s1", [msg_a, msg_b])
+    assert len(inc) == 2  # both kept, different hash keys
 
 
 def _store(root: Path):

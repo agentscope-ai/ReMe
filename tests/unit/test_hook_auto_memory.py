@@ -38,6 +38,15 @@ class TestResultStatus:
         }
         assert auto_memory._result_status(result) == "skipped"
 
+    def test_error_when_answer_starts_with_error(self):
+        """ReMe returns response.answer even when response.success is False."""
+        result = {
+            "result": {
+                "content": [{"type": "text", "text": "Error: could not resolve transcript path"}],
+            },
+        }
+        assert auto_memory._result_status(result) == "error"
+
     def test_ok_when_answer_has_content(self):
         result = {
             "result": {

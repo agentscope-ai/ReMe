@@ -7,7 +7,13 @@ description: Use ReMe as file-native long-term memory in Codex. RECALL — searc
 
 ReMe is the persistent, file-native memory layer for this agent. It stores conversations and
 resources as Markdown files with frontmatter and `[[wikilinks]]`, and consolidates them into
-long-term **digest** knowledge. Your job with this plugin is **recall**.
+long-term **digest** knowledge. Your job with this plugin is **recall only**.
+
+**Recording is fully automatic.** A Stop hook fires when the session ends and calls
+`auto_memory_codex`, which reads the transcript, extracts durable facts with an LLM, and writes
+them into `daily/`. Never call `auto_memory_codex`, `write`, `daily_write`, `edit`, or any other
+write tool to record memory yourself. If a user asks you to remember something, just acknowledge
+it — the hook will record it automatically when the session ends.
 
 The recall tools come from the `reme` MCP server (surfaced as `mcp__reme__…`): `search`, `traverse`,
 `daily_list`, `frontmatter_read`, `read`. They are only available when the user has the server
