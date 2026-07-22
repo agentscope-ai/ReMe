@@ -2,13 +2,12 @@
 
 import asyncio
 import datetime as dt
-import json
 from pathlib import Path
 
 import frontmatter
 
 from ....components import R
-from ....schema import PaperInfo
+from ....schema import PaperInfo, PaperSelection
 from ....utils.arxiv import ARXIV_ID_PATTERN
 from ....utils.huggingface_papers import HuggingFacePapersClient
 from ...evolve import now
@@ -70,6 +69,47 @@ class DailyPaperCollectStep(DailyPaperStep):
         return found
 
     @staticmethod
+    def load_saved_selection(digest_path: Path) -> dict | None:
+        """Rebuild the saved selection from the digest and paper-note frontmatter."""
+        try:
+            digest_metadata = frontmatter.load(digest_path).metadata
+        except (OSError, UnicodeError, ValueError):
+            return None
+        arxiv_ids = digest_metadata.get("arxiv_ids")
+        if not isinstance(arxiv_ids, list) or not arxiv_ids:
+            return None
+
+        selected = []
+        for rank, value in enumerate(arxiv_ids, start=1):
+            arxiv_id = str(value or "").strip()
+            if not ARXIV_ID_PATTERN.fullmatch(arxiv_id):
+                return None
+            try:
+                note_metadata = frontmatter.load(digest_path.parent / f"paper-{arxiv_id}.md").metadata
+            except (OSError, UnicodeError, ValueError):
+                return None
+            selected.append(
+                {
+                    "arxiv_id": arxiv_id,
+                    "rank": rank,
+                    "reason": str(note_metadata.get("selection_reason") or "").strip(),
+                    "memory_relevance": note_metadata.get("memory_relevance"),
+                },
+            )
+
+        try:
+            selection = PaperSelection.model_validate(
+                {
+                    "selection_reasoning": str(digest_metadata.get("selection_reasoning") or "").strip(),
+                    "selected": selected,
+                    "alternates": digest_metadata.get("alternate_arxiv_ids") or [],
+                },
+            )
+        except (TypeError, ValueError):
+            return None
+        return selection.model_dump()
+
+    @staticmethod
     def _merge_paper(existing: PaperInfo | None, incoming: PaperInfo) -> PaperInfo:
         if existing is None:
             return incoming.model_copy(deep=True)
@@ -93,20 +133,15 @@ class DailyPaperCollectStep(DailyPaperStep):
         digest_rel = f"{daily_dir}/{day}/daily-paper-brief.md"
         force = bool(self._value("force", False))
         self.logger.info(f"[{self.name}] start date={day} force={force}")
-        if (self.workspace_path / digest_rel).is_file() and not force:
+        digest_path = self.workspace_path / digest_rel
+        if digest_path.is_file() and not force:
             self._set_state("skip", True)
             self._set_state("digest_path", digest_rel)
             self.context.response.success = True
             self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
             self.context.response.metadata.update({"date": day, "digest_path": digest_rel, "skipped": True})
-            manifest_path = self._manifest_path(day)
-            if manifest_path.is_file():
-                try:
-                    self.context.response.metadata["selection"] = json.loads(
-                        manifest_path.read_text(encoding="utf-8"),
-                    ).get("selection")
-                except (OSError, UnicodeError, json.JSONDecodeError):
-                    pass
+            if selection := self.load_saved_selection(digest_path):
+                self.context.response.metadata["selection"] = selection
             self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
             return self.context.response
 

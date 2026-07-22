@@ -350,12 +350,10 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "[[daily/2026-07-21/paper-2607.10001.md]]" in digest_path.read_text(
         encoding="utf-8",
     )
-    manifest = json.loads(
-        (tmp_path / "metadata" / "daily_paper" / "2026-07-21.json").read_text(),
-    )
-    assert manifest["status"] == "complete"
-    assert manifest["thinking"] == "Best remaining ranked paper."
-    assert manifest["top_arxiv_ids"] == ["2607.10001"]
+    assert not (tmp_path / "metadata" / "daily_paper" / "2026-07-21.json").exists()
+    digest = frontmatter.load(digest_path)
+    assert digest.metadata["selection_reasoning"] == "Best remaining ranked paper."
+    assert digest.metadata["arxiv_ids"] == ["2607.10001"]
     assert all(set(call["kwargs"]) == {"output_schema"} for call in cc_wrapper.calls)
     assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
         PaperSelection,
@@ -370,6 +368,18 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     rerun = RuntimeContext(date="2026-07-21")
     await DailyPaperCollectStep(app_context=app_context)(rerun)
     assert rerun.response.metadata["skipped"] is True
+    assert rerun.response.metadata["selection"] == {
+        "selection_reasoning": "Best remaining ranked paper.",
+        "selected": [
+            {
+                "arxiv_id": "2607.10001",
+                "rank": 1,
+                "reason": "Strong result",
+                "memory_relevance": "low",
+            },
+        ],
+        "alternates": [],
+    }
     assert rerun.get("daily_paper_digest_path") == "daily/2026-07-21/daily-paper-brief.md"
     assert _FakeHfClient.requested_daily == ["2026-07-20"]
 

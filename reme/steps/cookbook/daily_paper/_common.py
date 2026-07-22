@@ -1,6 +1,5 @@
 """Shared state and file helpers for daily-paper steps."""
 
-import json
 import os
 import re
 from pathlib import Path
@@ -76,16 +75,3 @@ class DailyPaperStep(BaseStep):
         if not value:
             raise RuntimeError("daily-paper run date is not initialized")
         return str(value)
-
-    def _manifest_path(self, day: str) -> Path:
-        return self.workspace_path / self.config_value("metadata_dir") / "daily_paper" / f"{day}.json"
-
-    async def _write_manifest(self, payload: dict[str, Any]) -> Path:
-        path = self._manifest_path(self._run_day())
-        await write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
-        self._set_state("manifest", payload)
-        self.logger.info(
-            f"[{self.name}] manifest written path={self.to_workspace_relative(path)} "
-            f"status={payload.get('status', '')}",
-        )
-        return path

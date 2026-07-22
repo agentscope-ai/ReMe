@@ -86,29 +86,6 @@ class DailyPaperSelectStep(DailyPaperStep):
         selected_papers = [candidate_map[item.arxiv_id] for item in selection.selected]
         self._set_state("selection", selection)
         self._set_state("selected_papers", selected_papers)
-        await self._write_manifest(
-            {
-                "date": self._run_day(),
-                "status": "selected",
-                "week": self._state("week"),
-                "month": self._state("month"),
-                "yesterday": self._state("yesterday"),
-                "source_counts": self._state("source_counts"),
-                "excluded_yesterday": self._state("excluded_yesterday"),
-                "excluded_history": self._state("excluded_history"),
-                "thinking": selection.selection_reasoning,
-                "top_arxiv_ids": [item.arxiv_id for item in selection.selected],
-                "selection": selection.model_dump(),
-                "scores": {
-                    paper.arxiv_id: {
-                        "fused_score": paper.fused_score,
-                        "monthly_rank": paper.monthly_rank,
-                        "weekly_rank": paper.weekly_rank,
-                    }
-                    for paper in selected_papers
-                },
-            },
-        )
         self.context.response.answer = f"Selected {top_k} papers with Claude Code"
         self.logger.info(
             f"[{self.name}] finish selected={','.join(item.arxiv_id for item in selection.selected)}",

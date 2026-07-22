@@ -60,6 +60,8 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "description": output.description.strip(),
                 "date": day,
                 "arxiv_ids": selected_ids,
+                "selection_reasoning": selection.selection_reasoning,
+                "alternate_arxiv_ids": selection.alternates,
                 "source_notes": wikilinks,
                 "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             },
@@ -70,16 +72,6 @@ class DailyPaperDigestStep(DailyPaperStep):
         await refresh_day_index(SimpleNamespace(workspace_path=self.workspace_path), day, daily_dir)
         self.logger.info(f"[{self.name}] refresh index done date={day}")
 
-        manifest = dict(self._state("manifest") or {})
-        manifest.update(
-            {
-                "status": "complete",
-                "note_paths": note_paths,
-                "pdf_paths": self._state("pdf_paths"),
-                "digest_path": digest_rel,
-            },
-        )
-        manifest_path = await self._write_manifest(manifest)
         self.context.response.success = True
         self.context.response.answer = f"Generated daily paper brief: {digest_rel}"
         self.context.response.metadata.update(
@@ -92,7 +84,6 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "note_paths": note_paths,
                 "pdf_paths": self._state("pdf_paths"),
                 "digest_path": digest_rel,
-                "manifest_path": str(manifest_path.relative_to(self.workspace_path)),
                 "source_counts": self._state("source_counts"),
                 "excluded_yesterday_count": len(self._state("excluded_yesterday") or []),
                 "excluded_history_count": len(self._state("excluded_history") or []),
