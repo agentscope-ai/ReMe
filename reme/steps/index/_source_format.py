@@ -76,13 +76,18 @@ def _build_union_chunk(group: list[FileChunk]) -> FileChunk:
     ascending line order — this preserves the original message chronology and
     never reorders content within the merged passage. The highest-scoring chunk
     is used as the template so retrieval scores are carried through the header.
+
+    Every entry in ``line_map`` is normalised to end with ``\n`` before joining
+    so that a chunk whose text lacks a trailing newline (e.g. the last line of
+    a file with no final newline) does not collide with the next line.
     """
     rep = max(group, key=lambda c: c.score)
     line_map: dict[int, str] = {}
     for c in group:
         for offset, line in enumerate(c.text.splitlines(keepends=True)):
             line_map[c.start_line + offset] = line
-    union_text = "".join(line_map[k] for k in sorted(line_map))
+    parts = [line_map[k] for k in sorted(line_map)]
+    union_text = "".join(p if p.endswith("\n") else f"{p}\n" for p in parts)
     return rep.model_copy(
         update={
             "start_line": min(c.start_line for c in group),
