@@ -155,6 +155,27 @@ jobs:
     steps:
       - backend: auto_memory_cc_step
 
+  auto_memory_codex:
+    backend: base
+    description: "Auto-memory (Codex): record a Codex session into a daily note, resolved from its transcript path"
+    parameters:
+      type: object
+      properties:
+        transcript_path:
+          type: string
+          description: "Absolute path to the Codex transcript JSONL file"
+        session_id:
+          type: string
+          description: "Codex session id; used for session linkage"
+          default: ""
+        memory_hint:
+          type: string
+          description: "optional hint"
+      required:
+        - transcript_path
+    steps:
+      - backend: auto_memory_codex_step
+
   auto_resource:
     backend: base
     description: "Auto-resource: interpret resource files into daily notes"
