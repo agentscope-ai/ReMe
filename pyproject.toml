@@ -44,6 +44,7 @@ dependencies = [
 core = [
     "agentscope==2.0.4.post1",
     "claude-agent-sdk>=0.2.123",
+    "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
     "faiss-cpu>=1.13.2",
     "jieba>=0.42.1",

@@ -73,9 +73,16 @@ class DailyPaperRankStep(DailyPaperStep):
     async def execute(self):
         assert self.context is not None
         if self._skip():
+            self.logger.info(f"[{self.name}] skip existing digest")
             return self.context.response
         papers_by_id: dict[str, PaperInfo] = self._state("info") or {}
         rrf_k, weekly_weight = int(self._value("rrf_k", 60)), float(self._value("weekly_weight", 0.7))
+        candidate_limit = int(self._value("candidate_limit", 20))
+        memory_reserve = int(self._value("memory_reserve", 5))
+        self.logger.info(
+            f"[{self.name}] start papers={len(papers_by_id)} rrf_k={rrf_k} weekly_weight={weekly_weight} "
+            f"candidate_limit={candidate_limit} memory_reserve={memory_reserve}",
+        )
         for paper in papers_by_id.values():
             paper.fused_score = rrf_score(
                 paper.monthly_rank,
@@ -85,11 +92,12 @@ class DailyPaperRankStep(DailyPaperStep):
             )
         candidates = build_candidate_pool(
             list(papers_by_id.values()),
-            limit=int(self._value("candidate_limit", 20)),
-            memory_reserve=int(self._value("memory_reserve", 5)),
+            limit=candidate_limit,
+            memory_reserve=memory_reserve,
         )
         if not candidates:
             raise RuntimeError("RRF produced no paper candidates")
         self._set_state("candidates", candidates)
         self.context.response.answer = f"Ranked {len(candidates)} paper candidates with RRF"
+        self.logger.info(f"[{self.name}] finish candidates={len(candidates)}")
         return self.context.response

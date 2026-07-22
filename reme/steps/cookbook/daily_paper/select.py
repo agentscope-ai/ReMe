@@ -31,6 +31,7 @@ class DailyPaperSelectStep(DailyPaperStep):
     async def execute(self):
         assert self.context is not None
         if self._skip():
+            self.logger.info(f"[{self.name}] skip existing digest")
             return self.context.response
         if self.agent_wrapper is None:
             raise RuntimeError("Claude Code agent_wrapper is required for paper selection")
@@ -38,6 +39,7 @@ class DailyPaperSelectStep(DailyPaperStep):
         top_k = int(self._value("top_k", 3))
         if top_k <= 0 or top_k > len(candidates):
             raise ValueError(f"top_k must be between 1 and {len(candidates)}")
+        self.logger.info(f"[{self.name}] start candidates={len(candidates)} top_k={top_k}")
 
         candidate_payload = [
             {
@@ -57,7 +59,8 @@ class DailyPaperSelectStep(DailyPaperStep):
             for paper in candidates
         ]
         feedback, selection = "", None
-        for _attempt in range(2):
+        for attempt in range(1, 3):
+            self.logger.info(f"[{self.name}] agent start attempt={attempt}/2 candidates={len(candidates)}")
             result = await self.agent_wrapper.reply(
                 self.prompt_format(
                     "select_user",
@@ -69,9 +72,13 @@ class DailyPaperSelectStep(DailyPaperStep):
             )
             try:
                 selection = self._validate_selection(structured_output(result, PaperSelection), candidates, top_k)
+                self.logger.info(f"[{self.name}] agent done attempt={attempt}/2 valid=True")
                 break
             except (ValueError, TypeError) as exc:
                 feedback = str(exc)
+                self.logger.warning(
+                    f"[{self.name}] agent done attempt={attempt}/2 valid=False error={feedback!r}",
+                )
         if selection is None:
             raise RuntimeError(f"Claude Code paper selection failed validation: {feedback}")
 
@@ -103,4 +110,7 @@ class DailyPaperSelectStep(DailyPaperStep):
             },
         )
         self.context.response.answer = f"Selected {top_k} papers with Claude Code"
+        self.logger.info(
+            f"[{self.name}] finish selected={','.join(item.arxiv_id for item in selection.selected)}",
+        )
         return self.context.response

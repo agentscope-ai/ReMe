@@ -91,8 +91,11 @@ class DailyPaperCollectStep(DailyPaperStep):
 
         daily_dir = str(self.config_value("daily_dir")).strip("/")
         digest_rel = f"{daily_dir}/{day}/daily-paper-brief.md"
-        if (self.workspace_path / digest_rel).is_file() and not bool(self._value("force", False)):
+        force = bool(self._value("force", False))
+        self.logger.info(f"[{self.name}] start date={day} force={force}")
+        if (self.workspace_path / digest_rel).is_file() and not force:
             self._set_state("skip", True)
+            self._set_state("digest_path", digest_rel)
             self.context.response.success = True
             self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
             self.context.response.metadata.update({"date": day, "digest_path": digest_rel, "skipped": True})
@@ -104,10 +107,14 @@ class DailyPaperCollectStep(DailyPaperStep):
                     ).get("selection")
                 except (OSError, UnicodeError, json.JSONDecodeError):
                     pass
+            self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
             return self.context.response
 
         week, month = self._paper_scope_values(run_date)
         yesterday = (run_date - dt.timedelta(days=1)).isoformat()
+        self.logger.info(
+            f"[{self.name}] fetch start week={week} month={month} yesterday={yesterday}",
+        )
         async with HuggingFacePapersClient(
             timeout=float(self._value("hf_timeout", 30.0)),
             max_retries=int(self._value("hf_max_retries", 3)),
@@ -117,6 +124,9 @@ class DailyPaperCollectStep(DailyPaperStep):
                 client.fetch_scope("month", month),
                 client.fetch_daily_ids(yesterday),
             )
+        self.logger.info(
+            f"[{self.name}] fetch done weekly={len(weekly)} monthly={len(monthly)} " f"yesterday={len(yesterday_ids)}",
+        )
 
         merged: dict[str, PaperInfo] = {}
         for rank, paper in enumerate(monthly, start=1):
@@ -133,6 +143,10 @@ class DailyPaperCollectStep(DailyPaperStep):
             daily_dir,
         )
         eligible = {key: paper for key, paper in merged.items() if key not in yesterday_ids | historical_ids}
+        self.logger.info(
+            f"[{self.name}] filter done merged={len(merged)} excluded_yesterday={len(yesterday_ids)} "
+            f"excluded_history={len(historical_ids)} eligible={len(eligible)}",
+        )
         if not eligible:
             raise RuntimeError("No eligible papers remain after yesterday and history exclusions")
 
@@ -148,4 +162,5 @@ class DailyPaperCollectStep(DailyPaperStep):
             self._set_state(key, value)
         self.context.response.success = True
         self.context.response.answer = f"Collected {len(eligible)} eligible papers"
+        self.logger.info(f"[{self.name}] finish date={day} eligible={len(eligible)}")
         return self.context.response

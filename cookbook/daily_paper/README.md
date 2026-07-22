@@ -27,10 +27,12 @@ flowchart LR
     F --> BRIEF[daily-paper-brief.md]
     F --> INDEX[daily/YYYY-MM-DD.md]
     F --> M2[manifest: complete]
-    F --> RESPONSE[ReMe Response]
+    F --> G[6. DingTalk Notify]
+    B -->|existing brief| G
+    G --> RESPONSE[ReMe Response]
 ```
 
-Job 按配置顺序串行执行 5 个 Step。每次 Job 调用都会创建一个新的 `RuntimeContext`；中间结果使用 `daily_paper_*` 命名的 key 在本次调用内传递，不使用 Step 实例保存跨调用状态。
+Job 按配置顺序串行执行 6 个 Step。每次 Job 调用都会创建一个新的 `RuntimeContext`；中间结果使用 `daily_paper_*` 命名的 key 在本次调用内传递，不使用 Step 实例保存跨调用状态。
 
 持久化文件不是 `RuntimeContext` 的镜像：候选全集、完整 prompt、模型原始响应等只存在于运行期间，最终只保存 PDF、Markdown 和经过筛选的 manifest。
 
@@ -44,7 +46,7 @@ Job 按配置顺序串行执行 5 个 Step。每次 Job 调用都会创建一个
 - 月榜 key 使用 `YYYY-MM`，例如 `2026-07`；
 - “昨日排除”严格查询 `date - 1 day` 的 Hugging Face Daily Papers，而不是模糊的最近 24 小时。
 
-若 `daily/<date>/daily-paper-brief.md` 已存在，并且 `force=false`，Collect 会设置整条 pipeline 的 skip 标志；后续 4 个 Step 都直接返回，不访问 Hugging Face、arXiv 或模型。此时响应的 `metadata.skipped` 为 `true`，如果 manifest 可解析，还会带回之前的 `selection`。
+若 `daily/<date>/daily-paper-brief.md` 已存在，并且 `force=false`，Collect 会设置内容生成阶段的 skip 标志并复用该日报路径；Rank、Select、Analyze、Digest 都直接返回，不访问 Hugging Face、arXiv 或模型。最后的 DingTalk Notify 仍会读取并发送已有日报。此时响应的 `metadata.skipped` 为 `true`，如果 manifest 可解析，还会带回之前的 `selection`。
 
 `force=true` 会重新采集、排序、选择和覆盖生成 Markdown/manifest；已有且以 `%PDF-` 开头的 PDF 会继续复用，不重复下载。
 
@@ -254,6 +256,15 @@ note_paths, pdf_paths, digest_path, manifest_path, source_counts,
 excluded_yesterday_count, excluded_history_count
 ```
 
+### 3.6 DingTalk Notify：发送新生成或复用的日报
+
+实现：[send.py](../../reme/steps/cookbook/dingtalk/send.py)。该步骤从本次运行的
+`daily_paper_digest_path` 读取 Markdown，去掉 YAML frontmatter，并通过应用机器人主动消息接口，按
+`DINGTALK_CONVERSATION_IDS` 中的逗号分隔群会话 ID 顺序串行发送。会话列表为空时无副作用跳过；任一群发送失败时会继续尝试剩余群，最后汇总失败。
+
+默认幂等运行发现已有日报时，内容生成步骤会跳过，但该通知步骤仍会发送已有文件。响应 metadata 中的
+`dingtalk_configured_count` 和 `dingtalk_sent_count` 可用于确认配置和成功投递数量。
+
 ## 4. 数据存储结构
 
 默认 `workspace_dir` 是启动目录下的 `.reme`。一次完成的运行大致生成：
@@ -391,7 +402,7 @@ Select 阶段先写 `status: selected`，Digest 成功后更新为 `status: comp
 
 Manifest 不保存完整候选池、完整 `PaperInfo`、PDF 提取文本、prompt 或模型原始响应；需要审计这些信息时应另行增加显式持久化，而不是假设 manifest 已包含。
 
-详细论文笔记、最终日报和 manifest 使用同目录临时文件 + `os.replace` 原子写入；PDF 使用 `.part` 文件 + 原子替换。这些文件不会暴露半写状态，但 `daily/<date>.md` 日索引由通用索引 helper 直接重写，整条 5 步 pipeline 也不是跨文件事务。并发运行同一日期没有全局 run lock，最后写入者可能覆盖先前结果。
+详细论文笔记、最终日报和 manifest 使用同目录临时文件 + `os.replace` 原子写入；PDF 使用 `.part` 文件 + 原子替换。这些文件不会暴露半写状态，但 `daily/<date>.md` 日索引由通用索引 helper 直接重写，整条 6 步 pipeline 也不是跨文件事务。并发运行同一日期没有全局 run lock，最后写入者可能覆盖先前结果。
 
 ## 5. 配置参数
 
@@ -451,12 +462,15 @@ export CLAUDE_CODE_API_KEY="your-api-key"
 CLAUDE_CODE_API_KEY=your-api-key
 # CLAUDE_CODE_MODEL_NAME=qwen3.7-max
 # CLAUDE_CODE_BASE_URL=https://dashscope.aliyuncs.com/apps/anthropic
-# SERPER_API_KEY=your-serper-key
+DINGTALK_APP_KEY=your-app-key
+DINGTALK_APP_SECRET=your-app-secret
+DINGTALK_ROBOT_CODE=your-robot-code
+DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 ```
 
-ReMe CLI 会从当前目录向上查找 `.env`。`SERPER_API_KEY` 只在 Claude Code 实际调用当前配置的 `serper-search` skill 时需要；采集 Hugging Face 榜单和下载 arXiv PDF 不通过 Serper。
+ReMe CLI 会从当前目录向上查找 `.env`。
 
-请从仓库根目录运行默认配置。默认 `workspace_dir=.reme`，而 `DAILY_PAPER_PROJECT_PATH=..` 是相对 workspace 解析的，最终正好指向仓库根目录并找到 `skills/serper-search`。如果 workspace 放到别处，需要显式指定：
+请从仓库根目录运行默认配置。默认 `workspace_dir=.reme`，而 `DAILY_PAPER_PROJECT_PATH=..` 是相对 workspace 解析的，最终正好指向仓库根目录。如果 workspace 放到别处，需要显式指定：
 
 ```bash
 export DAILY_PAPER_WORKSPACE_DIR=/absolute/path/to/daily-paper-workspace
@@ -528,7 +542,7 @@ reme start config=daily_cookbook
 - HTTP 监听 `127.0.0.1:8001`；
 - 暴露 `POST /daily_paper`；
 - `daily_paper_cron` 按 `0 8 * * *` 在 `Asia/Shanghai` 每天 08:00 运行；
-- cron 使用空 `date`，因此每次触发时处理配置时区中的当天；已有日报会自动 skip。
+- cron 使用空 `date`，因此每次触发时处理配置时区中的当天；已有日报会跳过生成并复用发送。
 
 另一个终端中手动调用 HTTP：
 
@@ -558,8 +572,7 @@ Select、Analyze、Digest 都使用名为 `claude_code` 的同一个 agent wrapp
 当前独立配置还具有以下行为：
 
 - `permission_mode: bypassPermissions`；
-- 加载项目 skill `serper-search`；
-- wrapper 全局禁用 Claude Code 内置 `WebSearch`，但 Serper skill 可通过自己的 API 搜索；
+- wrapper 全局禁用 Claude Code 内置 `WebSearch`；
 - Digest prompt 要求只 `Read` 指定笔记，Analyze prompt 要求只依据给出的元信息和 PDF 文本。
 
 需要注意：当前三个 Step 没有在每次调用上设置严格的 `allowed_tools` allowlist。prompt 中“只读取指定文件”“不要修改其他文件”属于模型行为指令，不是操作系统或 SDK 级沙箱；`bypassPermissions` 下 agent 进程对 `project_path` 可见文件具有较宽权限。请只在受信任的 workspace/project 中运行，并在用于共享或生产环境前根据威胁模型收紧 agent 配置。
@@ -570,7 +583,7 @@ Select、Analyze、Digest 都使用名为 `claude_code` 的同一个 agent wrapp
 
 | 场景 | 当前行为 |
 |---|---|
-| 最终日报已存在 | 默认整条 pipeline skip；`force=true` 可重跑 |
+| 最终日报已存在 | 默认跳过生成并复用发送；`force=true` 可重跑后发送 |
 | Hugging Face 请求暂时失败 | 指数间隔重试，最多 `hf_max_retries` 次 |
 | 没有 eligible 论文 | 明确失败 |
 | `top_k` 超出候选数 | 明确失败 |
@@ -603,6 +616,6 @@ pytest tests/unit/test_daily_paper.py -v
 - RRF 和记忆候选保留；
 - 历史 frontmatter 排除；
 - 独立配置与 08:00 cron；
-- 完整 5 步 pipeline 的 mocked 输出、manifest、wikilink 和幂等 skip。
+- 完整 6 步 pipeline 的 mocked 输出、manifest、wikilink、幂等复用和 DingTalk 发送。
 
 真实运行会访问外部服务并产生模型费用，不应把它当作普通单元测试自动执行。

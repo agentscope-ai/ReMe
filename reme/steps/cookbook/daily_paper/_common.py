@@ -84,4 +84,8 @@ class DailyPaperStep(BaseStep):
         path = self._manifest_path(self._run_day())
         await write_atomic(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         self._set_state("manifest", payload)
+        self.logger.info(
+            f"[{self.name}] manifest written path={self.to_workspace_relative(path)} "
+            f"status={payload.get('status', '')}",
+        )
         return path

@@ -17,6 +17,7 @@ class DailyPaperDigestStep(DailyPaperStep):
     async def execute(self):
         assert self.context is not None
         if self._skip():
+            self.logger.info(f"[{self.name}] skip existing digest")
             return self.context.response
         if self.agent_wrapper is None:
             raise RuntimeError("Claude Code agent_wrapper is required for the daily brief")
@@ -24,9 +25,11 @@ class DailyPaperDigestStep(DailyPaperStep):
         selection: PaperSelection | None = self._state("selection")
         if selection is None or not note_paths:
             raise RuntimeError("Detailed paper notes are missing before digest generation")
+        self.logger.info(f"[{self.name}] start notes={len(note_paths)}")
 
         absolute_paths = [str((self.workspace_path / path).resolve()) for path in note_paths]
         wikilinks = [f"[[{path}]]" for path in note_paths]
+        self.logger.info(f"[{self.name}] agent start notes={len(note_paths)}")
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "digest_user",
@@ -36,6 +39,7 @@ class DailyPaperDigestStep(DailyPaperStep):
             ),
             output_schema=DailyBriefOutput,
         )
+        self.logger.info(f"[{self.name}] agent done notes={len(note_paths)}")
         output = structured_output(result, DailyBriefOutput)
         body = strip_frontmatter(output.body)
         if not output.description.strip() or not body:
@@ -60,7 +64,11 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             },
         )
+        self._set_state("digest_path", digest_rel)
+        self.logger.info(f"[{self.name}] digest written path={digest_rel}")
+        self.logger.info(f"[{self.name}] refresh index start date={day} daily_dir={daily_dir}")
         await refresh_day_index(SimpleNamespace(workspace_path=self.workspace_path), day, daily_dir)
+        self.logger.info(f"[{self.name}] refresh index done date={day}")
 
         manifest = dict(self._state("manifest") or {})
         manifest.update(
@@ -89,5 +97,8 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "excluded_yesterday_count": len(self._state("excluded_yesterday") or []),
                 "excluded_history_count": len(self._state("excluded_history") or []),
             },
+        )
+        self.logger.info(
+            f"[{self.name}] finish date={day} papers={len(selected_ids)} digest_path={digest_rel}",
         )
         return self.context.response

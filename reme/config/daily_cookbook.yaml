@@ -58,6 +58,15 @@ jobs:
         agent_wrapper: claude_code
       - backend: daily_paper_digest_step
         agent_wrapper: claude_code
+      - backend: dingtalk_markdown_send_step
+        input_mapping:
+          daily_paper_digest_path: markdown_path
+        app_key: ${DINGTALK_APP_KEY:-}
+        app_secret: ${DINGTALK_APP_SECRET:-}
+        robot_code: ${DINGTALK_ROBOT_CODE:-}
+        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+        title: ReMe Daily Paper
+        timeout: 15
 
   daily_paper_cron:
     backend: cron
@@ -76,6 +85,19 @@ jobs:
     max_pdf_chars: *max_pdf_chars
     steps: *daily_paper_steps
 
+  dingtalk_wait:
+    backend: background
+    supervisor: true
+    close_timeout: 10
+    steps:
+      - backend: dingtalk_wait_step
+        agent_wrapper: claude_code
+        app_key: ${DINGTALK_APP_KEY:-}
+        app_secret: ${DINGTALK_APP_SECRET:-}
+        robot_code: ${DINGTALK_ROBOT_CODE:-}
+        card_update_interval: 1.0
+        worker_count: 4
+
 components:
   agent_wrapper:
     claude_code:
@@ -85,5 +107,3 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
-      skills:
-        - serper-search
