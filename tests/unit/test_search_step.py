@@ -286,6 +286,164 @@ def test_search_step_tool_context_seen_chunks_expire_after_ttl():
     asyncio.run(run())
 
 
+def test_search_step_tool_context_dedup_uses_subset_matching():
+    """A chunk is skipped only when its line range is a subset of a seen entry.
+
+    Partial overlap (straddle/superset) and different paths are NOT skipped:
+    the chunk carries lines not yet returned.
+    """
+
+    async def run():
+        app_context = ApplicationContext()
+        wide = FileChunk(
+            id="wide",
+            path="daily/a.md",
+            text="wide",
+            start_line=1,
+            end_line=20,
+            scores={"keyword": 5.0, "score": 5.0},
+        )
+        store = FakeSearchStore(keyword_results=[wide])
+        step = SearchStep(
+            file_store=store,
+            app_context=app_context,
+            expand_links=False,
+        )
+
+        first = await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+        assert [r["id"] for r in first.metadata["results"]] == ["wide"]
+
+        # subset (5-10)  -> subset of (1,20)  -> skipped
+        # straddle (15-30) -> not a subset (30>20) -> kept
+        # far (40-50)     -> not a subset       -> kept
+        # other (b.md 1-5) -> different path    -> kept
+        store.keyword_results = [
+            FileChunk(
+                id="subset",
+                path="daily/a.md",
+                text="subset",
+                start_line=5,
+                end_line=10,
+                scores={"keyword": 4.0, "score": 4.0},
+            ),
+            FileChunk(
+                id="straddle",
+                path="daily/a.md",
+                text="straddle",
+                start_line=15,
+                end_line=30,
+                scores={"keyword": 3.0, "score": 3.0},
+            ),
+            FileChunk(
+                id="far",
+                path="daily/a.md",
+                text="far",
+                start_line=40,
+                end_line=50,
+                scores={"keyword": 2.0, "score": 2.0},
+            ),
+            FileChunk(
+                id="other",
+                path="daily/b.md",
+                text="other",
+                start_line=1,
+                end_line=5,
+                scores={"keyword": 1.0, "score": 1.0},
+            ),
+        ]
+        second = await step(RuntimeContext(query="alpha", limit=10, tool_context_id="ctx-1"))
+
+        ids = [r["id"] for r in second.metadata["results"]]
+        assert "subset" not in ids
+        assert "straddle" in ids
+        assert "far" in ids
+        assert "other" in ids
+        assert second.metadata["dedup"]["skipped_seen"] == 1
+
+    asyncio.run(run())
+
+
+def test_search_step_tool_context_dedup_merges_adjacent_seen_intervals():
+    """Multiple seen entries that jointly cover a new chunk cause it to be skipped.
+
+    Adjacent intervals (1,10) and (11,20) merge into (1,20); a new chunk
+    (5,15) — not covered by any single entry — is skipped because it is
+    covered by the merged range.
+    """
+
+    async def run():
+        app_context = ApplicationContext()
+        store = FakeSearchStore(
+            keyword_results=[
+                FileChunk(
+                    id="c1",
+                    path="daily/a.md",
+                    text="c1",
+                    start_line=1,
+                    end_line=10,
+                    scores={"keyword": 5.0, "score": 5.0},
+                ),
+            ],
+        )
+        step = SearchStep(
+            file_store=store,
+            app_context=app_context,
+            expand_links=False,
+        )
+        # Return (1,10) then (11,20) — adjacent, merge into (1,20).
+        await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+        store.keyword_results = [
+            FileChunk(
+                id="c2",
+                path="daily/a.md",
+                text="c2",
+                start_line=11,
+                end_line=20,
+                scores={"keyword": 4.0, "score": 4.0},
+            ),
+        ]
+        await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+
+        # (5,15)  -> covered by merged (1,20)  -> skipped
+        # (5,25)  -> NOT covered (25 > 20)      -> kept
+        # (0,5)   -> NOT covered (0 < 1)        -> kept
+        store.keyword_results = [
+            FileChunk(
+                id="bridge",
+                path="daily/a.md",
+                text="bridge",
+                start_line=5,
+                end_line=15,
+                scores={"keyword": 3.0, "score": 3.0},
+            ),
+            FileChunk(
+                id="overshoot",
+                path="daily/a.md",
+                text="overshoot",
+                start_line=5,
+                end_line=25,
+                scores={"keyword": 2.0, "score": 2.0},
+            ),
+            FileChunk(
+                id="undershoot",
+                path="daily/a.md",
+                text="undershoot",
+                start_line=0,
+                end_line=5,
+                scores={"keyword": 1.0, "score": 1.0},
+            ),
+        ]
+        resp = await step(RuntimeContext(query="alpha", limit=10, tool_context_id="ctx-1"))
+
+        ids = [r["id"] for r in resp.metadata["results"]]
+        assert "bridge" not in ids
+        assert "overshoot" in ids
+        assert "undershoot" in ids
+        assert resp.metadata["dedup"]["skipped_seen"] == 1
+
+    asyncio.run(run())
+
+
 def test_search_step_empty_query_fails_before_store_calls():
     """Empty queries fail fast and do not call file_store search methods."""
 

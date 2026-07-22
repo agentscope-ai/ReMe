@@ -5,6 +5,8 @@ import datetime
 import os
 from typing import Final
 
+from ._dedup import _ToolContextDedupMixin
+from ._source_format import render_chunk_body
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
@@ -28,11 +30,8 @@ def _default_limit() -> int:
 
 
 @R.register("search_step")
-class SearchStep(BaseStep):
+class SearchStep(_ToolContextDedupMixin, BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
-
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
-    SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
 
     def __init__(
         self,
@@ -86,53 +85,6 @@ class SearchStep(BaseStep):
                 v = scores.get(k)
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
         return " ".join(parts)
-
-    @staticmethod
-    def _now_ts() -> float:
-        return datetime.datetime.now().timestamp()
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        """Return the mutable state bucket for a tool context."""
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
-
-    def _dedupe_tool_context(
-        self,
-        chunks: list[FileChunk],
-        tool_context_id: str,
-        limit: int,
-    ) -> tuple[list[FileChunk], dict]:
-        now = self.kwargs.get("clock", self._now_ts)()
-        ttl = float(
-            self.kwargs.get(
-                "tool_context_chunk_ttl_seconds",
-                float(self.seen_ttl_hours) * 60 * 60,
-            ),
-        )
-        store = self._tool_context_store(tool_context_id)
-        seen = store.get(self.SEARCH_SEEN_KEY, {})
-        if not isinstance(seen, dict):
-            seen = dict.fromkeys(seen, now)
-        before_expire = len(seen)
-        store[self.SEARCH_SEEN_KEY] = seen = {chunk_id: ts for chunk_id, ts in seen.items() if now - float(ts) < ttl}
-
-        seen_before = len(seen)
-        unvisited = [chunk for chunk in chunks if chunk.id not in seen]
-        returned = unvisited[:limit]
-        for chunk in returned:
-            seen[chunk.id] = now
-
-        return returned, {
-            "tool_context_id": tool_context_id,
-            "seen_before": seen_before,
-            "skipped_seen": len(chunks) - len(unvisited),
-            "seen_after": len(seen),
-            "expired": before_expire - seen_before,
-            "ttl_seconds": ttl,
-        }
 
     async def execute(self):
         assert self.context is not None
@@ -233,7 +185,13 @@ class SearchStep(BaseStep):
 
         dedup: dict | None = None
         if tool_context_id:
-            fused, dedup = self._dedupe_tool_context(fused, tool_context_id, limit)
+            fused, dedup = self._dedupe_tool_context(
+                fused,
+                tool_context_id,
+                limit,
+                clock=self.kwargs.get("clock"),
+                ttl_override=self.kwargs.get("tool_context_chunk_ttl_seconds"),
+            )
         else:
             fused = fused[:limit]
 
@@ -243,10 +201,12 @@ class SearchStep(BaseStep):
         )
 
         answer_lines: list[str] = []
+        dialog_dir = self.config_value("dialog_dir")
         for c in fused:
+            body = render_chunk_body(c, dialog_dir)
             answer_lines.append(
                 f"========== {c.path}:{c.start_line}-{c.end_line} "
-                f"[{self._format_scores(c.scores, hybrid)}] ==========\n{c.text}",
+                f"[{self._format_scores(c.scores, hybrid)}] ==========\n{body}",
             )
             answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
 

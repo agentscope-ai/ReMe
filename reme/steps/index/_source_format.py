@@ -1,29 +1,45 @@
-"""Shared helper: render search results with each hit's originating session_id.
+"""Shared helper: render retrieved chunks, compacting raw session transcripts.
 
-Plain ``vector_search``/``bm25_search`` return only ``chunk.text``. The
-LongMemEval agentic-answer flow needs each hit's ``session_id`` so the agent can
-pivot back to the raw session via ``extract_session_by_id``. This helper reads
-that ``session_id`` from the note's frontmatter and prefixes it to the text.
+Raw session transcripts (``*.jsonl`` under the dialog dir) store one serialized
+``Msg`` per line. :func:`render_chunk_body` turns those back into a readable
+dialog; all other chunks keep their raw ``text``. Used by
+``search``/``vector_search``/``bm25_search`` so every step renders session hits
+identically.
 """
 
-from pathlib import Path
+from agentscope.message import Msg
 
-import frontmatter
-
+from ..evolve._evolve import format_history
 from ...schema import FileChunk
 
 
-def render_with_source(chunks: list[FileChunk], workspace_path: Path) -> str:
-    """Render each chunk as ``[session_id=<sid>]`` header + text."""
-    lines: list[str] = []
-    for c in chunks:
-        sid = ""
-        if c.path:
-            try:
-                post = frontmatter.loads((workspace_path / c.path).read_text(encoding="utf-8"))
-                sid = str((post.metadata or {}).get("session_id", "") or "").strip()
-            except Exception:
-                sid = ""
-        header = f"[session_id={sid}]" if sid else "[session_id: unknown]"
-        lines.append(f"{header}\n{c.text}")
-    return "\n\n".join(lines)
+def is_session_chunk(chunk: FileChunk, dialog_dir: str) -> bool:
+    """True if the chunk comes from a raw session transcript (a jsonl file under the dialog dir)."""
+    path = (chunk.path or "").strip().strip("/")
+    if not path.endswith(".jsonl"):
+        return False
+    dialog_dir = (dialog_dir or "").strip("/")
+    return path == dialog_dir or path.startswith(f"{dialog_dir}/")
+
+
+def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
+    """Render a chunk's body, compacting raw session transcripts into a readable form.
+
+    Session chunks are jsonl where each line is a serialized ``Msg``. Parse every line
+    and render via :func:`format_history`; on any parse error (or no usable messages),
+    fall back to the chunk's raw ``text``.
+    """
+    if not is_session_chunk(chunk, dialog_dir):
+        return chunk.text
+    try:
+        messages: list[Msg] = []
+        for line in chunk.text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            messages.append(Msg.model_validate_json(line))
+        if not messages:
+            return chunk.text
+        return format_history(messages)
+    except Exception:
+        return chunk.text

@@ -1,26 +1,10 @@
 """Shared base class for benchmark agentic-answer steps."""
 
 import os
-import threading
 
 from ...base_step import BaseStep
+from ...index._dedup import _ToolContextDedupMixin
 from ....enumeration import ChunkEnum
-
-# ---------------------------------------------------------------------------
-# Process-safe & thread-safe counter for unique tool_context_id.
-# PID guarantees cross-process uniqueness (multiprocessing Pool);
-# threading.Lock + monotonic counter guarantees thread safety within a process.
-# ---------------------------------------------------------------------------
-_TOOL_CTX_LOCK = threading.Lock()
-_TOOL_CTX_SEQ = 0
-
-
-def _next_tool_context_id(prefix: str) -> str:
-    global _TOOL_CTX_SEQ
-    with _TOOL_CTX_LOCK:
-        _TOOL_CTX_SEQ += 1
-        seq = _TOOL_CTX_SEQ
-    return f"{prefix}_{os.getpid()}_{seq}"
 
 
 class BaseAgenticAnswerStep(BaseStep):
@@ -41,7 +25,7 @@ class BaseAgenticAnswerStep(BaseStep):
     """
 
     MAX_ITERATION = 10
-    TOOL_CONTEXT_PREFIX: str = "agentic_answer"
+    TOOL_CONTEXT_PREFIX: str = "content_agentic_answer"
 
     async def execute(self):
         assert self.context is not None
@@ -58,11 +42,18 @@ class BaseAgenticAnswerStep(BaseStep):
         if query_time:
             sys_prompt += "\n" + self.prompt_format("temporal_hint", query_time=query_time)
 
+        if self.app_context is not None:
+            tool_context_id = (
+                f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_"
+                f"{self.app_context.global_counter_next([self.TOOL_CONTEXT_PREFIX])}"
+            )
+        else:
+            tool_context_id = f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_local"
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
             "job_tools": ["search", "add_draft", "read_all_draft"],
             "react_config": {"max_iters": self.MAX_ITERATION},
-            "tool_context_id": _next_tool_context_id(self.TOOL_CONTEXT_PREFIX),
+            "tool_context_id": tool_context_id,
         }
 
         if self.context.stream:
@@ -83,6 +74,9 @@ class BaseAgenticAnswerStep(BaseStep):
                 "response": text,
             },
         )
+
+        if self.app_context is not None:
+            self.app_context.metadata.get(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, {}).pop(tool_context_id, None)
         return self.context.response
 
     async def _stream_reply(self, query: str, **wrapper_kwargs) -> str:

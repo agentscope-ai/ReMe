@@ -1,50 +1,24 @@
 """``bm25_search_step`` — plain BM25 keyword search with tool_context dedup."""
 
-import datetime
 from typing import Final
 
+from ._dedup import _ToolContextDedupMixin
+from ._source_format import render_chunk_body
 from ..base_step import BaseStep
-from ._source_format import render_with_source
 from ...components import R
-from ...schema import FileChunk
 
 _MAX_CANDIDATES: Final = 200
 _CANDIDATE_MULTIPLIER: Final = 10
 
 
 @R.register("bm25_search_step")
-class Bm25SearchStep(BaseStep):
+class Bm25SearchStep(_ToolContextDedupMixin, BaseStep):
     """BM25-only search: retrieve, filter by min_score, dedup by tool_context, truncate."""
-
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
-    SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
 
     def __init__(self, *args, seen_ttl_hours: float = 24, include_source: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.seen_ttl_hours = seen_ttl_hours
         self.include_source = include_source
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        """Return the mutable state bucket for a tool context."""
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
-
-    def _dedupe_tool_context(self, chunks: list[FileChunk], tool_context_id: str, limit: int) -> list[FileChunk]:
-        """Drop chunks already returned for this tool_context within the TTL window."""
-        now = datetime.datetime.now().timestamp()
-        ttl = float(self.seen_ttl_hours) * 60 * 60
-        store = self._tool_context_store(tool_context_id)
-        seen: dict = store.get(self.SEARCH_SEEN_KEY, {})
-        seen = {cid: ts for cid, ts in seen.items() if now - float(ts) < ttl}
-
-        returned = [c for c in chunks if c.id not in seen][:limit]
-        for c in returned:
-            seen[c.id] = now
-        store[self.SEARCH_SEEN_KEY] = seen
-        return returned
 
     async def execute(self):
         assert self.context is not None
@@ -67,14 +41,19 @@ class Bm25SearchStep(BaseStep):
             results = [chunk for chunk in results if chunk.score >= min_score]
 
         if tool_context_id:
-            results = self._dedupe_tool_context(results, tool_context_id, limit)
+            results, _ = self._dedupe_tool_context(results, tool_context_id, limit)
         else:
             results = results[:limit]
 
+        dialog_dir = self.config_value("dialog_dir")
         if self.include_source:
-            self.context.response.answer = render_with_source(results, self.workspace_path)
+            self.context.response.answer = "\n".join(
+                f"========== {c.path}:{c.start_line}-{c.end_line} "
+                f"[score={c.score:.4f}] ==========\n{render_chunk_body(c, dialog_dir)}"
+                for c in results
+            )
         else:
-            self.context.response.answer = "\n\n".join(c.text for c in results)
+            self.context.response.answer = "\n\n".join(render_chunk_body(c, dialog_dir) for c in results)
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in results
         ]
