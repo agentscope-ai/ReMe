@@ -44,6 +44,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
     """Step that reads a Codex JSONL transcript and records new turns."""
 
     _STORE_SUBDIR = "codex"
+    _REME_PROJECT_KEY = "codex"
 
     async def execute(self):
         assert self.context is not None
@@ -85,7 +86,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
         return
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/{self._STORE_SUBDIR}/{session_id}.jsonl]]"
+        return f"[[{self._session_dir()}/{self._STORE_SUBDIR}/{self._REME_PROJECT_KEY}/{session_id}.jsonl]]"
 
     # ----- path resolution & validation -------------------------------------
 
@@ -155,9 +156,11 @@ class AutoMemoryCodexStep(AutoMemoryStep):
                 f"[{self.name}] transcript not found at {transcript_path!r}",
             )
             return []
-        store = CcFileSessionStore(path.parent)
-        key = {"session_id": path.name if path.suffix else path.stem}
-        return await store.load(key) or []
+        entries = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                entries.append(json.loads(line))
+        return entries
 
     # ----- session dedup / store --------------------------------------------
 
@@ -186,7 +189,7 @@ class AutoMemoryCodexStep(AutoMemoryStep):
         if not session_id:
             return []
         store = self._codex_store()
-        key = {"session_id": session_id}
+        key = {"project_key": self._REME_PROJECT_KEY, "session_id": session_id}
         entries = [e for e in entries if isinstance(e, dict)]
         existing = await store.load(key) or []
         seen = {self._entry_dedup_key(e) for e in existing if isinstance(e, dict)}
