@@ -292,13 +292,19 @@ async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
     assert any("SSH proxy closed arxiv_id=2607.10001" in message for message in info_messages)
 
 
-def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
-    """The standalone config schedules 08:00 and routes all agent work to CC."""
+def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
+    """The standalone config schedules daily paper and wires the memory/search stack."""
     for name in (
         "DINGTALK_APP_KEY",
         "DINGTALK_APP_SECRET",
         "DINGTALK_ROBOT_CODE",
         "DINGTALK_CONVERSATION_IDS",
+        "LLM_MODEL_NAME",
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "EMBEDDING_MODEL_NAME",
+        "EMBEDDING_API_KEY",
+        "EMBEDDING_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
     config = _load_config("daily_cookbook")
@@ -318,6 +324,7 @@ def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
         }
     ]
     assert {step.get("agent_wrapper") for step in agent_steps} == {"claude_code"}
+    assert config["components"]["agent_wrapper"]["claude_code"]["job_tools"] == ["search"]
     assert steps[-1] == {
         "backend": "dingtalk_markdown_send_step",
         "input_mapping": {"daily_paper_digest_path": "markdown_path"},
@@ -328,8 +335,39 @@ def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
         "title": "ReMe Daily Paper",
         "timeout": 15,
     }
-    assert set(config["components"]["agent_wrapper"]) == {"claude_code"}
-    assert "as_llm" not in config["components"]
+    assert {
+        "auto_dream",
+        "auto_memory",
+        "index_update_loop",
+        "reindex",
+        "search",
+    }.issubset(config["jobs"])
+    assert config["jobs"]["auto_memory"]["steps"] == [
+        {"backend": "auto_memory_step", "agent_wrapper": "memory"},
+    ]
+    dream_steps = config["jobs"]["auto_dream"]["steps"]
+    assert {
+        step["backend"]: step.get("agent_wrapper") for step in dream_steps if step["backend"] != "dream_finish_step"
+    } == {
+        "dream_extract_step": "memory",
+        "dream_integrate_step": "memory",
+        "dream_topics_step": "memory",
+    }
+    assert set(config["components"]["agent_wrapper"]) == {"claude_code", "memory"}
+    memory_llm = config["components"]["as_llm"]["memory"]
+    assert memory_llm["backend"] == "anthropic"
+    assert memory_llm["model"] == "qwen3.7-max"
+    assert memory_llm["credential"]["base_url"] == "https://dashscope.aliyuncs.com/apps/anthropic"
+    assert config["components"]["agent_wrapper"]["memory"]["as_llm"] == "memory"
+    assert config["components"]["agent_wrapper"]["memory"]["builtin_tools"] is False
+    assert config["components"]["file_store"]["default"] == {
+        "backend": "local",
+        "store_name": "local",
+        "embedding_store": "default",
+        "keyword_index": "default",
+        "file_graph": "default",
+    }
+    assert config["components"]["as_embedding"]["default"]["model"] == "text-embedding-v4"
     assert config["components"]["agent_wrapper"]["claude_code"]["project_path"] == ".."
     assert "skills" not in config["components"]["agent_wrapper"]["claude_code"]
 
