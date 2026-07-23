@@ -472,7 +472,7 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "auto_memory",
         "index_update_loop",
         "reindex",
-        "memory",
+        "memory_search",
     }.issubset(config["jobs"])
     assert config["jobs"]["auto_memory"]["steps"] == [
         {"backend": "auto_memory_step", "agent_wrapper": "memory"},

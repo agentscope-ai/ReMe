@@ -188,14 +188,14 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
     ]
     dingtalk_wait = config["components"]["agent_wrapper"]["dingtalk_wait"]
     assert dingtalk_wait["skills"] == ["tushare-data"]
-    assert dingtalk_wait["job_tools"] == ["memory"]
+    assert dingtalk_wait["job_tools"] == ["memory_search"]
     assert dingtalk_wait["system_prompt"] == {
         "type": "preset",
         "preset": "claude_code",
         "append": (
             "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
             "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
-            "daily/YYYY-MM-DD/daily-paper-brief.md. Use memory to retrieve relevant long-term notes across dates."
+            "daily/YYYY-MM-DD/daily-paper-brief.md. Use memory_search to retrieve relevant long-term notes across dates."
         ),
     }
     assert R.get(ComponentEnum.STEP, "dingtalk_wait_step") is DingTalkWaitStep
