@@ -480,6 +480,16 @@ jobs:
         worker_count: 4
 
 components:
+  outbound_proxy:
+    default:
+      backend: ssh_http
+      host: ${REME_PROXY_IP:-}
+      account: ${REME_PROXY_ACCOUNT:-}
+      connect_timeout: 10
+      monitor_interval: 1
+      restart_initial_delay: 1
+      restart_max_delay: 30
+
   tokenizer:
     default:
       backend: regex

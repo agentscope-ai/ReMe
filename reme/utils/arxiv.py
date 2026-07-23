@@ -10,7 +10,6 @@ import aiofiles
 import httpx
 
 from .logger_utils import get_logger
-from .proxy_utils import get_ssh_proxy_config, ssh_socks_proxy
 
 ARXIV_ID_PATTERN = re.compile(r"^\d{4}\.\d{4,5}$")
 
@@ -21,15 +20,48 @@ class ArxivPdfClient:
     def __init__(
         self,
         *,
+        proxy_url: str | None = None,
+        client: httpx.AsyncClient | None = None,
         timeout: float = 90.0,
         max_bytes: int = 50 * 1024 * 1024,
         logger: Any | None = None,
     ) -> None:
+        if client is not None and proxy_url is not None:
+            raise ValueError("client and proxy_url cannot be provided together")
+        self.proxy_url = proxy_url
+        self.client = client
+        self._owns_client = client is None
         self.timeout, self.max_bytes = timeout, max_bytes
         self.logger = logger or get_logger()
 
+    async def __aenter__(self) -> "ArxivPdfClient":
+        if self.client is None:
+            self.client = httpx.AsyncClient(
+                proxy=self.proxy_url,
+                trust_env=False,
+                timeout=self.timeout,
+                follow_redirects=True,
+                headers={"User-Agent": "ReMe arXiv client"},
+            )
+            mode = "outbound_proxy" if self.proxy_url else "direct"
+            self.logger.info(f"[ArxivPdfClient] network mode={mode}")
+        else:
+            self.logger.debug("[ArxivPdfClient] network mode=injected_client")
+        return self
+
+    async def __aexit__(self, _exc_type, _exc_value, _traceback) -> None:
+        if self._owns_client and self.client is not None:
+            await self.client.aclose()
+            self.client = None
+
+    def _require_client(self) -> httpx.AsyncClient:
+        if self.client is None:
+            raise RuntimeError("ArxivPdfClient must be used as an async context manager")
+        return self.client
+
     async def download(self, arxiv_id: str, target: Path) -> Path:
         """Download one PDF atomically, reusing an existing valid target."""
+        client = self._require_client()
         if not ARXIV_ID_PATTERN.fullmatch(arxiv_id):
             raise ValueError(f"Invalid arXiv id: {arxiv_id!r}")
         if target.is_file() and target.stat().st_size > 5:
@@ -47,40 +79,17 @@ class ArxivPdfClient:
             f"[ArxivPdfClient] download start arxiv_id={arxiv_id} path={target} timeout={self.timeout:g}s",
         )
         try:
-            proxy_config = get_ssh_proxy_config()
-            proxy_started = False
-            try:
-                async with ssh_socks_proxy(connect_timeout=self.timeout) as proxy:
-                    client_kwargs = {
-                        "timeout": self.timeout,
-                        "follow_redirects": True,
-                        "headers": {"User-Agent": "ReMe arXiv client"},
-                    }
-                    if proxy is not None:
-                        proxy_started = True
-                        client_kwargs["proxy"] = proxy
-                        assert proxy_config is not None
-                        self.logger.info(
-                            f"[ArxivPdfClient] network mode=ssh_socks destination={proxy_config.destination} "
-                            f"arxiv_id={arxiv_id}",
-                        )
-                    else:
-                        self.logger.debug(f"[ArxivPdfClient] network mode=direct arxiv_id={arxiv_id}")
-                    async with httpx.AsyncClient(**client_kwargs) as client:
-                        async with client.stream("GET", f"https://arxiv.org/pdf/{arxiv_id}") as response:
-                            response.raise_for_status()
-                            content_length = int(response.headers.get("content-length") or 0)
-                            if content_length and content_length > self.max_bytes:
-                                raise ValueError(f"PDF exceeds maximum size: {content_length} > {self.max_bytes}")
-                            async with aiofiles.open(part_path, "wb") as stream:
-                                async for chunk in response.aiter_bytes():
-                                    size += len(chunk)
-                                    if size > self.max_bytes:
-                                        raise ValueError(f"PDF exceeds maximum size: {size} > {self.max_bytes}")
-                                    await stream.write(chunk)
-            finally:
-                if proxy_started:
-                    self.logger.info(f"[ArxivPdfClient] SSH proxy closed arxiv_id={arxiv_id}")
+            async with client.stream("GET", f"https://arxiv.org/pdf/{arxiv_id}") as response:
+                response.raise_for_status()
+                content_length = int(response.headers.get("content-length") or 0)
+                if content_length and content_length > self.max_bytes:
+                    raise ValueError(f"PDF exceeds maximum size: {content_length} > {self.max_bytes}")
+                async with aiofiles.open(part_path, "wb") as stream:
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > self.max_bytes:
+                            raise ValueError(f"PDF exceeds maximum size: {size} > {self.max_bytes}")
+                        await stream.write(chunk)
             if size <= 5:
                 raise ValueError(f"Downloaded PDF is empty for {arxiv_id}")
             async with aiofiles.open(part_path, "rb") as stream:

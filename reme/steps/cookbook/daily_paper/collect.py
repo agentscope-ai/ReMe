@@ -150,7 +150,9 @@ class DailyPaperCollectStep(DailyPaperStep):
         self.logger.info(
             f"[{self.name}] fetch start week={week} month={month} yesterday={yesterday}",
         )
+        proxy_url = self.outbound_proxy.http_url if self.outbound_proxy is not None else None
         async with HuggingFacePapersClient(
+            proxy_url=proxy_url,
             timeout=float(self._value("hf_timeout", 30.0)),
             max_retries=int(self._value("hf_max_retries", 3)),
         ) as client:

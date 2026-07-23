@@ -1,6 +1,5 @@
 """Focused tests for the daily-paper cookbook workflow."""
 
-from contextlib import asynccontextmanager
 import datetime as dt
 import importlib
 import json
@@ -15,6 +14,7 @@ import pytest
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
 from reme.schema import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection
@@ -32,6 +32,7 @@ from reme.steps.cookbook.dingtalk import send as dingtalk_send
 from reme.utils import arxiv as arxiv_utils
 from reme.utils import huggingface_papers as hf_utils
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
+from reme.enumeration import ComponentEnum
 
 
 class _QueuedAgentWrapper(BaseAgentWrapper):
@@ -85,20 +86,11 @@ def test_hf_payload_and_html_normalization():
 
 
 @pytest.mark.asyncio
-async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
-    """The owned HTTP client lives inside the temporary SSH proxy context."""
-    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
-    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+async def test_hf_client_uses_explicit_outbound_proxy(monkeypatch):
+    """The owned HTTP client uses only the explicitly supplied HTTP proxy."""
     events: list[str] = []
     client_kwargs: dict = {}
     logger = MagicMock()
-
-    @asynccontextmanager
-    async def fake_proxy(*, connect_timeout):
-        assert connect_timeout == 12.0
-        events.append("proxy-start")
-        yield "socks5://127.0.0.1:43123"
-        events.append("proxy-stop")
 
     class FakeAsyncClient:
         """Capture construction and close ordering without network access."""
@@ -110,18 +102,21 @@ async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
             """Record deterministic client cleanup."""
             events.append("client-close")
 
-    monkeypatch.setattr(hf_utils, "ssh_socks_proxy", fake_proxy)
     monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
 
-    client = hf_utils.HuggingFacePapersClient(timeout=12.0, logger=logger)
+    client = hf_utils.HuggingFacePapersClient(
+        proxy_url="http://127.0.0.1:43124",
+        timeout=12.0,
+        logger=logger,
+    )
     assert client.client is None
     async with client:
-        assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
+        assert client_kwargs["proxy"] == "http://127.0.0.1:43124"
+        assert client_kwargs["trust_env"] is False
 
-    assert events == ["proxy-start", "client-close", "proxy-stop"]
+    assert events == ["client-close"]
     info_messages = [call.args[0] for call in logger.info.call_args_list]
-    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
-    assert info_messages[-1] == "[HuggingFacePapersClient] SSH proxy closed"
+    assert info_messages == ["[HuggingFacePapersClient] network mode=outbound_proxy"]
 
 
 @pytest.mark.asyncio
@@ -143,8 +138,13 @@ async def test_hf_client_logs_retry_after_http_error(monkeypatch):
         base_url="https://huggingface.co",
         transport=httpx.MockTransport(handler),
     ) as raw_client:
-        client = hf_utils.HuggingFacePapersClient(client=raw_client, max_retries=2, logger=logger)
-        paper_ids = await client.fetch_daily_ids("2026-07-22")
+        async with hf_utils.HuggingFacePapersClient(
+            client=raw_client,
+            max_retries=2,
+            logger=logger,
+        ) as client:
+            paper_ids = await client.fetch_daily_ids("2026-07-22")
+        assert raw_client.is_closed is False
 
     assert paper_ids == set()
     assert attempts == 2
@@ -210,34 +210,25 @@ async def test_arxiv_pdf_downloads_missing_cache_once(tmp_path: Path, monkeypatc
     )
     target = tmp_path / "resource" / "papers" / "2607.10001.pdf"
     logger = MagicMock()
-    client = arxiv_utils.ArxivPdfClient(logger=logger)
 
-    assert await client.download("2607.10001", target) == target
-    assert await client.download("2607.10001", target) == target
+    async with arxiv_utils.ArxivPdfClient(logger=logger) as client:
+        assert await client.download("2607.10001", target) == target
+        assert await client.download("2607.10001", target) == target
 
     assert target.read_bytes() == b"%PDF-downloaded"
     assert [str(request.url) for request in requests] == ["https://arxiv.org/pdf/2607.10001"]
     info_messages = [call.args[0] for call in logger.info.call_args_list]
-    assert "download start arxiv_id=2607.10001" in info_messages[0]
-    assert "download done arxiv_id=2607.10001" in info_messages[1]
+    assert any("download start arxiv_id=2607.10001" in message for message in info_messages)
+    assert any("download done arxiv_id=2607.10001" in message for message in info_messages)
     assert "cache hit arxiv_id=2607.10001" in logger.debug.call_args.args[0]
 
 
 @pytest.mark.asyncio
-async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
-    """The arXiv HTTP client closes before its temporary SSH proxy stops."""
-    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
-    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+async def test_arxiv_pdf_uses_explicit_outbound_proxy(tmp_path: Path, monkeypatch):
+    """The owned arXiv client uses and closes its explicit HTTP proxy client."""
     events: list[str] = []
     client_kwargs: dict = {}
     logger = MagicMock()
-
-    @asynccontextmanager
-    async def fake_proxy(*, connect_timeout):
-        assert connect_timeout == 12.0
-        events.append("proxy-start")
-        yield "socks5://127.0.0.1:43123"
-        events.append("proxy-stop")
 
     class FakeResponse:
         """Return one small, valid PDF stream."""
@@ -267,10 +258,8 @@ async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
             """Capture HTTPX construction arguments."""
             client_kwargs.update(kwargs)
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_value, traceback):
+        async def aclose(self):
+            """Record deterministic client cleanup."""
             events.append("client-close")
 
         def stream(self, method, url):
@@ -278,18 +267,140 @@ async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
             assert (method, url) == ("GET", "https://arxiv.org/pdf/2607.10001")
             return FakeStream()
 
-    monkeypatch.setattr(arxiv_utils, "ssh_socks_proxy", fake_proxy)
     monkeypatch.setattr(arxiv_utils.httpx, "AsyncClient", FakeAsyncClient)
     target = tmp_path / "2607.10001.pdf"
 
-    assert await arxiv_utils.ArxivPdfClient(timeout=12.0, logger=logger).download("2607.10001", target) == target
+    async with arxiv_utils.ArxivPdfClient(
+        proxy_url="http://127.0.0.1:43124",
+        timeout=12.0,
+        logger=logger,
+    ) as client:
+        assert await client.download("2607.10001", target) == target
 
     assert target.read_bytes() == b"%PDF-proxied"
-    assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
-    assert events == ["proxy-start", "client-close", "proxy-stop"]
+    assert client_kwargs["proxy"] == "http://127.0.0.1:43124"
+    assert client_kwargs["trust_env"] is False
+    assert events == ["client-close"]
     info_messages = [call.args[0] for call in logger.info.call_args_list]
-    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
-    assert any("SSH proxy closed arxiv_id=2607.10001" in message for message in info_messages)
+    assert info_messages[0] == "[ArxivPdfClient] network mode=outbound_proxy"
+
+
+@pytest.mark.asyncio
+async def test_paper_clients_enforce_context_and_unambiguous_ownership(tmp_path: Path):
+    """Requests require context entry and injected clients cannot also receive proxy_url."""
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await hf_utils.HuggingFacePapersClient().fetch_daily_ids("2026-07-22")
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await arxiv_utils.ArxivPdfClient().download("2607.10001", tmp_path / "paper.pdf")
+
+    async with httpx.AsyncClient() as raw_client:
+        async with arxiv_utils.ArxivPdfClient(client=raw_client):
+            pass
+        assert raw_client.is_closed is False
+
+        with pytest.raises(ValueError, match="client and proxy_url"):
+            hf_utils.HuggingFacePapersClient(
+                client=raw_client,
+                proxy_url="http://127.0.0.1:43124",
+            )
+        with pytest.raises(ValueError, match="client and proxy_url"):
+            arxiv_utils.ArxivPdfClient(
+                client=raw_client,
+                proxy_url="http://127.0.0.1:43124",
+            )
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_steps_forward_one_managed_proxy_endpoint(tmp_path: Path, monkeypatch):
+    """Collection and one shared PDF client receive the same application proxy URL."""
+    paper = _paper("2607.10001", title="Managed proxy paper")
+    hf_kwargs: list[dict] = []
+    arxiv_kwargs: list[dict] = []
+
+    class FakeHfClient:
+        """Return one eligible paper while recording construction."""
+
+        def __init__(self, **kwargs):
+            hf_kwargs.append(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def fetch_scope(self, _scope: str, _value: str):
+            """Return one ranked paper."""
+            return [paper]
+
+        async def fetch_daily_ids(self, _day: str):
+            """Return no yesterday exclusions."""
+            return set()
+
+    class FakeArxivClient:
+        """Write a fake PDF while recording one shared downloader."""
+
+        def __init__(self, **kwargs):
+            arxiv_kwargs.append(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def download(self, _arxiv_id: str, target: Path):
+            """Write one minimal PDF fixture."""
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"%PDF-fake")
+            return target
+
+    monkeypatch.setattr(collect, "HuggingFacePapersClient", FakeHfClient)
+    monkeypatch.setattr(analyze, "ArxivPdfClient", FakeArxivClient)
+    monkeypatch.setattr(
+        analyze.DailyPaperAnalyzeStep,
+        "_extract_pdf_text_sync",
+        lambda *_args: ("--- PAGE 1 ---\nPaper content", 1, False),
+    )
+
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:43124")
+    await proxy.start()
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    context = RuntimeContext(date="2026-07-21")
+    agent = _QueuedAgentWrapper(
+        [
+            {
+                "description": "Detailed note",
+                "body": "# Detailed reading\n\nEvidence [p. 1].",
+            },
+        ],
+    )
+
+    try:
+        await DailyPaperCollectStep(app_context=app_context)(context)
+        context["daily_paper_selection"] = PaperSelection.model_validate(
+            {
+                "selection_reasoning": "Only candidate.",
+                "selected": [
+                    {
+                        "arxiv_id": paper.arxiv_id,
+                        "rank": 1,
+                        "reason": "Relevant",
+                        "memory_relevance": "low",
+                    },
+                ],
+                "alternates": [],
+            },
+        )
+        context["daily_paper_selected_papers"] = [paper]
+        await DailyPaperAnalyzeStep(app_context=app_context, agent_wrapper=agent)(context)
+    finally:
+        await proxy.close()
+
+    assert hf_kwargs[0]["proxy_url"] == "http://127.0.0.1:43124"
+    assert len(arxiv_kwargs) == 1
+    assert arxiv_kwargs[0]["proxy_url"] == "http://127.0.0.1:43124"
 
 
 def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
@@ -305,11 +416,22 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "EMBEDDING_MODEL_NAME",
         "EMBEDDING_API_KEY",
         "EMBEDDING_BASE_URL",
+        "REME_PROXY_IP",
+        "REME_PROXY_ACCOUNT",
     ):
         monkeypatch.delenv(name, raising=False)
     config = _load_config("daily_cookbook")
 
     assert config.get("extends") is None
+    assert config["components"]["outbound_proxy"]["default"] == {
+        "backend": "ssh_http",
+        "host": "",
+        "account": "",
+        "connect_timeout": 10,
+        "monitor_interval": 1,
+        "restart_initial_delay": 1,
+        "restart_max_delay": 30,
+    }
     assert config["jobs"]["daily_paper_cron"]["cron"] == "0 8 * * *"
     steps = config["jobs"]["daily_paper"]["steps"]
     assert config["jobs"]["daily_paper_cron"]["steps"] == steps

@@ -15,7 +15,7 @@ import aiofiles
 import frontmatter
 
 from ....schema import Checkpoint, PortfolioSnapshot
-from ...file_io._file_io import get_path_lock
+from ...file_io import get_path_lock
 
 _CHECKPOINT_LABELS = {
     Checkpoint.OPEN: "09:00",
