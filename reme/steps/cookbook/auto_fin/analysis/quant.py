@@ -16,6 +16,8 @@ import numpy as np
 import polars as pl
 
 from .....components import R
+from .....components.outbound_proxy import BaseOutboundProxy
+from .....enumeration import ComponentEnum
 from .....schema import (
     DimensionRanking,
     EtfScore,
@@ -24,6 +26,8 @@ from .....schema import (
     FusionRanking,
     RankingMetrics,
 )
+from .....utils.tushare import create_tushare_api
+from ....base_step import Ref
 from .._common import write_atomic
 from ._base import AutoFinAnalysisStep
 
@@ -193,12 +197,8 @@ class _ExtraTreesRegressor:
 class TushareResearchClient:
     """Concurrent, cutoff-bounded TuShare adapter returning Polars frames."""
 
-    def __init__(self, token: str, *, concurrency: int = 6):
-        try:
-            import tushare as ts
-        except ImportError as exc:  # pragma: no cover - optional core dependency.
-            raise RuntimeError("tushare is required for Auto Fin quantitative research") from exc
-        self._pro = ts.pro_api(token)
+    def __init__(self, token: str, *, concurrency: int = 6, proxy_url: str | None = None):
+        self._pro = create_tushare_api(token, proxy_url=proxy_url)
         self._semaphore = asyncio.Semaphore(max(1, concurrency))
         self.sources: list[dict[str, Any]] = []
 
@@ -948,6 +948,12 @@ class AutoFinQuantResearch:
 class AutoFinQuantStep(AutoFinAnalysisStep):
     """Fetch traceable market data and calculate all deterministic rankings."""
 
+    outbound_proxy: BaseOutboundProxy | None = Ref(
+        BaseOutboundProxy,
+        ComponentEnum.OUTBOUND_PROXY,
+        optional=True,
+    )
+
     @staticmethod
     def _empty_rankings(as_of: datetime, reason: str) -> dict[str, DimensionRanking]:
         return {
@@ -1016,6 +1022,7 @@ class AutoFinQuantStep(AutoFinAnalysisStep):
                 client = TushareResearchClient(
                     token,
                     concurrency=int(self.state("quant_concurrency", 6)),
+                    proxy_url=self.outbound_proxy.http_url if self.outbound_proxy is not None else None,
                 )
                 client_history_end = date.fromisoformat(str(run_context["previous_trade_date"]))
                 bundle = await client.fetch_bundle(

@@ -13,8 +13,10 @@ import polars as pl
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
+from reme.enumeration import ComponentEnum
 from reme.schema import (
     ActionStatus,
     ActionType,
@@ -36,13 +38,16 @@ from reme.steps.cookbook.auto_fin.analysis import (
     AutoFinBacktestStep,
     AutoFinEventStep,
     AutoFinPortfolioStep,
+    AutoFinQuantStep,
     AutoFinQuantResearch,
     AutoFinUsCorrelationStep,
 )
+from reme.steps.cookbook.auto_fin.analysis.quant import TushareResearchClient
 from reme.steps.cookbook.auto_fin.ledger import AutoFinLedger, next_trade_date
 from reme.steps.cookbook.auto_fin.notification import AutoFinNotificationStep
 from reme.steps.cookbook.auto_fin.pipeline import AutoFinPipelineStep
 from reme.steps.cookbook.dingtalk.send import DingTalkMarkdownSendStep
+from reme.utils.tushare import create_tushare_api
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -269,6 +274,137 @@ def test_checkpoint_schedule_uses_distinct_fill_and_mark_times():
     assert schedule.market_cutoff.hour == 11
     assert schedule.market_cutoff.minute == 30
     assert schedule.scheduled_fill_at.hour == 13
+
+
+def test_tushare_api_uses_one_explicit_proxy_without_environment_fallback(monkeypatch):
+    import requests
+    import tushare
+
+    calls: list[dict] = []
+
+    class FakeApi:
+        """Expose the transport settings used by TuShare DataApi."""
+
+        _DataApi__http_url = "http://api.example.test/dataapi"
+        _DataApi__timeout = 17
+
+    class FakeResponse:
+        """Minimal successful requests response."""
+
+        text = """
+        {
+          "code": 0,
+          "msg": "",
+          "data": {
+            "fields": ["exchange", "cal_date", "is_open"],
+            "items": [["SSE", "20260723", 1]]
+          }
+        }
+        """
+
+        def __bool__(self):
+            return True
+
+    class FakeSession:
+        """Capture the explicit proxy settings used for one request."""
+
+        def __init__(self):
+            self.trust_env = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def post(self, url, **kwargs):
+            calls.append({"url": url, "trust_env": self.trust_env, **kwargs})
+            return FakeResponse()
+
+    monkeypatch.setattr(tushare, "pro_api", lambda _token: FakeApi())
+    monkeypatch.setattr(requests, "Session", FakeSession)
+    monkeypatch.setenv("HTTP_PROXY", "http://environment-proxy.example:8080")
+
+    client = create_tushare_api("test-token", proxy_url="http://managed-proxy.example:18080")
+    frame = client.trade_cal(exchange="SSE", fields="exchange,cal_date,is_open")
+
+    assert frame.to_dict(orient="records") == [{"exchange": "SSE", "cal_date": "20260723", "is_open": 1}]
+    assert calls == [
+        {
+            "url": "http://api.example.test/dataapi/trade_cal",
+            "trust_env": False,
+            "json": {
+                "api_name": "trade_cal",
+                "token": "test-token",
+                "params": {
+                    "exchange": "SSE",
+                    "ts_type_name": "http://api.example.test/dataapi",
+                },
+                "fields": "exchange,cal_date,is_open",
+            },
+            "timeout": 17,
+            "proxies": {
+                "http": "http://managed-proxy.example:18080",
+                "https": "http://managed-proxy.example:18080",
+            },
+        },
+    ]
+
+
+def test_tushare_research_client_forwards_managed_proxy(monkeypatch):
+    created: list[tuple[str, str | None]] = []
+    api = MagicMock()
+
+    def fake_create(token: str, *, proxy_url: str | None = None):
+        created.append((token, proxy_url))
+        return api
+
+    monkeypatch.setattr("reme.steps.cookbook.auto_fin.analysis.quant.create_tushare_api", fake_create)
+
+    client = TushareResearchClient(
+        "test-token",
+        concurrency=3,
+        proxy_url="http://managed-proxy.example:18080",
+    )
+
+    assert client._pro is api
+    assert created == [("test-token", "http://managed-proxy.example:18080")]
+
+
+def test_trade_calendar_forwards_managed_proxy(monkeypatch):
+    received: list[tuple[str, str | None]] = []
+    frame = MagicMock()
+    frame.to_dict.return_value = [
+        {"exchange": "SSE", "cal_date": "20260723", "is_open": 1, "pretrade_date": "20260722"},
+    ]
+    api = MagicMock()
+    api.trade_cal.return_value = frame
+
+    def fake_create(token: str, *, proxy_url: str | None = None):
+        received.append((token, proxy_url))
+        return api
+
+    monkeypatch.setenv("TUSHARE_TOKEN", "test-token")
+    monkeypatch.setattr("reme.steps.cookbook.auto_fin.pipeline.create_tushare_api", fake_create)
+
+    open_dates, records = AutoFinPipelineStep._fetch_trade_calendar_sync(
+        date(2026, 7, 20),
+        date(2026, 7, 24),
+        "http://managed-proxy.example:18080",
+    )
+
+    assert open_dates == [date(2026, 7, 23)]
+    assert records == frame.to_dict.return_value
+    assert received == [("test-token", "http://managed-proxy.example:18080")]
+
+
+def test_auto_fin_network_steps_resolve_default_outbound_proxy(tmp_path: Path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+
+    assert AutoFinPipelineStep(app_context=app_context).outbound_proxy is proxy
+    assert AutoFinQuantStep(app_context=app_context).outbound_proxy is proxy
 
 
 def test_complete_backtest_requires_exact_marks_for_held_positions():

@@ -13,6 +13,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ....components import R
+from ....components.outbound_proxy import BaseOutboundProxy
+from ....enumeration import ComponentEnum
 from ....schema import (
     BacktestAnalysisOutput,
     BacktestAnalysisRun,
@@ -27,7 +29,8 @@ from ....schema import (
     UsCorrelationAnalysisOutput,
     UsCorrelationAnalysisRun,
 )
-from ...base_step import BaseStep
+from ....utils.tushare import create_tushare_api
+from ...base_step import BaseStep, Ref
 from ...file_io import refresh_day_index
 from ._common import (
     analysis_section,
@@ -70,6 +73,12 @@ def _json(value: Any) -> str:
 @R.register("auto_fin_pipeline_step")
 class AutoFinPipelineStep(BaseStep):
     """Run all Auto Fin analyses serially, then validate and persist one checkpoint."""
+
+    outbound_proxy: BaseOutboundProxy | None = Ref(
+        BaseOutboundProxy,
+        ComponentEnum.OUTBOUND_PROXY,
+        optional=True,
+    )
 
     def _value(self, key: str, default: Any = None) -> Any:
         assert self.context is not None
@@ -134,19 +143,14 @@ class AutoFinPipelineStep(BaseStep):
     def _fetch_trade_calendar_sync(
         start: date,
         end: date,
+        proxy_url: str | None = None,
     ) -> tuple[list[date], list[dict[str, Any]]]:
         token = os.getenv("TUSHARE_TOKEN", "").strip()
         if not token:
             raise RuntimeError(
                 "TUSHARE_TOKEN is required to validate the A-share trading calendar",
             )
-        try:
-            import tushare as ts
-        except ImportError as exc:
-            raise RuntimeError(
-                "tushare is required for the Auto Fin trading calendar",
-            ) from exc
-        frame = ts.pro_api(token).trade_cal(
+        frame = create_tushare_api(token, proxy_url=proxy_url).trade_cal(
             exchange="SSE",
             start_date=start.strftime("%Y%m%d"),
             end_date=end.strftime("%Y%m%d"),
@@ -185,6 +189,7 @@ class AutoFinPipelineStep(BaseStep):
                 self._fetch_trade_calendar_sync,
                 start,
                 end,
+                self.outbound_proxy.http_url if self.outbound_proxy is not None else None,
             )
             source = "tushare.trade_cal"
         await write_atomic(
