@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
 from reme.components.job import BackgroundJob
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import ApplicationConfig, Response
@@ -54,7 +55,7 @@ def _wrapper(tmp_path, **kwargs):
             "components": {},
         },
     )
-    context = SimpleNamespace(app_config=config, jobs={job.name: job})
+    context = SimpleNamespace(app_config=config, components={}, jobs={job.name: job})
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
@@ -86,6 +87,43 @@ def test_thread_config_preserves_other_mcp_servers(tmp_path):
     assert "docs" in config["mcp_servers"]
     assert len(config["mcp_servers"]) == 2
     assert next(name for name in config["mcp_servers"] if name != "docs").startswith("reme_jobs_")
+
+
+@pytest.mark.asyncio
+async def test_thread_config_injects_proxy_only_into_codex_shell_policy(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    wrapper.app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    await wrapper.start()
+
+    config = wrapper._thread_config(  # pylint: disable=protected-access
+        {
+            "config": {
+                "shell_environment_policy": {
+                    "inherit": "core",
+                    "set": {
+                        "CUSTOM": "preserved",
+                        "HTTP_PROXY": "http://user-proxy.example:8080",
+                    },
+                },
+            },
+        },
+    )
+    environment = config["shell_environment_policy"]["set"]
+
+    assert config["shell_environment_policy"]["inherit"] == "core"
+    assert environment["CUSTOM"] == "preserved"
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert environment[key] == proxy.http_url
+
+    auth = wrapper._resolve_auth_config("oauth")  # pylint: disable=protected-access
+    client_config = wrapper._build_client_config(auth)  # pylint: disable=protected-access
+    assert "HTTP_PROXY" not in client_config.env
+    assert "HTTPS_PROXY" not in client_config.env
+
+    await wrapper.close()
+    await proxy.close()
 
 
 def test_mcp_config_rejects_background_jobs(tmp_path):
@@ -520,7 +558,7 @@ async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
         },
     )
     job = _Job("only_custom")
-    context = SimpleNamespace(app_config=app_config, jobs={"only_custom": job})
+    context = SimpleNamespace(app_config=app_config, components={}, jobs={"only_custom": job})
     wrapper = CodexAgentWrapper(app_context=context)
     server_config = wrapper._mcp_server_config({"job_tools": ["only_custom"]})  # pylint: disable=protected-access
     transport = StdioTransport(

@@ -178,7 +178,7 @@ class AsAgentWrapper(BaseAgentWrapper):
     ) -> list[ToolBase]:
         """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
         cwd = str(self.cwd)
-        backend = WorkspaceBackend(cwd, self.subprocess_environment)
+        backend = WorkspaceBackend(cwd, self.bash_environment)
         factories = {
             "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
             "edit": lambda: Edit(backend=backend),

@@ -435,6 +435,14 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
     assert config["jobs"]["daily_paper_cron"]["cron"] == "0 8 * * *"
     steps = config["jobs"]["daily_paper"]["steps"]
     assert config["jobs"]["daily_paper_cron"]["steps"] == steps
+    assert {
+        step["backend"]: step.get("outbound_proxy")
+        for step in steps
+        if step["backend"] in {"daily_paper_collect_step", "daily_paper_analyze_step"}
+    } == {
+        "daily_paper_collect_step": "default",
+        "daily_paper_analyze_step": "default",
+    }
     agent_steps = [
         step
         for step in steps

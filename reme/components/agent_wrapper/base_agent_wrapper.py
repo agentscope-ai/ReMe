@@ -9,6 +9,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 from pydantic import BaseModel
 
 from ..base_component import BaseComponent
+from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk
 
@@ -31,6 +32,11 @@ class BaseAgentWrapper(BaseComponent):
         super().__init__(**kwargs)
         self._cwd = cwd
         self._project_path = project_path
+        self.outbound_proxy = self.bind(
+            "default",
+            BaseOutboundProxy,
+            optional=True,
+        )
         if self.SDK_PACKAGE:
             try:
                 sdk_version = metadata.version(self.SDK_PACKAGE)
@@ -120,6 +126,20 @@ class BaseAgentWrapper(BaseComponent):
         if self.app_context is None:
             return {}
         return self.app_context.app_config.environment
+
+    @property
+    def command_proxy_environment(self) -> dict[str, str]:
+        """Managed proxy variables for agent command tools only."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return {}
+        return self.outbound_proxy.merge_environment()
+
+    @property
+    def bash_environment(self) -> dict[str, str]:
+        """Configured command environment with the managed proxy applied last."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return dict(self.subprocess_environment)
+        return self.outbound_proxy.merge_environment(self.subprocess_environment)
 
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""

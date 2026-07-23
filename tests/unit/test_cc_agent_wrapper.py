@@ -11,6 +11,7 @@ from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
 from reme.components.application_context import ApplicationContext
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.enumeration import ChunkEnum, ComponentEnum
 
 # pylint: disable=protected-access
@@ -199,6 +200,55 @@ def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
     )
     assert empty.env["ANTHROPIC_AUTH_TOKEN"] == ""
     assert empty.env["ANTHROPIC_BASE_URL"] == ""
+
+
+@pytest.mark.asyncio
+async def test_managed_proxy_is_injected_only_into_claude_bash_commands(tmp_path):
+    """The Claude CLI keeps its model environment while Bash receives proxy exports."""
+    from claude_agent_sdk import HookMatcher
+
+    wrapper = _wrapper(tmp_path)
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    wrapper.app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+
+    async def existing_hook(_hook_input, _tool_use_id, _context):
+        return {}
+
+    existing = HookMatcher(matcher="Read", hooks=[existing_hook])
+    await wrapper.start()
+    opts = wrapper._build_options(
+        "hello",
+        api_key="configured-key",
+        base_url="https://configured.example.test",
+        hooks={"PreToolUse": [existing]},
+    )
+
+    assert opts.env["ANTHROPIC_AUTH_TOKEN"] == "configured-key"
+    assert opts.env["ANTHROPIC_BASE_URL"] == "https://configured.example.test"
+    assert "HTTP_PROXY" not in opts.env
+    assert opts.hooks["PreToolUse"][0] is existing
+    proxy_hook = opts.hooks["PreToolUse"][1]
+    assert proxy_hook.matcher == "Bash"
+
+    result = await proxy_hook.hooks[0](
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "python tushare_analysis.py", "timeout": 30},
+            "tool_use_id": "tool-1",
+        },
+        "tool-1",
+        {"signal": None},
+    )
+    updated_input = result["hookSpecificOutput"]["updatedInput"]
+    assert updated_input["command"].endswith("; python tushare_analysis.py")
+    assert updated_input["timeout"] == 30
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert f"{key}={proxy.http_url}" in updated_input["command"]
+
+    await wrapper.close()
+    await proxy.close()
 
 
 def test_build_options_accepts_empty_output_schema(tmp_path):

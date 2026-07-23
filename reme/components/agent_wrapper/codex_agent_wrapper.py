@@ -267,6 +267,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     def _thread_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         config = dict(kwargs.get("config") or {})
+        if proxy_environment := self.command_proxy_environment:
+            shell_environment_policy = dict(config.get("shell_environment_policy") or {})
+            environment = dict(shell_environment_policy.get("set") or {})
+            environment.update(proxy_environment)
+            shell_environment_policy["set"] = environment
+            config["shell_environment_policy"] = shell_environment_policy
         if server := self._mcp_server_config(kwargs):
             servers = dict(config.get("mcp_servers") or {})
             server_key = hashlib.sha256(json.dumps(server, sort_keys=True).encode()).hexdigest()[:12]

@@ -15,7 +15,9 @@ from reme.components.agent_wrapper import (
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import base_agent_wrapper
 from reme.components.application_context import ApplicationContext
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components import base_component
+from reme.enumeration import ComponentEnum
 
 
 class _VersionedAgentWrapper(BaseAgentWrapper):
@@ -135,3 +137,29 @@ async def test_agentscope_backend_passes_configured_environment_to_bash(tmp_path
 
     assert result.exit_code == 0
     assert result.stdout == b"configured\n"
+
+
+@pytest.mark.asyncio
+async def test_agentscope_bash_uses_managed_proxy_without_changing_subprocess_environment(tmp_path):
+    """AgentScope applies the managed proxy only to its command backend."""
+    context = ApplicationContext(
+        workspace_dir=str(tmp_path),
+        environment={"TOOL_ENV": "preserved"},
+    )
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    wrapper = AsAgentWrapper(app_context=context, as_llm="")
+
+    await wrapper.start()
+    bash = wrapper._builtin_tools(["bash"])[0]  # pylint: disable=protected-access
+    backend = bash._backend  # pylint: disable=protected-access
+
+    assert wrapper.subprocess_environment == {"TOOL_ENV": "preserved"}
+    assert "HTTP_PROXY" not in wrapper.subprocess_environment
+    assert backend._environment["TOOL_ENV"] == "preserved"  # pylint: disable=protected-access
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert backend._environment[key] == proxy.http_url  # pylint: disable=protected-access
+
+    await wrapper.close()
+    await proxy.close()

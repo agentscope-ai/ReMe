@@ -433,11 +433,13 @@ jobs:
           default: 30
     steps: &daily_paper_steps
       - backend: daily_paper_collect_step
+        outbound_proxy: default
       - backend: daily_paper_rank_step
       - backend: daily_paper_select_step
         agent_wrapper: daily_paper
       - backend: daily_paper_analyze_step
         agent_wrapper: daily_paper
+        outbound_proxy: default
       - backend: daily_paper_digest_step
         agent_wrapper: daily_paper
       - backend: dingtalk_markdown_send_step
