@@ -5,6 +5,7 @@ from .auto_fin import (
     ActionStatus,
     ActionType,
     BacktestAnalysisDocument,
+    BacktestAnalysisState,
     BacktestAnalysisRun,
     BacktestAnalysisOutput,
     Checkpoint,
@@ -13,6 +14,7 @@ from .auto_fin import (
     EventAnalysisDocument,
     EventAnalysisOutput,
     EventAnalysisRun,
+    EventAnalysisState,
     ExtremeAnalysis,
     FusionRanking,
     InstrumentType,
@@ -31,6 +33,7 @@ from .auto_fin import (
     UsCorrelationAnalysisDocument,
     UsCorrelationAnalysisOutput,
     UsCorrelationAnalysisRun,
+    UsCorrelationAnalysisState,
 )
 from .daily_paper import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection, SelectedPaper
 from .dream import (
@@ -56,6 +59,7 @@ __all__ = [
     "ActionStatus",
     "ActionType",
     "BacktestAnalysisDocument",
+    "BacktestAnalysisState",
     "BacktestAnalysisRun",
     "BacktestAnalysisOutput",
     "Checkpoint",
@@ -71,6 +75,7 @@ __all__ = [
     "EventAnalysisDocument",
     "EventAnalysisOutput",
     "EventAnalysisRun",
+    "EventAnalysisState",
     "ExtremeAnalysis",
     "FileChunk",
     "FileFrontMatter",
@@ -104,4 +109,5 @@ __all__ = [
     "UsCorrelationAnalysisDocument",
     "UsCorrelationAnalysisOutput",
     "UsCorrelationAnalysisRun",
+    "UsCorrelationAnalysisState",
 ]

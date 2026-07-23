@@ -47,7 +47,8 @@ def _render_notes_block(notes: list[dict]) -> str:
     for note in notes:
         meta: dict = note["metadata"]
         keys = [k for k in ("name", "description") if k in meta]
-        keys += [k for k in meta if k not in {"name", "description", *_INDEX_HIDDEN_METADATA_KEYS}]
+        if meta.get("schema_version") != "auto-fin/v1":
+            keys += [k for k in meta if k not in {"name", "description", *_INDEX_HIDDEN_METADATA_KEYS}]
         parts = [f"- [[{note['path']}]]"] + [
             f"{k}: {str(v).replace(chr(10), ' ')}" for k in keys if (v := meta[k]) not in (None, "")
         ]

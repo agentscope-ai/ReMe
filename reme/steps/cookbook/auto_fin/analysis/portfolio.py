@@ -21,6 +21,7 @@ class AutoFinPortfolioStep(AutoFinAnalysisStep):
             or not isinstance(analyses, dict)
         ):
             raise RuntimeError("Auto Fin portfolio inputs are missing before synthesis")
+        self.require_checkpoint_reached(run_context)
         output, error = await self.reply(
             "portfolio_user",
             PortfolioProposalOutput,

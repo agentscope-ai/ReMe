@@ -241,6 +241,7 @@ class TushareResearchClient:
         self,
         *,
         history_end: date,
+        us_history_end: date | None = None,
         lookback_days: int,
         preselect_size: int,
         us_codes: tuple[str, ...] = _US_CODES,
@@ -249,6 +250,9 @@ class TushareResearchClient:
         """Fetch universe, daily bars, holdings, valuations, and US bars."""
         end_text = history_end.strftime("%Y%m%d")
         start_text = (history_end - timedelta(days=lookback_days)).strftime("%Y%m%d")
+        us_end = us_history_end or history_end
+        us_end_text = us_end.strftime("%Y%m%d")
+        us_start_text = (us_end - timedelta(days=lookback_days)).strftime("%Y%m%d")
         basic, latest = await asyncio.gather(
             self._optional_call(
                 "fund_basic",
@@ -272,7 +276,7 @@ class TushareResearchClient:
             .cast(pl.String)
             .to_list()
         )
-        daily_frames, us_frames = await asyncio.gather(
+        daily_frames, fund_adj_frames, us_frames = await asyncio.gather(
             asyncio.gather(
                 *[
                     self._optional_call(
@@ -286,14 +290,26 @@ class TushareResearchClient:
                 ],
             ),
             asyncio.gather(
+                *[
+                    self._optional_call(
+                        "fund_adj",
+                        ts_code=code,
+                        start_date=start_text,
+                        end_date=end_text,
+                        fields="ts_code,trade_date,adj_factor",
+                    )
+                    for code in selected
+                ],
+            ),
+            asyncio.gather(
                 *(
                     [
                         self._optional_call(
-                            "us_daily",
+                            "us_daily_adj",
                             ts_code=code,
-                            start_date=start_text,
-                            end_date=end_text,
-                            fields="ts_code,trade_date,open,high,low,close,pre_close,pct_change,vol,amount",
+                            start_date=us_start_text,
+                            end_date=us_end_text,
+                            fields="ts_code,trade_date,open,high,low,close,pre_close,pct_change,vol,amount,adj_factor",
                         )
                         for code in us_codes
                     ]
@@ -303,6 +319,11 @@ class TushareResearchClient:
             ),
         )
         daily = pl.concat([frame for frame in daily_frames if not frame.is_empty()], how="diagonal_relaxed")
+        fund_adj = (
+            pl.concat([frame for frame in fund_adj_frames if not frame.is_empty()], how="diagonal_relaxed")
+            if any(not frame.is_empty() for frame in fund_adj_frames)
+            else pl.DataFrame()
+        )
         us_daily = (
             pl.concat([frame for frame in us_frames if not frame.is_empty()], how="diagonal_relaxed")
             if any(not frame.is_empty() for frame in us_frames)
@@ -341,17 +362,31 @@ class TushareResearchClient:
                     .to_list()
                 )
             ]
-        stock_daily_frames = await asyncio.gather(
-            *[
-                self._optional_call(
-                    "daily",
-                    ts_code=code,
-                    start_date=(history_end - timedelta(days=60)).strftime("%Y%m%d"),
-                    end_date=end_text,
-                    fields="ts_code,trade_date,close,pct_chg,amount",
-                )
-                for code in stock_codes
-            ],
+        stock_daily_frames, stock_adj_frames = await asyncio.gather(
+            asyncio.gather(
+                *[
+                    self._optional_call(
+                        "daily",
+                        ts_code=code,
+                        start_date=(history_end - timedelta(days=60)).strftime("%Y%m%d"),
+                        end_date=end_text,
+                        fields="ts_code,trade_date,close,pct_chg,amount",
+                    )
+                    for code in stock_codes
+                ],
+            ),
+            asyncio.gather(
+                *[
+                    self._optional_call(
+                        "adj_factor",
+                        ts_code=code,
+                        start_date=(history_end - timedelta(days=60)).strftime("%Y%m%d"),
+                        end_date=end_text,
+                        fields="ts_code,trade_date,adj_factor",
+                    )
+                    for code in stock_codes
+                ],
+            ),
         )
         valuation = await self._optional_call(
             "daily_basic",
@@ -363,11 +398,18 @@ class TushareResearchClient:
             if any(not frame.is_empty() for frame in stock_daily_frames)
             else pl.DataFrame()
         )
+        stock_adj = (
+            pl.concat([frame for frame in stock_adj_frames if not frame.is_empty()], how="diagonal_relaxed")
+            if any(not frame.is_empty() for frame in stock_adj_frames)
+            else pl.DataFrame()
+        )
         return {
             "universe": basic,
             "etf_daily": daily,
+            "fund_adj": fund_adj,
             "holdings": holdings,
             "stock_daily": stock_daily,
+            "stock_adj": stock_adj,
             "stock_valuation": valuation,
             "us_daily": us_daily,
         }
@@ -383,8 +425,62 @@ class AutoFinQuantResearch:
         self.seed = seed
 
     @staticmethod
+    def _adjust_prices(
+        daily: pl.DataFrame,
+        factors: pl.DataFrame,
+        *,
+        price_columns: tuple[str, ...],
+        label: str,
+    ) -> pl.DataFrame:
+        """Apply required cumulative adjustment factors without a raw-price fallback."""
+        if daily.is_empty():
+            return daily
+        required_daily = {"ts_code", "trade_date", *price_columns}
+        if not required_daily.issubset(daily.columns):
+            raise ValueError(f"{label} data is missing columns: {sorted(required_daily - set(daily.columns))}")
+        required_factors = {"ts_code", "trade_date", "adj_factor"}
+        if factors.is_empty() or not required_factors.issubset(factors.columns):
+            raise ValueError(f"{label} adjustment factors are required")
+        normalized_daily = daily.with_columns(
+            pl.col("ts_code").cast(pl.String),
+            _date_expr("trade_date").alias("trade_date"),
+        )
+        normalized_factors = (
+            factors.with_columns(
+                pl.col("ts_code").cast(pl.String),
+                _date_expr("trade_date").alias("trade_date"),
+                pl.col("adj_factor").cast(pl.Float64, strict=False),
+            )
+            .filter(pl.col("adj_factor").is_not_null() & (pl.col("adj_factor") > 0))
+            .unique(["ts_code", "trade_date"], keep="last")
+        )
+        adjusted = normalized_daily.join(
+            normalized_factors.select("ts_code", "trade_date", "adj_factor"),
+            on=["ts_code", "trade_date"],
+            how="left",
+        )
+        missing = adjusted.filter(pl.col("adj_factor").is_null()).height
+        if missing:
+            raise ValueError(f"{label} adjustment factors are incomplete: missing {missing} rows")
+        return adjusted.with_columns(
+            *[
+                (pl.col(column).cast(pl.Float64, strict=False) * pl.col("adj_factor")).alias(column)
+                for column in price_columns
+            ],
+        )
+
+    @staticmethod
     def _prepare_universe(bundle: dict[str, pl.DataFrame], universe_size: int) -> tuple[pl.DataFrame, pl.DataFrame]:
-        daily = bundle.get("etf_daily", pl.DataFrame())
+        daily = AutoFinQuantResearch._adjust_prices(
+            bundle.get("etf_daily", pl.DataFrame()),
+            bundle.get("fund_adj", pl.DataFrame()),
+            price_columns=tuple(
+                column
+                for column in ("open", "high", "low", "close", "pre_close")
+                if column in bundle.get("etf_daily", pl.DataFrame()).columns
+            ),
+            label="ETF",
+        )
         if daily.is_empty():
             return pl.DataFrame(), pl.DataFrame()
         required = {"ts_code", "trade_date", "open", "close", "amount"}
@@ -392,7 +488,6 @@ class AutoFinQuantResearch:
             raise ValueError(f"ETF daily data is missing columns: {sorted(required - set(daily.columns))}")
         daily = (
             daily.with_columns(
-                _date_expr("trade_date").alias("trade_date"),
                 pl.col("ts_code").cast(pl.String),
                 *[
                     pl.col(column).cast(pl.Float64, strict=False)
@@ -433,7 +528,8 @@ class AutoFinQuantResearch:
             ((pl.col("close") / pl.col("close").shift(1) - 1.0).rolling_std(20).over("ts_code")).alias("volatility_20"),
             (pl.col("amount") / pl.col("amount").rolling_mean(20).over("ts_code")).alias("amount_ratio"),
             (pl.col("close").shift(-1) / pl.col("close") - 1.0).over("ts_code").alias("future_return"),
-            (pl.col("open").shift(-1) / pl.col("open") - 1.0).over("ts_code").alias("future_open_return"),
+            (pl.col("open").shift(-2) / pl.col("open").shift(-1) - 1.0).over("ts_code").alias("future_open_return"),
+            pl.col("trade_date").shift(-1).over("ts_code").alias("prediction_date"),
         )
 
     def _fit_ranker(
@@ -581,6 +677,13 @@ class AutoFinQuantResearch:
             )
         holdings = bundle.get("holdings", pl.DataFrame())
         stock_daily = bundle.get("stock_daily", pl.DataFrame())
+        if not stock_daily.is_empty():
+            stock_daily = AutoFinQuantResearch._adjust_prices(
+                stock_daily,
+                bundle.get("stock_adj", pl.DataFrame()),
+                price_columns=("close",),
+                label="A-share constituent",
+            )
         valuation = bundle.get("stock_valuation", pl.DataFrame())
         stock_returns: dict[str, float] = {}
         if not stock_daily.is_empty() and {"ts_code", "close", "trade_date"}.issubset(stock_daily.columns):
@@ -715,7 +818,7 @@ class AutoFinQuantResearch:
             scores, metrics, _, _ = self._fit_ranker(
                 features,
                 feature_columns=list(self.feature_columns),
-                label_column="future_return",
+                label_column="future_open_return",
                 names=names,
             )
         except ValueError as exc:
@@ -723,7 +826,7 @@ class AutoFinQuantResearch:
                 dimension="backtest",
                 as_of=as_of,
                 status="INSUFFICIENT_DATA",
-                methodology="按日期切分的极端随机树ETF横截面排序",
+                methodology="以前一交易日复权收盘特征预测下一交易日开盘到再下一交易日开盘收益",
                 model_name="ExtraTreesRegressor(local)",
                 limitations=[str(exc)],
             )
@@ -731,7 +834,7 @@ class AutoFinQuantResearch:
             dimension="backtest",
             as_of=as_of,
             status="COMPLETE",
-            methodology="前75%交易日训练、后25%交易日样本外验证；最终在全部已知标签重训并预测下一日",
+            methodology=("前75%特征日训练、后25%特征日样本外验证；" "D日复权收盘特征预测D+1开盘到D+2开盘收益"),
             model_name="ExtraTreesRegressor(local)",
             candidates=scores,
             metrics=metrics,
@@ -752,29 +855,32 @@ class AutoFinQuantResearch:
                 status="INSUFFICIENT_DATA",
                 methodology="已完成美股close-close映射下一A股交易日ETF open-open",
                 model_name="ExtraTreesRegressor(local)",
-                limitations=["TuShare us_daily 没有返回可用数据。"],
+                limitations=["TuShare us_daily_adj 没有返回可用复权数据。"],
             )
-        pct_column = (
-            "pct_change" if "pct_change" in us_daily.columns else "pct_chg" if "pct_chg" in us_daily.columns else None
-        )
-        if pct_column:
-            us = us_daily.with_columns(
+        required_us = {"ts_code", "trade_date", "close", "adj_factor"}
+        if not required_us.issubset(us_daily.columns):
+            return DimensionRanking(
+                dimension="us_correlation",
+                as_of=as_of,
+                status="INSUFFICIENT_DATA",
+                methodology="美股复权close-close特征预测A股下一交易日open-open",
+                model_name="ExtraTreesRegressor(local)",
+                limitations=["us_daily_adj 的 close 与 adj_factor 是必需字段；禁止回退未复权价格。"],
+            )
+        us = (
+            us_daily.with_columns(
                 _date_expr("trade_date").alias("us_date"),
-                (pl.col(pct_column).cast(pl.Float64, strict=False) / 100.0).alias("us_return"),
+                (
+                    pl.col("close").cast(pl.Float64, strict=False) * pl.col("adj_factor").cast(pl.Float64, strict=False)
+                ).alias("adjusted_close"),
                 pl.col("ts_code").cast(pl.String),
             )
-        else:
-            us = (
-                us_daily.with_columns(
-                    _date_expr("trade_date").alias("us_date"),
-                    pl.col("close").cast(pl.Float64, strict=False),
-                    pl.col("ts_code").cast(pl.String),
-                )
-                .sort(["ts_code", "us_date"])
-                .with_columns(
-                    (pl.col("close") / pl.col("close").shift(1) - 1.0).over("ts_code").alias("us_return"),
-                )
+            .filter(pl.col("adjusted_close").is_not_null() & (pl.col("adjusted_close") > 0))
+            .sort(["ts_code", "us_date"])
+            .with_columns(
+                (pl.col("adjusted_close") / pl.col("adjusted_close").shift(1) - 1.0).over("ts_code").alias("us_return"),
             )
+        )
         pivot = (
             us.drop_nulls(["us_date", "us_return"])
             .pivot(on="ts_code", index="us_date", values="us_return", aggregate_function="last")
@@ -790,32 +896,35 @@ class AutoFinQuantResearch:
                 model_name="ExtraTreesRegressor(local)",
                 limitations=["至少需要两个美股股票/ETF的历史收益序列。"],
             )
-        # join_asof strictly backward prevents using a US session dated on/after the A-share session.
+        # A feature row dated D predicts the next A-share session T. A US session
+        # dated before T closes before T's A-share open, including the usual US
+        # session dated D that closes around 04:00/05:00 China time on T.
         aligned = (
-            features.sort("trade_date")
+            features.drop_nulls("prediction_date")
+            .sort("prediction_date")
             .join_asof(
                 pivot.rename({"us_date": "matched_us_date"}).sort("matched_us_date"),
-                left_on="trade_date",
+                left_on="prediction_date",
                 right_on="matched_us_date",
                 strategy="backward",
                 allow_exact_matches=False,
             )
-            .filter(pl.col("matched_us_date") < pl.col("trade_date"))
+            .filter(pl.col("matched_us_date") < pl.col("prediction_date"))
         )
         current_features = (
             features.sort(["ts_code", "trade_date"])
             .group_by("ts_code", maintain_order=True)
             .tail(1)
-            .with_columns(pl.lit(as_of.date()).alias("trade_date"))
-            .sort("trade_date")
+            .with_columns(pl.lit(as_of.date()).alias("prediction_date"))
+            .sort("prediction_date")
             .join_asof(
                 pivot.rename({"us_date": "matched_us_date"}).sort("matched_us_date"),
-                left_on="trade_date",
+                left_on="prediction_date",
                 right_on="matched_us_date",
                 strategy="backward",
                 allow_exact_matches=False,
             )
-            .filter(pl.col("matched_us_date") < pl.col("trade_date"))
+            .filter(pl.col("matched_us_date") < pl.col("prediction_date"))
         )
         feature_columns = [*us_columns, "ret_1", "ret_5", "volatility_20"]
         names = dict(zip(liquidity["ts_code"].to_list(), liquidity["name"].to_list()))
@@ -832,7 +941,7 @@ class AutoFinQuantResearch:
                 dimension="us_correlation",
                 as_of=as_of,
                 status="INSUFFICIENT_DATA",
-                methodology="美股前一已完成交易日close-close特征预测A股ETF当日open到下一交易日open",
+                methodology="前一A股复权收盘特征加开盘前已完成美股复权收益，预测下一A股open-open",
                 model_name="ExtraTreesRegressor(local)",
                 limitations=[str(exc)],
             )
@@ -840,7 +949,7 @@ class AutoFinQuantResearch:
             dimension="us_correlation",
             as_of=as_of,
             status="COMPLETE",
-            methodology="严格向后对齐美股已完成交易日；close-close特征预测A股ETF open-open横截面排名",
+            methodology=("D日A股复权收盘特征加D+1开盘前已完成的美股复权close-close；" "预测D+1开盘到D+2开盘收益"),
             model_name="ExtraTreesRegressor(local)",
             candidates=scores,
             metrics=metrics,
@@ -998,6 +1107,7 @@ class AutoFinQuantStep(AutoFinAnalysisStep):
         event_output = self.state("event_output")
         if not isinstance(run_context, dict) or not isinstance(event_output, EventAnalysisOutput):
             raise RuntimeError("Auto Fin event output and run context are required before quantitative research")
+        self.require_checkpoint_reached(run_context)
         as_of = datetime.fromisoformat(str(run_context["data_cutoff"]))
         weights = self.state("fusion_weights", {"event": 0.30, "backtest": 0.45, "us_correlation": 0.25})
         if not isinstance(weights, dict):
@@ -1027,6 +1137,7 @@ class AutoFinQuantStep(AutoFinAnalysisStep):
                 client_history_end = date.fromisoformat(str(run_context["previous_trade_date"]))
                 bundle = await client.fetch_bundle(
                     history_end=client_history_end,
+                    us_history_end=as_of.date() - timedelta(days=1),
                     lookback_days=int(self.state("quant_lookback_days", 540)),
                     preselect_size=max(int(self.state("quant_universe_size", 50)) * 2, 60),
                     fetch_us=us_ranking_override is None and not bool(self.state("skip_us_research", False)),
@@ -1067,8 +1178,12 @@ class AutoFinQuantStep(AutoFinAnalysisStep):
                         "lookback_days": int(self.state("quant_lookback_days", 540)),
                         "tree_count": int(self.state("quant_tree_count", 31)),
                         "fusion_weights": weights,
+                        "adjustment": (
+                            "ETF OHLC×fund_adj; A-share close×adj_factor; " "US close×us_daily_adj.adj_factor"
+                        ),
+                        "target": "D features -> A-share open(D+1) to open(D+2)",
                     },
-                    "code_version": "auto-fin-quant/v1",
+                    "code_version": "auto-fin-quant/v2",
                     "parameter_hash": hashlib.sha256(
                         json.dumps(
                             {
@@ -1076,6 +1191,10 @@ class AutoFinQuantStep(AutoFinAnalysisStep):
                                 "lookback_days": int(self.state("quant_lookback_days", 540)),
                                 "tree_count": int(self.state("quant_tree_count", 31)),
                                 "fusion_weights": weights,
+                                "adjustment": (
+                                    "ETF OHLC×fund_adj; A-share close×adj_factor; " "US close×us_daily_adj.adj_factor"
+                                ),
+                                "target": "D features -> A-share open(D+1) to open(D+2)",
                             },
                             sort_keys=True,
                         ).encode(),

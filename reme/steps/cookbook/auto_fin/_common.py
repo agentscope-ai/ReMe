@@ -14,7 +14,7 @@ from uuid import uuid4
 import aiofiles
 import frontmatter
 
-from ....schema import Checkpoint, DimensionRanking, FusionRanking, PortfolioSnapshot
+from ....schema import ActionStatus, Checkpoint, DimensionRanking, FusionRanking, PortfolioSnapshot, ProposedAction
 from ...file_io import get_path_lock
 
 _CHECKPOINT_LABELS = {
@@ -151,6 +151,16 @@ def find_run(path: Path, run_id: str) -> dict[str, Any] | None:
     return None
 
 
+def report_section(path: Path, checkpoint: Checkpoint) -> str:
+    """Return the readable body for one persisted checkpoint."""
+    label = _CHECKPOINT_LABELS[checkpoint]
+    for match in _SECTION_RE.finditer(load_document(path).content):
+        if match.group(1) == label:
+            _, _, section = match.group(0).partition("\n")
+            return section.strip()
+    return ""
+
+
 def latest_portfolio_snapshot(
     workspace: Path,
     daily_dir: str,
@@ -176,7 +186,13 @@ def latest_portfolio_snapshot(
     if not candidates:
         return None
     _, latest = max(candidates, key=lambda value: value[0])
-    return PortfolioSnapshot.model_validate(latest["snapshot"])
+    snapshot = PortfolioSnapshot.model_validate(latest.get("snapshot", {}))
+    snapshot.proposed_actions = [
+        action
+        for value in latest.get("proposed_actions", [])
+        if (action := ProposedAction.model_validate(value)).status is ActionStatus.PROPOSED
+    ]
+    return snapshot
 
 
 def analysis_section(description: str, body: str, limitations: list[str]) -> str:

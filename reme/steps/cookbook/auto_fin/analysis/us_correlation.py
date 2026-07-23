@@ -2,19 +2,40 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .....components import R
-from .....schema import Checkpoint, UsCorrelationAnalysisOutput
-from .._common import find_run
+from .....schema import Checkpoint, DimensionRanking, UsCorrelationAnalysisOutput, UsCorrelationAnalysisState
+from .._common import find_run, report_section
 from ._base import AutoFinAnalysisStep, json_text
 
 
 @R.register("auto_fin_us_correlation_step")
 class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
     """Generate the opening US analysis or reuse it later the same day."""
+
+    def _load_ranking(self, state: UsCorrelationAnalysisState) -> DimensionRanking | None:
+        """Restore a ranking from legacy frontmatter or its compact manifest reference."""
+        if state.ranking is not None:
+            return state.ranking
+        if not state.ranking_manifest:
+            return None
+        relative = Path(state.ranking_manifest)
+        if relative.is_absolute():
+            raise ValueError("US ranking manifest path must be workspace-relative")
+        workspace = self.workspace_path.resolve()
+        manifest_path = (workspace / relative).resolve()
+        if not manifest_path.is_relative_to(workspace):
+            raise ValueError("US ranking manifest path escapes the workspace")
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            ranking = DimensionRanking.model_validate(manifest["rankings"]["us_correlation"])
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid US ranking manifest: {state.ranking_manifest}") from exc
+        return ranking.model_copy(update={"manifest_path": state.ranking_manifest})
 
     @staticmethod
     def validate_output(
@@ -28,6 +49,8 @@ class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
             raise ValueError(
                 "US correlation analysis is misaligned with the A-share checkpoint",
             )
+        if output.us_session_date >= trade_date:
+            raise ValueError("US correlation analysis must use a completed session before the A-share trade date")
         if set(output.lookbacks) != {"1D", "5D", "30D"}:
             raise ValueError(
                 "US correlation analysis must contain 1D, 5D, and 30D lookbacks",
@@ -47,6 +70,7 @@ class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
             raise RuntimeError(
                 "Auto Fin opening context is missing before US correlation analysis",
             )
+        self.require_checkpoint_reached(run_context)
 
         output: UsCorrelationAnalysisOutput | None
         error = ""
@@ -93,8 +117,15 @@ class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
             )
             saved = find_run(path, open_run_id)
             try:
+                state = UsCorrelationAnalysisState.model_validate((saved or {})["analysis"])
                 output = UsCorrelationAnalysisOutput.model_validate(
-                    (saved or {})["analysis"],
+                    {
+                        **state.model_dump(exclude={"ranking_manifest"}),
+                        "description": state.description,
+                        "body": state.body or report_section(path, Checkpoint.OPEN),
+                        "ranking": self._load_ranking(state),
+                        "limitations": state.limitations,
+                    },
                 )
                 generated_at = datetime.fromisoformat(
                     str((saved or {})["generated_at"]),

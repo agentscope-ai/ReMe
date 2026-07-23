@@ -330,6 +330,69 @@ class PortfolioProposalOutput(AutoFinModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+class AnalysisState(AutoFinModel):
+    """Compact persisted state for an analysis whose prose lives in Markdown."""
+
+    # These fields accept legacy auto-fin/v1 documents, but are deliberately
+    # omitted when new frontmatter is serialized because the report body
+    # already contains them.
+    description: str = Field(default="", exclude=True)
+    body: str = Field(default="", exclude=True)
+    ranking: DimensionRanking | None = Field(default=None, exclude=True)
+    limitations: list[str] = Field(default_factory=list, exclude=True)
+    ranking_manifest: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def capture_ranking_manifest(cls, value):
+        """Replace an embedded ranking with its rebuildable manifest reference."""
+        if not isinstance(value, dict) or value.get("ranking_manifest"):
+            return value
+        ranking = value.get("ranking")
+        if isinstance(ranking, DimensionRanking):
+            manifest_path = ranking.manifest_path
+        elif isinstance(ranking, dict):
+            manifest_path = str(ranking.get("manifest_path") or "")
+        else:
+            manifest_path = ""
+        return {**value, "ranking_manifest": manifest_path}
+
+
+class EventAnalysisState(AnalysisState):
+    """Non-rendered event-analysis state retained in frontmatter."""
+
+    window: EventWindow
+    sources: list[DataSource] = Field(default_factory=list)
+    events: list[EventSignal] = Field(default_factory=list)
+    cursor: EventCursor
+
+
+class BacktestAnalysisState(AnalysisState):
+    """Non-rendered backtest state retained in frontmatter."""
+
+    market_cutoff: datetime
+    data_manifest: str
+    code_version: str
+    parameter_hash: str
+    adjustment: str
+    market_data_complete: bool
+    settlement_marks: list[PositionMark] = Field(default_factory=list)
+    position_marks: list[PositionMark] = Field(default_factory=list)
+    experiments: list[BacktestExperiment] = Field(default_factory=list)
+    signals: list[BacktestSignal] = Field(default_factory=list)
+
+
+class UsCorrelationAnalysisState(AnalysisState):
+    """Non-rendered US-correlation state retained in frontmatter."""
+
+    as_of: datetime
+    us_session_date: date
+    a_share_trade_date: date
+    universe_method: Literal["top50_by_recent_average_amount"]
+    lookbacks: list[Literal["1D", "5D", "30D"]]
+    mappings: list[CorrelationMapping] = Field(default_factory=list)
+
+
 class Position(AutoFinModel):
     """One normalized position; no real price, quantity, or lot fields exist."""
 
@@ -419,32 +482,36 @@ class AnalysisRun(AutoFinModel):
 class EventAnalysisRun(AnalysisRun):
     """One persisted event-analysis run."""
 
-    analysis: EventAnalysisOutput | None = None
+    analysis: EventAnalysisState | None = None
 
 
 class BacktestAnalysisRun(AnalysisRun):
     """One persisted backtest-analysis run."""
 
-    analysis: BacktestAnalysisOutput | None = None
+    analysis: BacktestAnalysisState | None = None
 
 
 class UsCorrelationAnalysisRun(AnalysisRun):
     """One persisted US-correlation run."""
 
-    analysis: UsCorrelationAnalysisOutput
+    analysis: UsCorrelationAnalysisState
 
 
 class PortfolioRun(AnalysisRun):
     """One complete, rebuildable portfolio checkpoint run."""
 
-    portfolio_before: PortfolioMetrics
+    # Accepted for auto-fin/v1 compatibility, but omitted from new documents:
+    # the prior metrics are already rendered in the checkpoint section.
+    portfolio_before: PortfolioMetrics | None = Field(default=None, exclude=True)
     settlements: list[Settlement] = Field(default_factory=list)
-    positions: list[Position] = Field(default_factory=list)
-    portfolio_after_mark: PortfolioMetrics
+    # Accepted for auto-fin/v1 compatibility, but omitted from new documents:
+    # both values are already represented by snapshot and the report body.
+    positions: list[Position] = Field(default_factory=list, exclude=True)
+    portfolio_after_mark: PortfolioMetrics | None = Field(default=None, exclude=True)
     proposed_actions: list[ProposedAction] = Field(default_factory=list)
     rejected_actions: list[ProposedAction] = Field(default_factory=list)
     upstream: dict[str, UpstreamAnalysis]
-    snapshot: PortfolioSnapshot
+    snapshot: PortfolioSnapshot = Field(default_factory=PortfolioSnapshot)
 
 
 _RunT = TypeVar("_RunT", bound=AnalysisRun)

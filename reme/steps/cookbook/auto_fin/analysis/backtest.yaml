@@ -12,12 +12,19 @@ backtest_user: |
   {quant_research}
 
   必须遵守：
-  1. 使用 tushare-data skill 写代码获取数据，并使用 Polars 清洗、聚合和统计；禁止凭印象生成数值。
-  2. 不得使用晚于 market_cutoff 的任何行情。settlement_marks 仅描述上一估值点到待结算成交点；
+  1. 当前真实时间必须已经到达 decision_at/data_cutoff；禁止获取、引用或声称核验任何晚于当前真实时间、
+     data_cutoff 或 market_cutoff 的数据。
+  2. 使用 tushare-data skill 写代码获取数据，并使用 Polars 清洗、聚合和统计；禁止凭印象生成数值。
+     ETF/基金行情必须使用 fund_adj 复权因子，股票必须使用 adj_factor；缺少或不完整时
+     market_data_complete=false，禁止回退未复权价格。
+  3. 不得使用晚于 market_cutoff 的任何行情。settlement_marks 仅描述上一估值点到待结算成交点；
      position_marks 仅描述成交后到当前 mark 的区间，确保新买入标的不会吃到成交前收益。
-  3. 每个 mark 都必须有稳定 interval_id 和可重建 source_manifest；原始价格不得写入组合输出。
-  4. 记录复权口径、样本窗口、参数哈希、代码版本、样本数和缺失数据处理。
-  5. 样本不足返回 INSUFFICIENT_DATA；成交或估值数据不完整时 market_data_complete=false，禁止猜测收益。
-  6. 优先行业和境内行业 ETF；相关性不能表述为因果。
-  7. RankIC、IC IR、NDCG@20、Top20 和极端行情结论只能引用上面的确定性结果，不得自行改写数值。
-  8. 不修改组合文件，不输出或保存凭据；只返回符合 schema 的结构化结果。
+  4. 排名模型的时间契约固定为：D日及以前的复权收盘特征，预测A股D+1开盘到D+2开盘收益；
+     不得解释成D收盘到D+1收盘，也不得把成交前隔夜收益算入可交易收益。
+  5. 每个 mark 都必须有稳定 interval_id 和可重建 source_manifest；原始价格不得写入组合输出。
+  6. adjustment 必须明确记录实际复权因子和算法；记录样本窗口、参数哈希、代码版本、样本数和缺失处理。
+  7. 样本不足返回 INSUFFICIENT_DATA；成交、估值或复权数据不完整时
+     market_data_complete=false，禁止猜测收益。
+  8. 优先行业和境内行业 ETF；相关性不能表述为因果。
+  9. RankIC、IC IR、NDCG@20、Top20 和极端行情结论只能引用上面的确定性结果，不得自行改写数值。
+  10. 不修改组合文件，不输出或保存凭据；只返回符合 schema 的结构化结果。

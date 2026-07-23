@@ -25,6 +25,9 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
             raise ValueError(
                 "backtest market_cutoff does not match the checkpoint contract",
             )
+        adjustment = output.adjustment.lower()
+        if "fund_adj" not in adjustment or any(marker in adjustment for marker in ("raw", "unadjusted", "未复权")):
+            raise ValueError("backtest must use fund_adj-adjusted ETF prices without a raw-price fallback")
         marks = [*output.settlement_marks, *output.position_marks]
         if any(mark.interval_end > cutoff for mark in marks):
             raise ValueError("backtest contains a return interval after market_cutoff")
@@ -107,6 +110,7 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
             raise RuntimeError(
                 "Auto Fin run context and snapshot are required before backtest analysis",
             )
+        self.require_checkpoint_reached(run_context)
         quant_ranking = (self.state("quant_rankings") or {}).get("backtest")
         output, error = await self.reply(
             "backtest_user",

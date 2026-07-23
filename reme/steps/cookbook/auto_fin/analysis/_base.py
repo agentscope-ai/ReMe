@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -20,6 +21,29 @@ def json_text(value: Any) -> str:
 
 class AutoFinAnalysisStep(BaseStep):
     """Base class for one stateless Auto Fin analysis invocation."""
+
+    @staticmethod
+    def require_checkpoint_reached(run_context: dict[str, Any], *, now: datetime | None = None) -> None:
+        """Reject analysis before its declared decision/data cutoff is observable."""
+        try:
+            decision_at = datetime.fromisoformat(str(run_context["decision_at"]))
+            data_cutoff = datetime.fromisoformat(str(run_context["data_cutoff"]))
+        except (KeyError, ValueError) as exc:
+            raise ValueError("Auto Fin run context has invalid decision_at/data_cutoff") from exc
+        if decision_at.tzinfo is None or data_cutoff.tzinfo is None:
+            raise ValueError("Auto Fin decision_at/data_cutoff must be timezone-aware")
+        observed_at = now or datetime.now(decision_at.tzinfo)
+        if observed_at.tzinfo is None:
+            raise ValueError("Auto Fin observation time must be timezone-aware")
+        future_cutoffs = [
+            value for value in (decision_at, data_cutoff) if value.astimezone(observed_at.tzinfo) > observed_at
+        ]
+        if future_cutoffs:
+            earliest = min(future_cutoffs)
+            raise ValueError(
+                "Auto Fin checkpoint has not been reached: "
+                f"now={observed_at.isoformat()} earliest_future_cutoff={earliest.isoformat()}",
+            )
 
     def state(self, key: str, default: Any = None) -> Any:
         """Read namespaced state from the current execution."""

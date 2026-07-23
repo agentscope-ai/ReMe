@@ -18,9 +18,11 @@ from ....enumeration import ComponentEnum
 from ....schema import (
     BacktestAnalysisOutput,
     BacktestAnalysisRun,
+    BacktestAnalysisState,
     Checkpoint,
     EventAnalysisOutput,
     EventAnalysisRun,
+    EventAnalysisState,
     PortfolioMetrics,
     PortfolioRun,
     PortfolioSnapshot,
@@ -28,6 +30,7 @@ from ....schema import (
     UpstreamAnalysis,
     UsCorrelationAnalysisOutput,
     UsCorrelationAnalysisRun,
+    UsCorrelationAnalysisState,
 )
 from ....utils.tushare import create_tushare_api
 from ...base_step import BaseStep, Ref
@@ -138,6 +141,21 @@ class AutoFinPipelineStep(BaseStep):
             settlement_fill_basis="1300_OPEN",
             scheduled_fill_at=at(trade_date, 15),
         )
+
+    @staticmethod
+    def _require_checkpoint_reached(schedule: _Schedule, now: datetime) -> None:
+        """Reject a checkpoint before its decision and data cutoff are observable."""
+        if now.tzinfo is None:
+            raise ValueError("Auto Fin observation time must be timezone-aware")
+        future_cutoffs = [
+            value for value in (schedule.decision_at, schedule.data_cutoff) if value.astimezone(now.tzinfo) > now
+        ]
+        if future_cutoffs:
+            earliest = min(future_cutoffs)
+            raise ValueError(
+                "Auto Fin checkpoint has not been reached: "
+                f"now={now.isoformat()} earliest_future_cutoff={earliest.isoformat()}",
+            )
 
     @staticmethod
     def _fetch_trade_calendar_sync(
@@ -283,10 +301,14 @@ class AutoFinPipelineStep(BaseStep):
         run = EventAnalysisRun.model_validate(
             {
                 **self._common_run(run_id, checkpoint, schedule, generated_at, status),
-                "analysis": output.model_dump(mode="json") if output is not None else None,
+                "analysis": (
+                    EventAnalysisState.model_validate(output.model_dump()).model_dump(mode="json")
+                    if output is not None
+                    else None
+                ),
                 "error": error,
             },
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_defaults=True)
         body = (
             analysis_section(
                 output.description,
@@ -331,10 +353,14 @@ class AutoFinPipelineStep(BaseStep):
         run = BacktestAnalysisRun.model_validate(
             {
                 **self._common_run(run_id, checkpoint, schedule, generated_at, status),
-                "analysis": output.model_dump(mode="json") if output is not None else None,
+                "analysis": (
+                    BacktestAnalysisState.model_validate(output.model_dump()).model_dump(mode="json")
+                    if output is not None
+                    else None
+                ),
                 "error": error,
             },
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_defaults=True)
         body = (
             analysis_section(
                 output.description,
@@ -379,10 +405,10 @@ class AutoFinPipelineStep(BaseStep):
                     generated_at,
                     RunStatus.COMPLETE,
                 ),
-                "analysis": output.model_dump(mode="json"),
+                "analysis": UsCorrelationAnalysisState.model_validate(output.model_dump()).model_dump(mode="json"),
                 "error": "",
             },
-        ).model_dump(mode="json")
+        ).model_dump(mode="json", exclude_defaults=True)
         await upsert_report(
             path,
             document_type="us_correlation_analysis",
@@ -442,6 +468,7 @@ class AutoFinPipelineStep(BaseStep):
             )
         previous_trade_date = previous_dates[-1]
         schedule = self._schedule(trade_date, previous_trade_date, checkpoint, timezone)
+        self._require_checkpoint_reached(schedule, datetime.now(timezone))
         self.logger.info(
             f"[{self.name}] schedule resolved run_id={run_id} decision_at={schedule.decision_at.isoformat()} "
             f"market_cutoff={schedule.market_cutoff.isoformat()} "
@@ -716,6 +743,9 @@ class AutoFinPipelineStep(BaseStep):
                 generated_at=us_generated_at or generated_at,
             ).model_dump(mode="json"),
         }
+        settlement_rows = [value.model_dump(mode="json") for value in settlements]
+        accepted_rows = [value.model_dump(mode="json") for value in accepted]
+        rejected_rows = [value.model_dump(mode="json") for value in rejected]
         portfolio_run = PortfolioRun.model_validate(
             {
                 **common,
@@ -724,27 +754,24 @@ class AutoFinPipelineStep(BaseStep):
                     cash_nav=snapshot_before.cash_nav,
                     position_count=len(snapshot_before.positions),
                 ).model_dump(mode="json"),
-                "settlements": [value.model_dump(mode="json") for value in settlements],
-                "positions": [value.model_dump(mode="json") for value in ledger.snapshot.positions],
-                "portfolio_after_mark": PortfolioMetrics(
-                    nav=ledger.snapshot.nav,
-                    cash_nav=ledger.snapshot.cash_nav,
-                    position_count=len(ledger.snapshot.positions),
-                    interval_return=interval_return,
-                ).model_dump(mode="json"),
-                "proposed_actions": [value.model_dump(mode="json") for value in accepted],
-                "rejected_actions": [value.model_dump(mode="json") for value in rejected],
+                "settlements": settlement_rows,
+                "proposed_actions": accepted_rows,
+                "rejected_actions": rejected_rows,
                 "upstream": upstream,
                 "snapshot": ledger.snapshot.model_dump(mode="json"),
             },
-        ).model_dump(mode="json")
+        ).model_dump(
+            mode="json",
+            exclude={"snapshot": {"proposed_actions"}},
+            exclude_defaults=True,
+        )
 
         portfolio_body = portfolio_section(
             snapshot_before,
             ledger.snapshot,
-            portfolio_run["settlements"],
-            portfolio_run["proposed_actions"],
-            portfolio_run["rejected_actions"],
+            settlement_rows,
+            accepted_rows,
+            rejected_rows,
             "\n\n".join(
                 value
                 for value in (

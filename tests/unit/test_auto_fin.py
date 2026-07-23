@@ -20,8 +20,10 @@ from reme.enumeration import ComponentEnum
 from reme.schema import (
     ActionStatus,
     ActionType,
+    BacktestAnalysisDocument,
     BacktestAnalysisOutput,
     Checkpoint,
+    EventAnalysisDocument,
     EventAnalysisOutput,
     InstrumentType,
     PortfolioDocument,
@@ -31,9 +33,10 @@ from reme.schema import (
     PositionMark,
     ProposedAction,
     RunStatus,
+    UsCorrelationAnalysisDocument,
     UsCorrelationAnalysisOutput,
 )
-from reme.steps.cookbook.auto_fin._common import load_document, upsert_report
+from reme.steps.cookbook.auto_fin._common import latest_portfolio_snapshot, load_document, upsert_report
 from reme.steps.cookbook.auto_fin.analysis import (
     AutoFinBacktestStep,
     AutoFinEventStep,
@@ -78,7 +81,7 @@ class _AutoFinAnalysisWrapper(BaseAgentWrapper):
                 "data_manifest": "resource/auto-fin/2026-07-23/manifests/backtest-0900.json",
                 "code_version": "test",
                 "parameter_hash": "test",
-                "adjustment": "raw_with_explicit_return_adjustment",
+                "adjustment": "ETF OHLC×fund_adj; A-share close×adj_factor",
                 "market_data_complete": True,
                 "settlement_marks": [],
                 "position_marks": [],
@@ -276,6 +279,77 @@ def test_checkpoint_schedule_uses_distinct_fill_and_mark_times():
     assert schedule.scheduled_fill_at.hour == 13
 
 
+def test_checkpoint_rejects_execution_before_declared_cutoff():
+    schedule = AutoFinPipelineStep._schedule(
+        date(2026, 7, 23),
+        date(2026, 7, 22),
+        Checkpoint.OPEN,
+        TZ,
+    )
+    with pytest.raises(ValueError, match="checkpoint has not been reached"):
+        AutoFinPipelineStep._require_checkpoint_reached(
+            schedule,
+            datetime(2026, 7, 23, 8, 59, tzinfo=TZ),
+        )
+    AutoFinPipelineStep._require_checkpoint_reached(
+        schedule,
+        datetime(2026, 7, 23, 9, 0, tzinfo=TZ),
+    )
+
+
+def test_quant_features_use_adjusted_prices_and_next_open_to_open_label():
+    trade_dates = [date(2026, 7, 20) + timedelta(days=index) for index in range(4)]
+    raw = pl.DataFrame(
+        [
+            {
+                "ts_code": "510300.SH",
+                "trade_date": trade_day.strftime("%Y%m%d"),
+                "open": 10.0 + index,
+                "high": 11.0 + index,
+                "low": 9.0 + index,
+                "close": 10.5 + index,
+                "pre_close": 9.5 + index,
+                "amount": 100.0,
+            }
+            for index, trade_day in enumerate(trade_dates)
+        ],
+    )
+    factors = pl.DataFrame(
+        [
+            {
+                "ts_code": "510300.SH",
+                "trade_date": trade_day.strftime("%Y%m%d"),
+                "adj_factor": factor,
+            }
+            for trade_day, factor in zip(trade_dates, (1.0, 1.0, 2.0, 2.0))
+        ],
+    )
+    daily, _ = AutoFinQuantResearch._prepare_universe(
+        {
+            "universe": pl.DataFrame([{"ts_code": "510300.SH", "name": "沪深300ETF"}]),
+            "etf_daily": raw,
+            "fund_adj": factors,
+        },
+        1,
+    )
+    features = AutoFinQuantResearch._features(daily)
+    first = features.sort("trade_date").row(0, named=True)
+
+    assert first["prediction_date"] == trade_dates[1]
+    assert first["future_open_return"] == pytest.approx((12.0 * 2.0) / (11.0 * 1.0) - 1.0)
+    assert daily.sort("trade_date")["open"].to_list() == pytest.approx([10.0, 11.0, 24.0, 26.0])
+
+    with pytest.raises(ValueError, match="adjustment factors are incomplete"):
+        AutoFinQuantResearch._prepare_universe(
+            {
+                "universe": pl.DataFrame([{"ts_code": "510300.SH", "name": "沪深300ETF"}]),
+                "etf_daily": raw,
+                "fund_adj": factors.head(3),
+            },
+            1,
+        )
+
+
 def test_tushare_api_uses_one_explicit_proxy_without_environment_fallback(monkeypatch):
     import requests
     import tushare
@@ -437,9 +511,15 @@ def test_complete_backtest_requires_exact_marks_for_held_positions():
         data_manifest="resource/auto-fin/test.json",
         code_version="test",
         parameter_hash="test",
-        adjustment="raw_with_explicit_return_adjustment",
+        adjustment="ETF OHLC×fund_adj; A-share close×adj_factor",
         market_data_complete=True,
     )
+    AutoFinBacktestStep.validate_output(output, schedule.market_cutoff)
+    with pytest.raises(ValueError, match="fund_adj-adjusted"):
+        AutoFinBacktestStep.validate_output(
+            output.model_copy(update={"adjustment": "raw prices"}),
+            schedule.market_cutoff,
+        )
     with pytest.raises(ValueError, match="settlement mark"):
         AutoFinBacktestStep.validate_required_marks(
             snapshot,
@@ -506,6 +586,7 @@ def test_quant_research_builds_three_top20_rankings_and_fusion():
                     "trade_date": (trade_day - timedelta(days=1)).strftime("%Y%m%d"),
                     "close": close,
                     "pct_change": daily_return * 100.0,
+                    "adj_factor": 1.0,
                 },
             )
     event = EventAnalysisOutput.model_validate(
@@ -539,6 +620,16 @@ def test_quant_research_builds_three_top20_rankings_and_fusion():
     quant_bundle = {
         "universe": pl.DataFrame(basic_rows),
         "etf_daily": pl.DataFrame(etf_rows),
+        "fund_adj": pl.DataFrame(
+            [
+                {
+                    "ts_code": row["ts_code"],
+                    "trade_date": row["trade_date"],
+                    "adj_factor": 1.0,
+                }
+                for row in etf_rows
+            ],
+        ),
         "us_daily": pl.DataFrame(us_rows),
         "holdings": pl.DataFrame(
             [
@@ -560,6 +651,17 @@ def test_quant_research_builds_three_top20_rankings_and_fusion():
                 }
                 for index in range(1, 4)
                 for day_index, trade_day in enumerate(trade_dates[-3:])
+            ],
+        ),
+        "stock_adj": pl.DataFrame(
+            [
+                {
+                    "ts_code": f"00000{index}.SZ",
+                    "trade_date": trade_day.strftime("%Y%m%d"),
+                    "adj_factor": 1.0,
+                }
+                for index in range(1, 4)
+                for trade_day in trade_dates[-3:]
             ],
         ),
         "stock_valuation": pl.DataFrame(
@@ -620,6 +722,43 @@ async def test_report_upsert_replaces_same_checkpoint(tmp_path: Path):
     assert document.metadata["runs"][0]["value"] == 2
     assert "second" in document.content
     assert "first" not in document.content
+
+
+@pytest.mark.asyncio
+async def test_latest_portfolio_snapshot_rebuilds_pending_actions(tmp_path: Path):
+    path = tmp_path / "daily" / "2026-07-23" / "portfolio.md"
+    pending = _action("buy-pending", ActionType.BUY, "510300.SH").model_copy(
+        update={
+            "proposed_at": datetime(2026, 7, 23, 9, tzinfo=TZ),
+            "scheduled_fill_at": datetime(2026, 7, 23, 11, 45, tzinfo=TZ),
+        },
+    )
+    run = {
+        "run_id": "2026-07-23T0900+08:00",
+        "decision_at": "2026-07-23T09:00:00+08:00",
+        "generated_at": "2026-07-23T09:01:00+08:00",
+        "proposed_actions": [pending.model_dump(mode="json")],
+        "snapshot": {},
+    }
+    await upsert_report(
+        path,
+        document_type="portfolio",
+        trade_date="2026-07-23",
+        timezone="Asia/Shanghai",
+        checkpoint=Checkpoint.OPEN,
+        run=run,
+        section="portfolio",
+        title="2026-07-23 Auto Fin Portfolio",
+    )
+
+    snapshot = latest_portfolio_snapshot(
+        tmp_path,
+        "daily",
+        before=datetime(2026, 7, 23, 11, 45, tzinfo=TZ),
+        excluding_run_id="another-run",
+    )
+    assert snapshot is not None
+    assert [action.action_id for action in snapshot.proposed_actions] == ["buy-pending"]
 
 
 def test_daily_cookbook_wires_auto_fin_cc_skill_memory_search_and_crons(monkeypatch):
@@ -704,11 +843,29 @@ async def test_pipeline_writes_four_reports_notifies_each_agent_stage_and_skips_
         "portfolio.md",
     ):
         assert (day_dir / name).is_file()
+    analysis_documents = (
+        (EventAnalysisDocument, load_document(day_dir / "event_analysis.md")),
+        (BacktestAnalysisDocument, load_document(day_dir / "backtest_analysis.md")),
+        (UsCorrelationAnalysisDocument, load_document(day_dir / "us_correlation_analysis.md")),
+    )
+    rendered_only_fields = {"description", "body", "ranking", "limitations"}
+    for document_type, document in analysis_documents:
+        document_type.model_validate(document.metadata)
+        analysis = document.metadata["runs"][0]["analysis"]
+        assert rendered_only_fields.isdisjoint(analysis)
     portfolio = load_document(day_dir / "portfolio.md")
     PortfolioDocument.model_validate(portfolio.metadata)
     assert len(portfolio.metadata["runs"]) == 1
+    portfolio_run = portfolio.metadata["runs"][0]
+    assert "portfolio_before" not in portfolio_run
+    assert "positions" not in portfolio_run
+    assert "portfolio_after_mark" not in portfolio_run
+    assert "proposed_actions" not in portfolio_run.get("snapshot", {})
     assert notified_stages == ["event", "backtest", "us_correlation", "portfolio"]
-    assert portfolio.metadata["runs"][0]["snapshot"]["nav"] == 1.0
+    assert PortfolioDocument.model_validate(portfolio.metadata).runs[0].snapshot.nav == 1.0
+    day_index = (tmp_path / "daily" / "2026-07-23.md").read_text(encoding="utf-8")
+    assert "runs:" not in day_index
+    assert "document_type:" not in day_index
     assert not list((tmp_path / "metadata" / "auto-fin" / "locks").glob("*.lock"))
     logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
     assert "checkpoint start run_id=2026-07-23T0900+08:00" in logs
