@@ -7,6 +7,10 @@ backtest_user: |
 
   {portfolio}
 
+  代码已使用 TuShare、Polars 和树模型生成以下可重建量化结果：
+
+  {quant_research}
+
   必须遵守：
   1. 使用 tushare-data skill 写代码获取数据，并使用 Polars 清洗、聚合和统计；禁止凭印象生成数值。
   2. 不得使用晚于 market_cutoff 的任何行情。settlement_marks 仅描述上一估值点到待结算成交点；
@@ -15,4 +19,5 @@ backtest_user: |
   4. 记录复权口径、样本窗口、参数哈希、代码版本、样本数和缺失数据处理。
   5. 样本不足返回 INSUFFICIENT_DATA；成交或估值数据不完整时 market_data_complete=false，禁止猜测收益。
   6. 优先行业和境内行业 ETF；相关性不能表述为因果。
-  7. 不修改组合文件，不输出或保存凭据；只返回符合 schema 的结构化结果。
+  7. RankIC、IC IR、NDCG@20、Top20 和极端行情结论只能引用上面的确定性结果，不得自行改写数值。
+  8. 不修改组合文件，不输出或保存凭据；只返回符合 schema 的结构化结果。

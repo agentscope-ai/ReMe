@@ -28,6 +28,9 @@ class AutoFinPortfolioStep(AutoFinAnalysisStep):
             analyses=json_text(analyses),
             run_context=json_text(run_context),
         )
+        fusion = self.state("fusion_ranking")
+        if output is not None and fusion is not None:
+            output = output.model_copy(update={"fusion_ranking": fusion})
         self.set_state("portfolio_output", output)
         self.set_state("portfolio_error", error)
         self.logger.info(

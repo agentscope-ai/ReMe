@@ -107,6 +107,98 @@ class EventCursor(AutoFinModel):
     last_event_id: str = ""
 
 
+class EtfScore(AutoFinModel):
+    """One ETF score produced by a deterministic research dimension."""
+
+    code: str
+    name: str = ""
+    rank: int = Field(ge=1)
+    score: float = Field(ge=0.0, le=100.0)
+    expected_return: float | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    price_in: float | None = Field(default=None, ge=0.0, le=1.0)
+    reasons: list[str] = Field(default_factory=list)
+    flags: list[str] = Field(default_factory=list)
+
+
+class RankingMetrics(AutoFinModel):
+    """Out-of-sample ranking diagnostics for one machine-learning model."""
+
+    rank_ic: float | None = None
+    rank_ic_ir: float | None = None
+    ndcg_at_20: float | None = Field(default=None, ge=0.0, le=1.0)
+    train_sample_count: int = Field(default=0, ge=0)
+    validation_sample_count: int = Field(default=0, ge=0)
+    validation_date_count: int = Field(default=0, ge=0)
+
+
+class ExtremeAnalysis(AutoFinModel):
+    """Tail-regime diagnostic attached to a ranking."""
+
+    code: str
+    direction: Literal["UP", "DOWN"]
+    observed_return: float
+    threshold: float = Field(gt=0.0)
+    historical_sample_count: int = Field(default=0, ge=0)
+    next_return_mean: float | None = None
+    next_return_hit_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    conclusion: str
+
+
+class DimensionRanking(AutoFinModel):
+    """Rebuildable Top-N output for one research dimension."""
+
+    dimension: Literal["event", "backtest", "us_correlation"]
+    as_of: datetime
+    status: Literal["COMPLETE", "INSUFFICIENT_DATA", "FAILED"]
+    methodology: str
+    model_name: str = ""
+    manifest_path: str = ""
+    candidates: list[EtfScore] = Field(default_factory=list)
+    metrics: RankingMetrics | None = None
+    extremes: list[ExtremeAnalysis] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_ranking(self) -> "DimensionRanking":
+        """Require stable rank order and unique candidates."""
+        if len(self.candidates) > 20:
+            raise ValueError("dimension ranking cannot contain more than 20 candidates")
+        codes = [candidate.code for candidate in self.candidates]
+        if len(codes) != len(set(codes)):
+            raise ValueError("dimension ranking candidates must have unique codes")
+        if [candidate.rank for candidate in self.candidates] != list(
+            range(1, len(self.candidates) + 1),
+        ):
+            raise ValueError("dimension ranking candidates must use contiguous ranks")
+        return self
+
+
+class FusionRanking(AutoFinModel):
+    """Weighted fusion of all available research dimensions."""
+
+    as_of: datetime
+    weights: dict[Literal["event", "backtest", "us_correlation"], float]
+    candidates: list[EtfScore] = Field(default_factory=list)
+    methodology: str
+    limitations: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_fusion(self) -> "FusionRanking":
+        """Validate normalized weights and stable Top20 ranks."""
+        if any(not math.isfinite(value) or value < 0 for value in self.weights.values()):
+            raise ValueError("fusion ranking weights must be finite and non-negative")
+        if self.weights and not math.isclose(sum(self.weights.values()), 1.0, abs_tol=1e-9):
+            raise ValueError("fusion ranking weights must sum to one")
+        if len(self.candidates) > 20:
+            raise ValueError("fusion ranking cannot contain more than 20 candidates")
+        if [candidate.rank for candidate in self.candidates] != list(
+            range(1, len(self.candidates) + 1),
+        ):
+            raise ValueError("fusion ranking candidates must use contiguous ranks")
+        return self
+
+
 class EventAnalysisOutput(AutoFinModel):
     """Structured output required from the event-analysis Agent."""
 
@@ -116,6 +208,7 @@ class EventAnalysisOutput(AutoFinModel):
     sources: list[DataSource] = Field(default_factory=list)
     events: list[EventSignal] = Field(default_factory=list)
     cursor: EventCursor
+    ranking: DimensionRanking | None = None
     limitations: list[str] = Field(default_factory=list)
 
 
@@ -177,6 +270,7 @@ class BacktestAnalysisOutput(AutoFinModel):
     position_marks: list[PositionMark] = Field(default_factory=list)
     experiments: list[BacktestExperiment] = Field(default_factory=list)
     signals: list[BacktestSignal] = Field(default_factory=list)
+    ranking: DimensionRanking | None = None
     limitations: list[str] = Field(default_factory=list)
 
 
@@ -202,6 +296,7 @@ class UsCorrelationAnalysisOutput(AutoFinModel):
     universe_method: Literal["top50_by_recent_average_amount"]
     lookbacks: list[Literal["1D", "5D", "30D"]]
     mappings: list[CorrelationMapping] = Field(default_factory=list)
+    ranking: DimensionRanking | None = None
     limitations: list[str] = Field(default_factory=list)
 
 
@@ -230,6 +325,7 @@ class PortfolioProposalOutput(AutoFinModel):
     description: str
     body: str
     actions: list[ProposedAction] = Field(default_factory=list)
+    fusion_ranking: FusionRanking | None = None
     risks: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 

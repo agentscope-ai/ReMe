@@ -4,6 +4,8 @@ from .analysis import (
     AutoFinBacktestStep,
     AutoFinEventStep,
     AutoFinPortfolioStep,
+    AutoFinQuantResearch,
+    AutoFinQuantStep,
     AutoFinUsCorrelationStep,
 )
 from .ledger import AutoFinLedger, next_trade_date
@@ -17,6 +19,8 @@ __all__ = [
     "AutoFinEventStep",
     "AutoFinPipelineStep",
     "AutoFinPortfolioStep",
+    "AutoFinQuantResearch",
+    "AutoFinQuantStep",
     "AutoFinUsCorrelationStep",
     "next_trade_date",
 ]

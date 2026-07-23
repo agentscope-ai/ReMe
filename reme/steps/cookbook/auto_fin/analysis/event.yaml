@@ -5,8 +5,9 @@ event_user: |
 
   必须遵守：
   1. 只使用 published_at 不晚于 data_cutoff 的事件，按给定连续 cursor 窗口去重。
-  2. 优先分析行业，再映射境内行业 ETF，证据充分时才下钻个股。
-  3. 可以使用 search 回忆历史 ReMe 记录；使用 tushare-data skill 或其他可核验数据源时记录完整来源。
+  2. 优先分析行业，再映射境内行业 ETF；必须给出可供代码映射的 industries 和 ETF/股票 codes，
+     证据充分时才下钻个股。后续确定性阶段会检查ETF是否price-in，并分析其Top3成分股。
+  3. 使用 tushare-data skill 或其他可核验数据源时记录完整来源。
   4. 区分事实、统计关系和推断；缺少权限或数据时明确写入 limitations，禁止编造。
   5. 不提出买卖操作，不修改任何组合文件，不输出或保存凭据。
   6. body 使用适合 Markdown 报告的中文正文；只返回符合 schema 的结构化结果。

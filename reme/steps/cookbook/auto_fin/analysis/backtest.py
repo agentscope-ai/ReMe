@@ -107,11 +107,15 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
             raise RuntimeError(
                 "Auto Fin run context and snapshot are required before backtest analysis",
             )
+        quant_ranking = (self.state("quant_rankings") or {}).get("backtest")
         output, error = await self.reply(
             "backtest_user",
             BacktestAnalysisOutput,
             run_context=json_text(run_context),
             portfolio=json_text(snapshot.model_dump(mode="json")),
+            quant_research=json_text(
+                quant_ranking.model_dump(mode="json") if quant_ranking is not None else None,
+            ),
         )
         if output is not None:
             try:
@@ -131,6 +135,8 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
             except (KeyError, ValueError) as exc:
                 output, error = None, str(exc)
                 self.logger.warning(f"[{self.name}] backtest output rejected: {error}")
+        if output is not None and quant_ranking is not None:
+            output = output.model_copy(update={"ranking": quant_ranking})
         self.set_state("backtest_output", output)
         self.set_state("backtest_error", error)
         self.logger.info(

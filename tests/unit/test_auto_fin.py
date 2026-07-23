@@ -2,12 +2,14 @@
 
 # pylint: disable=missing-function-docstring,protected-access
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
+import numpy as np
+import polars as pl
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
@@ -34,6 +36,7 @@ from reme.steps.cookbook.auto_fin.analysis import (
     AutoFinBacktestStep,
     AutoFinEventStep,
     AutoFinPortfolioStep,
+    AutoFinQuantResearch,
     AutoFinUsCorrelationStep,
 )
 from reme.steps.cookbook.auto_fin.ledger import AutoFinLedger, next_trade_date
@@ -322,6 +325,142 @@ def test_auto_fin_analysis_steps_load_independent_prompts():
         assert step.get_prompt(prompt_name)
 
 
+def test_quant_research_builds_three_top20_rankings_and_fusion():
+    random = np.random.default_rng(7)
+    trade_dates: list[date] = []
+    current = date(2025, 1, 2)
+    while len(trade_dates) < 90:
+        if current.weekday() < 5:
+            trade_dates.append(current)
+        current += timedelta(days=1)
+
+    etf_rows: list[dict] = []
+    basic_rows: list[dict] = []
+    for code_index in range(20):
+        code = f"{510000 + code_index:06d}.SH"
+        basic_rows.append({"ts_code": code, "name": f"行业{code_index}ETF"})
+        close = 1.0 + code_index / 100.0
+        for trade_day in trade_dates:
+            daily_return = code_index / 100000.0 + random.normal(0.0, 0.01)
+            opening = close * (1.0 + random.normal(0.0, 0.002))
+            previous_close = close
+            close *= 1.0 + daily_return
+            etf_rows.append(
+                {
+                    "ts_code": code,
+                    "trade_date": trade_day.strftime("%Y%m%d"),
+                    "open": opening,
+                    "high": max(opening, close) * 1.002,
+                    "low": min(opening, close) * 0.998,
+                    "close": close,
+                    "pre_close": previous_close,
+                    "vol": 1_000_000.0,
+                    "amount": 100_000_000.0 + code_index * 1_000_000.0,
+                },
+            )
+    us_rows: list[dict] = []
+    for us_code in ("NVDA", "SOXX", "SOXL"):
+        close = 100.0
+        for trade_day in trade_dates:
+            daily_return = random.normal(0.0, 0.015)
+            close *= 1.0 + daily_return
+            us_rows.append(
+                {
+                    "ts_code": us_code,
+                    "trade_date": (trade_day - timedelta(days=1)).strftime("%Y%m%d"),
+                    "close": close,
+                    "pct_change": daily_return * 100.0,
+                },
+            )
+    event = EventAnalysisOutput.model_validate(
+        {
+            "description": "行业事件",
+            "body": "行业1出现可验证事件。",
+            "window": {
+                "start_exclusive": "2025-05-07T15:00:00+08:00",
+                "end_inclusive": "2025-05-08T09:00:00+08:00",
+            },
+            "events": [
+                {
+                    "event_id": "event-1",
+                    "published_at": "2025-05-08T08:00:00+08:00",
+                    "fetched_at": "2025-05-08T08:05:00+08:00",
+                    "title": "行业1事件",
+                    "industries": ["行业1"],
+                    "codes": [],
+                    "dedupe_key": "event-1",
+                    "known_before_cutoff": True,
+                    "direction": "POSITIVE",
+                    "confidence": 0.8,
+                    "horizon": "5D",
+                    "summary": "测试",
+                    "source_ref": "fixture",
+                },
+            ],
+            "cursor": {},
+        },
+    )
+    quant_bundle = {
+        "universe": pl.DataFrame(basic_rows),
+        "etf_daily": pl.DataFrame(etf_rows),
+        "us_daily": pl.DataFrame(us_rows),
+        "holdings": pl.DataFrame(
+            [
+                {
+                    "ts_code": "510019.SH",
+                    "symbol": f"00000{index}.SZ",
+                    "end_date": "20250331",
+                    "stk_mkv_ratio": 10.0 - index,
+                }
+                for index in range(1, 4)
+            ],
+        ),
+        "stock_daily": pl.DataFrame(
+            [
+                {
+                    "ts_code": f"00000{index}.SZ",
+                    "trade_date": trade_day.strftime("%Y%m%d"),
+                    "close": 10.0 + day_index + index,
+                }
+                for index in range(1, 4)
+                for day_index, trade_day in enumerate(trade_dates[-3:])
+            ],
+        ),
+        "stock_valuation": pl.DataFrame(
+            [
+                {
+                    "ts_code": f"00000{index}.SZ",
+                    "pe_ttm": 15.0 + index,
+                    "pb": 2.0 + index / 10.0,
+                }
+                for index in range(1, 4)
+            ],
+        ),
+    }
+    quant_engine = AutoFinQuantResearch(tree_count=5)
+    rankings, fusion = quant_engine.run(
+        quant_bundle,
+        event_output=event,
+        as_of=datetime(2025, 5, 8, 9, tzinfo=TZ),
+        universe_size=20,
+        weights={"event": 0.30, "backtest": 0.45, "us_correlation": 0.25},
+    )
+
+    assert rankings["event"].candidates
+    assert rankings["event"].candidates[0].price_in is not None
+    constituent_candidate = next(
+        candidate for candidate in rankings["event"].candidates if candidate.code == "510019.SH"
+    )
+    assert any("PE(TTM)" in reason for reason in constituent_candidate.reasons)
+    for dimension in ("backtest", "us_correlation"):
+        assert rankings[dimension].status == "COMPLETE", rankings[dimension].limitations
+        assert len(rankings[dimension].candidates) == 20
+        assert rankings[dimension].metrics.validation_sample_count > 0
+        assert rankings[dimension].metrics.ndcg_at_20 is not None
+    assert len(fusion.candidates) == 20
+    assert sum(fusion.weights.values()) == pytest.approx(1.0)
+
+
 @pytest.mark.asyncio
 async def test_report_upsert_replaces_same_checkpoint(tmp_path: Path):
     path = tmp_path / "daily" / "2026-07-23" / "portfolio.md"
@@ -363,6 +502,9 @@ def test_daily_cookbook_wires_auto_fin_cc_skill_memory_search_and_crons(monkeypa
     assert wrapper["job_tools"] == ["memory_search"]
     assert "memory_search" in config["jobs"]
     assert config["jobs"]["auto_fin"]["parameters"]["properties"]["force"]["default"] is True
+    assert config["jobs"]["auto_fin"]["quant_enabled"] is True
+    assert config["jobs"]["auto_fin"]["quant_universe_size"] == 50
+    assert config["jobs"]["auto_fin"]["backtest_weight"] == pytest.approx(0.45)
 
     steps = config["jobs"]["auto_fin"]["steps"]
     assert steps[0] == {
@@ -396,6 +538,8 @@ async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
         checkpoint="0900",
         trade_dates=["2026-07-22", "2026-07-23", "2026-07-24"],
         research_only=True,
+        quant_enabled=False,
+        quant_required=False,
     )
     assert response.success
     day_dir = tmp_path / "daily" / "2026-07-23"
@@ -424,6 +568,8 @@ async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
         trade_dates=["2026-07-22", "2026-07-23", "2026-07-24"],
         force=False,
         research_only=True,
+        quant_enabled=False,
+        quant_required=False,
     )
     assert rerun.metadata["skipped"] is True
     assert len(load_document(day_dir / "portfolio.md").metadata["runs"]) == 1
@@ -435,6 +581,8 @@ async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
         checkpoint="0900",
         trade_dates=["2026-07-22", "2026-07-23", "2026-07-24"],
         research_only=True,
+        quant_enabled=False,
+        quant_required=False,
     )
     assert "skipped" not in forced_by_default.metadata
     assert len(load_document(day_dir / "portfolio.md").metadata["runs"]) == 1

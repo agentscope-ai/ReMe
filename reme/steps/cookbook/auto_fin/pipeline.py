@@ -33,6 +33,7 @@ from ._common import (
     latest_portfolio_snapshot,
     load_document,
     portfolio_section,
+    ranking_section,
     upsert_report,
     write_atomic,
 )
@@ -40,6 +41,7 @@ from .analysis import (
     AutoFinBacktestStep,
     AutoFinEventStep,
     AutoFinPortfolioStep,
+    AutoFinQuantStep,
     AutoFinUsCorrelationStep,
 )
 from .ledger import AutoFinLedger, next_trade_date
@@ -338,12 +340,32 @@ class AutoFinPipelineStep(BaseStep):
                 "auto_fin_open_run_id": open_run_id,
                 "auto_fin_us_path": paths["us"],
                 "auto_fin_timezone": timezone,
+                "auto_fin_quant_bundle": self._value("quant_bundle", None),
+                "auto_fin_quant_enabled": bool(self._value("quant_enabled", True)),
+                "auto_fin_quant_concurrency": int(self._value("quant_concurrency", 6)),
+                "auto_fin_quant_lookback_days": int(self._value("quant_lookback_days", 540)),
+                "auto_fin_quant_tree_count": int(self._value("quant_tree_count", 31)),
+                "auto_fin_quant_universe_size": int(self._value("quant_universe_size", 50)),
+                "auto_fin_fusion_weights": {
+                    "event": float(self._value("event_weight", 0.30)),
+                    "backtest": float(self._value("backtest_weight", 0.45)),
+                    "us_correlation": float(self._value("us_weight", 0.25)),
+                },
+                "auto_fin_skip_us_research": checkpoint is not Checkpoint.OPEN,
             },
         )
+        if checkpoint is not Checkpoint.OPEN:
+            await self._run_analysis_step(AutoFinUsCorrelationStep)
+            saved_us_output = self.context.get("auto_fin_us_output")
+            self.context["auto_fin_us_ranking_override"] = (
+                saved_us_output.ranking if saved_us_output is not None else None
+            )
         await self._run_analysis_step(AutoFinEventStep)
+        await self._run_analysis_step(AutoFinQuantStep)
         await self._run_analysis_step(AutoFinBacktestStep)
         event_output = self.context.get("auto_fin_event_output")
         event_error = str(self.context.get("auto_fin_event_error", ""))
+        quant_error = str(self.context.get("auto_fin_quant_error", ""))
         backtest_output = self.context.get("auto_fin_backtest_output")
         backtest_error = str(self.context.get("auto_fin_backtest_error", ""))
         self.logger.info(
@@ -394,12 +416,15 @@ class AutoFinPipelineStep(BaseStep):
         )
 
         self.context["auto_fin_portfolio_snapshot"] = ledger.snapshot
-        await self._run_analysis_step(AutoFinUsCorrelationStep)
+        if checkpoint is Checkpoint.OPEN:
+            await self._run_analysis_step(AutoFinUsCorrelationStep)
         us_output = self.context.get("auto_fin_us_output")
         us_error = str(self.context.get("auto_fin_us_error", ""))
         us_generated_at = self.context.get("auto_fin_us_generated_at")
 
         errors = [value for value in (event_error, backtest_error, us_error) if value]
+        if quant_error and bool(self._value("quant_required", True)):
+            errors.append(quant_error)
         if backtest_output is not None and not backtest_output.market_data_complete:
             errors.append("backtest market data is incomplete")
         status = RunStatus.DEGRADED if errors else RunStatus.COMPLETE
@@ -430,6 +455,11 @@ class AutoFinPipelineStep(BaseStep):
                 "analysis": us_output.model_dump(mode="json") if us_output else None,
                 "reused": checkpoint is not Checkpoint.OPEN,
             },
+            "fusion": (
+                self.context["auto_fin_fusion_ranking"].model_dump(mode="json")
+                if self.context.get("auto_fin_fusion_ranking")
+                else None
+            ),
         }
         self.context["auto_fin_analyses"] = analyses
         await self._run_analysis_step(AutoFinPortfolioStep)
@@ -527,7 +557,7 @@ class AutoFinPipelineStep(BaseStep):
         event_body = (
             analysis_section(
                 event_output.description,
-                event_output.body,
+                "\n\n".join(value for value in (event_output.body, ranking_section(event_output.ranking)) if value),
                 event_output.limitations,
             )
             if event_output
@@ -536,7 +566,9 @@ class AutoFinPipelineStep(BaseStep):
         backtest_body = (
             analysis_section(
                 backtest_output.description,
-                backtest_output.body,
+                "\n\n".join(
+                    value for value in (backtest_output.body, ranking_section(backtest_output.ranking)) if value
+                ),
                 backtest_output.limitations,
             )
             if backtest_output
@@ -548,7 +580,14 @@ class AutoFinPipelineStep(BaseStep):
             portfolio_run["settlements"],
             portfolio_run["proposed_actions"],
             portfolio_run["rejected_actions"],
-            portfolio_output.body,
+            "\n\n".join(
+                value
+                for value in (
+                    portfolio_output.body,
+                    ranking_section(portfolio_output.fusion_ranking),
+                )
+                if value
+            ),
             interval_return=interval_return,
             status=status.value,
             us_as_of=us_output.as_of.isoformat() if us_output else "",
@@ -591,7 +630,7 @@ class AutoFinPipelineStep(BaseStep):
                 run=us_run,
                 section=analysis_section(
                     us_output.description,
-                    us_output.body,
+                    "\n\n".join(value for value in (us_output.body, ranking_section(us_output.ranking)) if value),
                     us_output.limitations,
                 ),
                 title=f"{trade_date.isoformat()} US Correlation Analysis",

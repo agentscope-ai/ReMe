@@ -55,10 +55,14 @@ class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
             self.logger.info(
                 f"[{self.name}] generate opening US correlation analysis trade_date={trade_date.isoformat()}",
             )
+            quant_ranking = (self.state("quant_rankings") or {}).get("us_correlation")
             output, error = await self.reply(
                 "us_user",
                 UsCorrelationAnalysisOutput,
                 run_context=json_text(run_context),
+                quant_research=json_text(
+                    quant_ranking.model_dump(mode="json") if quant_ranking is not None else None,
+                ),
             )
             if output is not None:
                 try:
@@ -76,6 +80,8 @@ class AutoFinUsCorrelationStep(AutoFinAnalysisStep):
                     self.logger.warning(
                         f"[{self.name}] US correlation output rejected: {error}",
                     )
+            if output is not None and quant_ranking is not None:
+                output = output.model_copy(update={"ranking": quant_ranking})
         else:
             path = self.state("us_path")
             open_run_id = self.state("open_run_id")

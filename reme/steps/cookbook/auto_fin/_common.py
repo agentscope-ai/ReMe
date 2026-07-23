@@ -14,7 +14,7 @@ from uuid import uuid4
 import aiofiles
 import frontmatter
 
-from ....schema import Checkpoint, PortfolioSnapshot
+from ....schema import Checkpoint, DimensionRanking, FusionRanking, PortfolioSnapshot
 from ...file_io import get_path_lock
 
 _CHECKPOINT_LABELS = {
@@ -185,6 +185,71 @@ def analysis_section(description: str, body: str, limitations: list[str]) -> str
     if limitations:
         chunks.append("### 限制与失效条件\n\n" + "\n".join(f"- {value}" for value in limitations))
     return "\n\n".join(value for value in chunks if value)
+
+
+def ranking_section(ranking: DimensionRanking | FusionRanking | None) -> str:
+    """Render deterministic Top20 scores and diagnostics into a report."""
+    if ranking is None:
+        return ""
+    lines = [
+        "### ETF Top20 评分",
+        "",
+        "| 排名 | ETF | 分数 | 预测收益 | Price-in | 依据 |",
+        "|---:|---|---:|---:|---:|---|",
+    ]
+    if ranking.candidates:
+        for candidate in ranking.candidates:
+            expected = f"{candidate.expected_return:.3%}" if candidate.expected_return is not None else "-"
+            price_in = f"{candidate.price_in:.0%}" if candidate.price_in is not None else "-"
+            lines.append(
+                f"| {candidate.rank} | {candidate.name or candidate.code} ({candidate.code}) | "
+                f"{candidate.score:.1f} | {expected} | {price_in} | {'；'.join(candidate.reasons)} |",
+            )
+    else:
+        lines.append("| - | 无可用候选 | - | - | - | 数据不足 |")
+    if isinstance(ranking, DimensionRanking) and ranking.metrics is not None:
+        metrics = ranking.metrics
+        lines.extend(
+            [
+                "",
+                "### 样本外排序指标",
+                "",
+                "| RankIC | IC IR | NDCG@20 | 训练样本 | 验证样本 | 验证交易日 |",
+                "|---:|---:|---:|---:|---:|---:|",
+                "| "
+                + " | ".join(
+                    [
+                        f"{metrics.rank_ic:.4f}" if metrics.rank_ic is not None else "-",
+                        f"{metrics.rank_ic_ir:.4f}" if metrics.rank_ic_ir is not None else "-",
+                        f"{metrics.ndcg_at_20:.4f}" if metrics.ndcg_at_20 is not None else "-",
+                        str(metrics.train_sample_count),
+                        str(metrics.validation_sample_count),
+                        str(metrics.validation_date_count),
+                    ],
+                )
+                + " |",
+            ],
+        )
+    if isinstance(ranking, DimensionRanking) and ranking.extremes:
+        lines.extend(
+            [
+                "",
+                "### 极端涨跌分析",
+                "",
+                "| ETF | 方向 | 当日收益 | 尾部样本 | 后续均值 | 结论 |",
+                "|---|---|---:|---:|---:|---|",
+            ],
+        )
+        for item in ranking.extremes:
+            next_mean = f"{item.next_return_mean:.3%}" if item.next_return_mean is not None else "-"
+            lines.append(
+                f"| {item.code} | {item.direction} | {item.observed_return:.3%} | "
+                f"{item.historical_sample_count} | {next_mean} | {item.conclusion} |",
+            )
+    limitations = ranking.limitations
+    if limitations:
+        lines.extend(["", "#### 评分限制", "", *[f"- {value}" for value in limitations]])
+    return "\n".join(lines)
 
 
 def portfolio_section(
