@@ -362,6 +362,14 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return result
 
+    async def compact_session(self, session_id: str) -> None:
+        """Force compression of an AgentScope session."""
+        kwargs = self._merged_kwargs({"resume": session_id})
+        agent, _ = await self._build_agent(None, **kwargs)
+        config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
+        await agent.compress_context(ContextConfig(**config))
+        await self._dump_state(agent.state)
+
     # ----- StreamChunk conversion -------------------------------------------
 
     @classmethod

@@ -407,8 +407,6 @@ jobs:
         app_key: ${DINGTALK_APP_KEY:-}
         app_secret: ${DINGTALK_APP_SECRET:-}
         robot_code: ${DINGTALK_ROBOT_CODE:-}
-        stream: false
-        card_update_interval: 1.0
         worker_count: 4
 
 components:

@@ -414,6 +414,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 raise ValueError("Codex returned invalid JSON for the requested output_schema") from exc
         return response
 
+    async def compact_session(self, session_id: str) -> None:
+        """Start native compaction of a Codex thread."""
+        await self.start()
+        async with self._turn_lock:
+            codex = await self._get_codex()
+            thread = await codex.thread_resume(session_id)
+            await thread.compact()
+
     @classmethod
     # pylint: disable=too-many-return-statements
     def _event_to_chunks(cls, event: Notification, session_id: str) -> list[StreamChunk]:

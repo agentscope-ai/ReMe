@@ -293,6 +293,55 @@ async def test_reply_preserves_falsy_structured_output(tmp_path, monkeypatch):
     assert result["structured_output"] == {}
 
 
+@pytest.mark.asyncio
+async def test_compact_session_uses_claude_command(tmp_path, monkeypatch):
+    """Claude Code compaction uses its native slash command."""
+    wrapper = _wrapper(tmp_path)
+    calls = []
+
+    async def reply(inputs, **kwargs):
+        calls.append((inputs, kwargs))
+        return {"last_message": {"is_error": False}}
+
+    monkeypatch.setattr(wrapper, "reply", reply)
+
+    await wrapper.compact_session("session-1")
+
+    assert calls == [("/compact", {"resume": "session-1"})]
+
+
+@pytest.mark.asyncio
+async def test_agentscope_compact_session_forces_and_persists_compression(tmp_path, monkeypatch):
+    """AgentScope compaction forces the threshold and persists new state."""
+    wrapper = AsAgentWrapper(as_llm="", app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    observed = {}
+
+    class FakeAgent:
+        """Minimal AgentScope agent double."""
+
+        state = SimpleNamespace()
+
+        async def compress_context(self, config):
+            """Capture the forced context configuration."""
+            observed["config"] = config
+
+    async def build_agent(inputs, **kwargs):
+        observed["build"] = (inputs, kwargs)
+        return FakeAgent(), inputs
+
+    async def dump_state(state):
+        observed["state"] = state
+
+    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
+    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+
+    await wrapper.compact_session("session-1")
+
+    assert observed["build"] == (None, {"resume": "session-1"})
+    assert observed["config"].trigger_ratio == 1e-9
+    assert observed["state"] is FakeAgent.state
+
+
 def test_error_result_with_success_subtype_is_not_suppressed():
     """Latest SDK can report API failures with subtype=success and is_error=True."""
     from claude_agent_sdk import ResultMessage

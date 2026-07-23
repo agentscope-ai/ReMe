@@ -5,5 +5,14 @@ from .as_agent_wrapper import AsAgentWrapper
 from .cc_agent_wrapper import CcAgentWrapper
 from .cc_session_store import CcFileSessionStore
 from .codex_agent_wrapper import CodexAgentWrapper
+from .session_command import SessionCommandResult, handle_session_command
 
-__all__ = ["BaseAgentWrapper", "AsAgentWrapper", "CcAgentWrapper", "CcFileSessionStore", "CodexAgentWrapper"]
+__all__ = [
+    "BaseAgentWrapper",
+    "AsAgentWrapper",
+    "CcAgentWrapper",
+    "CcFileSessionStore",
+    "CodexAgentWrapper",
+    "SessionCommandResult",
+    "handle_session_command",
+]

@@ -5,7 +5,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper import (
+    AsAgentWrapper,
+    BaseAgentWrapper,
+    CcAgentWrapper,
+    CodexAgentWrapper,
+    handle_session_command,
+)
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import base_agent_wrapper
 from reme.components.application_context import ApplicationContext
@@ -15,8 +21,15 @@ from reme.components import base_component
 class _VersionedAgentWrapper(BaseAgentWrapper):
     SDK_PACKAGE = "example-agent-sdk"
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.compacted_session = ""
+
     async def reply(self, inputs, **kwargs) -> dict:
         return {"inputs": inputs, "kwargs": kwargs}
+
+    async def compact_session(self, session_id: str) -> None:
+        self.compacted_session = session_id
 
 
 def test_init_logs_sdk_version(monkeypatch):
@@ -45,6 +58,21 @@ def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch
     _VersionedAgentWrapper()
 
     logger.info.assert_called_once_with("Agent SDK package=example-agent-sdk version=unknown")
+
+
+@pytest.mark.asyncio
+async def test_session_commands_are_backend_neutral():
+    """Session commands work independently from a chat transport."""
+    wrapper = _VersionedAgentWrapper()
+
+    assert await handle_session_command(wrapper, "hello", "session-1") is None
+    assert (await handle_session_command(wrapper, "/clear", "session-1")).session_id is None
+    unavailable = await handle_session_command(wrapper, "/compact", None)
+    assert unavailable.answer == "No active conversation to compact."
+
+    compacted = await handle_session_command(wrapper, "/compact", "session-1")
+    assert compacted.session_id == "session-1"
+    assert wrapper.compacted_session == "session-1"
 
 
 @pytest.mark.parametrize(
