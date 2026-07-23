@@ -14,14 +14,17 @@ from zoneinfo import ZoneInfo
 
 from ....components import R
 from ....schema import (
+    BacktestAnalysisOutput,
     BacktestAnalysisRun,
     Checkpoint,
+    EventAnalysisOutput,
     EventAnalysisRun,
     PortfolioMetrics,
     PortfolioRun,
     PortfolioSnapshot,
     RunStatus,
     UpstreamAnalysis,
+    UsCorrelationAnalysisOutput,
     UsCorrelationAnalysisRun,
 )
 from ...base_step import BaseStep
@@ -210,6 +213,35 @@ class AutoFinPipelineStep(BaseStep):
         await step(self.context)
         self.logger.info(f"[{self.name}] analysis done stage={step.name}")
 
+    async def _notify_stage(self, stage: str, path: Path, run_id: str) -> None:
+        """Deliver one persisted stage report without failing the analysis pipeline."""
+        assert self.context is not None
+        if not self.dispatch_step_specs:
+            return
+        rel = path.relative_to(self.workspace_path).as_posix()
+        self.context.response.metadata.update({"notify": True, "run_id": run_id})
+        try:
+            await self.dispatch_steps(
+                self.dispatch_step_specs,
+                markdown_path=rel,
+                auto_fin_notification_stage=stage,
+            )
+        except Exception as exc:  # Notification delivery must not invalidate persisted analysis.
+            error = f"{stage}: {type(exc).__name__}: {exc}"
+            errors = self.context.response.metadata.setdefault("notification_errors", [])
+            errors.append(error)
+            self.logger.warning(
+                f"[{self.name}] stage notification failed run_id={run_id} "
+                f"stage={stage} error={type(exc).__name__}: {exc}",
+            )
+            return
+        sent_count = int(self.context.response.metadata.get("dingtalk_sent_count", 0))
+        notifications = self.context.response.metadata.setdefault("notifications", [])
+        notifications.append({"stage": stage, "path": rel, "sent_count": sent_count})
+        self.logger.info(
+            f"[{self.name}] stage notification done run_id={run_id} " f"stage={stage} sent_count={sent_count}",
+        )
+
     @staticmethod
     def _common_run(
         run_id: str,
@@ -227,6 +259,140 @@ class AutoFinPipelineStep(BaseStep):
             "generated_at": generated_at.isoformat(),
             "stale": False,
         }
+
+    async def _persist_event_stage(
+        self,
+        *,
+        path: Path,
+        run_id: str,
+        trade_date: date,
+        checkpoint: Checkpoint,
+        schedule: _Schedule,
+        timezone: ZoneInfo,
+        output: EventAnalysisOutput | None,
+        error: str,
+    ) -> datetime:
+        """Persist and notify the completed event-analysis stage."""
+        generated_at = datetime.now(timezone)
+        status = RunStatus.COMPLETE if output is not None else RunStatus.FAILED
+        run = EventAnalysisRun.model_validate(
+            {
+                **self._common_run(run_id, checkpoint, schedule, generated_at, status),
+                "analysis": output.model_dump(mode="json") if output is not None else None,
+                "error": error,
+            },
+        ).model_dump(mode="json")
+        body = (
+            analysis_section(
+                output.description,
+                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
+                output.limitations,
+            )
+            if output is not None
+            else f"事件分析失败：{error}"
+        )
+        await upsert_report(
+            path,
+            document_type="event_analysis",
+            trade_date=trade_date.isoformat(),
+            timezone=str(timezone),
+            checkpoint=checkpoint,
+            run=run,
+            section=body,
+            title=f"{trade_date.isoformat()} Event Analysis",
+        )
+        await self._notify_stage("event", path, run_id)
+        return generated_at
+
+    async def _persist_backtest_stage(
+        self,
+        *,
+        path: Path,
+        run_id: str,
+        trade_date: date,
+        checkpoint: Checkpoint,
+        schedule: _Schedule,
+        timezone: ZoneInfo,
+        output: BacktestAnalysisOutput | None,
+        error: str,
+    ) -> datetime:
+        """Persist and notify the completed backtest-analysis stage."""
+        generated_at = datetime.now(timezone)
+        status = (
+            RunStatus.COMPLETE
+            if output is not None and output.market_data_complete
+            else RunStatus.DEGRADED if output is not None else RunStatus.FAILED
+        )
+        run = BacktestAnalysisRun.model_validate(
+            {
+                **self._common_run(run_id, checkpoint, schedule, generated_at, status),
+                "analysis": output.model_dump(mode="json") if output is not None else None,
+                "error": error,
+            },
+        ).model_dump(mode="json")
+        body = (
+            analysis_section(
+                output.description,
+                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
+                output.limitations,
+            )
+            if output is not None
+            else f"回测分析失败：{error}"
+        )
+        await upsert_report(
+            path,
+            document_type="backtest_analysis",
+            trade_date=trade_date.isoformat(),
+            timezone=str(timezone),
+            checkpoint=checkpoint,
+            run=run,
+            section=body,
+            title=f"{trade_date.isoformat()} Backtest Analysis",
+        )
+        await self._notify_stage("backtest", path, run_id)
+        return generated_at
+
+    async def _persist_us_stage(
+        self,
+        *,
+        path: Path,
+        run_id: str,
+        trade_date: date,
+        checkpoint: Checkpoint,
+        schedule: _Schedule,
+        timezone: ZoneInfo,
+        output: UsCorrelationAnalysisOutput,
+        generated_at: datetime,
+    ) -> None:
+        """Persist and notify a newly generated opening US-correlation stage."""
+        run = UsCorrelationAnalysisRun.model_validate(
+            {
+                **self._common_run(
+                    run_id,
+                    checkpoint,
+                    schedule,
+                    generated_at,
+                    RunStatus.COMPLETE,
+                ),
+                "analysis": output.model_dump(mode="json"),
+                "error": "",
+            },
+        ).model_dump(mode="json")
+        await upsert_report(
+            path,
+            document_type="us_correlation_analysis",
+            trade_date=trade_date.isoformat(),
+            timezone=str(timezone),
+            checkpoint=checkpoint,
+            run=run,
+            section=analysis_section(
+                output.description,
+                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
+                output.limitations,
+            ),
+            title=f"{trade_date.isoformat()} US Correlation Analysis",
+        )
+        await self._notify_stage("us_correlation", path, run_id)
 
     async def _run_pipeline(
         self,
@@ -362,12 +528,32 @@ class AutoFinPipelineStep(BaseStep):
             )
         await self._run_analysis_step(AutoFinEventStep)
         await self._run_analysis_step(AutoFinQuantStep)
-        await self._run_analysis_step(AutoFinBacktestStep)
         event_output = self.context.get("auto_fin_event_output")
         event_error = str(self.context.get("auto_fin_event_error", ""))
+        event_generated_at = await self._persist_event_stage(
+            path=paths["event"],
+            run_id=run_id,
+            trade_date=trade_date,
+            checkpoint=checkpoint,
+            schedule=schedule,
+            timezone=timezone,
+            output=event_output,
+            error=event_error,
+        )
+        await self._run_analysis_step(AutoFinBacktestStep)
         quant_error = str(self.context.get("auto_fin_quant_error", ""))
         backtest_output = self.context.get("auto_fin_backtest_output")
         backtest_error = str(self.context.get("auto_fin_backtest_error", ""))
+        backtest_generated_at = await self._persist_backtest_stage(
+            path=paths["backtest"],
+            run_id=run_id,
+            trade_date=trade_date,
+            checkpoint=checkpoint,
+            schedule=schedule,
+            timezone=timezone,
+            output=backtest_output,
+            error=backtest_error,
+        )
         self.logger.info(
             f"[{self.name}] domestic analyses ready run_id={run_id} event_ok={event_output is not None} "
             f"backtest_ok={backtest_output is not None} "
@@ -421,6 +607,21 @@ class AutoFinPipelineStep(BaseStep):
         us_output = self.context.get("auto_fin_us_output")
         us_error = str(self.context.get("auto_fin_us_error", ""))
         us_generated_at = self.context.get("auto_fin_us_generated_at")
+        if (
+            checkpoint is Checkpoint.OPEN
+            and isinstance(us_output, UsCorrelationAnalysisOutput)
+            and isinstance(us_generated_at, datetime)
+        ):
+            await self._persist_us_stage(
+                path=paths["us"],
+                run_id=run_id,
+                trade_date=trade_date,
+                checkpoint=checkpoint,
+                schedule=open_schedule,
+                timezone=timezone,
+                output=us_output,
+                generated_at=us_generated_at,
+            )
 
         errors = [value for value in (event_error, backtest_error, us_error) if value]
         if quant_error and bool(self._value("quant_required", True)):
@@ -490,39 +691,18 @@ class AutoFinPipelineStep(BaseStep):
         )
         interval_return = ledger.snapshot.nav / snapshot_before.nav - 1.0
         common = self._common_run(run_id, checkpoint, schedule, generated_at, status)
-
-        event_run = EventAnalysisRun.model_validate(
-            {
-                **common,
-                "status": (RunStatus.COMPLETE if event_output else RunStatus.FAILED).value,
-                "analysis": (event_output.model_dump(mode="json") if event_output else None),
-                "error": event_error,
-            },
-        ).model_dump(mode="json")
-        backtest_run = BacktestAnalysisRun.model_validate(
-            {
-                **common,
-                "status": (
-                    RunStatus.COMPLETE
-                    if backtest_output and backtest_output.market_data_complete
-                    else RunStatus.DEGRADED if backtest_output else RunStatus.FAILED
-                ).value,
-                "analysis": (backtest_output.model_dump(mode="json") if backtest_output else None),
-                "error": backtest_error,
-            },
-        ).model_dump(mode="json")
         upstream = {
             "event": UpstreamAnalysis(
                 run_id=run_id,
                 status=RunStatus(analyses["event"]["status"]),
                 data_cutoff=schedule.data_cutoff,
-                generated_at=generated_at,
+                generated_at=event_generated_at,
             ).model_dump(mode="json"),
             "backtest": UpstreamAnalysis(
                 run_id=run_id,
                 status=RunStatus(analyses["backtest"]["status"]),
                 data_cutoff=schedule.market_cutoff,
-                generated_at=generated_at,
+                generated_at=backtest_generated_at,
             ).model_dump(mode="json"),
             "us_correlation": UpstreamAnalysis(
                 run_id=open_run_id,
@@ -554,26 +734,6 @@ class AutoFinPipelineStep(BaseStep):
             },
         ).model_dump(mode="json")
 
-        event_body = (
-            analysis_section(
-                event_output.description,
-                "\n\n".join(value for value in (event_output.body, ranking_section(event_output.ranking)) if value),
-                event_output.limitations,
-            )
-            if event_output
-            else f"事件分析失败：{event_error}"
-        )
-        backtest_body = (
-            analysis_section(
-                backtest_output.description,
-                "\n\n".join(
-                    value for value in (backtest_output.body, ranking_section(backtest_output.ranking)) if value
-                ),
-                backtest_output.limitations,
-            )
-            if backtest_output
-            else f"回测分析失败：{backtest_error}"
-        )
         portfolio_body = portfolio_section(
             snapshot_before,
             ledger.snapshot,
@@ -598,44 +758,8 @@ class AutoFinPipelineStep(BaseStep):
             "checkpoint": checkpoint,
         }
         self.logger.info(
-            f"[{self.name}] report persistence start run_id={run_id} directory={day_dir}",
+            f"[{self.name}] portfolio persistence start run_id={run_id} path={paths['portfolio']}",
         )
-        await upsert_report(
-            paths["event"],
-            document_type="event_analysis",
-            run=event_run,
-            section=event_body,
-            title=f"{trade_date.isoformat()} Event Analysis",
-            **report_args,
-        )
-        await upsert_report(
-            paths["backtest"],
-            document_type="backtest_analysis",
-            run=backtest_run,
-            section=backtest_body,
-            title=f"{trade_date.isoformat()} Backtest Analysis",
-            **report_args,
-        )
-        if checkpoint is Checkpoint.OPEN and us_output is not None:
-            us_run = UsCorrelationAnalysisRun.model_validate(
-                {
-                    **common,
-                    "analysis": us_output.model_dump(mode="json"),
-                    "error": "",
-                },
-            ).model_dump(mode="json")
-            await upsert_report(
-                paths["us"],
-                document_type="us_correlation_analysis",
-                run=us_run,
-                section=analysis_section(
-                    us_output.description,
-                    "\n\n".join(value for value in (us_output.body, ranking_section(us_output.ranking)) if value),
-                    us_output.limitations,
-                ),
-                title=f"{trade_date.isoformat()} US Correlation Analysis",
-                **report_args,
-            )
         await upsert_report(
             paths["portfolio"],
             document_type="portfolio",
@@ -644,9 +768,9 @@ class AutoFinPipelineStep(BaseStep):
             title=f"{trade_date.isoformat()} Auto Fin Portfolio",
             **report_args,
         )
-        report_count = 4 if checkpoint is Checkpoint.OPEN and us_output is not None else 3
+        await self._notify_stage("portfolio", paths["portfolio"], run_id)
         self.logger.info(
-            f"[{self.name}] report persistence done run_id={run_id} reports={report_count}",
+            f"[{self.name}] portfolio persistence done run_id={run_id}",
         )
         try:
             await refresh_day_index(
@@ -673,7 +797,7 @@ class AutoFinPipelineStep(BaseStep):
                 "status": status.value,
                 "portfolio_path": rel,
                 "errors": errors,
-                "notify": True,
+                "notify": False,
             },
         )
         self.logger.info(

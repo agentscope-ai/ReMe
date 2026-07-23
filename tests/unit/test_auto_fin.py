@@ -507,10 +507,13 @@ def test_daily_cookbook_wires_auto_fin_cc_skill_memory_search_and_crons(monkeypa
     assert config["jobs"]["auto_fin"]["backtest_weight"] == pytest.approx(0.45)
 
     steps = config["jobs"]["auto_fin"]["steps"]
-    assert steps[0] == {
-        "backend": "auto_fin_pipeline_step",
-        "agent_wrapper": "auto_fin",
-    }
+    assert len(steps) == 1
+    assert steps[0]["backend"] == "auto_fin_pipeline_step"
+    assert steps[0]["agent_wrapper"] == "auto_fin"
+    dispatch = steps[0]["dispatch_steps"]
+    assert len(dispatch) == 1
+    assert dispatch[0]["backend"] == "auto_fin_notification_step"
+    assert dispatch[0]["title"] == "ReMe Auto Fin"
     assert config["jobs"]["auto_fin_0900_cron"]["steps"] == steps
     assert config["jobs"]["auto_fin_1145_cron"]["steps"] == steps
     assert config["jobs"]["auto_fin_1445_cron"]["steps"] == steps
@@ -525,13 +528,28 @@ def test_portfolio_snapshot_rejects_nav_mismatch():
 
 
 @pytest.mark.asyncio
-async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
+async def test_pipeline_writes_four_reports_notifies_each_agent_stage_and_skips_same_run(
+    tmp_path: Path,
+    monkeypatch,
+):
+    notified_stages: list[str] = []
+
+    async def fake_send(self):
+        notified_stages.append(str(self.context.get("auto_fin_notification_stage")))
+        self.context.response.metadata["dingtalk_sent_count"] = 1
+        return self.context.response
+
+    monkeypatch.setattr(DingTalkMarkdownSendStep, "execute", fake_send)
     app_context = ApplicationContext(
         workspace_dir=str(tmp_path),
         timezone="Asia/Shanghai",
     )
     wrapper = _AutoFinAnalysisWrapper(app_context=app_context)
-    step = AutoFinPipelineStep(app_context=app_context, agent_wrapper=wrapper)
+    step = AutoFinPipelineStep(
+        app_context=app_context,
+        agent_wrapper=wrapper,
+        dispatch_steps=[{"backend": "auto_fin_notification_step"}],
+    )
     step.logger = MagicMock()
     response = await step(
         date="2026-07-23",
@@ -553,13 +571,14 @@ async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
     portfolio = load_document(day_dir / "portfolio.md")
     PortfolioDocument.model_validate(portfolio.metadata)
     assert len(portfolio.metadata["runs"]) == 1
+    assert notified_stages == ["event", "backtest", "us_correlation", "portfolio"]
     assert portfolio.metadata["runs"][0]["snapshot"]["nav"] == 1.0
     assert not list((tmp_path / "metadata" / "auto-fin" / "locks").glob("*.lock"))
     logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
     assert "checkpoint start run_id=2026-07-23T0900+08:00" in logs
     assert "analysis start stage=" in logs
     assert "settlements applied run_id=2026-07-23T0900+08:00" in logs
-    assert "report persistence done run_id=2026-07-23T0900+08:00 reports=4" in logs
+    assert "portfolio persistence done run_id=2026-07-23T0900+08:00" in logs
     assert "pipeline done run_id=2026-07-23T0900+08:00 status=COMPLETE" in logs
 
     rerun = await step(
@@ -589,6 +608,7 @@ async def test_pipeline_writes_four_reports_and_skips_same_run(tmp_path: Path):
     logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
     assert "checkpoint start run_id=2026-07-23T0900+08:00" in logs
     assert "timezone=Asia/Shanghai force=True" in logs
+    assert notified_stages == ["event", "backtest", "us_correlation", "portfolio"]
 
 
 @pytest.mark.asyncio
@@ -622,3 +642,37 @@ async def test_auto_fin_notification_records_success_and_deduplicates(
     assert context.response.metadata["dingtalk_skipped_duplicate"] is True
     state = tmp_path / "metadata" / "auto-fin" / "notification-state" / "2026-07-23T0900+08:00.json"
     assert state.is_file()
+
+
+@pytest.mark.asyncio
+async def test_auto_fin_notification_deduplicates_each_stage_independently(
+    tmp_path: Path,
+    monkeypatch,
+):
+    calls = 0
+
+    async def fake_send(self):
+        nonlocal calls
+        calls += 1
+        self.context.response.metadata["dingtalk_sent_count"] = 1
+        return self.context.response
+
+    monkeypatch.setattr(DingTalkMarkdownSendStep, "execute", fake_send)
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    step = AutoFinNotificationStep(app_context=app_context)
+    context = RuntimeContext()
+    context.response.metadata.update(
+        {
+            "notify": True,
+            "run_id": "2026-07-23T0900+08:00",
+        },
+    )
+
+    await step(context, auto_fin_notification_stage="event")
+    await step(context, auto_fin_notification_stage="backtest")
+    await step(context, auto_fin_notification_stage="event")
+
+    assert calls == 2
+    state_dir = tmp_path / "metadata" / "auto-fin" / "notification-state"
+    assert (state_dir / "2026-07-23T0900+08:00.event.json").is_file()
+    assert (state_dir / "2026-07-23T0900+08:00.backtest.json").is_file()

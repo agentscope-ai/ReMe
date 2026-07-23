@@ -373,15 +373,14 @@ jobs:
     steps: &auto_fin_steps
       - backend: auto_fin_pipeline_step
         agent_wrapper: auto_fin
-      - backend: auto_fin_notification_step
-        input_mapping:
-          auto_fin_portfolio_path: markdown_path
-        app_key: ${DINGTALK_APP_KEY:-}
-        app_secret: ${DINGTALK_APP_SECRET:-}
-        robot_code: ${DINGTALK_ROBOT_CODE:-}
-        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
-        title: ReMe Auto Fin
-        timeout: 15
+        dispatch_steps:
+          - backend: auto_fin_notification_step
+            app_key: ${DINGTALK_APP_KEY:-}
+            app_secret: ${DINGTALK_APP_SECRET:-}
+            robot_code: ${DINGTALK_ROBOT_CODE:-}
+            conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+            title: ReMe Auto Fin
+            timeout: 15
 
   auto_fin_0900_cron:
     backend: cron
