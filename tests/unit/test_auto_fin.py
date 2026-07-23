@@ -347,7 +347,7 @@ async def test_report_upsert_replaces_same_checkpoint(tmp_path: Path):
     assert "first" not in document.content
 
 
-def test_daily_cookbook_wires_auto_fin_cc_skill_search_and_crons(monkeypatch):
+def test_daily_cookbook_wires_auto_fin_cc_skill_memory_and_crons(monkeypatch):
     for name in (
         "AUTO_FIN_AGENT_BACKEND",
         "AUTO_FIN_PROJECT_PATH",
@@ -360,8 +360,8 @@ def test_daily_cookbook_wires_auto_fin_cc_skill_search_and_crons(monkeypatch):
     wrapper = config["components"]["agent_wrapper"]["auto_fin"]
     assert wrapper["backend"] == "claude_code"
     assert wrapper["skills"] == ["tushare-data"]
-    assert wrapper["job_tools"] == ["search"]
-    assert "search" in config["jobs"]
+    assert wrapper["job_tools"] == ["memory"]
+    assert "memory" in config["jobs"]
     assert config["jobs"]["auto_fin"]["parameters"]["properties"]["force"]["default"] is True
 
     steps = config["jobs"]["auto_fin"]["steps"]

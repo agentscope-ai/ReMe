@@ -1,5 +1,5 @@
 app_name: ReMe Daily Cookbook
-workspace_dir: ${DAILY_PAPER_WORKSPACE_DIR:-.reme}
+workspace_dir: ${DAILY_PAPER_WORKSPACE_DIR:-reme_workspace}
 timezone: Asia/Shanghai
 language: zh
 
@@ -116,9 +116,9 @@ jobs:
         monitor_name: default
         dispatch_steps: [update_index_step]
 
-  search:
+  memory:
     backend: base
-    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    description: "Long-term memory retrieval via hybrid workspace search (vector + BM25, RRF-fused)."
     parameters:
       type: object
       properties:
@@ -518,7 +518,7 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       skills: [tushare-data]
-      job_tools: [search]
+      job_tools: [memory]
       permission_mode: bypassPermissions
     daily_paper:
       backend: claude_code
@@ -534,14 +534,14 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       skills: [tushare-data]
-      job_tools: [search]
+      job_tools: [memory]
       system_prompt:
         type: preset
         preset: claude_code
         append: >-
           Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, are at
-          daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at daily/YYYY-MM-DD/daily-paper-brief.md. Use search to
-          recall relevant notes across dates.
+          daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at daily/YYYY-MM-DD/daily-paper-brief.md. Use memory to
+          retrieve relevant long-term notes across dates.
       permission_mode: bypassPermissions
     memory:
       backend: agentscope
