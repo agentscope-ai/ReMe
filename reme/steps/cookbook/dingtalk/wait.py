@@ -205,13 +205,14 @@ class _CardRenderer:
 
 @R.register("dingtalk_wait_step")
 class DingTalkWaitStep(BaseStep):
-    """Receive DingTalk messages and stream Claude Code replies into AI cards."""
+    """Receive DingTalk messages and reply through Markdown or streaming AI cards."""
 
     def __init__(
         self,
         app_key: str = "",
         app_secret: str = "",
         robot_code: str = "",
+        stream: bool = False,
         card_update_interval: float = 1.0,
         worker_count: int = 4,
         **kwargs,
@@ -220,6 +221,7 @@ class DingTalkWaitStep(BaseStep):
         self.app_key = app_key
         self.app_secret = app_secret
         self.robot_code = robot_code
+        self.stream = stream
         self.card_update_interval = max(0.05, card_update_interval)
         self.worker_count = max(1, worker_count)
 
@@ -244,7 +246,8 @@ class DingTalkWaitStep(BaseStep):
         locks: dict[str, asyncio.Lock] = {}
         self.logger.info(
             f"[{self.name}] starting DingTalk Stream bridge "
-            f"workers={self.worker_count} card_update_interval={self.card_update_interval:.2f}s",
+            f"workers={self.worker_count} reply_mode={'stream' if self.stream else 'non-stream'} "
+            f"card_update_interval={self.card_update_interval:.2f}s",
         )
         workers = [
             asyncio.create_task(self._worker(queue, locks, sessions, handler, dingtalk_stream))
@@ -315,6 +318,55 @@ class DingTalkWaitStep(BaseStep):
         self.logger.info(
             f"[{self.name}] received DingTalk text session={session_ref} chars={len(text)} resume={resumed}",
         )
+        kwargs = {"resume": sessions[key]} if key in sessions else {}
+        if not self.stream:
+            await self._handle_non_stream_reply(message, key, sessions, handler, text, kwargs, session_ref)
+            return
+        await self._handle_stream_reply(message, key, sessions, handler, dingtalk_stream, text, kwargs, session_ref)
+
+    async def _handle_non_stream_reply(self, message, key, sessions, handler, text, kwargs, session_ref) -> None:
+        """Wait for the final Agent response and send one DingTalk Markdown reply."""
+        started_at = time.monotonic()
+        try:
+            result = await self.agent_wrapper.reply(text, **kwargs)
+            if not isinstance(result, dict):
+                raise TypeError("Agent reply must be a dictionary")
+            if session_id := result.get("session_id"):
+                sessions[key] = session_id
+
+            last_message = result.get("last_message")
+            if isinstance(last_message, dict) and last_message.get("is_error"):
+                raise RuntimeError("Agent 执行失败")
+
+            answer = result.get("result")
+            if not isinstance(answer, str) or not (answer := answer.strip()):
+                raise ValueError("Agent 返回了空回复")
+            response = await asyncio.to_thread(handler.reply_markdown, "ReMe Agent", answer, message)
+            if response is None:
+                raise RuntimeError("发送钉钉 Markdown 回复失败")
+            self.logger.info(
+                f"[{self.name}] completed DingTalk reply session={session_ref} success=True "
+                f"mode=non-stream chars={len(answer)} elapsed={time.monotonic() - started_at:.2f}s",
+            )
+        except Exception:
+            self.logger.warning(
+                f"[{self.name}] DingTalk reply failed session={session_ref} "
+                f"mode=non-stream elapsed={time.monotonic() - started_at:.2f}s",
+            )
+            raise
+
+    async def _handle_stream_reply(
+        self,
+        message,
+        key,
+        sessions,
+        handler,
+        dingtalk_stream,
+        text,
+        kwargs,
+        session_ref,
+    ) -> None:
+        """Stream Agent chunks into one DingTalk AI card."""
         renderer = _CardRenderer()
         card = dingtalk_stream.AIMarkdownCardInstance(handler.dingtalk_client, message)
         card_id = await card.async_create_and_send_card(
@@ -333,7 +385,6 @@ class DingTalkWaitStep(BaseStep):
         streamed_chars = 0
         finalizing = False
         try:
-            kwargs = {"resume": sessions[key]} if key in sessions else {}
             async for chunk in self.agent_wrapper.reply_stream(text, **kwargs):
                 chunk_count += 1
                 if chunk.session_id:
@@ -369,7 +420,7 @@ class DingTalkWaitStep(BaseStep):
             log = self.logger.warning if renderer.error else self.logger.info
             log(
                 f"[{self.name}] completed DingTalk reply session={session_ref} success={not renderer.error} "
-                f"chunks={chunk_count} card_updates={update_count} card_chars={streamed_chars} "
+                f"mode=stream chunks={chunk_count} card_updates={update_count} card_chars={streamed_chars} "
                 f"elapsed={time.monotonic() - renderer.started_at:.2f}s",
             )
         except Exception:
@@ -390,7 +441,7 @@ class DingTalkWaitStep(BaseStep):
             streamed_chars += len(failure_delta)
             self.logger.warning(
                 f"[{self.name}] DingTalk reply failed session={session_ref} "
-                f"chunks={chunk_count} card_updates={update_count} card_chars={streamed_chars} "
+                f"mode=stream chunks={chunk_count} card_updates={update_count} card_chars={streamed_chars} "
                 f"elapsed={time.monotonic() - renderer.started_at:.2f}s",
             )
             raise

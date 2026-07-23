@@ -19,13 +19,22 @@ from reme.steps.cookbook.dingtalk.wait import DingTalkWaitStep, _CardRenderer, _
 class _AgentWrapper(BaseAgentWrapper):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.calls = []
+        self.reply_calls = []
+        self.stream_calls = []
+        self.result_text = "回答"
+        self.is_error = False
 
     async def reply(self, inputs, **kwargs):
-        raise NotImplementedError
+        self.reply_calls.append((inputs, kwargs))
+        session_id = kwargs.get("resume") or "session-1"
+        return {
+            "session_id": session_id,
+            "last_message": {"is_error": self.is_error},
+            "result": self.result_text,
+        }
 
     async def reply_stream(self, inputs, **kwargs):
-        self.calls.append((inputs, kwargs))
+        self.stream_calls.append((inputs, kwargs))
         session_id = kwargs.get("resume") or "session-1"
         yield StreamChunk(
             chunk_type=ChunkEnum.THINK,
@@ -78,9 +87,15 @@ class _Handler:
     def __init__(self):
         self.dingtalk_client = object()
         self.replies = []
+        self.markdown_replies = []
+        self.markdown_result = {"errcode": 0}
 
     def reply_text(self, text, _message):
         self.replies.append(text)
+
+    def reply_markdown(self, title, text, _message):
+        self.markdown_replies.append((title, text))
+        return self.markdown_result
 
 
 class _WebSocket:
@@ -236,10 +251,56 @@ def test_renderer_keeps_tool_call_and_result_visible():
 
 
 @pytest.mark.asyncio
-async def test_messages_resume_session_and_clear_only_the_combined_key(tmp_path):
+async def test_non_stream_is_default_and_resumes_session(tmp_path):
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = _AgentWrapper(app_context=app_context)
-    step = DingTalkWaitStep(app_context=app_context, agent_wrapper=wrapper, card_update_interval=0.05)
+    step = DingTalkWaitStep(app_context=app_context, agent_wrapper=wrapper)
+    step.logger = MagicMock()
+    handler = _Handler()
+    sessions = {}
+    message = _message()
+    key = _session_key(message)
+    card_count = len(_Card.instances)
+
+    await step._handle_message(message, key, sessions, handler, SimpleNamespace())
+    await step._handle_message(message, key, sessions, handler, SimpleNamespace())
+
+    assert sessions == {key: "session-1"}
+    assert wrapper.reply_calls == [("hello", {}), ("hello", {"resume": "session-1"})]
+    assert not wrapper.stream_calls
+    assert handler.markdown_replies == [("ReMe Agent", "回答"), ("ReMe Agent", "回答")]
+    assert len(_Card.instances) == card_count
+    logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
+    assert "completed DingTalk reply" in logs
+    assert "mode=non-stream" in logs
+    assert all(value not in logs for value in ("hello", "session-1"))
+
+
+@pytest.mark.asyncio
+async def test_non_stream_rejects_empty_agent_reply_and_dingtalk_send_failure(tmp_path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = _AgentWrapper(app_context=app_context)
+    step = DingTalkWaitStep(app_context=app_context, agent_wrapper=wrapper)
+    step.logger = MagicMock()
+    handler = _Handler()
+    message = _message()
+    key = _session_key(message)
+
+    wrapper.result_text = " "
+    with pytest.raises(ValueError, match="空回复"):
+        await step._handle_message(message, key, {}, handler, SimpleNamespace())
+
+    wrapper.result_text = "回答"
+    handler.markdown_result = None
+    with pytest.raises(RuntimeError, match="发送钉钉 Markdown 回复失败"):
+        await step._handle_message(message, key, {}, handler, SimpleNamespace())
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_resume_session_and_clear_only_the_combined_key(tmp_path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = _AgentWrapper(app_context=app_context)
+    step = DingTalkWaitStep(app_context=app_context, agent_wrapper=wrapper, stream=True, card_update_interval=0.05)
     step.logger = MagicMock()
     handler = _Handler()
     sdk = SimpleNamespace(
@@ -254,7 +315,8 @@ async def test_messages_resume_session_and_clear_only_the_combined_key(tmp_path)
     await step._handle_message(message, key, sessions, handler, sdk)
 
     assert sessions == {key: "session-1"}
-    assert wrapper.calls == [("hello", {}), ("hello", {"resume": "session-1"})]
+    assert not wrapper.reply_calls
+    assert wrapper.stream_calls == [("hello", {}), ("hello", {"resume": "session-1"})]
     assert all(card.finished for card in _Card.instances[-2:])
     assert all(card.stream_flags for card in _Card.instances[-2:])
     assert all(all(append for append, _finished, _failed in card.stream_flags) for card in _Card.instances[-2:])
@@ -290,6 +352,7 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
             "app_key": "",
             "app_secret": "",
             "robot_code": "",
+            "stream": False,
             "card_update_interval": 1.0,
             "worker_count": 4,
         },
