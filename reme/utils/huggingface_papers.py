@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import sys
 from collections.abc import Iterable
 from typing import Any
 
@@ -9,6 +10,8 @@ import httpx
 
 from ..schema import PaperInfo
 from .arxiv import ARXIV_ID_PATTERN
+from .logger_utils import get_logger
+from .proxy_utils import get_ssh_proxy_config, ssh_socks_proxy
 
 HF_BASE_URL = "https://huggingface.co"
 _PAPER_LINK_PATTERN = re.compile(
@@ -70,36 +73,100 @@ class HuggingFacePapersClient:
         timeout: float = 30.0,
         max_retries: int = 3,
         detail_concurrency: int = 5,
+        logger: Any | None = None,
     ) -> None:
+        self.logger = logger or get_logger()
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(
-            base_url=HF_BASE_URL,
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": "ReMe daily-paper cookbook"},
-        )
+        self._timeout = timeout
+        self._proxy_context = None
+        self._proxy_config = get_ssh_proxy_config() if client is None else None
+        self.client = client
+        if self.client is None and self._proxy_config is None:
+            self.client = self._new_client()
+            self.logger.info("[HuggingFacePapersClient] network mode=direct")
+        elif self.client is not None:
+            self.logger.debug("[HuggingFacePapersClient] network mode=injected_client")
         self.max_retries = max(1, int(max_retries))
         self.detail_concurrency = max(1, int(detail_concurrency))
 
+    def _new_client(self, proxy: str | None = None) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "base_url": HF_BASE_URL,
+            "timeout": self._timeout,
+            "follow_redirects": True,
+            "headers": {"User-Agent": "ReMe daily-paper cookbook"},
+        }
+        if proxy is not None:
+            kwargs["proxy"] = proxy
+        return httpx.AsyncClient(**kwargs)
+
     async def __aenter__(self) -> "HuggingFacePapersClient":
+        if self.client is None:
+            self._proxy_context = ssh_socks_proxy(connect_timeout=self._timeout)
+            try:
+                proxy = await self._proxy_context.__aenter__()
+                self.client = self._new_client(proxy)
+                assert self._proxy_config is not None
+                self.logger.info(
+                    f"[HuggingFacePapersClient] network mode=ssh_socks "
+                    f"destination={self._proxy_config.destination}",
+                )
+            except BaseException as exc:
+                if isinstance(exc, Exception):
+                    detail = str(exc) or "-"
+                    self.logger.error(
+                        f"[HuggingFacePapersClient] SSH proxy failed error={type(exc).__name__} detail={detail}",
+                    )
+                await self._proxy_context.__aexit__(*sys.exc_info())
+                self._proxy_context = None
+                raise
         return self
 
-    async def __aexit__(self, *_args) -> None:
-        if self._owns_client:
-            await self.client.aclose()
+    async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+        try:
+            if self._owns_client and self.client is not None:
+                await self.client.aclose()
+        finally:
+            if self._proxy_context is not None:
+                await self._proxy_context.__aexit__(exc_type, exc_value, traceback)
+                self.logger.info("[HuggingFacePapersClient] SSH proxy closed")
+
+    def _require_client(self) -> httpx.AsyncClient:
+        if self.client is None:
+            raise RuntimeError("HuggingFacePapersClient must be used as an async context manager with SSH proxying")
+        return self.client
 
     async def _get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.get(path, params=params)
+                self.logger.debug(
+                    f"[HuggingFacePapersClient] request start path={path} params={params} "
+                    f"attempt={attempt + 1}/{self.max_retries}",
+                )
+                response = await self._require_client().get(path, params=params)
                 response.raise_for_status()
+                self.logger.debug(
+                    f"[HuggingFacePapersClient] request done path={path} status={response.status_code} "
+                    f"attempt={attempt + 1}/{self.max_retries}",
+                )
                 return response
             except httpx.HTTPError as exc:
                 last_error = exc
                 if attempt + 1 >= self.max_retries:
+                    detail = str(exc) or "-"
+                    self.logger.error(
+                        f"[HuggingFacePapersClient] request failed path={path} attempts={self.max_retries} "
+                        f"error={type(exc).__name__} detail={detail}",
+                    )
                     break
-                await asyncio.sleep(0.25 * (2**attempt))
+                delay = 0.25 * (2**attempt)
+                detail = str(exc) or "-"
+                self.logger.warning(
+                    f"[HuggingFacePapersClient] request retry path={path} attempt={attempt + 1}/{self.max_retries} "
+                    f"delay={delay:g}s error={type(exc).__name__} detail={detail}",
+                )
+                await asyncio.sleep(delay)
         assert last_error is not None
         raise last_error
 

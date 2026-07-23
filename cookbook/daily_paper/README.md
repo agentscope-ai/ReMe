@@ -5,6 +5,8 @@
 Daily Paper is a local-first, file-native workflow for turning research feeds into a daily reading package. It collects
 papers from the Hugging Face weekly and monthly rankings, removes yesterday's papers and recent recommendations, ranks
 the remaining candidates, and uses Claude Code to produce detailed Chinese paper notes and a five-minute Chinese brief.
+The standalone application also includes conversation memory, auto-dream consolidation, and hybrid vector-plus-BM25
+recall, so the paper workflow and DingTalk agent can search the same user-owned memory files.
 
 The workflow is assembled by [`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml). Its schemas live in
 [`reme/schema/daily_paper.py`](../../reme/schema/daily_paper.py), and its steps live in
@@ -13,7 +15,8 @@ The workflow is assembled by [`daily_cookbook.yaml`](../../reme/config/daily_coo
 ## Quick start
 
 Daily Paper requires Python 3.11 or later, the `core` dependencies, network access to Hugging Face and arXiv, and
-credentials for the configured Claude Code endpoint.
+credentials for the configured Claude Code endpoint. Auto-memory and auto-dream additionally require the AgentScope
+LLM credentials; vector search requires embedding credentials.
 
 From the repository root:
 
@@ -25,6 +28,13 @@ reme start config=daily_cookbook job=daily_paper
 
 The built-in configuration uses `qwen3.7-max` through DashScope's Anthropic-compatible endpoint. Override
 `CLAUDE_CODE_MODEL_NAME` and `CLAUDE_CODE_BASE_URL` when using another compatible model or provider.
+
+This is enough to generate papers. To enable all memory features with the built-in providers, also configure:
+
+```bash
+export LLM_API_KEY="your-api-key"
+export EMBEDDING_API_KEY="your-api-key"
+```
 
 By default, outputs are written under `.reme/` in the directory where ReMe starts.
 
@@ -44,7 +54,15 @@ A successful run writes ordinary PDFs and Markdown files beneath `workspace_dir`
 │   └── papers/
 │       ├── <arxiv-id>.pdf
 │       └── ...
+├── digest/
+│   ├── personal/
+│   ├── project/
+│   ├── resource/
+│   └── wiki/
+├── metadata/
+│   └── ... derived catalogs, indexes, and caches
 └── mem_session/
+    ├── agentscope/
     └── claude_config/
 ```
 
@@ -53,6 +71,9 @@ A successful run writes ordinary PDFs and Markdown files beneath `workspace_dir`
 - `daily-paper-brief.md` is a roughly five-minute Chinese digest with wikilinks to every selected paper note.
 - `daily/YYYY-MM-DD.md` is a derived day index rebuilt from the Markdown files for that date.
 - `resource/papers/` holds reusable source PDFs.
+- `digest/` contains durable auto-dream output; files there remain ordinary user-owned Markdown.
+- `metadata/` and embedding/search caches are derived state. `reindex` rebuilds the file store, BM25 index, and graph
+  from source files; the embedding cache has its own version described below.
 
 The paper notes are the source of truth for recommendation history: their frontmatter contains the `arxiv_id` values
 used for future deduplication. The day index is derived and can be rebuilt. The workflow does not currently write a
@@ -95,7 +116,8 @@ score = 1 / (rrf_k + monthly_rank)
 A missing rank contributes zero. Candidates are ordered by fused score, upvotes, and arXiv ID. The bounded candidate
 pool also reserves several positions for papers whose titles or summaries match memory-related terms such as agent
 memory, memory retrieval, continual learning, context compression, knowledge graphs, and RAG. This reserve is a simple
-keyword heuristic, not a semantic classifier.
+keyword heuristic, not a semantic classifier. Separately, the Claude Code wrapper can call the hybrid `search` job to
+recall relevant daily or digest memories while selecting and writing.
 
 ### 3. Select papers
 
@@ -128,6 +150,32 @@ The final step sends the brief body, without YAML frontmatter, to each configure
 conversation IDs it is a no-op. If one group fails, the step still attempts the remaining groups and reports the
 combined failure afterward.
 
+## Memory and hybrid search
+
+The standalone configuration uses two separate agent wrappers:
+
+- `claude_code` runs daily-paper and DingTalk agent work. It keeps Claude Code's normal local tools, disables
+  `WebSearch`, and exposes the ReMe `search` job as an MCP tool.
+- `memory` runs auto-memory and the LLM-backed auto-dream steps through AgentScope. Its built-in shell and file tools
+  are disabled; memory changes go through the narrower ReMe jobs such as `daily_write`, `read`, `edit`, and `write`.
+
+`search` queries both the embedding store and BM25 index, then fuses their rankings with reciprocal-rank fusion. The
+default vector weight is `0.7`. Search covers Markdown under `daily/` and `digest/`; `node_search` is a narrower digest
+recall tool used internally by auto-dream.
+
+`index_update_loop` indexes existing memory files when the service starts and watches those directories for later
+changes. Run `reindex` when recovering the derived file store or forcing a complete index rebuild. Source Markdown and
+PDFs are not deleted by `reindex`.
+
+The embedding cache key includes its configured dimensions and `cache_version`, but not the model name. When changing
+to another embedding model with the same dimensions, start the application with a new version, for example
+`components.embedding_store.default.cache_version=v2`, and then run `reindex`.
+
+`auto_memory` writes or updates one daily note from caller-supplied conversation messages and a stable `session_id`.
+`auto_dream` scans recent daily notes, integrates durable units under `digest/`, and writes interest topics. Both are
+on-demand jobs in this cookbook; no auto-dream cron is configured. The DingTalk agent can recall through `search`, but
+it does not automatically call `auto_memory` after a conversation.
+
 ## Dates, reruns, and idempotency
 
 - `date` must be an exact `YYYY-MM-DD` value. When omitted, the job uses today in the application timezone, which is
@@ -144,13 +192,21 @@ concurrent runs of the same date.
 
 ## Running the cookbook
 
-The standalone configuration defines three jobs:
+The main jobs in the standalone configuration are:
 
-| Job                | Behavior                                                |
-|--------------------|---------------------------------------------------------|
-| `daily_paper`      | On-demand generation through the CLI or HTTP service    |
-| `daily_paper_cron` | The same pipeline every day at 08:00 in `Asia/Shanghai` |
-| `dingtalk_wait`    | A supervised background DingTalk agent                  |
+| Job                 | Behavior                                                         |
+|---------------------|------------------------------------------------------------------|
+| `daily_paper`       | On-demand generation through the CLI or HTTP service             |
+| `daily_paper_cron`  | The same pipeline every day at 08:00 in `Asia/Shanghai`          |
+| `dingtalk_wait`     | A supervised background DingTalk agent with `search`             |
+| `auto_memory`       | Write or update a daily note from conversation messages          |
+| `auto_dream`        | Consolidate recent daily notes into digest memory and interests  |
+| `search`            | Hybrid vector + BM25 recall over daily and digest Markdown       |
+| `reindex`           | Rebuild derived search state from existing memory files          |
+| `index_update_loop` | Initialize and continuously update search state in service mode  |
+
+Supporting jobs such as `node_search`, `daily_list`, `daily_write`, `read`, `write`, `edit`, and frontmatter updates
+provide the constrained tools used by the memory agent.
 
 ### One-time runs
 
@@ -200,6 +256,19 @@ curl -s http://127.0.0.1:8001/daily_paper \
   -d '{"date":"2026-07-21","top_k":3,"force":false}'
 ```
 
+Recall memory, record a conversation, consolidate it, or explicitly rebuild the search index:
+
+```bash
+reme search host=127.0.0.1 port=8001 query="agent memory" limit=5
+
+reme auto_memory host=127.0.0.1 port=8001 \
+  session_id=example-session \
+  messages='[{"name":"user","role":"user","content":"I prefer concise paper summaries."}]'
+
+reme auto_dream host=127.0.0.1 port=8001 date=2026-07-21
+reme reindex host=127.0.0.1 port=8001
+```
+
 Service and schedule settings can be overridden at startup:
 
 ```bash
@@ -234,14 +303,20 @@ take precedence over the job defaults.
 
 The standalone application also accepts these environment variables:
 
-| Variable                                | Purpose                                         |
-|-----------------------------------------|-------------------------------------------------|
-| `DAILY_PAPER_WORKSPACE_DIR`             | Overrides the default `.reme` workspace         |
-| `DAILY_PAPER_PROJECT_PATH`              | Repository/project path visible to Claude Code  |
-| `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP bind address                               |
-| `CLAUDE_CODE_API_KEY`                   | API key for the configured Claude Code endpoint |
-| `CLAUDE_CODE_MODEL_NAME`                | Model override                                  |
-| `CLAUDE_CODE_BASE_URL`                  | Anthropic-compatible endpoint override          |
+| Variable                                | Purpose                                                        |
+|-----------------------------------------|----------------------------------------------------------------|
+| `DAILY_PAPER_WORKSPACE_DIR`             | Overrides the default `.reme` workspace                        |
+| `DAILY_PAPER_PROJECT_PATH`              | Repository/project path visible to Claude Code                 |
+| `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP bind address                                              |
+| `CLAUDE_CODE_API_KEY`                   | API key for the Claude Code endpoint                           |
+| `CLAUDE_CODE_MODEL_NAME`                | Claude Code model; default `qwen3.7-max`                       |
+| `CLAUDE_CODE_BASE_URL`                  | Claude Code Anthropic-compatible endpoint                      |
+| `LLM_API_KEY`                           | API key for the AgentScope memory model                        |
+| `LLM_MODEL_NAME`                        | Memory model; default `qwen3.7-max`                            |
+| `LLM_BASE_URL`                          | Memory model's Anthropic-compatible endpoint                   |
+| `EMBEDDING_API_KEY`                     | API key for vector indexing and search                         |
+| `EMBEDDING_MODEL_NAME`                  | Embedding model; default `text-embedding-v4`                   |
+| `EMBEDDING_BASE_URL`                    | Embedding model's OpenAI-compatible endpoint                   |
 
 `DAILY_PAPER_PROJECT_PATH` defaults to `..` relative to the workspace. With the default `.reme` workspace, starting
 from the repository root resolves it back to the repository. If the workspace lives elsewhere, set both paths
@@ -277,14 +352,20 @@ first three credentials but not the conversation list.
 | Brief misses a source-note link      | Appends the missing wikilink before writing                          |
 | Existing final brief                 | Skips generation unless `force=true`; notification can still send it |
 | Concurrent runs for one date         | No pipeline-level lock; later writes may replace earlier results     |
+| Missing embedding credentials        | The vector leg is unavailable; BM25 recall remains available                    |
+| Embedding model changes              | Select a new embedding `cache_version`, then run `reindex`                       |
+| Embedding dimension changes          | Run `reindex`; the different dimension already selects a separate cache identity |
+| Auto-dream partial integration        | Successful units remain; failed paths are not checkpointed           |
 
 To recover, inspect the date's notes and PDFs, fix the network, credential, model, or PDF issue, then rerun the same
 date with `force=true`. Valid cached PDFs will be reused.
 
 The built-in Claude Code component runs with `permission_mode: bypassPermissions`. ReMe disables Claude Code's
-`WebSearch` tool, and the analysis/digest prompts constrain what the agent should read, but these steps do not set a
-strict per-call tool allowlist or an operating-system sandbox. Run the cookbook only with a trusted project and
-workspace, and tighten the agent configuration before shared or production use.
+`WebSearch` tool and adds the local `search` job, while the analysis/digest prompts constrain what the agent should
+read. These steps do not set a strict per-call tool allowlist or an operating-system sandbox. The AgentScope memory
+wrapper disables its built-in shell and filesystem tools, but runs its ReMe job tools in bypass permission mode. Run
+the cookbook only with a trusted project and workspace, and tighten the agent configuration before shared or
+production use.
 
 ## Tests
 

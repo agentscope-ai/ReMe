@@ -11,6 +11,318 @@ service:
   port: ${DAILY_PAPER_PORT:-8001}
 
 jobs:
+  index_update_loop:
+    backend: background
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
+    steps:
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+      - backend: watch_changes_step
+        dispatch_steps:
+          - backend: update_index_step
+            persist: false
+
+  auto_dream:
+    backend: base
+    description: "Auto-dream: consolidate recent daily notes into digest memory and interest topics."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD to scan; defaults to today in the configured timezone."
+          default: ""
+        hint:
+          type: string
+          description: "Optional guidance for extraction and integration."
+          default: ""
+        scan_days:
+          type: integer
+          description: "Number of recent daily directories to scan."
+          default: 2
+        max_units:
+          type: integer
+          description: "Maximum number of extracted memory units."
+          default: 5
+        topic_count:
+          type: integer
+          description: "Maximum number of interest topics to write."
+          default: 3
+        topic_diversity_days:
+          type: integer
+          description: "Previous interest-topic days used for de-duplication."
+          default: 7
+    steps:
+      - backend: dream_extract_step
+        as_llm: memory
+        agent_wrapper: memory
+        file_catalog: dream
+        topic_session_id: interests
+        scan_days: 2
+        max_units: 5
+      - backend: dream_integrate_step
+        as_llm: memory
+        agent_wrapper: memory
+      - backend: dream_topics_step
+        as_llm: memory
+        agent_wrapper: memory
+        topic_count: 3
+        topic_diversity_days: 7
+      - backend: dream_finish_step
+        file_catalog: dream
+
+  auto_memory:
+    backend: base
+    description: "Auto-memory: record conversation facts into a daily note."
+    parameters:
+      type: object
+      properties:
+        messages:
+          type: array
+          description: "Conversation messages."
+          items:
+            type: object
+        session_id:
+          type: string
+          description: "Source conversation session identifier."
+          default: ""
+        memory_hint:
+          type: string
+          description: "Optional memory-writing guidance."
+        date:
+          type: string
+          description: "YYYY-MM-DD daily-note date; empty infers it from messages or current time."
+          default: ""
+      required: [messages]
+    steps:
+      - backend: auto_memory_step
+        agent_wrapper: memory
+
+  reindex:
+    backend: base
+    description: "Wipe the derived search store and rebuild it from memory files."
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: clear_store_step
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+
+  search:
+    backend: base
+    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Search query."
+        limit:
+          type: integer
+          description: "Maximum number of results."
+          default: 5
+        min_score:
+          type: number
+          description: "Minimum fused score."
+          default: 0.0
+        start_date:
+          type: string
+          description: "Optional inclusive start date (YYYY-MM-DD)."
+        end_date:
+          type: string
+          description: "Optional inclusive end date (YYYY-MM-DD)."
+      required: [query]
+    steps:
+      - backend: search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
+        expand_links: true
+        max_links_per_direction: 10
+
+  node_search:
+    backend: base
+    description: "Recall digest nodes for auto-dream de-duplication and linking."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Candidate memory-node name and description."
+        limit:
+          type: integer
+          description: "Maximum number of digest nodes."
+          default: 20
+      required: [query]
+    steps:
+      - backend: node_search_step
+        vector_weight: 0.7
+        candidate_multiplier: 5.0
+
+  daily_list:
+    backend: base
+    description: "List notes under one day."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD; empty means today."
+          default: ""
+    steps:
+      - backend: daily_list_step
+
+  frontmatter_read:
+    backend: base
+    description: "Read a file's frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "Workspace-relative path."
+      required: [path]
+    steps:
+      - backend: frontmatter_read_step
+
+  frontmatter_update:
+    backend: base
+    description: "Merge key-values into a file's frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "Workspace-relative path."
+        metadata:
+          type: object
+          description: "Key-values to merge."
+      required: [path, metadata]
+    steps:
+      - backend: frontmatter_update_step
+
+  move:
+    backend: base
+    description: "Move or rename a workspace file and retarget inbound wikilinks."
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: "Workspace-relative source path."
+        dst_path:
+          type: string
+          description: "Workspace-relative destination path."
+        overwrite:
+          type: boolean
+          default: false
+        retarget:
+          type: boolean
+          default: true
+      required: [src_path, dst_path]
+    steps:
+      - backend: move_step
+
+  read:
+    backend: base
+    description: "Read a markdown file under the workspace."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "Workspace-relative markdown path."
+        start_line:
+          type: integer
+        end_line:
+          type: integer
+      required: [path]
+    steps:
+      - backend: read_step
+        with_neighbors: false
+        max_neighbors_per_direction: 10
+
+  write:
+    backend: base
+    description: "Create or overwrite a markdown file with frontmatter."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "Workspace-relative markdown path."
+        name:
+          type: string
+          description: "Frontmatter name."
+        description:
+          type: string
+          description: "Frontmatter description."
+        content:
+          type: string
+          description: "Markdown body."
+        metadata:
+          type: object
+          description: "Optional extra frontmatter fields."
+      required: [path, name, description, content]
+    steps:
+      - backend: write_step
+
+  daily_write:
+    backend: base
+    description: "Write a daily markdown note linked to its source conversation."
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Filename stem and frontmatter name."
+        description:
+          type: string
+          description: "Frontmatter description."
+        session_id:
+          type: string
+          description: "Source conversation session identifier."
+        content:
+          type: string
+          description: "Markdown body."
+        date:
+          type: string
+          description: "YYYY-MM-DD; empty means today."
+          default: ""
+        metadata:
+          type: object
+          description: "Optional extra frontmatter fields."
+      required: [name, description, session_id, content]
+    steps:
+      - backend: daily_write_step
+
+  edit:
+    backend: base
+    description: "Find and replace text in a markdown file."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "Workspace-relative path."
+        old:
+          type: string
+          description: "Text to replace."
+        new:
+          type: string
+          description: "Replacement text."
+          default: ""
+      required: [path, old, new]
+    steps:
+      - backend: edit_step
+
   daily_paper:
     backend: base
     description: "Build detailed readings and a five-minute brief from Hugging Face weekly/monthly papers."
@@ -53,11 +365,11 @@ jobs:
       - backend: daily_paper_collect_step
       - backend: daily_paper_rank_step
       - backend: daily_paper_select_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: daily_paper_analyze_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: daily_paper_digest_step
-        agent_wrapper: claude_code
+        agent_wrapper: daily_paper
       - backend: dingtalk_markdown_send_step
         input_mapping:
           daily_paper_digest_path: markdown_path
@@ -91,19 +403,110 @@ jobs:
     close_timeout: 10
     steps:
       - backend: dingtalk_wait_step
-        agent_wrapper: claude_code
+        agent_wrapper: dingtalk_wait
         app_key: ${DINGTALK_APP_KEY:-}
         app_secret: ${DINGTALK_APP_SECRET:-}
         robot_code: ${DINGTALK_ROBOT_CODE:-}
-        card_update_interval: 1.0
         worker_count: 4
 
 components:
+  tokenizer:
+    default:
+      backend: regex
+
+  as_llm:
+    memory:
+      backend: anthropic
+      model: ${LLM_MODEL_NAME:-qwen3.7-max}
+      stream: true
+      context_size: 200000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      parameters:
+        max_tokens: 65536
+        thinking_enable: false
+
   agent_wrapper:
-    claude_code:
+    daily_paper:
       backend: claude_code
       project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
       model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
+    dingtalk_wait:
+      backend: claude_code
+      project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
+      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      skills: [tushare-data]
+      job_tools: [search]
+      system_prompt:
+        type: preset
+        preset: claude_code
+        append: >-
+          Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, are at
+          daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at daily/YYYY-MM-DD/daily-paper-brief.md. Use search to
+          recall relevant notes across dates.
+      permission_mode: bypassPermissions
+    memory:
+      backend: agentscope
+      as_llm: memory
+      builtin_tools: false
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+
+  as_embedding:
+    default:
+      backend: openai
+      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      dimensions: 1024
+      credential:
+        api_key: ${EMBEDDING_API_KEY:-}
+        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters: {}
+
+  embedding_store:
+    default:
+      backend: local
+      as_embedding: default
+
+  file_graph:
+    default:
+      backend: local
+
+  file_catalog:
+    dream:
+      backend: local
+
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions: [md]
+      embed_toc: true
+      max_ast_sections: 100
+      include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []
+
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  file_store:
+    default:
+      backend: local
+      store_name: local
+      embedding_store: default
+      keyword_index: default
+      file_graph: default

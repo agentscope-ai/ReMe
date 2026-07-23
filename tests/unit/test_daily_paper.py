@@ -1,12 +1,13 @@
 """Focused tests for the daily-paper cookbook workflow."""
 
+from contextlib import asynccontextmanager
 import datetime as dt
 import importlib
 import json
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import frontmatter
 import httpx
@@ -29,6 +30,7 @@ from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
 from reme.utils import arxiv as arxiv_utils
+from reme.utils import huggingface_papers as hf_utils
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 
 
@@ -80,6 +82,76 @@ def test_hf_payload_and_html_normalization():
         '<a href="/papers/2607.16051">one</a><a href="/papers/2607.16051">dup</a>'
         '<a href="/papers/2607.10001">two</a>',
     ) == ["2607.16051", "2607.10001"]
+
+
+@pytest.mark.asyncio
+async def test_hf_client_uses_configured_ssh_proxy(monkeypatch):
+    """The owned HTTP client lives inside the temporary SSH proxy context."""
+    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
+    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+    events: list[str] = []
+    client_kwargs: dict = {}
+    logger = MagicMock()
+
+    @asynccontextmanager
+    async def fake_proxy(*, connect_timeout):
+        assert connect_timeout == 12.0
+        events.append("proxy-start")
+        yield "socks5://127.0.0.1:43123"
+        events.append("proxy-stop")
+
+    class FakeAsyncClient:
+        """Capture construction and close ordering without network access."""
+
+        def __init__(self, **kwargs):
+            client_kwargs.update(kwargs)
+
+        async def aclose(self):
+            """Record deterministic client cleanup."""
+            events.append("client-close")
+
+    monkeypatch.setattr(hf_utils, "ssh_socks_proxy", fake_proxy)
+    monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = hf_utils.HuggingFacePapersClient(timeout=12.0, logger=logger)
+    assert client.client is None
+    async with client:
+        assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
+
+    assert events == ["proxy-start", "client-close", "proxy-stop"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
+    assert info_messages[-1] == "[HuggingFacePapersClient] SSH proxy closed"
+
+
+@pytest.mark.asyncio
+async def test_hf_client_logs_retry_after_http_error(monkeypatch):
+    """Transient HTTP failures report the attempt before retrying."""
+    attempts = 0
+    logger = MagicMock()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectTimeout("timed out", request=request)
+        return httpx.Response(200, json=[])
+
+    sleep = AsyncMock()
+    monkeypatch.setattr(hf_utils.asyncio, "sleep", sleep)
+    async with httpx.AsyncClient(
+        base_url="https://huggingface.co",
+        transport=httpx.MockTransport(handler),
+    ) as raw_client:
+        client = hf_utils.HuggingFacePapersClient(client=raw_client, max_retries=2, logger=logger)
+        paper_ids = await client.fetch_daily_ids("2026-07-22")
+
+    assert paper_ids == set()
+    assert attempts == 2
+    sleep.assert_awaited_once_with(0.25)
+    warning = logger.warning.call_args.args[0]
+    assert "request retry path=/api/daily_papers attempt=1/2" in warning
+    assert "error=ConnectTimeout detail=timed out" in warning
 
 
 def test_rrf_and_memory_candidate_reserve():
@@ -137,22 +209,102 @@ async def test_arxiv_pdf_downloads_missing_cache_once(tmp_path: Path, monkeypatc
         lambda **kwargs: async_client(transport=transport, **kwargs),
     )
     target = tmp_path / "resource" / "papers" / "2607.10001.pdf"
-    client = arxiv_utils.ArxivPdfClient()
+    logger = MagicMock()
+    client = arxiv_utils.ArxivPdfClient(logger=logger)
 
     assert await client.download("2607.10001", target) == target
     assert await client.download("2607.10001", target) == target
 
     assert target.read_bytes() == b"%PDF-downloaded"
     assert [str(request.url) for request in requests] == ["https://arxiv.org/pdf/2607.10001"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert "download start arxiv_id=2607.10001" in info_messages[0]
+    assert "download done arxiv_id=2607.10001" in info_messages[1]
+    assert "cache hit arxiv_id=2607.10001" in logger.debug.call_args.args[0]
 
 
-def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
-    """The standalone config schedules 08:00 and routes all agent work to CC."""
+@pytest.mark.asyncio
+async def test_arxiv_pdf_uses_configured_ssh_proxy(tmp_path: Path, monkeypatch):
+    """The arXiv HTTP client closes before its temporary SSH proxy stops."""
+    monkeypatch.setenv("REME_PROXY_IP", "proxy.example.com")
+    monkeypatch.setenv("REME_PROXY_ACCOUNT", "reme-user")
+    events: list[str] = []
+    client_kwargs: dict = {}
+    logger = MagicMock()
+
+    @asynccontextmanager
+    async def fake_proxy(*, connect_timeout):
+        assert connect_timeout == 12.0
+        events.append("proxy-start")
+        yield "socks5://127.0.0.1:43123"
+        events.append("proxy-stop")
+
+    class FakeResponse:
+        """Return one small, valid PDF stream."""
+
+        headers = {"content-length": "12"}
+
+        def raise_for_status(self):
+            """Match the successful httpx response interface."""
+
+        async def aiter_bytes(self):
+            """Yield the fake PDF body."""
+            yield b"%PDF-proxied"
+
+    class FakeStream:
+        """Async response context returned by the HTTP client."""
+
+        async def __aenter__(self):
+            return FakeResponse()
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+    class FakeAsyncClient:
+        """Capture client construction and cleanup without network access."""
+
+        def __init__(self, **kwargs):
+            """Capture HTTPX construction arguments."""
+            client_kwargs.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            events.append("client-close")
+
+        def stream(self, method, url):
+            """Return the fake streaming response context."""
+            assert (method, url) == ("GET", "https://arxiv.org/pdf/2607.10001")
+            return FakeStream()
+
+    monkeypatch.setattr(arxiv_utils, "ssh_socks_proxy", fake_proxy)
+    monkeypatch.setattr(arxiv_utils.httpx, "AsyncClient", FakeAsyncClient)
+    target = tmp_path / "2607.10001.pdf"
+
+    assert await arxiv_utils.ArxivPdfClient(timeout=12.0, logger=logger).download("2607.10001", target) == target
+
+    assert target.read_bytes() == b"%PDF-proxied"
+    assert client_kwargs["proxy"] == "socks5://127.0.0.1:43123"
+    assert events == ["proxy-start", "client-close", "proxy-stop"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert any("network mode=ssh_socks destination=reme-user@proxy.example.com" in message for message in info_messages)
+    assert any("SSH proxy closed arxiv_id=2607.10001" in message for message in info_messages)
+
+
+def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
+    """The standalone config schedules daily paper and wires the memory/search stack."""
     for name in (
         "DINGTALK_APP_KEY",
         "DINGTALK_APP_SECRET",
         "DINGTALK_ROBOT_CODE",
         "DINGTALK_CONVERSATION_IDS",
+        "LLM_MODEL_NAME",
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "EMBEDDING_MODEL_NAME",
+        "EMBEDDING_API_KEY",
+        "EMBEDDING_BASE_URL",
     ):
         monkeypatch.delenv(name, raising=False)
     config = _load_config("daily_cookbook")
@@ -171,7 +323,10 @@ def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
             "daily_paper_digest_step",
         }
     ]
-    assert {step.get("agent_wrapper") for step in agent_steps} == {"claude_code"}
+    assert {step.get("agent_wrapper") for step in agent_steps} == {"daily_paper"}
+    daily_paper = config["components"]["agent_wrapper"]["daily_paper"]
+    assert "job_tools" not in daily_paper
+    assert "system_prompt" not in daily_paper
     assert steps[-1] == {
         "backend": "dingtalk_markdown_send_step",
         "input_mapping": {"daily_paper_digest_path": "markdown_path"},
@@ -182,10 +337,43 @@ def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
         "title": "ReMe Daily Paper",
         "timeout": 15,
     }
-    assert set(config["components"]["agent_wrapper"]) == {"claude_code"}
-    assert "as_llm" not in config["components"]
-    assert config["components"]["agent_wrapper"]["claude_code"]["project_path"] == ".."
-    assert "skills" not in config["components"]["agent_wrapper"]["claude_code"]
+    assert {
+        "auto_dream",
+        "auto_memory",
+        "index_update_loop",
+        "reindex",
+        "search",
+    }.issubset(config["jobs"])
+    assert config["jobs"]["auto_memory"]["steps"] == [
+        {"backend": "auto_memory_step", "agent_wrapper": "memory"},
+    ]
+    dream_steps = config["jobs"]["auto_dream"]["steps"]
+    assert {
+        step["backend"]: (step.get("as_llm"), step.get("agent_wrapper"))
+        for step in dream_steps
+        if step["backend"] != "dream_finish_step"
+    } == {
+        "dream_extract_step": ("memory", "memory"),
+        "dream_integrate_step": ("memory", "memory"),
+        "dream_topics_step": ("memory", "memory"),
+    }
+    assert set(config["components"]["agent_wrapper"]) == {"daily_paper", "dingtalk_wait", "memory"}
+    memory_llm = config["components"]["as_llm"]["memory"]
+    assert memory_llm["backend"] == "anthropic"
+    assert memory_llm["model"] == "qwen3.7-max"
+    assert memory_llm["credential"]["base_url"] == "https://dashscope.aliyuncs.com/apps/anthropic"
+    assert config["components"]["agent_wrapper"]["memory"]["as_llm"] == "memory"
+    assert config["components"]["agent_wrapper"]["memory"]["builtin_tools"] is False
+    assert config["components"]["file_store"]["default"] == {
+        "backend": "local",
+        "store_name": "local",
+        "embedding_store": "default",
+        "keyword_index": "default",
+        "file_graph": "default",
+    }
+    assert config["components"]["as_embedding"]["default"]["model"] == "text-embedding-v4"
+    assert daily_paper["project_path"] == ".."
+    assert "skills" not in daily_paper
 
 
 def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):

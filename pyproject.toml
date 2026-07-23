@@ -25,7 +25,7 @@ dependencies = [
     "croniter>=2.0",
     "fastapi>=0.135.1",
     "fastmcp>=3.1.0",
-    "httpx>=0.28.1",
+    "httpx[socks]>=0.28.1",
     "loguru>=0.7.3",
     "mistletoe>=1.5.1",
     "numpy>=2.2.6",
@@ -43,7 +43,7 @@ dependencies = [
 [project.optional-dependencies]
 core = [
     "agentscope==2.0.4.post1",
-    "claude-agent-sdk>=0.2.123",
+    "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
     "faiss-cpu>=1.13.2",
@@ -52,10 +52,11 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "pypdf>=5.0.0",
+    "tushare>=1.4.29",
 ]
 dev = [
-    "pre-commit",
-    "pytest>=8.0",
+    "pre-commit>=4.6.1",
+    "pytest>=9.1.1",
     "pytest-asyncio>=0.23",
 ]
 full = [

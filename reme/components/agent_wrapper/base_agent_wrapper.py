@@ -171,5 +171,9 @@ class BaseAgentWrapper(BaseComponent):
     async def reply(self, inputs: Any, **kwargs) -> dict:
         """Send inputs to the agent and return a dict with session_id and last_message."""
 
+    async def compact_session(self, session_id: str) -> None:
+        """Request compaction of one persisted agent session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
+
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

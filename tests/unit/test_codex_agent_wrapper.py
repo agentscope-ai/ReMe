@@ -563,6 +563,35 @@ async def test_open_thread_defaults_to_full_access(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_compact_session_uses_native_thread_operation(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    observed = {}
+
+    class FakeThread:
+        async def compact(self):
+            observed["compacted"] = True
+
+    async def start():
+        observed["started"] = True
+
+    async def resume(session_id):
+        observed["resume"] = session_id
+        return FakeThread()
+
+    async def get_codex():
+        return SimpleNamespace(thread_resume=resume)
+
+    monkeypatch.setattr(wrapper, "start", start)
+    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
+
+    await wrapper.compact_session("thread-1")
+
+    assert observed["started"] is True
+    assert observed["resume"] == "thread-1"
+    assert observed["compacted"] is True
+
+
+@pytest.mark.asyncio
 async def test_open_thread_forwards_latest_sdk_options(tmp_path):
     from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 

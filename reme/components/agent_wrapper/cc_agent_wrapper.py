@@ -384,6 +384,12 @@ class CcAgentWrapper(BaseAgentWrapper):
 
     # ----- reply / reply_stream --------------------------------------------
 
+    async def compact_session(self, session_id: str) -> None:
+        """Compact a Claude Code session through its native command."""
+        result = await self.reply("/compact", resume=session_id)
+        if result["last_message"].get("is_error"):
+            raise RuntimeError("Claude Code session compaction failed")
+
     async def reply(self, inputs: Any, **kwargs) -> dict:
         from claude_agent_sdk import query, ResultMessage
 

@@ -11,6 +11,7 @@ from .env_utils import load_env, parse_env_file
 from .link_expansion import expand_links, render_expansion_lines
 from .logger_utils import get_logger
 from .logo_utils import print_logo
+from .proxy_utils import get_ssh_proxy_config, ssh_socks_proxy
 from .service_utils import find_reme, locate_reme, precheck_start, cli_find_reme, running_service_config
 from .similarity_utils import cosine_similarity, batch_cosine_similarity
 from .token_utils import estimate_token_count
@@ -29,6 +30,8 @@ __all__ = [
     "render_expansion_lines",
     "get_logger",
     "print_logo",
+    "get_ssh_proxy_config",
+    "ssh_socks_proxy",
     "find_reme",
     "locate_reme",
     "precheck_start",
