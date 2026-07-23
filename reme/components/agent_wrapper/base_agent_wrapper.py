@@ -36,7 +36,7 @@ class BaseAgentWrapper(BaseComponent):
                 sdk_version = metadata.version(self.SDK_PACKAGE)
             except metadata.PackageNotFoundError:
                 sdk_version = "unknown"
-            self.logger.info(f"Agent SDK package={self.SDK_PACKAGE} version={sdk_version}")
+            self.logger.info(f"Agent SDK name={self.name} package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:

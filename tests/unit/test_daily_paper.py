@@ -357,7 +357,7 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "dream_integrate_step": ("memory", "memory"),
         "dream_topics_step": ("memory", "memory"),
     }
-    assert set(config["components"]["agent_wrapper"]) == {"daily_paper", "dingtalk_wait", "memory"}
+    assert set(config["components"]["agent_wrapper"]) == {"auto_fin", "daily_paper", "dingtalk_wait", "memory"}
     memory_llm = config["components"]["as_llm"]["memory"]
     assert memory_llm["backend"] == "anthropic"
     assert memory_llm["model"] == "qwen3.7-max"

@@ -323,6 +323,76 @@ jobs:
     steps:
       - backend: edit_step
 
+  auto_fin:
+    backend: base
+    description: "Run one idempotent Auto Fin simulated-portfolio checkpoint."
+    max_positions: &auto_fin_max_positions 10
+    slot_weight: &auto_fin_slot_weight 0.10
+    bootstrap: &auto_fin_bootstrap true
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "A-share trade date in YYYY-MM-DD; empty means today in Asia/Shanghai."
+          default: ""
+        checkpoint:
+          type: string
+          description: "Decision checkpoint: 0900, 1145, or 1445."
+          enum: ["0900", "1145", "1445"]
+        force:
+          type: boolean
+          description: "Regenerate and replace the existing run for this checkpoint."
+          default: true
+        force_notify:
+          type: boolean
+          description: "Send DingTalk again even when this run was already delivered."
+          default: false
+        research_only:
+          type: boolean
+          description: "Rebuild research without creating BUY or SELL proposals."
+          default: false
+      required: [checkpoint]
+    steps: &auto_fin_steps
+      - backend: auto_fin_pipeline_step
+        agent_wrapper: auto_fin
+      - backend: auto_fin_notification_step
+        input_mapping:
+          auto_fin_portfolio_path: markdown_path
+        app_key: ${DINGTALK_APP_KEY:-}
+        app_secret: ${DINGTALK_APP_SECRET:-}
+        robot_code: ${DINGTALK_ROBOT_CODE:-}
+        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+        title: ReMe Auto Fin
+        timeout: 15
+
+  auto_fin_0900_cron:
+    backend: cron
+    cron: "0 9 * * 1-5"
+    checkpoint: "0900"
+    max_positions: *auto_fin_max_positions
+    slot_weight: *auto_fin_slot_weight
+    bootstrap: *auto_fin_bootstrap
+    steps: *auto_fin_steps
+
+  auto_fin_1145_cron:
+    backend: cron
+    cron: "45 11 * * 1-5"
+    checkpoint: "1145"
+    max_positions: *auto_fin_max_positions
+    slot_weight: *auto_fin_slot_weight
+    bootstrap: *auto_fin_bootstrap
+    steps: *auto_fin_steps
+
+  auto_fin_1445_cron:
+    backend: cron
+    cron: "45 14 * * 1-5"
+    checkpoint: "1445"
+    max_positions: *auto_fin_max_positions
+    slot_weight: *auto_fin_slot_weight
+    bootstrap: *auto_fin_bootstrap
+    steps: *auto_fin_steps
+
   daily_paper:
     backend: base
     description: "Build detailed readings and a five-minute brief from Hugging Face weekly/monthly papers."
@@ -429,6 +499,15 @@ components:
         thinking_enable: false
 
   agent_wrapper:
+    auto_fin:
+      backend: ${AUTO_FIN_AGENT_BACKEND:-claude_code}
+      project_path: ${AUTO_FIN_PROJECT_PATH:-..}
+      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      skills: [tushare-data]
+      job_tools: [search]
+      permission_mode: bypassPermissions
     daily_paper:
       backend: claude_code
       project_path: ${DAILY_PAPER_PROJECT_PATH:-..}

@@ -41,7 +41,7 @@ def test_init_logs_sdk_version(monkeypatch):
 
     _VersionedAgentWrapper(name="versioned")
 
-    logger.info.assert_called_once_with("Agent SDK package=example-agent-sdk version=1.2.3")
+    logger.info.assert_called_once_with("Agent SDK name=versioned package=example-agent-sdk version=1.2.3")
 
 
 def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch):
@@ -57,7 +57,9 @@ def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch
 
     _VersionedAgentWrapper()
 
-    logger.info.assert_called_once_with("Agent SDK package=example-agent-sdk version=unknown")
+    logger.info.assert_called_once_with(
+        "Agent SDK name=_VersionedAgentWrapper package=example-agent-sdk version=unknown",
+    )
 
 
 @pytest.mark.asyncio

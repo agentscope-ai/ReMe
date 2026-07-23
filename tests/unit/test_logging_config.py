@@ -65,6 +65,26 @@ def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, 
     logger_utils.get_logger(log_to_console=False, log_to_file=False, force_init=True)
 
 
+def test_stdlib_file_creation_is_delayed_until_first_record(monkeypatch, tmp_path):
+    """Stdlib logging should not leave an empty file when no records are emitted."""
+    fixed_datetime = Mock()
+    fixed_datetime.now.return_value = datetime(2026, 7, 23, 17, 50, 25)
+    monkeypatch.setattr(logger_utils, "datetime", fixed_datetime)
+
+    logger = logger_utils._init_stdlib(str(tmp_path), "INFO", False, True)  # pylint: disable=protected-access
+    log_path = tmp_path / "2026-07-23_17-50-25.log"
+    try:
+        assert not log_path.exists()
+
+        logger.info("Application started")
+
+        assert log_path.read_text(encoding="utf-8").endswith("Application started\n")
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+
+
 def test_stdlib_forwards_screen_and_file_logs_to_qwenpaw(monkeypatch, tmp_path):
     """Embedded stdlib logging should reuse QwenPaw's active sinks."""
     monkeypatch.chdir(tmp_path)
