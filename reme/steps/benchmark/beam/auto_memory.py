@@ -131,3 +131,33 @@ class BeamAutoMemoryStep(AutoMemoryStep):
             [item if not isinstance(item, dict) else dict(item) for item in raw_messages],
         )
         return [self._to_msg(item) for item in interpolated]
+
+    def _format_history(self, messages: list[Msg]) -> str:
+        # Annotate every turn with its physical line number in the session
+        # file so the agent can cite information sources as
+        # [<session file path>:<start line>-<end line>]. A BEAM batch is already
+        # in chronological order, matching the one-message-per-line layout
+        # written by AutoMemoryStep._save_session_messages, so number each turn
+        # by its position (no re-sorting).
+        session_id = self.context.get("session_id", "") if self.context is not None else ""
+        source_path = self._session_source_path(session_id)
+
+        turns: list[str] = []
+        for line, msg in enumerate(messages, start=1):
+            text = (msg.get_text_content() or "").strip()
+            if not text:
+                continue
+            speaker = msg.name or msg.role or "?"
+            turns.append(f"[L{line} | {speaker} @ {msg.created_at}]\n{text}")
+
+        if not turns:
+            return "(empty)"
+
+        preamble = (
+            f"Source file: {source_path}\n"
+            "(Each turn below is prefixed with [Ln] = its line number in the source file.)"
+        )
+        return preamble + "\n\n" + "\n\n".join(turns)
+
+    def _reply_extra_kwargs(self, day: str) -> dict:
+        return {"tool_defaults": {"daily_write": {"date": day}}}

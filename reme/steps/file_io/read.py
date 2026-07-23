@@ -31,6 +31,7 @@ class ReadStep(BaseStep):
         assert self.context is not None
         self.context.response.success = False
         self.context.response.answer = f"Error: {message}"
+        self.logger.warning(f"[{self.name}] FAILED: {message} | meta={meta}")
         if meta:
             self.context.response.metadata.update(meta)
 
