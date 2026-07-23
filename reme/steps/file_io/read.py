@@ -112,6 +112,12 @@ class ReadStep(BaseStep):
                 return None
 
             all_lines = content.split("\n")
+            if content.endswith("\n"):
+                # split() yields a trailing empty element for the final newline;
+                # drop it so total matches the large-file path (line-by-line
+                # iteration) and the indexer (default_file_chunker), both of
+                # which do not count that trailing newline as its own line.
+                all_lines.pop()
             total = len(all_lines)
             bounds = self._resolve_range(total, start_line, end_line, target)
             if bounds is None:
