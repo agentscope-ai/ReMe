@@ -692,7 +692,14 @@ def test_daily_cookbook_wires_enabled_auto_fin_steps_and_tushare_skill():
         "auto_fin_merge_step",
         "dingtalk_markdown_send_step",
     ]
-    assert config["jobs"]["auto_fin_0930_cron"]["steps"] == steps
+    expected_cron_jobs = {
+        "auto_fin_0930_cron": "30 9 * * *",
+        "auto_fin_1145_cron": "45 11 * * *",
+        "auto_fin_1800_cron": "0 18 * * *",
+    }
+    for job_name, cron in expected_cron_jobs.items():
+        assert config["jobs"][job_name]["cron"] == cron
+        assert config["jobs"][job_name]["steps"] == steps
     assert steps[0]["lookback_days"] == 360
     assert steps[0]["progress_interval"] == 30
     assert steps[-1]["input_mapping"] == {"auto_fin_digest_path": "markdown_path"}

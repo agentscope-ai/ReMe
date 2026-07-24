@@ -361,7 +361,17 @@ jobs:
 
   auto_fin_0930_cron:
     backend: cron
-    cron: "30 9 * * 1-5"
+    cron: "30 9 * * *"
+    steps: *auto_fin_steps
+
+  auto_fin_1145_cron:
+    backend: cron
+    cron: "45 11 * * *"
+    steps: *auto_fin_steps
+
+  auto_fin_1800_cron:
+    backend: cron
+    cron: "0 18 * * *"
     steps: *auto_fin_steps
 
   daily_paper:

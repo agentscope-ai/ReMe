@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ....components import R
 from ....schema import AutoFinEtfHistoryDetail, AutoFinReportOutput
-from ._base import AutoFinStep, _write
+from ._base import AutoFinStep, _write, _write_jsonl
 
 
 @R.register("auto_fin_merge_step")
@@ -20,6 +20,7 @@ class AutoFinMergeStep(AutoFinStep):
         selected = [item.etf.model_dump(mode="json") for item in history_details]
         if selected != etfs:
             raise ValueError("Auto Fin merge history details must match the selected ETFs")
+        analyses = [item.market_analysis.model_dump(mode="json") for item in history_details]
         self.logger.info(
             f"[{self.name}] start etfs={len(etfs)}",
         )
@@ -36,6 +37,7 @@ class AutoFinMergeStep(AutoFinStep):
         markdown += "> 仅为事件研究和持有时间参考，不构成投资建议，不会执行交易。\n"
         day_dir = self.workspace_path / str(self.config_value("daily_dir")) / str(self._required("auto_fin_date"))
         report_path = day_dir / "auto_fin.md"
+        _write_jsonl(day_dir / "auto_fin_analysis.jsonl", analyses)
         _write(report_path, markdown)
         relative = report_path.relative_to(self.workspace_path).as_posix()
         self.context["markdown_path"] = relative
