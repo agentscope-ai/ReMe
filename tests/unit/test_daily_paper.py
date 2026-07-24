@@ -502,6 +502,9 @@ def test_standalone_config_wires_daily_paper_and_memory_jobs(monkeypatch):
         "file_graph": "default",
     }
     assert config["components"]["as_embedding"]["default"]["model"] == "text-embedding-v4"
+    assert config["components"]["as_embedding"]["default"]["max_retries"] == 0
+    assert config["components"]["embedding_store"]["default"]["max_retries"] == 3
+    assert config["components"]["embedding_store"]["default"]["quota_retry_delay"] == 60.0
     assert daily_paper["project_path"] == ".."
     assert "skills" not in daily_paper
 

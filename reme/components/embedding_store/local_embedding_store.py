@@ -133,10 +133,31 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
             except (TimeoutError, ConnectionError, OSError):
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(2**attempt)
-            except Exception:
+            except Exception as error:
+                if (
+                    self.quota_retry_delay is not None
+                    and self._is_insufficient_quota(error)
+                    and attempt < self.max_retries - 1
+                ):
+                    self.logger.warning(
+                        f"Embedding quota exhausted; retrying in {self.quota_retry_delay:.1f}s",
+                    )
+                    await asyncio.sleep(self.quota_retry_delay)
+                    continue
                 self.logger.exception("Embedding request failed")
                 return None
         return None
+
+    @staticmethod
+    def _is_insufficient_quota(error: Exception) -> bool:
+        """Recognize OpenAI-compatible quota errors without importing a provider SDK."""
+        if getattr(error, "code", None) == "insufficient_quota":
+            return True
+        body = getattr(error, "body", None)
+        if not isinstance(body, dict):
+            return False
+        details = body.get("error", body)
+        return isinstance(details, dict) and details.get("code") == "insufficient_quota"
 
     def _validate_dim(self, emb: np.ndarray) -> bool:
         """Return whether an embedding exactly matches the configured dimension."""

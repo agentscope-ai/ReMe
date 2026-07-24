@@ -530,6 +530,7 @@ components:
       backend: openai
       model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
       dimensions: 1024
+      max_retries: 0
       credential:
         api_key: ${EMBEDDING_API_KEY:-}
         base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
@@ -539,6 +540,8 @@ components:
     default:
       backend: local
       as_embedding: default
+      max_retries: 3
+      quota_retry_delay: 60.0
 
   file_graph:
     default:
