@@ -213,7 +213,7 @@ class FaissLocalFileStore(LocalFileStore):
                 return  # superseded again while waiting for the lock
             try:
                 await self._reindex_async(gen)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pylint: disable=try-except-raise
                 raise
             except Exception as e:  # pragma: no cover - defensive
                 self.logger.exception(f"{self.name}: async reindex failed: {e}")
@@ -256,9 +256,7 @@ class FaissLocalFileStore(LocalFileStore):
         reproduces exactly what a synchronous rebuild from ``file_chunks`` yields.
         """
         live_now = {
-            cid: chunk
-            for cid, chunk in self.file_chunks.items()
-            if self._embedding_dim_matches(chunk.embedding)
+            cid: chunk for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
         }
         to_add: list[FileChunk] = []
         for cid in list(self._id_to_row):

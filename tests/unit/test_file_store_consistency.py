@@ -1101,11 +1101,10 @@ def test_faiss_async_reindex_cancelled_on_close():
 
             started = threading.Event()
 
-            def slow_build(dim, vectors, gen):
+            def slow_build(_dim, _vectors, gen):
                 started.set()
                 while gen == store._reindex_generation:
                     time.sleep(0.005)
-                return None
 
             store._build_index_blocking = slow_build
             store._schedule_reindex()
