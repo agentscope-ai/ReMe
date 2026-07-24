@@ -21,6 +21,21 @@ from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
 TZ = ZoneInfo("Asia/Shanghai")
 
 
+@pytest.mark.asyncio
+async def test_read_jsonl_preserves_unicode_line_separator(tmp_path: Path):
+    path = tmp_path / "news.jsonl"
+    records = [
+        {"title": "包含\u2028行分隔符", "content": "仍是同一条 JSONL 记录"},
+        {"title": "下一条记录"},
+    ]
+    path.write_text(
+        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    assert await AutoFinDataStep._read_jsonl(path) == records
+
+
 class _CaseAgent(BaseAgentWrapper):
     """Return one historical case and one reference decision."""
 

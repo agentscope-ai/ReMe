@@ -74,22 +74,6 @@ def _write_csv(path: Path, records: list[dict[str, Any]]) -> None:
     temporary.replace(path)
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            value = json.loads(line)
-            if not isinstance(value, dict):
-                raise ValueError(f"JSONL record must be an object: {path}")
-            records.append(value)
-    return records
-
-
-def _read_csv(path: Path) -> list[dict[str, Any]]:
-    with path.open(encoding="utf-8", newline="") as stream:
-        return list(csv.DictReader(stream))
-
-
 class _AutoFinStep(BaseStep):
     """Shared cache and cutoff helpers."""
 
@@ -114,6 +98,31 @@ class _AutoFinStep(BaseStep):
             "fund_adj": "auto_fin_fund_adj.csv",
         }
         return self.workspace_path / str(self.config_value("daily_dir")) / day.isoformat() / filenames[dataset]
+
+    @staticmethod
+    def _read_jsonl_sync(path: Path) -> list[dict[str, Any]]:
+        records = []
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if line.strip():
+                    value = json.loads(line)
+                    if not isinstance(value, dict):
+                        raise ValueError(f"JSONL record must be an object: {path}")
+                    records.append(value)
+        return records
+
+    @classmethod
+    async def _read_jsonl(cls, path: Path) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(cls._read_jsonl_sync, path)
+
+    @staticmethod
+    def _read_csv_sync(path: Path) -> list[dict[str, Any]]:
+        with path.open(encoding="utf-8", newline="") as stream:
+            return list(csv.DictReader(stream))
+
+    @classmethod
+    async def _read_csv(cls, path: Path) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(cls._read_csv_sync, path)
 
     def _schedule(self) -> tuple[date, datetime]:
         timezone = ZoneInfo(str(self.config_value("timezone")))
@@ -159,12 +168,11 @@ class _AutoFinStep(BaseStep):
                 return None
         return parsed.replace(tzinfo=timezone) if parsed.tzinfo is None else parsed.astimezone(timezone)
 
-    @staticmethod
-    def _is_valid_cache(path: Path, *, allow_empty: bool = True) -> bool:
+    async def _is_valid_cache(self, path: Path, *, allow_empty: bool = True) -> bool:
         if not path.is_file():
             return False
         try:
-            records = _read_csv(path) if path.suffix == ".csv" else _read_jsonl(path)
+            records = await (self._read_csv(path) if path.suffix == ".csv" else self._read_jsonl(path))
         except (OSError, ValueError, csv.Error, json.JSONDecodeError):
             return False
         return allow_empty or bool(records)
@@ -222,10 +230,14 @@ class _AutoFinStep(BaseStep):
 class AutoFinDataStep(_AutoFinStep):
     """Fill missing daily TuShare cache files for the configured lookback."""
 
-    def _is_valid_news_cache(self, path: Path) -> bool:
-        if not self._is_valid_cache(path):
+    async def _is_valid_news_cache(self, path: Path) -> bool:
+        if not path.is_file():
             return False
-        return all(str(row.get("src") or "") == "财联社" for row in _read_jsonl(path))
+        try:
+            records = await self._read_jsonl(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+        return all(str(row.get("src") or "") == "财联社" for row in records)
 
     async def _fetch_news_window(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         rows = await self._fetch_records(
@@ -246,7 +258,7 @@ class AutoFinDataStep(_AutoFinStep):
 
     async def _cache_news(self, day: date, decision_at: datetime) -> bool:
         path = self._cache_path("news", day)
-        if self._is_valid_news_cache(path):
+        if await self._is_valid_news_cache(path):
             return False
         timezone = decision_at.tzinfo
         start = datetime.combine(day, time.min, timezone)
@@ -265,7 +277,7 @@ class AutoFinDataStep(_AutoFinStep):
 
     async def _cache_etf(self, dataset: str, day: date) -> bool:
         path = self._cache_path(dataset, day)
-        if self._is_valid_cache(path, allow_empty=False):
+        if await self._is_valid_cache(path, allow_empty=False):
             return False
         fields = (
             "ts_code,trade_date,close,pre_close,pct_chg,amount"

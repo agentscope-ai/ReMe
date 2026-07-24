@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import date, datetime, time
 from typing import Any
 
 import yaml
-import polars as pl
 from pydantic import BaseModel
 
 from ....components import R
 from ....schema import AutoFinDecisionOutput, AutoFinResearchPlan, AutoFinThemePlan
-from .data import _AutoFinStep, _read_jsonl, _write, _write_jsonl
+from .data import _AutoFinStep, _write, _write_jsonl
 
 
 @R.register("auto_fin_analysis_step")
@@ -49,7 +49,7 @@ class AutoFinAnalysisStep(_AutoFinStep):
             [date.fromisoformat(str(value)) for value in self.context["auto_fin_etf_dates"]],
         )
 
-    def _news(
+    async def _news(
         self,
         start: date,
         trade_date: date,
@@ -58,7 +58,7 @@ class AutoFinAnalysisStep(_AutoFinStep):
     ) -> list[dict]:
         news = {}
         for day in self._days(start, trade_date):
-            for row in _read_jsonl(self._cache_path("news", day)):
+            for row in await self._read_jsonl(self._cache_path("news", day)):
                 published_at = self._published_at(row, decision_at.tzinfo)
                 if published_at is None or not window_start < published_at <= decision_at:
                     continue
@@ -74,7 +74,9 @@ class AutoFinAnalysisStep(_AutoFinStep):
                 }
         return sorted(news.values(), key=lambda row: (row["published_at"], row["news_id"]))
 
-    def _dataset(self, dataset: str, days: list[date], ts_code: str | None = None) -> list[dict]:
+    def _dataset_sync(self, dataset: str, days: list[date], ts_code: str | None = None) -> list[dict]:
+        import polars as pl  # pylint: disable=import-outside-toplevel
+
         paths = [self._cache_path(dataset, day) for day in days]
         frames = [pl.read_csv(path) for path in paths]
         if not frames:
@@ -83,6 +85,9 @@ class AutoFinAnalysisStep(_AutoFinStep):
         if ts_code is not None:
             frame = frame.filter(pl.col("ts_code").str.to_uppercase() == ts_code.upper())
         return frame.to_dicts()
+
+    async def _dataset(self, dataset: str, days: list[date], ts_code: str | None = None) -> list[dict]:
+        return await asyncio.to_thread(self._dataset_sync, dataset, days, ts_code)
 
     def _data_location(self, start: date, trade_date: date, etf_dates: list[date]) -> str:
         def relative(path):
@@ -146,10 +151,19 @@ class AutoFinAnalysisStep(_AutoFinStep):
                 result[f"close_return_d{offset}"] = history[position]["adjusted_close"] / baseline - 1.0
         return result
 
-    def _theme_data(self, theme: AutoFinThemePlan, etf_dates: list[date], previous: date) -> dict[str, Any]:
-        history = self._adjusted_history(
+    async def _theme_data(
+        self,
+        theme: AutoFinThemePlan,
+        etf_dates: list[date],
+        previous: date,
+    ) -> dict[str, Any]:
+        daily, factors = await asyncio.gather(
             self._dataset("fund_daily", etf_dates, theme.etf_code),
             self._dataset("fund_adj", etf_dates, theme.etf_code),
+        )
+        history = self._adjusted_history(
+            daily,
+            factors,
         )
         case_stats = []
         for case in (item for item in theme.historical_cases if item.trade_date <= previous):
@@ -231,10 +245,10 @@ class AutoFinAnalysisStep(_AutoFinStep):
         day_dir = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat()
         report_path = day_dir / "auto_fin.md"
 
-        news = self._news(start, trade_date, window_start, decision_at)
+        news = await self._news(start, trade_date, window_start, decision_at)
         data_location = self._data_location(start, trade_date, etf_dates)
         _write_jsonl(day_dir / "auto_fin_news.jsonl", news)
-        universe = self._dataset("fund_daily", [previous])
+        universe = await self._dataset("fund_daily", [previous])
         plan = await self._reply(
             "plan_user",
             AutoFinResearchPlan,
@@ -256,7 +270,7 @@ class AutoFinAnalysisStep(_AutoFinStep):
             if any(case.trade_date >= trade_date for case in theme.historical_cases):
                 raise ValueError("memory cases must be strictly earlier than the current trade date")
 
-        datasets = [self._theme_data(theme, etf_dates, previous) for theme in plan.themes]
+        datasets = [await self._theme_data(theme, etf_dates, previous) for theme in plan.themes]
         serializable = [{key: value for key, value in item.items() if key != "_history"} for item in datasets]
         etf_rows = []
         for item in datasets:
