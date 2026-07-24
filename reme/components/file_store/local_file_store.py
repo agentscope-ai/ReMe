@@ -531,6 +531,16 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
         nodes: list[FileNode] = await self.file_graph.get_nodes(paths)
+        await self._delete_nodes(nodes)
+
+    async def _delete_nodes(self, nodes: list[FileNode]) -> None:
+        """Delete already-resolved nodes and their chunks.
+
+        Split out so subclasses that need the node list before deletion (e.g. to
+        capture chunk ids for a vector index) can reuse it instead of querying the
+        graph a second time.
+        """
+        assert self.file_graph is not None
         if not nodes:
             return
         deleted_chunk_ids = [cid for n in nodes for cid in n.chunk_ids]
