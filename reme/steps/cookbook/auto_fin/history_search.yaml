@@ -1,0 +1,40 @@
+history_search_user: |
+  你只负责为一个已选定 ETF 的当前事件检索和整理历史相似事件，不查询行情、不更换或增加 ETF、
+  不提供预测。
+  指定 ETF：{etf_code}（{etf_name}）
+  当前事件时间线（仅作为检索线索，不含 news_id）：{events}
+  历史截止时间：{window_start}
+  ReMe workspace：{workspace_root}
+
+  必须遵守：
+  1. 使用 memory_search 多轮搜索 {window_start} 之前的相似新闻；系统会自动过滤本次研究中已经
+     返回过的结果，因此结果不足时继续尝试，并调整事件类型、关键实体、传导机制或影响方向等
+     查询角度。memory_search 无更多有效结果后，使用 Read 或 Python 扫描 workspace 下过去
+     360 天的 `daily/YYYY-MM-DD/auto_fin_news_data.jsonl` 和历史 Auto Fin Markdown。
+  2. 根据当前事件提取事件类型、关键实体、传导机制和影响方向进行搜索，不能只搜索 ETF 名称。
+  3. 当前事件时间线来自最近一次收盘后至本次分析时点，只能作为检索线索，不属于历史事件。
+     即使搜索命中同一条当前新闻，也不得放入 historical_events。
+  4. historical_events 只记录实际命中的历史事实，event_time 必须严格早于 {window_start}，
+     source_path 必须是真实文件路径。没有相似事件就返回空列表，严禁编造。
+  5. 合并同一事件的重复报道，按 event_time 升序排列；所有时间使用上海本地时间，不附带时区。
+  6. etf_code 和 etf_name 必须原样返回 `{etf_code}` 和 `{etf_name}`。最终结果不得增加 events
+     或 news_id 字段，不读写或下载行情文件。
+  7. 最终生成 etf_code、etf_name、historical_events 和 limitations 四个维度；
+     historical_events 的每一项只包含 event_time、event_content 和 source_path。JSON 示例：
+     ```json
+     {{
+       "etf_code": "{etf_code}",
+       "etf_name": "{etf_name}",
+       "historical_events": [
+         {{
+           "event_time": "2026-06-01T10:00:00",
+           "event_content": "历史上发生的相似供应中断事件",
+           "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl"
+         }}
+       ],
+       "limitations": [
+         "可比历史事件数量有限"
+       ]
+     }}
+     ```
+  8. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文。

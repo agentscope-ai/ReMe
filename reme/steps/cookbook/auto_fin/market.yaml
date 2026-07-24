@@ -1,0 +1,61 @@
+market_user: |
+  ETF：{etf_code}（{etf_name}）
+  分析截止时间：{decision_at}
+
+  今天发生的事件：
+  {events}
+
+  历史事件及其已经由 Python 计算好的未来复权涨跌幅：
+  {history_path}
+
+  请读取历史文件，从 historical_events 及其一一对应的 historical_samples 中选择与今天事件相似的
+  样本，并预估 `{etf_code}` 买入后第 1 至第 10 个有效收盘点的累计涨跌幅和最佳持股天数。
+
+  必须遵守：
+  1. etf_code 和 etf_name 必须原样返回，不搜索新闻、不下载行情、不修改历史数据。
+  2. 综合事件类型、关键实体、传导机制和影响方向计算 similarity；只引用历史文件中真实存在的事件。
+  3. 必须通过 Python 对相似样本加权计算。weight 非负且合计为 1；每个 horizon 只使用拥有该 horizon
+     实际收益的样本，禁止心算或编造精确数字。
+  4. forecast.returns 必须按 horizon=1..10 顺序完整返回。数据不足的 horizon 返回 null；最佳持股天数
+     只能选择 1..10，若没有可靠的正收益区间则返回 null。
+  5. confidence 综合有效样本数、相似度、收益方向一致性、离散程度和缺失情况，样本少或分歧大时降低。
+  6. calculation_code 保存本次实际运行的完整 Python 加权代码，不输出隐藏思维过程。
+  7. 最终生成 etf_code、etf_name、matched_historical_events、forecast、calculation_code、
+     summary 和 limitations。所有时间使用上海本地时间，不附带时区。JSON 示例：
+     ```json
+     {{
+       "etf_code": "{etf_code}",
+       "etf_name": "{etf_name}",
+       "matched_historical_events": [
+         {{
+           "event_time": "2026-06-01T10:00:00",
+           "similarity": 0.86,
+           "weight": 1.0,
+           "reason": "事件类型、传导机制和影响方向相似"
+         }}
+       ],
+       "forecast": {{
+         "returns": [
+           {{"horizon": 1, "expected_return": 0.006}},
+           {{"horizon": 2, "expected_return": 0.011}},
+           {{"horizon": 3, "expected_return": 0.014}},
+           {{"horizon": 4, "expected_return": 0.012}},
+           {{"horizon": 5, "expected_return": 0.01}},
+           {{"horizon": 6, "expected_return": 0.009}},
+           {{"horizon": 7, "expected_return": 0.008}},
+           {{"horizon": 8, "expected_return": 0.007}},
+           {{"horizon": 9, "expected_return": null}},
+           {{"horizon": 10, "expected_return": null}}
+         ],
+         "suggested_holding_days": 3,
+         "confidence": 0.62,
+         "reason": "相似样本在第三个有效收盘点附近达到较高累计收益"
+       }},
+       "calculation_code": "samples = [[0.006, 0.011, 0.014, 0.012, 0.01, 0.009, 0.008]]\nweights = [1.0]\nforecast = [sum(weight * sample[i] for weight, sample in zip(weights, samples)) for i in range(8)]",
+       "summary": "历史样本显示短期影响较强，参考持有 3 个交易日。",
+       "limitations": [
+         "相似历史样本较少"
+       ]
+     }}
+     ```
+  8. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文；该对象会保存到对应 resource 目录。

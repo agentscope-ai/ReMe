@@ -325,7 +325,7 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Maintain 360 days of news, analyze current topics and historical ETF reactions, then deliver the report."
+    description: "Maintain configured daily news history, analyze current topics and historical ETF reactions, then deliver the report."
     parameters:
       type: object
       properties:
@@ -335,18 +335,23 @@ jobs:
           default: ""
         force:
           type: boolean
-          description: "Refresh all 360 days of news; today's news is always refreshed."
+          description: "Refresh all configured news days; today's news is always refreshed."
           default: false
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
         outbound_proxy: default
+        lookback_days: 360
+        progress_interval: 30
       - backend: auto_fin_topic_step
         agent_wrapper: auto_fin
       - backend: auto_fin_history_step
         agent_wrapper: auto_fin
+        dispatch_steps: [auto_fin_history_search_step, auto_fin_market_step]
       - backend: auto_fin_merge_step
         agent_wrapper: auto_fin
       - backend: dingtalk_markdown_send_step
+        input_mapping:
+          auto_fin_digest_path: markdown_path
         app_key: ${DINGTALK_APP_KEY:-}
         app_secret: ${DINGTALK_APP_SECRET:-}
         robot_code: ${DINGTALK_ROBOT_CODE:-}
@@ -448,15 +453,15 @@ jobs:
         worker_count: 4
 
 components:
-  outbound_proxy:
-    default:
-      backend: ssh_http
-      host: ${REME_PROXY_IP:-}
-      account: ${REME_PROXY_ACCOUNT:-}
-      connect_timeout: 10
-      monitor_interval: 1
-      restart_initial_delay: 1
-      restart_max_delay: 30
+  outbound_proxy: {}
+#    default:
+#      backend: ssh_http
+#      host: ${REME_PROXY_IP:-}
+#      account: ${REME_PROXY_ACCOUNT:-}
+#      connect_timeout: 10
+#      monitor_interval: 1
+#      restart_initial_delay: 1
+#      restart_max_delay: 30
 
   tokenizer:
     default:
@@ -523,23 +528,23 @@ components:
       model_config:
         max_retries: 1
 
-  as_embedding:
-    default:
-      backend: openai
-      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
-      dimensions: 1024
-      max_retries: 0
-      credential:
-        api_key: ${EMBEDDING_API_KEY:-}
-        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      parameters: {}
-
-  embedding_store:
-    default:
-      backend: local
-      as_embedding: default
-      max_retries: 3
-      quota_retry_delay: 60.0
+#  as_embedding:
+#    default:
+#      backend: openai
+#      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+#      dimensions: 1024
+#      max_retries: 0
+#      credential:
+#        api_key: ${EMBEDDING_API_KEY:-}
+#        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+#      parameters: {}
+#
+#  embedding_store:
+#    default:
+#      backend: local
+#      as_embedding: default
+#      max_retries: 3
+#      quota_retry_delay: 60.0
 
   file_graph:
     default:
@@ -560,6 +565,7 @@ components:
     jsonl:
       backend: jsonl
       supported_extensions: [jsonl]
+      max_lines_per_chunk: 1
 
   keyword_index:
     default:
@@ -570,6 +576,7 @@ components:
     default:
       backend: local
       store_name: local
-      embedding_store: default
+#      embedding_store: default
+      embedding_store: ""
       keyword_index: default
       file_graph: default

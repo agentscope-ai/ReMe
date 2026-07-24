@@ -18,7 +18,7 @@ class JsonlFileChunker(BaseFileChunker):
     Algorithm
     ---------
     1. From ``start``, greedily accumulate lines until adding the next line
-       would exceed ``max_chars`` → emit that chunk.
+       would exceed ``max_chars`` or ``max_lines_per_chunk`` → emit that chunk.
     2. From the *end* of the emitted chunk, walk backwards to find the
        maximum number of trailing lines whose combined size fits within
        ``max_overlap_chars`` → those lines become the start of the next chunk.
@@ -33,6 +33,7 @@ class JsonlFileChunker(BaseFileChunker):
         encoding: str = "utf-8",
         max_chars: int = 2000,
         max_overlap_chars: int = 0,
+        max_lines_per_chunk: int | None = None,
         mode: str = "chars",
         **kwargs,
     ):
@@ -42,6 +43,7 @@ class JsonlFileChunker(BaseFileChunker):
         self.encoding = encoding
         self.max_chars = max(64, max_chars)
         self.max_overlap_chars = max(0, max_overlap_chars)
+        self.max_lines_per_chunk = max(1, max_lines_per_chunk) if max_lines_per_chunk is not None else None
         self.mode = mode
 
     # ------------------------------------------------------------------
@@ -77,7 +79,11 @@ class JsonlFileChunker(BaseFileChunker):
             #    sum(sizes[start:end]) <= max_chars  --
             total = 0
             end = start
-            while end < n and total + sizes[end] <= self.max_chars:
+            while (
+                end < n
+                and total + sizes[end] <= self.max_chars
+                and (self.max_lines_per_chunk is None or end - start < self.max_lines_per_chunk)
+            ):
                 total += sizes[end]
                 end += 1
 

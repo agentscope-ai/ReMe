@@ -1,18 +1,44 @@
 topic_user: |
-  你只负责整理当前新闻，不搜索历史、不查询行情、不选择 ETF、不提供投资建议。
+  你只负责从候选文件中筛选与当前新闻直接相关的代表性 ETF，并返回对应新闻 ID。
+  不搜索或补充新闻、不下载数据、不计算收益、不提供预测或投资建议。
 
   时间边界：
   - 新闻窗口严格为 ({window_start}, {decision_at}]。
-  - 只能使用下方 current_news，不得补充窗口外事实。
+  - 分析截止时间为 {decision_at}。
 
-  current_news:
-  {news}
+  输入文件：
+  - 当前窗口内的全部新闻：{filtered_news_path}
+  - 已按最近收盘成交额关联、去重并截取 Top 150 的 ETF：{filtered_etf_path}
 
   输出要求：
-  1. 合并重复报道，把同一主题随时间的发展整理为一条时间线。
-  2. topics 必须是 `主题名称 -> 事件列表`；主题名称应具体、稳定、可用于搜索历史相似事件。
-  3. 每个事件只包含 event_time 和 event_content。
-  4. event_time 必须来自 current_news；event_content 应压缩事实，不复制冗余正文，不加入推测。
-  5. 同一主题的事件按 event_time 升序排列；方向冲突或事实变化必须保留为不同事件。
-  6. 无实质新闻时返回空 topics。
-  7. 只返回符合 schema 的结构化结果，不读写文件。
+  1. 必须读取上述两个 JSONL 文件；只能从 filtered_etf.jsonl 选择 ETF，只能引用
+     filtered_news.jsonl 中的 news_id。
+  2. 只保留其 name 所代表的指数、行业、主题或资产与新闻存在明确传导关系的代表性 ETF。
+  3. 最多返回 20 只 ETF，按与新闻的相关性排序；不要为了凑数纳入弱相关 ETF。
+  4. events 只填写与该 ETF 相关的事件对象，每项包含 reason 和 news_id；reason 简洁说明该条新闻
+     与 ETF 所代表资产之间的直接传导关系。合并重复报道，并按新闻时间升序排列。
+  5. etf_code、etf_name 必须逐字复制候选文件中的 code、name；无相关 ETF 时返回空 etfs。
+  6. reason 不得加入预测；同一 ETF 的不同新闻应分别说明关联理由。
+  7. 最终生成一个对象，只包含 etfs；每只 ETF 只包含 etf_code、etf_name、events，每个 event
+     只包含 reason 和 news_id。JSON 示例：
+     ```json
+     {{
+       "etfs": [
+         {{
+           "etf_code": "518880.SH",
+           "etf_name": "华安易富黄金ETF",
+           "events": [
+             {{
+               "reason": "避险需求直接影响黄金价格",
+               "news_id": "20260724070000_4d19"
+             }},
+             {{
+               "reason": "美元变化影响黄金计价",
+               "news_id": "20260724072145_6fa5"
+             }}
+           ]
+         }}
+       ]
+     }}
+     ```
+  8. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文，不写入 ReMe workspace。

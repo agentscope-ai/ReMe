@@ -95,6 +95,22 @@ def test_all_lines_fit_in_one_chunk():
         os.unlink(path)
 
 
+def test_max_lines_per_chunk_one():
+    """max_lines_per_chunk=1 emits exactly one complete line per chunk."""
+    lines = _make_records(5, width=10)
+    path = _write_jsonl(lines)
+    try:
+        chunker = JsonlFileChunker(max_chars=5000, max_lines_per_chunk=1)
+        _, chunks = _run(chunker.chunk(path))
+        assert len(chunks) == len(lines)
+        for line_number, (line, chunk) in enumerate(zip(lines, chunks), start=1):
+            assert chunk.start_line == line_number
+            assert chunk.end_line == line_number
+            assert chunk.text == line + "\n"
+    finally:
+        os.unlink(path)
+
+
 # ---------------------------------------------------------------------------
 # Multi-chunk splitting (no overlap)
 # ---------------------------------------------------------------------------
