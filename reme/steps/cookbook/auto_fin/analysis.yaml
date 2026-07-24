@@ -3,7 +3,7 @@ plan_user: |
   当前新闻窗口严格为 ({window_start}, {decision_at}]，更早的新闻视为已在昨日收盘前 price-in，
   更晚的新闻尚未发生，绝对不能使用。
 
-  当前新闻：
+  当前新闻（仅财联社）：
   {news}
 
   本地数据文件：
@@ -36,7 +36,7 @@ plan_user: |
 decision_user: |
   你是 Auto Fin 新闻案例决策模块。本次决策时间是 {decision_at}，不考虑任何仓位。
 
-  当前新闻：
+  当前新闻（仅财联社）：
   {news}
 
   本地数据文件：

@@ -91,19 +91,25 @@ async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
                 {
                     "title": "昨日收盘前旧消息",
                     "pub_time": "2026-07-23 15:00:00",
-                    "src": "test",
+                    "src": "财联社",
                     "content": "必须排除",
                 },
                 {
                     "title": "油价因供应扰动上涨",
                     "pub_time": "2026-07-24 09:30:00",
-                    "src": "test",
+                    "src": "财联社",
                     "content": "当前窗口新闻",
+                },
+                {
+                    "title": "其他来源消息",
+                    "pub_time": "2026-07-24 08:30:00",
+                    "src": "新浪财经",
+                    "content": "必须按来源排除",
                 },
                 {
                     "title": "决策后消息",
                     "pub_time": "2026-07-24 09:31:00",
-                    "src": "test",
+                    "src": "财联社",
                     "content": "必须排除",
                 },
             ]
@@ -190,6 +196,7 @@ async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
     )
     assert news_call["start_date"] == "2026-07-24 00:00:00"
     assert news_call["end_date"] == "2026-07-24 09:30:00"
+    assert news_call["src"] == "财联社"
     daily_calls = [kwargs for endpoint, kwargs in first_calls if endpoint == "fund_daily"]
     assert [call["trade_date"] for call in daily_calls] == [
         "20260721",

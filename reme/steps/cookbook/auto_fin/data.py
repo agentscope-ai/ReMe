@@ -222,10 +222,15 @@ class _AutoFinStep(BaseStep):
 class AutoFinDataStep(_AutoFinStep):
     """Fill missing daily TuShare cache files for the configured lookback."""
 
+    def _is_valid_news_cache(self, path: Path) -> bool:
+        if not self._is_valid_cache(path):
+            return False
+        return all(str(row.get("src") or "") == "财联社" for row in _read_jsonl(path))
+
     async def _fetch_news_window(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         rows = await self._fetch_records(
             "major_news",
-            src="",
+            src="财联社",
             start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
             end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
             fields="title,pub_time,src,content",
@@ -241,7 +246,7 @@ class AutoFinDataStep(_AutoFinStep):
 
     async def _cache_news(self, day: date, decision_at: datetime) -> bool:
         path = self._cache_path("news", day)
-        if self._is_valid_cache(path):
+        if self._is_valid_news_cache(path):
             return False
         timezone = decision_at.tzinfo
         start = datetime.combine(day, time.min, timezone)
@@ -253,6 +258,7 @@ class AutoFinDataStep(_AutoFinStep):
             if (published_at := self._published_at(row, timezone)) is not None
             and start <= published_at
             and (published_at <= end if day == decision_at.date() else published_at < end)
+            and str(row.get("src") or "") == "财联社"
         ]
         _write_jsonl(path, rows)
         return True
