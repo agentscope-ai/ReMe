@@ -139,7 +139,7 @@ user_message_update: |
 
   ## Step 2 — Read Existing Content
 
-  Call `read path={note_path}` to inspect the current note content.
+  Call `read_daily path={note_path}` to inspect the current note content.
   - If the body is empty (only frontmatter, no actual content) → treat as new, jump to **Step 3b**.
   - If there is body content → go to **Step 3a** to merge.
 
@@ -153,16 +153,16 @@ user_message_update: |
   - **Everything else**: merge and deduplicate — keep all old facts, add new facts, remove exact duplicates.
 
   Execution:
-  1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
+  1. Use `edit_daily path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit_daily` multiple times.
   2. After body changes, refresh frontmatter with `frontmatter_update path={note_path} metadata={{"name": "<updated filename stem>", "description": "<updated summary>"}}`.
      - Keep the existing `name` only when it is already the best concise topic/event filename stem. The system will rename the file after your final response.
      - Do not add today's date or the daily directory date to `name`.
-  3. If `edit` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to `write path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
+  3. If `edit_daily` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to `write_daily path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
 
   ## Step 3b — Full Write (Empty File Fallback)
 
   The file exists but its body is empty. Write the full content in one shot:
-  `write path={note_path} name=<name> description=<description> content=<body>`
+  `write_daily path={note_path} name=<name> description=<description> content=<body>`
 
   - Use a concise, stable topic/event `name`; filename changes are applied after your final response.
   - Do not include today's date or the daily directory date in `name`.
@@ -175,7 +175,7 @@ user_message_update: |
   ## Boundaries
 
   - Only operate on one target path: `{note_path}`. Do not touch other notes.
-  - `write` unconditionally overwrites body and frontmatter — use with caution.
+  - `write_daily` unconditionally overwrites body and frontmatter — use with caution.
   - Filename changes are expressed by updating frontmatter `name`.
 user_message_update_zh: |
   今天：{today}
@@ -198,7 +198,7 @@ user_message_update_zh: |
 
   ## 步骤 2 — 读取现有内容
 
-  调用 `read path={note_path}` 查看当前笔记内容。
+  调用 `read_daily path={note_path}` 查看当前笔记内容。
   - 如果正文为空（只有 frontmatter 无实际内容）→ 按新建处理，跳到 **步骤 3b**。
   - 如果有正文内容 → 转到 **步骤 3a** 进行合并。
 
@@ -212,16 +212,16 @@ user_message_update_zh: |
   - **其余内容**：合并去重——保留全部旧事实，添加新事实，去除完全重复项。
 
   执行：
-  1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
+  1. 对需要更新的每个部分使用 `edit_daily path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit_daily`。
   2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<更新后的文件名 stem>", "description": "<更新后的总结>"}}`。
      - 只有当前 `name` 已经是最合适的简洁主题/事件文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
      - 不要在 `name` 中加入今天日期或日记目录日期。
-  3. 如果 `edit` 多次失败（如因格式不匹配找不到原文），退回 `write path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
+  3. 如果 `edit_daily` 多次失败（如因格式不匹配找不到原文），退回 `write_daily path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
 
   ## 步骤 3b — 全量写入（空文件 fallback）
 
   文件存在但正文为空。一次性写入完整内容：
-  `write path={note_path} name=<name> description=<description> content=<正文>`
+  `write_daily path={note_path} name=<name> description=<description> content=<正文>`
 
   - 使用简洁、稳定的主题/事件 `name`；文件名变化会在你最终回复后应用。
   - `name` 不要包含今天日期或日记目录日期。
@@ -234,5 +234,5 @@ user_message_update_zh: |
   ## 边界
 
   - 只针对一个目标路径：`{note_path}`。不要碰其他笔记。
-  - `write` 会无条件覆盖正文和 frontmatter，请谨慎使用。
+  - `write_daily` 会无条件覆盖正文和 frontmatter，请谨慎使用。
   - 文件名变化通过更新 frontmatter `name` 表达。

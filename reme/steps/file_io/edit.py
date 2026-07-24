@@ -5,17 +5,30 @@ import yaml
 
 from ._file_io import get_path_lock, read_file_safe, write_file_safe
 from ._path import NON_MD_WARNING, gate_md, resolve_path
+from .prefix_check import PrefixCheck
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("edit_step")
-class EditStep(BaseStep):
+class EditStep(PrefixCheck, BaseStep):
     """Replace every occurrence of ``old`` with ``new`` inside the file body.
 
     The YAML front matter block (if any) is parsed out, kept verbatim and
     re-emitted unchanged — matches that fall inside front matter are ignored,
     so a typo in `old` cannot corrupt structured metadata.
+
+    Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
+    not exposed to LLM):
+        white_path_prefix (list[str] | None, default None): whitelist of path
+            prefixes; only files whose workspace-relative path starts with one
+            of these prefixes pass the white stage. ``None`` disables the
+            white stage; an empty list denies every file.
+        black_path_prefix (list[str] | None, default None): blacklist of path
+            prefixes; files whose workspace-relative path starts with one of
+            these prefixes are denied. ``None`` and an empty list both
+            disable the black stage.
+        The white stage is applied first, then the black stage.
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes the
     read-modify-write cycle against the same file (multi-worker / multi-
@@ -49,6 +62,10 @@ class EditStep(BaseStep):
             return None
 
         target, is_md = gate_md(target)
+
+        if not self._check_path_permission(target):
+            self._fail("no permission to edit this file", path=str(target))
+            return None
 
         lock = await get_path_lock(target)
         async with lock:
