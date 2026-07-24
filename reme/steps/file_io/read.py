@@ -1,9 +1,9 @@
 """Read a markdown file from workspace_dir, with line-range slicing and byte-truncation."""
 
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
-from ._path import NON_MD_WARNING, gate_md, resolve_path
+from ._path import NON_MD_WARNING, gate_md, is_relative_to, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -21,7 +21,103 @@ class ReadStep(BaseStep):
             neighbors (out/in link targets) with name/description meta,
             fetched via the file_store. Same rendering as SearchStep.
         max_neighbors_per_direction (int, default 10): cap per direction.
+        white_path_prefix (list[str] | None, default None): whitelist of path
+            prefixes; only files whose workspace-relative path starts with one
+            of these prefixes pass the white stage. ``None`` disables the
+            white stage; an empty list denies every file.
+        black_path_prefix (list[str] | None, default None): blacklist of path
+            prefixes; files whose workspace-relative path starts with one of
+            these prefixes are denied. ``None`` and an empty list both
+            disable the black stage.
+        The white stage is applied first, then the black stage.
     """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # ``None`` (absent / yaml null) means the filter stage is inactive;
+        # an explicit empty list is preserved so a white-list of [] denies all.
+        self._white_prefixes: list[str] | None = self._normalize_prefixes(
+            self.kwargs.get("white_path_prefix"),
+        )
+        self._black_prefixes: list[str] | None = self._normalize_prefixes(
+            self.kwargs.get("black_path_prefix"),
+        )
+
+    def _normalize_prefixes(self, raw: list[str] | None) -> list[str] | None:
+        """Convert prefix paths to workspace-relative; drop those that fail.
+
+        Returns ``None`` when ``raw`` is ``None`` (stage inactive). Returns
+        ``[]`` when ``raw`` is empty (white-list stage denies every file;
+        black-list stage is a no-op, same as ``None``).
+        """
+        if raw is None:
+            return None
+        workspace = self.workspace_path.resolve()
+        result: list[str] = []
+        for item in raw:
+            s = str(item).strip()
+            if not s:
+                continue
+            p = Path(s).expanduser()
+            if p.is_absolute():
+                resolved = p.resolve()
+            else:
+                resolved = (workspace / p).resolve()
+            if not is_relative_to(resolved, workspace):
+                self.logger.warning(
+                    f"[{self.name}] path prefix outside workspace, dropped: {s}",
+                )
+                continue
+            rel = str(resolved.relative_to(workspace))
+            result.append(rel)
+        return result
+
+    @staticmethod
+    def _under_prefix(rel_path: str, prefix: str) -> bool:
+        """Path-aware prefix test: True when ``rel_path`` equals ``prefix`` or is nested under it.
+
+        Unlike ``str.startswith``, this respects path-component boundaries so
+        a prefix of ``"daily"`` matches ``daily/notes.md`` but not
+        ``daily-report/notes.md``.
+        """
+        return PurePath(rel_path).is_relative_to(PurePath(prefix))
+
+    def _check_path_permission(self, target: Path) -> bool:
+        """Check target against the white (allow) then black (deny) prefix lists.
+
+        White stage:
+            * ``None``  — stage inactive, file passes this stage.
+            * ``[]``    — denies every file.
+            * non-empty — only paths starting with one of the prefixes pass.
+        Black stage (applied after the white stage):
+            * ``None`` or ``[]`` — stage inactive.
+            * non-empty          — paths starting with one of the prefixes
+              are denied.
+
+        Returns True if access is allowed, False otherwise (sets _fail).
+        """
+        # Fast path: no filtering configured at all.
+        if self._white_prefixes is None and not self._black_prefixes:
+            return True
+
+        try:
+            rel_path = str(target.relative_to(self.workspace_path.resolve()))
+        except ValueError:
+            self._fail("no permission to access this file", path=str(target))
+            return False
+
+        # White stage: None = inactive; [] = deny all; non-empty = allowlist.
+        if self._white_prefixes is not None:
+            if not any(self._under_prefix(rel_path, prefix) for prefix in self._white_prefixes):
+                self._fail("no permission to access this file", path=str(target))
+                return False
+
+        # Black stage: None or [] = inactive; non-empty = denylist.
+        if self._black_prefixes:
+            if any(self._under_prefix(rel_path, prefix) for prefix in self._black_prefixes):
+                self._fail("no permission to access this file", path=str(target))
+                return False
+        return True
 
     def _fail(self, message: str, **meta) -> None:
         """Mark the response failed and stash a human-readable error."""
@@ -101,6 +197,8 @@ class ReadStep(BaseStep):
         target = self._resolve_target(raw)
         if target is None:
             return None
+        if not self._check_path_permission(target):
+            return None
         if not self._validate_line_args(start_line, end_line):
             return None
         if not self._check_file(target):
@@ -131,8 +229,8 @@ class ReadStep(BaseStep):
                     requested_end,
                     max_collect_bytes=DEFAULT_MAX_BYTES * 2,
                 )
-            except Exception as e:  # pylint: disable=broad-except
-                self._fail(f"read failed: {e}", path=str(target))
+            except Exception as exc:  # pylint: disable=broad-except
+                self._fail(f"read failed: {exc}", path=str(target))
                 return None
             if s > total:
                 self._fail(f"start_line {s} exceeds file length ({total} lines)", path=str(target), total_lines=total)
