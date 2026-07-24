@@ -1,5 +1,6 @@
 merge_user: |
-  你只负责汇总已经完成的结构化分析，不重新搜索新闻、不下载行情、不修改任何数值。
+  你只负责把已经完成的结构化分析写成一份中文 Markdown 报告，不重新搜索新闻、不下载行情、
+  不修改任何数值。
 
   分析截止时间：{decision_at}
   新闻窗口：({window_start}, {decision_at}]
@@ -7,36 +8,22 @@ merge_user: |
   已筛选 ETF 及其当前事件时间线：
   {etfs_path}
 
-  各 ETF 的完整历史检索、实际行情样本和预估（JSONL，每行一只 ETF）：
+  各 ETF 的完整历史事件、实际行情样本和程序计算结果：
   {history_path}
 
-  输出要求：
-  1. 只读取上述 ETF 和完整历史结果文件；不得修改源文件。title、description、body、
-     final_recommendation 和 concise_summary 使用中文且不包含 YAML frontmatter。
-  2. 按 `code（name）` 展示今天的事件、匹配的历史事件及其权重、第 1 至第 10 个有效收盘点的
-     加权累计涨跌幅预估、confidence 和最佳持股天数。
-  3. 明确区分历史实际收益与当前预估。不得把 null 改成数字，不得增加或替换 analyses 中的 ETF。
-  4. 对比各 ETF 的相关性、潜在收益和风险，给出简洁明确的持有时间参考。
-  5. 样本不足、数据权限不足、资产交易时段不同或方向冲突必须在正文和 limitations 中说明。
-  6. 不假设用户已有仓位，不给仓位比例，不下单，不承诺收益。
-  7. final_recommendation 必须综合比较全部 ETF，给出最终选择、参考持有时间和主要失效条件；
-     无可靠正收益候选时必须明确建议观望。
-  8. concise_summary 是发送钉钉的精简 Markdown，必须包含最终建议、各 ETF 的核心预估、
-     confidence、参考持有时间和最重要限制，控制在 1200 个中文字符内。
-  9. body 保存完整的可发布 Markdown 报告。
-  10. 最终生成 title、description、body、final_recommendation、concise_summary 和 limitations。
-      JSON 示例：
-      ```json
-      {{
-        "title": "Auto Fin ETF 事件分析",
-        "description": "当前事件、历史相似样本和加权收益预估的汇总。",
-        "body": "## 512660.SH（军工ETF）\n\n完整事件、历史样本、预测和风险分析。",
-        "final_recommendation": "优先关注军工ETF，参考持有 3 个交易日；事件影响消退时失效。",
-        "concise_summary": "## 最终建议\n\n优先关注军工ETF；D3 预估 +1.4%，confidence 0.62，参考持有 3 个交易日。",
-        "limitations": [
-          "相似历史样本较少"
-        ]
-      }}
-      ```
-  11. 示例代码块仅用于说明格式；最终直接生成上述 JSON 对象，不附加解释、Markdown 正文或
-      ``` 标记。
+  必须遵守：
+  1. 只读取上述两个文件，严格使用其中已有的 ETF、事件、收益、权重、最佳持有天数和 limitations。
+  2. body 使用 Markdown，按 `code（name）` 展示当前事件、匹配的历史事件、历史实际收益、当前
+     加权预估、最佳持有天数和主要限制。
+  3. 明确区分历史实际收益与当前预估，不得把 null 改成数字。
+  4. 综合比较全部 ETF；无可靠正收益候选时明确建议观望。不假设用户已有仓位，不给仓位比例，
+     不下单，不承诺收益。
+  5. title 不包含 Markdown 标记，body 不重复一级标题，不生成 YAML frontmatter。
+  6. 最终只生成 title 和 body。JSON 示例：
+     ```json
+     {{
+       "title": "Auto Fin ETF 事件分析",
+       "body": "## 518880.SH（黄金ETF）\n\n完整事件、历史样本、预测、限制和最终建议。"
+     }}
+     ```
+  7. 最终只生成上述 JSON 对象，不附加解释或代码块标记。

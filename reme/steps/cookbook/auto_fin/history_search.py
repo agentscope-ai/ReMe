@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -14,11 +15,13 @@ from ....schema import (
     AutoFinEtfHistoricalResearch,
     AutoFinEtfSelection,
     AutoFinHistoricalEvent,
+    AutoFinHistoricalEventReference,
     AutoFinMarketSample,
     AutoFinSelectedEvent,
 )
 from ...index._dedup import _ToolContextDedupMixin
 from ._base import AutoFinStep, _write
+from .topic import _plain_text
 
 
 @R.register("auto_fin_history_search_step")
@@ -40,6 +43,67 @@ class AutoFinHistorySearchStep(AutoFinStep):
         except (TypeError, ValueError):
             return None
         return number if number > 0 else None
+
+    async def _resolve_historical_events(
+        self,
+        references: list[AutoFinHistoricalEventReference],
+        current_news_ids: set[str],
+        window_start: datetime,
+    ) -> list[AutoFinHistoricalEvent]:
+        """Resolve Agent-selected identities from user-owned source files."""
+        workspace = self.workspace_path.resolve()
+        rows_by_path: dict[Path, list[dict[str, Any]]] = {}
+        events_by_news_id: dict[str, AutoFinHistoricalEvent] = {}
+        for reference in references:
+            if reference.news_id in current_news_ids:
+                raise ValueError(f"History Agent returned a current news item: {reference.news_id}")
+
+            relative_path = Path(reference.source_path)
+            if relative_path.is_absolute() or ".." in relative_path.parts:
+                raise ValueError(f"Historical source path must be workspace-relative: {reference.source_path}")
+            source_path = (workspace / relative_path).resolve()
+            try:
+                normalized_path = source_path.relative_to(workspace)
+            except ValueError as exc:
+                raise ValueError(f"Historical source path is outside the workspace: {reference.source_path}") from exc
+            if source_path.name != "auto_fin_news_data.jsonl":
+                raise ValueError(f"Historical source must be an Auto Fin news file: {reference.source_path}")
+            if not source_path.is_file():
+                raise ValueError(f"Historical source file does not exist: {reference.source_path}")
+
+            rows = rows_by_path.get(source_path)
+            if rows is None:
+                rows = await self._read_jsonl(source_path)
+                rows_by_path[source_path] = rows
+            matches = [row for row in rows if str(row.get("news_id") or "") == reference.news_id]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Historical news_id must resolve exactly once in {reference.source_path}: {reference.news_id}",
+                )
+
+            row = matches[0]
+            event_time = self._published_at(row)
+            if event_time is None:
+                raise ValueError(f"Historical news has no valid publication time: {reference.news_id}")
+            if event_time >= window_start:
+                raise ValueError(f"History Agent returned an event inside the current news window: {reference.news_id}")
+            event_title = str(row.get("title") or "").strip()
+            event_content = _plain_text(str(row.get("content") or event_title))
+            if not event_title or not event_content:
+                raise ValueError(f"Historical news has no usable title or content: {reference.news_id}")
+
+            events_by_news_id.setdefault(
+                reference.news_id,
+                AutoFinHistoricalEvent(
+                    reason=reference.reason,
+                    news_id=reference.news_id,
+                    source_path=normalized_path.as_posix(),
+                    event_time=event_time,
+                    event_title=event_title,
+                    event_content=event_content,
+                ),
+            )
+        return sorted(events_by_news_id.values(), key=lambda event: (event.event_time, event.news_id))
 
     async def _calculate_samples(
         self,
@@ -185,28 +249,39 @@ class AutoFinHistorySearchStep(AutoFinStep):
                         self.app_context.metadata.pop(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, None)
         if (history.etf_code, history.etf_name) != (item.etf_code, item.etf_name):
             raise ValueError(f"History Agent changed ETF {label!r}")
-        if any(event.event_time >= window_start for event in history.historical_events):
-            raise ValueError("History Agent returned an event inside the current news window")
+        resolved_events = await self._resolve_historical_events(
+            history.historical_events,
+            {event.news_id for event in events},
+            window_start,
+        )
         samples, market_limitations = await self._calculate_samples(
             item.etf_code,
-            history.historical_events,
+            resolved_events,
             decision_at,
         )
+        enriched_events = [
+            event.model_copy(
+                update={
+                    "market_entry": sample.entry,
+                    "future_returns": sample.future_returns,
+                },
+            )
+            for event, sample in zip(resolved_events, samples, strict=True)
+        ]
         enriched_history = AutoFinEtfHistoricalResearch(
             etf_code=history.etf_code,
             etf_name=history.etf_name,
-            historical_events=history.historical_events,
-            historical_samples=samples,
-            limitations=list(dict.fromkeys([*history.limitations, *market_limitations])),
+            historical_events=enriched_events,
+            limitations=market_limitations,
         )
         _write(
             history_path,
-            json.dumps(enriched_history.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")) + "\n",
+            json.dumps(enriched_history.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
         )
         self.context["auto_fin_current_history"] = enriched_history.model_dump(mode="json")
         self.context["auto_fin_current_history_resource"] = str(history_path)
         self.logger.info(
-            f"[{self.name}] ready etf={label!r} events={len(history.historical_events)} samples={len(samples)} "
+            f"[{self.name}] ready etf={label!r} events={len(enriched_events)} "
             f"limitations={len(enriched_history.limitations)}",
         )
         return self.context.response

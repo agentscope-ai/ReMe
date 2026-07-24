@@ -9,7 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
@@ -17,16 +16,19 @@ from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
 from reme.schema import (
     AutoFinEtfHistoricalEvents,
+    AutoFinEtfHistoricalResearch,
+    AutoFinEtfSelection,
     AutoFinEtfsOutput,
     AutoFinHistoricalEvent,
+    AutoFinMarketSelection,
     AutoFinMarketSample,
     AutoFinReportOutput,
-    AutoFinSelectedEtfAnalysis,
 )
 from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
 from reme.steps.cookbook.auto_fin.history import AutoFinHistoryStep
 from reme.steps.cookbook.auto_fin.history_search import AutoFinHistorySearchStep
 from reme.steps.cookbook.auto_fin.merge import AutoFinMergeStep
+from reme.steps.cookbook.auto_fin.market import AutoFinMarketStep
 from reme.steps.cookbook.auto_fin.topic import AutoFinTopicStep, _plain_text
 
 
@@ -284,7 +286,8 @@ class _Agent(BaseAgentWrapper):
             )
             assert current_news_id not in task
             assert "当前事件时间线（仅作为检索线索，不含 news_id）" in task
-            assert "不得增加 events" in task
+            assert "时间、标题、正文和行情都由程序在你返回后补充" in task
+            assert "每一项只包含 reason、news_id 和 source_path" in task
             tool_context_id = kwargs.get("tool_context_id", "")
             assert tool_context_id.startswith("auto_fin_history_01_159018.SZ_")
             assert tool_context_id not in task
@@ -297,61 +300,48 @@ class _Agent(BaseAgentWrapper):
                 "etf_name": "油气ETF",
                 "historical_events": [
                     {
-                        "event_time": "2026-06-01T10:00:00",
-                        "event_content": "历史供应中断",
+                        "reason": "供应中断的事件类型和传导机制相同",
+                        "news_id": (
+                            f"20260601100000_" f"{hashlib.sha256('财联社历史供应中断'.encode()).hexdigest()[:4]}"
+                        ),
                         "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl",
                     },
                 ],
-                "limitations": [],
             }
-        elif schema is AutoFinSelectedEtfAnalysis:
+        elif schema is AutoFinMarketSelection:
             assert "ETF：159018.SZ（油气ETF）" in task
             assert "[2026-07-23T16:00:00] 原油供应中断" in task
-            assert "第 1 至第 10 个有效收盘点" in task
-            assert "必须通过 Python 对相似样本加权计算" in task
-            assert "calculation_code 保存本次实际运行的完整 Python 加权代码" in task
+            assert "只负责判断历史事件与当前事件的相似度" in task
+            assert "不要依据" in task
+            assert "程序会校验" in task
             assert "$tushare-data" not in task
             history_path = Path(
                 next(line.strip() for line in task.splitlines() if line.strip().endswith("_output.json")),
             )
             history = json.loads(history_path.read_text(encoding="utf-8"))
-            assert len(history["historical_samples"]) == 1
-            assert len(history["historical_samples"][0]["future_returns"]) == 10
+            assert "historical_samples" not in history
+            assert len(history["historical_events"]) == 1
+            assert history["historical_events"][0]["event_title"] == "历史供应中断"
+            assert len(history["historical_events"][0]["future_returns"]) == 10
             value = {
-                "etf_code": "159018.SZ",
-                "etf_name": "油气ETF",
                 "matched_historical_events": [
                     {
-                        "event_time": "2026-06-01T10:00:00",
-                        "similarity": 0.9,
-                        "weight": 1.0,
                         "reason": "供应中断的事件类型和传导机制相同",
+                        "news_id": history["historical_events"][0]["news_id"],
+                        "similarity": 1.2,
                     },
                 ],
-                "forecast": {
-                    "returns": [{"horizon": horizon, "expected_return": horizon / 100} for horizon in range(1, 11)],
-                    "suggested_holding_days": 10,
-                    "confidence": 0.65,
-                    "reason": "相似历史样本的复权累计收益整体随持有期上升",
-                },
-                "calculation_code": "weights = [1.0]\nforecast = [value * weights[0] for value in returns]",
-                "summary": "供应扰动短期利好油气产业链。",
-                "limitations": ["历史样本较少"],
             }
         elif schema is AutoFinReportOutput:
             assert "不重新搜索新闻" in task
             assert "auto_fin_history_output.jsonl" in task
-            assert "发送钉钉的精简 Markdown" in task
+            assert "不生成 YAML frontmatter" in task
             value = {
                 "title": "Auto Fin ETF 事件分析",
-                "description": "原油供应扰动的历史行情与当前预估。",
-                "body": "## 159018.SZ（油气ETF）\n\n完整分析正文。",
-                "final_recommendation": "优先关注油气ETF，参考持有 10 个交易日，供应恢复时失效。",
-                "concise_summary": (
-                    "## 最终建议\n\n优先关注油气ETF；D10 预估 +10%，confidence 0.65，"
-                    "参考持有 10 个交易日。历史样本较少。"
+                "body": (
+                    "## 159018.SZ（油气ETF）\n\n完整分析正文，D10 预估 +10%。\n\n"
+                    "## 最终建议\n\n优先关注油气ETF，参考持有 10 个交易日，供应恢复时失效。"
                 ),
-                "limitations": ["历史样本较少"],
             }
         else:  # pragma: no cover
             raise AssertionError(schema)
@@ -359,7 +349,7 @@ class _Agent(BaseAgentWrapper):
 
 
 @pytest.mark.asyncio
-async def test_four_step_pipeline_writes_structured_frontmatter_and_cleans_temporary_data(
+async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_data(
     tmp_path: Path,
 ):
     def provider(endpoint: str, **_kwargs):
@@ -444,6 +434,24 @@ async def test_four_step_pipeline_writes_structured_frontmatter_and_cleans_tempo
     )
 
     await AutoFinDataStep(app_context=app_context)(context)
+    historical_path = tmp_path / "daily" / "2026-06-01" / "auto_fin_news_data.jsonl"
+    historical_path.parent.mkdir(parents=True)
+    historical_content = "历史供应中断"
+    historical_news_id = f"20260601100000_" f"{hashlib.sha256(f'财联社{historical_content}'.encode()).hexdigest()[:4]}"
+    historical_path.write_text(
+        json.dumps(
+            {
+                "title": "历史供应中断",
+                "pub_time": "2026-06-01 10:00:00",
+                "src": "财联社",
+                "content": historical_content,
+                "news_id": historical_news_id,
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     logs = []
     topic_step = AutoFinTopicStep(app_context=app_context, agent_wrapper=agent)
     history_step = AutoFinHistoryStep(app_context=app_context, agent_wrapper=agent)
@@ -457,33 +465,35 @@ async def test_four_step_pipeline_writes_structured_frontmatter_and_cleans_tempo
     assert [schema for schema, _, _ in agent.calls] == [
         AutoFinEtfsOutput,
         AutoFinEtfHistoricalEvents,
-        AutoFinSelectedEtfAnalysis,
+        AutoFinMarketSelection,
         AutoFinReportOutput,
     ]
     assert "tool_contexts" not in app_context.metadata
     report = (tmp_path / "daily" / "2026-07-24" / "auto_fin.md").read_text(encoding="utf-8")
-    metadata = yaml.safe_load(report.split("---", 2)[1])
-    assert metadata["schema_version"] == "auto-fin/v8"
-    detail = metadata["history_details"][0]
+    assert report.startswith("# Auto Fin ETF 事件分析\n\n")
+    assert not report.startswith("---")
+    detail = context["auto_fin_history_details"][0]
     assert detail["etf"]["etf_code"] == "159018.SZ"
     first_event = detail["etf"]["events"][0]
     assert first_event["reason"] == "供应中断直接影响油气产业链盈利预期"
     assert first_event["news_id"].startswith("20260723160000_")
     analysis = detail["market_analysis"]
     assert analysis["matched_historical_events"][0]["weight"] == 1.0
+    assert analysis["matched_historical_events"][0]["news_id"] == historical_news_id
+    assert analysis["matched_historical_events"][0]["similarity"] == 1.0
     assert analysis["forecast"]["suggested_holding_days"] == 10
-    assert analysis["calculation_code"].startswith("weights =")
+    assert analysis["forecast"]["returns"][-1]["expected_return"] == pytest.approx(0.1)
+    assert "calculation_code" not in analysis
     assert detail["historical_research"]["historical_events"][0]["event_content"] == "历史供应中断"
-    assert metadata["recommendation"].startswith("优先关注油气ETF")
-    assert metadata["limitations"] == ["历史样本较少"]
-    assert "完整分析正文" in report.split("---", 2)[2]
-    brief = (tmp_path / "daily" / "2026-07-24" / "auto_fin_brief.md").read_text(encoding="utf-8")
-    assert "D10 预估 +10%" in brief
-    assert "完整分析正文" not in brief
-    assert response.answer.startswith("优先关注油气ETF")
+    assert detail["historical_research"]["historical_events"][0]["reason"] == "供应中断的事件类型和传导机制相同"
+    assert "完整分析正文" in report
+    assert "D10 预估 +10%" in report
+    assert not (tmp_path / "daily" / "2026-07-24" / "auto_fin_brief.md").exists()
+    assert response.answer.startswith("## 159018.SZ")
     assert response.metadata["etf_count"] == 1
     assert context["markdown_path"] == "daily/2026-07-24/auto_fin.md"
-    assert context["auto_fin_digest_path"] == "daily/2026-07-24/auto_fin_brief.md"
+    assert context["auto_fin_digest_path"] == "daily/2026-07-24/auto_fin.md"
+    assert response.metadata["digest_path"] == "daily/2026-07-24/auto_fin.md"
     assert sum("agent input prompt=" in line for line in logs) == 2
     assert sum("agent output prompt=" in line for line in logs) == 2
     assert all("agent start prompt=" not in line and "agent done prompt=" not in line for line in logs)
@@ -501,12 +511,17 @@ async def test_four_step_pipeline_writes_structured_frontmatter_and_cleans_tempo
     assert [row["news_id"] for row in filtered_news] == [event["news_id"] for event in detail["etf"]["events"]]
     assert filtered_etfs == [{"code": "159018.SZ", "name": "油气ETF"}]
     assert topic_etfs == [detail["etf"]]
-    assert history_output["historical_samples"][0]["entry"]["price_type"] == "close"
-    assert [point["horizon"] for point in history_output["historical_samples"][0]["future_returns"]] == list(
+    historical_event = history_output["historical_events"][0]
+    assert historical_event["news_id"] == historical_news_id
+    assert historical_event["event_time"] == "2026-06-01T10:00:00"
+    assert historical_event["event_title"] == "历史供应中断"
+    assert historical_event["market_entry"]["price_type"] == "close"
+    assert [point["horizon"] for point in historical_event["future_returns"]] == list(
         range(1, 11),
     )
-    assert history_output["historical_samples"][0]["future_returns"][-1]["cumulative_return"] == pytest.approx(0.1)
-    assert history_details == metadata["history_details"]
+    assert historical_event["future_returns"][-1]["cumulative_return"] == pytest.approx(0.1)
+    assert '\n  "etf_code"' in (resource_dir / "auto_fin_history_01_159018.SZ_output.json").read_text(encoding="utf-8")
+    assert history_details == context["auto_fin_history_details"]
 
 
 def test_historical_market_sample_rejects_look_ahead_and_incorrect_adjusted_returns():
@@ -543,6 +558,67 @@ def test_historical_market_sample_rejects_look_ahead_and_incorrect_adjusted_retu
         AutoFinMarketSample.model_validate(sample)
 
 
+def test_market_calculation_clamps_and_reverses_negative_similarity():
+    item = AutoFinEtfSelection.model_validate(
+        {
+            "etf_code": "518880.SH",
+            "etf_name": "黄金ETF",
+            "events": [{"reason": "黄金涨价", "news_id": "20260724090000_abcd"}],
+        },
+    )
+    history = AutoFinEtfHistoricalResearch.model_validate(
+        {
+            "etf_code": "518880.SH",
+            "etf_name": "黄金ETF",
+            "historical_events": [
+                {
+                    "reason": "黄金价格方向相反",
+                    "news_id": "20260601100000_abcd",
+                    "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl",
+                    "event_time": "2026-06-01T10:00:00",
+                    "event_title": "黄金价格下跌",
+                    "event_content": "黄金价格出现明显下跌。",
+                    "market_entry": {
+                        "entry_time": "2026-06-01T15:00:00",
+                        "trade_date": "2026-06-01",
+                        "price_type": "close",
+                        "raw_price": 1.0,
+                        "adj_factor": 1.0,
+                    },
+                    "future_returns": [
+                        {
+                            "horizon": 1,
+                            "trade_date": "2026-06-02",
+                            "raw_close": 1.1,
+                            "adj_factor": 1.0,
+                            "cumulative_return": 0.1,
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+    selection = AutoFinMarketSelection.model_validate(
+        {
+            "matched_historical_events": [
+                {
+                    "reason": "机制可比但价格方向相反",
+                    "news_id": "20260601100000_abcd",
+                    "similarity": -2.0,
+                },
+            ],
+        },
+    )
+
+    analysis = AutoFinMarketStep._calculate_analysis(item, history, selection)
+
+    assert analysis.matched_historical_events[0].similarity == -1.0
+    assert analysis.matched_historical_events[0].weight == 1.0
+    assert analysis.forecast.returns[0].expected_return == pytest.approx(-0.1)
+    assert analysis.forecast.suggested_holding_days is None
+    assert "加权预期收益没有正值" in analysis.limitations
+
+
 @pytest.mark.asyncio
 async def test_history_search_calculates_adjusted_returns_for_event_time_boundaries(tmp_path: Path):
     calls = []
@@ -569,9 +645,12 @@ async def test_history_search_calculates_adjusted_returns_for_event_time_boundar
     step.context = RuntimeContext(tushare_provider=provider)
     events = [
         AutoFinHistoricalEvent(
-            event_time=event_time,
-            event_content=label,
+            reason="历史行情边界测试",
+            news_id=f"{event_time.replace('-', '').replace(':', '').replace('T', '')}_abcd",
             source_path=f"daily/{event_time[:10]}/auto_fin_news_data.jsonl",
+            event_time=event_time,
+            event_title=label,
+            event_content=label,
         )
         for event_time, label in (
             ("2026-06-05T08:00:00", "盘前事件"),

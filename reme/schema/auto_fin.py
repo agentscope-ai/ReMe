@@ -90,21 +90,30 @@ class AutoFinEtfsOutput(AutoFinModel):
         return self
 
 
-class AutoFinHistoricalEvent(AutoFinModel):
-    """One historical event found in ReMe memory."""
+class AutoFinHistoricalEventReference(AutoFinModel):
+    """One historical news item selected by the search Agent."""
 
-    event_time: ShanghaiDateTime
-    event_content: str
+    reason: str
+    news_id: str
     source_path: str
+
+    @model_validator(mode="after")
+    def non_empty_values(self) -> "AutoFinHistoricalEventReference":
+        """Reject references that cannot be resolved deterministically."""
+        for field in ("reason", "news_id", "source_path"):
+            value = getattr(self, field).strip()
+            if not value:
+                raise ValueError(f"historical event {field} must not be empty")
+            setattr(self, field, value)
+        return self
 
 
 class AutoFinEtfHistoricalEvents(AutoFinModel):
-    """Historical events returned by the search Agent before market calculation."""
+    """Historical news references returned by the search Agent."""
 
     etf_code: str
     etf_name: str
-    historical_events: list[AutoFinHistoricalEvent] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+    historical_events: list[AutoFinHistoricalEventReference] = Field(default_factory=list)
 
 
 class AutoFinDailyEntry(AutoFinModel):
@@ -180,32 +189,91 @@ class AutoFinMarketSample(AutoFinModel):
         return self
 
 
+class AutoFinHistoricalEvent(AutoFinModel):
+    """One resolved historical news item and its calculated ETF return path."""
+
+    reason: str
+    news_id: str
+    source_path: str
+    event_time: ShanghaiDateTime
+    event_title: str
+    event_content: str
+    market_entry: AutoFinDailyEntry | None = None
+    future_returns: list[AutoFinFutureReturnPoint] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def valid_historical_event(self) -> "AutoFinHistoricalEvent":
+        """Require source identity and validate the embedded market reaction."""
+        for field in ("reason", "news_id", "source_path", "event_title", "event_content"):
+            value = getattr(self, field).strip()
+            if not value:
+                raise ValueError(f"historical event {field} must not be empty")
+            setattr(self, field, value)
+        AutoFinMarketSample(
+            event_time=self.event_time,
+            entry=self.market_entry,
+            future_returns=self.future_returns,
+            reaction_summary="",
+        )
+        return self
+
+
 class AutoFinEtfHistoricalResearch(AutoFinModel):
-    """Historical events and their calculated ETF return paths."""
+    """Resolved historical events with embedded calculated ETF return paths."""
 
     etf_code: str
     etf_name: str
     historical_events: list[AutoFinHistoricalEvent] = Field(default_factory=list)
-    historical_samples: list[AutoFinMarketSample] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def samples_match_events(self) -> "AutoFinEtfHistoricalResearch":
-        """Require one ordered calculated sample for every historical event."""
-        if [event.event_time for event in self.historical_events] != [
-            sample.event_time for sample in self.historical_samples
-        ]:
-            raise ValueError("historical samples must correspond one-to-one with historical events")
+    def unique_historical_news(self) -> "AutoFinEtfHistoricalResearch":
+        """Reject duplicate resolved source records."""
+        news_ids = [event.news_id for event in self.historical_events]
+        if len(news_ids) != len(set(news_ids)):
+            raise ValueError("historical event news IDs must be unique")
+        return self
+
+
+class AutoFinHistoricalSimilarity(AutoFinModel):
+    """One similarity judgment returned by the Market Agent."""
+
+    reason: str
+    news_id: str
+    similarity: float
+
+    @model_validator(mode="after")
+    def non_empty_values(self) -> "AutoFinHistoricalSimilarity":
+        """Reject a similarity judgment without source identity or rationale."""
+        self.reason = self.reason.strip()
+        self.news_id = self.news_id.strip()
+        if not self.reason or not self.news_id:
+            raise ValueError("historical similarity reason and news ID must be non-empty")
+        return self
+
+
+class AutoFinMarketSelection(AutoFinModel):
+    """Historical similarities returned by the Market Agent."""
+
+    matched_historical_events: list[AutoFinHistoricalSimilarity] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_historical_news(self) -> "AutoFinMarketSelection":
+        """Reject duplicate similarity judgments."""
+        news_ids = [event.news_id for event in self.matched_historical_events]
+        if len(news_ids) != len(set(news_ids)):
+            raise ValueError("matched historical event news IDs must be unique")
         return self
 
 
 class AutoFinHistoricalMatch(AutoFinModel):
     """One historical event selected for the weighted forecast."""
 
-    event_time: ShanghaiDateTime
-    similarity: float = Field(ge=0.0, le=1.0)
-    weight: float = Field(ge=0.0, le=1.0)
     reason: str
+    news_id: str
+    event_time: ShanghaiDateTime
+    similarity: float
+    weight: float = Field(ge=0.0, le=1.0)
 
 
 class AutoFinForecastReturnPoint(AutoFinModel):
@@ -216,12 +284,10 @@ class AutoFinForecastReturnPoint(AutoFinModel):
 
 
 class AutoFinWeightedForecast(AutoFinModel):
-    """Agent-calculated forecast derived from similar historical events."""
+    """Program-calculated forecast derived from similar historical events."""
 
     returns: list[AutoFinForecastReturnPoint] = Field(min_length=10, max_length=10)
     suggested_holding_days: int | None = Field(default=None, ge=1, le=10)
-    confidence: float = Field(ge=0.0, le=1.0)
-    reason: str
 
     @model_validator(mode="after")
     def complete_horizons(self) -> "AutoFinWeightedForecast":
@@ -232,31 +298,27 @@ class AutoFinWeightedForecast(AutoFinModel):
 
 
 class AutoFinSelectedEtfAnalysis(AutoFinModel):
-    """Weighted forecast for one selected ETF."""
+    """Program-calculated weighted forecast for one selected ETF."""
 
     etf_code: str
     etf_name: str
     matched_historical_events: list[AutoFinHistoricalMatch] = Field(default_factory=list)
     forecast: AutoFinWeightedForecast
-    calculation_code: str
-    summary: str
     limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def valid_historical_weights(self) -> "AutoFinSelectedEtfAnalysis":
         """Reject duplicate matches and invalid normalized weights."""
-        event_times = [event.event_time for event in self.matched_historical_events]
-        if len(event_times) != len(set(event_times)):
+        news_ids = [event.news_id for event in self.matched_historical_events]
+        if len(news_ids) != len(set(news_ids)):
             raise ValueError("matched historical events must be unique")
-        if event_times and not isclose(
+        if news_ids and not isclose(
             sum(event.weight for event in self.matched_historical_events),
             1.0,
             rel_tol=1e-6,
             abs_tol=1e-6,
         ):
             raise ValueError("matched historical event weights must sum to 1")
-        if not self.calculation_code.strip():
-            raise ValueError("calculation code must not be empty")
         return self
 
 
@@ -280,19 +342,15 @@ class AutoFinEtfHistoryDetail(AutoFinModel):
 
 
 class AutoFinReportOutput(AutoFinModel):
-    """Final report, recommendation, and delivery summary for all selected ETFs."""
+    """Final Markdown title and body for all selected ETFs."""
 
     title: str
-    description: str
     body: str
-    final_recommendation: str
-    concise_summary: str
-    limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def non_empty_report(self) -> "AutoFinReportOutput":
-        """Require every human-readable report representation."""
-        for field in ("title", "description", "body", "final_recommendation", "concise_summary"):
+        """Require both Markdown report fields."""
+        for field in ("title", "body"):
             value = getattr(self, field).strip()
             if not value:
                 raise ValueError(f"{field} must not be empty")
