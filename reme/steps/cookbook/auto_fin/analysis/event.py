@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from .....components import R
 from .....schema import EventAnalysisOutput
+from .._time import compare_datetimes
 from ._base import AutoFinAnalysisStep, json_text
 
 
@@ -22,20 +23,23 @@ class AutoFinEventStep(AutoFinAnalysisStep):
     ) -> None:
         """Reject event information unavailable at the checkpoint cutoff."""
         actual_now = observed_at or datetime.now(cutoff.tzinfo)
-        if output.window.end_inclusive != cutoff:
+        if compare_datetimes(output.window.end_inclusive, cutoff):
             raise ValueError("event window must end exactly at data_cutoff")
-        if any(event.published_at > cutoff or not event.known_before_cutoff for event in output.events):
+        if any(
+            compare_datetimes(event.published_at, cutoff) > 0 or not event.known_before_cutoff
+            for event in output.events
+        ):
             raise ValueError(
                 "event analysis contains information unavailable at data_cutoff",
             )
-        if any(event.fetched_at > actual_now for event in output.events):
+        if any(compare_datetimes(event.fetched_at, actual_now) > 0 for event in output.events):
             raise ValueError("event analysis contains a future fetched_at timestamp")
         for source in output.sources:
-            if source.fetched_at > actual_now or (
-                source.request_started_at is not None and source.request_started_at > actual_now
+            if compare_datetimes(source.fetched_at, actual_now) > 0 or (
+                source.request_started_at is not None and compare_datetimes(source.request_started_at, actual_now) > 0
             ):
                 raise ValueError("event source contains a future request timestamp")
-            if isinstance(source.max_timestamp, datetime) and source.max_timestamp > cutoff:
+            if isinstance(source.max_timestamp, datetime) and compare_datetimes(source.max_timestamp, cutoff) > 0:
                 raise ValueError("event source contains data after data_cutoff")
             if (
                 isinstance(source.max_timestamp, date)

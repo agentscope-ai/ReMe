@@ -175,7 +175,12 @@ def test_ledger_buys_marks_compound_and_sells_without_prices():
     ledger.apply_marks(
         [
             _mark("510300.SH", "first", 9, 11, 0.02),
-            _mark("510300.SH", "second", 11, 14, -0.01),
+            _mark("510300.SH", "second", 11, 14, -0.01).model_copy(
+                update={
+                    "interval_start": datetime(2026, 7, 23, 11),
+                    "interval_end": datetime(2026, 7, 23, 14),
+                },
+            ),
         ],
     )
     position = ledger.snapshot.positions[0]
@@ -571,7 +576,7 @@ def test_complete_backtest_requires_exact_marks_for_held_positions():
                 eligible_sell_date=date(2026, 7, 23),
                 entry_notional=0.1,
                 normalized_value=0.1,
-                marked_at=datetime(2026, 7, 22, 15, 0, tzinfo=TZ),
+                marked_at=datetime(2026, 7, 22, 15, 0),
             ),
         ],
     )
@@ -610,6 +615,90 @@ def test_auto_fin_analysis_steps_load_independent_prompts():
     for step_type, prompt_name in prompts:
         step = step_type()
         assert step.get_prompt(prompt_name)
+
+
+def test_event_validation_handles_naive_timestamps():
+    cutoff = datetime(2026, 7, 24, 9, 0, tzinfo=TZ)
+    output = EventAnalysisOutput(
+        description="test",
+        body="",
+        window={
+            "start_exclusive": datetime(2026, 7, 23, 9, 0, tzinfo=TZ),
+            "end_inclusive": datetime(2026, 7, 24, 9, 0),
+        },
+        sources=[
+            {
+                "tool": "tushare-data",
+                "endpoint": "fund_daily",
+                "fetched_at": datetime(2026, 7, 24, 10, 0),
+                "request_started_at": datetime(2026, 7, 24, 9, 59),
+                "query_hash": "test",
+                "max_timestamp": datetime(2026, 7, 23),
+            },
+        ],
+        events=[
+            {
+                "event_id": "test",
+                "published_at": datetime(2026, 7, 24, 8, 30),
+                "fetched_at": datetime(2026, 7, 24, 10, 0),
+                "title": "test",
+                "dedupe_key": "test",
+                "known_before_cutoff": True,
+                "direction": "NEUTRAL",
+                "confidence": 0.5,
+                "horizon": "1D",
+                "summary": "test",
+                "source_ref": "test",
+            },
+        ],
+        cursor={},
+    )
+
+    AutoFinEventStep.validate_output(
+        output,
+        cutoff,
+        observed_at=datetime(2026, 7, 24, 10, 1, tzinfo=TZ),
+    )
+
+    output.sources[0] = output.sources[0].model_copy(update={"max_timestamp": datetime(2026, 7, 24, 10, 0)})
+    with pytest.raises(ValueError, match="data after data_cutoff"):
+        AutoFinEventStep.validate_output(
+            output,
+            cutoff,
+            observed_at=datetime(2026, 7, 24, 10, 1, tzinfo=TZ),
+        )
+
+
+def test_backtest_validation_handles_naive_timestamps():
+    cutoff = datetime(2026, 7, 24, 9, 0, tzinfo=TZ)
+    output = BacktestAnalysisOutput(
+        description="test",
+        body="",
+        market_cutoff=datetime(2026, 7, 24, 9, 0),
+        data_manifest="resource/auto-fin/test.json",
+        code_version="test",
+        parameter_hash="test",
+        adjustment="ETF OHLC×fund_adj; A-share close×adj_factor",
+        market_data_complete=True,
+        position_marks=[
+            {
+                "code": "510300.SH",
+                "interval_id": "test",
+                "interval_start": datetime(2026, 7, 24, 8, 0),
+                "interval_end": datetime(2026, 7, 24, 9, 0),
+                "interval_return": 0.01,
+                "source_manifest": "resource/auto-fin/test.json",
+            },
+        ],
+    )
+
+    AutoFinBacktestStep.validate_output(output, cutoff)
+
+    output.position_marks[0] = output.position_marks[0].model_copy(
+        update={"interval_end": datetime(2026, 7, 24, 10, 0)},
+    )
+    with pytest.raises(ValueError, match="after market_cutoff"):
+        AutoFinBacktestStep.validate_output(output, cutoff)
 
 
 def test_quant_research_builds_three_top20_rankings_and_fusion():
@@ -806,7 +895,7 @@ async def test_latest_portfolio_snapshot_rebuilds_pending_actions(tmp_path: Path
     )
     run = {
         "run_id": "2026-07-23T0900+08:00",
-        "decision_at": "2026-07-23T09:00:00+08:00",
+        "decision_at": "2026-07-23T09:00:00",
         "generated_at": "2026-07-23T09:01:00+08:00",
         "proposed_actions": [pending.model_dump(mode="json")],
         "snapshot": {},

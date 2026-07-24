@@ -11,6 +11,7 @@ from .....schema import (
     BacktestAnalysisOutput,
     PortfolioSnapshot,
 )
+from .._time import compare_datetimes
 from ._base import AutoFinAnalysisStep, json_text
 
 
@@ -21,7 +22,7 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
     @staticmethod
     def validate_output(output: BacktestAnalysisOutput, cutoff: datetime) -> None:
         """Reject marks outside the checkpoint market-data contract."""
-        if output.market_cutoff != cutoff:
+        if compare_datetimes(output.market_cutoff, cutoff):
             raise ValueError(
                 "backtest market_cutoff does not match the checkpoint contract",
             )
@@ -29,7 +30,7 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
         if "fund_adj" not in adjustment or any(marker in adjustment for marker in ("raw", "unadjusted", "未复权")):
             raise ValueError("backtest must use fund_adj-adjusted ETF prices without a raw-price fallback")
         marks = [*output.settlement_marks, *output.position_marks]
-        if any(mark.interval_end > cutoff for mark in marks):
+        if any(compare_datetimes(mark.interval_end, cutoff) > 0 for mark in marks):
             raise ValueError("backtest contains a return interval after market_cutoff")
         ids = [mark.interval_id for mark in marks]
         if len(ids) != len(set(ids)):
@@ -53,7 +54,8 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
             phase: str,
         ) -> None:
             if not any(
-                mark.interval_start == interval_start and mark.interval_end == interval_end
+                compare_datetimes(mark.interval_start, interval_start) == 0
+                and compare_datetimes(mark.interval_end, interval_end) == 0
                 for mark in marks_by_code.get(code, [])
             ):
                 raise ValueError(
@@ -71,11 +73,11 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
         for position in snapshot.positions:
             if position.marked_at is None:
                 raise ValueError(f"position {position.code} is missing marked_at")
-            if position.marked_at > settlement_fill_at:
+            if compare_datetimes(position.marked_at, settlement_fill_at) > 0:
                 raise ValueError(
                     f"position {position.code} is marked after the settlement fill",
                 )
-            if position.marked_at < settlement_fill_at:
+            if compare_datetimes(position.marked_at, settlement_fill_at) < 0:
                 require_mark(
                     settlement_by_code,
                     position.code,
@@ -84,7 +86,7 @@ class AutoFinBacktestStep(AutoFinAnalysisStep):
                     "settlement",
                 )
 
-        if market_cutoff <= settlement_fill_at:
+        if compare_datetimes(market_cutoff, settlement_fill_at) <= 0:
             return
         proposed = [action for action in snapshot.proposed_actions if action.status is ActionStatus.PROPOSED]
         sell_codes = {action.code for action in proposed if action.action is ActionType.SELL}

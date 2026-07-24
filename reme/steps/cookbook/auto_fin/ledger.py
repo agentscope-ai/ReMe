@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from datetime import date, datetime
+from functools import cmp_to_key
 from typing import Iterable
 
 from ....schema import (
@@ -18,6 +19,7 @@ from ....schema import (
     RunStatus,
     Settlement,
 )
+from ._time import compare_datetimes
 
 
 def next_trade_date(trade_date: date, open_dates: Iterable[date]) -> date:
@@ -60,7 +62,12 @@ class AutoFinLedger:
         for position in self.snapshot.positions:
             interval_factor = 1.0
             applied = set(position.applied_interval_ids)
-            for mark in sorted(by_code.get(position.code, []), key=lambda value: value.interval_end):
+            code_marks = by_code.get(position.code, [])
+            ordered_marks = sorted(
+                code_marks,
+                key=cmp_to_key(lambda left, right: compare_datetimes(left.interval_end, right.interval_end)),
+            )
+            for mark in ordered_marks:
                 if mark.interval_id in applied:
                     continue
                 interval_factor *= 1.0 + mark.interval_return
@@ -71,9 +78,8 @@ class AutoFinLedger:
             position.cumulative_return = self._clean(position.cumulative_return_factor - 1.0)
             position.normalized_value = self._clean(position.entry_notional * position.cumulative_return_factor)
             position.portfolio_contribution = self._clean(position.normalized_value - position.entry_notional)
-            code_marks = by_code.get(position.code, [])
             if code_marks:
-                position.marked_at = max(mark.interval_end for mark in code_marks)
+                position.marked_at = ordered_marks[-1].interval_end
 
         self._recalculate_nav()
         return self._clean(self.snapshot.nav / before - 1.0) if before else 0.0
@@ -261,7 +267,10 @@ class AutoFinLedger:
             action.rejection_reason = ""
 
             reason = ""
-            if action.action in {ActionType.BUY, ActionType.SELL} and proposed_at > scheduled_fill_at:
+            if (
+                action.action in {ActionType.BUY, ActionType.SELL}
+                and compare_datetimes(proposed_at, scheduled_fill_at) > 0
+            ):
                 action.status = ActionStatus.MISSED_CUTOFF
                 reason = "analysis completed after the scheduled simulated fill"
             elif research_only and action.action in {ActionType.BUY, ActionType.SELL}:

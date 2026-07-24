@@ -7,6 +7,7 @@ import os
 import re
 from contextlib import asynccontextmanager
 from datetime import datetime
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -16,6 +17,7 @@ import frontmatter
 
 from ....schema import ActionStatus, Checkpoint, DimensionRanking, FusionRanking, PortfolioSnapshot, ProposedAction
 from ...file_io import get_path_lock
+from ._time import compare_datetimes
 
 _CHECKPOINT_LABELS = {
     Checkpoint.OPEN: "09:00",
@@ -181,11 +183,14 @@ def latest_portfolio_snapshot(
                 decision_at = datetime.fromisoformat(str(run["decision_at"]))
             except (KeyError, TypeError, ValueError):
                 continue
-            if decision_at < before:
+            if compare_datetimes(decision_at, before) < 0:
                 candidates.append((decision_at, run))
     if not candidates:
         return None
-    _, latest = max(candidates, key=lambda value: value[0])
+    _, latest = max(
+        candidates,
+        key=cmp_to_key(lambda left, right: compare_datetimes(left[0], right[0])),
+    )
     snapshot = PortfolioSnapshot.model_validate(latest.get("snapshot", {}))
     snapshot.proposed_actions = [
         action
