@@ -614,7 +614,9 @@ def test_auto_fin_analysis_steps_load_independent_prompts():
     )
     for step_type, prompt_name in prompts:
         step = step_type()
-        assert step.get_prompt(prompt_name)
+        prompt = step.get_prompt(prompt_name)
+        assert prompt
+        assert "同一细分主题" in prompt
 
 
 def test_event_validation_handles_naive_timestamps():
