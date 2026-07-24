@@ -158,6 +158,35 @@ class AutoFinPipelineStep(BaseStep):
             )
 
     @staticmethod
+    def _latest_reached_checkpoint(
+        reference_date: date,
+        open_dates: list[date],
+        now: datetime,
+    ) -> tuple[date, Checkpoint]:
+        """Resolve the latest observable checkpoint on or before a reference date."""
+        if now.tzinfo is None:
+            raise ValueError("Auto Fin observation time must be timezone-aware")
+        checkpoints = (
+            (Checkpoint.OPEN, time(9)),
+            (Checkpoint.MIDDAY, time(11, 45)),
+            (Checkpoint.CLOSE, time(14, 45)),
+        )
+        candidates = [
+            (datetime.combine(trade_day, cutoff, now.tzinfo), trade_day, checkpoint)
+            for trade_day in sorted(set(open_dates))
+            if trade_day <= reference_date
+            for checkpoint, cutoff in checkpoints
+            if datetime.combine(trade_day, cutoff, now.tzinfo) <= now
+        ]
+        if not candidates:
+            raise ValueError(
+                "No Auto Fin checkpoint has been reached on or before "
+                f"{reference_date.isoformat()}: now={now.isoformat()}",
+            )
+        _, trade_date, checkpoint = max(candidates, key=lambda value: value[0])
+        return trade_date, checkpoint
+
+    @staticmethod
     def _fetch_trade_calendar_sync(
         start: date,
         end: date,
@@ -846,27 +875,41 @@ class AutoFinPipelineStep(BaseStep):
                 else "Asia/Shanghai"
             ),
         )
+        now = datetime.now(timezone)
         raw_date = str(self._value("date", "") or "").strip()
-        trade_date = self._strict_date(raw_date) if raw_date else datetime.now(timezone).date()
-        try:
-            checkpoint = Checkpoint(str(self._value("checkpoint", "")))
-        except ValueError as exc:
-            raise ValueError("checkpoint must be one of 0900, 1145, 1445") from exc
+        reference_date = self._strict_date(raw_date) if raw_date else now.date()
+        raw_checkpoint = str(self._value("checkpoint", "") or "").strip()
+        metadata_root = self.workspace_path / str(self.config_value("metadata_dir")) / "auto-fin"
+        resource_root = self.workspace_path / str(self.config_value("resource_dir")) / "auto-fin"
+        open_dates: list[date] | None = None
+        if raw_checkpoint:
+            trade_date = reference_date
+            try:
+                checkpoint = Checkpoint(raw_checkpoint)
+            except ValueError as exc:
+                raise ValueError("checkpoint must be one of 0900, 1145, 1445") from exc
+        else:
+            discovery_manifest_path = resource_root / reference_date.isoformat() / "manifests" / "calendar-auto.json"
+            open_dates = await self._trade_calendar(reference_date, discovery_manifest_path)
+            trade_date, checkpoint = self._latest_reached_checkpoint(reference_date, open_dates, now)
+            self.logger.info(
+                f"[{self.name}] checkpoint auto-selected trade_date={trade_date.isoformat()} "
+                f"checkpoint={checkpoint.value} reference_date={reference_date.isoformat()} now={now.isoformat()}",
+            )
         run_id = self._run_id(trade_date, checkpoint, timezone)
-        force = bool(self._value("force", True))
+        force = bool(self._value("force", bool(raw_checkpoint)))
         self.logger.info(
             f"[{self.name}] checkpoint start run_id={run_id} trade_date={trade_date.isoformat()} "
             f"checkpoint={checkpoint.value} timezone={timezone} force={force}",
         )
 
-        metadata_root = self.workspace_path / str(self.config_value("metadata_dir")) / "auto-fin"
-        resource_root = self.workspace_path / str(self.config_value("resource_dir")) / "auto-fin"
         manifest_path = resource_root / trade_date.isoformat() / "manifests" / f"calendar-{checkpoint.value}.json"
         checkpoint_path = metadata_root / "checkpoints" / f"{run_id}.json"
         lock_path = metadata_root / "locks" / f"{run_id}.lock"
         async with checkpoint_lock(lock_path, run_id):
             self.logger.info(f"[{self.name}] checkpoint lock acquired run_id={run_id}")
-            open_dates = await self._trade_calendar(trade_date, manifest_path)
+            if open_dates is None:
+                open_dates = await self._trade_calendar(trade_date, manifest_path)
             if trade_date not in open_dates:
                 self.context.response.success = True
                 self.context.response.answer = f"Skipped: {trade_date.isoformat()} is not an A-share trading day"

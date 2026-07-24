@@ -297,6 +297,77 @@ def test_checkpoint_rejects_execution_before_declared_cutoff():
     )
 
 
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (datetime(2026, 7, 24, 1, 25, tzinfo=TZ), (date(2026, 7, 23), Checkpoint.CLOSE)),
+        (datetime(2026, 7, 24, 9, 0, tzinfo=TZ), (date(2026, 7, 24), Checkpoint.OPEN)),
+        (datetime(2026, 7, 24, 11, 45, tzinfo=TZ), (date(2026, 7, 24), Checkpoint.MIDDAY)),
+        (datetime(2026, 7, 24, 14, 45, tzinfo=TZ), (date(2026, 7, 24), Checkpoint.CLOSE)),
+        (datetime(2026, 7, 26, 12, 0, tzinfo=TZ), (date(2026, 7, 24), Checkpoint.CLOSE)),
+    ],
+)
+def test_auto_checkpoint_selects_latest_reached_trading_checkpoint(now, expected):
+    assert (
+        AutoFinPipelineStep._latest_reached_checkpoint(
+            now.date(),
+            [date(2026, 7, 23), date(2026, 7, 24), date(2026, 7, 27)],
+            now,
+        )
+        == expected
+    )
+
+
+def test_auto_checkpoint_rejects_when_calendar_has_no_reached_checkpoint():
+    with pytest.raises(ValueError, match="No Auto Fin checkpoint has been reached"):
+        AutoFinPipelineStep._latest_reached_checkpoint(
+            date(2026, 7, 24),
+            [date(2026, 7, 27)],
+            datetime(2026, 7, 24, 1, 25, tzinfo=TZ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_auto_selects_previous_close_without_force_before_open(tmp_path: Path, monkeypatch):
+    class FrozenDateTime(datetime):
+        """Return a stable pre-open observation time."""
+
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 7, 24, 1, 25, tzinfo=TZ)
+            return value if tz is None else value.astimezone(tz)
+
+    captured = {}
+
+    async def fake_run_pipeline(self, **kwargs):
+        captured.update(kwargs)
+        self.context.response.success = True
+        self.context.response.metadata["status"] = "COMPLETE"
+
+    monkeypatch.setattr("reme.steps.cookbook.auto_fin.pipeline.datetime", FrozenDateTime)
+    monkeypatch.setattr(AutoFinPipelineStep, "_run_pipeline", fake_run_pipeline)
+    step = AutoFinPipelineStep(
+        app_context=ApplicationContext(
+            workspace_dir=str(tmp_path),
+            timezone="Asia/Shanghai",
+        ),
+    )
+    step.logger = MagicMock()
+
+    response = await step(
+        trade_dates=["2026-07-23", "2026-07-24"],
+    )
+
+    assert response.success
+    assert captured["trade_date"] == date(2026, 7, 23)
+    assert captured["checkpoint"] is Checkpoint.CLOSE
+    assert captured["force"] is False
+    assert response.metadata["status"] == "COMPLETE"
+    logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
+    assert "checkpoint auto-selected trade_date=2026-07-23 checkpoint=1445" in logs
+    assert "timezone=Asia/Shanghai force=False" in logs
+
+
 def test_quant_features_use_adjusted_prices_and_next_open_to_open_label():
     trade_dates = [date(2026, 7, 20) + timedelta(days=index) for index in range(4)]
     raw = pl.DataFrame(
@@ -776,7 +847,9 @@ def test_daily_cookbook_wires_auto_fin_cc_skill_memory_search_and_crons(monkeypa
     assert wrapper["skills"] == ["tushare-data"]
     assert wrapper["job_tools"] == ["memory_search"]
     assert "memory_search" in config["jobs"]
-    assert config["jobs"]["auto_fin"]["parameters"]["properties"]["force"]["default"] is True
+    parameters = config["jobs"]["auto_fin"]["parameters"]
+    assert "required" not in parameters
+    assert "default" not in parameters["properties"]["force"]
     assert config["jobs"]["auto_fin"]["quant_enabled"] is True
     assert config["jobs"]["auto_fin"]["quant_universe_size"] == 50
     assert config["jobs"]["auto_fin"]["backtest_weight"] == pytest.approx(0.45)

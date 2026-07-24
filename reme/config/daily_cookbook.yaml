@@ -347,12 +347,11 @@ jobs:
           default: ""
         checkpoint:
           type: string
-          description: "Decision checkpoint: 0900, 1145, or 1445."
+          description: "Decision checkpoint: 0900, 1145, or 1445; empty selects the latest reached checkpoint."
           enum: ["0900", "1145", "1445"]
         force:
           type: boolean
-          description: "Regenerate and replace the existing run for this checkpoint."
-          default: true
+          description: "Regenerate and replace the existing run; defaults to true when checkpoint is explicit, false when auto-selected."
         force_notify:
           type: boolean
           description: "Send DingTalk again even when this run was already delivered."
@@ -369,7 +368,6 @@ jobs:
           type: boolean
           description: "Run deterministic TuShare/Polars/tree-model research."
           default: true
-      required: [checkpoint]
     steps: &auto_fin_steps
       - backend: auto_fin_pipeline_step
         agent_wrapper: auto_fin
