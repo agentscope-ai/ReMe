@@ -14,7 +14,7 @@ jobs:
   index_update_loop:
     backend: background
     watch_dirs: [daily_dir, digest_dir]
-    watch_suffixes: [md]
+    watch_suffixes: [md, jsonl]
     steps:
       - backend: init_changes_step
         monitor_type: file_store
@@ -105,7 +105,7 @@ jobs:
     backend: base
     description: "Wipe the derived search store and rebuild it from memory files."
     watch_dirs: [daily_dir, digest_dir]
-    watch_suffixes: [md]
+    watch_suffixes: [md, jsonl]
     parameters:
       type: object
       properties: {}
@@ -325,19 +325,8 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Run one idempotent Auto Fin simulated-portfolio checkpoint."
-    max_positions: &auto_fin_max_positions 10
-    slot_weight: &auto_fin_slot_weight 0.10
-    bootstrap: &auto_fin_bootstrap true
-    quant_enabled: &auto_fin_quant_enabled true
-    quant_required: &auto_fin_quant_required true
-    quant_universe_size: &auto_fin_quant_universe_size 50
-    quant_lookback_days: &auto_fin_quant_lookback_days 540
-    quant_tree_count: &auto_fin_quant_tree_count 31
-    quant_concurrency: &auto_fin_quant_concurrency 6
-    event_weight: &auto_fin_event_weight 0.30
-    backtest_weight: &auto_fin_backtest_weight 0.45
-    us_weight: &auto_fin_us_weight 0.25
+    description: "Cache recent news and ETF closes, then build and deliver the 09:30 analysis."
+    lookback_days: &auto_fin_lookback_days 60
     parameters:
       type: object
       properties:
@@ -345,34 +334,22 @@ jobs:
           type: string
           description: "A-share trade date in YYYY-MM-DD; empty means today in Asia/Shanghai."
           default: ""
-        checkpoint:
-          type: string
-          description: "Decision checkpoint: 0900, 1145, or 1445; empty selects the latest reached checkpoint."
-          enum: ["0900", "1145", "1445"]
         force:
           type: boolean
-          description: "Regenerate and replace the existing run; defaults to true when checkpoint is explicit, false when auto-selected."
-        force_notify:
-          type: boolean
-          description: "Send DingTalk again even when this run was already delivered."
+          description: "Replace an existing 09:30 report for the selected date."
           default: false
-        research_only:
-          type: boolean
-          description: "Rebuild research without creating BUY or SELL proposals."
-          default: false
-        quant_required:
-          type: boolean
-          description: "Treat missing deterministic TuShare/ML rankings as a degraded run."
-          default: true
-        quant_enabled:
-          type: boolean
-          description: "Run deterministic TuShare/Polars/tree-model research."
-          default: true
+        lookback_days:
+          type: integer
+          minimum: 1
+          description: "Calendar days of news and ETF daily/adjustment data to keep complete."
+          default: 60
     steps: &auto_fin_steps
-      - backend: auto_fin_pipeline_step
+      - backend: auto_fin_data_step
+        outbound_proxy: default
+      - backend: auto_fin_analysis_step
         agent_wrapper: auto_fin
         dispatch_steps:
-          - backend: auto_fin_notification_step
+          - backend: dingtalk_markdown_send_step
             app_key: ${DINGTALK_APP_KEY:-}
             app_secret: ${DINGTALK_APP_SECRET:-}
             robot_code: ${DINGTALK_ROBOT_CODE:-}
@@ -380,58 +357,10 @@ jobs:
             title: ReMe Auto Fin
             timeout: 15
 
-  auto_fin_0900_cron:
+  auto_fin_0930_cron:
     backend: cron
-    cron: "0 9 * * 1-5"
-    checkpoint: "0900"
-    max_positions: *auto_fin_max_positions
-    slot_weight: *auto_fin_slot_weight
-    bootstrap: *auto_fin_bootstrap
-    quant_enabled: *auto_fin_quant_enabled
-    quant_required: *auto_fin_quant_required
-    quant_universe_size: *auto_fin_quant_universe_size
-    quant_lookback_days: *auto_fin_quant_lookback_days
-    quant_tree_count: *auto_fin_quant_tree_count
-    quant_concurrency: *auto_fin_quant_concurrency
-    event_weight: *auto_fin_event_weight
-    backtest_weight: *auto_fin_backtest_weight
-    us_weight: *auto_fin_us_weight
-    steps: *auto_fin_steps
-
-  auto_fin_1145_cron:
-    backend: cron
-    cron: "45 11 * * 1-5"
-    checkpoint: "1145"
-    max_positions: *auto_fin_max_positions
-    slot_weight: *auto_fin_slot_weight
-    bootstrap: *auto_fin_bootstrap
-    quant_enabled: *auto_fin_quant_enabled
-    quant_required: *auto_fin_quant_required
-    quant_universe_size: *auto_fin_quant_universe_size
-    quant_lookback_days: *auto_fin_quant_lookback_days
-    quant_tree_count: *auto_fin_quant_tree_count
-    quant_concurrency: *auto_fin_quant_concurrency
-    event_weight: *auto_fin_event_weight
-    backtest_weight: *auto_fin_backtest_weight
-    us_weight: *auto_fin_us_weight
-    steps: *auto_fin_steps
-
-  auto_fin_1445_cron:
-    backend: cron
-    cron: "45 14 * * 1-5"
-    checkpoint: "1445"
-    max_positions: *auto_fin_max_positions
-    slot_weight: *auto_fin_slot_weight
-    bootstrap: *auto_fin_bootstrap
-    quant_enabled: *auto_fin_quant_enabled
-    quant_required: *auto_fin_quant_required
-    quant_universe_size: *auto_fin_quant_universe_size
-    quant_lookback_days: *auto_fin_quant_lookback_days
-    quant_tree_count: *auto_fin_quant_tree_count
-    quant_concurrency: *auto_fin_quant_concurrency
-    event_weight: *auto_fin_event_weight
-    backtest_weight: *auto_fin_backtest_weight
-    us_weight: *auto_fin_us_weight
+    cron: "30 9 * * 1-5"
+    lookback_days: *auto_fin_lookback_days
     steps: *auto_fin_steps
 
   daily_paper:
@@ -558,7 +487,6 @@ components:
       model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-      skills: [tushare-data]
       job_tools: [memory_search]
       permission_mode: bypassPermissions
     daily_paper:
@@ -629,6 +557,9 @@ components:
       max_ast_sections: 100
       include_frontmatter_in_metadata: false
       include_frontmatter_keys_in_metadata: []
+    jsonl:
+      backend: jsonl
+      supported_extensions: [jsonl]
 
   keyword_index:
     default:

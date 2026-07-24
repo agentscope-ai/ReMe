@@ -1,81 +1,84 @@
-"""Unified, serial Auto Fin checkpoint pipeline."""
+"""Two-step cached news and ETF research for Auto Fin."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
 import os
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import yaml
+from pydantic import BaseModel
 
 from ....components import R
 from ....components.outbound_proxy import BaseOutboundProxy
 from ....enumeration import ComponentEnum
-from ....schema import (
-    BacktestAnalysisOutput,
-    BacktestAnalysisRun,
-    BacktestAnalysisState,
-    Checkpoint,
-    EventAnalysisOutput,
-    EventAnalysisRun,
-    EventAnalysisState,
-    PortfolioMetrics,
-    PortfolioRun,
-    PortfolioSnapshot,
-    RunStatus,
-    UpstreamAnalysis,
-    UsCorrelationAnalysisOutput,
-    UsCorrelationAnalysisRun,
-    UsCorrelationAnalysisState,
-)
+from ....schema import AutoFinDecisionOutput, AutoFinResearchPlan, AutoFinThemePlan
 from ....utils.tushare import create_tushare_api
 from ...base_step import BaseStep, Ref
-from ...file_io import refresh_day_index
-from ._common import (
-    analysis_section,
-    checkpoint_lock,
-    find_run,
-    latest_portfolio_snapshot,
-    load_document,
-    portfolio_section,
-    ranking_section,
-    upsert_report,
-    write_atomic,
-)
-from .analysis import (
-    AutoFinBacktestStep,
-    AutoFinEventStep,
-    AutoFinPortfolioStep,
-    AutoFinQuantStep,
-    AutoFinUsCorrelationStep,
-)
-from .ledger import AutoFinLedger, next_trade_date
 
 
-@dataclass(frozen=True)
-class _Schedule:
-    """Resolved market times for one checkpoint."""
+def _clean(value: Any) -> Any:
+    """Convert dataframe values into strict JSON values."""
+    if value is None or isinstance(value, (str, int, bool)):
+        cleaned = value
+    elif isinstance(value, float):
+        cleaned = value if math.isfinite(value) else None
+    elif isinstance(value, (date, datetime)):
+        cleaned = value.isoformat()
+    elif isinstance(value, dict):
+        cleaned = {str(key): _clean(item) for key, item in value.items()}
+    elif isinstance(value, (list, tuple)):
+        cleaned = [_clean(item) for item in value]
+    elif hasattr(value, "item"):
+        cleaned = _clean(value.item())
+    else:
+        cleaned = str(value)
+    return cleaned
 
-    decision_at: datetime
-    data_cutoff: datetime
-    market_cutoff: datetime
-    settlement_trade_date: date
-    settlement_fill_at: datetime
-    settlement_fill_basis: str
-    scheduled_fill_at: datetime
+
+def _records(value: Any) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if hasattr(value, "to_dict"):
+        try:
+            value = value.to_dict(orient="records")
+        except TypeError:
+            value = value.to_dicts()
+    return [_clean(item) for item in value]
 
 
-def _json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+def _write(path: Path, text: str) -> None:
+    """Atomically replace one generated artifact."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
 
 
-@R.register("auto_fin_pipeline_step")
-class AutoFinPipelineStep(BaseStep):
-    """Run all Auto Fin analyses serially, then validate and persist one checkpoint."""
+def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
+    text = "".join(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records)
+    _write(path, text)
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    records = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            value = json.loads(line)
+            if not isinstance(value, dict):
+                raise ValueError(f"JSONL record must be an object: {path}")
+            records.append(value)
+    return records
+
+
+class _AutoFinStep(BaseStep):
+    """Shared schedule, cache, and TuShare helpers."""
 
     outbound_proxy: BaseOutboundProxy | None = Ref(
         BaseOutboundProxy,
@@ -87,892 +90,608 @@ class AutoFinPipelineStep(BaseStep):
         assert self.context is not None
         return self.context.get(key, self.kwargs.get(key, default))
 
+    @property
+    def _proxy_url(self) -> str | None:
+        return self.outbound_proxy.http_url if self.outbound_proxy is not None else None
+
+    @property
+    def _cache_root(self) -> Path:
+        return self.workspace_path / "metadata" / "auto-fin" / "cache"
+
+    def _cache_path(self, dataset: str, day: date) -> Path:
+        return self._cache_root / dataset / f"{day.isoformat()}.jsonl"
+
+    def _schedule(self) -> tuple[date, datetime, ZoneInfo]:
+        timezone = ZoneInfo(str(self.config_value("timezone")))
+        now_value = self._value("now")
+        now = datetime.fromisoformat(str(now_value)) if now_value is not None else datetime.now(timezone)
+        now = now.replace(tzinfo=timezone) if now.tzinfo is None else now.astimezone(timezone)
+        requested = str(self._value("date", "")).strip()
+        trade_date = date.fromisoformat(requested) if requested else now.date()
+        if trade_date != now.date():
+            raise ValueError(
+                "Auto Fin only supports the current trade date to preserve the 09:30 cutoff",
+            )
+        decision_at = datetime.combine(trade_date, time(9, 30), timezone)
+        if now < decision_at:
+            raise ValueError(
+                f"09:30 decision has not been reached: now={now.isoformat()}",
+            )
+        return trade_date, decision_at, timezone
+
+    def _lookback_days(self) -> int:
+        value = int(self._value("lookback_days", 60))
+        if value < 1:
+            raise ValueError("lookback_days must be at least 1")
+        return value
+
     @staticmethod
-    def _strict_date(value: str) -> date:
+    def _days(start: date, end: date) -> list[date]:
+        return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+
+    @staticmethod
+    def _published_at(row: dict[str, Any], timezone: ZoneInfo) -> datetime | None:
+        value = row.get("pub_time") or row.get("published_at") or row.get("datetime")
+        if not value:
+            return None
+        text = str(value).strip()
+        parsed = None
+        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y%m%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                parsed = datetime.strptime(text[:19], pattern)
+                break
+            except ValueError:
+                continue
+        if parsed is None:
+            try:
+                parsed = datetime.fromisoformat(text)
+            except ValueError:
+                return None
+        return parsed.replace(tzinfo=timezone) if parsed.tzinfo is None else parsed.astimezone(timezone)
+
+    @staticmethod
+    def _is_valid_cache(path: Path, *, allow_empty: bool = True) -> bool:
+        if not path.is_file():
+            return False
         try:
-            parsed = date.fromisoformat(value)
-        except ValueError as exc:
-            raise ValueError("date must be YYYY-MM-DD") from exc
-        if parsed.isoformat() != value:
-            raise ValueError("date must be YYYY-MM-DD")
-        return parsed
+            records = _read_jsonl(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return False
+        return allow_empty or bool(records)
 
-    @staticmethod
-    def _run_id(trade_date: date, checkpoint: Checkpoint, timezone: ZoneInfo) -> str:
-        offset = datetime.combine(trade_date, time(), timezone).isoformat()[-6:]
-        return f"{trade_date.isoformat()}T{checkpoint.value}{offset}"
-
-    @staticmethod
-    def _schedule(
-        trade_date: date,
-        previous_trade_date: date,
-        checkpoint: Checkpoint,
-        timezone: ZoneInfo,
-    ) -> _Schedule:
-        def at(day: date, hour: int, minute: int = 0) -> datetime:
-            return datetime.combine(day, time(hour, minute), timezone)
-
-        if checkpoint is Checkpoint.OPEN:
-            return _Schedule(
-                decision_at=at(trade_date, 9),
-                data_cutoff=at(trade_date, 9),
-                market_cutoff=at(previous_trade_date, 15),
-                settlement_trade_date=previous_trade_date,
-                settlement_fill_at=at(previous_trade_date, 15),
-                settlement_fill_basis="PREVIOUS_1500_CLOSE",
-                scheduled_fill_at=at(trade_date, 9, 30),
-            )
-        if checkpoint is Checkpoint.MIDDAY:
-            return _Schedule(
-                decision_at=at(trade_date, 11, 45),
-                data_cutoff=at(trade_date, 11, 45),
-                market_cutoff=at(trade_date, 11, 30),
-                settlement_trade_date=trade_date,
-                settlement_fill_at=at(trade_date, 9, 30),
-                settlement_fill_basis="0930_OPEN",
-                scheduled_fill_at=at(trade_date, 13),
-            )
-        return _Schedule(
-            decision_at=at(trade_date, 14, 45),
-            data_cutoff=at(trade_date, 14, 45),
-            market_cutoff=at(trade_date, 14, 45),
-            settlement_trade_date=trade_date,
-            settlement_fill_at=at(trade_date, 13),
-            settlement_fill_basis="1300_OPEN",
-            scheduled_fill_at=at(trade_date, 15),
-        )
-
-    @staticmethod
-    def _require_checkpoint_reached(schedule: _Schedule, now: datetime) -> None:
-        """Reject a checkpoint before its decision and data cutoff are observable."""
-        if now.tzinfo is None:
-            raise ValueError("Auto Fin observation time must be timezone-aware")
-        future_cutoffs = [
-            value for value in (schedule.decision_at, schedule.data_cutoff) if value.astimezone(now.tzinfo) > now
-        ]
-        if future_cutoffs:
-            earliest = min(future_cutoffs)
-            raise ValueError(
-                "Auto Fin checkpoint has not been reached: "
-                f"now={now.isoformat()} earliest_future_cutoff={earliest.isoformat()}",
-            )
-
-    @staticmethod
-    def _latest_reached_checkpoint(
-        reference_date: date,
-        open_dates: list[date],
-        now: datetime,
-    ) -> tuple[date, Checkpoint]:
-        """Resolve the latest observable checkpoint on or before a reference date."""
-        if now.tzinfo is None:
-            raise ValueError("Auto Fin observation time must be timezone-aware")
-        checkpoints = (
-            (Checkpoint.OPEN, time(9)),
-            (Checkpoint.MIDDAY, time(11, 45)),
-            (Checkpoint.CLOSE, time(14, 45)),
-        )
-        candidates = [
-            (datetime.combine(trade_day, cutoff, now.tzinfo), trade_day, checkpoint)
-            for trade_day in sorted(set(open_dates))
-            if trade_day <= reference_date
-            for checkpoint, cutoff in checkpoints
-            if datetime.combine(trade_day, cutoff, now.tzinfo) <= now
-        ]
-        if not candidates:
-            raise ValueError(
-                "No Auto Fin checkpoint has been reached on or before "
-                f"{reference_date.isoformat()}: now={now.isoformat()}",
-            )
-        _, trade_date, checkpoint = max(candidates, key=lambda value: value[0])
-        return trade_date, checkpoint
-
-    @staticmethod
-    def _fetch_trade_calendar_sync(
-        start: date,
-        end: date,
-        proxy_url: str | None = None,
-    ) -> tuple[list[date], list[dict[str, Any]]]:
+    async def _fetch_records(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
+        """Call TuShare or an injected test provider."""
+        provider = self._value("tushare_provider")
+        if provider is not None:
+            value = provider(endpoint, **kwargs)
+            if asyncio.iscoroutine(value):
+                value = await value
+            return _records(value)
         token = os.getenv("TUSHARE_TOKEN", "").strip()
         if not token:
-            raise RuntimeError(
-                "TUSHARE_TOKEN is required to validate the A-share trading calendar",
-            )
-        frame = create_tushare_api(token, proxy_url=proxy_url).trade_cal(
-            exchange="SSE",
-            start_date=start.strftime("%Y%m%d"),
-            end_date=end.strftime("%Y%m%d"),
-            fields="exchange,cal_date,is_open,pretrade_date",
-        )
-        records = frame.to_dict(orient="records")
-        open_dates = [
-            datetime.strptime(str(row["cal_date"]), "%Y%m%d").date()
-            for row in records
-            if int(row.get("is_open", 0)) == 1
-        ]
-        return sorted(open_dates), records
+            raise RuntimeError("TUSHARE_TOKEN is required for Auto Fin")
+        api = create_tushare_api(token, proxy_url=self._proxy_url)
+        value = await asyncio.to_thread(getattr(api, endpoint), **kwargs)
+        return _records(value)
 
-    async def _trade_calendar(
+    async def _fetch_paginated(
         self,
-        trade_date: date,
-        manifest_path: Path,
-    ) -> list[date]:
-        supplied = self._value("trade_dates", None)
-        records: list[dict[str, Any]]
+        endpoint: str,
+        limit: int,
+        **kwargs,
+    ) -> list[dict[str, Any]]:
+        rows = []
+        offset = 0
+        while True:
+            page = await self._fetch_records(
+                endpoint,
+                **kwargs,
+                offset=offset,
+                limit=limit,
+            )
+            rows.extend(page)
+            if len(page) < limit:
+                return rows
+            offset += limit
+
+    async def _trade_dates(self, trade_date: date, start: date) -> list[date]:
+        supplied = self._value("trade_dates")
         if supplied is not None:
-            if not isinstance(supplied, list):
-                raise ValueError("trade_dates must be a list of YYYY-MM-DD strings")
-            open_dates = [self._strict_date(str(value)) for value in supplied]
-            records = [{"cal_date": value.isoformat(), "is_open": 1} for value in open_dates]
-            source = "job_parameter"
+            dates = [date.fromisoformat(str(value)) for value in supplied]
         else:
-            start, end = trade_date - timedelta(days=45), trade_date + timedelta(
-                days=45,
+            rows = await self._fetch_records(
+                "trade_cal",
+                exchange="SSE",
+                start_date=start.strftime("%Y%m%d"),
+                end_date=trade_date.strftime("%Y%m%d"),
+                fields="cal_date,is_open",
             )
-            self.logger.info(
-                f"[{self.name}] fetch trading calendar source=tushare.trade_cal "
-                f"start={start.isoformat()} end={end.isoformat()}",
+            dates = [
+                datetime.strptime(str(row["cal_date"]), "%Y%m%d").date()
+                for row in rows
+                if int(row.get("is_open", 0)) == 1
+            ]
+        dates = sorted(set(dates))
+        if trade_date not in dates:
+            raise ValueError(f"{trade_date.isoformat()} is not an A-share trade date")
+        if not any(day < trade_date for day in dates):
+            raise ValueError(
+                "Auto Fin requires at least one previous A-share trade date",
             )
-            open_dates, records = await asyncio.to_thread(
-                self._fetch_trade_calendar_sync,
-                start,
-                end,
-                self.outbound_proxy.http_url if self.outbound_proxy is not None else None,
-            )
-            source = "tushare.trade_cal"
-        await write_atomic(
-            manifest_path,
-            _json(
-                {
-                    "source": source,
-                    "fetched_at": datetime.now().astimezone().isoformat(),
-                    "trade_date": trade_date.isoformat(),
-                    "rows": records,
-                },
-            )
-            + "\n",
-        )
-        self.logger.info(
-            f"[{self.name}] trading calendar ready source={source} open_dates={len(set(open_dates))} "
-            f"manifest={manifest_path.relative_to(self.workspace_path).as_posix()}",
-        )
-        return sorted(set(open_dates))
+        return dates
 
-    async def _run_analysis_step(self, step_type: type[BaseStep]) -> None:
-        """Run one fresh analysis Step against this checkpoint's RuntimeContext."""
-        assert self.context is not None
-        step = step_type(app_context=self.app_context, agent_wrapper=self.agent_wrapper)
-        self.logger.info(f"[{self.name}] analysis start stage={step.name}")
-        await step(self.context)
-        self.logger.info(f"[{self.name}] analysis done stage={step.name}")
 
-    async def _notify_stage(self, stage: str, path: Path, run_id: str) -> None:
-        """Deliver one persisted stage report without failing the analysis pipeline."""
-        assert self.context is not None
-        if not self.dispatch_step_specs:
-            return
-        rel = path.relative_to(self.workspace_path).as_posix()
-        self.context.response.metadata.update({"notify": True, "run_id": run_id})
-        try:
-            await self.dispatch_steps(
-                self.dispatch_step_specs,
-                markdown_path=rel,
-                auto_fin_notification_stage=stage,
-            )
-        except Exception as exc:  # Notification delivery must not invalidate persisted analysis.
-            error = f"{stage}: {type(exc).__name__}: {exc}"
-            errors = self.context.response.metadata.setdefault("notification_errors", [])
-            errors.append(error)
-            self.logger.warning(
-                f"[{self.name}] stage notification failed run_id={run_id} "
-                f"stage={stage} error={type(exc).__name__}: {exc}",
-            )
-            return
-        sent_count = int(self.context.response.metadata.get("dingtalk_sent_count", 0))
-        notifications = self.context.response.metadata.setdefault("notifications", [])
-        notifications.append({"stage": stage, "path": rel, "sent_count": sent_count})
-        self.logger.info(
-            f"[{self.name}] stage notification done run_id={run_id} " f"stage={stage} sent_count={sent_count}",
-        )
+@R.register("auto_fin_data_step")
+class AutoFinDataStep(_AutoFinStep):
+    """Fill missing daily TuShare cache files for the configured lookback."""
 
-    @staticmethod
-    def _common_run(
-        run_id: str,
-        checkpoint: Checkpoint,
-        schedule: _Schedule,
-        generated_at: datetime,
-        status: RunStatus,
-    ) -> dict[str, Any]:
-        return {
-            "run_id": run_id,
-            "checkpoint": checkpoint.value,
-            "status": status.value,
-            "decision_at": schedule.decision_at.isoformat(),
-            "data_cutoff": schedule.data_cutoff.isoformat(),
-            "generated_at": generated_at.isoformat(),
-            "stale": False,
-        }
-
-    async def _persist_event_stage(
+    async def _fetch_news_window(
         self,
-        *,
-        path: Path,
-        run_id: str,
-        trade_date: date,
-        checkpoint: Checkpoint,
-        schedule: _Schedule,
-        timezone: ZoneInfo,
-        output: EventAnalysisOutput | None,
-        error: str,
-    ) -> datetime:
-        """Persist and notify the completed event-analysis stage."""
-        generated_at = datetime.now(timezone)
-        status = RunStatus.COMPLETE if output is not None else RunStatus.FAILED
-        run = EventAnalysisRun.model_validate(
-            {
-                **self._common_run(run_id, checkpoint, schedule, generated_at, status),
-                "analysis": (
-                    EventAnalysisState.model_validate(output.model_dump()).model_dump(mode="json")
-                    if output is not None
-                    else None
-                ),
-                "error": error,
-            },
-        ).model_dump(mode="json", exclude_defaults=True)
-        body = (
-            analysis_section(
-                output.description,
-                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
-                output.limitations,
-            )
-            if output is not None
-            else f"事件分析失败：{error}"
+        start: datetime,
+        end: datetime,
+    ) -> list[dict[str, Any]]:
+        rows = await self._fetch_records(
+            "major_news",
+            src="",
+            start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
+            end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
+            fields="title,pub_time,src,content",
         )
-        await upsert_report(
-            path,
-            document_type="event_analysis",
-            trade_date=trade_date.isoformat(),
-            timezone=str(timezone),
-            checkpoint=checkpoint,
-            run=run,
-            section=body,
-            title=f"{trade_date.isoformat()} Event Analysis",
+        if len(rows) < 400 or end - start <= timedelta(minutes=1):
+            return rows
+        midpoint = start + (end - start) / 2
+        left, right = await asyncio.gather(
+            self._fetch_news_window(start, midpoint),
+            self._fetch_news_window(midpoint, end),
         )
-        await self._notify_stage("event", path, run_id)
-        return generated_at
+        return left + right
 
-    async def _persist_backtest_stage(
-        self,
-        *,
-        path: Path,
-        run_id: str,
-        trade_date: date,
-        checkpoint: Checkpoint,
-        schedule: _Schedule,
-        timezone: ZoneInfo,
-        output: BacktestAnalysisOutput | None,
-        error: str,
-    ) -> datetime:
-        """Persist and notify the completed backtest-analysis stage."""
-        generated_at = datetime.now(timezone)
-        status = (
-            RunStatus.COMPLETE
-            if output is not None and output.market_data_complete
-            else RunStatus.DEGRADED if output is not None else RunStatus.FAILED
-        )
-        run = BacktestAnalysisRun.model_validate(
-            {
-                **self._common_run(run_id, checkpoint, schedule, generated_at, status),
-                "analysis": (
-                    BacktestAnalysisState.model_validate(output.model_dump()).model_dump(mode="json")
-                    if output is not None
-                    else None
-                ),
-                "error": error,
-            },
-        ).model_dump(mode="json", exclude_defaults=True)
-        body = (
-            analysis_section(
-                output.description,
-                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
-                output.limitations,
-            )
-            if output is not None
-            else f"回测分析失败：{error}"
-        )
-        await upsert_report(
-            path,
-            document_type="backtest_analysis",
-            trade_date=trade_date.isoformat(),
-            timezone=str(timezone),
-            checkpoint=checkpoint,
-            run=run,
-            section=body,
-            title=f"{trade_date.isoformat()} Backtest Analysis",
-        )
-        await self._notify_stage("backtest", path, run_id)
-        return generated_at
+    async def _cache_news(self, day: date, decision_at: datetime) -> bool:
+        path = self._cache_path("news", day)
+        if self._is_valid_cache(path):
+            return False
+        timezone = decision_at.tzinfo
+        assert isinstance(timezone, ZoneInfo)
+        start = datetime.combine(day, time.min, timezone)
+        end = decision_at if day == decision_at.date() else start + timedelta(days=1)
+        rows = await self._fetch_news_window(start, end)
+        rows = [
+            row
+            for row in rows
+            if (published_at := self._published_at(row, timezone)) is not None
+            and start <= published_at
+            and (published_at <= end if day == decision_at.date() else published_at < end)
+        ]
+        _write_jsonl(path, rows)
+        return True
 
-    async def _persist_us_stage(
-        self,
-        *,
-        path: Path,
-        run_id: str,
-        trade_date: date,
-        checkpoint: Checkpoint,
-        schedule: _Schedule,
-        timezone: ZoneInfo,
-        output: UsCorrelationAnalysisOutput,
-        generated_at: datetime,
-    ) -> None:
-        """Persist and notify a newly generated opening US-correlation stage."""
-        run = UsCorrelationAnalysisRun.model_validate(
-            {
-                **self._common_run(
-                    run_id,
-                    checkpoint,
-                    schedule,
-                    generated_at,
-                    RunStatus.COMPLETE,
-                ),
-                "analysis": UsCorrelationAnalysisState.model_validate(output.model_dump()).model_dump(mode="json"),
-                "error": "",
-            },
-        ).model_dump(mode="json", exclude_defaults=True)
-        await upsert_report(
-            path,
-            document_type="us_correlation_analysis",
-            trade_date=trade_date.isoformat(),
-            timezone=str(timezone),
-            checkpoint=checkpoint,
-            run=run,
-            section=analysis_section(
-                output.description,
-                "\n\n".join(value for value in (output.body, ranking_section(output.ranking)) if value),
-                output.limitations,
-            ),
-            title=f"{trade_date.isoformat()} US Correlation Analysis",
+    async def _cache_etf(self, dataset: str, day: date) -> bool:
+        path = self._cache_path(dataset, day)
+        if self._is_valid_cache(path, allow_empty=False):
+            return False
+        fields = (
+            "ts_code,trade_date,close,pre_close,pct_chg,amount"
+            if dataset == "fund_daily"
+            else "ts_code,trade_date,adj_factor"
         )
-        await self._notify_stage("us_correlation", path, run_id)
-
-    async def _run_pipeline(
-        self,
-        *,
-        trade_date: date,
-        checkpoint: Checkpoint,
-        timezone: ZoneInfo,
-        open_dates: list[date],
-        run_id: str,
-        force: bool,
-    ) -> None:
-        assert self.context is not None
-        daily_dir = str(self.config_value("daily_dir")).strip("/")
-        day_dir = self.workspace_path / daily_dir / trade_date.isoformat()
-        self.logger.info(
-            f"[{self.name}] pipeline start run_id={run_id} checkpoint={checkpoint.value} "
-            f"trade_date={trade_date.isoformat()} force={force}",
-        )
-        paths = {
-            "event": day_dir / "event_analysis.md",
-            "backtest": day_dir / "backtest_analysis.md",
-            "us": day_dir / "us_correlation_analysis.md",
-            "portfolio": day_dir / "portfolio.md",
-        }
-        if find_run(paths["portfolio"], run_id) is not None and not force:
-            rel = paths["portfolio"].relative_to(self.workspace_path).as_posix()
-            self.context["auto_fin_portfolio_path"] = rel
-            self.context.response.success = True
-            self.context.response.answer = f"Skipped: Auto Fin checkpoint already exists at {rel}"
-            self.context.response.metadata.update(
-                {"run_id": run_id, "skipped": True, "notify": False},
+        if dataset == "fund_adj":
+            rows = await self._fetch_paginated(
+                dataset,
+                2000,
+                trade_date=day.strftime("%Y%m%d"),
+                fields=fields,
             )
-            self.logger.info(
-                f"[{self.name}] pipeline skip existing run_id={run_id} portfolio={rel}",
-            )
-            return
-
-        previous_dates = [value for value in open_dates if value < trade_date]
-        if not previous_dates:
-            raise RuntimeError(
-                f"no previous A-share trading date is available for {trade_date}",
-            )
-        previous_trade_date = previous_dates[-1]
-        schedule = self._schedule(trade_date, previous_trade_date, checkpoint, timezone)
-        self._require_checkpoint_reached(schedule, datetime.now(timezone))
-        self.logger.info(
-            f"[{self.name}] schedule resolved run_id={run_id} decision_at={schedule.decision_at.isoformat()} "
-            f"market_cutoff={schedule.market_cutoff.isoformat()} "
-            f"scheduled_fill_at={schedule.scheduled_fill_at.isoformat()}",
-        )
-        bootstrap = bool(self._value("bootstrap", True))
-        snapshot = latest_portfolio_snapshot(
-            self.workspace_path,
-            daily_dir,
-            before=schedule.decision_at,
-            excluding_run_id=run_id,
-        )
-        snapshot_source = "persisted"
-        if snapshot is None:
-            portfolio_paths = list(
-                (self.workspace_path / daily_dir).glob("*/portfolio.md"),
-            )
-            has_other_run = any(
-                run.get("run_id") != run_id
-                for path in portfolio_paths
-                for run in load_document(path).metadata.get("runs", [])
-            )
-            has_unusable_document = bool(portfolio_paths) and not any(
-                load_document(path).metadata.get("runs", []) for path in portfolio_paths
-            )
-            if not bootstrap or checkpoint is not Checkpoint.OPEN or has_other_run or has_unusable_document:
-                raise RuntimeError("no previous legal portfolio snapshot is available")
-            snapshot = PortfolioSnapshot()
-            snapshot_source = "bootstrap"
-        self.logger.info(
-            f"[{self.name}] portfolio snapshot ready run_id={run_id} source={snapshot_source} "
-            f"positions={len(snapshot.positions)} nav={snapshot.nav:.6f} cash_nav={snapshot.cash_nav:.6f}",
-        )
-
-        run_context = {
-            "run_id": run_id,
-            "timezone": str(timezone),
-            "trade_date": trade_date.isoformat(),
-            "previous_trade_date": previous_trade_date.isoformat(),
-            "checkpoint": checkpoint.value,
-            "decision_at": schedule.decision_at.isoformat(),
-            "data_cutoff": schedule.data_cutoff.isoformat(),
-            "market_cutoff": schedule.market_cutoff.isoformat(),
-            "settlement_fill_at": schedule.settlement_fill_at.isoformat(),
-            "settlement_fill_basis": schedule.settlement_fill_basis,
-            "scheduled_fill_at": schedule.scheduled_fill_at.isoformat(),
-            "workspace": str(self.workspace_path),
-            "event_report": str(paths["event"]),
-            "backtest_report": str(paths["backtest"]),
-            "us_report": str(paths["us"]),
-            "portfolio_report": str(paths["portfolio"]),
-        }
-        open_schedule = self._schedule(
-            trade_date,
-            previous_trade_date,
-            Checkpoint.OPEN,
-            timezone,
-        )
-        open_run_id = self._run_id(trade_date, Checkpoint.OPEN, timezone)
-        self.context.update(
-            {
-                "auto_fin_run_context": run_context,
-                "auto_fin_snapshot": snapshot,
-                "auto_fin_checkpoint": checkpoint,
-                "auto_fin_trade_date": trade_date,
-                "auto_fin_open_data_cutoff": open_schedule.data_cutoff,
-                "auto_fin_open_run_id": open_run_id,
-                "auto_fin_us_path": paths["us"],
-                "auto_fin_timezone": timezone,
-                "auto_fin_quant_bundle": self._value("quant_bundle", None),
-                "auto_fin_quant_enabled": bool(self._value("quant_enabled", True)),
-                "auto_fin_quant_concurrency": int(self._value("quant_concurrency", 6)),
-                "auto_fin_quant_lookback_days": int(self._value("quant_lookback_days", 540)),
-                "auto_fin_quant_tree_count": int(self._value("quant_tree_count", 31)),
-                "auto_fin_quant_universe_size": int(self._value("quant_universe_size", 50)),
-                "auto_fin_fusion_weights": {
-                    "event": float(self._value("event_weight", 0.30)),
-                    "backtest": float(self._value("backtest_weight", 0.45)),
-                    "us_correlation": float(self._value("us_weight", 0.25)),
-                },
-                "auto_fin_skip_us_research": checkpoint is not Checkpoint.OPEN,
-            },
-        )
-        if checkpoint is not Checkpoint.OPEN:
-            await self._run_analysis_step(AutoFinUsCorrelationStep)
-            saved_us_output = self.context.get("auto_fin_us_output")
-            self.context["auto_fin_us_ranking_override"] = (
-                saved_us_output.ranking if saved_us_output is not None else None
-            )
-        await self._run_analysis_step(AutoFinEventStep)
-        await self._run_analysis_step(AutoFinQuantStep)
-        event_output = self.context.get("auto_fin_event_output")
-        event_error = str(self.context.get("auto_fin_event_error", ""))
-        event_generated_at = await self._persist_event_stage(
-            path=paths["event"],
-            run_id=run_id,
-            trade_date=trade_date,
-            checkpoint=checkpoint,
-            schedule=schedule,
-            timezone=timezone,
-            output=event_output,
-            error=event_error,
-        )
-        await self._run_analysis_step(AutoFinBacktestStep)
-        quant_error = str(self.context.get("auto_fin_quant_error", ""))
-        backtest_output = self.context.get("auto_fin_backtest_output")
-        backtest_error = str(self.context.get("auto_fin_backtest_error", ""))
-        backtest_generated_at = await self._persist_backtest_stage(
-            path=paths["backtest"],
-            run_id=run_id,
-            trade_date=trade_date,
-            checkpoint=checkpoint,
-            schedule=schedule,
-            timezone=timezone,
-            output=backtest_output,
-            error=backtest_error,
-        )
-        self.logger.info(
-            f"[{self.name}] domestic analyses ready run_id={run_id} event_ok={event_output is not None} "
-            f"backtest_ok={backtest_output is not None} "
-            f"market_data_complete={bool(backtest_output and backtest_output.market_data_complete)}",
-        )
-
-        snapshot_before = snapshot.model_copy(deep=True)
-        ledger = AutoFinLedger(
-            snapshot,
-            max_positions=int(self._value("max_positions", 10)),
-            slot_weight=float(self._value("slot_weight", 0.1)),
-        )
-        settlements = []
-        if backtest_output is not None and backtest_output.market_data_complete:
-            ledger.apply_marks(backtest_output.settlement_marks)
-            settlements = ledger.settle(
-                ledger.snapshot.proposed_actions,
-                trade_date=schedule.settlement_trade_date,
-                eligible_sell_date=next_trade_date(
-                    schedule.settlement_trade_date,
-                    open_dates,
-                ),
-                fill_at=schedule.settlement_fill_at,
-                fill_basis=schedule.settlement_fill_basis,
-                market_data_complete=True,
-            )
-            ledger.apply_marks(backtest_output.position_marks)
         else:
-            settlements = ledger.settle(
-                ledger.snapshot.proposed_actions,
-                trade_date=schedule.settlement_trade_date,
-                eligible_sell_date=next_trade_date(
-                    schedule.settlement_trade_date,
-                    open_dates,
-                ),
-                fill_at=schedule.settlement_fill_at,
-                fill_basis=schedule.settlement_fill_basis,
-                market_data_complete=False,
+            rows = await self._fetch_records(
+                dataset,
+                trade_date=day.strftime("%Y%m%d"),
+                fields=fields,
             )
-        settlement_counts: dict[str, int] = {}
-        for settlement in settlements:
-            settlement_counts[settlement.status.value] = settlement_counts.get(settlement.status.value, 0) + 1
-        self.logger.info(
-            f"[{self.name}] settlements applied run_id={run_id} total={len(settlements)} "
-            f"statuses={settlement_counts} positions={len(ledger.snapshot.positions)}",
-        )
-
-        self.context["auto_fin_portfolio_snapshot"] = ledger.snapshot
-        if checkpoint is Checkpoint.OPEN:
-            await self._run_analysis_step(AutoFinUsCorrelationStep)
-        us_output = self.context.get("auto_fin_us_output")
-        us_error = str(self.context.get("auto_fin_us_error", ""))
-        us_generated_at = self.context.get("auto_fin_us_generated_at")
-        if (
-            checkpoint is Checkpoint.OPEN
-            and isinstance(us_output, UsCorrelationAnalysisOutput)
-            and isinstance(us_generated_at, datetime)
-        ):
-            await self._persist_us_stage(
-                path=paths["us"],
-                run_id=run_id,
-                trade_date=trade_date,
-                checkpoint=checkpoint,
-                schedule=open_schedule,
-                timezone=timezone,
-                output=us_output,
-                generated_at=us_generated_at,
-            )
-
-        errors = [value for value in (event_error, backtest_error, us_error) if value]
-        if quant_error and bool(self._value("quant_required", True)):
-            errors.append(quant_error)
-        if backtest_output is not None and not backtest_output.market_data_complete:
-            errors.append("backtest market data is incomplete")
-        status = RunStatus.DEGRADED if errors else RunStatus.COMPLETE
-        status_log = self.logger.warning if errors else self.logger.info
-        status_log(
-            f"[{self.name}] upstream status run_id={run_id} status={status.value} "
-            f"error_count={len(errors)} us_ok={us_output is not None}",
-        )
-        generated_at = datetime.now(timezone)
-        analyses = {
-            "event": {
-                "status": (RunStatus.COMPLETE.value if event_output else RunStatus.FAILED.value),
-                "error": event_error,
-                "analysis": (event_output.model_dump(mode="json") if event_output else None),
-            },
-            "backtest": {
-                "status": (
-                    RunStatus.COMPLETE.value
-                    if backtest_output and backtest_output.market_data_complete
-                    else (RunStatus.DEGRADED.value if backtest_output else RunStatus.FAILED.value)
-                ),
-                "error": backtest_error,
-                "analysis": (backtest_output.model_dump(mode="json") if backtest_output else None),
-            },
-            "us_correlation": {
-                "status": (RunStatus.COMPLETE.value if us_output else RunStatus.FAILED.value),
-                "error": us_error,
-                "analysis": us_output.model_dump(mode="json") if us_output else None,
-                "reused": checkpoint is not Checkpoint.OPEN,
-            },
-            "fusion": (
-                self.context["auto_fin_fusion_ranking"].model_dump(mode="json")
-                if self.context.get("auto_fin_fusion_ranking")
-                else None
-            ),
-        }
-        self.context["auto_fin_analyses"] = analyses
-        await self._run_analysis_step(AutoFinPortfolioStep)
-        portfolio_output = self.context.get("auto_fin_portfolio_output")
-        portfolio_error = str(self.context.get("auto_fin_portfolio_error", ""))
-        if portfolio_output is None:
+        if not rows:
             raise RuntimeError(
-                f"portfolio analysis failed schema validation: {portfolio_error}",
+                f"TuShare returned no {dataset} data for open date {day.isoformat()}",
             )
-
-        accepted, rejected = ledger.validate_proposals(
-            portfolio_output.actions,
-            run_id=run_id,
-            trade_date=trade_date,
-            proposed_at=generated_at,
-            scheduled_fill_at=schedule.scheduled_fill_at,
-            run_status=status,
-            research_only=bool(self._value("research_only", False)),
-            position_data_complete=bool(
-                backtest_output and backtest_output.market_data_complete,
-            ),
-        )
-        ledger.snapshot.proposed_actions = [action for action in accepted if action.status.value == "PROPOSED"]
-        self.logger.info(
-            f"[{self.name}] proposals validated run_id={run_id} received={len(portfolio_output.actions)} "
-            f"accepted={len(accepted)} rejected={len(rejected)} "
-            f"pending={len(ledger.snapshot.proposed_actions)}",
-        )
-        interval_return = ledger.snapshot.nav / snapshot_before.nav - 1.0
-        common = self._common_run(run_id, checkpoint, schedule, generated_at, status)
-        upstream = {
-            "event": UpstreamAnalysis(
-                run_id=run_id,
-                status=RunStatus(analyses["event"]["status"]),
-                data_cutoff=schedule.data_cutoff,
-                generated_at=event_generated_at,
-            ).model_dump(mode="json"),
-            "backtest": UpstreamAnalysis(
-                run_id=run_id,
-                status=RunStatus(analyses["backtest"]["status"]),
-                data_cutoff=schedule.market_cutoff,
-                generated_at=backtest_generated_at,
-            ).model_dump(mode="json"),
-            "us_correlation": UpstreamAnalysis(
-                run_id=open_run_id,
-                status=RunStatus(analyses["us_correlation"]["status"]),
-                data_cutoff=open_schedule.data_cutoff,
-                generated_at=us_generated_at or generated_at,
-            ).model_dump(mode="json"),
-        }
-        settlement_rows = [value.model_dump(mode="json") for value in settlements]
-        accepted_rows = [value.model_dump(mode="json") for value in accepted]
-        rejected_rows = [value.model_dump(mode="json") for value in rejected]
-        portfolio_run = PortfolioRun.model_validate(
-            {
-                **common,
-                "portfolio_before": PortfolioMetrics(
-                    nav=snapshot_before.nav,
-                    cash_nav=snapshot_before.cash_nav,
-                    position_count=len(snapshot_before.positions),
-                ).model_dump(mode="json"),
-                "settlements": settlement_rows,
-                "proposed_actions": accepted_rows,
-                "rejected_actions": rejected_rows,
-                "upstream": upstream,
-                "snapshot": ledger.snapshot.model_dump(mode="json"),
-            },
-        ).model_dump(
-            mode="json",
-            exclude={"snapshot": {"proposed_actions"}},
-            exclude_defaults=True,
-        )
-
-        portfolio_body = portfolio_section(
-            snapshot_before,
-            ledger.snapshot,
-            settlement_rows,
-            accepted_rows,
-            rejected_rows,
-            "\n\n".join(
-                value
-                for value in (
-                    portfolio_output.body,
-                    ranking_section(portfolio_output.fusion_ranking),
-                )
-                if value
-            ),
-            interval_return=interval_return,
-            status=status.value,
-            us_as_of=us_output.as_of.isoformat() if us_output else "",
-        )
-        report_args = {
-            "trade_date": trade_date.isoformat(),
-            "timezone": str(timezone),
-            "checkpoint": checkpoint,
-        }
-        self.logger.info(
-            f"[{self.name}] portfolio persistence start run_id={run_id} path={paths['portfolio']}",
-        )
-        await upsert_report(
-            paths["portfolio"],
-            document_type="portfolio",
-            run=portfolio_run,
-            section=portfolio_body,
-            title=f"{trade_date.isoformat()} Auto Fin Portfolio",
-            **report_args,
-        )
-        await self._notify_stage("portfolio", paths["portfolio"], run_id)
-        self.logger.info(
-            f"[{self.name}] portfolio persistence done run_id={run_id}",
-        )
-        try:
-            await refresh_day_index(
-                SimpleNamespace(workspace_path=self.workspace_path),
-                trade_date.isoformat(),
-                daily_dir,
-            )
-            self.logger.info(
-                f"[{self.name}] refreshed derived daily index run_id={run_id}",
-            )
-        except (OSError, UnicodeError, ValueError) as exc:
-            # portfolio.md is the commit point; a derived daily index can be rebuilt independently.
-            self.logger.warning(
-                f"[{self.name}] failed to refresh derived daily index: {exc}",
-            )
-
-        rel = paths["portfolio"].relative_to(self.workspace_path).as_posix()
-        self.context["auto_fin_portfolio_path"] = rel
-        self.context.response.success = status is not RunStatus.FAILED
-        self.context.response.answer = f"Generated Auto Fin {checkpoint.value} report: {rel}"
-        self.context.response.metadata.update(
-            {
-                "run_id": run_id,
-                "status": status.value,
-                "portfolio_path": rel,
-                "errors": errors,
-                "notify": False,
-            },
-        )
-        self.logger.info(
-            f"[{self.name}] pipeline done run_id={run_id} status={status.value} portfolio={rel} "
-            f"positions={len(ledger.snapshot.positions)} nav={ledger.snapshot.nav:.6f}",
-        )
+        _write_jsonl(path, rows)
+        return True
 
     async def execute(self):
         assert self.context is not None
-        timezone = ZoneInfo(
-            (
-                self.app_context.app_config.timezone
-                if self.app_context and self.app_context.app_config.timezone
-                else "Asia/Shanghai"
-            ),
-        )
-        now = datetime.now(timezone)
-        raw_date = str(self._value("date", "") or "").strip()
-        reference_date = self._strict_date(raw_date) if raw_date else now.date()
-        raw_checkpoint = str(self._value("checkpoint", "") or "").strip()
-        metadata_root = self.workspace_path / str(self.config_value("metadata_dir")) / "auto-fin"
-        resource_root = self.workspace_path / str(self.config_value("resource_dir")) / "auto-fin"
-        open_dates: list[date] | None = None
-        if raw_checkpoint:
-            trade_date = reference_date
-            try:
-                checkpoint = Checkpoint(raw_checkpoint)
-            except ValueError as exc:
-                raise ValueError("checkpoint must be one of 0900, 1145, 1445") from exc
-        else:
-            discovery_manifest_path = resource_root / reference_date.isoformat() / "manifests" / "calendar-auto.json"
-            open_dates = await self._trade_calendar(reference_date, discovery_manifest_path)
-            trade_date, checkpoint = self._latest_reached_checkpoint(reference_date, open_dates, now)
-            self.logger.info(
-                f"[{self.name}] checkpoint auto-selected trade_date={trade_date.isoformat()} "
-                f"checkpoint={checkpoint.value} reference_date={reference_date.isoformat()} now={now.isoformat()}",
+        trade_date, decision_at, _ = self._schedule()
+        report_path = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat() / "auto_fin.md"
+        relative_report = report_path.relative_to(self.workspace_path).as_posix()
+        skip_analysis = report_path.is_file() and not bool(self._value("force", False))
+        if skip_analysis:
+            self.context["auto_fin_skip"] = True
+            self.context["markdown_path"] = relative_report
+            self.context.response.metadata.update(
+                {"skipped": True, "markdown_path": relative_report},
             )
-        run_id = self._run_id(trade_date, checkpoint, timezone)
-        force = bool(self._value("force", bool(raw_checkpoint)))
-        self.logger.info(
-            f"[{self.name}] checkpoint start run_id={run_id} trade_date={trade_date.isoformat()} "
-            f"checkpoint={checkpoint.value} timezone={timezone} force={force}",
+
+        lookback_days = self._lookback_days()
+        start = trade_date - timedelta(days=lookback_days - 1)
+        trade_dates = await self._trade_dates(trade_date, start)
+        etf_dates = [day for day in trade_dates if start <= day < trade_date]
+        downloaded = {"news": 0, "fund_daily": 0, "fund_adj": 0}
+        for day in self._days(start, trade_date):
+            downloaded["news"] += int(await self._cache_news(day, decision_at))
+        for day in etf_dates:
+            downloaded["fund_daily"] += int(await self._cache_etf("fund_daily", day))
+            downloaded["fund_adj"] += int(await self._cache_etf("fund_adj", day))
+
+        self.context.update(
+            {
+                "auto_fin_trade_date": trade_date.isoformat(),
+                "auto_fin_decision_at": decision_at.isoformat(),
+                "auto_fin_start_date": start.isoformat(),
+                "auto_fin_trade_dates": [day.isoformat() for day in trade_dates],
+                "auto_fin_etf_dates": [day.isoformat() for day in etf_dates],
+                "auto_fin_lookback_days": lookback_days,
+            },
+        )
+        self.context.response.metadata.update(
+            {
+                "trade_date": trade_date.isoformat(),
+                "lookback_days": lookback_days,
+                "data_downloaded": downloaded,
+            },
+        )
+        return self.context.response
+
+
+@R.register("auto_fin_analysis_step")
+class AutoFinAnalysisStep(_AutoFinStep):
+    """Analyze prepared cache data, write the report, and dispatch delivery."""
+
+    async def _reply(self, prompt_name: str, model: type[BaseModel], **values: str):
+        if self.agent_wrapper is None:
+            raise RuntimeError("Auto Fin requires an agent_wrapper with memory_search")
+        result = await self.agent_wrapper.reply(
+            self.prompt_format(prompt_name, **values),
+            output_schema=model,
+        )
+        value = result.get("structured_output")
+        return value if isinstance(value, model) else model.model_validate(value)
+
+    def _prepared_context(self) -> tuple[date, datetime, date, list[date]]:
+        assert self.context is not None
+        required = (
+            "auto_fin_trade_date",
+            "auto_fin_decision_at",
+            "auto_fin_start_date",
+            "auto_fin_etf_dates",
+        )
+        missing = [key for key in required if self.context.get(key) is None]
+        if missing:
+            raise RuntimeError(
+                f"Auto Fin data step did not prepare: {', '.join(missing)}",
+            )
+        return (
+            date.fromisoformat(str(self.context["auto_fin_trade_date"])),
+            datetime.fromisoformat(str(self.context["auto_fin_decision_at"])),
+            date.fromisoformat(str(self.context["auto_fin_start_date"])),
+            [date.fromisoformat(str(value)) for value in self.context["auto_fin_etf_dates"]],
         )
 
-        manifest_path = resource_root / trade_date.isoformat() / "manifests" / f"calendar-{checkpoint.value}.json"
-        checkpoint_path = metadata_root / "checkpoints" / f"{run_id}.json"
-        lock_path = metadata_root / "locks" / f"{run_id}.lock"
-        async with checkpoint_lock(lock_path, run_id):
-            self.logger.info(f"[{self.name}] checkpoint lock acquired run_id={run_id}")
-            if open_dates is None:
-                open_dates = await self._trade_calendar(trade_date, manifest_path)
-            if trade_date not in open_dates:
-                self.context.response.success = True
-                self.context.response.answer = f"Skipped: {trade_date.isoformat()} is not an A-share trading day"
-                self.context.response.metadata.update(
-                    {"run_id": run_id, "skipped": True, "notify": False},
+    def _news(
+        self,
+        start: date,
+        trade_date: date,
+        window_start: datetime,
+        decision_at: datetime,
+    ) -> list[dict]:
+        news = {}
+        for day in self._days(start, trade_date):
+            for row in _read_jsonl(self._cache_path("news", day)):
+                published_at = self._published_at(row, decision_at.tzinfo)
+                if published_at is None or not window_start < published_at <= decision_at:
+                    continue
+                title = str(row.get("title") or "").strip()
+                news_id = hashlib.sha256(
+                    f"{published_at.isoformat()}|{title}".encode(),
+                ).hexdigest()[:16]
+                news[news_id] = {
+                    "record_type": "auto_fin_news",
+                    "news_id": news_id,
+                    "published_at": published_at.isoformat(),
+                    "title": title,
+                    "source": str(row.get("src") or ""),
+                    "content": str(row.get("content") or "").strip()[:4000],
+                }
+        return sorted(
+            news.values(),
+            key=lambda row: (row["published_at"], row["news_id"]),
+        )
+
+    def _dataset(
+        self,
+        dataset: str,
+        days: list[date],
+        ts_code: str | None = None,
+    ) -> list[dict]:
+        rows = []
+        for day in days:
+            for row in _read_jsonl(self._cache_path(dataset, day)):
+                if ts_code is None or str(row.get("ts_code", "")).upper() == ts_code.upper():
+                    rows.append(row)
+        return rows
+
+    @staticmethod
+    def _adjusted_history(
+        daily: list[dict[str, Any]],
+        factors: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        factor_by_date = {
+            str(row.get("trade_date")): float(row["adj_factor"])
+            for row in factors
+            if row.get("trade_date") and row.get("adj_factor") is not None
+        }
+        history = []
+        for row in daily:
+            trade_day = str(row.get("trade_date") or "")
+            factor = factor_by_date.get(trade_day)
+            close = row.get("close")
+            if not trade_day or factor is None or close is None:
+                continue
+            history.append(
+                {
+                    "trade_date": trade_day,
+                    "close": float(close),
+                    "adj_factor": factor,
+                    "adjusted_close": float(close) * factor,
+                    "amount": row.get("amount"),
+                },
+            )
+        history.sort(key=lambda row: row["trade_date"])
+        previous = None
+        for row in history:
+            row["close_return"] = row["adjusted_close"] / previous - 1.0 if previous not in (None, 0) else None
+            previous = row["adjusted_close"]
+        return history
+
+    @staticmethod
+    def _case_stat(
+        history: list[dict[str, Any]],
+        case_date: date,
+    ) -> dict[str, Any] | None:
+        target = case_date.strftime("%Y%m%d")
+        index = next(
+            (position for position, row in enumerate(history) if row["trade_date"] >= target),
+            None,
+        )
+        if index is None or index == 0:
+            return None
+        baseline = history[index - 1]["adjusted_close"]
+        result: dict[str, Any] = {
+            "case_trade_date": case_date.isoformat(),
+            "realized_trade_date": datetime.strptime(
+                history[index]["trade_date"],
+                "%Y%m%d",
+            )
+            .date()
+            .isoformat(),
+        }
+        for offset in (0, 1, 3, 5):
+            position = index + offset
+            if position < len(history):
+                result[f"close_return_d{offset}"] = history[position]["adjusted_close"] / baseline - 1.0
+        return result
+
+    def _theme_data(
+        self,
+        theme: AutoFinThemePlan,
+        etf_dates: list[date],
+        previous: date,
+    ) -> dict[str, Any]:
+        history = self._adjusted_history(
+            self._dataset("fund_daily", etf_dates, theme.etf_code),
+            self._dataset("fund_adj", etf_dates, theme.etf_code),
+        )
+        valid_cases = [case for case in theme.historical_cases if case.trade_date <= previous]
+        case_stats = []
+        for case in valid_cases:
+            stat = self._case_stat(history, case.trade_date)
+            if stat:
+                case_stats.append({**case.model_dump(mode="json"), **stat})
+        latest = history[-1] if history else None
+        prior = history[-2] if len(history) > 1 else None
+        return {
+            "theme": theme.theme,
+            "direction": theme.direction,
+            "etf_code": theme.etf_code,
+            "etf_name": theme.etf_name,
+            "latest": {
+                "trade_date": latest["trade_date"] if latest else None,
+                "price": latest["close"] if latest else None,
+                "pre_close": prior["close"] if prior else None,
+                "pct_change": latest["close_return"] if latest else None,
+            },
+            "historical_cases": case_stats,
+            "recent_close_returns": history[-20:],
+            "_history": history,
+        }
+
+    @staticmethod
+    def _markdown(
+        trade_date: date,
+        decision_at: datetime,
+        window_start: datetime,
+        output: AutoFinDecisionOutput,
+        datasets: list[dict[str, Any]],
+    ) -> str:
+        metadata = yaml.safe_dump(
+            {
+                "document_type": "auto_fin_news_case",
+                "trade_date": trade_date.isoformat(),
+                "decision_at": decision_at.isoformat(),
+                "news_window": f"({window_start.isoformat()}, {decision_at.isoformat()}]",
+            },
+            allow_unicode=True,
+            sort_keys=False,
+        ).strip()
+        latest = {item["etf_code"]: item["latest"].get("pct_change") for item in datasets}
+        lines = [
+            "---",
+            metadata,
+            "---",
+            "",
+            f"# {trade_date.isoformat()} Auto Fin 09:30",
+            "",
+            output.description.strip(),
+            "",
+            output.body.strip(),
+            "",
+            "## 参考建议",
+            "",
+            "| 主题 | ETF | 最近收盘涨跌 | Price-in | 建议 | 置信度 | 理由 |",
+            "|---|---|---:|---|---|---:|---|",
+        ]
+        for item in output.recommendations:
+            pct = latest.get(item.etf_code)
+            pct_text = f"{pct:.2%}" if pct is not None else "-"
+            lines.append(
+                f"| {item.theme} | {item.etf_name} ({item.etf_code}) | {pct_text} | "
+                f"{item.price_in} | {item.action} | {item.confidence:.0%} | {item.reason} |",
+            )
+        if output.limitations:
+            lines.extend(
+                ["", "## 限制", "", *[f"- {item}" for item in output.limitations]],
+            )
+        lines.extend(["", "> 仅为新闻案例研究，不考虑仓位，不会执行真实交易。", ""])
+        return "\n".join(lines)
+
+    async def execute(self):
+        assert self.context is not None
+        if self.context.get("auto_fin_skip"):
+            return self.context.response
+        trade_date, decision_at, start, etf_dates = self._prepared_context()
+        previous = max(etf_dates)
+        window_start = datetime.combine(previous, time(15), decision_at.tzinfo)
+        day_dir = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat()
+        report_path = day_dir / "auto_fin.md"
+
+        news = self._news(start, trade_date, window_start, decision_at)
+        _write_jsonl(day_dir / "auto_fin_news.jsonl", news)
+        universe = self._dataset("fund_daily", [previous])
+        plan = await self._reply(
+            "plan_user",
+            AutoFinResearchPlan,
+            trade_date=trade_date.isoformat(),
+            decision_at=decision_at.isoformat(),
+            window_start=window_start.isoformat(),
+            lookback_days=str(self.context["auto_fin_lookback_days"]),
+            news=json.dumps(news, ensure_ascii=False, separators=(",", ":")),
+            etf_universe=json.dumps(
+                universe,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+        news_ids = {item["news_id"] for item in news}
+        universe_codes = {str(row.get("ts_code", "")).upper() for row in universe}
+        for theme in plan.themes:
+            if not set(theme.news_ids).issubset(news_ids):
+                raise ValueError(
+                    f"theme {theme.theme!r} references unknown current news",
                 )
-                self.logger.info(
-                    f"[{self.name}] checkpoint skip non-trading day run_id={run_id}",
+            if theme.etf_code.upper() not in universe_codes:
+                raise ValueError(
+                    f"ETF {theme.etf_code!r} is absent from the prepared universe",
                 )
-                return self.context.response
-            await write_atomic(
-                checkpoint_path,
-                _json(
-                    {
-                        "run_id": run_id,
-                        "status": "RUNNING",
-                        "started_at": datetime.now(timezone).isoformat(),
+            if any(case.trade_date >= trade_date for case in theme.historical_cases):
+                raise ValueError(
+                    "memory cases must be strictly earlier than the current trade date",
+                )
+
+        datasets = [self._theme_data(theme, etf_dates, previous) for theme in plan.themes]
+        serializable = [{key: value for key, value in item.items() if key != "_history"} for item in datasets]
+        etf_rows = []
+        for item in datasets:
+            etf_rows.append(
+                {
+                    "record_type": "auto_fin_latest_etf",
+                    **{
+                        key: item[key]
+                        for key in (
+                            "theme",
+                            "direction",
+                            "etf_code",
+                            "etf_name",
+                            "latest",
+                        )
                     },
-                )
-                + "\n",
+                },
             )
-            self.logger.info(
-                f"[{self.name}] checkpoint state written run_id={run_id} status=RUNNING",
+            etf_rows.extend(
+                {
+                    "record_type": "auto_fin_etf_daily",
+                    "theme": item["theme"],
+                    "etf_code": item["etf_code"],
+                    **daily_bar,
+                }
+                for daily_bar in item["_history"]
             )
-            try:
-                await self._run_pipeline(
-                    trade_date=trade_date,
-                    checkpoint=checkpoint,
-                    timezone=timezone,
-                    open_dates=open_dates,
-                    run_id=run_id,
-                    force=force,
-                )
-            except Exception as exc:
-                await write_atomic(
-                    checkpoint_path,
-                    _json(
-                        {
-                            "run_id": run_id,
-                            "status": "FAILED",
-                            "failed_at": datetime.now(timezone).isoformat(),
-                            "error": f"{type(exc).__name__}: {exc}",
-                        },
-                    )
-                    + "\n",
-                )
-                self.logger.exception(
-                    f"[{self.name}] checkpoint failed run_id={run_id} error={type(exc).__name__}: {exc}",
-                )
-                raise
-            final_status = self.context.response.metadata.get("status", "SKIPPED")
-            await write_atomic(
-                checkpoint_path,
-                _json(
-                    {
-                        "run_id": run_id,
-                        "status": final_status,
-                        "completed_at": datetime.now(timezone).isoformat(),
-                    },
-                )
-                + "\n",
+        _write_jsonl(day_dir / "auto_fin_etf.jsonl", etf_rows)
+
+        output = await self._reply(
+            "decision_user",
+            AutoFinDecisionOutput,
+            trade_date=trade_date.isoformat(),
+            decision_at=decision_at.isoformat(),
+            news=json.dumps(news, ensure_ascii=False, indent=2),
+            plan=plan.model_dump_json(indent=2),
+            etf_data=json.dumps(serializable, ensure_ascii=False, indent=2),
+        )
+        allowed = {(item.theme, item.etf_code) for item in plan.themes}
+        if any((item.theme, item.etf_code) not in allowed for item in output.recommendations):
+            raise ValueError(
+                "recommendations must use the planned theme and representative ETF",
             )
-            self.logger.info(
-                f"[{self.name}] checkpoint done run_id={run_id} status={final_status}",
+
+        plans = {(item.theme, item.etf_code): item for item in plan.themes}
+        data = {(item["theme"], item["etf_code"]): item for item in serializable}
+        case_rows = []
+        for item in output.recommendations:
+            theme = plans[(item.theme, item.etf_code)]
+            case_rows.append(
+                {
+                    "record_type": "auto_fin_case",
+                    "trade_date": trade_date.isoformat(),
+                    "decision_at": decision_at.isoformat(),
+                    "theme": item.theme,
+                    "direction": theme.direction,
+                    "news": [row for row in news if row["news_id"] in theme.news_ids],
+                    "etf_code": item.etf_code,
+                    "etf_name": item.etf_name,
+                    "latest": data[(item.theme, item.etf_code)]["latest"],
+                    "price_in": item.price_in,
+                    "action": item.action,
+                    "confidence": item.confidence,
+                    "reason": item.reason,
+                    "historical_evidence": item.historical_evidence,
+                    "invalidation_condition": item.invalidation_condition,
+                },
             )
+        _write_jsonl(day_dir / "auto_fin_cases.jsonl", case_rows)
+        _write(
+            report_path,
+            self._markdown(trade_date, decision_at, window_start, output, serializable),
+        )
+        relative_report = report_path.relative_to(self.workspace_path).as_posix()
+        self.context["markdown_path"] = relative_report
+        self.context.response.answer = output.body
+        self.context.response.metadata.update(
+            {
+                "trade_date": trade_date.isoformat(),
+                "decision_at": decision_at.isoformat(),
+                "news_count": len(news),
+                "case_count": len(case_rows),
+                "markdown_path": relative_report,
+            },
+        )
+        if self.dispatch_step_specs:
+            await self.dispatch_steps(self.dispatch_step_specs)
         return self.context.response
+
+
+# Compatibility alias for callers importing the previous one-step class name.
+AutoFinPipelineStep = AutoFinAnalysisStep
