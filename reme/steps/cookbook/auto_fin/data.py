@@ -170,26 +170,37 @@ class _AutoFinStep(BaseStep):
 
     async def _is_valid_cache(self, path: Path, *, allow_empty: bool = True) -> bool:
         if not path.is_file():
+            self.logger.debug(f"[{self.name}] cache missing path={path}")
             return False
         try:
             records = await (self._read_csv(path) if path.suffix == ".csv" else self._read_jsonl(path))
-        except (OSError, ValueError, csv.Error, json.JSONDecodeError):
+        except (OSError, ValueError, csv.Error, json.JSONDecodeError) as exc:
+            self.logger.warning(f"[{self.name}] cache invalid path={path} error={exc!r}")
             return False
+        self.logger.debug(f"[{self.name}] cache valid path={path} records={len(records)}")
         return allow_empty or bool(records)
 
     async def _fetch_records(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
+        self.logger.debug(
+            f"[{self.name}] TuShare request start endpoint={endpoint} "
+            f"trade_date={kwargs.get('trade_date')} offset={kwargs.get('offset')}",
+        )
         provider = self._value("tushare_provider")
         if provider is not None:
             value = provider(endpoint, **kwargs)
             if asyncio.iscoroutine(value):
                 value = await value
-            return _records(value)
+            records = _records(value)
+            self.logger.debug(f"[{self.name}] TuShare request done endpoint={endpoint} records={len(records)}")
+            return records
         token = os.getenv("TUSHARE_TOKEN", "").strip()
         if not token:
             raise RuntimeError("TUSHARE_TOKEN is required for Auto Fin")
         api = create_tushare_api(token, proxy_url=self._proxy_url)
         value = await asyncio.to_thread(getattr(api, endpoint), **kwargs)
-        return _records(value)
+        records = _records(value)
+        self.logger.debug(f"[{self.name}] TuShare request done endpoint={endpoint} records={len(records)}")
+        return records
 
     async def _fetch_paginated(self, endpoint: str, limit: int, **kwargs) -> list[dict[str, Any]]:
         rows = []
@@ -197,6 +208,10 @@ class _AutoFinStep(BaseStep):
         while True:
             page = await self._fetch_records(endpoint, **kwargs, offset=offset, limit=limit)
             rows.extend(page)
+            self.logger.debug(
+                f"[{self.name}] TuShare page endpoint={endpoint} offset={offset} "
+                f"page_records={len(page)} total_records={len(rows)}",
+            )
             if len(page) < limit:
                 return rows
             offset += limit
@@ -232,14 +247,22 @@ class AutoFinDataStep(_AutoFinStep):
 
     async def _is_valid_news_cache(self, path: Path) -> bool:
         if not path.is_file():
+            self.logger.debug(f"[{self.name}] news cache missing path={path}")
             return False
         try:
             records = await self._read_jsonl(path)
-        except (OSError, ValueError, json.JSONDecodeError):
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            self.logger.warning(f"[{self.name}] news cache invalid path={path} error={exc!r}")
             return False
-        return all(str(row.get("src") or "") == "财联社" for row in records)
+        valid = all(str(row.get("src") or "") == "财联社" for row in records)
+        if valid:
+            self.logger.debug(f"[{self.name}] news cache valid path={path} records={len(records)}")
+        else:
+            self.logger.warning(f"[{self.name}] news cache has unexpected sources path={path} records={len(records)}")
+        return valid
 
     async def _fetch_news_window(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        self.logger.debug(f"[{self.name}] news fetch window start={start.isoformat()} end={end.isoformat()}")
         rows = await self._fetch_records(
             "major_news",
             src="财联社",
@@ -249,6 +272,10 @@ class AutoFinDataStep(_AutoFinStep):
         )
         if len(rows) < 400 or end - start <= timedelta(minutes=1):
             return rows
+        self.logger.info(
+            f"[{self.name}] split saturated news window start={start.isoformat()} "
+            f"end={end.isoformat()} records={len(rows)}",
+        )
         midpoint = start + (end - start) / 2
         left, right = await asyncio.gather(
             self._fetch_news_window(start, midpoint),
@@ -273,6 +300,7 @@ class AutoFinDataStep(_AutoFinStep):
             and str(row.get("src") or "") == "财联社"
         ]
         _write_jsonl(path, rows)
+        self.logger.info(f"[{self.name}] news cache written date={day.isoformat()} records={len(rows)} path={path}")
         return True
 
     async def _cache_etf(self, dataset: str, day: date) -> bool:
@@ -296,21 +324,35 @@ class AutoFinDataStep(_AutoFinStep):
         if not rows:
             raise RuntimeError(f"TuShare returned no {dataset} data for open date {day.isoformat()}")
         _write_csv(path, rows)
+        self.logger.info(
+            f"[{self.name}] ETF cache written dataset={dataset} date={day.isoformat()} "
+            f"records={len(rows)} path={path}",
+        )
         return True
 
     async def execute(self):
         assert self.context is not None
         trade_date, decision_at = self._schedule()
+        force = bool(self._value("force", False))
+        self.logger.info(
+            f"[{self.name}] start trade_date={trade_date.isoformat()} "
+            f"decision_at={decision_at.isoformat()} force={force}",
+        )
         report_path = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat() / "auto_fin.md"
         relative_report = report_path.relative_to(self.workspace_path).as_posix()
-        if report_path.is_file() and not bool(self._value("force", False)):
+        if report_path.is_file() and not force:
             self.context["auto_fin_skip"] = True
             self.context.response.metadata.update({"skipped": True, "markdown_path": relative_report})
+            self.logger.info(f"[{self.name}] report exists; analysis will skip path={relative_report}")
 
         lookback_days = self._lookback_days()
         start = trade_date - timedelta(days=lookback_days - 1)
         trade_dates = await self._trade_dates(trade_date, start)
         etf_dates = [day for day in trade_dates if start <= day < trade_date]
+        self.logger.info(
+            f"[{self.name}] cache plan start={start.isoformat()} end={trade_date.isoformat()} "
+            f"calendar_days={len(self._days(start, trade_date))} prior_trade_days={len(etf_dates)}",
+        )
         downloaded = {"news": 0, "fund_daily": 0, "fund_adj": 0}
         for day in self._days(start, trade_date):
             downloaded["news"] += int(await self._cache_news(day, decision_at))
@@ -333,5 +375,9 @@ class AutoFinDataStep(_AutoFinStep):
                 "lookback_days": lookback_days,
                 "data_downloaded": downloaded,
             },
+        )
+        self.logger.info(
+            f"[{self.name}] finish trade_date={trade_date.isoformat()} downloaded={downloaded} "
+            f"prior_trade_days={len(etf_dates)}",
         )
         return self.context.response

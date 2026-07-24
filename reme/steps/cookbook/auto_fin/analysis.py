@@ -20,15 +20,62 @@ from .data import _AutoFinStep, _write, _write_jsonl
 class AutoFinAnalysisStep(_AutoFinStep):
     """Analyze prepared cache data and write the report."""
 
+    @staticmethod
+    def _preview(value: Any, limit: int = 1000) -> str:
+        """Return a bounded diagnostic representation for model results."""
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            text = repr(value)
+        return text if len(text) <= limit else f"{text[:limit]}...<truncated>"
+
     async def _reply(self, prompt_name: str, model: type[BaseModel], **values: str):
         if self.agent_wrapper is None:
             raise RuntimeError("Auto Fin requires an agent_wrapper with memory_search")
-        result = await self.agent_wrapper.reply(
-            self.prompt_format(prompt_name, **values),
-            output_schema=model,
+        prompt = self.prompt_format(prompt_name, **values)
+        self.logger.info(
+            f"[{self.name}] agent start prompt={prompt_name} schema={model.__name__} prompt_chars={len(prompt)}",
         )
+        try:
+            result = await self.agent_wrapper.reply(prompt, output_schema=model)
+        except Exception as exc:
+            self.logger.exception(
+                f"[{self.name}] agent failed prompt={prompt_name} schema={model.__name__} error={exc!r}",
+            )
+            raise
+        if not isinstance(result, dict):
+            self.logger.error(
+                f"[{self.name}] agent returned non-dict prompt={prompt_name} "
+                f"schema={model.__name__} result_type={type(result).__name__}",
+            )
+            raise TypeError("Auto Fin agent reply must be a dictionary")
+
         value = result.get("structured_output")
-        return value if isinstance(value, model) else model.model_validate(value)
+        last_message = result.get("last_message")
+        diagnostics = last_message if isinstance(last_message, dict) else {}
+        self.logger.info(
+            f"[{self.name}] agent done prompt={prompt_name} schema={model.__name__} "
+            f"has_structured_output={value is not None} result_chars={len(str(result.get('result') or ''))} "
+            f"is_error={diagnostics.get('is_error')} subtype={diagnostics.get('subtype')} "
+            f"api_error_status={diagnostics.get('api_error_status')}",
+        )
+        if value is None:
+            self.logger.error(
+                f"[{self.name}] agent missing structured output prompt={prompt_name} schema={model.__name__} "
+                f"errors={self._preview(diagnostics.get('errors'))} "
+                f"result={self._preview(result.get('result'))}",
+            )
+        try:
+            parsed = value if isinstance(value, model) else model.model_validate(value)
+        except Exception as exc:
+            self.logger.exception(
+                f"[{self.name}] structured output validation failed prompt={prompt_name} "
+                f"schema={model.__name__} value_type={type(value).__name__} "
+                f"value={self._preview(value)} error={exc!r}",
+            )
+            raise
+        self.logger.info(f"[{self.name}] structured output valid prompt={prompt_name} schema={model.__name__}")
+        return parsed
 
     def _prepared_context(self) -> tuple[date, datetime, date, list[date]]:
         assert self.context is not None
@@ -238,17 +285,27 @@ class AutoFinAnalysisStep(_AutoFinStep):
     async def execute(self):
         assert self.context is not None
         if self.context.get("auto_fin_skip"):
+            self.logger.info(f"[{self.name}] skip existing Auto Fin report")
             return self.context.response
         trade_date, decision_at, start, etf_dates = self._prepared_context()
         previous = max(etf_dates)
         window_start = datetime.combine(previous, time(15), decision_at.tzinfo)
         day_dir = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat()
         report_path = day_dir / "auto_fin.md"
+        self.logger.info(
+            f"[{self.name}] start trade_date={trade_date.isoformat()} decision_at={decision_at.isoformat()} "
+            f"window_start={window_start.isoformat()} etf_dates={len(etf_dates)}",
+        )
 
         news = await self._news(start, trade_date, window_start, decision_at)
         data_location = self._data_location(start, trade_date, etf_dates)
-        _write_jsonl(day_dir / "auto_fin_news.jsonl", news)
+        news_path = day_dir / "auto_fin_news.jsonl"
+        _write_jsonl(news_path, news)
+        self.logger.info(f"[{self.name}] current news prepared records={len(news)} path={news_path}")
         universe = await self._dataset("fund_daily", [previous])
+        self.logger.info(
+            f"[{self.name}] ETF universe loaded trade_date={previous.isoformat()} records={len(universe)}",
+        )
         plan = await self._reply(
             "plan_user",
             AutoFinResearchPlan,
@@ -260,6 +317,11 @@ class AutoFinAnalysisStep(_AutoFinStep):
             news=json.dumps(news, ensure_ascii=False, separators=(",", ":")),
             etf_universe=json.dumps(universe, ensure_ascii=False, separators=(",", ":")),
         )
+        self.logger.info(
+            f"[{self.name}] research plan ready themes={len(plan.themes)} "
+            f"theme_etfs={[(theme.theme, theme.etf_code) for theme in plan.themes]} "
+            f"limitations={len(plan.limitations)}",
+        )
         news_ids = {item["news_id"] for item in news}
         universe_codes = {str(row.get("ts_code", "")).upper() for row in universe}
         for theme in plan.themes:
@@ -269,8 +331,14 @@ class AutoFinAnalysisStep(_AutoFinStep):
                 raise ValueError(f"ETF {theme.etf_code!r} is absent from the prepared universe")
             if any(case.trade_date >= trade_date for case in theme.historical_cases):
                 raise ValueError("memory cases must be strictly earlier than the current trade date")
+        self.logger.info(f"[{self.name}] research plan references validated themes={len(plan.themes)}")
 
         datasets = [await self._theme_data(theme, etf_dates, previous) for theme in plan.themes]
+        self.logger.info(
+            f"[{self.name}] theme ETF data prepared themes={len(datasets)} "
+            f"history_rows={sum(len(item['_history']) for item in datasets)} "
+            f"historical_cases={sum(len(item['historical_cases']) for item in datasets)}",
+        )
         serializable = [{key: value for key, value in item.items() if key != "_history"} for item in datasets]
         etf_rows = []
         for item in datasets:
@@ -289,7 +357,9 @@ class AutoFinAnalysisStep(_AutoFinStep):
                 }
                 for daily_bar in item["_history"]
             )
-        _write_jsonl(day_dir / "auto_fin_etf.jsonl", etf_rows)
+        etf_path = day_dir / "auto_fin_etf.jsonl"
+        _write_jsonl(etf_path, etf_rows)
+        self.logger.info(f"[{self.name}] ETF evidence written records={len(etf_rows)} path={etf_path}")
 
         output = await self._reply(
             "decision_user",
@@ -301,9 +371,14 @@ class AutoFinAnalysisStep(_AutoFinStep):
             plan=plan.model_dump_json(indent=2),
             etf_data=json.dumps(serializable, ensure_ascii=False, indent=2),
         )
+        self.logger.info(
+            f"[{self.name}] decision ready recommendations={len(output.recommendations)} "
+            f"limitations={len(output.limitations)}",
+        )
         allowed = {(item.theme, item.etf_code) for item in plan.themes}
         if any((item.theme, item.etf_code) not in allowed for item in output.recommendations):
             raise ValueError("recommendations must use the planned theme and representative ETF")
+        self.logger.info(f"[{self.name}] decision references validated recommendations={len(output.recommendations)}")
 
         plans = {(item.theme, item.etf_code): item for item in plan.themes}
         data = {(item["theme"], item["etf_code"]): item for item in serializable}
@@ -329,8 +404,12 @@ class AutoFinAnalysisStep(_AutoFinStep):
                     "invalidation_condition": item.invalidation_condition,
                 },
             )
-        _write_jsonl(day_dir / "auto_fin_cases.jsonl", case_rows)
+        cases_path = day_dir / "auto_fin_cases.jsonl"
+        _write_jsonl(cases_path, case_rows)
         _write(report_path, self._markdown(trade_date, decision_at, window_start, output, serializable))
+        self.logger.info(
+            f"[{self.name}] artifacts written cases={len(case_rows)} cases_path={cases_path} report_path={report_path}",
+        )
 
         relative_report = report_path.relative_to(self.workspace_path).as_posix()
         self.context["markdown_path"] = relative_report
@@ -343,6 +422,10 @@ class AutoFinAnalysisStep(_AutoFinStep):
                 "case_count": len(case_rows),
                 "markdown_path": relative_report,
             },
+        )
+        self.logger.info(
+            f"[{self.name}] finish trade_date={trade_date.isoformat()} news={len(news)} "
+            f"themes={len(plan.themes)} cases={len(case_rows)} report={relative_report}",
         )
         return self.context.response
 
