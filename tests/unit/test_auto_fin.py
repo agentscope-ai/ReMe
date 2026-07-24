@@ -25,9 +25,9 @@ from reme.schema import (
     Checkpoint,
     EventAnalysisDocument,
     EventAnalysisOutput,
+    FusionRanking,
     InstrumentType,
     PortfolioDocument,
-    PortfolioProposalOutput,
     PortfolioSnapshot,
     Position,
     PositionMark,
@@ -45,6 +45,7 @@ from reme.steps.cookbook.auto_fin.analysis import (
     AutoFinQuantResearch,
     AutoFinUsCorrelationStep,
 )
+from reme.steps.cookbook.auto_fin.analysis.portfolio import _PortfolioProposalDraft
 from reme.steps.cookbook.auto_fin.analysis.quant import TushareResearchClient
 from reme.steps.cookbook.auto_fin.ledger import AutoFinLedger, next_trade_date
 from reme.steps.cookbook.auto_fin.notification import AutoFinNotificationStep
@@ -101,7 +102,7 @@ class _AutoFinAnalysisWrapper(BaseAgentWrapper):
                 "mappings": [],
                 "limitations": [],
             }
-        elif output_schema is PortfolioProposalOutput:
+        elif output_schema is _PortfolioProposalDraft:
             value = {
                 "description": "保持空仓",
                 "body": "证据不足，保持空仓。纯模拟盘，不会执行真实交易。",
@@ -116,6 +117,18 @@ class _AutoFinAnalysisWrapper(BaseAgentWrapper):
                         "confidence": 0.8,
                     },
                 ],
+                "fusion_ranking": {
+                    "as_of": "2026-07-23T09:00:00+08:00",
+                    "weights": {},
+                    "candidates": [
+                        {
+                            "code": "510300.SH",
+                            "rank": 2,
+                            "score": 50.0,
+                        },
+                    ],
+                    "methodology": "invalid generated copy",
+                },
                 "risks": [],
                 "limitations": [],
             }
@@ -617,6 +630,35 @@ def test_auto_fin_analysis_steps_load_independent_prompts():
         prompt = step.get_prompt(prompt_name)
         assert prompt
         assert "同一细分主题" in prompt
+
+
+@pytest.mark.asyncio
+async def test_portfolio_uses_deterministic_fusion_ranking(tmp_path: Path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    fusion = FusionRanking(
+        as_of=datetime(2026, 7, 23, 9, 0, tzinfo=TZ),
+        weights={},
+        candidates=[],
+        methodology="deterministic test ranking",
+    )
+    step = AutoFinPortfolioStep(
+        app_context=app_context,
+        agent_wrapper=_AutoFinAnalysisWrapper(app_context=app_context),
+    )
+
+    await step(
+        RuntimeContext(),
+        auto_fin_run_context={
+            "decision_at": "2026-07-23T09:00:00+08:00",
+            "data_cutoff": "2026-07-22T15:00:00+08:00",
+        },
+        auto_fin_portfolio_snapshot=PortfolioSnapshot(),
+        auto_fin_analyses={},
+        auto_fin_fusion_ranking=fusion,
+    )
+
+    assert step.state("portfolio_error") == ""
+    assert step.state("portfolio_output").fusion_ranking == fusion
 
 
 def test_event_validation_handles_naive_timestamps():
