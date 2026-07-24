@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
 from ._path import NON_MD_WARNING, gate_md, resolve_path
+from .prefix_check import PrefixCheck
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -11,7 +12,7 @@ from ...utils import expand_links, render_expansion_lines
 
 
 @R.register("read_step")
-class ReadStep(BaseStep):
+class ReadStep(PrefixCheck, BaseStep):
     """Read a markdown file. Optional `start_line`/`end_line` for ranged reads.
 
     Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
@@ -21,6 +22,15 @@ class ReadStep(BaseStep):
             neighbors (out/in link targets) with name/description meta,
             fetched via the file_store. Same rendering as SearchStep.
         max_neighbors_per_direction (int, default 10): cap per direction.
+        white_path_prefix (list[str] | None, default None): whitelist of path
+            prefixes; only files whose workspace-relative path starts with one
+            of these prefixes pass the white stage. ``None`` disables the
+            white stage; an empty list denies every file.
+        black_path_prefix (list[str] | None, default None): blacklist of path
+            prefixes; files whose workspace-relative path starts with one of
+            these prefixes are denied. ``None`` and an empty list both
+            disable the black stage.
+        The white stage is applied first, then the black stage.
     """
 
     def _fail(self, message: str, **meta) -> None:
@@ -101,6 +111,9 @@ class ReadStep(BaseStep):
         target = self._resolve_target(raw)
         if target is None:
             return None
+        if not self._check_path_permission(target):
+            self._fail("no permission to access this file", path=str(target))
+            return None
         if not self._validate_line_args(start_line, end_line):
             return None
         if not self._check_file(target):
@@ -131,8 +144,8 @@ class ReadStep(BaseStep):
                     requested_end,
                     max_collect_bytes=DEFAULT_MAX_BYTES * 2,
                 )
-            except Exception as e:  # pylint: disable=broad-except
-                self._fail(f"read failed: {e}", path=str(target))
+            except Exception as exc:  # pylint: disable=broad-except
+                self._fail(f"read failed: {exc}", path=str(target))
                 return None
             if s > total:
                 self._fail(f"start_line {s} exceeds file length ({total} lines)", path=str(target), total_lines=total)

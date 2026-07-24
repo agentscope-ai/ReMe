@@ -4,12 +4,13 @@ import frontmatter
 
 from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
 from ._path import NON_MD_WARNING, gate_md, resolve_path
+from .prefix_check import PrefixCheck
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("write_step")
-class WriteStep(BaseStep):
+class WriteStep(PrefixCheck, BaseStep):
     """Write (create or overwrite) a markdown file.
 
     Frontmatter accepts two reserved string fields (``name`` / ``description``)
@@ -17,6 +18,18 @@ class WriteStep(BaseStep):
     into the frontmatter as-is. ``name`` / ``description`` keys inside
     ``metadata`` are ignored — only the top-level explicit parameters are
     honored for those two reserved fields.
+
+    Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
+    not exposed to LLM):
+        white_path_prefix (list[str] | None, default None): whitelist of path
+            prefixes; only files whose workspace-relative path starts with one
+            of these prefixes pass the white stage. ``None`` disables the
+            white stage; an empty list denies every file.
+        black_path_prefix (list[str] | None, default None): blacklist of path
+            prefixes; files whose workspace-relative path starts with one of
+            these prefixes are denied. ``None`` and an empty list both
+            disable the black stage.
+        The white stage is applied first, then the black stage.
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes concurrent
     writes to the same file (multi-worker / multi-process safety is out of
@@ -43,6 +56,10 @@ class WriteStep(BaseStep):
             return None
 
         target, is_md = gate_md(target)
+
+        if not self._check_path_permission(target):
+            self._fail("no permission to write this file", path=str(target))
+            return None
 
         # Non-markdown files have no frontmatter convention: name/description
         # and metadata are silently dropped and the body is written verbatim.

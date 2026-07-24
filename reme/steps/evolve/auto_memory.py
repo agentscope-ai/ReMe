@@ -63,7 +63,7 @@ class AutoMemoryStep(BaseStep):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.create_tools: list[str] = ["daily_write"]
-        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
+        self.update_tools: list[str] = ["read_daily", "edit_daily", "frontmatter_update", "write_daily"]
 
     def _session_dir(self) -> str:
         return str(self.config_value("session_dir")).strip("/")

@@ -82,10 +82,11 @@ def resolve_path(
             return workspace_path.resolve(), None
         return None, "`path` is required"
     s = str(raw).strip()
-    p = Path(s)
+    p = Path(s).expanduser()
     workspace = workspace_path.resolve()
     if p.is_absolute():
-        logger.info("absolute path detected, recommending relative paths")
+        if Path(s).is_absolute():
+            logger.info("absolute path detected, recommending relative paths")
         target = p.resolve()
     else:
         for part in p.parts:

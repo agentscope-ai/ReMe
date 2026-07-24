@@ -32,7 +32,7 @@ system_prompt: |
 
   ## Tool Call Format — CRITICAL
 
-  You have access to tools (e.g. `daily_write`, `read`, `edit`, `write`, `frontmatter_update`). You MUST invoke them as **structured tool calls** (function calls), NOT as plain text output.
+  You have access to tools (e.g. `daily_write`, `read_daily`, `edit_daily`, `write_daily`, `frontmatter_update`). You MUST invoke them as **structured tool calls** (function calls), NOT as plain text output.
 
   - **NEVER** write tool invocations as text strings such as `daily_write name=...`. Text output does NOT execute tools — no memory will be saved.
   - **ALWAYS** use the tool call mechanism provided by the runtime. The system handles parameter passing automatically.
@@ -71,7 +71,7 @@ system_prompt_zh: |
 
   ## 工具调用格式 — 关键
 
-  你可以使用工具（如 `daily_write`、`read`、`edit`、`write`、`frontmatter_update`）。你**必须**以**结构化工具调用**（函数调用）的方式调用它们，而不是以纯文本输出。
+  你可以使用工具（如 `daily_write`、`read_daily`、`edit_daily`、`write_daily`、`frontmatter_update`）。你**必须**以**结构化工具调用**（函数调用）的方式调用它们，而不是以纯文本输出。
 
   - **绝不**将工具调用作为文本字符串输出，如 `daily_write name=...`。文本输出**不会**执行工具——不会保存任何记忆。
   - **始终**使用运行时提供的工具调用机制。系统会自动处理参数传递。
@@ -211,7 +211,7 @@ user_message_update: |
 
   ## Step 2 — Read Existing Content
 
-  **Call the `read` tool** with parameter `path` set to `{note_path}` to inspect the current note content. You MUST invoke it as a tool call, not as text.
+  **Call the `read_daily` tool** with parameter `path` set to `{note_path}` to inspect the current note content. You MUST invoke it as a tool call, not as text.
   - If the body is empty (only frontmatter, no actual content) → treat as new, jump to **Step 3b**.
   - If there is body content → go to **Step 3a** to merge.
 
@@ -231,15 +231,15 @@ user_message_update: |
   - **Metadata section**: merge keywords, persons, entities, topics — union of old and new values.
 
   Execution:
-  1. **Call the `edit` tool** for each section that needs updating, with parameters: `path`="{note_path}", `old`=<original fragment>, `new`=<replacement fragment>. You may call `edit` multiple times. Each call MUST be a tool call, not text.
+  1. **Call the `edit_daily` tool** for each section that needs updating, with parameters: `path`="{note_path}", `old`=<original fragment>, `new`=<replacement fragment>. You may call `edit_daily` multiple times. Each call MUST be a tool call, not text.
   2. After body changes, **call the `frontmatter_update` tool** to refresh frontmatter, with parameters: `path`="{note_path}", `metadata`={{"name": "<updated filename stem>", "description": "<updated summary>"}}.
      - Keep the existing `name` only when it is already the best concise topic/event filename stem. The system will rename the file after your final response.
      - Do not add today's date or the daily directory date to `name`.
-  3. If `edit` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to **calling the `write` tool** with parameters: `path`="{note_path}", `name`=<name>, `description`=<description>, `content`=<full body> for a complete rewrite.
+  3. If `edit_daily` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to **calling the `write_daily` tool** with parameters: `path`="{note_path}", `name`=<name>, `description`=<description>, `content`=<full body> for a complete rewrite.
 
   ## Step 3b — Full Write (Empty File Fallback)
 
-  The file exists but its body is empty. Extract and write the full content by **calling the `write` tool** with parameters: `path`="{note_path}", `name`=<name>, `description`=<description>, `content`=<body>.
+  The file exists but its body is empty. Extract and write the full content by **calling the `write_daily` tool** with parameters: `path`="{note_path}", `name`=<name>, `description`=<description>, `content`=<body>.
 
   Body requirements:
   - Each factual entry must be a complete, independent, self-contained statement.
@@ -259,7 +259,7 @@ user_message_update: |
   ## Boundaries
 
   - Only operate on one target path: `{note_path}`. Do not touch other notes.
-  - `write` unconditionally overwrites body and frontmatter — use with caution.
+  - `write_daily` unconditionally overwrites body and frontmatter — use with caution.
   - Filename changes are expressed by updating frontmatter `name`.
 user_message_update_zh: |
   今天：{today}
@@ -282,7 +282,7 @@ user_message_update_zh: |
 
   ## 步骤 2 — 读取现有内容
 
-  **调用 `read` 工具**，参数 `path` 设为 `{note_path}`，查看当前笔记内容。必须以工具调用方式调用，不要作为文本输出。
+  **调用 `read_daily` 工具**，参数 `path` 设为 `{note_path}`，查看当前笔记内容。必须以工具调用方式调用，不要作为文本输出。
   - 如果正文为空（只有 frontmatter 无实际内容）→ 按新建处理，跳到 **步骤 3b**。
   - 如果有正文内容 → 转到 **步骤 3a** 进行合并。
 
@@ -302,15 +302,15 @@ user_message_update_zh: |
   - **Metadata 部分**：合并 keywords、persons、entities、topics——取旧值和新值的并集。
 
   执行：
-  1. **调用 `edit` 工具**更新需要修改的部分，参数为：`path`="{note_path}"、`old`=<原文片段>、`new`=<替换片段>。可以多次调用 `edit`。每次调用必须是工具调用，不是文本。
+  1. **调用 `edit_daily` 工具**更新需要修改的部分，参数为：`path`="{note_path}"、`old`=<原文片段>、`new`=<替换片段>。可以多次调用 `edit_daily`。每次调用必须是工具调用，不是文本。
   2. 正文变更后，**调用 `frontmatter_update` 工具**刷新 frontmatter，参数为：`path`="{note_path}"、`metadata`={{"name": "<更新后的文件名 stem>", "description": "<更新后的总结>"}}。
      - 只有当前 `name` 已经是最合适的简洁主题/事件文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
      - 不要在 `name` 中加入今天日期或日记目录日期。
-  3. 如果 `edit` 多次失败（如因格式不匹配找不到原文），退回**调用 `write` 工具**全量重写，参数为：`path`="{note_path}"、`name`=<name>、`description`=<description>、`content`=<完整正文>。
+  3. 如果 `edit_daily` 多次失败（如因格式不匹配找不到原文），退回**调用 `write_daily` 工具**全量重写，参数为：`path`="{note_path}"、`name`=<name>、`description`=<description>、`content`=<完整正文>。
 
   ## 步骤 3b — 全量写入（空文件 fallback）
 
-  文件存在但正文为空。提取并**调用 `write` 工具**一次性写入完整内容，参数为：`path`="{note_path}"、`name`=<name>、`description`=<description>、`content`=<正文>。
+  文件存在但正文为空。提取并**调用 `write_daily` 工具**一次性写入完整内容，参数为：`path`="{note_path}"、`name`=<name>、`description`=<description>、`content`=<正文>。
 
   正文要求：
   - 每条事实记录必须是完整的、独立的、自包含的陈述。
@@ -330,5 +330,5 @@ user_message_update_zh: |
   ## 边界
 
   - 只针对一个目标路径：`{note_path}`。不要碰其他笔记。
-  - `write` 会无条件覆盖正文和 frontmatter，请谨慎使用。
+  - `write_daily` 会无条件覆盖正文和 frontmatter，请谨慎使用。
   - 文件名变化通过更新 frontmatter `name` 表达。

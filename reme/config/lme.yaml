@@ -419,6 +419,83 @@ jobs:
     steps:
       - backend: edit_step
 
+  read_daily:
+    backend: base
+    description: "Read a markdown file under the daily directory."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "workspace-relative path under daily/"
+        start_line:
+          type: integer
+          description: "first line (1-based, inclusive)"
+        end_line:
+          type: integer
+          description: "last line (1-based, inclusive)"
+      required:
+        - path
+    steps:
+      - backend: read_step
+        with_neighbors: false
+        max_neighbors_per_direction: 10
+        white_path_prefix: ["daily/"]
+
+  edit_daily:
+    backend: base
+    description: "Find-and-replace in a markdown file under the daily directory."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "workspace-relative path under daily/"
+        old:
+          type: string
+          description: "text to find"
+        new:
+          type: string
+          description: "replacement"
+          default: ""
+      required:
+        - path
+        - old
+        - new
+    steps:
+      - backend: edit_step
+        white_path_prefix: ["daily/"]
+
+  write_daily:
+    backend: base
+    description: "Write a markdown file (create or overwrite) under the daily directory."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "workspace-relative path under daily/"
+        name:
+          type: string
+          description: "frontmatter name"
+        description:
+          type: string
+          description: "frontmatter description"
+        content:
+          type: string
+          description: "body"
+        metadata:
+          type: object
+          description: "Optional extra frontmatter fields (md only)."
+      required:
+        - path
+        - name
+        - description
+        - content
+    steps:
+      - backend: write_step
+        white_path_prefix: ["daily/"]
+
   frontmatter_read:
     backend: base
     description: "Read a file's frontmatter as a dict."
