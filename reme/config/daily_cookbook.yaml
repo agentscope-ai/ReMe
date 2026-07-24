@@ -348,14 +348,13 @@ jobs:
         outbound_proxy: default
       - backend: auto_fin_analysis_step
         agent_wrapper: auto_fin
-        dispatch_steps:
-          - backend: dingtalk_markdown_send_step
-            app_key: ${DINGTALK_APP_KEY:-}
-            app_secret: ${DINGTALK_APP_SECRET:-}
-            robot_code: ${DINGTALK_ROBOT_CODE:-}
-            conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
-            title: ReMe Auto Fin
-            timeout: 15
+      - backend: dingtalk_markdown_send_step
+        app_key: ${DINGTALK_APP_KEY:-}
+        app_secret: ${DINGTALK_APP_SECRET:-}
+        robot_code: ${DINGTALK_ROBOT_CODE:-}
+        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+        title: ReMe Auto Fin
+        timeout: 15
 
   auto_fin_0930_cron:
     backend: cron

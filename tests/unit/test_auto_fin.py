@@ -15,7 +15,8 @@ from reme.components.file_chunker import JsonlFileChunker
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
 from reme.schema import AutoFinDecisionOutput, AutoFinResearchPlan
-from reme.steps.cookbook.auto_fin.pipeline import AutoFinAnalysisStep, AutoFinDataStep
+from reme.steps.cookbook.auto_fin.analysis import AutoFinAnalysisStep
+from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
 
 TZ = ZoneInfo("Asia/Shanghai")
 
@@ -28,6 +29,8 @@ class _CaseAgent(BaseAgentWrapper):
         prompt = str(inputs)
         if schema is AutoFinResearchPlan:
             assert "memory_search" in prompt
+            assert "daily/2026-07-23/auto_fin_fund_daily.csv" in prompt
+            assert "scan_csv" in prompt
             value = {
                 "themes": [
                     {
@@ -50,6 +53,8 @@ class _CaseAgent(BaseAgentWrapper):
             }
         elif schema is AutoFinDecisionOutput:
             assert "close_return_d0" in prompt
+            assert "daily/2026-07-23/auto_fin_fund_adj.csv" in prompt
+            assert "Polars" in prompt
             value = {
                 "description": "油价新闻尚未完全反映。",
                 "body": "历史案例偏正向，当前涨幅低于历史事件当日表现。",
@@ -143,7 +148,7 @@ async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
     await AutoFinDataStep(app_context=app_context)(context)
     assert not calls
 
-    (tmp_path / "metadata" / "auto-fin" / "cache" / "fund_adj" / "2026-07-22.jsonl").unlink()
+    (tmp_path / "daily" / "2026-07-22" / "auto_fin_fund_adj.csv").unlink()
     await AutoFinDataStep(app_context=app_context)(context)
     assert [(endpoint, kwargs["trade_date"]) for endpoint, kwargs in calls] == [
         ("fund_adj", "20260722"),
@@ -155,11 +160,13 @@ async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
     )(context)
 
     day_dir = tmp_path / "daily" / "2026-07-24"
+    cached_news = json.loads((day_dir / "auto_fin_news_data.jsonl").read_text().strip())
     news = [json.loads(line) for line in (day_dir / "auto_fin_news.jsonl").read_text().splitlines()]
     cases = [json.loads(line) for line in (day_dir / "auto_fin_cases.jsonl").read_text().splitlines()]
     etf = [json.loads(line) for line in (day_dir / "auto_fin_etf.jsonl").read_text().splitlines()]
 
     assert [item["title"] for item in news] == ["油价因供应扰动上涨"]
+    assert cached_news["pub_time"] == "2026-07-24 09:30:00"
     assert cases[0]["action"] == "BUY"
     assert cases[0]["price_in"] == "NO"
     assert cases[0]["latest"]["pct_change"] == pytest.approx(1.05 / 1.06 - 1.0)
@@ -168,6 +175,7 @@ async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
     assert "最近收盘涨跌" in (day_dir / "auto_fin.md").read_text(encoding="utf-8")
     assert response.metadata["news_count"] == 1
     assert response.metadata["case_count"] == 1
+    assert context["markdown_path"] == "daily/2026-07-24/auto_fin.md"
 
     _, chunks = await JsonlFileChunker(app_context=app_context).chunk(
         day_dir / "auto_fin_cases.jsonl",
@@ -254,11 +262,12 @@ def test_daily_cookbook_wires_one_0930_case_job_and_jsonl_indexing():
     assert config["jobs"]["auto_fin"]["lookback_days"] == 60
     assert config["jobs"]["auto_fin"]["parameters"]["properties"]["lookback_days"]["default"] == 60
     steps = config["jobs"]["auto_fin"]["steps"]
-    assert len(steps) == 2
+    assert len(steps) == 3
     assert steps[0] == {"backend": "auto_fin_data_step", "outbound_proxy": "default"}
     assert steps[1]["backend"] == "auto_fin_analysis_step"
     assert steps[1]["agent_wrapper"] == "auto_fin"
-    assert steps[1]["dispatch_steps"][0]["backend"] == "dingtalk_markdown_send_step"
+    assert steps[2]["backend"] == "dingtalk_markdown_send_step"
+    assert steps[2]["title"] == "ReMe Auto Fin"
     assert config["jobs"]["auto_fin_0930_cron"]["lookback_days"] == 60
     assert config["jobs"]["auto_fin_0930_cron"]["steps"] == steps
     assert config["jobs"]["index_update_loop"]["watch_suffixes"] == ["md", "jsonl"]

@@ -6,6 +6,18 @@ plan_user: |
   当前新闻：
   {news}
 
+  本地数据文件：
+  {data_location}
+
+  文件访问规则：
+  1. `daily/YYYY-MM-DD/auto_fin_news_data.jsonl` 已进入 ReMe 索引，可通过 readfile/Read 或
+     memory_search 访问；每条新闻的 `pub_time` 决定所属日期。
+  2. `daily/YYYY-MM-DD/auto_fin_fund_daily.csv` 和
+     `daily/YYYY-MM-DD/auto_fin_fund_adj.csv` 不进入 memory_search。需要查看 CSV 时，必须编写
+     Python 代码并使用 Polars 的 `scan_csv` 或 `read_csv`，按 `ts_code`、`trade_date` 过滤；
+     不得重新调用 TuShare。
+  3. 所有相对路径均以 data_location 中的 workspace_root 为根目录。
+
   最近 {lookback_days} 天数据中，上一交易日可选 ETF 行情：
   {etf_universe}
 
@@ -26,6 +38,15 @@ decision_user: |
 
   当前新闻：
   {news}
+
+  本地数据文件：
+  {data_location}
+
+  文件访问规则：
+  1. 新闻 JSONL 可通过 readfile/Read 或 memory_search 访问。
+  2. ETF daily/adj CSV 不进入 memory_search；需要核验明细时，必须使用 Python + Polars
+     `scan_csv`/`read_csv`，并严格限制到 data_location 列出的文件和本次决策截止时间。
+  3. 不得联网补数或重新调用 TuShare。
 
   主题、代表 ETF 与通过 memory_search 找到的历史案例：
   {plan}
