@@ -325,28 +325,26 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Cache recent news and ETF closes, then build and deliver the 09:30 analysis."
-    lookback_days: &auto_fin_lookback_days 60
+    description: "Maintain 360 days of news, analyze current topics and historical ETF reactions, then deliver the report."
     parameters:
       type: object
       properties:
         date:
           type: string
-          description: "A-share trade date in YYYY-MM-DD; empty means today in Asia/Shanghai."
+          description: "Current date in YYYY-MM-DD; empty means today in Asia/Shanghai."
           default: ""
         force:
           type: boolean
-          description: "Replace an existing 09:30 report for the selected date."
+          description: "Refresh all 360 days of news; today's news is always refreshed."
           default: false
-        lookback_days:
-          type: integer
-          minimum: 1
-          description: "Calendar days of news and ETF daily/adjustment data to keep complete."
-          default: 60
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
         outbound_proxy: default
-      - backend: auto_fin_analysis_step
+      - backend: auto_fin_topic_step
+        agent_wrapper: auto_fin
+      - backend: auto_fin_history_step
+        agent_wrapper: auto_fin
+      - backend: auto_fin_merge_step
         agent_wrapper: auto_fin
       - backend: dingtalk_markdown_send_step
         app_key: ${DINGTALK_APP_KEY:-}
@@ -359,7 +357,6 @@ jobs:
   auto_fin_0930_cron:
     backend: cron
     cron: "30 9 * * 1-5"
-    lookback_days: *auto_fin_lookback_days
     steps: *auto_fin_steps
 
   daily_paper:
@@ -486,6 +483,7 @@ components:
       model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      skills: [tushare-data]
       job_tools: [memory_search]
       permission_mode: bypassPermissions
     daily_paper:

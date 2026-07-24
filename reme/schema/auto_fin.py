@@ -1,83 +1,132 @@
-"""Public contracts for the Auto Fin news-case workflow."""
+"""Public contracts for the Auto Fin workflow."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AutoFinModel(BaseModel):
-    """Strict base for generated and persisted Auto Fin data."""
+    """Strict base for Agent output."""
 
     model_config = ConfigDict(extra="forbid")
 
 
-class AutoFinHistoricalCase(AutoFinModel):
-    """A prior case returned by ReMe memory search."""
+class AutoFinEvent(AutoFinModel):
+    """One material development in a topic."""
 
-    trade_date: date
-    source_path: str
-    summary: str
-
-
-class AutoFinThemePlan(AutoFinModel):
-    """One current-news theme and its representative domestic ETF."""
-
-    theme: str
-    direction: Literal["POSITIVE", "NEGATIVE", "MIXED"]
-    news_ids: list[str]
-    etf_code: str
-    etf_name: str
-    memory_query: str
-    historical_cases: list[AutoFinHistoricalCase] = Field(default_factory=list)
+    event_time: datetime
+    event_content: str
 
 
-class AutoFinResearchPlan(AutoFinModel):
-    """Themes selected after current-news analysis and memory retrieval."""
+class AutoFinTopicsOutput(AutoFinModel):
+    """Current news compressed into topic timelines."""
 
-    themes: list[AutoFinThemePlan] = Field(default_factory=list, max_length=8)
-    limitations: list[str] = Field(default_factory=list)
+    topics: dict[str, list[AutoFinEvent]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def unique_themes_and_etfs(self) -> "AutoFinResearchPlan":
-        """Reject duplicate themes and representative ETFs."""
-        for values in (
-            [item.theme for item in self.themes],
-            [item.etf_code for item in self.themes],
-        ):
-            if len(values) != len(set(values)):
-                raise ValueError("themes and representative ETF codes must be unique")
+    def non_empty_topics(self) -> "AutoFinTopicsOutput":
+        """Reject blank topic names and empty timelines."""
+        if any(not topic.strip() or not events for topic, events in self.topics.items()):
+            raise ValueError("topic names and event timelines must be non-empty")
         return self
 
 
-class AutoFinRecommendation(AutoFinModel):
-    """A reference suggestion independent of portfolio state."""
+class AutoFinReturnCurve(AutoFinModel):
+    """Cumulative return from the pre-event baseline to each close."""
 
-    theme: str
-    etf_code: str
-    etf_name: str
-    action: Literal["BUY", "SELL", "HOLD"]
-    price_in: Literal["YES", "NO", "UNCERTAIN"]
+    d1_return: float | None = None
+    d1_d2_return: float | None = None
+    d1_d3_return: float | None = None
+    d1_d4_return: float | None = None
+    d1_d5_return: float | None = None
+
+
+class AutoFinHistoricalEvent(AutoFinModel):
+    """One historical event found in ReMe memory."""
+
+    event_time: datetime
+    event_content: str
+    source_path: str
+
+
+class AutoFinHistoricalResearch(AutoFinModel):
+    """Historical events found for one current topic."""
+
+    topic: str
+    historical_events: list[AutoFinHistoricalEvent] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+
+class AutoFinMarketSample(AutoFinModel):
+    """Actual ETF reaction following one historical event."""
+
+    event_time: datetime
+    baseline_time: datetime
+    baseline_price: float = Field(gt=0)
+    intraday_returns: list["AutoFinIntradayPoint"] = Field(default_factory=list)
+    reaction_summary: str
+    returns: AutoFinReturnCurve
+
+
+class AutoFinIntradayPoint(AutoFinModel):
+    """Return at one completed 15-minute checkpoint."""
+
+    bar_time: datetime
+    return_from_baseline: float
+
+
+class AutoFinForecast(AutoFinModel):
+    """Current-event forecast and holding-time suggestion."""
+
+    anchor_event_time: datetime
+    baseline_time: datetime
+    baseline_price: float | None = Field(default=None, gt=0)
+    returns: AutoFinReturnCurve
+    suggested_holding_period: Literal["D1", "D1-D2", "D1-D3", "D1-D4", "D1-D5", "不建议持有"]
     confidence: float = Field(ge=0.0, le=1.0)
     reason: str
-    historical_evidence: str
+    exit_condition: str
     invalidation_condition: str
 
 
-class AutoFinDecisionOutput(AutoFinModel):
-    """Final Markdown analysis and structured case decisions."""
+class AutoFinEtfAnalysis(AutoFinModel):
+    """Historical evidence and forecast for one directly related ETF."""
 
-    description: str
-    body: str
-    recommendations: list[AutoFinRecommendation] = Field(default_factory=list)
+    etf_code: str
+    etf_name: str
+    asset_type: str
+    market: str
+    relationship: str
+    current_intraday_returns: list[AutoFinIntradayPoint] = Field(default_factory=list)
+    historical_samples: list[AutoFinMarketSample] = Field(default_factory=list)
+    forecast: AutoFinForecast
+
+
+class AutoFinTopicAnalysis(AutoFinModel):
+    """Independent Agent analysis for one current topic."""
+
+    topic: str
+    historical_events: list[AutoFinHistoricalEvent] = Field(default_factory=list)
+    etfs: list[AutoFinEtfAnalysis] = Field(min_length=1, max_length=5)
+    summary: str
     limitations: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def unique_recommendations(self) -> "AutoFinDecisionOutput":
-        """Keep one decision for each planned theme and ETF."""
-        keys = [(item.theme, item.etf_code) for item in self.recommendations]
-        if len(keys) != len(set(keys)):
-            raise ValueError("recommendations must be unique by theme and ETF")
+    def unique_etfs(self) -> "AutoFinTopicAnalysis":
+        """Keep one result per ETF."""
+        codes = [etf.etf_code.upper() for etf in self.etfs]
+        if len(codes) != len(set(codes)):
+            raise ValueError("ETF codes must be unique within a topic")
         return self
+
+
+class AutoFinReportOutput(AutoFinModel):
+    """Final Markdown content generated from all topic analyses."""
+
+    title: str
+    description: str
+    body: str
+    limitations: list[str] = Field(default_factory=list)

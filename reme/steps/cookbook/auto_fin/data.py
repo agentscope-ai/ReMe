@@ -1,9 +1,8 @@
-"""Prepare complete local TuShare caches for Auto Fin."""
+"""Download the news required by Auto Fin."""
 
 from __future__ import annotations
 
 import asyncio
-import csv
 import json
 import math
 import os
@@ -18,24 +17,21 @@ from ....enumeration import ComponentEnum
 from ....utils.tushare import create_tushare_api
 from ...base_step import BaseStep, Ref
 
+NEWS_DAYS = 360
+
 
 def _clean(value: Any) -> Any:
-    """Convert dataframe values into strict JSON values."""
     if value is None or isinstance(value, (str, int, bool)):
-        cleaned = value
-    elif isinstance(value, float):
-        cleaned = value if math.isfinite(value) else None
-    elif isinstance(value, (date, datetime)):
-        cleaned = value.isoformat()
-    elif isinstance(value, dict):
-        cleaned = {str(key): _clean(item) for key, item in value.items()}
-    elif isinstance(value, (list, tuple)):
-        cleaned = [_clean(item) for item in value]
-    elif hasattr(value, "item"):
-        cleaned = _clean(value.item())
-    else:
-        cleaned = str(value)
-    return cleaned
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _clean(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clean(item) for item in value]
+    return _clean(value.item()) if hasattr(value, "item") else str(value)
 
 
 def _records(value: Any) -> list[dict[str, Any]]:
@@ -50,7 +46,6 @@ def _records(value: Any) -> list[dict[str, Any]]:
 
 
 def _write(path: Path, text: str) -> None:
-    """Atomically replace one generated artifact."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(text, encoding="utf-8")
@@ -58,30 +53,13 @@ def _write(path: Path, text: str) -> None:
 
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    text = "".join(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records)
-    _write(path, text)
+    _write(path, "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in records))
 
 
-def _write_csv(path: Path, records: list[dict[str, Any]]) -> None:
-    """Atomically replace one tabular cache."""
-    fields = list(dict.fromkeys(key for record in records for key in record))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(records)
-    temporary.replace(path)
+class AutoFinStep(BaseStep):
+    """Shared Auto Fin helpers."""
 
-
-class _AutoFinStep(BaseStep):
-    """Shared cache and cutoff helpers."""
-
-    outbound_proxy: BaseOutboundProxy | None = Ref(
-        BaseOutboundProxy,
-        ComponentEnum.OUTBOUND_PROXY,
-        optional=True,
-    )
+    outbound_proxy: BaseOutboundProxy | None = Ref(BaseOutboundProxy, ComponentEnum.OUTBOUND_PROXY, optional=True)
 
     def _value(self, key: str, default: Any = None) -> Any:
         assert self.context is not None
@@ -91,38 +69,43 @@ class _AutoFinStep(BaseStep):
     def _proxy_url(self) -> str | None:
         return self.outbound_proxy.http_url if self.outbound_proxy is not None else None
 
-    def _cache_path(self, dataset: str, day: date) -> Path:
-        filenames = {
-            "news": "auto_fin_news_data.jsonl",
-            "fund_daily": "auto_fin_fund_daily.csv",
-            "fund_adj": "auto_fin_fund_adj.csv",
-        }
-        return self.workspace_path / str(self.config_value("daily_dir")) / day.isoformat() / filenames[dataset]
+    def _news_path(self, day: date) -> Path:
+        daily_dir = str(self.config_value("daily_dir"))
+        return self.workspace_path / daily_dir / day.isoformat() / "auto_fin_news_data.jsonl"
+
+    @staticmethod
+    def _days(start: date, end: date) -> list[date]:
+        return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
     @staticmethod
     def _read_jsonl_sync(path: Path) -> list[dict[str, Any]]:
-        records = []
         with path.open(encoding="utf-8") as stream:
-            for line in stream:
-                if line.strip():
-                    value = json.loads(line)
-                    if not isinstance(value, dict):
-                        raise ValueError(f"JSONL record must be an object: {path}")
-                    records.append(value)
-        return records
+            rows = [json.loads(line) for line in stream if line.strip()]
+        if not all(isinstance(row, dict) for row in rows):
+            raise ValueError(f"JSONL records must be objects: {path}")
+        return rows
 
     @classmethod
     async def _read_jsonl(cls, path: Path) -> list[dict[str, Any]]:
         return await asyncio.to_thread(cls._read_jsonl_sync, path)
 
     @staticmethod
-    def _read_csv_sync(path: Path) -> list[dict[str, Any]]:
-        with path.open(encoding="utf-8", newline="") as stream:
-            return list(csv.DictReader(stream))
-
-    @classmethod
-    async def _read_csv(cls, path: Path) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(cls._read_csv_sync, path)
+    def _published_at(row: dict[str, Any], timezone: ZoneInfo) -> datetime | None:
+        value = row.get("pub_time") or row.get("published_at") or row.get("datetime")
+        if not value:
+            return None
+        text = str(value).strip()
+        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y%m%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                parsed = datetime.strptime(text[:19], pattern)
+                return parsed.replace(tzinfo=timezone)
+            except ValueError:
+                continue
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=timezone) if parsed.tzinfo is None else parsed.astimezone(timezone)
 
     def _schedule(self) -> tuple[date, datetime]:
         timezone = ZoneInfo(str(self.config_value("timezone")))
@@ -130,102 +113,33 @@ class _AutoFinStep(BaseStep):
         now = datetime.fromisoformat(str(now_value)) if now_value is not None else datetime.now(timezone)
         now = now.replace(tzinfo=timezone) if now.tzinfo is None else now.astimezone(timezone)
         requested = str(self._value("date", "")).strip()
-        trade_date = date.fromisoformat(requested) if requested else now.date()
-        if trade_date != now.date():
-            raise ValueError("Auto Fin only supports the current trade date to preserve the 09:30 cutoff")
-        decision_at = datetime.combine(trade_date, time(9, 30), timezone)
-        if now < decision_at:
-            raise ValueError(f"09:30 decision has not been reached: now={now.isoformat()}")
-        return trade_date, decision_at
+        run_date = date.fromisoformat(requested) if requested else now.date()
+        if run_date != now.date():
+            raise ValueError("Auto Fin only supports the current date")
+        return run_date, now
 
-    def _lookback_days(self) -> int:
-        value = int(self._value("lookback_days", 60))
-        if value < 1:
-            raise ValueError("lookback_days must be at least 1")
-        return value
-
-    @staticmethod
-    def _days(start: date, end: date) -> list[date]:
-        return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
-
-    @staticmethod
-    def _published_at(row: dict[str, Any], timezone) -> datetime | None:
-        value = row.get("pub_time") or row.get("published_at") or row.get("datetime")
-        if not value:
-            return None
-        text = str(value).strip()
-        parsed = None
-        for pattern in ("%Y-%m-%d %H:%M:%S", "%Y%m%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                parsed = datetime.strptime(text[:19], pattern)
-                break
-            except ValueError:
-                continue
-        if parsed is None:
-            try:
-                parsed = datetime.fromisoformat(text)
-            except ValueError:
-                return None
-        return parsed.replace(tzinfo=timezone) if parsed.tzinfo is None else parsed.astimezone(timezone)
-
-    async def _is_valid_cache(self, path: Path, *, allow_empty: bool = True) -> bool:
-        if not path.is_file():
-            self.logger.debug(f"[{self.name}] cache missing path={path}")
-            return False
-        try:
-            records = await (self._read_csv(path) if path.suffix == ".csv" else self._read_jsonl(path))
-        except (OSError, ValueError, csv.Error, json.JSONDecodeError) as exc:
-            self.logger.warning(f"[{self.name}] cache invalid path={path} error={exc!r}")
-            return False
-        self.logger.debug(f"[{self.name}] cache valid path={path} records={len(records)}")
-        return allow_empty or bool(records)
-
-    async def _fetch_records(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
-        self.logger.debug(
-            f"[{self.name}] TuShare request start endpoint={endpoint} "
-            f"trade_date={kwargs.get('trade_date')} offset={kwargs.get('offset')}",
-        )
+    async def _fetch(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
         provider = self._value("tushare_provider")
         if provider is not None:
             value = provider(endpoint, **kwargs)
-            if asyncio.iscoroutine(value):
-                value = await value
-            records = _records(value)
-            self.logger.debug(f"[{self.name}] TuShare request done endpoint={endpoint} records={len(records)}")
-            return records
+            return _records(await value if asyncio.iscoroutine(value) else value)
         token = os.getenv("TUSHARE_TOKEN", "").strip()
         if not token:
             raise RuntimeError("TUSHARE_TOKEN is required for Auto Fin")
         api = create_tushare_api(token, proxy_url=self._proxy_url)
-        value = await asyncio.to_thread(getattr(api, endpoint), **kwargs)
-        records = _records(value)
-        self.logger.debug(f"[{self.name}] TuShare request done endpoint={endpoint} records={len(records)}")
-        return records
+        return _records(await asyncio.to_thread(getattr(api, endpoint), **kwargs))
 
-    async def _fetch_paginated(self, endpoint: str, limit: int, **kwargs) -> list[dict[str, Any]]:
-        rows = []
-        offset = 0
-        while True:
-            page = await self._fetch_records(endpoint, **kwargs, offset=offset, limit=limit)
-            rows.extend(page)
-            self.logger.debug(
-                f"[{self.name}] TuShare page endpoint={endpoint} offset={offset} "
-                f"page_records={len(page)} total_records={len(rows)}",
-            )
-            if len(page) < limit:
-                return rows
-            offset += limit
-
-    async def _trade_dates(self, trade_date: date, start: date) -> list[date]:
+    async def _previous_trade_date(self, run_date: date) -> date:
         supplied = self._value("trade_dates")
         if supplied is not None:
             dates = [date.fromisoformat(str(value)) for value in supplied]
         else:
-            rows = await self._fetch_records(
+            start = run_date - timedelta(days=30)
+            rows = await self._fetch(
                 "trade_cal",
                 exchange="SSE",
                 start_date=start.strftime("%Y%m%d"),
-                end_date=trade_date.strftime("%Y%m%d"),
+                end_date=run_date.strftime("%Y%m%d"),
                 fields="cal_date,is_open",
             )
             dates = [
@@ -233,37 +147,22 @@ class _AutoFinStep(BaseStep):
                 for row in rows
                 if int(row.get("is_open", 0)) == 1
             ]
-        dates = sorted(set(dates))
-        if trade_date not in dates:
-            raise ValueError(f"{trade_date.isoformat()} is not an A-share trade date")
-        if not any(day < trade_date for day in dates):
-            raise ValueError("Auto Fin requires at least one previous A-share trade date")
-        return dates
+        previous = [day for day in dates if day < run_date]
+        if not previous:
+            raise ValueError("Auto Fin requires a previous A-share trade date")
+        return max(previous)
 
-
-@R.register("auto_fin_data_step")
-class AutoFinDataStep(_AutoFinStep):
-    """Fill missing daily TuShare cache files for the configured lookback."""
-
-    async def _is_valid_news_cache(self, path: Path) -> bool:
+    async def _valid_news(self, path: Path) -> bool:
         if not path.is_file():
-            self.logger.debug(f"[{self.name}] news cache missing path={path}")
             return False
         try:
-            records = await self._read_jsonl(path)
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
-            self.logger.warning(f"[{self.name}] news cache invalid path={path} error={exc!r}")
+            rows = await self._read_jsonl(path)
+        except (OSError, ValueError, json.JSONDecodeError):
             return False
-        valid = all(str(row.get("src") or "") == "财联社" for row in records)
-        if valid:
-            self.logger.debug(f"[{self.name}] news cache valid path={path} records={len(records)}")
-        else:
-            self.logger.warning(f"[{self.name}] news cache has unexpected sources path={path} records={len(records)}")
-        return valid
+        return all(str(row.get("src") or "") == "财联社" for row in rows)
 
-    async def _fetch_news_window(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
-        self.logger.debug(f"[{self.name}] news fetch window start={start.isoformat()} end={end.isoformat()}")
-        rows = await self._fetch_records(
+    async def _fetch_news(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
+        rows = await self._fetch(
             "major_news",
             src="财联社",
             start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
@@ -272,25 +171,19 @@ class AutoFinDataStep(_AutoFinStep):
         )
         if len(rows) < 400 or end - start <= timedelta(minutes=1):
             return rows
-        self.logger.info(
-            f"[{self.name}] split saturated news window start={start.isoformat()} "
-            f"end={end.isoformat()} records={len(rows)}",
-        )
         midpoint = start + (end - start) / 2
-        left, right = await asyncio.gather(
-            self._fetch_news_window(start, midpoint),
-            self._fetch_news_window(midpoint, end),
-        )
+        left, right = await asyncio.gather(self._fetch_news(start, midpoint), self._fetch_news(midpoint, end))
         return left + right
 
-    async def _cache_news(self, day: date, decision_at: datetime) -> bool:
-        path = self._cache_path("news", day)
-        if await self._is_valid_news_cache(path):
+    async def _cache_news(self, day: date, decision_at: datetime, refresh: bool) -> bool:
+        path = self._news_path(day)
+        if not refresh and await self._valid_news(path):
             return False
         timezone = decision_at.tzinfo
+        assert isinstance(timezone, ZoneInfo)
         start = datetime.combine(day, time.min, timezone)
         end = decision_at if day == decision_at.date() else start + timedelta(days=1)
-        rows = await self._fetch_news_window(start, end)
+        rows = await self._fetch_news(start, end)
         rows = [
             row
             for row in rows
@@ -300,84 +193,33 @@ class AutoFinDataStep(_AutoFinStep):
             and str(row.get("src") or "") == "财联社"
         ]
         _write_jsonl(path, rows)
-        self.logger.info(f"[{self.name}] news cache written date={day.isoformat()} records={len(rows)} path={path}")
+        self.logger.info(f"[{self.name}] news written date={day.isoformat()} records={len(rows)}")
         return True
 
-    async def _cache_etf(self, dataset: str, day: date) -> bool:
-        path = self._cache_path(dataset, day)
-        if await self._is_valid_cache(path, allow_empty=False):
-            return False
-        fields = (
-            "ts_code,trade_date,close,pre_close,pct_chg,amount"
-            if dataset == "fund_daily"
-            else "ts_code,trade_date,adj_factor"
-        )
-        if dataset == "fund_adj":
-            rows = await self._fetch_paginated(
-                dataset,
-                2000,
-                trade_date=day.strftime("%Y%m%d"),
-                fields=fields,
-            )
-        else:
-            rows = await self._fetch_records(dataset, trade_date=day.strftime("%Y%m%d"), fields=fields)
-        if not rows:
-            raise RuntimeError(f"TuShare returned no {dataset} data for open date {day.isoformat()}")
-        _write_csv(path, rows)
-        self.logger.info(
-            f"[{self.name}] ETF cache written dataset={dataset} date={day.isoformat()} "
-            f"records={len(rows)} path={path}",
-        )
-        return True
+
+@R.register("auto_fin_data_step")
+class AutoFinDataStep(AutoFinStep):
+    """Fill missing 360-day news files and always refresh today's news."""
 
     async def execute(self):
         assert self.context is not None
-        trade_date, decision_at = self._schedule()
+        run_date, decision_at = self._schedule()
+        news_days = int(self._value("lookback_days", NEWS_DAYS))
+        if news_days < 1:
+            raise ValueError("lookback_days must be at least 1")
+        start = run_date - timedelta(days=news_days - 1)
+        previous_trade_date = await self._previous_trade_date(run_date)
         force = bool(self._value("force", False))
-        self.logger.info(
-            f"[{self.name}] start trade_date={trade_date.isoformat()} "
-            f"decision_at={decision_at.isoformat()} force={force}",
-        )
-        report_path = self.workspace_path / str(self.config_value("daily_dir")) / trade_date.isoformat() / "auto_fin.md"
-        relative_report = report_path.relative_to(self.workspace_path).as_posix()
-        if report_path.is_file() and not force:
-            self.context["auto_fin_skip"] = True
-            self.context.response.metadata.update({"skipped": True, "markdown_path": relative_report})
-            self.logger.info(f"[{self.name}] report exists; analysis will skip path={relative_report}")
-
-        lookback_days = self._lookback_days()
-        start = trade_date - timedelta(days=lookback_days - 1)
-        trade_dates = await self._trade_dates(trade_date, start)
-        etf_dates = [day for day in trade_dates if start <= day < trade_date]
-        self.logger.info(
-            f"[{self.name}] cache plan start={start.isoformat()} end={trade_date.isoformat()} "
-            f"calendar_days={len(self._days(start, trade_date))} prior_trade_days={len(etf_dates)}",
-        )
-        downloaded = {"news": 0, "fund_daily": 0, "fund_adj": 0}
-        for day in self._days(start, trade_date):
-            downloaded["news"] += int(await self._cache_news(day, decision_at))
-        for day in etf_dates:
-            downloaded["fund_daily"] += int(await self._cache_etf("fund_daily", day))
-            downloaded["fund_adj"] += int(await self._cache_etf("fund_adj", day))
-
+        downloaded = 0
+        for day in self._days(start, run_date):
+            downloaded += int(await self._cache_news(day, decision_at, force or day == run_date))
         self.context.update(
             {
-                "auto_fin_trade_date": trade_date.isoformat(),
+                "auto_fin_date": run_date.isoformat(),
                 "auto_fin_decision_at": decision_at.isoformat(),
-                "auto_fin_start_date": start.isoformat(),
-                "auto_fin_etf_dates": [day.isoformat() for day in etf_dates],
-                "auto_fin_lookback_days": lookback_days,
+                "auto_fin_news_start": start.isoformat(),
+                "auto_fin_previous_trade_date": previous_trade_date.isoformat(),
             },
         )
-        self.context.response.metadata.update(
-            {
-                "trade_date": trade_date.isoformat(),
-                "lookback_days": lookback_days,
-                "data_downloaded": downloaded,
-            },
-        )
-        self.logger.info(
-            f"[{self.name}] finish trade_date={trade_date.isoformat()} downloaded={downloaded} "
-            f"prior_trade_days={len(etf_dates)}",
-        )
+        self.context.response.metadata.update({"date": run_date.isoformat(), "news_downloaded": downloaded})
         return self.context.response

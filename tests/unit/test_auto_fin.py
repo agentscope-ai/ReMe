@@ -1,92 +1,181 @@
-"""Focused tests for the simple Auto Fin news-case workflow."""
+"""Focused tests for the four-step Auto Fin workflow."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
 import json
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
+import yaml
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.file_chunker import JsonlFileChunker
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
-from reme.schema import AutoFinDecisionOutput, AutoFinResearchPlan
-from reme.steps.cookbook.auto_fin.analysis import AutoFinAnalysisStep
+from reme.schema import AutoFinHistoricalResearch, AutoFinReportOutput, AutoFinTopicAnalysis, AutoFinTopicsOutput
 from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
-
-TZ = ZoneInfo("Asia/Shanghai")
+from reme.steps.cookbook.auto_fin.history import AutoFinHistoryStep
+from reme.steps.cookbook.auto_fin.merge import AutoFinMergeStep
+from reme.steps.cookbook.auto_fin.topic import AutoFinTopicStep
 
 
 @pytest.mark.asyncio
 async def test_read_jsonl_preserves_unicode_line_separator(tmp_path: Path):
     path = tmp_path / "news.jsonl"
-    records = [
-        {"title": "包含\u2028行分隔符", "content": "仍是同一条 JSONL 记录"},
-        {"title": "下一条记录"},
-    ]
-    path.write_text(
-        "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
-        encoding="utf-8",
+    rows = [{"title": "包含\u2028行分隔符"}, {"title": "下一条"}]
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+    assert await AutoFinDataStep._read_jsonl(path) == rows
+
+
+@pytest.mark.asyncio
+async def test_data_fills_missing_news_refreshes_today_and_force_refreshes_history(tmp_path: Path):
+    calls = []
+
+    def provider(endpoint: str, **kwargs):
+        calls.append((endpoint, kwargs))
+        if endpoint == "major_news":
+            day = kwargs["start_date"][:10]
+            return [{"title": day, "pub_time": f"{day} 08:00:00", "src": "财联社", "content": day}]
+        raise AssertionError(endpoint)
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    context = RuntimeContext(
+        date="2026-07-24",
+        now="2026-07-24T09:30:00+08:00",
+        lookback_days=3,
+        trade_dates=["2026-07-23"],
+        tushare_provider=provider,
     )
 
-    assert await AutoFinDataStep._read_jsonl(path) == records
+    await AutoFinDataStep(app_context=app_context)(context)
+    assert [endpoint for endpoint, _ in calls] == ["major_news"] * 3
+
+    calls.clear()
+    await AutoFinDataStep(app_context=app_context)(context)
+    assert [endpoint for endpoint, _ in calls] == ["major_news"]
+    assert calls[0][1]["start_date"] == "2026-07-24 00:00:00"
+    assert calls[0][1]["end_date"] == "2026-07-24 09:30:00"
+
+    calls.clear()
+    context["force"] = True
+    await AutoFinDataStep(app_context=app_context)(context)
+    assert [endpoint for endpoint, _ in calls] == ["major_news"] * 3
+    assert context["auto_fin_previous_trade_date"] == "2026-07-23"
 
 
-class _CaseAgent(BaseAgentWrapper):
-    """Return one historical case and one reference decision."""
+class _Agent(BaseAgentWrapper):
+    """Return deterministic structured replies for every analysis stage."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.calls = []
+        self.temporary_dirs = []
 
     async def reply(self, inputs, **kwargs):
         schema = kwargs["output_schema"]
         prompt = str(inputs)
-        if schema is AutoFinResearchPlan:
-            assert "memory_search" in prompt
-            assert "daily/2026-07-23/auto_fin_fund_daily.csv" in prompt
-            assert "scan_csv" in prompt
+        self.calls.append((schema, prompt, kwargs))
+        assert "resume" not in kwargs
+        assert "session_id" not in kwargs
+        if schema is AutoFinTopicsOutput:
+            assert "不搜索历史" in prompt
             value = {
-                "themes": [
+                "topics": {
+                    "原油供应扰动": [
+                        {"event_time": "2026-07-23T16:00:00+08:00", "event_content": "主要产油区供应中断"},
+                        {"event_time": "2026-07-24T09:00:00+08:00", "event_content": "供应恢复时间仍不确定"},
+                    ],
+                },
+            }
+        elif schema is AutoFinHistoricalResearch:
+            assert "memory_search" in prompt
+            assert "不查询行情" in prompt
+            value = {
+                "topic": "原油供应扰动",
+                "historical_events": [
                     {
-                        "theme": "油气开采",
-                        "direction": "POSITIVE",
-                        "news_ids": [],
-                        "etf_code": "159018.SZ",
-                        "etf_name": "油气ETF",
-                        "memory_query": "油价 地缘冲突 油气开采",
-                        "historical_cases": [
-                            {
-                                "trade_date": "2026-07-22",
-                                "source_path": "daily/2026-07-22/auto_fin_cases.jsonl",
-                                "summary": "油价上涨后油气ETF走强",
-                            },
-                        ],
+                        "event_time": "2026-06-01T10:00:00+08:00",
+                        "event_content": "历史供应中断",
+                        "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl",
                     },
                 ],
                 "limitations": [],
             }
-        elif schema is AutoFinDecisionOutput:
-            assert "close_return_d0" in prompt
-            assert "daily/2026-07-23/auto_fin_fund_adj.csv" in prompt
-            assert "Polars" in prompt
+        elif schema is AutoFinTopicAnalysis:
+            assert "不再搜索" in prompt
+            assert "$tushare-data" in prompt
+            assert "D1-D5" in prompt
+            temporary_dir = next(
+                line.split("：", 1)[1] for line in prompt.splitlines() if line.startswith("临时目录：")
+            )
+            assert Path(temporary_dir).is_dir()
+            self.temporary_dirs.append(temporary_dir)
             value = {
-                "description": "油价新闻尚未完全反映。",
-                "body": "历史案例偏正向，当前涨幅低于历史事件当日表现。",
-                "recommendations": [
+                "topic": "原油供应扰动",
+                "historical_events": [
                     {
-                        "theme": "油气开采",
-                        "etf_code": "159018.SZ",
-                        "etf_name": "油气ETF",
-                        "action": "BUY",
-                        "price_in": "NO",
-                        "confidence": 0.7,
-                        "reason": "当前涨幅较小",
-                        "historical_evidence": "历史相似案例当日上涨",
-                        "invalidation_condition": "油价回落",
+                        "event_time": "2026-06-01T10:00:00+08:00",
+                        "event_content": "历史供应中断",
+                        "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl",
                     },
                 ],
-                "limitations": ["历史案例较少"],
+                "etfs": [
+                    {
+                        "etf_code": "159018.SZ",
+                        "etf_name": "油气ETF",
+                        "asset_type": "境内商品产业链股票 ETF",
+                        "market": "SZSE",
+                        "relationship": "上游油气企业盈利受油价影响",
+                        "current_intraday_returns": [],
+                        "historical_samples": [
+                            {
+                                "event_time": "2026-06-01T10:00:00+08:00",
+                                "baseline_time": "2026-06-01T09:59:00+08:00",
+                                "baseline_price": 1.0,
+                                "intraday_returns": [
+                                    {"bar_time": "2026-06-01T10:15:00+08:00", "return_from_baseline": 0.006},
+                                ],
+                                "reaction_summary": "事件后走高，尾盘略有回落",
+                                "returns": {
+                                    "d1_return": 0.01,
+                                    "d1_d2_return": 0.02,
+                                    "d1_d3_return": 0.03,
+                                    "d1_d4_return": 0.025,
+                                    "d1_d5_return": 0.015,
+                                },
+                            },
+                        ],
+                        "forecast": {
+                            "anchor_event_time": "2026-07-24T09:00:00+08:00",
+                            "baseline_time": "2026-07-23T15:00:00+08:00",
+                            "baseline_price": 1.1,
+                            "returns": {
+                                "d1_return": 0.008,
+                                "d1_d2_return": 0.016,
+                                "d1_d3_return": 0.02,
+                                "d1_d4_return": 0.015,
+                                "d1_d5_return": 0.01,
+                            },
+                            "suggested_holding_period": "D1-D3",
+                            "confidence": 0.65,
+                            "reason": "历史反应通常在第三个收盘附近达到高点",
+                            "exit_condition": "累计收益达到历史样本上沿",
+                            "invalidation_condition": "供应快速恢复",
+                        },
+                    },
+                ],
+                "summary": "供应扰动短期利好油气产业链。",
+                "limitations": ["历史样本较少"],
+            }
+        elif schema is AutoFinReportOutput:
+            assert "不重新搜索新闻" in prompt
+            assert "D1-D3" in prompt
+            value = {
+                "title": "Auto Fin ETF 事件分析",
+                "description": "原油供应扰动的历史行情与当前预估。",
+                "body": "## 原油供应扰动\n\n油气ETF参考持有时间为 D1-D3。",
+                "limitations": ["历史样本较少"],
             }
         else:  # pragma: no cover
             raise AssertionError(schema)
@@ -94,204 +183,67 @@ class _CaseAgent(BaseAgentWrapper):
 
 
 @pytest.mark.asyncio
-async def test_news_case_pipeline_obeys_cutoff_and_writes_indexable_jsonl(
-    tmp_path: Path,
-):
-    calls: list[tuple[str, dict]] = []
+async def test_four_step_pipeline_writes_structured_frontmatter_and_cleans_temporary_data(tmp_path: Path):
+    def provider(endpoint: str, **_kwargs):
+        if endpoint != "major_news":
+            raise AssertionError(endpoint)
+        return [
+            {
+                "title": "原油供应中断",
+                "pub_time": "2026-07-23 16:00:00",
+                "src": "财联社",
+                "content": "主要产油区供应中断",
+            },
+            {
+                "title": "供应恢复时间不确定",
+                "pub_time": "2026-07-24 09:00:00",
+                "src": "财联社",
+                "content": "供应恢复时间仍不确定",
+            },
+        ]
 
-    def provider(endpoint: str, **kwargs):
-        calls.append((endpoint, kwargs))
-        if endpoint == "major_news":
-            return [
-                {
-                    "title": "昨日收盘前旧消息",
-                    "pub_time": "2026-07-23 15:00:00",
-                    "src": "财联社",
-                    "content": "必须排除",
-                },
-                {
-                    "title": "油价因供应扰动上涨",
-                    "pub_time": "2026-07-24 09:30:00",
-                    "src": "财联社",
-                    "content": "当前窗口新闻",
-                },
-                {
-                    "title": "其他来源消息",
-                    "pub_time": "2026-07-24 08:30:00",
-                    "src": "新浪财经",
-                    "content": "必须按来源排除",
-                },
-                {
-                    "title": "决策后消息",
-                    "pub_time": "2026-07-24 09:31:00",
-                    "src": "财联社",
-                    "content": "必须排除",
-                },
-            ]
-        if endpoint == "fund_daily":
-            prices = {"20260721": 1.04, "20260722": 1.06, "20260723": 1.05}
-            trade_date = kwargs["trade_date"]
-            return [
-                {
-                    "ts_code": "159018.SZ",
-                    "trade_date": trade_date,
-                    "close": prices[trade_date],
-                    "amount": 130,
-                },
-            ]
-        if endpoint == "fund_adj":
-            return [
-                {
-                    "ts_code": "159018.SZ",
-                    "trade_date": kwargs["trade_date"],
-                    "adj_factor": 1.0,
-                },
-            ]
-        raise AssertionError(endpoint)
-
-    app_context = ApplicationContext(
-        workspace_dir=str(tmp_path),
-        timezone="Asia/Shanghai",
-    )
-    wrapper = _CaseAgent(app_context=app_context)
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _Agent(app_context=app_context)
     context = RuntimeContext(
         date="2026-07-24",
-        now="2026-07-24T09:31:00+08:00",
-        lookback_days=4,
-        trade_dates=["2026-07-21", "2026-07-22", "2026-07-23", "2026-07-24"],
+        now="2026-07-24T09:30:00+08:00",
+        lookback_days=2,
+        trade_dates=["2026-07-23"],
         tushare_provider=provider,
-        force=True,
     )
-    await AutoFinDataStep(app_context=app_context)(context)
-    first_calls = list(calls)
 
-    calls.clear()
     await AutoFinDataStep(app_context=app_context)(context)
-    assert not calls
+    await AutoFinTopicStep(app_context=app_context, agent_wrapper=agent)(context)
+    await AutoFinHistoryStep(app_context=app_context, agent_wrapper=agent)(context)
+    response = await AutoFinMergeStep(app_context=app_context, agent_wrapper=agent)(context)
 
-    (tmp_path / "daily" / "2026-07-22" / "auto_fin_fund_adj.csv").unlink()
-    await AutoFinDataStep(app_context=app_context)(context)
-    assert [(endpoint, kwargs["trade_date"]) for endpoint, kwargs in calls] == [
-        ("fund_adj", "20260722"),
+    assert [schema for schema, _, _ in agent.calls] == [
+        AutoFinTopicsOutput,
+        AutoFinHistoricalResearch,
+        AutoFinTopicAnalysis,
+        AutoFinReportOutput,
     ]
-
-    response = await AutoFinAnalysisStep(
-        app_context=app_context,
-        agent_wrapper=wrapper,
-    )(context)
-
-    day_dir = tmp_path / "daily" / "2026-07-24"
-    cached_news = json.loads((day_dir / "auto_fin_news_data.jsonl").read_text().strip())
-    news = [json.loads(line) for line in (day_dir / "auto_fin_news.jsonl").read_text().splitlines()]
-    cases = [json.loads(line) for line in (day_dir / "auto_fin_cases.jsonl").read_text().splitlines()]
-    etf = [json.loads(line) for line in (day_dir / "auto_fin_etf.jsonl").read_text().splitlines()]
-
-    assert [item["title"] for item in news] == ["油价因供应扰动上涨"]
-    assert cached_news["pub_time"] == "2026-07-24 09:30:00"
-    assert cases[0]["action"] == "BUY"
-    assert cases[0]["price_in"] == "NO"
-    assert cases[0]["latest"]["pct_change"] == pytest.approx(1.05 / 1.06 - 1.0)
-    assert any(item["record_type"] == "auto_fin_latest_etf" for item in etf)
-    assert any(item["record_type"] == "auto_fin_etf_daily" for item in etf)
-    assert "最近收盘涨跌" in (day_dir / "auto_fin.md").read_text(encoding="utf-8")
-    assert response.metadata["news_count"] == 1
-    assert response.metadata["case_count"] == 1
+    assert all(not Path(path).exists() for path in agent.temporary_dirs)
+    report = (tmp_path / "daily" / "2026-07-24" / "auto_fin.md").read_text(encoding="utf-8")
+    metadata = yaml.safe_load(report.split("---", 2)[1])
+    assert metadata["schema_version"] == "auto-fin/v2"
+    assert metadata["topics"]["原油供应扰动"][0]["event_content"] == "主要产油区供应中断"
+    assert metadata["analyses"][0]["etfs"][0]["forecast"]["suggested_holding_period"] == "D1-D3"
+    assert response.metadata["topic_count"] == 1
+    assert response.metadata["etf_count"] == 1
     assert context["markdown_path"] == "daily/2026-07-24/auto_fin.md"
 
-    _, chunks = await JsonlFileChunker(app_context=app_context).chunk(
-        day_dir / "auto_fin_cases.jsonl",
-    )
-    assert chunks
-    assert json.loads(chunks[0].text)["record_type"] == "auto_fin_case"
 
-    news_call = next(
-        kwargs
-        for endpoint, kwargs in first_calls
-        if endpoint == "major_news" and kwargs["start_date"].startswith("2026-07-24")
-    )
-    assert news_call["start_date"] == "2026-07-24 00:00:00"
-    assert news_call["end_date"] == "2026-07-24 09:30:00"
-    assert news_call["src"] == "财联社"
-    daily_calls = [kwargs for endpoint, kwargs in first_calls if endpoint == "fund_daily"]
-    assert [call["trade_date"] for call in daily_calls] == [
-        "20260721",
-        "20260722",
-        "20260723",
-    ]
-
-
-@pytest.mark.asyncio
-async def test_pipeline_rejects_before_0930(tmp_path: Path):
-    app_context = ApplicationContext(
-        workspace_dir=str(tmp_path),
-        timezone="Asia/Shanghai",
-    )
-    step = AutoFinDataStep(app_context=app_context)
-
-    with pytest.raises(ValueError, match="09:30 decision has not been reached"):
-        await step(
-            date="2026-07-24",
-            now=datetime(2026, 7, 24, 9, 29, tzinfo=TZ),
-        )
-
-
-@pytest.mark.asyncio
-async def test_pipeline_rejects_historical_rerun_to_avoid_realtime_leakage(
-    tmp_path: Path,
-):
-    app_context = ApplicationContext(
-        workspace_dir=str(tmp_path),
-        timezone="Asia/Shanghai",
-    )
-    step = AutoFinDataStep(app_context=app_context)
-
-    with pytest.raises(ValueError, match="only supports the current trade date"):
-        await step(
-            date="2026-07-23",
-            now="2026-07-24T09:31:00+08:00",
-        )
-
-
-def test_case_statistics_use_only_available_adjusted_closes():
-    history = AutoFinAnalysisStep._adjusted_history(
-        [
-            {"trade_date": "20260718", "close": 1.0},
-            {"trade_date": "20260721", "close": 1.1},
-            {"trade_date": "20260722", "close": 1.2},
-        ],
-        [
-            {"trade_date": "20260718", "adj_factor": 1.0},
-            {"trade_date": "20260721", "adj_factor": 1.0},
-            {"trade_date": "20260722", "adj_factor": 1.0},
-        ],
-    )
-
-    stat = AutoFinAnalysisStep._case_stat(history, datetime(2026, 7, 21).date())
-
-    assert stat["close_return_d0"] == pytest.approx(0.1)
-    assert stat["close_return_d1"] == pytest.approx(0.2)
-    assert "close_return_d3" not in stat
-
-
-def test_daily_cookbook_wires_one_0930_case_job_and_jsonl_indexing():
+def test_daily_cookbook_wires_four_auto_fin_steps_and_tushare_skill():
     config = _load_config("daily_cookbook")
-
-    assert "auto_fin_0930_cron" in config["jobs"]
-    assert "auto_fin_0900_cron" not in config["jobs"]
-    assert "auto_fin_1145_cron" not in config["jobs"]
-    assert "auto_fin_1445_cron" not in config["jobs"]
-    assert config["jobs"]["auto_fin_0930_cron"]["cron"] == "30 9 * * 1-5"
-    assert config["jobs"]["auto_fin"]["lookback_days"] == 60
-    assert config["jobs"]["auto_fin"]["parameters"]["properties"]["lookback_days"]["default"] == 60
     steps = config["jobs"]["auto_fin"]["steps"]
-    assert len(steps) == 3
-    assert steps[0] == {"backend": "auto_fin_data_step", "outbound_proxy": "default"}
-    assert steps[1]["backend"] == "auto_fin_analysis_step"
-    assert steps[1]["agent_wrapper"] == "auto_fin"
-    assert steps[2]["backend"] == "dingtalk_markdown_send_step"
-    assert steps[2]["title"] == "ReMe Auto Fin"
-    assert config["jobs"]["auto_fin_0930_cron"]["lookback_days"] == 60
+
+    assert [step["backend"] for step in steps] == [
+        "auto_fin_data_step",
+        "auto_fin_topic_step",
+        "auto_fin_history_step",
+        "auto_fin_merge_step",
+        "dingtalk_markdown_send_step",
+    ]
     assert config["jobs"]["auto_fin_0930_cron"]["steps"] == steps
-    assert config["jobs"]["index_update_loop"]["watch_suffixes"] == ["md", "jsonl"]
-    assert config["jobs"]["reindex"]["watch_suffixes"] == ["md", "jsonl"]
-    assert config["components"]["file_chunker"]["jsonl"]["backend"] == "jsonl"
+    assert config["components"]["agent_wrapper"]["auto_fin"]["skills"] == ["tushare-data"]

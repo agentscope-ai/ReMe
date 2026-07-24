@@ -1,0 +1,18 @@
+topic_user: |
+  你只负责整理当前新闻，不搜索历史、不查询行情、不选择 ETF、不提供投资建议。
+
+  时间边界：
+  - 新闻窗口严格为 ({window_start}, {decision_at}]。
+  - 只能使用下方 current_news，不得补充窗口外事实。
+
+  current_news:
+  {news}
+
+  输出要求：
+  1. 合并重复报道，把同一主题随时间的发展整理为一条时间线。
+  2. topics 必须是 `主题名称 -> 事件列表`；主题名称应具体、稳定、可用于搜索历史相似事件。
+  3. 每个事件只包含 event_time 和 event_content。
+  4. event_time 必须来自 current_news；event_content 应压缩事实，不复制冗余正文，不加入推测。
+  5. 同一主题的事件按 event_time 升序排列；方向冲突或事实变化必须保留为不同事件。
+  6. 无实质新闻时返回空 topics。
+  7. 只返回符合 schema 的结构化结果，不读写文件。

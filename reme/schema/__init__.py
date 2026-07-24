@@ -2,11 +2,17 @@
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .auto_fin import (
-    AutoFinDecisionOutput,
-    AutoFinHistoricalCase,
-    AutoFinRecommendation,
-    AutoFinResearchPlan,
-    AutoFinThemePlan,
+    AutoFinEtfAnalysis,
+    AutoFinEvent,
+    AutoFinForecast,
+    AutoFinHistoricalEvent,
+    AutoFinHistoricalResearch,
+    AutoFinIntradayPoint,
+    AutoFinMarketSample,
+    AutoFinReportOutput,
+    AutoFinReturnCurve,
+    AutoFinTopicAnalysis,
+    AutoFinTopicsOutput,
 )
 from .daily_paper import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection, SelectedPaper
 from .dream import (
@@ -29,11 +35,17 @@ from .stream_chunk import StreamChunk
 
 __all__ = [
     "ApplicationConfig",
-    "AutoFinDecisionOutput",
-    "AutoFinHistoricalCase",
-    "AutoFinRecommendation",
-    "AutoFinResearchPlan",
-    "AutoFinThemePlan",
+    "AutoFinEtfAnalysis",
+    "AutoFinEvent",
+    "AutoFinForecast",
+    "AutoFinHistoricalEvent",
+    "AutoFinHistoricalResearch",
+    "AutoFinIntradayPoint",
+    "AutoFinMarketSample",
+    "AutoFinReportOutput",
+    "AutoFinReturnCurve",
+    "AutoFinTopicAnalysis",
+    "AutoFinTopicsOutput",
     "ComponentConfig",
     "DailyBriefOutput",
     "DreamExtractOutput",
