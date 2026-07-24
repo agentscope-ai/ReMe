@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from time import perf_counter
 from typing import Any
 
 from pydantic import BaseModel
@@ -17,13 +18,20 @@ class AutoFinAgentStep(AutoFinStep):
         if self.agent_wrapper is None:
             raise RuntimeError("Auto Fin analysis requires an agent_wrapper")
         prompt = self.prompt_format(prompt_name, **values)
+        started_at = perf_counter()
+        self.logger.info(f"[{self.name}] agent start prompt={prompt_name} schema={model.__name__}")
         result = await self.agent_wrapper.reply(prompt, output_schema=model)
         if not isinstance(result, dict):
             raise TypeError("Auto Fin Agent reply must be a dictionary")
         value = result.get("structured_output")
         if value is None:
             raise ValueError(f"Auto Fin Agent returned no structured output: {self._preview(result)}")
-        return value if isinstance(value, model) else model.model_validate(value)
+        output = value if isinstance(value, model) else model.model_validate(value)
+        self.logger.info(
+            f"[{self.name}] agent done prompt={prompt_name} schema={model.__name__} "
+            f"elapsed={perf_counter() - started_at:.2f}s",
+        )
+        return output
 
     @staticmethod
     def _preview(value: Any, limit: int = 1000) -> str:

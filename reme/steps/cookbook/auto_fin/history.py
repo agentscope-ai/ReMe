@@ -20,7 +20,11 @@ class AutoFinHistoryStep(AutoFinAgentStep):
         topics = dict(self._required("auto_fin_topics"))
         analyses = []
         window_start = datetime.fromisoformat(str(self._required("auto_fin_window_start")))
-        for topic, events in topics.items():
+        self.logger.info(f"[{self.name}] start topics={len(topics)}")
+        for index, (topic, events) in enumerate(topics.items(), 1):
+            self.logger.info(
+                f"[{self.name}] topic start index={index}/{len(topics)} topic={topic!r} events={len(events)}",
+            )
             history = await self._reply(
                 "history_search_user",
                 AutoFinHistoricalResearch,
@@ -33,6 +37,10 @@ class AutoFinHistoryStep(AutoFinAgentStep):
                 raise ValueError(f"History Agent changed topic {topic!r} to {history.topic!r}")
             if any(event.event_time >= window_start for event in history.historical_events):
                 raise ValueError("History Agent returned an event inside the current news window")
+            self.logger.info(
+                f"[{self.name}] history ready topic={topic!r} events={len(history.historical_events)} "
+                f"limitations={len(history.limitations)}",
+            )
             with tempfile.TemporaryDirectory(prefix="auto-fin-") as temporary_dir:
                 analysis = await self._reply(
                     "market_user",
@@ -49,6 +57,12 @@ class AutoFinHistoryStep(AutoFinAgentStep):
                 raise ValueError("Market Agent changed the verified historical events")
             analysis.limitations = list(dict.fromkeys([*history.limitations, *analysis.limitations]))
             analyses.append(analysis.model_dump(mode="json"))
+            self.logger.info(
+                f"[{self.name}] topic done index={index}/{len(topics)} topic={topic!r} etfs={len(analysis.etfs)}",
+            )
         self.context["auto_fin_topic_analyses"] = analyses
         self.context.response.metadata["analysis_count"] = len(analyses)
+        self.logger.info(
+            f"[{self.name}] done analyses={len(analyses)} etfs={sum(len(item['etfs']) for item in analyses)}",
+        )
         return self.context.response

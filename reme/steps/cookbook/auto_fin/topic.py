@@ -41,6 +41,9 @@ class AutoFinTopicStep(AutoFinAgentStep):
         previous = date.fromisoformat(str(self._required("auto_fin_previous_trade_date")))
         window_start = datetime.combine(previous, time(15), decision_at.tzinfo)
         news = await self._current_news(window_start, decision_at)
+        self.logger.info(
+            f"[{self.name}] start window=({window_start.isoformat()},{decision_at.isoformat()}] news={len(news)}",
+        )
         output = await self._reply(
             "topic_user",
             AutoFinTopicsOutput,
@@ -56,4 +59,8 @@ class AutoFinTopicStep(AutoFinAgentStep):
         self.context["auto_fin_window_start"] = window_start.isoformat()
         self.context["auto_fin_topics"] = output.model_dump(mode="json")["topics"]
         self.context.response.metadata.update({"news_count": len(news), "topic_count": len(output.topics)})
+        self.logger.info(
+            f"[{self.name}] done topics={len(output.topics)} "
+            f"events={sum(len(events) for events in output.topics.values())} path={day_dir / 'auto_fin_news.jsonl'}",
+        )
         return self.context.response

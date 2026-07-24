@@ -178,6 +178,7 @@ class AutoFinStep(BaseStep):
     async def _cache_news(self, day: date, decision_at: datetime, refresh: bool) -> bool:
         path = self._news_path(day)
         if not refresh and await self._valid_news(path):
+            self.logger.debug(f"[{self.name}] news cache hit date={day.isoformat()} path={path}")
             return False
         timezone = decision_at.tzinfo
         assert isinstance(timezone, ZoneInfo)
@@ -193,7 +194,7 @@ class AutoFinStep(BaseStep):
             and str(row.get("src") or "") == "财联社"
         ]
         _write_jsonl(path, rows)
-        self.logger.info(f"[{self.name}] news written date={day.isoformat()} records={len(rows)}")
+        self.logger.debug(f"[{self.name}] news written date={day.isoformat()} records={len(rows)} path={path}")
         return True
 
 
@@ -210,6 +211,10 @@ class AutoFinDataStep(AutoFinStep):
         start = run_date - timedelta(days=news_days - 1)
         previous_trade_date = await self._previous_trade_date(run_date)
         force = bool(self._value("force", False))
+        self.logger.info(
+            f"[{self.name}] start date={run_date.isoformat()} range={start.isoformat()}..{run_date.isoformat()} "
+            f"days={news_days} force={force} decision_at={decision_at.isoformat()}",
+        )
         downloaded = 0
         for day in self._days(start, run_date):
             downloaded += int(await self._cache_news(day, decision_at, force or day == run_date))
@@ -222,4 +227,8 @@ class AutoFinDataStep(AutoFinStep):
             },
         )
         self.context.response.metadata.update({"date": run_date.isoformat(), "news_downloaded": downloaded})
+        self.logger.info(
+            f"[{self.name}] done downloaded={downloaded} cached={news_days - downloaded} "
+            f"previous_trade_date={previous_trade_date.isoformat()}",
+        )
         return self.context.response

@@ -20,6 +20,7 @@ class AutoFinMergeStep(AutoFinAgentStep):
         assert self.context is not None
         topics = dict(self._required("auto_fin_topics"))
         analyses = list(self._required("auto_fin_topic_analyses"))
+        self.logger.info(f"[{self.name}] start topics={len(topics)} analyses={len(analyses)}")
         output = await self._reply(
             "merge_user",
             AutoFinReportOutput,
@@ -53,5 +54,9 @@ class AutoFinMergeStep(AutoFinAgentStep):
         self.context.response.answer = output.body
         self.context.response.metadata.update(
             {"markdown_path": relative, "etf_count": sum(len(x["etfs"]) for x in analyses)},
+        )
+        self.logger.info(
+            f"[{self.name}] done path={relative} etfs={self.context.response.metadata['etf_count']} "
+            f"limitations={len(output.limitations)}",
         )
         return self.context.response
