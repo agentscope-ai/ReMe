@@ -12,8 +12,6 @@ from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
 
-_REINDEX_ADD_BATCH_SIZE = 1024
-
 
 @R.register("faiss")
 class FaissLocalFileStore(LocalFileStore):
@@ -31,12 +29,16 @@ class FaissLocalFileStore(LocalFileStore):
     ``max(efSearch, k)`` when ``k`` exceeds this value during progressive recall.
 
     Rebuilding an HNSW graph is expensive. When ``async_reindex`` is enabled the
-    compaction rebuild is moved off the request path: the new index is built in a
-    worker thread (FAISS releases the GIL during ``add``) from a snapshot while the
-    current index keeps serving searches, then reconciled against concurrent writes
-    and atomically swapped in. Only one reindex runs at a time and the most recent
-    request wins. ``async_reindex`` defaults to ``False`` so behavior is unchanged
-    unless explicitly opted in; the ``load`` and backfill rebuilds stay synchronous.
+    rebuild is moved off the request path as a submit-a-flag job: mutations set a
+    boolean request flag and a single long-lived worker coroutine consumes it,
+    building the new index in a worker thread (FAISS releases the GIL during
+    ``add``) from a snapshot while the current index keeps serving searches, then
+    atomically swaps it in. Exactly one worker runs, so only one reindex proceeds
+    at a time; repeated submissions coalesce into the flag, and writes that land
+    during a build re-arm it so a follow-up rebuild folds them in (eventually
+    consistent). ``async_reindex`` defaults to ``False`` so behavior is unchanged
+    unless opted in; ``load`` (no old index to serve) always rebuilds inline, and
+    the backfill rebuild follows ``async_reindex``.
 
     faiss is imported lazily inside ``__init__`` so that merely importing this
     module (e.g. via ``reme version``) does not trigger the SWIG bindings and
@@ -67,13 +69,13 @@ class FaissLocalFileStore(LocalFileStore):
         self._tombstones: set[int] = set()  # rows whose chunk_id was deleted
         self._faiss_dump_lock = asyncio.Lock()
         # Async reindex machinery (only exercised when async_reindex is True).
-        # ``_reindex_generation`` is the single source of truth for build validity:
-        # a build is current iff its captured generation still matches. Superseding
-        # or cancelling a reindex advances the generation, so an in-flight build
-        # aborts at its next batch and can never be revived by a reset flag.
-        self._reindex_task: asyncio.Task | None = None
-        self._reindex_lock = asyncio.Lock()
-        self._reindex_generation = 0
+        # Submitting a rebuild just sets ``_reindex_event``; a single long-lived
+        # worker coroutine consumes it, so at most one reindex ever runs at a time
+        # and repeated submissions coalesce into the boolean flag.
+        self._reindex_event = asyncio.Event()  # set == "rebuild requested"
+        self._reindex_worker_task: asyncio.Task | None = None
+        self._reindex_busy = False  # True while a build is in flight (single worker)
+        self._index_writes = 0  # bumped on every index mutation; used to re-arm the flag
         self._closing = False  # set during _close() to stop spawning background reindexes
 
     @staticmethod
@@ -98,13 +100,13 @@ class FaissLocalFileStore(LocalFileStore):
         index.hnsw.efSearch = 64  # safe default; overwritten at query time by _set_ef_search
         return index
 
-    def _set_ef_search(self, limit: int) -> None:
+    def _set_ef_search(self, index, limit: int) -> None:
         """Set HNSW efSearch to ``limit * 5`` for a good recall/speed balance.
 
         FAISS internally uses ``max(efSearch, k)`` during search, so when the
         over-fetch ``k`` exceeds this value the beam width is raised automatically.
         """
-        self._faiss_index.hnsw.efSearch = limit * 5
+        index.hnsw.efSearch = limit * 5
 
     def _prepare(self, vec: np.ndarray) -> np.ndarray:
         """Cast to float32 (FAISS requirement) and L2-normalize so inner product gives cosine."""
@@ -130,11 +132,13 @@ class FaissLocalFileStore(LocalFileStore):
                 self._tombstones.add(old_row)
             self._id_map.append(cid)
             self._id_to_row[cid] = row
+        self._index_writes += 1
 
     def _tombstone(self, chunk_id: str) -> None:
         row = self._id_to_row.pop(chunk_id, None)
         if row is not None:
             self._tombstones.add(row)
+            self._index_writes += 1
 
     def _rebuild_index(self) -> None:
         """Rebuild FAISS state from self.file_chunks (the source of truth)."""
@@ -151,76 +155,73 @@ class FaissLocalFileStore(LocalFileStore):
     def _compact_if_needed(self) -> None:
         if len(self._tombstones) < self.max_tombstones:
             return
-        if not self.async_reindex:
+        if self.async_reindex:
+            self._submit_reindex()  # flag the worker; it coalesces repeated requests
+        else:
             self._rebuild_index()
-            return
-        # Async mode: schedule a background rebuild. A reindex already running will
-        # reconcile the latest chunks at swap time, so don't restart it on every
-        # write (that would starve the build under sustained churn).
-        if self._reindex_task is None or self._reindex_task.done():
-            self._schedule_reindex()
 
     async def _after_embedding_backfill(self) -> None:
-        """Make newly backfilled vectors visible to FAISS before persistence."""
-        self._rebuild_index()
+        """Make newly backfilled vectors visible to FAISS.
+
+        Synchronous by default so the vectors are indexed before the caller's dump.
+        When ``async_reindex`` is enabled the rebuild is submitted to the worker
+        (eventually consistent); the chunk JSONL stays authoritative, so a lagging
+        sidecar self-heals on the next load.
+        """
+        if self.async_reindex:
+            self._submit_reindex()
+        else:
+            self._rebuild_index()
 
     # -- async reindex ----------------------------------------------------
 
-    def _build_index_blocking(self, dim: int, vectors: "np.ndarray | None", gen: int):
-        """Build a fresh HNSW index off the event loop (worker thread).
+    def _submit_reindex(self) -> None:
+        """Submit a rebuild request: ensure the worker exists and raise the flag.
 
-        FAISS releases the GIL during ``add``, so the event loop keeps serving
-        searches on the current index while this runs. Between batches the build
-        checks whether its ``gen`` is still the current ``_reindex_generation``;
-        once superseded or cancelled the generation has advanced, so the build
-        aborts early and returns ``None``. Because the generation only moves
-        forward, a stale build can never be accidentally revived.
-        """
-        index = self._faiss.IndexHNSWFlat(dim, self.hnsw_m, self._faiss.METRIC_INNER_PRODUCT)
-        index.hnsw.efConstruction = self.hnsw_ef_construction
-        index.hnsw.efSearch = 64
-        if vectors is None or vectors.size == 0:
-            return index
-        prepared = self._prepare(vectors)
-        for start in range(0, prepared.shape[0], _REINDEX_ADD_BATCH_SIZE):
-            if gen != self._reindex_generation:
-                return None
-            index.add(prepared[start : start + _REINDEX_ADD_BATCH_SIZE])
-        return index
-
-    def _schedule_reindex(self) -> None:
-        """Start a background reindex, superseding any in-flight one.
-
-        Only one reindex runs at a time and the most recent request wins: bumping
-        ``_reindex_generation`` invalidates any running build (it aborts at its next
-        batch) and the superseded task is cancelled before a fresh build starts.
+        Idempotent -- the flag is a boolean, so repeated submissions while a build
+        is running or pending collapse into (at most) one follow-up rebuild.
+        Setting the flag is the only way to submit; the worker owns execution.
         """
         if self._closing:
             return  # do not spawn background work while shutting down
-        prev_task = self._reindex_task
-        self._reindex_generation += 1
-        gen = self._reindex_generation
-        self._reindex_task = asyncio.ensure_future(self._reindex_runner(prev_task, gen))
+        self._ensure_reindex_worker()
+        self._reindex_event.set()
 
-    async def _reindex_runner(self, prev_task: "asyncio.Task | None", gen: int) -> None:
-        """Serialize reindex builds: wait out the superseded task, then rebuild."""
-        if prev_task is not None and not prev_task.done():
-            prev_task.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await prev_task
-        async with self._reindex_lock:
-            if gen != self._reindex_generation:
-                return  # superseded again while waiting for the lock
+    def _ensure_reindex_worker(self) -> None:
+        """Start the single long-lived reindex worker if it is not running."""
+        if self._reindex_worker_task is None or self._reindex_worker_task.done():
+            self._reindex_worker_task = asyncio.ensure_future(self._reindex_worker())
+
+    async def _reindex_worker(self) -> None:
+        """Single consumer of reindex requests.
+
+        Because exactly one worker drains the flag, only one reindex ever runs at a
+        time. The flag is cleared before snapshotting, so any write that lands
+        during the build re-arms it (see ``_reindex_async``) and triggers exactly
+        one more rebuild afterwards -- the system converges without reconciliation.
+        """
+        while not self._closing:
+            await self._reindex_event.wait()
+            # Mark busy before clearing the flag (no await in between) so an
+            # observer can never see "flag clear and not busy" mid-handoff.
+            self._reindex_busy = True
+            self._reindex_event.clear()
+            if self._closing:
+                self._reindex_busy = False
+                return
             try:
-                await self._reindex_async(gen)
+                await self._reindex_async()
             except asyncio.CancelledError:  # pylint: disable=try-except-raise
                 raise
             except Exception as e:  # pragma: no cover - defensive
                 self.logger.exception(f"{self.name}: async reindex failed: {e}")
+            finally:
+                self._reindex_busy = False
 
-    async def _reindex_async(self, gen: int) -> None:
-        """Build a new index from a snapshot without blocking searches, reconcile
-        against concurrent writes, then atomically swap it in for the old index.
+    async def _reindex_async(self) -> None:
+        """Build a new index from a snapshot without blocking searches, then swap it
+        in atomically. Writes that land during the build bump ``_index_writes``; if
+        the counter moved we re-arm the flag so the next round folds them in.
         """
         if self.embedding_store is None or self._dim == 0:
             return
@@ -231,61 +232,52 @@ class FaissLocalFileStore(LocalFileStore):
             if self._embedding_dim_matches(chunk.embedding)
         ]
         snapshot_ids = [cid for cid, _ in items]
-        snapshot_emb = dict(items)
         vectors = np.stack([emb for _, emb in items]) if items else None
+        writes_at_snapshot = self._index_writes  # captured with the snapshot (no await yet)
 
-        new_index = await asyncio.to_thread(self._build_index_blocking, dim, vectors, gen)
-        if new_index is None or gen != self._reindex_generation:
-            return  # superseded / cancelled: keep the current index serving
+        new_index = await asyncio.to_thread(self._build_index_blocking, dim, vectors)
 
-        # Atomic swap into the snapshot state (no await between assignments).
+        # Atomic swap into the snapshot state (no await between assignments) so a
+        # concurrent search never observes a torn index / id_map / tombstone triple.
         self._faiss_index = new_index
         self._id_map = list(snapshot_ids)
         self._id_to_row = {cid: row for row, cid in enumerate(snapshot_ids)}
         self._tombstones = set()
 
-        # Fold in writes that landed on the old index while the build ran.
-        self._reconcile_after_swap(snapshot_emb)
+        # Writes landed on the old index while we built; a full rebuild is the
+        # simplest way to fold them in, so request exactly one more round.
+        if self._index_writes != writes_at_snapshot:
+            self._reindex_event.set()
         self.logger.info(f"Async reindex complete: {self._faiss_index.ntotal} rows, live={len(self._id_to_row)}")
 
-    def _reconcile_after_swap(self, snapshot_emb: dict[str, np.ndarray]) -> None:
-        """Bring the freshly swapped snapshot index in line with current chunks.
+    def _build_index_blocking(self, dim: int, vectors: "np.ndarray | None"):
+        """Build a fresh HNSW index off the event loop (worker thread).
 
-        Deleted-during-build ids become tombstones; changed embeddings are
-        tombstoned and re-added; ids created during the build are appended. This
-        reproduces exactly what a synchronous rebuild from ``file_chunks`` yields.
+        FAISS releases the GIL during ``add``, so the event loop keeps serving
+        searches on the current index while this runs.
         """
-        live_now = {
-            cid: chunk for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
-        }
-        to_add: list[FileChunk] = []
-        for cid in list(self._id_to_row):
-            chunk = live_now.get(cid)
-            if chunk is None:
-                self._tombstone(cid)  # deleted during build
-            elif not np.array_equal(chunk.embedding, snapshot_emb.get(cid)):
-                self._tombstone(cid)  # embedding/text changed during build
-                to_add.append(chunk)
-        for cid, chunk in live_now.items():
-            if cid not in snapshot_emb:
-                to_add.append(chunk)  # created during build
-        if to_add:
-            vectors = np.stack([chunk.embedding for chunk in to_add])
-            self._add_to_index([chunk.id for chunk in to_add], vectors)
+        index = self._faiss.IndexHNSWFlat(dim, self.hnsw_m, self._faiss.METRIC_INNER_PRODUCT)
+        index.hnsw.efConstruction = self.hnsw_ef_construction
+        index.hnsw.efSearch = 64
+        if vectors is not None and vectors.size:
+            index.add(self._prepare(vectors))
+        return index
 
-    async def _cancel_reindex(self) -> None:
-        """Stop any in-flight reindex; used by close() and clear().
+    async def _stop_reindex_worker(self) -> None:
+        """Stop the reindex worker; used by close() and clear().
 
-        Advancing the generation invalidates the running build so it aborts at its
-        next batch; cancelling the task detaches the awaiting coroutine promptly.
+        Cancelling detaches the awaiting coroutine promptly. An orphaned build
+        thread (if any) finishes into a local index that is simply discarded, so no
+        shared state is corrupted.
         """
-        self._reindex_generation += 1
-        task = self._reindex_task
-        self._reindex_task = None
+        self._reindex_event.clear()
+        task = self._reindex_worker_task
+        self._reindex_worker_task = None
         if task is not None and not task.done():
             task.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await task
+        self._reindex_busy = False
 
     # -- persistence ------------------------------------------------------
 
@@ -438,25 +430,25 @@ class FaissLocalFileStore(LocalFileStore):
         self._compact_if_needed()
 
     async def _close(self) -> None:
-        """Cancel any in-flight reindex before the parent persists and tears down.
+        """Stop any in-flight reindex before the parent persists and tears down.
 
-        ``_closing`` is set first so the parent's final ``dump`` cannot re-schedule a
+        ``_closing`` is set first so the parent's final ``dump`` cannot submit a new
         background reindex (which would leak as an orphan task).
         """
         self._closing = True
-        await self._cancel_reindex()
+        await self._stop_reindex_worker()
         await super()._close()
 
     async def clear(self) -> None:
         # Serialize with dump so a concurrent _write_sidecar cannot re-create the
         # sidecar files we are about to unlink, or persist a half-reset index.
-        # Cancel the reindex *inside* the lock: a dump holding the lock can schedule
-        # a fresh reindex via _compact_if_needed, so cancelling before acquiring the
-        # lock would let that task leak and run against the just-cleared state. The
-        # reindex path only takes _reindex_lock (never _faiss_dump_lock), so
-        # cancelling while holding _faiss_dump_lock cannot deadlock.
+        # Stop the reindex *inside* the lock: a dump holding the lock can submit a
+        # fresh reindex via _compact_if_needed, so stopping before acquiring the
+        # lock would let that worker run against the just-cleared state. The worker
+        # never takes _faiss_dump_lock, so stopping it while holding the lock cannot
+        # deadlock.
         async with self._faiss_dump_lock:
-            await self._cancel_reindex()
+            await self._stop_reindex_worker()
             await super().clear()
             self._faiss_index = self._new_index() if self.embedding_store is not None else None
             self._id_map = []
@@ -482,30 +474,37 @@ class FaissLocalFileStore(LocalFileStore):
         except Exception as e:
             self._disable_embedding(f"search: {type(e).__name__}: {e}")
             return []
-        if query_embedding is None:
+        if query_embedding is None or not self._embedding_dim_matches(query_embedding):
+            if query_embedding is not None:
+                self._disable_embedding(
+                    f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
+                )
             return []
-        if not self._embedding_dim_matches(query_embedding):
-            self._disable_embedding(
-                f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
-            )
+
+        # get_embedding above yielded control; a concurrent clear() drops the
+        # index to None once embedding is disabled, and a reindex may have swapped
+        # it out. Re-read after the await before dereferencing ``.ntotal`` so we
+        # never touch a None/emptied index (mirrors the entry guard).
+        index = self._faiss_index
+        if index is None or index.ntotal == 0:
             return []
 
         q = self._prepare(query_embedding)
-        ntotal = self._faiss_index.ntotal
+        ntotal = index.ntotal
 
         if not search_filter:
             # No filter: simple over-fetch to cover tombstones.
             k = min(ntotal, limit + len(self._tombstones))
-            self._set_ef_search(limit)
-            scores, rows = self._faiss_index.search(q, k)
+            self._set_ef_search(index, limit)
+            scores, rows = index.search(q, k)
             return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
 
         # With filter: progressively increase k until we collect enough results
         # or exhaust the entire index.
         k = min(ntotal, 3 * limit)
         while True:
-            self._set_ef_search(limit)
-            scores, rows = self._faiss_index.search(q, k)
+            self._set_ef_search(index, limit)
+            scores, rows = index.search(q, k)
             results = self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
             if len(results) >= limit or k >= ntotal:
                 return results
