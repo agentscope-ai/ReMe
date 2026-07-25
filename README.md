@@ -58,9 +58,9 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 
 ## 📰 News
 
-- [2026.07] - Introduced optional Cookbook workflows, starting with
-  [Daily Paper](cookbook/daily_paper/README.md) for scheduled paper discovery, agent-assisted PDF analysis, reusable
-  Markdown notes, and five-minute briefs.
+- [2026.07] - Introduced optional Cookbooks: [Daily Paper](cookbook/daily_paper/README.md) for paper discovery and
+  analysis, and [Auto Fin](cookbook/auto-fin/README.md) for file-native ETF event research based on CLS news and
+  historical market reactions.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   has been accepted to Findings of ACL 2026.

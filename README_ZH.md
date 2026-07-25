@@ -51,8 +51,8 @@ Agent 能够可靠召回。
 
 ## 📰 新闻
 
-- [2026.07] - 新增可选的 Cookbook 工作流，首个能力为 [每日论文](cookbook/daily_paper/README_ZH.md)，支持定时发现论文、
-  Agent 辅助解析 PDF、沉淀可复用的 Markdown 笔记并生成五分钟简报。
+- [2026.07] - 新增可选 Cookbook 工作流：[每日论文](cookbook/daily_paper/README_ZH.md)用于论文发现与解析，
+  [Auto Fin](cookbook/auto-fin/README_ZH.md)用于结合财联社新闻和历史行情开展文件化 ETF 事件研究。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   已被 Findings of ACL 2026 接收。
