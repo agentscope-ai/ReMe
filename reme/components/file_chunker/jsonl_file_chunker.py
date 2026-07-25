@@ -132,8 +132,13 @@ class JsonlFileChunker(BaseFileChunker):
         if not text.strip():
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []
 
-        # readlines keeps trailing \n on each line.
-        lines = text.splitlines(keepends=True)
+        # JSON Lines records are delimited by LF (with an optional preceding
+        # CR).  str.splitlines() also treats Unicode separators such as U+2028
+        # as line boundaries, even though they are valid inside a JSON string.
+        parts = text.split("\n")
+        lines = [part + "\n" for part in parts[:-1]]
+        if parts[-1]:
+            lines.append(parts[-1])
         if not lines:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []
 

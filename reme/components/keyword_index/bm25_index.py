@@ -189,6 +189,10 @@ class BM25Index(BaseKeywordIndex):
         unique_tids = np.fromiter(counts.keys(), dtype=np.int32, count=len(counts))
         return unique_tids, len(token_ids), counts
 
+    def is_indexable(self, text: str) -> bool:
+        """Return whether tokenization produces at least one BM25 term."""
+        return bool(self._tokenize(text))
+
     def _append_doc_arrays(
         self,
         new_doc_ids: list[str],
