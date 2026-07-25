@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from ....components import R
 from ....schema import AutoFinEtfHistoryDetail, AutoFinReportOutput
+from ...file_io import refresh_day_index
 from ._base import AutoFinStep, _write, _write_jsonl
 
 
@@ -40,6 +43,11 @@ class AutoFinMergeStep(AutoFinStep):
         _write_jsonl(day_dir / "auto_fin_analysis.jsonl", analyses)
         _write(report_path, markdown)
         relative = report_path.relative_to(self.workspace_path).as_posix()
+        await refresh_day_index(
+            SimpleNamespace(workspace_path=self.workspace_path),
+            str(self._required("auto_fin_date")),
+            str(self.config_value("daily_dir")),
+        )
         self.context["markdown_path"] = relative
         self.context["auto_fin_digest_path"] = relative
         self.context.response.answer = output.body

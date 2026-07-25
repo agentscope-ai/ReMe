@@ -2,10 +2,14 @@
 
 [English](README.md)
 
-每日论文是一个本地优先、文件原生的研究资讯工作流。它从 Hugging Face 周榜和月榜采集论文，排除昨日论文和近期
-已经推荐过的论文，对剩余候选进行排序，再使用 Claude Code 生成中文详细论文笔记和约五分钟可读完的中文简报。
-这个独立应用还包含对话记忆、auto-dream 整理和向量 + BM25 混合检索，因此论文工作流和钉钉 Agent 可以检索同一组
-由用户拥有的记忆文件。
+每日论文是一个本地优先、文件原生的研究资讯工作流，用于把研究榜单转化为每日阅读材料。
+
+## 能力
+
+- 从 Hugging Face 周榜和月榜采集论文，并排除昨日论文和近期已经推荐过的论文。
+- 对候选论文进行排序和精选，再使用 Claude Code 生成中文详细论文笔记和约五分钟可读完的中文简报。
+- 将 PDF、笔记和记忆保存为由用户拥有的普通文件；索引和缓存均可重建。
+- 支持每日定时运行、可选钉钉投递、对话记忆、auto-dream 整理，以及供后台钉钉 Agent 使用的 BM25 检索。
 
 工作流由 [`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml) 装配，公共 schema 位于
 [`reme/schema/daily_paper.py`](../../reme/schema/daily_paper.py)，各步骤位于
@@ -13,35 +17,34 @@
 
 ## 快速开始
 
-每日论文要求 Python 3.11 或更高版本、`core` 依赖、可访问 Hugging Face 和 arXiv 的网络，以及所配置
-Claude Code endpoint 的凭据。auto-memory 和 auto-dream 还需要 AgentScope LLM 凭据；向量检索需要 embedding 凭据。
+每日论文要求 Python 3.11 或更高版本、`core` 依赖、可访问 Hugging Face 和 arXiv 的网络，以及所配置 Claude Code endpoint
+的凭据。auto-memory 和 auto-dream 还需要 AgentScope LLM 凭据。
 
 在仓库根目录运行：
 
 ```bash
-python -m pip install -e ".[dev,core]"
+python -m pip install -e ".[core]"
 export CLAUDE_CODE_API_KEY="your-api-key"
 reme start config=daily_cookbook job=daily_paper
 ```
 
-内置配置默认通过 DashScope 的 Anthropic 兼容 endpoint 使用 `qwen3.7-max`。如需使用其他兼容模型或服务商，
-请覆盖 `CLAUDE_CODE_MODEL_NAME` 和 `CLAUDE_CODE_BASE_URL`。
+内置配置默认通过 DashScope 的 Anthropic 兼容 endpoint 使用 `qwen3.7-max`。如需使用其他兼容模型或服务商， 请覆盖
+`CLAUDE_CODE_MODEL_NAME` 和 `CLAUDE_CODE_BASE_URL`。
 
-以上配置足以生成论文。要启用内置 provider 下的完整记忆能力，还需配置：
+以上配置足以生成论文笔记和每日简报。要使用 auto-memory 和 auto-dream，还需配置：
 
 ```bash
 export LLM_API_KEY="your-api-key"
-export EMBEDDING_API_KEY="your-api-key"
 ```
 
-默认情况下，产物写入 ReMe 启动目录下的 `.reme/`。
+默认情况下，产物写入 ReMe 启动目录下的 `reme_workspace/`。
 
 ## 文件产物
 
 一次成功运行会在 `workspace_dir` 下写入普通 PDF 和 Markdown 文件：
 
 ```text
-.reme/
+reme_workspace/
 ├── daily/
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
@@ -69,11 +72,10 @@ export EMBEDDING_API_KEY="your-api-key"
 - `daily/YYYY-MM-DD.md` 是从当日 Markdown 文件重建的派生日索引。
 - `resource/papers/` 保存可复用的原始 PDF。
 - `digest/` 保存持久的 auto-dream 产物，其中仍然是由用户拥有的普通 Markdown 文件。
-- `metadata/` 以及 embedding/search 缓存属于派生状态。`reindex` 会根据源文件重建 file store、BM25 索引和图；
-  embedding cache 使用下文说明的独立版本。
+- `metadata/` 和搜索缓存属于派生状态；`reindex` 会根据源文件重建 file store、BM25 索引和图。
 
-论文笔记是推荐历史的事实来源：后续排重会读取其 frontmatter 中的 `arxiv_id`。日索引属于可重建的派生文件。
-当前工作流不会另外写入运行 manifest。
+论文笔记是推荐历史的事实来源：后续排重会读取其 frontmatter 中的 `arxiv_id`。日索引属于可重建的派生文件。 当前工作流不会另外写入运行
+manifest。
 
 ## 工作流程
 
@@ -85,7 +87,7 @@ flowchart LR
     C --> R[2. Rank]
     R --> S[3. Select]
     S --> A[4. Analyze PDFs]
-    A --> D[5. Build digest]
+    A --> D[5. Build brief]
     D --> N[6. Notify DingTalk]
     A --> P[PDF + 论文笔记]
     D --> B[简报 + 日索引]
@@ -93,11 +95,11 @@ flowchart LR
 
 ### 1. 采集与排重
 
-Collect 会获取运行日所在 ISO week 的周榜、所在自然月的月榜，以及严格前一个自然日的 Hugging Face Daily Papers
-ID。周榜和月榜元数据按 arXiv ID 合并，同时保留两个榜单各自的展示排名。
+Collect 会获取运行日所在 ISO week 的周榜、所在自然月的月榜，以及严格前一个自然日的 Hugging Face Daily Papers ID。周榜和月榜元数据按
+arXiv ID 合并，同时保留两个榜单各自的展示排名。
 
-随后，它会在配置的历史窗口内扫描 `daily/<prior-date>/paper-*.md`，排除笔记 frontmatter 中已有的 ID。如果排重后
-没有任何可选论文，Job 会明确失败。
+随后，它会在配置的历史窗口内扫描 `daily/<prior-date>/paper-*.md`，排除笔记 frontmatter 中已有的 ID。如果排重后 没有任何可选论文，Job
+会明确失败。
 
 ### 2. 候选排序
 
@@ -108,15 +110,14 @@ score = 1 / (rrf_k + monthly_rank)
       + weekly_weight / (rrf_k + weekly_rank)
 ```
 
-论文缺少某个榜单排名时，该项贡献为零。候选按融合分、upvotes 和 arXiv ID 排序。有界候选池还会为标题或摘要命中
-Agent memory、memory retrieval、continual learning、context compression、knowledge graph、RAG 等记忆相关关键词的
-论文保留若干位置。这个保留策略只是关键词启发式，不是语义分类器。除此以外，Claude Code wrapper 可以调用混合
-`search` job，在精选和写作时召回相关的 daily 或 digest 记忆。
+论文缺少某个榜单排名时，该项贡献为零。候选按融合分、upvotes 和 arXiv ID 排序。有界候选池还会为标题或摘要命中 Agent
+memory、memory retrieval、continual learning、context compression、knowledge graph、RAG 等记忆相关关键词的
+论文保留若干位置。这个保留策略只是关键词启发式，不是语义分类器。
 
 ### 3. 精选论文
 
-Claude Code 接收有界候选池，并返回结构化的 `PaperSelection`。实现要求恰好选择 `top_k` 个候选池内的唯一 ID，
-且 rank 必须连续。输出不合法时，校验错误会反馈给 Agent 并重试一次；第二次仍不合法则 Job 失败。
+Claude Code 接收有界候选池，并返回结构化的 `PaperSelection`。实现要求恰好选择 `top_k` 个候选池内的唯一 ID， 且 rank
+必须连续。输出不合法时，校验错误会反馈给 Agent 并重试一次；第二次仍不合法则 Job 失败。
 
 ### 4. 下载并解读 PDF
 
@@ -128,40 +129,37 @@ Claude Code 接收有界候选池，并返回结构化的 `PaperSelection`。实
 4. 请求 Claude Code 返回结构化的详细解读；
 5. 写入规范化 frontmatter 和生成的 Markdown 正文。
 
-当前提取器依赖可用的 PDF 文本层。扫描版或纯图片 PDF 会失败，因为没有 OCR fallback。提取内容超过配置限制时，
-笔记会记录输入已被截断。
+当前提取器依赖可用的 PDF 文本层。扫描版或纯图片 PDF 会失败，因为没有 OCR fallback。提取内容超过配置限制时， 笔记会记录输入已被截断。
 
 ### 5. 生成简报与索引
 
-Claude Code 会读取全部详细笔记并生成当日简报。代码会检查每篇源笔记的 wikilink；如有遗漏，会在写入前自动补齐。
-随后，工作流根据当日 Markdown frontmatter 重建 `daily/YYYY-MM-DD.md`。
+Claude Code 会读取全部详细笔记并生成当日简报。代码会检查每篇源笔记的 wikilink；如有遗漏，会在写入前自动补齐。 随后，工作流根据当日
+Markdown frontmatter 重建 `daily/YYYY-MM-DD.md`。
 
 ### 6. 可选的钉钉通知
 
 最后一步会去掉 YAML frontmatter，把简报正文按顺序发送到每个已配置的钉钉群。未配置群会话 ID 时，该步骤无副作用
 跳过。某个群发送失败不会阻止继续尝试其他群，所有发送完成后再汇总报告失败。
 
-## 记忆与混合检索
+## 记忆与检索
 
-独立配置使用两个相互分离的 agent wrapper：
+独立配置按职责分离 agent wrapper：
 
-- `claude_code` 执行每日论文和钉钉 Agent 工作。它保留 Claude Code 的常规本地工具、禁用 `WebSearch`，并把 ReMe
-  `search` job 作为 MCP 工具暴露给 Agent。
-- `memory` 通过 AgentScope 执行 auto-memory 和 auto-dream 中依赖 LLM 的步骤。它禁用内置 shell 和文件工具；
-  记忆变更只能经过 `daily_write`、`read`、`edit`、`write` 等更窄的 ReMe job。
+- `daily_paper` 执行论文精选、解读和简报生成。它保留 Claude Code 的常规本地工具并禁用 `WebSearch`，但当前没有 配置记忆检索
+  Job。
+- `dingtalk_wait` 运行后台钉钉 Agent，并把 `memory_search` 作为可调用工具。
+- `memory` 通过 AgentScope 执行 auto-memory 和 auto-dream 中依赖 LLM 的步骤。它禁用内置 shell 和文件工具； 记忆变更只能经过
+  `daily_write`、`read`、`edit`、`write` 等更窄的 ReMe job。
 
-`search` 同时查询 embedding store 和 BM25 索引，再以 RRF 融合排名，默认向量权重为 `0.7`。检索覆盖 `daily/` 和
-`digest/` 下的 Markdown；`node_search` 是 auto-dream 内部使用的 digest 节点检索工具。
+内置配置的 `memory_search` 使用 BM25 检索 `daily/` 和 `digest/` 下的 Markdown。ReMe 的搜索步骤支持融合向量结果， 但本
+cookbook 默认没有配置 embedding store，因此不会执行向量检索。`node_search` 是 auto-dream 内部使用的 digest 节点检索工具。
 
 `index_update_loop` 会在服务启动时索引已有记忆文件，并持续监听这些目录的后续变化。修复派生 file store 或需要强制
 完整重建索引时，可运行 `reindex`。`reindex` 不会删除源 Markdown 或 PDF。
 
-embedding cache key 包含配置的 dimensions 和 `cache_version`，但不包含模型名称。切换到相同维度的其他 embedding
-模型时，应使用新版本启动应用，例如 `components.embedding_store.default.cache_version=v2`，然后运行 `reindex`。
-
 `auto_memory` 根据调用方传入的对话消息和稳定 `session_id` 写入或更新一篇 daily note。`auto_dream` 扫描近期 daily
-notes，把持久记忆单元整合到 `digest/`，并生成兴趣主题。这两个 job 在本 cookbook 中都是按需执行；当前没有配置
-auto-dream cron。钉钉 Agent 可以通过 `search` 召回记忆，但对话结束后不会自动调用 `auto_memory`。
+notes，把持久记忆单元整合到 `digest/`，并生成兴趣主题。这两个 job 在本 cookbook 中都是按需执行；当前没有配置 auto-dream
+cron。钉钉 Agent 可以通过 `memory_search` 召回记忆，但对话结束后不会自动调用 `auto_memory`。
 
 ## 日期、重跑与幂等
 
@@ -172,36 +170,28 @@ auto-dream cron。钉钉 Agent 可以通过 `search` 召回记忆，但对话结
   跳过；已有简报仍会交给钉钉通知步骤。
 - `force=true` 会重新生成笔记和简报，但仍会复用已有且有效的 PDF。
 
-每个 PDF、详细笔记和最终简报都会先写临时文件再替换，避免读取方看到半写状态。整个多文件工作流不是事务，
-同一日期的并发运行也没有全局锁。
+每个 PDF、详细笔记和最终简报都会先写临时文件再替换，避免读取方看到半写状态。整个多文件工作流不是事务， 同一日期的并发运行也没有全局锁。
 
 ## 运行方式
 
 独立配置中的主要 Job 如下：
 
-| Job                 | 行为                                             |
-|---------------------|------------------------------------------------|
-| `daily_paper`       | 通过 CLI 或 HTTP 服务按需生成                           |
-| `daily_paper_cron`  | 每天 08:00（`Asia/Shanghai`）执行相同 pipeline         |
-| `dingtalk_wait`     | 由 supervisor 管理、具有 `search` 能力的后台钉钉 Agent     |
-| `auto_memory`       | 根据对话消息写入或更新 daily note                       |
-| `auto_dream`        | 把近期 daily notes 整理为 digest 记忆和兴趣主题            |
-| `search`            | 对 daily 和 digest Markdown 执行向量 + BM25 混合检索     |
-| `reindex`           | 根据已有记忆文件重建派生检索状态                           |
-| `index_update_loop` | 在服务模式下初始化并持续更新检索状态                         |
+| Job                 | 行为                                                          |
+|---------------------|---------------------------------------------------------------|
+| `daily_paper`       | 通过 CLI 或 HTTP 服务按需生成                                 |
+| `daily_paper_cron`  | 每天 08:00（`Asia/Shanghai`）执行相同 pipeline                |
+| `dingtalk_wait`     | 由 supervisor 管理、具有 `memory_search` 能力的后台钉钉 Agent |
+| `auto_memory`       | 根据对话消息写入或更新 daily note                             |
+| `auto_dream`        | 把近期 daily notes 整理为 digest 记忆和兴趣主题               |
+| `memory_search`     | 对 daily 和 digest Markdown 执行 BM25 检索                    |
+| `reindex`           | 根据已有记忆文件重建派生检索状态                              |
+| `index_update_loop` | 在服务模式下初始化并持续更新检索状态                          |
 
-`node_search`、`daily_list`、`daily_write`、`read`、`write`、`edit` 和 frontmatter 更新等辅助 job
-构成 memory agent 使用的受约束工具。
+`node_search`、`daily_list`、`daily_write`、`read`、`write`、`edit` 和 frontmatter 更新等辅助 job 构成 memory agent 使用的受约束工具。
 
 ### 一次性运行
 
-生成今天的简报：
-
-```bash
-reme start config=daily_cookbook job=daily_paper
-```
-
-生成指定日期，并覆盖部分参数：
+快速开始中的命令会生成今天的简报。要生成指定日期并覆盖部分参数：
 
 ```bash
 reme start \
@@ -228,8 +218,7 @@ reme start config=daily_cookbook job=daily_paper date=2026-07-21 force=true
 reme start config=daily_cookbook
 ```
 
-服务默认监听 `127.0.0.1:8001`，因此可以和默认 ReMe 服务并行运行。在另一个终端中通过 ReMe client 或 HTTP
-调用按需任务：
+服务默认监听 `127.0.0.1:8001`，因此可以和默认 ReMe 服务并行运行。在另一个终端中通过 ReMe client 或 HTTP 调用按需任务：
 
 ```bash
 reme daily_paper host=127.0.0.1 port=8001
@@ -244,7 +233,7 @@ curl -s http://127.0.0.1:8001/daily_paper \
 检索记忆、记录对话、整理记忆，或显式重建检索索引：
 
 ```bash
-reme search host=127.0.0.1 port=8001 query="agent memory" limit=5
+reme memory_search host=127.0.0.1 port=8001 query="agent memory" limit=5
 
 reme auto_memory host=127.0.0.1 port=8001 \
   session_id=example-session \
@@ -268,42 +257,39 @@ reme start \
 
 最常用的 Job 配置如下：
 
-| 配置项               |        默认值 | 用途                      |
-|-------------------|-----------:|-------------------------|
-| `candidate_limit` |       `20` | 送入精选阶段的最大论文数            |
-| `memory_reserve`  |        `5` | 记忆关键词启发式保留的候选位置数        |
+| 配置项            |     默认值 | 用途                               |
+|-------------------|-----------:|------------------------------------|
+| `candidate_limit` |       `20` | 送入精选阶段的最大论文数           |
+| `memory_reserve`  |        `5` | 记忆关键词启发式保留的候选位置数   |
 | `top_k`           |        `3` | 最终精选和解读的论文数             |
-| `rrf_k`           |       `60` | RRF 常数                  |
+| `rrf_k`           |       `60` | RRF 常数                           |
 | `weekly_weight`   |      `0.7` | 周榜在融合排序中的权重             |
-| `history_days`    |       `30` | 按 arXiv ID 排除近期推荐的时间窗口  |
-| `hf_timeout`      |     `30` 秒 | Hugging Face 请求 timeout |
-| `hf_max_retries`  |        `3` | Hugging Face 请求最多尝试次数   |
-| `pdf_timeout`     |     `90` 秒 | arXiv 下载 timeout        |
-| `max_pdf_bytes`   | `52428800` | PDF 大小上限（50 MiB）        |
-| `max_pdf_pages`   |       `80` | 最多提取的 PDF 页数            |
-| `max_pdf_chars`   |   `240000` | 单篇论文送入模型的最大提取字符数        |
+| `history_days`    |       `30` | 按 arXiv ID 排除近期推荐的时间窗口 |
+| `hf_timeout`      |    `30` 秒 | Hugging Face 请求 timeout          |
+| `hf_max_retries`  |        `3` | Hugging Face 请求最多尝试次数      |
+| `pdf_timeout`     |    `90` 秒 | arXiv 下载 timeout                 |
+| `max_pdf_bytes`   | `52428800` | PDF 大小上限（50 MiB）             |
+| `max_pdf_pages`   |       `80` | 最多提取的 PDF 页数                |
+| `max_pdf_chars`   |   `240000` | 单篇论文送入模型的最大提取字符数   |
 
 公开 Job 参数为 `date`、`force`、`top_k`、`weekly_weight` 和 `history_days`。调用时显式传入的值优先于 Job 默认值。
 
 独立应用还支持以下环境变量：
 
-| 环境变量                                    | 用途                                             |
-|-----------------------------------------|------------------------------------------------|
-| `DAILY_PAPER_WORKSPACE_DIR`             | 覆盖默认 `.reme` workspace                         |
-| `DAILY_PAPER_PROJECT_PATH`              | Claude Code 可见的仓库或项目路径                         |
-| `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP 监听地址                                      |
-| `CLAUDE_CODE_API_KEY`                   | Claude Code endpoint 的 API key                  |
-| `CLAUDE_CODE_MODEL_NAME`                | Claude Code 模型；默认 `qwen3.7-max`                 |
-| `CLAUDE_CODE_BASE_URL`                  | Claude Code 的 Anthropic 兼容 endpoint             |
-| `LLM_API_KEY`                           | AgentScope memory 模型的 API key                   |
-| `LLM_MODEL_NAME`                        | memory 模型；默认 `qwen3.7-max`                      |
-| `LLM_BASE_URL`                          | memory 模型的 Anthropic 兼容 endpoint                |
-| `EMBEDDING_API_KEY`                     | 向量索引和检索使用的 API key                            |
-| `EMBEDDING_MODEL_NAME`                  | embedding 模型；默认 `text-embedding-v4`             |
-| `EMBEDDING_BASE_URL`                    | embedding 模型的 OpenAI 兼容 endpoint                |
+| 环境变量                                | 用途                                   |
+|-----------------------------------------|----------------------------------------|
+| `DAILY_PAPER_WORKSPACE_DIR`             | 覆盖默认 `reme_workspace`              |
+| `DAILY_PAPER_PROJECT_PATH`              | Claude Code 可见的仓库或项目路径       |
+| `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP 监听地址                          |
+| `CLAUDE_CODE_API_KEY`                   | Claude Code endpoint 的 API key        |
+| `CLAUDE_CODE_MODEL_NAME`                | Claude Code 模型；默认 `qwen3.7-max`   |
+| `CLAUDE_CODE_BASE_URL`                  | Claude Code 的 Anthropic 兼容 endpoint |
+| `LLM_API_KEY`                           | AgentScope memory 模型的 API key       |
+| `LLM_MODEL_NAME`                        | memory 模型；默认 `qwen3.7-max`        |
+| `LLM_BASE_URL`                          | memory 模型的 Anthropic 兼容 endpoint  |
 
-`DAILY_PAPER_PROJECT_PATH` 默认是相对于 workspace 的 `..`。使用默认 `.reme` workspace 并从仓库根目录启动时，
-它会解析回仓库根目录。如果 workspace 位于其他位置，请显式设置这两个路径。
+`DAILY_PAPER_PROJECT_PATH` 默认是相对于 workspace 的 `..`。使用默认 `reme_workspace` 并从仓库根目录启动时， 它会解析回仓库根目录。如果
+workspace 位于其他位置，请显式设置这两个路径。
 
 ReMe 会从当前目录向上查找未提交的 `.env`，因此也可以把相同变量放在其中，而不是在 shell 中导出。
 
@@ -322,35 +308,31 @@ DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 
 ## 故障恢复与边界
 
-| 场景                | 当前行为                            |
-|-------------------|---------------------------------|
-| Hugging Face 暂时失败 | 按指数间隔重试，最多尝试 `hf_max_retries` 次 |
-| 没有 eligible 论文    | 在排序前失败                          |
-| `top_k` 或精选结果不合法  | 校验后失败；精选结果可重试一次                 |
-| PDF 太大、无效或没有文本层   | 在解读阶段停止                         |
-| PDF 超过页数或字符数限制    | 使用截断文本继续，并记录截断状态                |
-| 某篇论文解读失败          | Job 停止；此前写入的 PDF 和笔记保留          |
-| 简报遗漏源笔记链接         | 写入前自动补齐 wikilink                |
-| 最终简报已存在           | 默认跳过生成，通知仍可发送；`force=true` 可重跑  |
-| 同一日期并发运行          | 没有 pipeline 级锁，后写入结果可能替换先前结果    |
-| 缺少 embedding 凭据    | 向量检索不可用，BM25 召回仍然可用                          |
-| embedding 模型变化     | 选择新的 embedding `cache_version`，再运行 `reindex`     |
-| embedding 维度变化     | 运行 `reindex`；不同维度本身会选择独立 cache identity         |
-| auto-dream 部分整合失败  | 成功单元保留，失败路径不会被 checkpoint           |
+| 场景                       | 当前行为                                     |
+|----------------------------|----------------------------------------------|
+| Hugging Face 暂时失败      | 按指数间隔重试，最多尝试 `hf_max_retries` 次 |
+| 没有 eligible 论文         | 在排序前失败                                 |
+| `top_k` 或精选结果不合法   | 校验后失败；精选结果可重试一次               |
+| PDF 太大、无效或没有文本层 | 在解读阶段停止                               |
+| PDF 超过页数或字符数限制   | 使用截断文本继续，并记录截断状态             |
+| 某篇论文解读失败           | Job 停止；此前写入的 PDF 和笔记保留          |
+| 简报遗漏源笔记链接         | 写入前自动补齐 wikilink                      |
+| auto-dream 部分整合失败    | 成功单元保留，失败路径不会被 checkpoint      |
 
-恢复时，先检查该日期已有的笔记和 PDF，修复网络、凭据、模型或 PDF 问题，再使用相同日期和 `force=true` 重跑。
-有效的缓存 PDF 会被复用。
+恢复时，先检查该日期已有的笔记和 PDF，修复网络、凭据、模型或 PDF 问题，再使用相同日期和 `force=true` 重跑。 有效的缓存 PDF
+会被复用。
 
-内置 Claude Code 组件使用 `permission_mode: bypassPermissions`。ReMe 会禁用 Claude Code 的 `WebSearch`、加入本地
-`search` job，Analyze 和 Digest prompt 也会限制 Agent 应读取的内容，但这些步骤没有设置严格的逐次调用工具
-allowlist，也不是操作系统级沙箱。AgentScope memory wrapper 禁用了内置 shell 和文件系统工具，但其 ReMe job tools
-运行于 bypass permission mode。请只在可信的项目和 workspace 中运行；用于共享或生产环境前，应进一步收紧配置。
+内置 Claude Code 组件使用 `permission_mode: bypassPermissions`，并禁用 `WebSearch`。`dingtalk_wait` 可以调用本地
+`memory_search`；`daily_paper` 当前没有配置 Job 工具。Analyze 和 Brief prompt 会限制 Agent 应读取的内容，但这些
+步骤没有设置严格的逐次调用工具 allowlist，也不是操作系统级沙箱。AgentScope memory wrapper 禁用了内置 shell 和 文件系统工具，但其
+ReMe job tools 运行于 bypass permission mode。请只在可信的项目和 workspace 中运行；用于共享 或生产环境前，应进一步收紧配置。
 
 ## 测试
 
 聚焦的单元测试会 mock Hugging Face、arXiv、Claude Code 和钉钉边界：
 
 ```bash
+python -m pip install -e ".[dev,core]"
 pytest tests/unit/test_daily_paper.py -v
 ```
 

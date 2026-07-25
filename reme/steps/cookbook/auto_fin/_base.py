@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
@@ -37,9 +38,12 @@ def _news_id(row: dict[str, Any], published_at: datetime) -> str:
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    temporary.replace(path)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:

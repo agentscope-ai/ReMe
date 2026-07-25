@@ -49,10 +49,10 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 - **Personal assistants**: Give personal assistants such as
   [QwenPaw](https://github.com/agentscope-ai/QwenPaw), [OpenClaw](https://github.com/openclaw/openclaw), and
   [Hermes](https://github.com/nousresearch/hermes-agent) a user-editable long-term memory layer.
-- **Coding agents**: Preserve coding style, project background, repository decisions, and workflow
-  experience across sessions when integrating with coding agents such as [Claude Code](plugins/reme).
-- **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown
-  knowledge base that both users and agents can maintain.
+- **Coding agents**: Preserve coding style, project background, repository decisions, and workflow experience across
+  sessions when integrating with coding agents such as [Claude Code](plugins/reme).
+- **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown knowledge
+  base that both users and agents can maintain.
 - **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
   reusable procedures, and periodic reflections as memory.
 
@@ -173,6 +173,7 @@ another row in this table.
 | Cookbook                                      | Capability                                                                                                    |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | [Daily Paper](cookbook/daily_paper/README.md) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
+| [Auto Fin](cookbook/auto-fin/README.md)       | Match CLS events to liquid ETFs, study historical reactions, and generate file-native research reports.       |
 
 ## 📁 Memory System
 
@@ -314,8 +315,8 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 - **Issues and requests**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
   related discussion, open a new issue with background, expected behavior, and impact scope.
 - **Code contributions**: Before making changes, read
-  the [contribution guide](https://docs.agentscope.io/reme/stable/en/contributing). Source,
-  schemas, and tests are the authoritative architecture and extension guide.
+  the [contribution guide](https://docs.agentscope.io/reme/stable/en/contributing). Source, schemas, and tests are the
+  authoritative architecture and extension guide.
 - **Documentation contributions**: Submit user-facing documentation changes to the
   [unified documentation repository](https://github.com/agentscope-ai/docs) under `reme/<version>/{en,zh}/`.
 - **Commit convention**: Conventional Commits are recommended, for example `feat(search): add link expansion option` or

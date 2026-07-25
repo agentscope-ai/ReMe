@@ -79,8 +79,8 @@ pip install -e ".[core]"
 
 ### 环境变量
 
-如果需要 LLM 驱动的记忆演化或 embedding 检索，可以配置环境变量。embedding 默认关闭，因此默认配置不会启动
-embedding 模型，也不需要 embedding API key。
+如果需要 LLM 驱动的记忆演化或 embedding 检索，可以配置环境变量。embedding 默认关闭，因此默认配置不会启动 embedding 模型，也不需要
+embedding API key。
 
 ```bash
 cat > .env <<'EOF'
@@ -158,18 +158,19 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ## 🧑‍🍳 Cookbooks
 
-Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的
-独立配置即可启用。后续新增的 cookbook 会继续在表格中按行追加。
+Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的 独立配置即可启用。后续新增的
+cookbook 会继续在表格中按行追加。
 
-| Cookbook                                  | 能力                                       |
-|-------------------------------------------|------------------------------------------|
+| Cookbook                                      | 能力                                                                  |
+|-----------------------------------------------|-----------------------------------------------------------------------|
 | [每日论文](cookbook/daily_paper/README_ZH.md) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。 |
+| [Auto Fin](cookbook/auto-fin/README_ZH.md)    | 将财联社事件匹配到高流动性 ETF，研究历史反应并生成文件化研究报告。    |
 
 ## 📁 记忆系统
 
 > Memory as File, File as Memory.
 
-ReMe 将**记忆视为文件**，让原始对话和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
+ReMe 将 **记忆视为文件**，让原始对话和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
 中可长期复用的知识节点。
 
 ### 目录结构
@@ -213,13 +214,13 @@ ReMe 将**记忆视为文件**，让原始对话和外部资料从 `session/`、
 ReMe 遵循 capture → index → consolidate → recall 的循环。对话和资料先变成 daily 记忆卡片；后台任务保持文件可检索；
 `auto_dream` 将稳定知识沉淀到 `digest/`；Agent 再通过搜索、wikilink 或 proactive topics 召回记忆。
 
-| 能力                                          | 入口                               | 作用                                                 | 输出                                                   |
-|---------------------------------------------|----------------------------------|----------------------------------------------------|------------------------------------------------------|
-| [`auto_memory`](docs/zh/auto_memory.md)     | Agent hook 或 `reme auto_memory`  | 提炼有长期价值的对话事实，同时保留原始 session。                       | `session/dialog/*.jsonl`、`daily/<date>/<session>.md` |
-| [`auto_resource`](docs/zh/auto_resource.md) | 资源监听或 `reme auto_resource`       | 将 `resource/<date>/` 下的文件转为带来源链接的 daily 卡片。        | `daily/<date>/<resource-card>.md`                    |
-| [`auto_index`](docs/zh/memory_search.md)    | 后台监听或 `reme reindex`             | 维护 chunks、BM25 索引、wikilink 图谱及可选的 embedding 索引。    | 可检索的 `daily/`、`digest/`、`resource/` 内容               |
-| [`auto_dream`](docs/zh/auto_dream.md)       | `dream_cron` 或 `reme auto_dream` | 将变化的 daily 卡片整理为长期 personal、procedure 和 wiki 记忆。   | `digest/**`、`daily/<date>/interests.yaml`            |
-| [`proactive`](docs/zh/proactive.md)         | Agent 决定主动行动前调用 `reme proactive` | 读取 `auto_dream` 生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。 | 来自 `daily/<date>/interests.yaml` 的结构化 topics         |
+| 能力                                        | 入口                                      | 作用                                                                     | 输出                                                  |
+|---------------------------------------------|-------------------------------------------|--------------------------------------------------------------------------|-------------------------------------------------------|
+| [`auto_memory`](docs/zh/auto_memory.md)     | Agent hook 或 `reme auto_memory`          | 提炼有长期价值的对话事实，同时保留原始 session。                         | `session/dialog/*.jsonl`、`daily/<date>/<session>.md` |
+| [`auto_resource`](docs/zh/auto_resource.md) | 资源监听或 `reme auto_resource`           | 将 `resource/<date>/` 下的文件转为带来源链接的 daily 卡片。              | `daily/<date>/<resource-card>.md`                     |
+| [`auto_index`](docs/zh/memory_search.md)    | 后台监听或 `reme reindex`                 | 维护 chunks、BM25 索引、wikilink 图谱及可选的 embedding 索引。           | 可检索的 `daily/`、`digest/`、`resource/` 内容        |
+| [`auto_dream`](docs/zh/auto_dream.md)       | `dream_cron` 或 `reme auto_dream`         | 将变化的 daily 卡片整理为长期 personal、procedure 和 wiki 记忆。         | `digest/**`、`daily/<date>/interests.yaml`            |
+| [`proactive`](docs/zh/proactive.md)         | Agent 决定主动行动前调用 `reme proactive` | 读取 `auto_dream` 生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。 | 来自 `daily/<date>/interests.yaml` 的结构化 topics    |
 
 <table>
   <tr>
@@ -245,10 +246,10 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。对话和�
 ReMe 作为本地记忆服务运行，并提供 CLI、HTTP API、MCP server 和 SDK 等多种接入方式。不同 Agent 可以选择适合自身 runtime
 的路径，同时共享同一个本地 memory workspace。
 
-| Agent                                                | 推荐接入方式                                                            | 开箱可用能力                                                          |
-|------------------------------------------------------|-------------------------------------------------------------------|-----------------------------------------------------------------|
-| **QwenPaw**                                          | 通过 Python SDK 嵌入 ReMe。                                            | 复用应用自身生命周期和模型配置，同时保持 memory 本地、文件化。                             |
-| **Claude Code**                                      | 以 MCP service 启动 ReMe，并安装 [plugins/reme](plugins/reme)。           | MCP recall tools、`reme-memory` skill，以及自动记录会话的 Stop hook。       |
+| Agent                                                | 推荐接入方式                                                            | 开箱可用能力                                                                     |
+|------------------------------------------------------|-------------------------------------------------------------------------|----------------------------------------------------------------------------------|
+| **QwenPaw**                                          | 通过 Python SDK 嵌入 ReMe。                                             | 复用应用自身生命周期和模型配置，同时保持 memory 本地、文件化。                   |
+| **Claude Code**                                      | 以 MCP service 启动 ReMe，并安装 [plugins/reme](plugins/reme)。         | MCP recall tools、`reme-memory` skill，以及自动记录会话的 Stop hook。            |
 | **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | 复制或安装 [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索/读取/写入记忆，并调用 `auto_memory`、`auto_dream` 和 `proactive`。 |
 
 <p align="center"><b>集成演示</b></p>
@@ -284,17 +285,17 @@ ReMe 作为本地记忆服务运行，并提供 CLI、HTTP API、MCP server 和 
 ReMe 通过 CLI 暴露的统一 job interface 操作 workspace。Agent 通常只需要使用检索、读取、写入、编辑和自动记忆相关命令；更底层的索引、
 frontmatter 和文件操作接口主要用于维护、调试或高级集成。完整 job 列表可以运行 `reme help` 查看。
 
-| 命令                                        | 作用                                          |
-|-------------------------------------------|---------------------------------------------|
-| `reme start`                              | 启动本地 ReMe 服务。                               |
-| `reme version` / `reme health_check`      | 检查包版本和组件状态。                                 |
+| 命令                                      | 作用                                                          |
+|-------------------------------------------|---------------------------------------------------------------|
+| `reme start`                              | 启动本地 ReMe 服务。                                          |
+| `reme version` / `reme health_check`      | 检查包版本和组件状态。                                        |
 | `reme status`                             | 查看有状态数据组件的内存估算及进程 RSS。                      |
 | [`reme search`](docs/zh/memory_search.md) | 默认使用 BM25 和 wikilink 检索，启用后增加向量检索。          |
-| `reme read` / `reme write` / `reme edit`  | 检查和维护 Markdown 记忆文件。                        |
-| `reme auto_memory`                        | 将对话 messages 转为 daily 记忆卡片；需要 LLM 凭证。       |
+| `reme read` / `reme write` / `reme edit`  | 检查和维护 Markdown 记忆文件。                                |
+| `reme auto_memory`                        | 将对话 messages 转为 daily 记忆卡片；需要 LLM 凭证。          |
 | `reme auto_resource`                      | 将 `resource/` 下的文件解读为 daily 资料卡片；需要 LLM 凭证。 |
-| `reme auto_dream` / `reme proactive`      | 将 daily 记忆整理为长期 digest，并暴露值得关注的主题。          |
-| `reme reindex`                            | 基于已有文件重建检索和 wikilink 索引。                    |
+| `reme auto_dream` / `reme proactive`      | 将 daily 记忆整理为长期 digest，并暴露值得关注的主题。        |
+| `reme reindex`                            | 基于已有文件重建检索和 wikilink 索引。                        |
 
 ## 🤝 社区与支持
 

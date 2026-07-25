@@ -195,7 +195,8 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
         "append": (
             "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
             "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
-            "daily/YYYY-MM-DD/daily-paper-brief.md. Use memory_search to retrieve relevant long-term notes across dates."
+            "daily/YYYY-MM-DD/daily-paper-brief.md. Use memory_search to retrieve relevant long-term notes "
+            "across dates."
         ),
     }
     assert R.get(ComponentEnum.STEP, "dingtalk_wait_step") is DingTalkWaitStep

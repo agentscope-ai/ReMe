@@ -24,12 +24,32 @@ from reme.schema import (
     AutoFinMarketSample,
     AutoFinReportOutput,
 )
+from reme.steps.cookbook.auto_fin._base import _write
 from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
 from reme.steps.cookbook.auto_fin.history import AutoFinHistoryStep
 from reme.steps.cookbook.auto_fin.history_search import AutoFinHistorySearchStep
 from reme.steps.cookbook.auto_fin.merge import AutoFinMergeStep
 from reme.steps.cookbook.auto_fin.market import AutoFinMarketStep
 from reme.steps.cookbook.auto_fin.topic import AutoFinTopicStep, _plain_text
+
+
+def test_atomic_write_preserves_existing_file_and_cleans_temporary_file_on_failure(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "result.json"
+    path.write_text("existing", encoding="utf-8")
+
+    def fail_replace(_source, _destination):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("reme.steps.cookbook.auto_fin._base.os.replace", fail_replace)
+
+    with pytest.raises(OSError, match="replace failed"):
+        _write(path, "replacement")
+
+    assert path.read_text(encoding="utf-8") == "existing"
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 @pytest.mark.asyncio
@@ -494,6 +514,8 @@ async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_dat
     assert context["markdown_path"] == "daily/2026-07-24/auto_fin.md"
     assert context["auto_fin_digest_path"] == "daily/2026-07-24/auto_fin.md"
     assert response.metadata["digest_path"] == "daily/2026-07-24/auto_fin.md"
+    daily_index = (tmp_path / "daily" / "2026-07-24.md").read_text(encoding="utf-8")
+    assert "[[daily/2026-07-24/auto_fin.md]]" in daily_index
     assert sum("agent input prompt=" in line for line in logs) == 2
     assert sum("agent output prompt=" in line for line in logs) == 2
     assert all("agent start prompt=" not in line and "agent done prompt=" not in line for line in logs)
