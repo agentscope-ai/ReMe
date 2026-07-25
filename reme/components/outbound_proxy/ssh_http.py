@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import importlib.util
 import math
 import shutil
 import socket
@@ -136,6 +137,10 @@ class SshHttpOutboundProxy(BaseOutboundProxy):
         self._ssh_executable = shutil.which("ssh")
         if self._ssh_executable is None:
             raise RuntimeError("Outbound proxy configuration invalid: ssh executable was not found.")
+        if importlib.util.find_spec("pproxy") is None:
+            raise RuntimeError(
+                "SSH HTTP outbound proxy requires pproxy; install ReMe with the 'core' extra: reme-ai[core].",
+            )
 
     @staticmethod
     def _pick_free_port() -> int:

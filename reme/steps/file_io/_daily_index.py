@@ -36,7 +36,7 @@ def parse_daily_date(value) -> str | None:
 
 _NOTES_OPEN = "<!-- notes:auto -->"
 _NOTES_CLOSE = "<!-- /notes:auto -->"
-_INDEX_HIDDEN_METADATA_KEYS = {"session_id", "source_conversation"}
+_INDEX_HIDDEN_METADATA_KEYS = {"schema_version", "session_id", "source_conversation"}
 
 
 def _render_notes_block(notes: list[dict]) -> str:
@@ -47,8 +47,7 @@ def _render_notes_block(notes: list[dict]) -> str:
     for note in notes:
         meta: dict = note["metadata"]
         keys = [k for k in ("name", "description") if k in meta]
-        if meta.get("schema_version") != "auto-fin/v1":
-            keys += [k for k in meta if k not in {"name", "description", *_INDEX_HIDDEN_METADATA_KEYS}]
+        keys += [k for k in meta if k not in {"name", "description", *_INDEX_HIDDEN_METADATA_KEYS}]
         parts = [f"- [[{note['path']}]]"] + [
             f"{k}: {str(v).replace(chr(10), ' ')}" for k in keys if (v := meta[k]) not in (None, "")
         ]
