@@ -71,6 +71,16 @@ reme start config=daily_cookbook job=auto_fin force=true
 
 这可能产生大量 Tushare 请求。普通运行会复用有效历史新闻，并始终刷新当天文件。
 
+### 可选 SSH 代理
+
+出站代理默认关闭。如需启用，请取消 `daily_cookbook.yaml` 中
+`components.outbound_proxy.default` 的注释，配置免交互 SSH 认证，并设置：
+
+```bash
+export REME_PROXY_IP="your-ssh-proxy-host"
+export REME_PROXY_ACCOUNT="your-ssh-account"
+```
+
 ## 工作原理
 
 ```mermaid
@@ -234,16 +244,18 @@ reme_workspace/
 
 ### 环境变量
 
-| 变量                        | 必需 | 说明                               |
-|-----------------------------|------|------------------------------------|
-| `TUSHARE_TOKEN`             | 是   | 新闻、交易日历、ETF 日线和复权因子 |
-| `CLAUDE_CODE_API_KEY`       | 是   | Auto Fin Agent 凭据                |
-| `CLAUDE_CODE_MODEL_NAME`    | 否   | 默认 `qwen3.7-max`                 |
-| `CLAUDE_CODE_BASE_URL`      | 否   | Anthropic 兼容 endpoint            |
-| `AUTO_FIN_AGENT_BACKEND`    | 否   | 默认 `claude_code`                 |
-| `AUTO_FIN_PROJECT_PATH`     | 否   | Agent project path，默认 `..`      |
-| `DAILY_PAPER_WORKSPACE_DIR` | 否   | standalone cookbook workspace      |
-| `DINGTALK_*`                | 否   | 钉钉应用、机器人和会话设置         |
+| 变量                        | 必需 | 说明                                |
+|-----------------------------|------|-------------------------------------|
+| `TUSHARE_TOKEN`             | 是   | 新闻、交易日历、ETF 日线和复权因子  |
+| `CLAUDE_CODE_API_KEY`       | 是   | Auto Fin Agent 凭据                 |
+| `CLAUDE_CODE_MODEL_NAME`    | 否   | 默认 `qwen3.7-max`                  |
+| `CLAUDE_CODE_BASE_URL`      | 否   | Anthropic 兼容 endpoint             |
+| `AUTO_FIN_AGENT_BACKEND`    | 否   | 默认 `claude_code`                  |
+| `AUTO_FIN_PROJECT_PATH`     | 否   | Agent project path，默认 `..`       |
+| `REME_PROXY_IP`             | 否   | 仅启用 `ssh_http` 时使用的 SSH 主机 |
+| `REME_PROXY_ACCOUNT`        | 否   | 仅启用 `ssh_http` 时使用的 SSH 账户 |
+| `DAILY_PAPER_WORKSPACE_DIR` | 否   | standalone cookbook workspace       |
+| `DINGTALK_*`                | 否   | 钉钉应用、机器人和会话设置          |
 
 单元测试可通过 RuntimeContext 注入 `tushare_provider`，不需要真实凭据。
 

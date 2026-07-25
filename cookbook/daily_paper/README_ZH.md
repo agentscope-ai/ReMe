@@ -39,6 +39,16 @@ export LLM_API_KEY="your-api-key"
 
 默认情况下，产物写入 ReMe 启动目录下的 `reme_workspace/`。
 
+### 可选 SSH 代理
+
+出站代理默认关闭。如需启用，请取消 `daily_cookbook.yaml` 中
+`components.outbound_proxy.default` 的注释，配置免交互 SSH 认证，并设置：
+
+```bash
+export REME_PROXY_IP="your-ssh-proxy-host"
+export REME_PROXY_ACCOUNT="your-ssh-account"
+```
+
 ## 文件产物
 
 一次成功运行会在 `workspace_dir` 下写入普通 PDF 和 Markdown 文件：
@@ -280,6 +290,8 @@ reme start \
 |-----------------------------------------|----------------------------------------|
 | `DAILY_PAPER_WORKSPACE_DIR`             | 覆盖默认 `reme_workspace`              |
 | `DAILY_PAPER_PROJECT_PATH`              | Claude Code 可见的仓库或项目路径       |
+| `REME_PROXY_IP`                         | 可选 SSH 代理主机                      |
+| `REME_PROXY_ACCOUNT`                    | 可选 SSH 代理账户                      |
 | `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP 监听地址                          |
 | `CLAUDE_CODE_API_KEY`                   | Claude Code endpoint 的 API key        |
 | `CLAUDE_CODE_MODEL_NAME`                | Claude Code 模型；默认 `qwen3.7-max`   |

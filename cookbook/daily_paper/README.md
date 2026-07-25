@@ -42,6 +42,16 @@ export LLM_API_KEY="your-api-key"
 
 By default, outputs are written under `reme_workspace/` in the directory where ReMe starts.
 
+### Optional SSH proxy
+
+The outbound proxy is disabled by default. To enable it, uncomment `components.outbound_proxy.default` in
+`daily_cookbook.yaml`, configure non-interactive SSH authentication, and set:
+
+```bash
+export REME_PROXY_IP="your-ssh-proxy-host"
+export REME_PROXY_ACCOUNT="your-ssh-account"
+```
+
 ## What it creates
 
 A successful run writes ordinary PDFs and Markdown files beneath `workspace_dir`:
@@ -301,6 +311,8 @@ The standalone application also accepts these environment variables:
 |-----------------------------------------|------------------------------------------------|
 | `DAILY_PAPER_WORKSPACE_DIR`             | Overrides the default `reme_workspace`         |
 | `DAILY_PAPER_PROJECT_PATH`              | Repository/project path visible to Claude Code |
+| `REME_PROXY_IP`                         | Optional SSH proxy host                        |
+| `REME_PROXY_ACCOUNT`                    | Optional SSH proxy account                     |
 | `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP bind address                              |
 | `CLAUDE_CODE_API_KEY`                   | API key for the Claude Code endpoint           |
 | `CLAUDE_CODE_MODEL_NAME`                | Claude Code model; default `qwen3.7-max`       |

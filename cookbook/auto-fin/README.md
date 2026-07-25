@@ -77,6 +77,16 @@ reme start config=daily_cookbook job=auto_fin force=true
 
 This may issue many Tushare requests. A normal run reuses valid historical news files and always refreshes today's file.
 
+### Optional SSH proxy
+
+The outbound proxy is disabled by default. To enable it, uncomment `components.outbound_proxy.default` in
+`daily_cookbook.yaml`, configure non-interactive SSH authentication, and set:
+
+```bash
+export REME_PROXY_IP="your-ssh-proxy-host"
+export REME_PROXY_ACCOUNT="your-ssh-account"
+```
+
 ## How it works
 
 ```mermaid
@@ -248,16 +258,18 @@ News and reports remain ordinary user-owned files. Resource artifacts and search
 
 ### Environment variables
 
-| Variable                    | Required | Meaning                                                |
-|-----------------------------|----------|--------------------------------------------------------|
-| `TUSHARE_TOKEN`             | Yes      | News, calendar, ETF daily data, and adjustment factors |
-| `CLAUDE_CODE_API_KEY`       | Yes      | Auto Fin Agent credentials                             |
-| `CLAUDE_CODE_MODEL_NAME`    | No       | Defaults to `qwen3.7-max`                              |
-| `CLAUDE_CODE_BASE_URL`      | No       | Anthropic-compatible endpoint                          |
-| `AUTO_FIN_AGENT_BACKEND`    | No       | Defaults to `claude_code`                              |
-| `AUTO_FIN_PROJECT_PATH`     | No       | Agent project path; defaults to `..`                   |
-| `DAILY_PAPER_WORKSPACE_DIR` | No       | Standalone cookbook workspace                          |
-| `DINGTALK_*`                | No       | DingTalk application, robot, and conversation settings |
+| Variable                    | Required | Meaning                                                 |
+|-----------------------------|----------|---------------------------------------------------------|
+| `TUSHARE_TOKEN`             | Yes      | News, calendar, ETF daily data, and adjustment factors  |
+| `CLAUDE_CODE_API_KEY`       | Yes      | Auto Fin Agent credentials                              |
+| `CLAUDE_CODE_MODEL_NAME`    | No       | Defaults to `qwen3.7-max`                               |
+| `CLAUDE_CODE_BASE_URL`      | No       | Anthropic-compatible endpoint                           |
+| `AUTO_FIN_AGENT_BACKEND`    | No       | Defaults to `claude_code`                               |
+| `AUTO_FIN_PROJECT_PATH`     | No       | Agent project path; defaults to `..`                    |
+| `REME_PROXY_IP`             | No       | SSH proxy host; used only when `ssh_http` is enabled    |
+| `REME_PROXY_ACCOUNT`        | No       | SSH proxy account; used only when `ssh_http` is enabled |
+| `DAILY_PAPER_WORKSPACE_DIR` | No       | Standalone cookbook workspace                           |
+| `DINGTALK_*`                | No       | DingTalk application, robot, and conversation settings  |
 
 Unit tests can inject `tushare_provider` through the runtime context and do not require real credentials.
 
