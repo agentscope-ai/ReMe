@@ -356,12 +356,18 @@ class _Agent(BaseAgentWrapper):
             assert "不重新搜索新闻" in task
             assert "auto_fin_history_output.jsonl" in task
             assert "不生成 YAML frontmatter" in task
+            assert '"etf_code": "159018.SZ"' in task
+            assert '"suggested_holding_days": 10' in task
+            assert '"horizon": 1' in task
+            assert '"horizon": 10' in task
+            assert "自行判断事件对 ETF 的影响方向" in task
+            assert "不得使用程序计算结果反推事件方向" in task
+            assert "以推荐 ETF 为主要内容" in task
+            assert "用一句话合并简述" in task
             value = {
-                "title": "Auto Fin ETF 事件分析",
-                "body": (
-                    "## 159018.SZ（油气ETF）\n\n完整分析正文，D10 预估 +10%。\n\n"
-                    "## 最终建议\n\n优先关注油气ETF，参考持有 10 个交易日，供应恢复时失效。"
-                ),
+                "title": "Auto Fin ETF 结论",
+                "body": "## 结论\n\n推荐 159018.SZ（油气ETF），参考持有 10 个交易日，"
+                "当前加权预估收益 +10%；核心风险：供应恢复。",
             }
         else:  # pragma: no cover
             raise AssertionError(schema)
@@ -490,7 +496,7 @@ async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_dat
     ]
     assert "tool_contexts" not in app_context.metadata
     report = (tmp_path / "daily" / "2026-07-24" / "auto_fin.md").read_text(encoding="utf-8")
-    assert report.startswith("# Auto Fin ETF 事件分析\n\n")
+    assert report.startswith("# Auto Fin ETF 结论\n\n")
     assert not report.startswith("---")
     detail = context["auto_fin_history_details"][0]
     assert detail["etf"]["etf_code"] == "159018.SZ"
@@ -506,10 +512,10 @@ async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_dat
     assert "calculation_code" not in analysis
     assert detail["historical_research"]["historical_events"][0]["event_content"] == "历史供应中断"
     assert detail["historical_research"]["historical_events"][0]["reason"] == "供应中断的事件类型和传导机制相同"
-    assert "完整分析正文" in report
-    assert "D10 预估 +10%" in report
+    assert "当前加权预估收益 +10%" in report
+    assert "历史事件" not in report
     assert not (tmp_path / "daily" / "2026-07-24" / "auto_fin_brief.md").exists()
-    assert response.answer.startswith("## 159018.SZ")
+    assert response.answer.startswith("## 结论")
     assert response.metadata["etf_count"] == 1
     assert context["markdown_path"] == "daily/2026-07-24/auto_fin.md"
     assert context["auto_fin_digest_path"] == "daily/2026-07-24/auto_fin.md"

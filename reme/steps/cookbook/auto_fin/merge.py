@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from ....components import R
@@ -14,6 +15,22 @@ from ._base import AutoFinStep, _write, _write_jsonl
 class AutoFinMergeStep(AutoFinStep):
     """Ask a fresh Agent for the final Markdown and persist it directly."""
 
+    @staticmethod
+    def _calculation_results(history_details: list[AutoFinEtfHistoryDetail]) -> list[dict]:
+        """Return the program-calculated forecast for every analyzed ETF."""
+        results = []
+        for item in history_details:
+            holding_days = item.market_analysis.forecast.suggested_holding_days
+            results.append(
+                {
+                    "etf_code": item.etf.etf_code,
+                    "etf_name": item.etf.etf_name,
+                    "suggested_holding_days": holding_days,
+                    "returns": [point.model_dump(mode="json") for point in item.market_analysis.forecast.returns],
+                },
+            )
+        return results
+
     async def execute(self):
         assert self.context is not None
         etfs = list(self._required("auto_fin_etfs"))
@@ -24,6 +41,7 @@ class AutoFinMergeStep(AutoFinStep):
         if selected != etfs:
             raise ValueError("Auto Fin merge history details must match the selected ETFs")
         analyses = [item.market_analysis.model_dump(mode="json") for item in history_details]
+        calculation_results = self._calculation_results(history_details)
         self.logger.info(
             f"[{self.name}] start etfs={len(etfs)}",
         )
@@ -35,6 +53,7 @@ class AutoFinMergeStep(AutoFinStep):
             window_start=str(self._required("auto_fin_window_start")),
             etfs_path=str(self._required("auto_fin_etfs_resource")),
             history_path=str(self._required("auto_fin_history_resource")),
+            calculation_results=json.dumps(calculation_results, ensure_ascii=False),
         )
         markdown = f"# {output.title}\n\n{output.body}\n\n"
         markdown += "> 仅为事件研究和持有时间参考，不构成投资建议，不会执行交易。\n"
