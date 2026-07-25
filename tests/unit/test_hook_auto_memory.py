@@ -38,6 +38,11 @@ class TestResultStatus:
         }
         assert auto_memory._result_status(result) == "skipped"
 
+    def test_error_on_mcp_is_error(self):
+        """ToolError → CallToolResult(isError=True) inside the result key."""
+        result = {"result": {"content": [{"type": "text", "text": "Error: boom"}], "isError": True}}
+        assert auto_memory._result_status(result) == "error"
+
     def test_ok_when_answer_has_content(self):
         result = {
             "result": {

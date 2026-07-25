@@ -44,29 +44,46 @@ def _plugin_root() -> str:
     )
 
 
+def _extract_text(result: dict | None) -> str:
+    """Return the human-readable text from an MCP JSON-RPC response.
+
+    Works for both ``{"error": {...}}`` and ``{"result": {"content": [...]}}``.
+    """
+    if result is None:
+        return ""
+    if "error" in result:
+        err = result["error"]
+        if isinstance(err, dict):
+            return err.get("message", json.dumps(err, ensure_ascii=False))
+        return str(err)
+    r = result.get("result", {}) if isinstance(result, dict) else {}
+    content = r.get("content", []) if isinstance(r, dict) else []
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return (block.get("text") or "").strip()
+    return ""
+
+
 def _result_status(result: dict | None) -> str:
     """Classify a JSON-RPC tool result for logging.
 
     Returns one of: ``ok``, ``skipped``, ``error``, ``no-response``.
-    Because ReMe's MCP transport only returns ``answer`` (metadata is
-    dropped), we inspect the answer text directly.
     """
     if result is None:
         return "no-response"
     if "error" in result:
         return "error"
-    # Extract the answer text from the MCP content array.
     r = result.get("result", {}) if isinstance(result, dict) else {}
-    content = r.get("content", []) if isinstance(r, dict) else []
-    answer = ""
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                answer = (block.get("text") or "").strip()
-                break
-    if answer.startswith("Skipped"):
+    if isinstance(r, dict) and r.get("isError"):
+        return "error"
+    if _extract_text(result).startswith("Skipped"):
         return "skipped"
     return "ok"
+
+
+def _error_detail(result: dict) -> str:
+    return _extract_text(result)
 
 
 def _server_url() -> str:
@@ -159,8 +176,13 @@ def _mcp_call(url: str, tool: str, arguments: dict) -> dict | None:
 
     # 3. tools/call
     call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
-    with _post(url, call, headers) as resp:
-        return _read_jsonrpc(resp)
+    try:
+        with _post(url, call, headers) as resp:
+            return _read_jsonrpc(resp)
+    except urllib.error.HTTPError as exc:
+        # FastMCP may return non-2xx for errors — read the body to extract
+        # the JSON-RPC error envelope.
+        return _read_jsonrpc(exc)
 
 
 def _daemonize() -> None:
@@ -203,7 +225,8 @@ def main() -> None:
         result = _mcp_call(url, tool, arguments)
         status = _result_status(result)
         if status == "error":
-            _log(session_id, status, json.dumps(result["error"], ensure_ascii=False)[:500])
+            detail = _error_detail(result)
+            _log(session_id, status, detail[:500])
         elif status == "skipped":
             _log(session_id, status, f"transcript_path={transcript_path}")
         else:
