@@ -383,6 +383,14 @@ class LocalFileStore(BaseFileStore):
         with suppress(Exception):
             live_ids = set(self.keyword_index.document_ids)
 
+        # A non-empty chunk may still be unrepresentable by a lexical backend
+        # (for example, punctuation-only text produces no BM25 tokens).  Check
+        # only missing IDs so the normal matching path does not tokenize the
+        # entire corpus during every startup.
+        if live_ids is not None:
+            unindexable_ids = {cid for cid in expected_ids - live_ids if not self.keyword_index.is_indexable(docs[cid])}
+            expected_ids -= unindexable_ids
+
         if live_ids == expected_ids:
             return
 

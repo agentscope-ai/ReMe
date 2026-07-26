@@ -10,8 +10,10 @@ import aiofiles
 import frontmatter
 from pydantic import BaseModel
 
-from ...base_step import BaseStep
-from ...file_io._file_io import get_path_lock
+from ....components.outbound_proxy import BaseOutboundProxy
+from ....enumeration import ComponentEnum
+from ...base_step import BaseStep, Ref
+from ...file_io import get_path_lock
 
 _STATE_PREFIX = "daily_paper_"
 _FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
@@ -53,6 +55,12 @@ async def write_markdown(path: Path, body: str, metadata: dict[str, Any]) -> Non
 
 class DailyPaperStep(BaseStep):
     """Shared helpers for steps in one daily-paper RuntimeContext."""
+
+    outbound_proxy: BaseOutboundProxy | None = Ref(
+        BaseOutboundProxy,
+        ComponentEnum.OUTBOUND_PROXY,
+        optional=True,
+    )
 
     def _skip(self) -> bool:
         assert self.context is not None

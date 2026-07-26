@@ -11,6 +11,7 @@ from . import file_chunker
 from . import file_store
 from . import job
 from . import keyword_index
+from . import outbound_proxy
 from . import service
 from . import tokenizer
 from .application_context import ApplicationContext
@@ -39,6 +40,7 @@ __all__ = [
     "file_store",
     "job",
     "keyword_index",
+    "outbound_proxy",
     "service",
     "tokenizer",
 ]

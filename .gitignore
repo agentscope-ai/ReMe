@@ -45,6 +45,7 @@ temp*/
 
 # ReMe runtime data
 .reme/
+reme_workspace/
 vault/
 *.db
 *.sqlite

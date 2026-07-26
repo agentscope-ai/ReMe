@@ -9,6 +9,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 from pydantic import BaseModel
 
 from ..base_component import BaseComponent
+from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk
 
@@ -31,12 +32,17 @@ class BaseAgentWrapper(BaseComponent):
         super().__init__(**kwargs)
         self._cwd = cwd
         self._project_path = project_path
+        self.outbound_proxy = self.bind(
+            "default",
+            BaseOutboundProxy,
+            optional=True,
+        )
         if self.SDK_PACKAGE:
             try:
                 sdk_version = metadata.version(self.SDK_PACKAGE)
             except metadata.PackageNotFoundError:
                 sdk_version = "unknown"
-            self.logger.info(f"Agent SDK package={self.SDK_PACKAGE} version={sdk_version}")
+            self.logger.info(f"Agent SDK name={self.name} package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:
@@ -121,6 +127,20 @@ class BaseAgentWrapper(BaseComponent):
             return {}
         return self.app_context.app_config.environment
 
+    @property
+    def command_proxy_environment(self) -> dict[str, str]:
+        """Managed proxy variables for agent command tools only."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return {}
+        return self.outbound_proxy.merge_environment()
+
+    @property
+    def bash_environment(self) -> dict[str, str]:
+        """Configured command environment with the managed proxy applied last."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return dict(self.subprocess_environment)
+        return self.outbound_proxy.merge_environment(self.subprocess_environment)
+
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
         self.kwargs["output_schema"] = self._normalize_output_schema(schema)
@@ -170,6 +190,10 @@ class BaseAgentWrapper(BaseComponent):
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:
         """Send inputs to the agent and return a dict with session_id and last_message."""
+
+    async def compact_session(self, session_id: str) -> None:
+        """Request compaction of one persisted agent session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

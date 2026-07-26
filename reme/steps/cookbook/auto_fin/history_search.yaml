@@ -1,0 +1,39 @@
+history_search_user: |
+  你只负责为一个已选定 ETF 选择历史相似新闻，不查询行情、不复制新闻正文、不更换或增加 ETF、
+  不提供预测。时间、标题、正文和行情都由程序在你返回后补充。
+  指定 ETF：{etf_code}（{etf_name}）
+  当前事件时间线（仅作为检索线索，不含 news_id）：{events}
+  历史截止时间：{window_start}
+  ReMe workspace：{workspace_root}
+
+  必须遵守：
+  1. 使用 memory_search 多轮搜索 {window_start} 之前的相似新闻；系统会自动过滤本次研究中已经
+     返回过的结果，因此结果不足时继续尝试，并调整事件类型、关键实体、传导机制或影响方向等
+     查询角度。memory_search 无更多有效结果后，使用 Read 或 Python 扫描 workspace 下过去
+     360 天的 `daily/YYYY-MM-DD/auto_fin_news_data.jsonl`。历史 Auto Fin Markdown 只能作为
+     检索线索，最终选择必须能回溯到上述新闻 JSONL。
+  2. 根据当前事件提取事件类型、关键实体、传导机制和影响方向进行搜索，不能只搜索 ETF 名称。
+  3. 当前事件时间线来自最近一次收盘后至本次分析时点，只能作为检索线索，不属于历史事件。
+     即使搜索命中同一条当前新闻，也不得放入 historical_events。
+  4. 每个 historical_events 项只需从原始 JSONL 逐字复制 news_id 和 workspace 相对
+     source_path，并用 reason 简洁说明它与当前事件相似的原因。不要返回时间、标题或正文。
+  5. 只选择原始记录中真实存在且带有 news_id 的新闻。程序会严格使用 source_path + news_id
+     回查，找不到、重复命中、路径越界或不是 auto_fin_news_data.jsonl 都会失败；严禁编造。
+  6. etf_code 和 etf_name 必须原样返回 `{etf_code}` 和 `{etf_name}`。不要读写或下载行情文件，
+     不要计算收益。没有合适新闻时直接返回空 historical_events，无需说明限制。
+  7. 最终只生成 etf_code、etf_name 和 historical_events 三个维度；
+     historical_events 的每一项只包含 reason、news_id 和 source_path。JSON 示例：
+     ```json
+     {{
+       "etf_code": "{etf_code}",
+       "etf_name": "{etf_name}",
+       "historical_events": [
+         {{
+           "reason": "事件类型、关键实体、传导机制和影响方向相似",
+           "news_id": "20260601100000_a3f8",
+           "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl"
+         }}
+       ]
+     }}
+     ```
+  8. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文。无需排序或计算，程序会完成。

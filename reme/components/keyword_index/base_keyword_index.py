@@ -37,6 +37,10 @@ class BaseKeywordIndex(BaseComponent):
             raise RuntimeError("Tokenizer not initialized. Call start() first.")
         return self.tokenizer.tokenize([text])[0]
 
+    def is_indexable(self, text: str) -> bool:
+        """Return whether this backend can represent *text* as a document."""
+        return bool(text)
+
     @abstractmethod
     async def add_docs(self, docs_dict: dict[str, str]) -> None:
         """Add or replace documents keyed by id."""

@@ -1,0 +1,35 @@
+market_user: |
+  你只负责判断历史事件与当前事件的相似度，不计算收益、不生成预测、不总结报告。
+  ETF：{etf_code}（{etf_name}）
+  分析截止时间：{decision_at}
+
+  当前事件：
+  {events}
+
+  已补全的历史事件文件：
+  {history_path}
+
+  必须遵守：
+  1. 读取历史文件，只从 historical_events 中选择与当前事件相似的事件。
+  2. 综合事件类型、关键实体、传导机制和影响方向判断 similarity，范围为 [-1, 1]。正值表示
+     机制和影响方向相似，负值表示机制可比但影响方向相反，0 表示没有有效关系。例如当前事件是
+     黄金涨价、历史事件是黄金降价时，可以返回负值。程序会将越界值截断到 [-1, 1]。
+  3. 只根据历史事件的 event_time、event_title、event_content 和 reason 判断相似性；不要依据
+     market_entry 或 future_returns 选择事件，避免使用事后行情影响相似度判断。
+  4. reason 简洁说明相似之处，news_id 必须从历史文件逐字复制，严禁编造。
+  5. 不需要返回 ETF、事件时间、权重、预测、持有天数、代码、总结或 limitations；程序会校验
+     news_id，并完成所有计算。没有相似事件时返回空列表。
+  6. 最终只生成 matched_historical_events；每项字段顺序为 reason、news_id、similarity。
+     JSON 示例：
+     ```json
+     {{
+       "matched_historical_events": [
+         {{
+           "reason": "事件类型、关键实体、传导机制和影响方向相似",
+           "news_id": "20260601100000_a3f8",
+           "similarity": 0.86
+         }}
+       ]
+     }}
+     ```
+  7. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文。

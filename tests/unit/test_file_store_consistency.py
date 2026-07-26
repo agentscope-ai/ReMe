@@ -319,6 +319,31 @@ def test_keyword_sync_rebuilds_when_backend_only_exposes_matching_count():
     run(go())
 
 
+def test_keyword_sync_ignores_nonempty_chunk_with_no_indexable_tokens(monkeypatch):
+    """A tokenless chunk omitted by BM25 must not trigger a perpetual rebuild."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = LocalFileStore(name="t_tokenless_keyword", embedding_store="")
+            await store.start()
+            store.file_chunks = {
+                "indexed": chunk("indexed", "data.jsonl", "searchable content"),
+                "tokenless": chunk("tokenless", "data.jsonl", "\u2028"),
+            }
+            await store.keyword_index.clear()
+            await store.keyword_index.add_docs({cid: item.text for cid, item in store.file_chunks.items()})
+            assert set(store.keyword_index.document_ids) == {"indexed"}
+
+            async def unexpected_rebuild(_docs):
+                raise AssertionError("tokenless BM25 content must not trigger a rebuild")
+
+            monkeypatch.setattr(store, "_rebuild_keyword_index", unexpected_rebuild)
+            await store._sync_keyword_index_from_chunks()
+            await store.close()
+
+    run(go())
+
+
 def test_keyword_sync_rebuilds_in_progress_batches(monkeypatch):
     """Foreground keyword repair uses bounded batches suitable for progress reporting."""
 

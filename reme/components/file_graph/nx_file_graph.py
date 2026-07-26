@@ -3,11 +3,6 @@
 import pickle
 from pathlib import Path
 
-try:
-    import networkx as nx
-except ImportError:
-    nx = None
-
 from .base_file_graph import BaseFileGraph
 from ..component_registry import R
 from ...enumeration import LinkScopeEnum
@@ -23,9 +18,11 @@ class NxFileGraph(BaseFileGraph):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if nx is None:
-            raise ImportError("NxFileGraph requires networkx — pip install networkx")
-        self._graph: nx.MultiDiGraph = nx.MultiDiGraph()
+        try:
+            import networkx as nx  # pylint: disable=import-outside-toplevel
+        except ImportError as exc:
+            raise ImportError("NxFileGraph requires networkx — pip install networkx") from exc
+        self._graph = nx.MultiDiGraph()
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         self._graph_file: Path = self.component_metadata_path / f"{self.name}.pkl"
 

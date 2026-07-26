@@ -5,18 +5,33 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper import (
+    AsAgentWrapper,
+    BaseAgentWrapper,
+    CcAgentWrapper,
+    CodexAgentWrapper,
+    handle_session_command,
+)
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
 from reme.components.agent_wrapper import base_agent_wrapper
 from reme.components.application_context import ApplicationContext
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components import base_component
+from reme.enumeration import ComponentEnum
 
 
 class _VersionedAgentWrapper(BaseAgentWrapper):
     SDK_PACKAGE = "example-agent-sdk"
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.compacted_session = ""
+
     async def reply(self, inputs, **kwargs) -> dict:
         return {"inputs": inputs, "kwargs": kwargs}
+
+    async def compact_session(self, session_id: str) -> None:
+        self.compacted_session = session_id
 
 
 def test_init_logs_sdk_version(monkeypatch):
@@ -28,7 +43,7 @@ def test_init_logs_sdk_version(monkeypatch):
 
     _VersionedAgentWrapper(name="versioned")
 
-    logger.info.assert_called_once_with("Agent SDK package=example-agent-sdk version=1.2.3")
+    logger.info.assert_called_once_with("Agent SDK name=versioned package=example-agent-sdk version=1.2.3")
 
 
 def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch):
@@ -44,7 +59,24 @@ def test_init_logs_unknown_when_sdk_distribution_metadata_is_missing(monkeypatch
 
     _VersionedAgentWrapper()
 
-    logger.info.assert_called_once_with("Agent SDK package=example-agent-sdk version=unknown")
+    logger.info.assert_called_once_with(
+        "Agent SDK name=_VersionedAgentWrapper package=example-agent-sdk version=unknown",
+    )
+
+
+@pytest.mark.asyncio
+async def test_session_commands_are_backend_neutral():
+    """Session commands work independently from a chat transport."""
+    wrapper = _VersionedAgentWrapper()
+
+    assert await handle_session_command(wrapper, "hello", "session-1") is None
+    assert (await handle_session_command(wrapper, "/clear", "session-1")).session_id is None
+    unavailable = await handle_session_command(wrapper, "/compact", None)
+    assert unavailable.answer == "No active conversation to compact."
+
+    compacted = await handle_session_command(wrapper, "/compact", "session-1")
+    assert compacted.session_id == "session-1"
+    assert wrapper.compacted_session == "session-1"
 
 
 @pytest.mark.parametrize(
@@ -105,3 +137,29 @@ async def test_agentscope_backend_passes_configured_environment_to_bash(tmp_path
 
     assert result.exit_code == 0
     assert result.stdout == b"configured\n"
+
+
+@pytest.mark.asyncio
+async def test_agentscope_bash_uses_managed_proxy_without_changing_subprocess_environment(tmp_path):
+    """AgentScope applies the managed proxy only to its command backend."""
+    context = ApplicationContext(
+        workspace_dir=str(tmp_path),
+        environment={"TOOL_ENV": "preserved"},
+    )
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    wrapper = AsAgentWrapper(app_context=context, as_llm="")
+
+    await wrapper.start()
+    bash = wrapper._builtin_tools(["bash"])[0]  # pylint: disable=protected-access
+    backend = bash._backend  # pylint: disable=protected-access
+
+    assert wrapper.subprocess_environment == {"TOOL_ENV": "preserved"}
+    assert "HTTP_PROXY" not in wrapper.subprocess_environment
+    assert backend._environment["TOOL_ENV"] == "preserved"  # pylint: disable=protected-access
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert backend._environment[key] == proxy.http_url  # pylint: disable=protected-access
+
+    await wrapper.close()
+    await proxy.close()

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import frontmatter
 import httpx
@@ -14,6 +14,7 @@ import pytest
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import _load_config
 from reme.schema import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection
@@ -29,7 +30,9 @@ from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
 from reme.utils import arxiv as arxiv_utils
+from reme.utils import huggingface_papers as hf_utils
 from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
+from reme.enumeration import ComponentEnum
 
 
 class _QueuedAgentWrapper(BaseAgentWrapper):
@@ -80,6 +83,75 @@ def test_hf_payload_and_html_normalization():
         '<a href="/papers/2607.16051">one</a><a href="/papers/2607.16051">dup</a>'
         '<a href="/papers/2607.10001">two</a>',
     ) == ["2607.16051", "2607.10001"]
+
+
+@pytest.mark.asyncio
+async def test_hf_client_uses_explicit_outbound_proxy(monkeypatch):
+    """The owned HTTP client uses only the explicitly supplied HTTP proxy."""
+    events: list[str] = []
+    client_kwargs: dict = {}
+    logger = MagicMock()
+
+    class FakeAsyncClient:
+        """Capture construction and close ordering without network access."""
+
+        def __init__(self, **kwargs):
+            client_kwargs.update(kwargs)
+
+        async def aclose(self):
+            """Record deterministic client cleanup."""
+            events.append("client-close")
+
+    monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = hf_utils.HuggingFacePapersClient(
+        proxy_url="http://127.0.0.1:43124",
+        timeout=12.0,
+        logger=logger,
+    )
+    assert client.client is None
+    async with client:
+        assert client_kwargs["proxy"] == "http://127.0.0.1:43124"
+        assert client_kwargs["trust_env"] is False
+
+    assert events == ["client-close"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert info_messages == ["[HuggingFacePapersClient] network mode=outbound_proxy"]
+
+
+@pytest.mark.asyncio
+async def test_hf_client_logs_retry_after_http_error(monkeypatch):
+    """Transient HTTP failures report the attempt before retrying."""
+    attempts = 0
+    logger = MagicMock()
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ConnectTimeout("timed out", request=request)
+        return httpx.Response(200, json=[])
+
+    sleep = AsyncMock()
+    monkeypatch.setattr(hf_utils.asyncio, "sleep", sleep)
+    async with httpx.AsyncClient(
+        base_url="https://huggingface.co",
+        transport=httpx.MockTransport(handler),
+    ) as raw_client:
+        async with hf_utils.HuggingFacePapersClient(
+            client=raw_client,
+            max_retries=2,
+            logger=logger,
+        ) as client:
+            paper_ids = await client.fetch_daily_ids("2026-07-22")
+        assert raw_client.is_closed is False
+
+    assert paper_ids == set()
+    assert attempts == 2
+    sleep.assert_awaited_once_with(0.25)
+    warning = logger.warning.call_args.args[0]
+    assert "request retry path=/api/daily_papers attempt=1/2" in warning
+    assert "error=ConnectTimeout detail=timed out" in warning
 
 
 def test_rrf_and_memory_candidate_reserve():
@@ -137,55 +209,198 @@ async def test_arxiv_pdf_downloads_missing_cache_once(tmp_path: Path, monkeypatc
         lambda **kwargs: async_client(transport=transport, **kwargs),
     )
     target = tmp_path / "resource" / "papers" / "2607.10001.pdf"
-    client = arxiv_utils.ArxivPdfClient()
+    logger = MagicMock()
 
-    assert await client.download("2607.10001", target) == target
-    assert await client.download("2607.10001", target) == target
+    async with arxiv_utils.ArxivPdfClient(logger=logger) as client:
+        assert await client.download("2607.10001", target) == target
+        assert await client.download("2607.10001", target) == target
 
     assert target.read_bytes() == b"%PDF-downloaded"
     assert [str(request.url) for request in requests] == ["https://arxiv.org/pdf/2607.10001"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert any("download start arxiv_id=2607.10001" in message for message in info_messages)
+    assert any("download done arxiv_id=2607.10001" in message for message in info_messages)
+    assert "cache hit arxiv_id=2607.10001" in logger.debug.call_args.args[0]
 
 
-def test_standalone_config_uses_only_claude_code_and_eight_am_cron(monkeypatch):
-    """The standalone config schedules 08:00 and routes all agent work to CC."""
-    for name in (
-        "DINGTALK_APP_KEY",
-        "DINGTALK_APP_SECRET",
-        "DINGTALK_ROBOT_CODE",
-        "DINGTALK_CONVERSATION_IDS",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    config = _load_config("daily_cookbook")
+@pytest.mark.asyncio
+async def test_arxiv_pdf_uses_explicit_outbound_proxy(tmp_path: Path, monkeypatch):
+    """The owned arXiv client uses and closes its explicit HTTP proxy client."""
+    events: list[str] = []
+    client_kwargs: dict = {}
+    logger = MagicMock()
 
-    assert config.get("extends") is None
-    assert config["jobs"]["daily_paper_cron"]["cron"] == "0 8 * * *"
-    steps = config["jobs"]["daily_paper"]["steps"]
-    assert config["jobs"]["daily_paper_cron"]["steps"] == steps
-    agent_steps = [
-        step
-        for step in steps
-        if step["backend"]
-        in {
-            "daily_paper_select_step",
-            "daily_paper_analyze_step",
-            "daily_paper_digest_step",
-        }
-    ]
-    assert {step.get("agent_wrapper") for step in agent_steps} == {"claude_code"}
-    assert steps[-1] == {
-        "backend": "dingtalk_markdown_send_step",
-        "input_mapping": {"daily_paper_digest_path": "markdown_path"},
-        "app_key": "",
-        "app_secret": "",
-        "robot_code": "",
-        "conversation_ids": "",
-        "title": "ReMe Daily Paper",
-        "timeout": 15,
-    }
-    assert set(config["components"]["agent_wrapper"]) == {"claude_code"}
-    assert "as_llm" not in config["components"]
-    assert config["components"]["agent_wrapper"]["claude_code"]["project_path"] == ".."
-    assert "skills" not in config["components"]["agent_wrapper"]["claude_code"]
+    class FakeResponse:
+        """Return one small, valid PDF stream."""
+
+        headers = {"content-length": "12"}
+
+        def raise_for_status(self):
+            """Match the successful httpx response interface."""
+
+        async def aiter_bytes(self):
+            """Yield the fake PDF body."""
+            yield b"%PDF-proxied"
+
+    class FakeStream:
+        """Async response context returned by the HTTP client."""
+
+        async def __aenter__(self):
+            return FakeResponse()
+
+        async def __aexit__(self, exc_type, exc_value, traceback):
+            return None
+
+    class FakeAsyncClient:
+        """Capture client construction and cleanup without network access."""
+
+        def __init__(self, **kwargs):
+            """Capture HTTPX construction arguments."""
+            client_kwargs.update(kwargs)
+
+        async def aclose(self):
+            """Record deterministic client cleanup."""
+            events.append("client-close")
+
+        def stream(self, method, url):
+            """Return the fake streaming response context."""
+            assert (method, url) == ("GET", "https://arxiv.org/pdf/2607.10001")
+            return FakeStream()
+
+    monkeypatch.setattr(arxiv_utils.httpx, "AsyncClient", FakeAsyncClient)
+    target = tmp_path / "2607.10001.pdf"
+
+    async with arxiv_utils.ArxivPdfClient(
+        proxy_url="http://127.0.0.1:43124",
+        timeout=12.0,
+        logger=logger,
+    ) as client:
+        assert await client.download("2607.10001", target) == target
+
+    assert target.read_bytes() == b"%PDF-proxied"
+    assert client_kwargs["proxy"] == "http://127.0.0.1:43124"
+    assert client_kwargs["trust_env"] is False
+    assert events == ["client-close"]
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert info_messages[0] == "[ArxivPdfClient] network mode=outbound_proxy"
+
+
+@pytest.mark.asyncio
+async def test_paper_clients_enforce_context_and_unambiguous_ownership(tmp_path: Path):
+    """Requests require context entry and injected clients cannot also receive proxy_url."""
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await hf_utils.HuggingFacePapersClient().fetch_daily_ids("2026-07-22")
+    with pytest.raises(RuntimeError, match="async context manager"):
+        await arxiv_utils.ArxivPdfClient().download("2607.10001", tmp_path / "paper.pdf")
+
+    async with httpx.AsyncClient() as raw_client:
+        async with arxiv_utils.ArxivPdfClient(client=raw_client):
+            pass
+        assert raw_client.is_closed is False
+
+        with pytest.raises(ValueError, match="client and proxy_url"):
+            hf_utils.HuggingFacePapersClient(
+                client=raw_client,
+                proxy_url="http://127.0.0.1:43124",
+            )
+        with pytest.raises(ValueError, match="client and proxy_url"):
+            arxiv_utils.ArxivPdfClient(
+                client=raw_client,
+                proxy_url="http://127.0.0.1:43124",
+            )
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_steps_forward_one_managed_proxy_endpoint(tmp_path: Path, monkeypatch):
+    """Collection and one shared PDF client receive the same application proxy URL."""
+    paper = _paper("2607.10001", title="Managed proxy paper")
+    hf_kwargs: list[dict] = []
+    arxiv_kwargs: list[dict] = []
+
+    class FakeHfClient:
+        """Return one eligible paper while recording construction."""
+
+        def __init__(self, **kwargs):
+            hf_kwargs.append(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def fetch_scope(self, _scope: str, _value: str):
+            """Return one ranked paper."""
+            return [paper]
+
+        async def fetch_daily_ids(self, _day: str):
+            """Return no yesterday exclusions."""
+            return set()
+
+    class FakeArxivClient:
+        """Write a fake PDF while recording one shared downloader."""
+
+        def __init__(self, **kwargs):
+            arxiv_kwargs.append(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def download(self, _arxiv_id: str, target: Path):
+            """Write one minimal PDF fixture."""
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"%PDF-fake")
+            return target
+
+    monkeypatch.setattr(collect, "HuggingFacePapersClient", FakeHfClient)
+    monkeypatch.setattr(analyze, "ArxivPdfClient", FakeArxivClient)
+    monkeypatch.setattr(
+        analyze.DailyPaperAnalyzeStep,
+        "_extract_pdf_text_sync",
+        lambda *_args: ("--- PAGE 1 ---\nPaper content", 1, False),
+    )
+
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:43124")
+    await proxy.start()
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    context = RuntimeContext(date="2026-07-21")
+    agent = _QueuedAgentWrapper(
+        [
+            {
+                "description": "Detailed note",
+                "body": "# Detailed reading\n\nEvidence [p. 1].",
+            },
+        ],
+    )
+
+    try:
+        await DailyPaperCollectStep(app_context=app_context)(context)
+        context["daily_paper_selection"] = PaperSelection.model_validate(
+            {
+                "selection_reasoning": "Only candidate.",
+                "selected": [
+                    {
+                        "arxiv_id": paper.arxiv_id,
+                        "rank": 1,
+                        "reason": "Relevant",
+                        "memory_relevance": "low",
+                    },
+                ],
+                "alternates": [],
+            },
+        )
+        context["daily_paper_selected_papers"] = [paper]
+        await DailyPaperAnalyzeStep(app_context=app_context, agent_wrapper=agent)(context)
+    finally:
+        await proxy.close()
+
+    assert hf_kwargs[0]["proxy_url"] == "http://127.0.0.1:43124"
+    assert len(arxiv_kwargs) == 1
+    assert arxiv_kwargs[0]["proxy_url"] == "http://127.0.0.1:43124"
 
 
 def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):

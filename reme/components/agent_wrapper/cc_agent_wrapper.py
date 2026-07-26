@@ -1,6 +1,7 @@
 """Claude Code SDK backend for the unified agent wrapper."""
 
 import json
+import shlex
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import asdict, dataclass, fields
@@ -94,6 +95,35 @@ class CcAgentWrapper(BaseAgentWrapper):
             handler=run_job,
         )
 
+    def _add_bash_proxy_hook(self, opts: Any) -> None:
+        """Inject managed proxy exports into Claude Code Bash commands."""
+        proxy_environment = self.command_proxy_environment
+        if not proxy_environment:
+            return
+
+        from claude_agent_sdk import HookMatcher
+
+        exports = " ".join(f"{name}={shlex.quote(value)}" for name, value in proxy_environment.items())
+
+        async def inject_proxy(hook_input, _tool_use_id, _context):
+            tool_input = dict(hook_input["tool_input"])
+            command = tool_input.get("command")
+            if not isinstance(command, str):
+                return {}
+            tool_input["command"] = f"export {exports}; {command}"
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": tool_input,
+                },
+            }
+
+        hooks = dict(opts.hooks or {})
+        pre_tool_use = list(hooks.get("PreToolUse") or [])
+        pre_tool_use.append(HookMatcher(matcher="Bash", hooks=[inject_proxy]))
+        hooks["PreToolUse"] = pre_tool_use
+        opts.hooks = hooks
+
     def _build_options(self, inputs: Any, stream: bool = False, **kwargs) -> Any:
         """Build ClaudeAgentOptions from kwargs.
 
@@ -147,6 +177,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                 },
             )
         opts.env.update(extra_env_dict)
+        self._add_bash_proxy_hook(opts)
         self.session_path.mkdir(parents=True, exist_ok=True)
         opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
@@ -383,6 +414,12 @@ class CcAgentWrapper(BaseAgentWrapper):
         return chunks
 
     # ----- reply / reply_stream --------------------------------------------
+
+    async def compact_session(self, session_id: str) -> None:
+        """Compact a Claude Code session through its native command."""
+        result = await self.reply("/compact", resume=session_id)
+        if result["last_message"].get("is_error"):
+            raise RuntimeError("Claude Code session compaction failed")
 
     async def reply(self, inputs: Any, **kwargs) -> dict:
         from claude_agent_sdk import query, ResultMessage

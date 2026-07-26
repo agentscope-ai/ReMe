@@ -9,6 +9,7 @@ import httpx
 
 from ..schema import PaperInfo
 from .arxiv import ARXIV_ID_PATTERN
+from .logger_utils import get_logger
 
 HF_BASE_URL = "https://huggingface.co"
 _PAPER_LINK_PATTERN = re.compile(
@@ -66,40 +67,80 @@ class HuggingFacePapersClient:
     def __init__(
         self,
         *,
+        proxy_url: str | None = None,
         client: httpx.AsyncClient | None = None,
         timeout: float = 30.0,
         max_retries: int = 3,
         detail_concurrency: int = 5,
+        logger: Any | None = None,
     ) -> None:
+        if client is not None and proxy_url is not None:
+            raise ValueError("client and proxy_url cannot be provided together")
+        self.logger = logger or get_logger()
+        self.proxy_url = proxy_url
         self._owns_client = client is None
-        self.client = client or httpx.AsyncClient(
-            base_url=HF_BASE_URL,
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": "ReMe daily-paper cookbook"},
-        )
+        self._timeout = timeout
+        self.client = client
         self.max_retries = max(1, int(max_retries))
         self.detail_concurrency = max(1, int(detail_concurrency))
 
     async def __aenter__(self) -> "HuggingFacePapersClient":
+        if self.client is None:
+            self.client = httpx.AsyncClient(
+                base_url=HF_BASE_URL,
+                proxy=self.proxy_url,
+                trust_env=False,
+                timeout=self._timeout,
+                follow_redirects=True,
+                headers={"User-Agent": "ReMe daily-paper cookbook"},
+            )
+            mode = "outbound_proxy" if self.proxy_url else "direct"
+            self.logger.info(f"[HuggingFacePapersClient] network mode={mode}")
+        else:
+            self.logger.debug("[HuggingFacePapersClient] network mode=injected_client")
         return self
 
-    async def __aexit__(self, *_args) -> None:
-        if self._owns_client:
+    async def __aexit__(self, _exc_type, _exc_value, _traceback) -> None:
+        if self._owns_client and self.client is not None:
             await self.client.aclose()
+            self.client = None
+
+    def _require_client(self) -> httpx.AsyncClient:
+        if self.client is None:
+            raise RuntimeError("HuggingFacePapersClient must be used as an async context manager")
+        return self.client
 
     async def _get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.get(path, params=params)
+                self.logger.debug(
+                    f"[HuggingFacePapersClient] request start path={path} params={params} "
+                    f"attempt={attempt + 1}/{self.max_retries}",
+                )
+                response = await self._require_client().get(path, params=params)
                 response.raise_for_status()
+                self.logger.debug(
+                    f"[HuggingFacePapersClient] request done path={path} status={response.status_code} "
+                    f"attempt={attempt + 1}/{self.max_retries}",
+                )
                 return response
             except httpx.HTTPError as exc:
                 last_error = exc
                 if attempt + 1 >= self.max_retries:
+                    detail = str(exc) or "-"
+                    self.logger.error(
+                        f"[HuggingFacePapersClient] request failed path={path} attempts={self.max_retries} "
+                        f"error={type(exc).__name__} detail={detail}",
+                    )
                     break
-                await asyncio.sleep(0.25 * (2**attempt))
+                delay = 0.25 * (2**attempt)
+                detail = str(exc) or "-"
+                self.logger.warning(
+                    f"[HuggingFacePapersClient] request retry path={path} attempt={attempt + 1}/{self.max_retries} "
+                    f"delay={delay:g}s error={type(exc).__name__} detail={detail}",
+                )
+                await asyncio.sleep(delay)
         assert last_error is not None
         raise last_error
 
