@@ -442,6 +442,15 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.dump()
         await self.file_graph.dump()
 
+    # -- maintenance -----------------------------------------------------------
+
+    async def refine(self) -> None:
+        """Idle-time maintenance: nothing to do here.
+
+        The in-memory chunk map, BM25 index, and file graph carry no deferred
+        compaction debt, so this backend keeps the base no-op contract.
+        """
+
     # -- CRUD -----------------------------------------------------------------
 
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:

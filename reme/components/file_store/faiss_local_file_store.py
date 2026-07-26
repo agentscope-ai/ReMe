@@ -52,8 +52,11 @@ class FaissLocalFileStore(LocalFileStore):
     re-armed so the next round snapshots the current state. The live index is
     never overwritten by a stale snapshot, so ``close()`` cannot persist one.
     ``async_reindex`` defaults to ``False`` so behavior is unchanged unless opted
-    in; ``load`` (no old index to serve) always rebuilds inline, and the backfill
-    rebuild follows ``async_reindex``.
+    in; ``load`` (no old index to serve) always rebuilds inline. Embedding
+    backfill adds new vectors to the live index incrementally (HNSW insertion is
+    incremental anyway, so a rebuild would redo identical work); only tombstone
+    pressure or, in async mode, a delta that rivals the live row count goes
+    through a full rebuild.
 
     faiss is imported lazily inside ``__init__`` so that merely importing this
     module (e.g. via ``reme version``) does not trigger the SWIG bindings and
@@ -169,34 +172,84 @@ class FaissLocalFileStore(LocalFileStore):
         vectors = np.stack([c.embedding for c in chunks])
         self._add_to_index([c.id for c in chunks], vectors)
 
+    def _tombstone_threshold(self, scale: float = 1.0) -> int:
+        """Tombstone count that warrants a rebuild.
+
+        Dynamic: ``max(tombstone_compact_ratio * ntotal * scale, 128)`` so larger
+        indexes tolerate more tombstones. ``scale`` lets callers lower the bar
+        (idle-time refine uses 0.5). ``max_tombstones`` (when set) overrides with
+        a fixed value regardless of scale.
+        """
+        if self.max_tombstones is not None:
+            return self.max_tombstones
+        ntotal = self._faiss_index.ntotal if self._faiss_index else 0
+        return max(int(self.tombstone_compact_ratio * ntotal * scale), 128)
+
     def _compact_if_needed(self) -> None:
         # Dynamic threshold: max(ratio * ntotal, 128).  This scales with index
         # size so larger indexes tolerate more tombstones before a rebuild.
         # max_tombstones (when set) overrides with a fixed value for testing.
-        if self.max_tombstones is not None:
-            threshold = self.max_tombstones
-        else:
-            ntotal = self._faiss_index.ntotal if self._faiss_index else 0
-            threshold = max(int(self.tombstone_compact_ratio * ntotal), 128)
-        if len(self._tombstones) < threshold:
+        if len(self._tombstones) < self._tombstone_threshold():
             return
         if self.async_reindex:
             self._submit_reindex()  # flag the worker; it coalesces repeated requests
         else:
             self._rebuild_index()
 
-    async def _after_embedding_backfill(self) -> None:
-        """Make newly backfilled vectors visible to FAISS.
+    async def refine(self) -> None:
+        """Idle-time maintenance: compact tombstones at half the write-path bar.
 
-        Synchronous by default so the vectors are indexed before the caller's dump.
-        When ``async_reindex`` is enabled the rebuild is submitted to the worker
-        (eventually consistent); the chunk JSONL stays authoritative, so a lagging
-        sidecar self-heals on the next load.
+        The write path only rebuilds once tombstones reach the full threshold;
+        running off the request path we can afford to compact earlier, so this
+        uses ``scale=0.5``. Whether the rebuild runs inline or through the
+        background worker follows ``async_reindex``, same as the write path.
         """
+        await super().refine()
+        if self._faiss_index is None:
+            return
+        tombstones = len(self._tombstones)
+        threshold = self._tombstone_threshold(scale=0.5)
+        if tombstones <= threshold:
+            return
+        self.logger.info(f"{self.name}: refine compacting {tombstones} tombstones (threshold {threshold})")
         if self.async_reindex:
             self._submit_reindex()
         else:
             self._rebuild_index()
+
+    async def _after_embedding_backfill(self) -> None:
+        """Make newly backfilled vectors visible to FAISS.
+
+        HNSW insertion is incremental by nature, so backfilled vectors are added
+        directly to the live index instead of rebuilding the whole graph:
+        existing rows keep their connections and a rebuild would redo identical
+        work. Backfill never invalidates indexed rows -- stale embeddings have a
+        different dimension and can never have entered this index -- so no new
+        tombstones arise here; accumulated tombstone pressure is still honored
+        via ``_compact_if_needed`` afterwards.
+
+        With ``async_reindex`` enabled, a delta that rivals the live row count
+        (e.g. the initial mass backfill into an empty index) is routed through
+        the background worker instead: a full off-loop rebuild costs about the
+        same as the inline add but keeps the event loop free.
+        """
+        if self.embedding_store is None or self._dim == 0:
+            return
+        if self._faiss_index is None:
+            self._rebuild_index()
+            return
+        to_add = [
+            chunk
+            for cid, chunk in self.file_chunks.items()
+            if cid not in self._id_to_row and self._embedding_dim_matches(chunk.embedding)
+        ]
+        if to_add:
+            if self.async_reindex and len(to_add) >= max(len(self._id_to_row), 1):
+                self._submit_reindex()
+                return
+            vectors = np.stack([c.embedding for c in to_add])
+            self._add_to_index([c.id for c in to_add], vectors)
+        self._compact_if_needed()
 
     # -- async reindex ----------------------------------------------------
 
