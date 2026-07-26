@@ -115,16 +115,24 @@ class AutoFinMarketStep(AutoFinStep):
             f"- [{event.event_time.isoformat()}] {event.event_title or event.reason}: {event.event_content}"
             for event in events
         )
-        selection, selection_path = await self._reply(
-            "market_user",
-            f"auto_fin_market_{index:02d}_{item.etf_code}",
-            AutoFinMarketSelection,
-            etf_code=item.etf_code,
-            etf_name=item.etf_name,
-            events=event_lines,
-            history_path=str(self._required("auto_fin_current_history_resource")),
-            decision_at=str(self._required("auto_fin_decision_at")),
-        )
+        resource_name = f"auto_fin_market_{index:02d}_{item.etf_code}"
+        if history.historical_events:
+            selection, selection_path = await self._reply(
+                "market_user",
+                resource_name,
+                AutoFinMarketSelection,
+                etf_code=item.etf_code,
+                etf_name=item.etf_name,
+                events=event_lines,
+                history_path=str(self._required("auto_fin_current_history_resource")),
+                decision_at=str(self._required("auto_fin_decision_at")),
+            )
+        else:
+            selection = AutoFinMarketSelection()
+            selection_path = (
+                self.workspace_path / "resource" / str(self._required("auto_fin_date")) / f"{resource_name}_output.json"
+            )
+            self.logger.warning(f"[{self.name}] skip similarity Agent for {item.etf_code}: no valid history")
         analysis = self._calculate_analysis(item, history, selection)
         _write(
             selection_path,

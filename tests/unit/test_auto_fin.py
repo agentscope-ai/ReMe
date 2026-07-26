@@ -20,6 +20,7 @@ from reme.schema import (
     AutoFinEtfSelection,
     AutoFinEtfsOutput,
     AutoFinHistoricalEvent,
+    AutoFinHistoricalEventReference,
     AutoFinMarketSelection,
     AutoFinMarketSample,
     AutoFinReportOutput,
@@ -68,6 +69,49 @@ def test_plain_news_text_removes_markup_images_and_hidden_content():
     content = '<p>甲&amp;乙</p><img src="https://example.com/large.png"><style>隐藏样式</style><p>丙</p>'
 
     assert _plain_text(content) == "甲&乙 丙"
+
+
+def test_topic_repairs_unknown_news_id_by_unique_content_hash():
+    output = AutoFinEtfsOutput.model_validate(
+        {
+            "etfs": [
+                {
+                    "etf_code": "159819.SZ",
+                    "etf_name": "人工智能ETF",
+                    "events": [{"reason": "穆迪警告AI投资风险", "news_id": "20260725061826_1c76"}],
+                },
+            ],
+        },
+    )
+    news = [
+        {"news_id": "20260725050638_1c76"},
+        {"news_id": "20260725061826_765a"},
+    ]
+
+    repaired, repairs = AutoFinTopicStep._repair_news_ids(output, news)
+
+    assert repaired.etfs[0].events[0].news_id == "20260725050638_1c76"
+    assert repairs == {"20260725061826_1c76": "20260725050638_1c76"}
+
+
+def test_topic_does_not_repair_ambiguous_content_hash():
+    output = AutoFinEtfsOutput.model_validate(
+        {
+            "etfs": [
+                {
+                    "etf_code": "159819.SZ",
+                    "etf_name": "人工智能ETF",
+                    "events": [{"reason": "相关事件", "news_id": "20260725061826_abcd"}],
+                },
+            ],
+        },
+    )
+    news = [{"news_id": "20260725050638_abcd"}, {"news_id": "20260725070000_abcd"}]
+
+    repaired, repairs = AutoFinTopicStep._repair_news_ids(output, news)
+
+    assert repaired.etfs[0].events[0].news_id == "20260725061826_abcd"
+    assert not repairs
 
 
 def test_published_time_is_normalized_once_to_shanghai_local_time():
@@ -648,6 +692,50 @@ def test_market_calculation_clamps_and_reverses_negative_similarity():
 
 
 @pytest.mark.asyncio
+async def test_market_skips_agent_when_all_historical_references_were_invalid(tmp_path: Path):
+    class _UnexpectedAgent(BaseAgentWrapper):
+        async def reply(self, inputs, **kwargs):
+            raise AssertionError((inputs, kwargs))
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    step = AutoFinMarketStep(app_context=app_context, agent_wrapper=_UnexpectedAgent(app_context=app_context))
+    step.logger = SimpleNamespace(warning=lambda _message: None)
+    step.context = RuntimeContext(
+        auto_fin_current_etf={
+            "etf_code": "159819.SZ",
+            "etf_name": "人工智能ETF",
+            "events": [{"reason": "AI事件", "news_id": "20260725050638_1c76"}],
+        },
+        auto_fin_current_events=[
+            {
+                "reason": "AI事件",
+                "news_id": "20260725050638_1c76",
+                "event_time": "2026-07-25T05:06:38",
+                "event_title": "当前新闻",
+                "event_content": "当前内容",
+            },
+        ],
+        auto_fin_current_history={
+            "etf_code": "159819.SZ",
+            "etf_name": "人工智能ETF",
+            "historical_events": [],
+            "limitations": ["跳过无法解析的历史新闻 20260427100000_dead"],
+        },
+        auto_fin_current_history_resource=str(tmp_path / "history.json"),
+        auto_fin_current_index=1,
+        auto_fin_date="2026-07-26",
+        auto_fin_decision_at="2026-07-26T18:00:00",
+    )
+
+    await step.execute()
+
+    analysis = step.context["auto_fin_current_analysis"]
+    assert not analysis["matched_historical_events"]
+    assert "没有匹配的历史事件" in analysis["limitations"]
+    assert (tmp_path / "resource" / "2026-07-26" / "auto_fin_market_01_159819.SZ_output.json").is_file()
+
+
+@pytest.mark.asyncio
 async def test_history_search_calculates_adjusted_returns_for_event_time_boundaries(tmp_path: Path):
     calls = []
 
@@ -707,6 +795,90 @@ async def test_history_search_calculates_adjusted_returns_for_event_time_boundar
     assert samples[3].future_returns[0].cumulative_return == pytest.approx(14 / 12 - 1)
     assert limitations
     assert [endpoint for endpoint, _ in calls] == ["fund_daily", "fund_adj"]
+
+
+@pytest.mark.asyncio
+async def test_history_search_recovers_source_path_from_news_id_date(tmp_path: Path):
+    actual_path = tmp_path / "daily" / "2026-04-26" / "auto_fin_news_data.jsonl"
+    actual_path.parent.mkdir(parents=True)
+    actual_path.write_text(
+        json.dumps(
+            {
+                "news_id": "20260426221449_de86",
+                "pub_time": "2026-04-26 22:14:49",
+                "title": "PCB厂商一季度业绩增长",
+                "content": "AI硬件需求带动PCB订单增长。",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    step = AutoFinHistorySearchStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
+    references = [
+        AutoFinHistoricalEventReference(
+            reason="PCB订单增长的传导机制相同",
+            news_id="20260426221449_de86",
+            source_path="daily/2026-04-27/auto_fin_news_data.jsonl",
+        ),
+    ]
+
+    events, limitations = await step._resolve_historical_events(
+        references,
+        set(),
+        datetime.fromisoformat("2026-07-24T15:00:00"),
+    )
+
+    assert len(events) == 1
+    assert events[0].source_path == "daily/2026-04-26/auto_fin_news_data.jsonl"
+    assert not limitations
+
+
+@pytest.mark.asyncio
+async def test_history_search_skips_one_invalid_reference_and_continues(tmp_path: Path):
+    actual_path = tmp_path / "daily" / "2026-04-26" / "auto_fin_news_data.jsonl"
+    actual_path.parent.mkdir(parents=True)
+    actual_path.write_text(
+        json.dumps(
+            {
+                "news_id": "20260426221449_de86",
+                "pub_time": "2026-04-26 22:14:49",
+                "title": "有效历史新闻",
+                "content": "有效内容",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    step = AutoFinHistorySearchStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
+    step.logger = SimpleNamespace(warning=lambda _message: None)
+    references = [
+        AutoFinHistoricalEventReference(
+            reason="有效引用",
+            news_id="20260426221449_de86",
+            source_path="daily/2026-04-26/auto_fin_news_data.jsonl",
+        ),
+        AutoFinHistoricalEventReference(
+            reason="无效引用",
+            news_id="20260427100000_dead",
+            source_path="daily/2026-04-27/auto_fin_news_data.jsonl",
+        ),
+    ]
+
+    events, limitations = await step._resolve_historical_events(
+        references,
+        set(),
+        datetime.fromisoformat("2026-07-24T15:00:00"),
+    )
+
+    assert [event.news_id for event in events] == ["20260426221449_de86"]
+    assert len(limitations) == 1
+    assert "20260427100000_dead" in limitations[0]
 
 
 def test_daily_cookbook_wires_enabled_auto_fin_steps_and_tushare_skill():

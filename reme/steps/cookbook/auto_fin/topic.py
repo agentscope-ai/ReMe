@@ -151,6 +151,33 @@ class AutoFinTopicStep(AutoFinStep):
         return selected
 
     @staticmethod
+    def _repair_news_ids(
+        output: AutoFinEtfsOutput,
+        news: list[dict[str, Any]],
+    ) -> tuple[AutoFinEtfsOutput, dict[str, str]]:
+        """Repair a mistyped timestamp only when the content hash is unambiguous."""
+        news_ids = {str(row["news_id"]) for row in news}
+        ids_by_suffix: dict[str, list[str]] = {}
+        for news_id in news_ids:
+            _, separator, suffix = news_id.rpartition("_")
+            if separator and suffix:
+                ids_by_suffix.setdefault(suffix, []).append(news_id)
+
+        data = output.model_dump(mode="json")
+        repairs: dict[str, str] = {}
+        for item in data["etfs"]:
+            for event in item["events"]:
+                news_id = event["news_id"]
+                if news_id in news_ids:
+                    continue
+                _, separator, suffix = news_id.rpartition("_")
+                candidates = ids_by_suffix.get(suffix, []) if separator else []
+                if len(candidates) == 1:
+                    event["news_id"] = candidates[0]
+                    repairs[news_id] = candidates[0]
+        return AutoFinEtfsOutput.model_validate(data), repairs
+
+    @staticmethod
     def _validate_selection(
         output: AutoFinEtfsOutput,
         news: list[dict[str, Any]],
@@ -166,6 +193,8 @@ class AutoFinTopicStep(AutoFinStep):
             unknown = set(selected_news_ids) - news_ids
             if unknown:
                 raise ValueError(f"Topic Agent returned unknown news IDs: {sorted(unknown)}")
+            if len(selected_news_ids) != len(set(selected_news_ids)):
+                raise ValueError(f"Topic Agent returned duplicate news IDs for ETF: {item.etf_code}")
             event_order = [news_order[news_id] for news_id in selected_news_ids]
             if event_order != sorted(event_order):
                 raise ValueError(f"Topic Agent returned unsorted news IDs for ETF: {item.etf_code}")
@@ -197,6 +226,10 @@ class AutoFinTopicStep(AutoFinStep):
             filtered_news_path=str(news_path),
             filtered_etf_path=str(etf_path),
         )
+        output, repairs = self._repair_news_ids(output, news)
+        if repairs:
+            self.logger.warning(f"[{self.name}] repaired mistyped news IDs: {repairs}")
+            _write_jsonl(output_path, output.model_dump(mode="json")["etfs"])
         self._validate_selection(output, news, etfs)
         self.context["auto_fin_window_start"] = window_start.isoformat()
         self.context["auto_fin_etfs"] = output.model_dump(mode="json")["etfs"]

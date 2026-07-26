@@ -44,66 +44,106 @@ class AutoFinHistorySearchStep(AutoFinStep):
             return None
         return number if number > 0 else None
 
+    def _historical_source_candidates(self, source_path_value: str, news_id: str) -> list[Path]:
+        """Return the declared source and a date-derived fallback within the workspace."""
+        workspace = self.workspace_path.resolve()
+        relative_path = Path(source_path_value)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Historical source path must be workspace-relative: {source_path_value}")
+        source_path = (workspace / relative_path).resolve()
+        try:
+            source_path.relative_to(workspace)
+        except ValueError as exc:
+            raise ValueError(f"Historical source path is outside the workspace: {source_path_value}") from exc
+        if source_path.name != "auto_fin_news_data.jsonl":
+            raise ValueError(f"Historical source must be an Auto Fin news file: {source_path_value}")
+
+        candidates = [source_path]
+        news_date = news_id.partition("_")[0][:8]
+        try:
+            parsed_date = datetime.strptime(news_date, "%Y%m%d").date()
+        except ValueError:
+            parsed_date = None
+        if parsed_date is not None:
+            inferred_path = workspace / "daily" / parsed_date.isoformat() / "auto_fin_news_data.jsonl"
+            if inferred_path not in candidates:
+                candidates.append(inferred_path)
+        return candidates
+
+    async def _resolve_historical_event(
+        self,
+        reference: AutoFinHistoricalEventReference,
+        current_news_ids: set[str],
+        window_start: datetime,
+        rows_by_path: dict[Path, list[dict[str, Any]]],
+    ) -> AutoFinHistoricalEvent:
+        """Resolve one Agent-selected identity from user-owned source files."""
+        workspace = self.workspace_path.resolve()
+        if reference.news_id in current_news_ids:
+            raise ValueError(f"History Agent returned a current news item: {reference.news_id}")
+
+        candidates = self._historical_source_candidates(reference.source_path, reference.news_id)
+        matches: list[tuple[Path, dict[str, Any]]] = []
+        for source_path in candidates:
+            if not source_path.is_file():
+                continue
+            rows = rows_by_path.get(source_path)
+            if rows is None:
+                rows = await self._read_jsonl(source_path)
+                rows_by_path[source_path] = rows
+            matches.extend((source_path, row) for row in rows if str(row.get("news_id") or "") == reference.news_id)
+        if len(matches) != 1:
+            raise ValueError(
+                f"Historical news_id must resolve exactly once from {reference.source_path} "
+                f"or its ID-derived daily file: {reference.news_id}",
+            )
+
+        source_path, row = matches[0]
+        event_time = self._published_at(row)
+        if event_time is None:
+            raise ValueError(f"Historical news has no valid publication time: {reference.news_id}")
+        if event_time >= window_start:
+            raise ValueError(f"History Agent returned an event inside the current news window: {reference.news_id}")
+        event_title = str(row.get("title") or "").strip()
+        event_content = _plain_text(str(row.get("content") or event_title))
+        if not event_title or not event_content:
+            raise ValueError(f"Historical news has no usable title or content: {reference.news_id}")
+
+        return AutoFinHistoricalEvent(
+            reason=reference.reason,
+            news_id=reference.news_id,
+            source_path=source_path.relative_to(workspace).as_posix(),
+            event_time=event_time,
+            event_title=event_title,
+            event_content=event_content,
+        )
+
     async def _resolve_historical_events(
         self,
         references: list[AutoFinHistoricalEventReference],
         current_news_ids: set[str],
         window_start: datetime,
-    ) -> list[AutoFinHistoricalEvent]:
-        """Resolve Agent-selected identities from user-owned source files."""
-        workspace = self.workspace_path.resolve()
+    ) -> tuple[list[AutoFinHistoricalEvent], list[str]]:
+        """Resolve valid references and report invalid ones without stopping the ETF."""
         rows_by_path: dict[Path, list[dict[str, Any]]] = {}
         events_by_news_id: dict[str, AutoFinHistoricalEvent] = {}
+        limitations = []
         for reference in references:
-            if reference.news_id in current_news_ids:
-                raise ValueError(f"History Agent returned a current news item: {reference.news_id}")
-
-            relative_path = Path(reference.source_path)
-            if relative_path.is_absolute() or ".." in relative_path.parts:
-                raise ValueError(f"Historical source path must be workspace-relative: {reference.source_path}")
-            source_path = (workspace / relative_path).resolve()
             try:
-                normalized_path = source_path.relative_to(workspace)
-            except ValueError as exc:
-                raise ValueError(f"Historical source path is outside the workspace: {reference.source_path}") from exc
-            if source_path.name != "auto_fin_news_data.jsonl":
-                raise ValueError(f"Historical source must be an Auto Fin news file: {reference.source_path}")
-            if not source_path.is_file():
-                raise ValueError(f"Historical source file does not exist: {reference.source_path}")
-
-            rows = rows_by_path.get(source_path)
-            if rows is None:
-                rows = await self._read_jsonl(source_path)
-                rows_by_path[source_path] = rows
-            matches = [row for row in rows if str(row.get("news_id") or "") == reference.news_id]
-            if len(matches) != 1:
-                raise ValueError(
-                    f"Historical news_id must resolve exactly once in {reference.source_path}: {reference.news_id}",
+                event = await self._resolve_historical_event(
+                    reference,
+                    current_news_ids,
+                    window_start,
+                    rows_by_path,
                 )
-
-            row = matches[0]
-            event_time = self._published_at(row)
-            if event_time is None:
-                raise ValueError(f"Historical news has no valid publication time: {reference.news_id}")
-            if event_time >= window_start:
-                raise ValueError(f"History Agent returned an event inside the current news window: {reference.news_id}")
-            event_title = str(row.get("title") or "").strip()
-            event_content = _plain_text(str(row.get("content") or event_title))
-            if not event_title or not event_content:
-                raise ValueError(f"Historical news has no usable title or content: {reference.news_id}")
-
-            events_by_news_id.setdefault(
-                reference.news_id,
-                AutoFinHistoricalEvent(
-                    reason=reference.reason,
-                    news_id=reference.news_id,
-                    source_path=normalized_path.as_posix(),
-                    event_time=event_time,
-                    event_title=event_title,
-                    event_content=event_content,
-                ),
-            )
-        return sorted(events_by_news_id.values(), key=lambda event: (event.event_time, event.news_id))
+            except (OSError, ValueError) as exc:
+                limitation = f"跳过无法解析的历史新闻 {reference.news_id}: {exc}"
+                self.logger.warning(f"[{self.name}] {limitation}")
+                limitations.append(limitation)
+                continue
+            events_by_news_id.setdefault(reference.news_id, event)
+        resolved = sorted(events_by_news_id.values(), key=lambda event: (event.event_time, event.news_id))
+        return resolved, limitations
 
     async def _calculate_samples(
         self,
@@ -249,7 +289,7 @@ class AutoFinHistorySearchStep(AutoFinStep):
                         self.app_context.metadata.pop(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, None)
         if (history.etf_code, history.etf_name) != (item.etf_code, item.etf_name):
             raise ValueError(f"History Agent changed ETF {label!r}")
-        resolved_events = await self._resolve_historical_events(
+        resolved_events, resolution_limitations = await self._resolve_historical_events(
             history.historical_events,
             {event.news_id for event in events},
             window_start,
@@ -272,7 +312,7 @@ class AutoFinHistorySearchStep(AutoFinStep):
             etf_code=history.etf_code,
             etf_name=history.etf_name,
             historical_events=enriched_events,
-            limitations=market_limitations,
+            limitations=list(dict.fromkeys([*resolution_limitations, *market_limitations])),
         )
         _write(
             history_path,
