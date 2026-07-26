@@ -28,6 +28,19 @@ class FaissLocalFileStore(LocalFileStore):
     the number of results requested.  FAISS internally raises the beam width to
     ``max(efSearch, k)`` when ``k`` exceeds this value during progressive recall.
 
+    When the index is small (``ntotal < max(1, sqrt(max(limit, ef_search))) *
+    M``) the graph would visit nearly every node anyway, so ``vector_search``
+    bypasses HNSW and does an exact brute-force scan via the underlying
+    ``IndexFlat`` storage.  The threshold ties brute-force coverage to ``M``
+    (graph degree): higher M means costlier graph traversal, so brute-force is
+    preferred for larger indexes.
+
+    Tombstone-driven compaction rebuilds the index when deleted rows accumulate.
+    The threshold is dynamic: ``max(tombstone_compact_ratio * ntotal, 128)``
+    (default ratio 30%), so larger indexes tolerate more tombstones before a
+    rebuild.  ``max_tombstones`` may be set to an int to override this with a
+    fixed threshold (useful in tests).
+
     Rebuilding an HNSW graph is expensive. When ``async_reindex`` is enabled the
     rebuild is moved off the request path as a submit-a-flag job: mutations set a
     boolean request flag and a single long-lived worker coroutine consumes it,
@@ -35,10 +48,12 @@ class FaissLocalFileStore(LocalFileStore):
     ``add``) from a snapshot while the current index keeps serving searches, then
     atomically swaps it in. Exactly one worker runs, so only one reindex proceeds
     at a time; repeated submissions coalesce into the flag, and writes that land
-    during a build re-arm it so a follow-up rebuild folds them in (eventually
-    consistent). ``async_reindex`` defaults to ``False`` so behavior is unchanged
-    unless opted in; ``load`` (no old index to serve) always rebuilds inline, and
-    the backfill rebuild follows ``async_reindex``.
+    during a build are reconciled: the stale snapshot is discarded and the flag
+    re-armed so the next round snapshots the current state. The live index is
+    never overwritten by a stale snapshot, so ``close()`` cannot persist one.
+    ``async_reindex`` defaults to ``False`` so behavior is unchanged unless opted
+    in; ``load`` (no old index to serve) always rebuilds inline, and the backfill
+    rebuild follows ``async_reindex``.
 
     faiss is imported lazily inside ``__init__`` so that merely importing this
     module (e.g. via ``reme version``) does not trigger the SWIG bindings and
@@ -48,8 +63,9 @@ class FaissLocalFileStore(LocalFileStore):
     def __init__(
         self,
         normalize: bool = True,
-        max_tombstones: int = 1024,
-        hnsw_m: int = 64,
+        max_tombstones: int | None = None,
+        tombstone_compact_ratio: float = 0.3,
+        hnsw_m: int = 32,
         hnsw_ef_construction: int = 64,
         async_reindex: bool = False,
         **kwargs,
@@ -58,6 +74,7 @@ class FaissLocalFileStore(LocalFileStore):
         self._faiss = self._import_faiss()
         self.normalize = normalize
         self.max_tombstones = max_tombstones
+        self.tombstone_compact_ratio = tombstone_compact_ratio
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construction = hnsw_ef_construction
         self.async_reindex = async_reindex
@@ -153,7 +170,15 @@ class FaissLocalFileStore(LocalFileStore):
         self._add_to_index([c.id for c in chunks], vectors)
 
     def _compact_if_needed(self) -> None:
-        if len(self._tombstones) < self.max_tombstones:
+        # Dynamic threshold: max(ratio * ntotal, 128).  This scales with index
+        # size so larger indexes tolerate more tombstones before a rebuild.
+        # max_tombstones (when set) overrides with a fixed value for testing.
+        if self.max_tombstones is not None:
+            threshold = self.max_tombstones
+        else:
+            ntotal = self._faiss_index.ntotal if self._faiss_index else 0
+            threshold = max(int(self.tombstone_compact_ratio * ntotal), 128)
+        if len(self._tombstones) < threshold:
             return
         if self.async_reindex:
             self._submit_reindex()  # flag the worker; it coalesces repeated requests
@@ -197,8 +222,10 @@ class FaissLocalFileStore(LocalFileStore):
 
         Because exactly one worker drains the flag, only one reindex ever runs at a
         time. The flag is cleared before snapshotting, so any write that lands
-        during the build re-arms it (see ``_reindex_async``) and triggers exactly
-        one more rebuild afterwards -- the system converges without reconciliation.
+        during the build is detected by ``_reindex_async`` (which compares
+        ``_index_writes`` before and after the build). When drift is detected the
+        stale snapshot is discarded and the flag re-armed, so the system
+        converges without ever publishing a stale index.
         """
         while not self._closing:
             await self._reindex_event.wait()
@@ -220,8 +247,11 @@ class FaissLocalFileStore(LocalFileStore):
 
     async def _reindex_async(self) -> None:
         """Build a new index from a snapshot without blocking searches, then swap it
-        in atomically. Writes that land during the build bump ``_index_writes``; if
-        the counter moved we re-arm the flag so the next round folds them in.
+        in atomically.  If writes landed on the live index during the build
+        (``_index_writes`` moved), the snapshot is stale: it is discarded and the
+        flag re-armed so the next round snapshots the current state.  The live
+        index is never overwritten by a stale snapshot, so ``close()`` cannot
+        persist one.
         """
         if self.embedding_store is None or self._dim == 0:
             return
@@ -237,17 +267,25 @@ class FaissLocalFileStore(LocalFileStore):
 
         new_index = await asyncio.to_thread(self._build_index_blocking, dim, vectors)
 
+        # Reconcile: if writes landed on the live index during the build, the
+        # snapshot is stale.  Discard it and re-arm the flag so the next round
+        # snapshots the current state.  The live index keeps serving searches
+        # with the already-applied mutations; it is never overwritten by a stale
+        # snapshot, so close() cannot persist one.
+        if self._index_writes != writes_at_snapshot:
+            self._reindex_event.set()
+            self.logger.info(
+                f"Async reindex discarded stale snapshot "
+                f"(writes {writes_at_snapshot} -> {self._index_writes}); re-arming",
+            )
+            return
+
         # Atomic swap into the snapshot state (no await between assignments) so a
         # concurrent search never observes a torn index / id_map / tombstone triple.
         self._faiss_index = new_index
         self._id_map = list(snapshot_ids)
         self._id_to_row = {cid: row for row, cid in enumerate(snapshot_ids)}
         self._tombstones = set()
-
-        # Writes landed on the old index while we built; a full rebuild is the
-        # simplest way to fold them in, so request exactly one more round.
-        if self._index_writes != writes_at_snapshot:
-            self._reindex_event.set()
         self.logger.info(f"Async reindex complete: {self._faiss_index.ntotal} rows, live={len(self._id_to_row)}")
 
     def _build_index_blocking(self, dim: int, vectors: "np.ndarray | None"):
@@ -293,6 +331,18 @@ class FaissLocalFileStore(LocalFileStore):
     async def _try_load_sidecar(self) -> bool:
         """Read the binary index plus id-map sidecar. On any mismatch or read error,
         wipe the partial files so the caller can rebuild from chunks cleanly.
+
+        HNSW construction parameters are validated against the active config:
+
+        - ``M`` is structural: it determines the graph topology (level-0
+          neighbors have capacity 2*M).  A mismatch means the persisted graph
+          was built with different connectivity, so we raise to trigger a full
+          rebuild from the authoritative chunks.
+        - ``efConstruction`` only affects how edges are formed during ``add()``.
+          Already-inserted vectors keep their connections regardless, so a
+          mismatch does not warrant a rebuild.  Instead we update the live
+          index's ``efConstruction`` in place so subsequent insertions honor the
+          new value.
         """
         if not (self.faiss_path.exists() and self.faiss_idmap_path.exists()):
             return False
@@ -307,6 +357,16 @@ class FaissLocalFileStore(LocalFileStore):
                 raise ValueError(f"FAISS index type {type(index).__name__} is not IndexHNSWFlat")
             if index.d != self._dim:
                 raise ValueError(f"FAISS dim {index.d} != embedding dim {self._dim}")
+            # Validate HNSW M: it is baked into the serialized graph (level-0
+            # neighbor capacity is 2*M).  nb_neighbors(0) // 2 recovers the
+            # original M, and a mismatch means the graph topology does not match
+            # the active configuration — rebuild from chunks.
+            if index.ntotal > 0:
+                persisted_m = index.hnsw.nb_neighbors(0) // 2
+                if persisted_m != self.hnsw_m:
+                    raise ValueError(
+                        f"FAISS HNSW M mismatch: persisted={persisted_m}, configured={self.hnsw_m}",
+                    )
             async with aiofiles.open(self.faiss_idmap_path, encoding=self.encoding) as f:
                 data = json.loads(await f.read())
             id_map = list(data.get("id_map", []))
@@ -323,6 +383,17 @@ class FaissLocalFileStore(LocalFileStore):
             }
             if set(live_ids) != expected_ids:
                 raise ValueError("FAISS sidecar live ids do not match persisted chunks")
+            # efConstruction only affects edge formation during add(); existing
+            # edges are immutable.  Update the live value so new insertions use
+            # the configured quality without forcing a rebuild of old vectors.
+            persisted_ef = index.hnsw.efConstruction
+            if persisted_ef != self.hnsw_ef_construction:
+                self.logger.info(
+                    f"FAISS efConstruction updated from {persisted_ef} to "
+                    f"{self.hnsw_ef_construction}; existing vectors retain their "
+                    f"connections, new additions will use the new value",
+                )
+                index.hnsw.efConstruction = self.hnsw_ef_construction
             self._faiss_index = index
             self._id_map = id_map
             self._tombstones = tombstones
@@ -469,11 +540,11 @@ class FaissLocalFileStore(LocalFileStore):
         ):
             return []
 
+        query_embedding = None
         try:
             query_embedding = await self.embedding_store.get_embedding(query)
         except Exception as e:
             self._disable_embedding(f"search: {type(e).__name__}: {e}")
-            return []
         if query_embedding is None or not self._embedding_dim_matches(query_embedding):
             if query_embedding is not None:
                 self._disable_embedding(
@@ -491,6 +562,25 @@ class FaissLocalFileStore(LocalFileStore):
 
         q = self._prepare(query_embedding)
         ntotal = index.ntotal
+
+        # Small-index shortcut: when ntotal is below the brute-force threshold,
+        # the HNSW graph would visit nearly every node anyway.  Bypass the graph
+        # and do an exact brute-force scan via index.storage (the IndexFlat that
+        # backs IndexHNSWFlat).  This is faster (no graph traversal overhead)
+        # and gives 100% recall.  Results are in the same (scores, rows) format
+        # so _collect_hits handles tombstones and filters unchanged.
+        #
+        # The threshold is max(1, sqrt(max(limit, ef_search))) * M, where ef_search
+        # = limit * 5.  This ties brute-force coverage to M (graph degree): higher
+        # M means more neighbors per node and costlier graph traversal, so
+        # brute-force is preferred for larger indexes.  sqrt scales sublinearly
+        # with the result count because HNSW's advantage grows sublinearly with
+        # limit — the graph need not be explored much more for larger result sets.
+        ef_search = limit * 5
+        if ntotal < max(1, (max(limit, ef_search)) ** 0.5) * self.hnsw_m:
+            k = ntotal if search_filter else min(ntotal, limit + len(self._tombstones))
+            scores, rows = index.storage.search(q, k)
+            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
 
         if not search_filter:
             # No filter: simple over-fetch to cover tombstones.

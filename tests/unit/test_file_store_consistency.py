@@ -4,6 +4,7 @@
 
 import asyncio
 import base64
+import datetime
 import json
 import os
 import tempfile
@@ -938,6 +939,135 @@ def test_faiss_vector_search_survives_concurrent_index_drop():
     run(go())
 
 
+# -- HNSW construction parameter persistence tests ---------------------------
+
+
+def test_faiss_rebuilds_on_hnsw_m_mismatch():
+    """Reopening with a different hnsw_m must rebuild: M is structural and the
+    persisted graph topology cannot serve the new configuration."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            # Phase 1: build and persist with hnsw_m=8.
+            store_a = _new_faiss_store("t_faiss_m_mismatch", hnsw_m=8)
+            await store_a.start()
+            store_a.embedding_store = FakeEmbeddingStore()
+            store_a._faiss_index = store_a._new_index()
+            await store_a.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            assert store_a._faiss_index.hnsw.nb_neighbors(0) // 2 == 8
+            await store_a.close()  # _close() → dump() writes sidecar
+
+            # Phase 2: reopen the same workspace with hnsw_m=32.
+            store_b = _new_faiss_store("t_faiss_m_mismatch", hnsw_m=32)
+            await store_b.start()  # loads chunks; FAISS skipped (embedding_store is None)
+            store_b.embedding_store = FakeEmbeddingStore()
+
+            # The sidecar was built with M=8; config says 32 → reject and rebuild.
+            assert await store_b._try_load_sidecar() is False
+            assert not store_b.faiss_path.exists()  # sidecar wiped on rejection
+            store_b._rebuild_index()
+
+            # Rebuilt index honors the new M.
+            assert store_b._faiss_index.hnsw.nb_neighbors(0) // 2 == 32
+            assert [c.id for c in await store_b.vector_search("alpha", 5, {})] == ["a"]
+            await store_b.close()
+
+    run(go())
+
+
+def test_faiss_ef_construction_hot_update_without_rebuild():
+    """Reopening with a different hnsw_ef_construction must NOT rebuild: it only
+    affects future edge formation during add(), not the existing graph.  The live
+    index's efConstruction is updated in place so new insertions honor the new
+    value."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            # Phase 1: build and persist with efConstruction=40.
+            store_a = _new_faiss_store("t_faiss_ef_hot", hnsw_ef_construction=40)
+            await store_a.start()
+            store_a.embedding_store = FakeEmbeddingStore()
+            store_a._faiss_index = store_a._new_index()
+            await store_a.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            assert store_a._faiss_index.hnsw.efConstruction == 40
+            await store_a.close()
+
+            # Phase 2: reopen with efConstruction=128 (M unchanged).
+            store_b = _new_faiss_store("t_faiss_ef_hot", hnsw_ef_construction=128)
+            await store_b.start()
+            store_b.embedding_store = FakeEmbeddingStore()
+
+            # Sidecar loads successfully — M matches, only efConstruction differs.
+            assert await store_b._try_load_sidecar() is True
+            assert store_b.faiss_path.exists()  # sidecar retained (no rebuild)
+
+            # efConstruction was hot-updated to the new config value.
+            assert store_b._faiss_index.hnsw.efConstruction == 128
+
+            # Search still works on the loaded (not rebuilt) index.
+            assert [c.id for c in await store_b.vector_search("alpha", 5, {})] == ["a"]
+            await store_b.close()
+
+    run(go())
+
+
+def test_faiss_small_index_uses_brute_force_scan():
+    """When ntotal is below the brute-force threshold
+    (max(1, sqrt(max(limit, ef_search))) * M), vector_search bypasses the HNSW
+    graph and does an exact brute-force scan via index.storage.  The HNSW path
+    (which calls _set_ef_search) is only used when the index is large enough."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_brute_force")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            # 80 chunks with valid date paths so we can test filtered search too.
+            # With M=32 (default): limit=5 -> threshold=sqrt(25)*32=160 > 80
+            # -> brute-force.  limit=1 -> threshold=sqrt(5)*32~=72 < 80 -> HNSW.
+            base = datetime.date(2026, 1, 1)
+            files = []
+            for i in range(80):
+                d = base + datetime.timedelta(days=i)
+                path = f"daily/{d.isoformat()}/note.md"
+                files.append((node(path), [chunk(f"c{i}", path, "alpha text")]))
+            await store.upsert(files)
+
+            # _set_ef_search is only called on the HNSW path.  Spying on it
+            # tells us which branch vector_search took.
+            ef_calls: list[int] = []
+            original_set_ef = store._set_ef_search
+
+            def spy_set_ef(idx, lim):
+                ef_calls.append(lim)
+                original_set_ef(idx, lim)
+
+            store._set_ef_search = spy_set_ef
+
+            # ntotal=80, limit=5 -> threshold=sqrt(25)*32=160 -> 80 < 160 -> brute-force.
+            results = await store.vector_search("alpha", 5, {})
+            assert len(results) == 5
+            assert not ef_calls  # brute-force path taken
+
+            # Brute-force + filter: scans all vectors, _collect_hits filters.
+            filt = {"start_date": "2026-01-15", "end_date": "2026-01-17"}
+            results = await store.vector_search("alpha", 5, filt)
+            assert {r.id for r in results} == {"c14", "c15", "c16"}
+            assert not ef_calls  # still brute-force
+
+            # ntotal=80, limit=1 -> threshold=sqrt(5)*32~=72 -> 80 >= 72 -> HNSW graph search.
+            results = await store.vector_search("alpha", 1, {})
+            assert len(results) == 1
+            assert len(ef_calls) >= 1  # HNSW path taken, efSearch was set
+
+            store._set_ef_search = original_set_ef
+            await store.close()
+
+    run(go())
+
+
 # -- Async reindex tests -----------------------------------------------------
 
 
@@ -1169,6 +1299,105 @@ def test_faiss_close_does_not_leave_orphan_reindex():
             # from submitting a new (orphan) reindex.
             await store.close()
             assert store._reindex_worker_task is None
+
+    run(go())
+
+
+def test_faiss_async_close_persists_stale_snapshot_on_same_id_update():
+    """Regression: close() during a follow-up rebuild can persist a stale snapshot.
+
+    Bug scenario (async_reindex=True):
+    1. Chunk "a" starts with embedding alpha.
+    2. An async rebuild snapshots alpha and blocks.
+    3. Chunk "a" is updated to embedding beta (live index gets beta).
+    4. The first build finishes and swaps the stale alpha snapshot into
+       _faiss_index, overwriting the correct beta.
+    5. The worker re-arms the flag for a follow-up rebuild of beta.
+    6. close() cancels the worker before the follow-up rebuild can swap
+       its result. The final dump() persists the stale alpha index.
+    7. On reopen, _try_load_sidecar accepts the stale sidecar because the
+       ID set is unchanged (same-ID update), so the error does not self-heal.
+
+    Expected after fix: the persisted vector matches the updated chunk
+    embedding (beta), so searching with the beta vector scores ~1.0.
+    """
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_stale_close", async_reindex=True)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            # Chunk "a" with alpha text -> embedding [1.0, 0.0].
+            await store.upsert([(node("note.md"), [chunk("a", "note.md", "alpha text")])])
+            assert [c.id for c in await store.vector_search("alpha", 5, {})] == ["a"]
+
+            first_started = threading.Event()
+            release_first = threading.Event()
+            second_started = threading.Event()
+            real_build = store._build_index_blocking
+            build_count = {"n": 0}
+
+            def gated_build(dim, vectors):
+                build_count["n"] += 1
+                if build_count["n"] == 1:
+                    # First build: hold the alpha snapshot.
+                    first_started.set()
+                    release_first.wait()
+                else:
+                    # Follow-up build: signal started, then hold until close().
+                    second_started.set()
+                    while not store._closing:
+                        time.sleep(0.005)
+                return real_build(dim, vectors)
+
+            store._build_index_blocking = gated_build
+
+            # Step 1: submit the first rebuild (snapshot == {a: alpha}).
+            store._submit_reindex()
+            while not first_started.is_set():
+                await asyncio.sleep(0.005)
+
+            # Step 2: while the first build is blocked, update "a" to beta.
+            # The live index correctly gets beta; _index_writes bumps.
+            await store.upsert([(node("note.md"), [chunk("a", "note.md", "beta text")])])
+
+            # Step 3: release the first build. It swaps the stale alpha
+            # snapshot into _faiss_index and re-arms the flag.
+            release_first.set()
+
+            # Step 4: wait until the follow-up rebuild (second build) starts.
+            while not second_started.is_set():
+                await asyncio.sleep(0.005)
+
+            # Step 5: close() cancels the worker before the follow-up rebuild
+            # can swap its result. The final dump() persists the stale alpha.
+            await store.close()
+            assert store._reindex_worker_task is None
+
+            # Step 6: reopen and verify the persisted state.
+            reopened = _new_faiss_store("t_faiss_stale_close", async_reindex=True)
+            await reopened.start()
+            reopened.embedding_store = FakeEmbeddingStore()
+
+            # The authoritative chunk JSONL has "beta text".
+            assert reopened.file_chunks["a"].text == "beta text"
+
+            # The stale sidecar is accepted because the ID set is unchanged.
+            assert await reopened._try_load_sidecar() is True
+
+            # Search with the beta vector. If the bug is present, the
+            # persisted index still has the alpha vector, so the score is
+            # 0.0 (orthogonal) instead of ~1.0.
+            results = await reopened.vector_search("beta", 5, {})
+            assert len(results) == 1
+            assert results[0].id == "a"
+            score = results[0].scores["vector"]
+            assert score > 0.5, (
+                f"BUG: persisted FAISS index has stale alpha vector; " f"beta query scored {score:.4f} instead of ~1.0"
+            )
+            await reopened.close()
 
     run(go())
 
