@@ -135,6 +135,46 @@ class BaseAgentWrapper(BaseComponent):
             return schema
         raise TypeError("output_schema must be a JSON schema dict or BaseModel class")
 
+    @staticmethod
+    def _resolve_injected_job_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Collect server-owned kwargs merged into every job tool call.
+
+        ``injected_job_kwargs`` values are enforced constraints added by the
+        wrapper after receiving the model's tool arguments; the model can
+        neither see nor override them. ``tool_context_id`` keeps its dedicated
+        option but is carried through the same mechanism.
+        """
+        injected = dict(kwargs.get("injected_job_kwargs") or {})
+        if tool_context_id := kwargs.get("tool_context_id"):
+            injected["tool_context_id"] = tool_context_id
+        return injected
+
+    @staticmethod
+    def _merge_injected_job_kwargs(model_kwargs: dict[str, Any], injected: dict[str, Any]) -> dict[str, Any]:
+        """Merge server-owned kwargs over model tool arguments, rejecting conflicts.
+
+        Silently letting model values win would make injected constraints
+        bypassable, so any overlap is an explicit error.
+        """
+        if conflicts := sorted(injected.keys() & model_kwargs.keys()):
+            names = ", ".join(conflicts)
+            raise ValueError(f"injected tool arguments cannot be provided by the model: {names}")
+        return {**model_kwargs, **injected}
+
+    @staticmethod
+    def _strip_injected_parameters(parameters: dict | None, injected: dict[str, Any]) -> dict | None:
+        """Hide injected keys from the tool parameter schema exposed to the model."""
+        if not parameters or not injected:
+            return parameters
+        parameters = dict(parameters)
+        if "properties" in parameters:
+            parameters["properties"] = {
+                name: schema for name, schema in parameters["properties"].items() if name not in injected
+            }
+        if "required" in parameters:
+            parameters["required"] = [name for name in parameters["required"] if name not in injected]
+        return parameters
+
     def _resolve_job_tools(self, job_tools: list[str]) -> list["BaseJob"]:
         """Resolve job name strings to BaseJob instances via app_context."""
         if not job_tools:

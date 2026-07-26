@@ -72,16 +72,20 @@ class CcAgentWrapper(BaseAgentWrapper):
                 self.logger.warning(f"Failed to link Claude Code skills into {target}: {exc}")
 
     @classmethod
-    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None):
+    def _make_tool(
+        cls,
+        job: "BaseJob",
+        tool_context_id: str | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
+    ):
         from claude_agent_sdk import SdkMcpTool
 
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
         async def run_job(args):
-            call_args = dict(args)
-            if tool_context_id:
-                if "tool_context_id" in call_args:
-                    raise ValueError("tool_context_id is injected by agent_wrapper")
-                call_args["tool_context_id"] = tool_context_id
-            response = await job(**call_args)
+            response = await job(**cls._merge_injected_job_kwargs(dict(args), injected))
             return {
                 "content": [{"type": "text", "text": str(response.answer)}],
                 "is_error": not response.success,
@@ -90,7 +94,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         return SdkMcpTool(
             name=job.name,
             description=job.description,
-            input_schema=job.parameters,
+            input_schema=cls._strip_injected_parameters(job.parameters, injected),
             handler=run_job,
         )
 
@@ -112,7 +116,7 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         if "setting_sources" not in kwargs and kwargs.get("skills") is None:
             kwargs["setting_sources"] = []
-        skip_keys = {"job_tools", "output_schema", "api_key", "base_url", "credential"}
+        skip_keys = {"job_tools", "injected_job_kwargs", "output_schema", "api_key", "base_url", "credential"}
         option_fields = {field.name for field in fields(ClaudeAgentOptions)}
         option_kwargs = {key: value for key, value in kwargs.items() if key not in skip_keys and key in option_fields}
         option_kwargs["disallowed_tools"] = list(
@@ -162,7 +166,10 @@ class CcAgentWrapper(BaseAgentWrapper):
             opts.mcp_servers = dict(opts.mcp_servers)
             if self.MCP_SERVER_NAME in opts.mcp_servers:
                 raise ValueError(f"mcp_servers already contains reserved server name {self.MCP_SERVER_NAME!r}")
-            sdk_tools = [self._make_tool(job, kwargs.get("tool_context_id")) for job in resolved_jobs]
+            sdk_tools = [
+                self._make_tool(job, kwargs.get("tool_context_id"), kwargs.get("injected_job_kwargs"))
+                for job in resolved_jobs
+            ]
             opts.mcp_servers[self.MCP_SERVER_NAME] = create_sdk_mcp_server(
                 name=self.MCP_SERVER_NAME,
                 tools=sdk_tools,

@@ -22,15 +22,9 @@ class ReadStep(PrefixCheck, BaseStep):
             neighbors (out/in link targets) with name/description meta,
             fetched via the file_store. Same rendering as SearchStep.
         max_neighbors_per_direction (int, default 10): cap per direction.
-        white_path_prefix (list[str] | None, default None): whitelist of path
-            prefixes; only files whose workspace-relative path starts with one
-            of these prefixes pass the white stage. ``None`` disables the
-            white stage; an empty list denies every file.
-        black_path_prefix (list[str] | None, default None): blacklist of path
-            prefixes; files whose workspace-relative path starts with one of
-            these prefixes are denied. ``None`` and an empty list both
-            disable the black stage.
-        The white stage is applied first, then the black stage.
+
+    Permission: honors the request-scoped ``_allowed_paths`` constraint
+    injected by the server into the RuntimeContext (see ``PrefixCheck``).
     """
 
     def _fail(self, message: str, **meta) -> None:

@@ -63,7 +63,7 @@ class AutoMemoryStep(BaseStep):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.create_tools: list[str] = ["daily_write"]
-        self.update_tools: list[str] = ["read_daily", "edit_daily", "frontmatter_update", "write_daily"]
+        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     def _session_dir(self) -> str:
         return str(self.config_value("session_dir")).strip("/")
@@ -312,10 +312,16 @@ class AutoMemoryStep(BaseStep):
         )
 
         self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")
+        # Server-owned, request-scoped constraints merged into every job tool
+        # call by the agent wrapper; not visible to or overridable by the model.
+        # Create flow pins the resolved date for daily_write; update flow limits
+        # every file tool (read/edit/write/frontmatter_update) to the exact note.
+        injected_job_kwargs = {"date": day} if created else {"_allowed_paths": [note_path]}
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
             job_tools=self.create_tools if created else self.update_tools,
+            injected_job_kwargs=injected_job_kwargs,
             **self._reply_extra_kwargs(day),
         )
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")

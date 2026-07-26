@@ -1,6 +1,7 @@
 """FastMCP STDIO bridge that exposes selected ReMe jobs to Codex."""
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--workspace", required=True, help="ReMe workspace directory")
     parser.add_argument("--job", dest="jobs", action="append", required=True, help="ReMe job name; repeat as needed")
     parser.add_argument("--tool-context-id", default="", help="Context id injected into every job call")
+    parser.add_argument(
+        "--injected-job-kwargs",
+        default="",
+        help="JSON object of server-owned kwargs injected into every job call",
+    )
     return parser.parse_args()
 
 
-def _prepare_config(config: dict[str, Any], job_names: list[str], tool_context_id: str = "") -> dict[str, Any]:
+def _prepare_config(
+    config: dict[str, Any],
+    job_names: list[str],
+    tool_context_id: str = "",
+    injected_job_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Configure the dedicated child Application to serve selected jobs over MCP STDIO."""
     selected = set(job_names)
     jobs: dict[str, dict[str, Any]] = {}
@@ -40,8 +51,11 @@ def _prepare_config(config: dict[str, Any], job_names: list[str], tool_context_i
         "jobs": job_names,
         "tool_error_on_failure": True,
     }
+    injected = dict(injected_job_kwargs or {})
     if tool_context_id:
-        service["injected_job_kwargs"] = {"tool_context_id": tool_context_id}
+        injected["tool_context_id"] = tool_context_id
+    if injected:
+        service["injected_job_kwargs"] = injected
 
     prepared = dict(config)
     prepared["jobs"] = jobs
@@ -60,7 +74,10 @@ def main() -> None:
         log_to_file=False,
         log_config=False,
     )
-    config = _prepare_config(config, args.jobs, args.tool_context_id)
+    injected_job_kwargs = json.loads(args.injected_job_kwargs) if args.injected_job_kwargs else None
+    if injected_job_kwargs is not None and not isinstance(injected_job_kwargs, dict):
+        raise TypeError("--injected-job-kwargs must be a JSON object")
+    config = _prepare_config(config, args.jobs, args.tool_context_id, injected_job_kwargs)
     ReMe(**config).run_app()
 
 

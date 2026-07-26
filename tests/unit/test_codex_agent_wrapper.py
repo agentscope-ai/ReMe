@@ -74,6 +74,38 @@ def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
 
 
+def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
+    wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
+
+    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
+        {
+            "job_tools": ["search"],
+            "tool_context_id": "ctx-1",
+            "injected_job_kwargs": {"_allowed_paths": ["daily/2025-06-01/note.md"]},
+        },
+    )
+
+    raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
+    assert json.loads(raw) == {"_allowed_paths": ["daily/2025-06-01/note.md"]}
+
+    plain = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
+    assert "--injected-job-kwargs" not in plain["args"]
+
+
+def test_prepare_config_merges_injected_job_kwargs_with_tool_context():
+    prepared = _prepare_config(
+        {"jobs": {"selected": {"backend": "base"}}},
+        ["selected"],
+        "ctx-1",
+        {"_allowed_paths": ["daily/2025-06-01/note.md"]},
+    )
+
+    assert prepared["service"]["injected_job_kwargs"] == {
+        "_allowed_paths": ["daily/2025-06-01/note.md"],
+        "tool_context_id": "ctx-1",
+    }
+
+
 def test_thread_config_preserves_other_mcp_servers(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     config = wrapper._thread_config(  # pylint: disable=protected-access

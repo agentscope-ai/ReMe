@@ -255,6 +255,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         for name in job_names:
             args.extend(["--job", name])
         args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
+        if injected_job_kwargs := dict(kwargs.get("injected_job_kwargs") or {}):
+            args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])
         return {
             "command": sys.executable,
             "args": args,
@@ -292,10 +294,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork_session = bool(kwargs.get("fork_session", False))
         if fork_session and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
-        requested_tool_context = str(kwargs.get("tool_context_id") or "")
+        requested_tool_context = json.dumps(
+            {
+                "tool_context_id": str(kwargs.get("tool_context_id") or ""),
+                "injected_job_kwargs": dict(kwargs.get("injected_job_kwargs") or {}),
+            },
+            sort_keys=True,
+            default=str,
+        )
         if not fork_session and thread_id in self._thread_tool_contexts:
             if requested_tool_context != self._thread_tool_contexts[thread_id]:
-                raise ValueError("tool_context_id cannot change when resuming a Codex thread")
+                raise ValueError("tool_context_id and injected_job_kwargs cannot change when resuming a Codex thread")
 
         common = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),

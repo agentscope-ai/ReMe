@@ -19,17 +19,8 @@ class WriteStep(PrefixCheck, BaseStep):
     ``metadata`` are ignored — only the top-level explicit parameters are
     honored for those two reserved fields.
 
-    Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
-    not exposed to LLM):
-        white_path_prefix (list[str] | None, default None): whitelist of path
-            prefixes; only files whose workspace-relative path starts with one
-            of these prefixes pass the white stage. ``None`` disables the
-            white stage; an empty list denies every file.
-        black_path_prefix (list[str] | None, default None): blacklist of path
-            prefixes; files whose workspace-relative path starts with one of
-            these prefixes are denied. ``None`` and an empty list both
-            disable the black stage.
-        The white stage is applied first, then the black stage.
+    Permission: honors the request-scoped ``_allowed_paths`` constraint
+    injected by the server into the RuntimeContext (see ``PrefixCheck``).
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes concurrent
     writes to the same file (multi-worker / multi-process safety is out of

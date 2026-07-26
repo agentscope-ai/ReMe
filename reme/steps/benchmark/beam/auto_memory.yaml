@@ -110,8 +110,9 @@ user_message_create: |
   - `name`: <a concise, stable topic/event filename stem in kebab-case>
   - `description`: <a thorough, lossless summary>
   - `session_id`: {session_id}
-  - `date`: {today}
   - `content`: <the full body text>
+
+  The service selects the note date. Do not provide a `date` argument.
 
   ⚠️ CRITICAL: You MUST invoke `daily_write` as a **tool call** (function call). Do NOT write `daily_write name=...` as plain text — that will NOT execute the tool and NO memory will be saved.
 
@@ -166,8 +167,9 @@ user_message_create_zh: |
   - `name`：<简洁、稳定的主题/事件文件名 stem，采用 kebab-case>
   - `description`：<详尽的无损总结>
   - `session_id`：{session_id}
-  - `date`：{today}
   - `content`：<完整正文>
+
+  笔记日期由服务决定。不要提供 `date` 参数。
 
   ⚠️ 关键：你**必须**以**工具调用**（函数调用）方式调用 `daily_write`。不要将 `daily_write name=...` 作为纯文本输出——那样**不会**执行工具，也**不会**保存任何记忆。
 

@@ -156,18 +156,24 @@ class AsAgentWrapper(BaseAgentWrapper):
         self._session_cleanup_done = False
 
     @classmethod
-    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None) -> FunctionTool:
+    def _make_tool(
+        cls,
+        job: "BaseJob",
+        tool_context_id: str | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
+    ) -> FunctionTool:
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
         async def run_job(**kwargs) -> ToolChunk:
-            if tool_context_id:
-                assert "tool_context_id" not in kwargs, "tool_context_id is injected by agent_wrapper"
-                kwargs["tool_context_id"] = tool_context_id
-            response = await job(**kwargs)
+            response = await job(**cls._merge_injected_job_kwargs(kwargs, injected))
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
 
         tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
-        if job.parameters:
-            tool.input_schema = job.parameters
+        if parameters := cls._strip_injected_parameters(job.parameters, injected):
+            tool.input_schema = parameters
         return tool
 
     def _builtin_tools(
@@ -308,7 +314,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             builtin_tools = []
         tools: list[ToolBase] = []
         tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
-        tools.extend(self._make_tool(job, tool_context_id) for job in resolved_jobs)
+        tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,

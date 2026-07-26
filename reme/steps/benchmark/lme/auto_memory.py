@@ -117,7 +117,11 @@ def _interpolate_timestamps(items: list[dict]) -> list[dict]:
 
 @R.register("lme_auto_memory_step")
 class LmeAutoMemoryStep(AutoMemoryStep):
-    """AutoMemoryStep variant that interpolates timestamps and pins daily_write to the resolved day."""
+    """AutoMemoryStep variant that interpolates timestamps for LongMemEval sessions.
+
+    Date pinning for ``daily_write`` is handled by the base class through the
+    agent wrapper's server-owned ``injected_job_kwargs``.
+    """
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
         # Interpolate timestamps: if any message carries created_at, fill in
@@ -127,6 +131,3 @@ class LmeAutoMemoryStep(AutoMemoryStep):
             [item if not isinstance(item, dict) else dict(item) for item in raw_messages],
         )
         return [self._to_msg(item) for item in interpolated]
-
-    def _reply_extra_kwargs(self, day: str) -> dict:
-        return {"tool_defaults": {"daily_write": {"date": day}}}
