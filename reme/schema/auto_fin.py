@@ -235,44 +235,44 @@ class AutoFinEtfHistoricalResearch(AutoFinModel):
         return self
 
 
-class AutoFinHistoricalSimilarity(AutoFinModel):
-    """One similarity judgment returned by the Market Agent."""
+class AutoFinHistoricalDirectionReference(AutoFinModel):
+    """One direction-classified historical event returned by the Market Agent."""
 
     reason: str
     news_id: str
-    similarity: float
 
     @model_validator(mode="after")
-    def non_empty_values(self) -> "AutoFinHistoricalSimilarity":
-        """Reject a similarity judgment without source identity or rationale."""
+    def non_empty_values(self) -> "AutoFinHistoricalDirectionReference":
+        """Reject a direction judgment without source identity or rationale."""
         self.reason = self.reason.strip()
         self.news_id = self.news_id.strip()
         if not self.reason or not self.news_id:
-            raise ValueError("historical similarity reason and news ID must be non-empty")
+            raise ValueError("historical direction reason and news ID must be non-empty")
         return self
 
 
 class AutoFinMarketSelection(AutoFinModel):
-    """Historical similarities returned by the Market Agent."""
+    """Same- and opposite-direction historical events returned by the Market Agent."""
 
-    matched_historical_events: list[AutoFinHistoricalSimilarity] = Field(default_factory=list)
+    same_direction_events: list[AutoFinHistoricalDirectionReference] = Field(default_factory=list)
+    opposite_direction_events: list[AutoFinHistoricalDirectionReference] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def unique_historical_news(self) -> "AutoFinMarketSelection":
-        """Reject duplicate similarity judgments."""
-        news_ids = [event.news_id for event in self.matched_historical_events]
+        """Reject news IDs repeated within or across direction groups."""
+        news_ids = [event.news_id for event in (*self.same_direction_events, *self.opposite_direction_events)]
         if len(news_ids) != len(set(news_ids)):
-            raise ValueError("matched historical event news IDs must be unique")
+            raise ValueError("direction-classified historical event news IDs must be unique")
         return self
 
 
 class AutoFinHistoricalMatch(AutoFinModel):
-    """One historical event selected for the weighted forecast."""
+    """One direction-classified historical event used by the equal-weight forecast."""
 
     reason: str
     news_id: str
     event_time: ShanghaiDateTime
-    similarity: float
+    direction: Literal["same", "opposite"]
     weight: float = Field(ge=0.0, le=1.0)
 
 

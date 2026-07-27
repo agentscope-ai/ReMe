@@ -18,6 +18,7 @@ topic_user: |
   4. events 只填写与该 ETF 相关的事件对象，每项包含 reason 和 news_id；reason 简洁说明该条新闻
      与 ETF 所代表资产之间的直接传导关系。合并重复报道，并按新闻时间升序排列。
   5. etf_code、etf_name 必须逐字复制候选文件中的 code、name；无相关 ETF 时返回空 etfs。
+     news_id 也必须整段逐字复制，禁止把一条新闻的时间前缀与另一条新闻的哈希后缀拼接。
   6. reason 不得加入预测；同一 ETF 的不同新闻应分别说明关联理由。
   7. 最终生成一个对象，只包含 etfs；每只 ETF 只包含 etf_code、etf_name、events，每个 event
      只包含 reason 和 news_id。JSON 示例：

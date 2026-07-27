@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring,protected-access
 
 import asyncio
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -51,8 +52,9 @@ class _Handler:
 
 
 class _WebSocket:
-    def __init__(self, messages=()):
+    def __init__(self, messages=(), wait_when_empty=True):
         self.messages = list(messages)
+        self.wait_when_empty = wait_when_empty
         self.closed = asyncio.Event()
 
     async def __aenter__(self):
@@ -67,6 +69,8 @@ class _WebSocket:
     async def __anext__(self):
         if self.messages:
             return self.messages.pop(0)
+        if not self.wait_when_empty:
+            raise StopAsyncIteration
         await self.closed.wait()
         raise StopAsyncIteration
 
@@ -227,7 +231,57 @@ async def test_stream_client_closes_when_background_stop_is_set(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stream_client_restarts_after_server_disconnect(monkeypatch):
-    websocket = _WebSocket(["{}"])
+    websocket = _WebSocket(
+        [
+            json.dumps(
+                {
+                    "type": "SYSTEM",
+                    "headers": {"topic": "disconnect"},
+                    "data": json.dumps({"reason": "connection is expired"}),
+                },
+            ),
+        ],
+    )
     monkeypatch.setattr("websockets.connect", lambda _uri: websocket)
-    with pytest.raises(ConnectionError, match="WebSocket closed"):
-        await DingTalkWaitStep._run_client(_StreamClient("disconnect"), asyncio.Event())
+    reason = await DingTalkWaitStep._run_client(_StreamClient("disconnect"), asyncio.Event())
+    assert reason == "connection is expired"
+
+
+@pytest.mark.asyncio
+async def test_stream_client_raises_when_websocket_closes_unexpectedly(monkeypatch):
+    websocket = _WebSocket(wait_when_empty=False)
+    monkeypatch.setattr("websockets.connect", lambda _uri: websocket)
+    with pytest.raises(ConnectionError, match="closed unexpectedly"):
+        await DingTalkWaitStep._run_client(_StreamClient(), asyncio.Event())
+
+
+@pytest.mark.asyncio
+async def test_stream_client_reconnects_after_server_request(monkeypatch, tmp_path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    step = DingTalkWaitStep(app_context=app_context)
+    step.logger = MagicMock()
+    stop_event = asyncio.Event()
+    calls = 0
+
+    async def run_client(_client, _stop_event):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return "connection is expired"
+        stop_event.set()
+        return None
+
+    async def timeout(awaitable, *, timeout):
+        del timeout
+        awaitable.close()
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(step, "_run_client", run_client)
+    monkeypatch.setattr(asyncio, "wait_for", timeout)
+
+    await step._run_with_reconnect(_StreamClient(), stop_event)
+
+    assert calls == 2
+    step.logger.info.assert_called_once_with(
+        "[DingTalkWaitStep] DingTalk server requested reconnect reason='connection is expired'; reconnecting in 1.0s",
+    )
