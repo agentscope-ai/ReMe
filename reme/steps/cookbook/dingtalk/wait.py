@@ -71,7 +71,7 @@ class DingTalkWaitStep(BaseStep):
         )
         workers = [asyncio.create_task(self._worker(queue, locks, sessions, handler)) for _ in range(self.worker_count)]
         try:
-            await self._run_client(client, self.context.stop_event)
+            await self._run_with_reconnect(client, self.context.stop_event)
         finally:
             for worker in workers:
                 worker.cancel()
@@ -169,9 +169,24 @@ class DingTalkWaitStep(BaseStep):
             )
             raise
 
+    async def _run_with_reconnect(self, client, stop_event: asyncio.Event) -> None:
+        """Reconnect cleanly when DingTalk rotates an otherwise healthy connection."""
+        while not stop_event.is_set():
+            disconnect_reason = await self._run_client(client, stop_event)
+            if disconnect_reason is None:
+                return
+            self.logger.info(
+                f"[{self.name}] DingTalk server requested reconnect reason={disconnect_reason!r}; "
+                "reconnecting in 1.0s",
+            )
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
     @staticmethod
-    async def _run_client(client, stop_event: asyncio.Event) -> None:
-        """Run one cancellable WebSocket connection; BackgroundJob owns retries."""
+    async def _run_client(client, stop_event: asyncio.Event) -> str | None:
+        """Run one connection and return a server-requested disconnect reason."""
         import websockets  # pylint: disable=import-outside-toplevel
 
         client.pre_start()
@@ -179,6 +194,7 @@ class DingTalkWaitStep(BaseStep):
         if not connection:
             raise ConnectionError("DingTalk open connection failed")
         uri = f'{connection["endpoint"]}?ticket={quote_plus(connection["ticket"])}'
+        disconnect_reason = None
         async with websockets.connect(uri) as websocket:
             client.websocket = websocket
             keepalive = asyncio.create_task(client.keepalive(websocket))
@@ -190,11 +206,26 @@ class DingTalkWaitStep(BaseStep):
             stopper = asyncio.create_task(close_when_stopped())
             try:
                 async for raw_message in websocket:
-                    if await client.route_message(json.loads(raw_message)) == client.TAG_DISCONNECT:
+                    message = json.loads(raw_message)
+                    if await client.route_message(message) == client.TAG_DISCONNECT:
+                        data = message.get("data", {})
+                        if isinstance(data, str):
+                            try:
+                                data = json.loads(data)
+                            except json.JSONDecodeError:
+                                data = {}
+                        reason = data.get("reason") if isinstance(data, dict) else None
+                        disconnect_reason = (
+                            reason.strip() if isinstance(reason, str) and reason.strip() else "unspecified"
+                        )
                         await websocket.close()
+                        break
             finally:
                 for task in (stopper, keepalive):
                     task.cancel()
                 await asyncio.gather(stopper, keepalive, return_exceptions=True)
-            if not stop_event.is_set():
-                raise ConnectionError("DingTalk WebSocket closed")
+        if stop_event.is_set():
+            return None
+        if disconnect_reason is not None:
+            return disconnect_reason
+        raise ConnectionError("DingTalk WebSocket closed unexpectedly")

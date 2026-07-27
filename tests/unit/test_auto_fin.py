@@ -375,9 +375,10 @@ class _Agent(BaseAgentWrapper):
         elif schema is AutoFinMarketSelection:
             assert "ETF：159018.SZ（油气ETF）" in task
             assert "[2026-07-23T16:00:00] 原油供应中断" in task
-            assert "只负责判断历史事件与当前事件的相似度" in task
+            assert "判断影响方向相同还是相反" in task
             assert "不要依据" in task
             assert "程序会校验" in task
+            assert "每项只包含 reason、news_id" in task
             assert "$tushare-data" not in task
             history_path = Path(
                 next(line.strip() for line in task.splitlines() if line.strip().endswith("_output.json")),
@@ -388,13 +389,13 @@ class _Agent(BaseAgentWrapper):
             assert history["historical_events"][0]["event_title"] == "历史供应中断"
             assert len(history["historical_events"][0]["future_returns"]) == 10
             value = {
-                "matched_historical_events": [
+                "same_direction_events": [
                     {
                         "reason": "供应中断的事件类型和传导机制相同",
                         "news_id": history["historical_events"][0]["news_id"],
-                        "similarity": 1.2,
                     },
                 ],
+                "opposite_direction_events": [],
             }
         elif schema is AutoFinReportOutput:
             assert "不重新搜索新闻" in task
@@ -550,7 +551,7 @@ async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_dat
     analysis = detail["market_analysis"]
     assert analysis["matched_historical_events"][0]["weight"] == 1.0
     assert analysis["matched_historical_events"][0]["news_id"] == historical_news_id
-    assert analysis["matched_historical_events"][0]["similarity"] == 1.0
+    assert analysis["matched_historical_events"][0]["direction"] == "same"
     assert analysis["forecast"]["suggested_holding_days"] == 10
     assert analysis["forecast"]["returns"][-1]["expected_return"] == pytest.approx(0.1)
     assert "calculation_code" not in analysis
@@ -630,7 +631,7 @@ def test_historical_market_sample_rejects_look_ahead_and_incorrect_adjusted_retu
         AutoFinMarketSample.model_validate(sample)
 
 
-def test_market_calculation_clamps_and_reverses_negative_similarity():
+def test_market_calculation_equal_weights_and_reverses_opposite_direction_event():
     item = AutoFinEtfSelection.model_validate(
         {
             "etf_code": "518880.SH",
@@ -667,16 +668,45 @@ def test_market_calculation_clamps_and_reverses_negative_similarity():
                         },
                     ],
                 },
+                {
+                    "reason": "黄金价格方向相同",
+                    "news_id": "20260602100000_efgh",
+                    "source_path": "daily/2026-06-02/auto_fin_news_data.jsonl",
+                    "event_time": "2026-06-02T10:00:00",
+                    "event_title": "黄金价格上涨",
+                    "event_content": "黄金价格出现明显上涨。",
+                    "market_entry": {
+                        "entry_time": "2026-06-02T15:00:00",
+                        "trade_date": "2026-06-02",
+                        "price_type": "close",
+                        "raw_price": 1.0,
+                        "adj_factor": 1.0,
+                    },
+                    "future_returns": [
+                        {
+                            "horizon": 1,
+                            "trade_date": "2026-06-03",
+                            "raw_close": 1.3,
+                            "adj_factor": 1.0,
+                            "cumulative_return": 0.3,
+                        },
+                    ],
+                },
             ],
         },
     )
     selection = AutoFinMarketSelection.model_validate(
         {
-            "matched_historical_events": [
+            "same_direction_events": [
+                {
+                    "reason": "机制和价格方向均相同",
+                    "news_id": "20260602100000_efgh",
+                },
+            ],
+            "opposite_direction_events": [
                 {
                     "reason": "机制可比但价格方向相反",
                     "news_id": "20260601100000_abcd",
-                    "similarity": -2.0,
                 },
             ],
         },
@@ -684,11 +714,23 @@ def test_market_calculation_clamps_and_reverses_negative_similarity():
 
     analysis = AutoFinMarketStep._calculate_analysis(item, history, selection)
 
-    assert analysis.matched_historical_events[0].similarity == -1.0
-    assert analysis.matched_historical_events[0].weight == 1.0
-    assert analysis.forecast.returns[0].expected_return == pytest.approx(-0.1)
-    assert analysis.forecast.suggested_holding_days is None
-    assert "加权预期收益没有正值" in analysis.limitations
+    assert [match.direction for match in analysis.matched_historical_events] == ["same", "opposite"]
+    assert [match.weight for match in analysis.matched_historical_events] == [0.5, 0.5]
+    assert analysis.forecast.returns[0].expected_return == pytest.approx(0.1)
+    assert analysis.forecast.suggested_holding_days == 1
+    assert "相似历史样本的收益方向存在分歧" in analysis.limitations
+
+
+def test_market_selection_rejects_news_repeated_across_direction_groups():
+    duplicate = {"reason": "方向判断", "news_id": "20260601100000_abcd"}
+
+    with pytest.raises(ValueError, match="news IDs must be unique"):
+        AutoFinMarketSelection.model_validate(
+            {
+                "same_direction_events": [duplicate],
+                "opposite_direction_events": [duplicate],
+            },
+        )
 
 
 @pytest.mark.asyncio
