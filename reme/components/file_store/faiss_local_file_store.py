@@ -1,6 +1,7 @@
 """FAISS-backed file store: chunk JSONL stays authoritative; FAISS HNSW replaces the linear vector scan."""
 
 import asyncio
+import hashlib
 import json
 from contextlib import suppress
 from uuid import uuid4
@@ -372,6 +373,28 @@ class FaissLocalFileStore(LocalFileStore):
 
     # -- persistence ------------------------------------------------------
 
+    def _chunks_embedding_digest(self) -> str:
+        """Order-independent digest of the live (chunk_id, embedding) set.
+
+        Hashes float16 canonical bytes (the chunk JSONL serialization dtype) so
+        the value is identical whether an embedding sits fresh in memory
+        (possibly float32 from the provider; assignment bypasses the pydantic
+        validator) or has round-tripped through the JSONL. Written into the
+        idmap sidecar at dump time and recomputed from ``self.file_chunks`` at
+        load time: a mismatch means the sidecar vectors belong to a different
+        chunk generation than the authoritative JSONL, which the live-id set
+        check alone cannot detect for same-ID in-place updates.
+        """
+        digest = hashlib.sha256()
+        eligible = sorted(
+            cid for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
+        )
+        for cid in eligible:
+            digest.update(cid.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
+        return digest.hexdigest()
+
     async def load(self) -> None:
         """Load chunks via the parent, then attach FAISS state (sidecar or rebuild)."""
         await super().load()
@@ -411,15 +434,16 @@ class FaissLocalFileStore(LocalFileStore):
             if index.d != self._dim:
                 raise ValueError(f"FAISS dim {index.d} != embedding dim {self._dim}")
             # Validate HNSW M: it is baked into the serialized graph (level-0
-            # neighbor capacity is 2*M).  nb_neighbors(0) // 2 recovers the
-            # original M, and a mismatch means the graph topology does not match
-            # the active configuration — rebuild from chunks.
-            if index.ntotal > 0:
-                persisted_m = index.hnsw.nb_neighbors(0) // 2
-                if persisted_m != self.hnsw_m:
-                    raise ValueError(
-                        f"FAISS HNSW M mismatch: persisted={persisted_m}, configured={self.hnsw_m}",
-                    )
+            # neighbor capacity is 2*M, recorded in cum_nneighbor_per_level at
+            # construction time, so this holds even for an empty index).
+            # nb_neighbors(0) // 2 recovers the original M, and a mismatch means
+            # future insertions would extend a graph whose topology does not
+            # match the active configuration — rebuild from chunks.
+            persisted_m = index.hnsw.nb_neighbors(0) // 2
+            if persisted_m != self.hnsw_m:
+                raise ValueError(
+                    f"FAISS HNSW M mismatch: persisted={persisted_m}, configured={self.hnsw_m}",
+                )
             async with aiofiles.open(self.faiss_idmap_path, encoding=self.encoding) as f:
                 data = json.loads(await f.read())
             id_map = list(data.get("id_map", []))
@@ -436,6 +460,14 @@ class FaissLocalFileStore(LocalFileStore):
             }
             if set(live_ids) != expected_ids:
                 raise ValueError("FAISS sidecar live ids do not match persisted chunks")
+            # A matching live-id set does not imply matching vectors: same-ID
+            # in-place updates keep the set identical while the embeddings move
+            # to a new generation. The content digest catches a sidecar that
+            # fell behind the authoritative JSONL (crash between the two writes
+            # in dump(), a swallowed sidecar write failure, or externally mixed
+            # files). Pre-digest sidecars miss the key and rebuild once.
+            if data.get("digest") != self._chunks_embedding_digest():
+                raise ValueError("FAISS sidecar embedding digest does not match persisted chunks")
             # efConstruction only affects edge formation during add(); existing
             # edges are immutable.  Update the live value so new insertions use
             # the configured quality without forcing a rebuild of old vectors.
@@ -476,7 +508,16 @@ class FaissLocalFileStore(LocalFileStore):
         token = uuid4().hex
         tmp_index = self.faiss_path.with_name(f".{self.faiss_path.name}.{token}.tmp")
         tmp_idmap = self.faiss_idmap_path.with_name(f".{self.faiss_idmap_path.name}.{token}.tmp")
-        payload = json.dumps({"id_map": list(self._id_map), "tombstones": sorted(self._tombstones)})
+        # The digest binds this sidecar to the chunk generation the JSONL just
+        # persisted, so a stale sidecar cannot pass load-time validation on the
+        # live-id set alone.
+        payload = json.dumps(
+            {
+                "id_map": list(self._id_map),
+                "tombstones": sorted(self._tombstones),
+                "digest": self._chunks_embedding_digest(),
+            },
+        )
         try:
             self._faiss.write_index(self._faiss_index, str(tmp_index))
             async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
