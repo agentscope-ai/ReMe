@@ -452,12 +452,15 @@ class LocalFileStore(BaseFileStore):
 
     # -- maintenance -----------------------------------------------------------
 
-    async def refine(self) -> None:
-        """Idle-time maintenance: nothing to do here.
+    async def optimize_index(self) -> None:
+        """Idle-time maintenance: compact the keyword index when present.
 
-        The in-memory chunk map, BM25 index, and file graph carry no deferred
-        compaction debt, so this backend keeps the base no-op contract.
+        The in-memory chunk map and file graph carry no deferred compaction
+        debt; the keyword index may hold lazy-deleted docs, so delegate to its
+        ``optimize_index`` for physical reclaim.
         """
+        if self.keyword_index:
+            await self.keyword_index.optimize_index()
 
     # -- CRUD -----------------------------------------------------------------
 

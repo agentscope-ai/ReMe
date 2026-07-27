@@ -1,4 +1,4 @@
-"""Tests for FAISS index maintenance: backfill incremental sync and idle-time refine."""
+"""Tests for FAISS index maintenance: backfill incremental sync and idle-time optimize_index."""
 
 # pylint: disable=protected-access
 
@@ -12,7 +12,7 @@ import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore
 from reme.schema import FileChunk, FileNode
-from reme.steps.index import RefineStoreStep
+from reme.steps.index import OptimizeIndexStep
 
 
 class temp_chdir:
@@ -205,7 +205,7 @@ def test_faiss_backfill_small_delta_adds_inline_in_async_mode():
     run(go())
 
 
-# -- refine (idle-time maintenance) --------------------------------------------
+# -- optimize_index (idle-time maintenance) -------------------------------------
 
 
 def test_tombstone_threshold_scales_and_honors_override():
@@ -233,16 +233,16 @@ def test_tombstone_threshold_scales_and_honors_override():
     run(go())
 
 
-def test_local_store_refine_is_noop():
-    """LocalFileStore.refine() completes without touching store state."""
+def test_local_store_optimize_index_is_noop():
+    """LocalFileStore.optimize_index() completes without touching store state."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_local_refine", embedding_store="")
+            store = LocalFileStore(name="t_local_optimize", embedding_store="")
             await store.start()
             await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
 
-            await store.refine()
+            await store.optimize_index()
 
             assert set(store.file_chunks) == {"a"}
             assert [c.id for c in await store.keyword_search("alpha", 5, {})] == ["a"]
@@ -251,12 +251,12 @@ def test_local_store_refine_is_noop():
     run(go())
 
 
-def test_faiss_refine_noop_below_threshold():
-    """refine() keeps tombstones when they are under the half bar."""
+def test_faiss_optimize_index_noop_below_threshold():
+    """optimize_index() keeps tombstones when they are under the half bar."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = _new_faiss_store("t_faiss_refine_noop")
+            store = _new_faiss_store("t_faiss_optimize_noop")
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
             store._faiss_index = store._new_index()
@@ -265,7 +265,7 @@ def test_faiss_refine_noop_below_threshold():
             await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha updated")])])
             assert store._tombstones == {0}
 
-            await store.refine()  # 1 tombstone <= 128 floor -> untouched
+            await store.optimize_index()  # 1 tombstone <= 128 floor -> untouched
 
             assert store._tombstones == {0}
             assert store._reindex_worker_task is None
@@ -274,12 +274,12 @@ def test_faiss_refine_noop_below_threshold():
     run(go())
 
 
-def test_faiss_refine_compacts_inline_when_sync():
-    """refine() rebuilds inline once tombstones exceed the (overridden) bar."""
+def test_faiss_optimize_index_compacts_inline_when_sync():
+    """optimize_index() rebuilds inline once tombstones exceed the (overridden) bar."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = _new_faiss_store("t_faiss_refine_sync")
+            store = _new_faiss_store("t_faiss_optimize_sync")
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
             store._faiss_index = store._new_index()
@@ -290,8 +290,8 @@ def test_faiss_refine_compacts_inline_when_sync():
             await store.upsert(updated)
             assert len(store._tombstones) == 3
 
-            store.max_tombstones = 2  # lower the bar only for refine
-            await store.refine()
+            store.max_tombstones = 2  # lower the bar only for optimize_index
+            await store.optimize_index()
 
             assert store._tombstones == set()
             assert set(store._id_to_row) == {"c0", "c1", "c2", "c3"}
@@ -302,12 +302,12 @@ def test_faiss_refine_compacts_inline_when_sync():
     run(go())
 
 
-def test_faiss_refine_uses_worker_when_async():
-    """refine() submits the rebuild to the background worker under async_reindex."""
+def test_faiss_optimize_index_uses_worker_when_async():
+    """optimize_index() submits the rebuild to the background worker under async_reindex."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = _new_faiss_store("t_faiss_refine_async", async_reindex=True)
+            store = _new_faiss_store("t_faiss_optimize_async", async_reindex=True)
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
             store._faiss_index = store._new_index()
@@ -319,7 +319,7 @@ def test_faiss_refine_uses_worker_when_async():
             assert len(store._tombstones) == 3
 
             store.max_tombstones = 2
-            await store.refine()
+            await store.optimize_index()
 
             assert store._reindex_worker_task is not None  # routed off-loop
             await _settle_reindex(store)
@@ -330,27 +330,27 @@ def test_faiss_refine_uses_worker_when_async():
     run(go())
 
 
-def test_refine_store_step_calls_file_store_refine():
-    """The cron-facing step delegates to file_store.refine() and reports success."""
+def test_optimize_index_step_calls_file_store_optimize_index():
+    """The cron-facing step delegates to file_store.optimize_index() and reports success."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_refine_step", embedding_store="")
+            store = LocalFileStore(name="t_optimize_step", embedding_store="")
             await store.start()
 
             calls = []
-            original_refine = store.refine
+            original_optimize = store.optimize_index
 
-            async def counting_refine():
+            async def counting_optimize():
                 calls.append(True)
-                await original_refine()
+                await original_optimize()
 
-            store.refine = counting_refine
-            step = RefineStoreStep(file_store=store)
+            store.optimize_index = counting_optimize
+            step = OptimizeIndexStep(file_store=store)
             await step()
 
             assert calls == [True]
-            assert step.context.response.metadata["refined_store"] is True
+            assert step.context.response.metadata["optimized_index"] is True
             await store.close()
 
     run(go())

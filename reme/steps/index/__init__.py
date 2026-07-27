@@ -7,7 +7,7 @@ from .draft import AddDraftStep, ReadAllDraftStep
 from .log_changes import LogChangesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
-from .refine_store import RefineStoreStep
+from .optimize_index import OptimizeIndexStep
 from .search import SearchStep
 from .search_v2 import SearchV2Step
 from .traverse import TraverseStep
@@ -34,7 +34,7 @@ __all__ = [
     "LogChangesStep",
     "NodeSearchStep",
     "ReadAllDraftStep",
-    "RefineStoreStep",
+    "OptimizeIndexStep",
     "SearchStep",
     "SearchV2Step",
     "TraverseStep",

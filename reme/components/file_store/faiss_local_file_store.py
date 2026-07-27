@@ -177,7 +177,7 @@ class FaissLocalFileStore(LocalFileStore):
 
         Dynamic: ``max(tombstone_compact_ratio * ntotal * scale, 128)`` so larger
         indexes tolerate more tombstones. ``scale`` lets callers lower the bar
-        (idle-time refine uses 0.5). ``max_tombstones`` (when set) overrides with
+        (idle-time optimize_index uses 0.5). ``max_tombstones`` (when set) overrides with
         a fixed value regardless of scale.
         """
         if self.max_tombstones is not None:
@@ -196,7 +196,7 @@ class FaissLocalFileStore(LocalFileStore):
         else:
             self._rebuild_index()
 
-    async def refine(self) -> None:
+    async def optimize_index(self) -> None:
         """Idle-time maintenance: compact tombstones at half the write-path bar.
 
         The write path only rebuilds once tombstones reach the full threshold;
@@ -204,14 +204,14 @@ class FaissLocalFileStore(LocalFileStore):
         uses ``scale=0.5``. Whether the rebuild runs inline or through the
         background worker follows ``async_reindex``, same as the write path.
         """
-        await super().refine()
+        await super().optimize_index()
         if self._faiss_index is None:
             return
         tombstones = len(self._tombstones)
         threshold = self._tombstone_threshold(scale=0.5)
         if tombstones <= threshold:
             return
-        self.logger.info(f"{self.name}: refine compacting {tombstones} tombstones (threshold {threshold})")
+        self.logger.info(f"{self.name}: optimize_index compacting {tombstones} tombstones (threshold {threshold})")
         if self.async_reindex:
             self._submit_reindex()
         else:

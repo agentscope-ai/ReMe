@@ -66,7 +66,7 @@ class BaseFileStore(BaseComponent):
 
     # -- maintenance ------------------------------------------------------------
 
-    async def refine(self) -> None:
+    async def optimize_index(self) -> None:
         """Optional idle-time maintenance hook (e.g. compacting derived indexes).
 
         Meant to be invoked off the request path (cron / idle schedulers).
