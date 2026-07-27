@@ -41,7 +41,12 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             raise ValueError(f"No extractable text found in PDF: {path.name}")
         return content, len(reader.pages), truncated
 
-    async def _analyze_one(self, paper: PaperInfo, selected: SelectedPaper) -> tuple[str, str]:
+    async def _analyze_one(
+        self,
+        downloader: ArxivPdfClient,
+        paper: PaperInfo,
+        selected: SelectedPaper,
+    ) -> tuple[str, str]:
         if self.agent_wrapper is None:
             raise RuntimeError("Claude Code agent_wrapper is required for paper analysis")
         day = self._run_day()
@@ -56,10 +61,6 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         pdf_path, note_path = self.workspace_path / pdf_rel, self.workspace_path / note_rel
         self.logger.info(f"[{self.name}] paper start arxiv_id={paper.arxiv_id}")
 
-        downloader = ArxivPdfClient(
-            timeout=float(self._value("pdf_timeout", 90.0)),
-            max_bytes=int(self._value("max_pdf_bytes", 50 * 1024 * 1024)),
-        )
         await downloader.download(paper.arxiv_id, pdf_path)
         self.logger.info(f"[{self.name}] pdf ready arxiv_id={paper.arxiv_id} path={pdf_rel}")
         pdf_text, page_count, truncated = await asyncio.to_thread(
@@ -129,10 +130,16 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] start papers={len(papers)}")
 
         note_paths, pdf_paths = [], []
-        for paper, selected in zip(papers, selection.selected):
-            note_path, pdf_path = await self._analyze_one(paper, selected)
-            note_paths.append(note_path)
-            pdf_paths.append(pdf_path)
+        proxy_url = self.outbound_proxy.http_url if self.outbound_proxy is not None else None
+        async with ArxivPdfClient(
+            proxy_url=proxy_url,
+            timeout=float(self._value("pdf_timeout", 90.0)),
+            max_bytes=int(self._value("max_pdf_bytes", 50 * 1024 * 1024)),
+        ) as downloader:
+            for paper, selected in zip(papers, selection.selected):
+                note_path, pdf_path = await self._analyze_one(downloader, paper, selected)
+                note_paths.append(note_path)
+                pdf_paths.append(pdf_path)
         self._set_state("note_paths", note_paths)
         self._set_state("pdf_paths", pdf_paths)
         self.context.response.answer = f"Claude Code wrote {len(note_paths)} detailed paper notes"

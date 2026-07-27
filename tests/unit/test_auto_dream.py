@@ -135,6 +135,29 @@ def test_extract_clean_output_respects_max_units():
     assert [unit["name"] for unit in state.units] == [f"unit-{i}" for i in range(5)]
 
 
+def test_extract_without_llm_marks_changed_paths_failed(tmp_path):
+    """A missing LLM must not let finish checkpoint unprocessed source files."""
+
+    async def run():
+        note = _touch(tmp_path / "daily" / "2026-05-28" / "session.md")
+        step = DreamExtractStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+        response = await step(
+            RuntimeContext(
+                date="2026-05-28",
+                file_catalog=_Catalog(),
+                file_store=_FileStore(tmp_path),
+            ),
+        )
+
+        dream = response.metadata["dream"]
+        assert response.success is False
+        assert str(note.relative_to(tmp_path)) in dream["changed_paths"]
+        assert dream["failed_paths"] == dream["changed_paths"]
+
+    asyncio.run(run())
+
+
 def test_topics_step_writes_only_target_date_interests():
     """Topics are written only to ``state.date`` even when scan dates span multiple days."""
 

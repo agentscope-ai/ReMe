@@ -13,29 +13,36 @@ from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 
 
-def test_package_import_does_not_require_optional_agent_sdks():
-    """The base package remains importable without Claude or Codex SDKs."""
+def test_package_import_does_not_load_optional_core_dependencies():
+    """The base package leaves optional core dependencies unloaded."""
     script = """
 import importlib.abc
-import sys
 
 
-class BlockOptionalAgentSDKs(importlib.abc.MetaPathFinder):
+class BlockOptionalCoreDependencies(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
-        blocked = ("claude_agent_sdk", "openai_codex")
+        blocked = (
+            "claude_agent_sdk",
+            "dingtalk_stream",
+            "openai_codex",
+            "faiss",
+            "jieba",
+            "rjieba",
+            "neo4j",
+            "networkx",
+            "pypdf",
+            "polars",
+            "tushare",
+        )
         if any(fullname == name or fullname.startswith(f"{name}.") for name in blocked):
-            raise ModuleNotFoundError(f"blocked optional SDK: {fullname}", name=fullname)
+            raise AssertionError(f"eagerly imported optional core dependency: {fullname}")
         return None
 
 
-sys.meta_path.insert(0, BlockOptionalAgentSDKs())
-import reme
+import sys
 
-assert not any(
-    name == sdk or name.startswith(f"{sdk}.")
-    for name in sys.modules
-    for sdk in ("claude_agent_sdk", "openai_codex")
-)
+sys.meta_path.insert(0, BlockOptionalCoreDependencies())
+import reme
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

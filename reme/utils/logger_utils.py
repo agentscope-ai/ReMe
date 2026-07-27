@@ -125,6 +125,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
                 when="midnight",
                 backupCount=7,
                 encoding="utf-8",
+                delay=True,
             )
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)

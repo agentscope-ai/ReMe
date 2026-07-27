@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tushare Data"
+  short_description: "获取、校验、清洗和导出可追溯的 Tushare 金融研究数据"
+  default_prompt: "Use $tushare-data to fetch and validate traceable market data for this research task."

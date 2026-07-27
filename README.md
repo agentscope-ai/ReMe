@@ -49,18 +49,18 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 - **Personal assistants**: Give personal assistants such as
   [QwenPaw](https://github.com/agentscope-ai/QwenPaw), [OpenClaw](https://github.com/openclaw/openclaw), and
   [Hermes](https://github.com/nousresearch/hermes-agent) a user-editable long-term memory layer.
-- **Coding agents**: Preserve coding style, project background, repository decisions, and workflow
-  experience across sessions when integrating with coding agents such as [Claude Code](plugins/reme).
-- **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown
-  knowledge base that both users and agents can maintain.
+- **Coding agents**: Preserve coding style, project background, repository decisions, and workflow experience across
+  sessions when integrating with coding agents such as [Claude Code](plugins/reme).
+- **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown knowledge
+  base that both users and agents can maintain.
 - **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
   reusable procedures, and periodic reflections as memory.
 
 ## 📰 News
 
-- [2026.07] - Introduced optional Cookbook workflows, starting with
-  [Daily Paper](cookbook/daily_paper/README.md) for scheduled paper discovery, agent-assisted PDF analysis, reusable
-  Markdown notes, and five-minute briefs.
+- [2026.07] - Introduced optional Cookbooks: [Daily Paper](cookbook/daily_paper/README.md) for paper discovery and
+  analysis, and [Auto Fin](cookbook/auto-fin/README.md) for file-native ETF event research based on CLS news and
+  historical market reactions.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   has been accepted to Findings of ACL 2026.
@@ -170,9 +170,10 @@ Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps.
 configuration; select the cookbook's standalone configuration when starting ReMe. Each new cookbook will be added as
 another row in this table.
 
-| Cookbook    | Capability                                                                                                    | Introduction                             |
-|-------------|---------------------------------------------------------------------------------------------------------------|------------------------------------------|
-| Daily Paper | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. | [README](cookbook/daily_paper/README.md) |
+| Cookbook                                      | Capability                                                                                                    |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| [Daily Paper](cookbook/daily_paper/README.md) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
+| [Auto Fin](cookbook/auto-fin/README.md)       | Match CLS events to liquid ETFs, study historical reactions, and generate file-native research reports.       |
 
 ## 📁 Memory System
 
@@ -314,8 +315,8 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 - **Issues and requests**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
   related discussion, open a new issue with background, expected behavior, and impact scope.
 - **Code contributions**: Before making changes, read
-  the [contribution guide](https://docs.agentscope.io/reme/stable/en/contributing). Source,
-  schemas, and tests are the authoritative architecture and extension guide.
+  the [contribution guide](https://docs.agentscope.io/reme/stable/en/contributing). Source, schemas, and tests are the
+  authoritative architecture and extension guide.
 - **Documentation contributions**: Submit user-facing documentation changes to the
   [unified documentation repository](https://github.com/agentscope-ai/docs) under `reme/<version>/{en,zh}/`.
 - **Commit convention**: Conventional Commits are recommended, for example `feat(search): add link expansion option` or

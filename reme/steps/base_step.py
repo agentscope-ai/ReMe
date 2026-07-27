@@ -81,7 +81,7 @@ class Ref:
             if self.optional:
                 return None
             raise RuntimeError(f"app_context is not set when resolving '{self.key}'")
-        comp = obj.app_context.components[self.comp_enum].get(name)
+        comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
         if comp is None:
             if self.optional:
                 return None

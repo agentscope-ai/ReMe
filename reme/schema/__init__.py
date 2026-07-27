@@ -1,6 +1,27 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .auto_fin import (
+    AutoFinEtfEventReference,
+    AutoFinEtfHistoryDetail,
+    AutoFinEtfHistoricalEvents,
+    AutoFinEtfHistoricalResearch,
+    AutoFinEtfSelection,
+    AutoFinEtfsOutput,
+    AutoFinDailyEntry,
+    AutoFinForecastReturnPoint,
+    AutoFinFutureReturnPoint,
+    AutoFinHistoricalEvent,
+    AutoFinHistoricalEventReference,
+    AutoFinHistoricalDirectionReference,
+    AutoFinHistoricalMatch,
+    AutoFinMarketSelection,
+    AutoFinMarketSample,
+    AutoFinReportOutput,
+    AutoFinSelectedEvent,
+    AutoFinSelectedEtfAnalysis,
+    AutoFinWeightedForecast,
+)
 from .daily_paper import DailyBriefOutput, PaperInfo, PaperNoteOutput, PaperSelection, SelectedPaper
 from .dream import (
     DreamExtractOutput,
@@ -22,6 +43,25 @@ from .stream_chunk import StreamChunk
 
 __all__ = [
     "ApplicationConfig",
+    "AutoFinEtfEventReference",
+    "AutoFinEtfHistoryDetail",
+    "AutoFinEtfHistoricalEvents",
+    "AutoFinEtfHistoricalResearch",
+    "AutoFinEtfSelection",
+    "AutoFinEtfsOutput",
+    "AutoFinDailyEntry",
+    "AutoFinForecastReturnPoint",
+    "AutoFinFutureReturnPoint",
+    "AutoFinHistoricalEvent",
+    "AutoFinHistoricalEventReference",
+    "AutoFinHistoricalDirectionReference",
+    "AutoFinHistoricalMatch",
+    "AutoFinMarketSelection",
+    "AutoFinMarketSample",
+    "AutoFinReportOutput",
+    "AutoFinSelectedEvent",
+    "AutoFinSelectedEtfAnalysis",
+    "AutoFinWeightedForecast",
     "ComponentConfig",
     "DailyBriefOutput",
     "DreamExtractOutput",

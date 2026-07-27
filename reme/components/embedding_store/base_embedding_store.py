@@ -24,12 +24,14 @@ class BaseEmbeddingStore(BaseComponent):
         max_batch_size: int = 10,
         max_input_length: int = 8192,
         max_retries: int = 3,
+        quota_retry_delay: float | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.max_batch_size = max_batch_size
         self.max_input_length = max_input_length
         self.max_retries = max_retries
+        self.quota_retry_delay = quota_retry_delay
         self.is_healthy: bool = True
 
     def _truncate(self, text: str) -> str:

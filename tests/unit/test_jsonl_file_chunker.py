@@ -80,6 +80,22 @@ def test_single_line():
         os.unlink(path)
 
 
+def test_unicode_line_separator_inside_json_string_is_not_a_record_boundary():
+    """U+2028 is valid JSON string content, not a JSONL physical newline."""
+    record = json.dumps({"id": 1, "text": "before\u2028\u2028after"}, ensure_ascii=False)
+    path = _write_jsonl([record])
+    try:
+        chunker = JsonlFileChunker(max_lines_per_chunk=1)
+        node, chunks = _run(chunker.chunk(path))
+
+        assert len(chunks) == 1
+        assert chunks[0].text == record + "\n"
+        assert chunks[0].start_line == chunks[0].end_line == 1
+        assert node.chunk_ids == [chunks[0].id]
+    finally:
+        os.unlink(path)
+
+
 def test_all_lines_fit_in_one_chunk():
     """Small file fits entirely in one chunk."""
     lines = _make_records(5, width=30)
@@ -91,6 +107,22 @@ def test_all_lines_fit_in_one_chunk():
         assert chunks[0].start_line == 1
         assert chunks[0].end_line == 5
         print("✓ test_all_lines_fit_in_one_chunk passed")
+    finally:
+        os.unlink(path)
+
+
+def test_max_lines_per_chunk_one():
+    """max_lines_per_chunk=1 emits exactly one complete line per chunk."""
+    lines = _make_records(5, width=10)
+    path = _write_jsonl(lines)
+    try:
+        chunker = JsonlFileChunker(max_chars=5000, max_lines_per_chunk=1)
+        _, chunks = _run(chunker.chunk(path))
+        assert len(chunks) == len(lines)
+        for line_number, (line, chunk) in enumerate(zip(lines, chunks), start=1):
+            assert chunk.start_line == line_number
+            assert chunk.end_line == line_number
+            assert chunk.text == line + "\n"
     finally:
         os.unlink(path)
 
@@ -402,6 +434,7 @@ if __name__ == "__main__":
     test_empty_file()
     test_blank_lines_only()
     test_single_line()
+    test_unicode_line_separator_inside_json_string_is_not_a_record_boundary()
     test_all_lines_fit_in_one_chunk()
     test_multiple_chunks_no_overlap()
     test_line_aligned_no_intra_line_split()

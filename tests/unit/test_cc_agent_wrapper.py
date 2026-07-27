@@ -11,6 +11,7 @@ from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
 from reme.components.application_context import ApplicationContext
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.enumeration import ChunkEnum, ComponentEnum
 
 # pylint: disable=protected-access
@@ -201,6 +202,55 @@ def test_api_credentials_use_only_wrapper_config(tmp_path, monkeypatch):
     assert empty.env["ANTHROPIC_BASE_URL"] == ""
 
 
+@pytest.mark.asyncio
+async def test_managed_proxy_is_injected_only_into_claude_bash_commands(tmp_path):
+    """The Claude CLI keeps its model environment while Bash receives proxy exports."""
+    from claude_agent_sdk import HookMatcher
+
+    wrapper = _wrapper(tmp_path)
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    wrapper.app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+
+    async def existing_hook(_hook_input, _tool_use_id, _context):
+        return {}
+
+    existing = HookMatcher(matcher="Read", hooks=[existing_hook])
+    await wrapper.start()
+    opts = wrapper._build_options(
+        "hello",
+        api_key="configured-key",
+        base_url="https://configured.example.test",
+        hooks={"PreToolUse": [existing]},
+    )
+
+    assert opts.env["ANTHROPIC_AUTH_TOKEN"] == "configured-key"
+    assert opts.env["ANTHROPIC_BASE_URL"] == "https://configured.example.test"
+    assert "HTTP_PROXY" not in opts.env
+    assert opts.hooks["PreToolUse"][0] is existing
+    proxy_hook = opts.hooks["PreToolUse"][1]
+    assert proxy_hook.matcher == "Bash"
+
+    result = await proxy_hook.hooks[0](
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "python tushare_analysis.py", "timeout": 30},
+            "tool_use_id": "tool-1",
+        },
+        "tool-1",
+        {"signal": None},
+    )
+    updated_input = result["hookSpecificOutput"]["updatedInput"]
+    assert updated_input["command"].endswith("; python tushare_analysis.py")
+    assert updated_input["timeout"] == 30
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert f"{key}={proxy.http_url}" in updated_input["command"]
+
+    await wrapper.close()
+    await proxy.close()
+
+
 def test_build_options_accepts_empty_output_schema(tmp_path):
     """An empty schema remains a valid structured-output request."""
     opts = _wrapper(tmp_path)._build_options("hello", output_schema={})
@@ -291,6 +341,55 @@ async def test_reply_preserves_falsy_structured_output(tmp_path, monkeypatch):
 
     assert "structured_output" in result
     assert result["structured_output"] == {}
+
+
+@pytest.mark.asyncio
+async def test_compact_session_uses_claude_command(tmp_path, monkeypatch):
+    """Claude Code compaction uses its native slash command."""
+    wrapper = _wrapper(tmp_path)
+    calls = []
+
+    async def reply(inputs, **kwargs):
+        calls.append((inputs, kwargs))
+        return {"last_message": {"is_error": False}}
+
+    monkeypatch.setattr(wrapper, "reply", reply)
+
+    await wrapper.compact_session("session-1")
+
+    assert calls == [("/compact", {"resume": "session-1"})]
+
+
+@pytest.mark.asyncio
+async def test_agentscope_compact_session_forces_and_persists_compression(tmp_path, monkeypatch):
+    """AgentScope compaction forces the threshold and persists new state."""
+    wrapper = AsAgentWrapper(as_llm="", app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    observed = {}
+
+    class FakeAgent:
+        """Minimal AgentScope agent double."""
+
+        state = SimpleNamespace()
+
+        async def compress_context(self, config):
+            """Capture the forced context configuration."""
+            observed["config"] = config
+
+    async def build_agent(inputs, **kwargs):
+        observed["build"] = (inputs, kwargs)
+        return FakeAgent(), inputs
+
+    async def dump_state(state):
+        observed["state"] = state
+
+    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
+    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+
+    await wrapper.compact_session("session-1")
+
+    assert observed["build"] == (None, {"resume": "session-1"})
+    assert observed["config"].trigger_ratio == 1e-9
+    assert observed["state"] is FakeAgent.state
 
 
 def test_error_result_with_success_subtype_is_not_suppressed():
