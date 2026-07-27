@@ -151,7 +151,7 @@ async def _auto_memory_step(wrapper) -> AutoMemoryStep:
 
 
 @pytest.mark.asyncio
-async def test_auto_memory_create_pins_date_and_uses_daily_write(tmp_path, monkeypatch):
+async def test_auto_memory_create_uses_model_supplied_date_and_daily_write(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     wrapper = _RecordingWrapper(name="fake")
     step = await _auto_memory_step(wrapper)
@@ -168,7 +168,7 @@ async def test_auto_memory_create_pins_date_and_uses_daily_write(tmp_path, monke
 
     assert step.context.response.success is True
     assert wrapper.calls[0]["job_tools"] == ["daily_write"]
-    assert wrapper.calls[0]["injected_job_kwargs"] == {"date": "2025-06-01"}
+    assert "injected_job_kwargs" not in wrapper.calls[0]
 
 
 @pytest.mark.asyncio
@@ -211,8 +211,8 @@ def test_auto_memory_keeps_original_tool_names():
     assert step.update_tools == ["read", "edit", "frontmatter_update", "write"]
 
 
-def test_auto_memory_create_prompts_leave_server_owned_date_out_of_tool_arguments():
-    """Models must not be instructed to send the date injected by the wrapper."""
+def test_auto_memory_create_prompts_match_upstream_date_arguments():
+    """Auto-memory prompts keep the upstream model-supplied date argument."""
     from pathlib import Path
 
     prompt_files = (
@@ -222,9 +222,7 @@ def test_auto_memory_create_prompts_leave_server_owned_date_out_of_tool_argument
     )
     for prompt_file in prompt_files:
         content = prompt_file.read_text(encoding="utf-8")
-        assert "date={today}" not in content
-        assert "`date`: {today}" not in content
-        assert "`date`：{today}" not in content
+        assert "date={today}" in content or "`date`: {today}" in content or "`date`：{today}" in content
 
 
 def test_configs_define_original_jobs_without_daily_variants():

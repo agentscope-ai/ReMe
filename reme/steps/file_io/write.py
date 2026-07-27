@@ -3,14 +3,13 @@
 import frontmatter
 
 from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
-from ._path import NON_MD_WARNING, gate_md, resolve_path
-from .prefix_check import PrefixCheck
+from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("write_step")
-class WriteStep(PrefixCheck, BaseStep):
+class WriteStep(BaseStep):
     """Write (create or overwrite) a markdown file.
 
     Frontmatter accepts two reserved string fields (``name`` / ``description``)
@@ -20,7 +19,7 @@ class WriteStep(PrefixCheck, BaseStep):
     honored for those two reserved fields.
 
     Permission: honors the request-scoped ``_allowed_paths`` constraint
-    injected by the server into the RuntimeContext (see ``PrefixCheck``).
+    injected by the server into the RuntimeContext.
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes concurrent
     writes to the same file (multi-worker / multi-process safety is out of
@@ -48,7 +47,7 @@ class WriteStep(PrefixCheck, BaseStep):
 
         target, is_md = gate_md(target)
 
-        if not self._check_path_permission(target):
+        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to write this file", path=str(target))
             return None
 

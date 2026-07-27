@@ -4,14 +4,13 @@ import frontmatter
 import yaml
 
 from ._file_io import get_path_lock, read_file_safe, write_file_safe
-from ._path import NON_MD_WARNING, gate_md, resolve_path
-from .prefix_check import PrefixCheck
+from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("edit_step")
-class EditStep(PrefixCheck, BaseStep):
+class EditStep(BaseStep):
     """Replace every occurrence of ``old`` with ``new`` inside the file body.
 
     The YAML front matter block (if any) is parsed out, kept verbatim and
@@ -19,7 +18,7 @@ class EditStep(PrefixCheck, BaseStep):
     so a typo in `old` cannot corrupt structured metadata.
 
     Permission: honors the request-scoped ``_allowed_paths`` constraint
-    injected by the server into the RuntimeContext (see ``PrefixCheck``).
+    injected by the server into the RuntimeContext.
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes the
     read-modify-write cycle against the same file (multi-worker / multi-
@@ -54,7 +53,7 @@ class EditStep(PrefixCheck, BaseStep):
 
         target, is_md = gate_md(target)
 
-        if not self._check_path_permission(target):
+        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to edit this file", path=str(target))
             return None
 

@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from reme.components.file_store import LocalFileStore
+from reme.steps.file_io._path import _check_path_permission
 from reme.steps.file_io.edit import EditStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 from reme.steps.file_io.read import ReadStep
@@ -190,23 +191,42 @@ async def test_directory_scope_allows_nested_paths():
 
 
 @pytest.mark.asyncio
-async def test_nonexistent_allowed_paths_are_skipped():
-    """Missing injected entries do not grant access or invalidate valid entries."""
+async def test_nonexistent_allowed_paths_allow_component_bounded_descendants():
+    """A missing allowed path permits itself and descendants, not string-prefix siblings."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-        _seed(Path(tmp), "journal/kept.md", "kept\n")
-        _seed(Path(tmp), "outside.md", "outside\n")
+        workspace = Path(tmp)
+        _seed(workspace, "X/YZ/not-allowed.md", "keep\n")
         store = await _make_store()
 
-        scope = {"_allowed_paths": ["missing.md", "journal"]}
-        resp = await _run(ReadStep, store, path="journal/kept.md", **scope)
+        scope = {"_allowed_paths": ["X/Y"]}
+        assert _check_path_permission(workspace, workspace / "X/Y", scope["_allowed_paths"])
+        assert _check_path_permission(workspace, workspace / "X/Y/Z", scope["_allowed_paths"])
+        assert not _check_path_permission(workspace, workspace / "X/YZ", scope["_allowed_paths"])
+
+        resp = await _run(WriteStep, store, path="X/Y/nested", content="nested", **scope)
         assert resp.success is True
+        assert (workspace / "X/Y/nested.md").read_text(encoding="utf-8") == "nested\n"
 
-        resp = await _run(ReadStep, store, path="outside.md", **scope)
-        assert resp.success is False
-
-        resp = await _run(ReadStep, store, path="journal/kept.md", _allowed_paths=["missing.md"])
+        resp = await _run(ReadStep, store, path="X/YZ/not-allowed.md", **scope)
         assert resp.success is False
         assert "no permission" in str(resp.answer).lower()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_home_relative_paths_are_not_supported():
+    """Home-relative targets are rejected and home-relative scopes grant nothing."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), "journal/kept.md", "kept\n")
+        store = await _make_store()
+
+        resp = await _run(ReadStep, store, path="journal/kept.md", _allowed_paths=["~/journal/kept.md"])
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+
+        resp = await _run(ReadStep, store, path="~/journal/kept.md")
+        assert resp.success is False
+        assert "does not exist" in str(resp.answer).lower()
         await store.close()
 
 

@@ -3,8 +3,7 @@
 from pathlib import Path
 
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
-from ._path import NON_MD_WARNING, gate_md, resolve_path
-from .prefix_check import PrefixCheck
+from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -12,7 +11,7 @@ from ...utils import expand_links, render_expansion_lines
 
 
 @R.register("read_step")
-class ReadStep(PrefixCheck, BaseStep):
+class ReadStep(BaseStep):
     """Read a markdown file. Optional `start_line`/`end_line` for ranged reads.
 
     Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
@@ -24,7 +23,7 @@ class ReadStep(PrefixCheck, BaseStep):
         max_neighbors_per_direction (int, default 10): cap per direction.
 
     Permission: honors the request-scoped ``_allowed_paths`` constraint
-    injected by the server into the RuntimeContext (see ``PrefixCheck``).
+    injected by the server into the RuntimeContext.
     """
 
     def _fail(self, message: str, **meta) -> None:
@@ -105,7 +104,7 @@ class ReadStep(PrefixCheck, BaseStep):
         target = self._resolve_target(raw)
         if target is None:
             return None
-        if not self._check_path_permission(target):
+        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to access this file", path=str(target))
             return None
         if not self._validate_line_args(start_line, end_line):
