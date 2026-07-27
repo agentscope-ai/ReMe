@@ -26,25 +26,22 @@ ShanghaiDateTime = Annotated[datetime, BeforeValidator(_shanghai_local_time)]
 
 
 class AutoFinModel(BaseModel):
-    """Strict base for Agent output."""
+    """Strict base for program-owned Auto Fin data."""
 
     model_config = ConfigDict(extra="forbid")
 
 
-class AutoFinEtfEventReference(AutoFinModel):
+class AutoFinAgentModel(AutoFinModel):
+    """Tolerant base for raw Agent output."""
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class AutoFinEtfEventReference(AutoFinAgentModel):
     """One selected news item and why it is relevant to an ETF."""
 
     reason: str
     news_id: str
-
-    @model_validator(mode="after")
-    def non_empty_values(self) -> "AutoFinEtfEventReference":
-        """Reject blank event references."""
-        self.reason = self.reason.strip()
-        self.news_id = self.news_id.strip()
-        if not self.reason or not self.news_id:
-            raise ValueError("ETF event reason and news ID must be non-empty")
-        return self
 
 
 class AutoFinSelectedEvent(AutoFinModel):
@@ -57,62 +54,33 @@ class AutoFinSelectedEvent(AutoFinModel):
     event_title: str = ""
 
 
-class AutoFinEtfSelection(AutoFinModel):
-    """One liquid ETF selected for current news."""
+class AutoFinEtfSelection(AutoFinAgentModel):
+    """One ETF selection returned by the Topic Agent."""
 
     etf_code: str
-    etf_name: str
-    events: list[AutoFinEtfEventReference] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def valid_news_ids(self) -> "AutoFinEtfSelection":
-        """Reject blank or duplicate news references."""
-        news_ids = [event.news_id for event in self.events]
-        if len(news_ids) != len(set(news_ids)):
-            raise ValueError("ETF event news IDs must be unique")
-        return self
+    etf_name: str = ""
+    events: list[AutoFinEtfEventReference] = Field(default_factory=list)
 
 
-class AutoFinEtfsOutput(AutoFinModel):
-    """Liquid ETFs related to current news, deduplicated by name and theme."""
+class AutoFinEtfsOutput(AutoFinAgentModel):
+    """ETF selections returned by the Topic Agent before normalization."""
 
-    etfs: list[AutoFinEtfSelection] = Field(default_factory=list, max_length=20)
-
-    @model_validator(mode="after")
-    def unique_etfs(self) -> "AutoFinEtfsOutput":
-        """Reject duplicate ETF codes or names."""
-        codes = [item.etf_code.strip().upper() for item in self.etfs]
-        names = [item.etf_name.strip().casefold() for item in self.etfs]
-        if any(not code for code in codes) or any(not name for name in names):
-            raise ValueError("ETF codes and names must be non-empty")
-        if len(codes) != len(set(codes)) or len(names) != len(set(names)):
-            raise ValueError("ETF codes and names must be unique")
-        return self
+    etfs: list[AutoFinEtfSelection] = Field(default_factory=list)
 
 
-class AutoFinHistoricalEventReference(AutoFinModel):
+class AutoFinHistoricalEventReference(AutoFinAgentModel):
     """One historical news item selected by the search Agent."""
 
     reason: str
     news_id: str
-    source_path: str
-
-    @model_validator(mode="after")
-    def non_empty_values(self) -> "AutoFinHistoricalEventReference":
-        """Reject references that cannot be resolved deterministically."""
-        for field in ("reason", "news_id", "source_path"):
-            value = getattr(self, field).strip()
-            if not value:
-                raise ValueError(f"historical event {field} must not be empty")
-            setattr(self, field, value)
-        return self
+    source_path: str = ""
 
 
-class AutoFinEtfHistoricalEvents(AutoFinModel):
+class AutoFinEtfHistoricalEvents(AutoFinAgentModel):
     """Historical news references returned by the search Agent."""
 
-    etf_code: str
-    etf_name: str
+    etf_code: str = ""
+    etf_name: str = ""
     historical_events: list[AutoFinHistoricalEventReference] = Field(default_factory=list)
 
 
@@ -235,35 +203,18 @@ class AutoFinEtfHistoricalResearch(AutoFinModel):
         return self
 
 
-class AutoFinHistoricalDirectionReference(AutoFinModel):
+class AutoFinHistoricalDirectionReference(AutoFinAgentModel):
     """One direction-classified historical event returned by the Market Agent."""
 
     reason: str
     news_id: str
 
-    @model_validator(mode="after")
-    def non_empty_values(self) -> "AutoFinHistoricalDirectionReference":
-        """Reject a direction judgment without source identity or rationale."""
-        self.reason = self.reason.strip()
-        self.news_id = self.news_id.strip()
-        if not self.reason or not self.news_id:
-            raise ValueError("historical direction reason and news ID must be non-empty")
-        return self
 
-
-class AutoFinMarketSelection(AutoFinModel):
+class AutoFinMarketSelection(AutoFinAgentModel):
     """Same- and opposite-direction historical events returned by the Market Agent."""
 
     same_direction_events: list[AutoFinHistoricalDirectionReference] = Field(default_factory=list)
     opposite_direction_events: list[AutoFinHistoricalDirectionReference] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def unique_historical_news(self) -> "AutoFinMarketSelection":
-        """Reject news IDs repeated within or across direction groups."""
-        news_ids = [event.news_id for event in (*self.same_direction_events, *self.opposite_direction_events)]
-        if len(news_ids) != len(set(news_ids)):
-            raise ValueError("direction-classified historical event news IDs must be unique")
-        return self
 
 
 class AutoFinHistoricalMatch(AutoFinModel):
@@ -341,18 +292,8 @@ class AutoFinEtfHistoryDetail(AutoFinModel):
         return self
 
 
-class AutoFinReportOutput(AutoFinModel):
+class AutoFinReportOutput(AutoFinAgentModel):
     """Final Markdown title and body for all selected ETFs."""
 
-    title: str
-    body: str
-
-    @model_validator(mode="after")
-    def non_empty_report(self) -> "AutoFinReportOutput":
-        """Require both Markdown report fields."""
-        for field in ("title", "body"):
-            value = getattr(self, field).strip()
-            if not value:
-                raise ValueError(f"{field} must not be empty")
-            setattr(self, field, value)
-        return self
+    title: str = ""
+    body: str = ""

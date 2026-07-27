@@ -114,6 +114,76 @@ def test_topic_does_not_repair_ambiguous_content_hash():
     assert not repairs
 
 
+def test_topic_normalizes_duplicate_and_invalid_selections():
+    output = AutoFinEtfsOutput.model_validate(
+        {
+            "etfs": [
+                {
+                    "etf_code": "159516.SZ",
+                    "etf_name": "半导体设备ETF",
+                    "events": [
+                        {"reason": "较晚新闻", "news_id": "20260724164534_9368"},
+                        {"reason": "较早新闻", "news_id": "20260724164043_7332"},
+                        {"reason": "重复新闻", "news_id": "20260724164043_7332"},
+                        {"reason": "未知新闻", "news_id": "20260724170000_ffff"},
+                        {"reason": " ", "news_id": "20260724170000_abcd"},
+                    ],
+                },
+                {
+                    "etf_code": "159516.SZ",
+                    "etf_name": "模型返回的错误名称",
+                    "events": [{"reason": "另一条新闻", "news_id": "20260724170000_abcd"}],
+                },
+                {
+                    "etf_code": "000000.SZ",
+                    "etf_name": "候选范围外ETF",
+                    "events": [{"reason": "范围外", "news_id": "20260724164043_7332"}],
+                },
+            ],
+        },
+    )
+    news = [
+        {"news_id": "20260724164043_7332"},
+        {"news_id": "20260724164534_9368"},
+        {"news_id": "20260724170000_abcd"},
+    ]
+    etfs = [{"code": "159516.SZ", "name": "国泰中证半导体材料设备主题ETF"}]
+
+    normalized, changed = AutoFinTopicStep._normalize_selection(output, news, etfs)
+
+    assert changed
+    assert len(normalized.etfs) == 1
+    assert normalized.etfs[0].etf_name == "国泰中证半导体材料设备主题ETF"
+    assert [event.news_id for event in normalized.etfs[0].events] == [
+        "20260724164043_7332",
+        "20260724164534_9368",
+        "20260724170000_abcd",
+    ]
+
+
+def test_topic_limits_normalized_output_in_code():
+    output = AutoFinEtfsOutput.model_validate(
+        {
+            "etfs": [
+                {
+                    "etf_code": f"{index:06d}.SZ",
+                    "etf_name": f"ETF {index}",
+                    "events": [{"reason": "相关事件", "news_id": "20260724164043_7332"}],
+                }
+                for index in range(21)
+            ],
+        },
+    )
+    news = [{"news_id": "20260724164043_7332"}]
+    etfs = [{"code": f"{index:06d}.SZ", "name": f"ETF {index}"} for index in range(21)]
+
+    normalized, changed = AutoFinTopicStep._normalize_selection(output, news, etfs)
+
+    assert changed
+    assert len(normalized.etfs) == 20
+    assert [item.etf_code for item in normalized.etfs] == [f"{index:06d}.SZ" for index in range(20)]
+
+
 def test_published_time_is_normalized_once_to_shanghai_local_time():
     parsed = AutoFinDataStep._published_at({"published_at": "2026-07-24T01:00:00+00:00"})
 
@@ -315,8 +385,7 @@ class _Agent(BaseAgentWrapper):
         if schema is AutoFinEtfsOutput:
             assert "filtered_news.jsonl" in task
             assert "filtered_etf.jsonl" in task
-            assert "Top 150" in task
-            assert "最多返回 20" in task
+            assert "最多返回 20" not in task
             value = {
                 "etfs": [
                     {
@@ -349,19 +418,16 @@ class _Agent(BaseAgentWrapper):
                 f"20260724090000_" f"{hashlib.sha256('财联社供应恢复时间仍不确定'.encode()).hexdigest()[:4]}"
             )
             assert current_news_id not in task
-            assert "当前事件时间线（仅作为检索线索，不含 news_id）" in task
-            assert "时间、标题、正文和行情都由程序在你返回后补充" in task
-            assert "每一项只包含 reason、news_id 和 source_path" in task
+            assert "程序会回查、过滤、去重、排序并补充行情" in task
             tool_context_id = kwargs.get("tool_context_id", "")
             assert tool_context_id.startswith("auto_fin_history_01_159018.SZ_")
             assert tool_context_id not in task
-            assert "系统会自动过滤本次研究中已经" in task
             self.app_context.metadata.setdefault("tool_contexts", {})[tool_context_id] = {
                 "search_seen_chunk_ids": {},
             }
             value = {
-                "etf_code": "159018.SZ",
-                "etf_name": "油气ETF",
+                "etf_code": "changed",
+                "etf_name": "changed",
                 "historical_events": [
                     {
                         "reason": "供应中断的事件类型和传导机制相同",
@@ -375,13 +441,16 @@ class _Agent(BaseAgentWrapper):
         elif schema is AutoFinMarketSelection:
             assert "ETF：159018.SZ（油气ETF）" in task
             assert "[2026-07-23T16:00:00] 原油供应中断" in task
-            assert "判断影响方向相同还是相反" in task
+            assert "影响方向与当前事件相同还是相反" in task
             assert "不要依据" in task
-            assert "程序会校验" in task
-            assert "每项只包含 reason、news_id" in task
+            assert "程序会过滤、去重并完成计算" in task
             assert "$tushare-data" not in task
             history_path = Path(
-                next(line.strip() for line in task.splitlines() if line.strip().endswith("_output.json")),
+                next(
+                    line.rsplit("：", 1)[-1].strip()
+                    for line in task.splitlines()
+                    if line.strip().endswith("_output.json")
+                ),
             )
             history = json.loads(history_path.read_text(encoding="utf-8"))
             assert "historical_samples" not in history
@@ -400,15 +469,12 @@ class _Agent(BaseAgentWrapper):
         elif schema is AutoFinReportOutput:
             assert "不重新搜索新闻" in task
             assert "auto_fin_history_output.jsonl" in task
-            assert "不生成 YAML frontmatter" in task
             assert '"etf_code": "159018.SZ"' in task
             assert '"suggested_holding_days": 10' in task
             assert '"horizon": 1' in task
             assert '"horizon": 10' in task
-            assert "自行判断事件对 ETF 的影响方向" in task
-            assert "不得使用程序计算结果反推事件方向" in task
-            assert "以推荐 ETF 为主要内容" in task
-            assert "用一句话合并简述" in task
+            assert "不使用计算结果反推事件方向" in task
+            assert "负向或无正收益的情况可以合并" in task
             value = {
                 "title": "Auto Fin ETF 结论",
                 "body": "## 结论\n\n推荐 159018.SZ（油气ETF），参考持有 10 个交易日，"
@@ -570,7 +636,7 @@ async def test_four_step_pipeline_writes_plain_markdown_and_cleans_temporary_dat
     assert sum("agent input prompt=" in line for line in logs) == 2
     assert sum("agent output prompt=" in line for line in logs) == 2
     assert all("agent start prompt=" not in line and "agent done prompt=" not in line for line in logs)
-    assert any('query="你只负责从候选文件中筛选' in line for line in logs)
+    assert any('query="你只负责筛选与当前新闻直接相关' in line for line in logs)
     assert any('output={"etfs":[{"etf_code":"159018.SZ"' in line for line in logs)
     resource_dir = tmp_path / "resource" / "2026-07-24"
     filtered_news = AutoFinDataStep._read_jsonl_sync(resource_dir / "filtered_news.jsonl")
@@ -721,16 +787,61 @@ def test_market_calculation_equal_weights_and_reverses_opposite_direction_event(
     assert "相似历史样本的收益方向存在分歧" in analysis.limitations
 
 
-def test_market_selection_rejects_news_repeated_across_direction_groups():
+def test_market_selection_filters_duplicate_unknown_and_blank_references():
     duplicate = {"reason": "方向判断", "news_id": "20260601100000_abcd"}
+    selection = AutoFinMarketSelection.model_validate(
+        {
+            "same_direction_events": [
+                duplicate,
+                {"reason": " ", "news_id": "20260602100000_efgh"},
+                {"reason": "不存在", "news_id": "20260603100000_dead"},
+            ],
+            "opposite_direction_events": [duplicate],
+            "ignored_extra_field": True,
+        },
+    )
+    history = AutoFinEtfHistoricalResearch.model_validate(
+        {
+            "etf_code": "518880.SH",
+            "etf_name": "黄金ETF",
+            "historical_events": [
+                {
+                    "reason": "历史事件",
+                    "news_id": "20260601100000_abcd",
+                    "source_path": "daily/2026-06-01/auto_fin_news_data.jsonl",
+                    "event_time": "2026-06-01T10:00:00",
+                    "event_title": "黄金上涨",
+                    "event_content": "黄金价格上涨。",
+                },
+                {
+                    "reason": "历史事件",
+                    "news_id": "20260602100000_efgh",
+                    "source_path": "daily/2026-06-02/auto_fin_news_data.jsonl",
+                    "event_time": "2026-06-02T10:00:00",
+                    "event_title": "美元变化",
+                    "event_content": "美元发生变化。",
+                },
+            ],
+        },
+    )
 
-    with pytest.raises(ValueError, match="news IDs must be unique"):
-        AutoFinMarketSelection.model_validate(
-            {
-                "same_direction_events": [duplicate],
-                "opposite_direction_events": [duplicate],
-            },
-        )
+    normalized, changed = AutoFinMarketStep._normalize_selection(selection, history)
+
+    assert changed
+    assert [event.news_id for event in normalized.same_direction_events] == ["20260601100000_abcd"]
+    assert not normalized.opposite_direction_events
+
+
+def test_merge_normalizes_cosmetic_or_empty_report_fields():
+    normalized = AutoFinMergeStep._normalize_report(
+        AutoFinReportOutput(title="## Auto Fin ETF 结论 ", body="# 重复标题\n\n## 结论\n\n观望。"),
+    )
+    fallback = AutoFinMergeStep._normalize_report(AutoFinReportOutput.model_validate({}))
+
+    assert normalized.title == "Auto Fin ETF 结论"
+    assert normalized.body == "## 结论\n\n观望。"
+    assert fallback.title == "Auto Fin ETF 结论"
+    assert fallback.body == "## 结论\n\n暂无可用结论。"
 
 
 @pytest.mark.asyncio
@@ -874,6 +985,45 @@ async def test_history_search_recovers_source_path_from_news_id_date(tmp_path: P
     )
 
     assert len(events) == 1
+    assert events[0].source_path == "daily/2026-04-26/auto_fin_news_data.jsonl"
+    assert not limitations
+
+
+@pytest.mark.asyncio
+async def test_history_search_ignores_unsafe_source_path_and_uses_news_id_date(tmp_path: Path):
+    actual_path = tmp_path / "daily" / "2026-04-26" / "auto_fin_news_data.jsonl"
+    actual_path.parent.mkdir(parents=True)
+    actual_path.write_text(
+        json.dumps(
+            {
+                "news_id": "20260426221449_de86",
+                "pub_time": "2026-04-26 22:14:49",
+                "title": "有效历史新闻",
+                "content": "有效内容",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    step = AutoFinHistorySearchStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
+    references = [
+        AutoFinHistoricalEventReference(
+            reason="相似事件",
+            news_id="20260426221449_de86",
+            source_path="/tmp/not-allowed.jsonl",
+        ),
+    ]
+
+    events, limitations = await step._resolve_historical_events(
+        references,
+        set(),
+        datetime.fromisoformat("2026-07-24T15:00:00"),
+    )
+
+    assert [event.news_id for event in events] == ["20260426221449_de86"]
     assert events[0].source_path == "daily/2026-04-26/auto_fin_news_data.jsonl"
     assert not limitations
 

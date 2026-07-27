@@ -45,20 +45,20 @@ class AutoFinHistorySearchStep(AutoFinStep):
         return number if number > 0 else None
 
     def _historical_source_candidates(self, source_path_value: str, news_id: str) -> list[Path]:
-        """Return the declared source and a date-derived fallback within the workspace."""
+        """Return safe declared and date-derived source candidates within the workspace."""
         workspace = self.workspace_path.resolve()
         relative_path = Path(source_path_value)
-        if relative_path.is_absolute() or ".." in relative_path.parts:
-            raise ValueError(f"Historical source path must be workspace-relative: {source_path_value}")
-        source_path = (workspace / relative_path).resolve()
-        try:
-            source_path.relative_to(workspace)
-        except ValueError as exc:
-            raise ValueError(f"Historical source path is outside the workspace: {source_path_value}") from exc
-        if source_path.name != "auto_fin_news_data.jsonl":
-            raise ValueError(f"Historical source must be an Auto Fin news file: {source_path_value}")
+        candidates = []
+        if not relative_path.is_absolute() and ".." not in relative_path.parts:
+            source_path = (workspace / relative_path).resolve()
+            try:
+                source_path.relative_to(workspace)
+            except ValueError:
+                pass
+            else:
+                if source_path.name == "auto_fin_news_data.jsonl":
+                    candidates.append(source_path)
 
-        candidates = [source_path]
         news_date = news_id.partition("_")[0][:8]
         try:
             parsed_date = datetime.strptime(news_date, "%Y%m%d").date()
@@ -68,6 +68,8 @@ class AutoFinHistorySearchStep(AutoFinStep):
             inferred_path = workspace / "daily" / parsed_date.isoformat() / "auto_fin_news_data.jsonl"
             if inferred_path not in candidates:
                 candidates.append(inferred_path)
+        if not candidates:
+            raise ValueError(f"Historical source cannot be inferred safely: {source_path_value}")
         return candidates
 
     async def _resolve_historical_event(
@@ -129,6 +131,18 @@ class AutoFinHistorySearchStep(AutoFinStep):
         events_by_news_id: dict[str, AutoFinHistoricalEvent] = {}
         limitations = []
         for reference in references:
+            reference = reference.model_copy(
+                update={
+                    "reason": reference.reason.strip(),
+                    "news_id": reference.news_id.strip(),
+                    "source_path": reference.source_path.strip(),
+                },
+            )
+            if not reference.reason or not reference.news_id:
+                limitation = "跳过缺少 reason 或 news_id 的历史新闻"
+                self.logger.warning(f"[{self.name}] {limitation}")
+                limitations.append(limitation)
+                continue
             try:
                 event = await self._resolve_historical_event(
                     reference,
@@ -287,8 +301,6 @@ class AutoFinHistorySearchStep(AutoFinStep):
                     contexts.pop(tool_context_id, None)
                     if not contexts:
                         self.app_context.metadata.pop(_ToolContextDedupMixin.TOOL_CONTEXTS_KEY, None)
-        if (history.etf_code, history.etf_name) != (item.etf_code, item.etf_name):
-            raise ValueError(f"History Agent changed ETF {label!r}")
         resolved_events, resolution_limitations = await self._resolve_historical_events(
             history.historical_events,
             {event.news_id for event in events},
@@ -309,8 +321,8 @@ class AutoFinHistorySearchStep(AutoFinStep):
             for event, sample in zip(resolved_events, samples, strict=True)
         ]
         enriched_history = AutoFinEtfHistoricalResearch(
-            etf_code=history.etf_code,
-            etf_name=history.etf_name,
+            etf_code=item.etf_code,
+            etf_name=item.etf_name,
             historical_events=enriched_events,
             limitations=list(dict.fromkeys([*resolution_limitations, *market_limitations])),
         )

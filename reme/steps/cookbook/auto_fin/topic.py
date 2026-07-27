@@ -16,6 +16,7 @@ NEWS_TITLE_MAX_CHARS = 200
 NEWS_CONTENT_MAX_CHARS = 1200
 NEWS_TOTAL_CONTENT_MAX_CHARS = 60_000
 ETF_CANDIDATE_LIMIT = 150
+ETF_OUTPUT_LIMIT = 20
 
 
 class _NewsTextExtractor(HTMLParser):
@@ -167,7 +168,9 @@ class AutoFinTopicStep(AutoFinStep):
         repairs: dict[str, str] = {}
         for item in data["etfs"]:
             for event in item["events"]:
-                news_id = event["news_id"]
+                event["reason"] = event["reason"].strip()
+                news_id = event["news_id"].strip()
+                event["news_id"] = news_id
                 if news_id in news_ids:
                     continue
                 _, separator, suffix = news_id.rpartition("_")
@@ -178,26 +181,47 @@ class AutoFinTopicStep(AutoFinStep):
         return AutoFinEtfsOutput.model_validate(data), repairs
 
     @staticmethod
-    def _validate_selection(
+    def _normalize_selection(
         output: AutoFinEtfsOutput,
         news: list[dict[str, Any]],
         etfs: list[dict[str, str]],
-    ) -> None:
+    ) -> tuple[AutoFinEtfsOutput, bool]:
+        """Canonicalize, filter, deduplicate, sort, and limit Agent selections."""
         news_order = {str(row["news_id"]): index for index, row in enumerate(news)}
         news_ids = set(news_order)
-        candidates = {row["code"]: row["name"] for row in etfs}
+        candidates = {str(row["code"]).strip().upper(): str(row["name"]).strip() for row in etfs}
+        selected: dict[str, dict[str, Any]] = {}
         for item in output.etfs:
-            if candidates.get(item.etf_code) != item.etf_name:
-                raise ValueError(f"Topic Agent returned an ETF outside filtered_etf.jsonl: {item.etf_code}")
-            selected_news_ids = [event.news_id for event in item.events]
-            unknown = set(selected_news_ids) - news_ids
-            if unknown:
-                raise ValueError(f"Topic Agent returned unknown news IDs: {sorted(unknown)}")
-            if len(selected_news_ids) != len(set(selected_news_ids)):
-                raise ValueError(f"Topic Agent returned duplicate news IDs for ETF: {item.etf_code}")
-            event_order = [news_order[news_id] for news_id in selected_news_ids]
-            if event_order != sorted(event_order):
-                raise ValueError(f"Topic Agent returned unsorted news IDs for ETF: {item.etf_code}")
+            code = item.etf_code.strip().upper()
+            name = candidates.get(code)
+            if name is None:
+                continue
+            normalized = selected.setdefault(
+                code,
+                {"etf_code": code, "etf_name": name, "events": [], "seen_news_ids": set()},
+            )
+            for event in item.events:
+                if not event.reason or event.news_id not in news_ids or event.news_id in normalized["seen_news_ids"]:
+                    continue
+                normalized["events"].append(event.model_dump(mode="json"))
+                normalized["seen_news_ids"].add(event.news_id)
+
+        normalized_items = []
+        for item in selected.values():
+            events = sorted(item["events"], key=lambda event: news_order[event["news_id"]])
+            if events:
+                normalized_items.append(
+                    {
+                        "etf_code": item["etf_code"],
+                        "etf_name": item["etf_name"],
+                        "events": events,
+                    },
+                )
+            if len(normalized_items) >= ETF_OUTPUT_LIMIT:
+                break
+        normalized_output = AutoFinEtfsOutput.model_validate({"etfs": normalized_items})
+        changed = normalized_output.model_dump(mode="json") != output.model_dump(mode="json")
+        return normalized_output, changed
 
     async def execute(self):
         assert self.context is not None
@@ -227,10 +251,13 @@ class AutoFinTopicStep(AutoFinStep):
             filtered_etf_path=str(etf_path),
         )
         output, repairs = self._repair_news_ids(output, news)
+        output, normalized = self._normalize_selection(output, news, etfs)
         if repairs:
             self.logger.warning(f"[{self.name}] repaired mistyped news IDs: {repairs}")
+        if normalized:
+            self.logger.info(f"[{self.name}] normalized ETF selections")
+        if repairs or normalized:
             _write_jsonl(output_path, output.model_dump(mode="json")["etfs"])
-        self._validate_selection(output, news, etfs)
         self.context["auto_fin_window_start"] = window_start.isoformat()
         self.context["auto_fin_etfs"] = output.model_dump(mode="json")["etfs"]
         self.context["auto_fin_etfs_resource"] = str(output_path)

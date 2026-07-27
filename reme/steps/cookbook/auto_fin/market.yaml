@@ -1,30 +1,21 @@
 market_user: |
-  你只负责筛选与当前事件机制可比的历史事件，并判断影响方向相同还是相反；不计算收益、
-  不生成预测、不总结报告。
+  筛选与当前事件机制可比的历史事件，并判断其影响方向与当前事件相同还是相反。
+  不计算收益或生成预测。
+
   ETF：{etf_code}（{etf_name}）
   分析截止时间：{decision_at}
-
   当前事件：
   {events}
+  历史事件文件：{history_path}
 
-  已补全的历史事件文件：
-  {history_path}
-
-  必须遵守：
-  1. 读取历史文件，只从 historical_events 中选择与当前事件相似的事件。
-  2. 综合事件类型、关键实体、传导机制和影响方向进行判断：
+  工作要求：
+  1. 根据历史事件的时间、标题、正文和 reason，综合事件类型、关键实体、传导机制和影响方向：
      - 机制可比且影响方向相同，放入 same_direction_events；
      - 机制可比但影响方向相反，放入 opposite_direction_events；
-     - 没有有效关系，不要返回。
-     这里的“相同/相反”是历史事件相对当前事件的影响方向，不是简单判断新闻利好或利空。例如
-     当前事件是黄金涨价、历史事件是黄金降价时，应放入 opposite_direction_events。
-  3. 只根据历史事件的 event_time、event_title、event_content 和 reason 判断相似性；不要依据
-     market_entry 或 future_returns 选择事件，避免使用事后行情影响相似度判断。
-  4. reason 简洁说明相似之处，news_id 必须从历史文件逐字复制，严禁编造。
-  5. 不需要返回 ETF、事件时间、权重、预测、持有天数、代码、总结或 limitations；程序会校验
-     news_id，并完成所有计算。没有相似事件时两组都返回空列表。
-  6. 同一 news_id 只能出现一次，不能同时放入两组。每项只包含 reason、news_id。
-  7. 最终只生成 same_direction_events 和 opposite_direction_events。JSON 示例：
+     - 机制不可比则不选择。
+     不要依据 market_entry 或 future_returns 选择事件，避免使用事后行情。
+  2. 返回 news_id 和判断理由。程序会过滤、去重并完成计算。
+  3. 返回以下 JSON：
      ```json
      {{
        "same_direction_events": [
@@ -41,4 +32,3 @@ market_user: |
        ]
      }}
      ```
-  8. 最终只生成上述 JSON 对象，不附加解释或 Markdown 正文。

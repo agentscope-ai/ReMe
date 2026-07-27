@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 
 from ....components import R
@@ -14,6 +15,16 @@ from ._base import AutoFinStep, _write, _write_jsonl
 @R.register("auto_fin_merge_step")
 class AutoFinMergeStep(AutoFinStep):
     """Ask a fresh Agent for the final Markdown and persist it directly."""
+
+    @staticmethod
+    def _normalize_report(output: AutoFinReportOutput) -> AutoFinReportOutput:
+        """Normalize cosmetic report fields and provide safe empty fallbacks."""
+        title = re.sub(r"^#+\s*", "", output.title.strip()) or "Auto Fin ETF 结论"
+        body = output.body.strip() or "## 结论\n\n暂无可用结论。"
+        first_line, separator, remainder = body.partition("\n")
+        if first_line.lstrip().startswith("# "):
+            body = remainder.lstrip() if separator else "## 结论\n\n暂无可用结论。"
+        return AutoFinReportOutput(title=title, body=body)
 
     @staticmethod
     def _calculation_results(history_details: list[AutoFinEtfHistoryDetail]) -> list[dict]:
@@ -45,7 +56,7 @@ class AutoFinMergeStep(AutoFinStep):
         self.logger.info(
             f"[{self.name}] start etfs={len(etfs)}",
         )
-        output, _ = await self._reply(
+        output, output_path = await self._reply(
             "merge_user",
             "auto_fin_merge",
             AutoFinReportOutput,
@@ -55,6 +66,13 @@ class AutoFinMergeStep(AutoFinStep):
             history_path=str(self._required("auto_fin_history_resource")),
             calculation_results=json.dumps(calculation_results, ensure_ascii=False),
         )
+        normalized_output = self._normalize_report(output)
+        if normalized_output != output:
+            _write(
+                output_path,
+                json.dumps(normalized_output.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")) + "\n",
+            )
+        output = normalized_output
         markdown = f"# {output.title}\n\n{output.body}\n\n"
         markdown += "> 仅为事件研究和持有时间参考，不构成投资建议，不会执行交易。\n"
         day_dir = self.workspace_path / str(self.config_value("daily_dir")) / str(self._required("auto_fin_date"))

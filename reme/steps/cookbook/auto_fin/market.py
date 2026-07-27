@@ -20,6 +20,35 @@ class AutoFinMarketStep(AutoFinStep):
     """Classify historical event directions and calculate one ETF forecast."""
 
     @staticmethod
+    def _normalize_selection(
+        selection: AutoFinMarketSelection,
+        history: AutoFinEtfHistoricalResearch,
+    ) -> tuple[AutoFinMarketSelection, bool]:
+        """Filter unknown, blank, and duplicate direction references."""
+        known_news_ids = {event.news_id for event in history.historical_events}
+        seen_news_ids: set[str] = set()
+
+        def valid_events(events):
+            normalized = []
+            for event in events:
+                reason = event.reason.strip()
+                news_id = event.news_id.strip()
+                if not reason or news_id not in known_news_ids or news_id in seen_news_ids:
+                    continue
+                normalized.append({"reason": reason, "news_id": news_id})
+                seen_news_ids.add(news_id)
+            return normalized
+
+        normalized_selection = AutoFinMarketSelection.model_validate(
+            {
+                "same_direction_events": valid_events(selection.same_direction_events),
+                "opposite_direction_events": valid_events(selection.opposite_direction_events),
+            },
+        )
+        changed = normalized_selection.model_dump(mode="json") != selection.model_dump(mode="json")
+        return normalized_selection, changed
+
+    @staticmethod
     def _calculate_analysis(
         item: AutoFinEtfSelection,
         history: AutoFinEtfHistoricalResearch,
@@ -31,9 +60,6 @@ class AutoFinMarketStep(AutoFinStep):
             *((match, "same", 1.0) for match in selection.same_direction_events),
             *((match, "opposite", -1.0) for match in selection.opposite_direction_events),
         ]
-        unknown_news_ids = {match.news_id for match, _, _ in selected if match.news_id not in history_by_news_id}
-        if unknown_news_ids:
-            raise ValueError(f"Market Agent referenced unknown historical news: {sorted(unknown_news_ids)}")
 
         weight = 1.0 / len(selected) if selected else 0.0
         matches = [
@@ -126,6 +152,9 @@ class AutoFinMarketStep(AutoFinStep):
                 self.workspace_path / "resource" / str(self._required("auto_fin_date")) / f"{resource_name}_output.json"
             )
             self.logger.warning(f"[{self.name}] skip direction Agent for {item.etf_code}: no valid history")
+        selection, normalized = self._normalize_selection(selection, history)
+        if normalized:
+            self.logger.info(f"[{self.name}] normalized historical direction selections")
         analysis = self._calculate_analysis(item, history, selection)
         _write(
             selection_path,
