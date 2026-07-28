@@ -76,3 +76,4 @@ benchmark/results/
 # integration tests outputs
 tests/integration/logs/
 daily/
+.pr-tracker/
