@@ -264,6 +264,8 @@ agents can choose the path that fits their runtime while sharing the same local 
 | **Claude Code**                                      | Start ReMe as an MCP service and install [plugins/reme](plugins/reme).      | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically. |
 | **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Search/read/write memory and call `auto_memory`, `auto_dream`, and `proactive` via the CLI.   |
 
+For detailed MCP service configuration and tool reference, see the [MCP Service Guide](docs/en/mcp_service.md).
+
 <p align="center"><b>Integration demos</b></p>
 
 <table>
