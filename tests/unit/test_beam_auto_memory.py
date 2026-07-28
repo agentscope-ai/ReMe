@@ -1,4 +1,4 @@
-"""Unit tests for BEAM auto-memory chunked ingestion and line numbering."""
+"""Unit tests for BEAM auto-memory segmented ingestion and line numbering."""
 
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
@@ -7,7 +7,7 @@ from agentscope.message import Msg
 from reme.components.runtime_context import RuntimeContext
 from reme.steps.benchmark.beam.auto_memory import (
     BeamAutoMemoryStep,
-    split_turn_chunks,
+    split_turn_segments,
 )
 
 
@@ -28,40 +28,40 @@ def _dialog(n_turns: int, words_per_msg: int) -> list[Msg]:
     return messages
 
 
-class TestSplitTurnChunks:
+class TestSplitTurnSegments:
     def test_empty(self):
-        assert not split_turn_chunks([], 100)
+        assert not split_turn_segments([], 100)
 
-    def test_disabled_returns_single_chunk(self):
+    def test_disabled_returns_single_segment(self):
         messages = _dialog(3, 10)
-        chunks = split_turn_chunks(messages, 0)
-        assert len(chunks) == 1
-        assert chunks[0] == (0, messages)
+        segments = split_turn_segments(messages, 0)
+        assert len(segments) == 1
+        assert segments[0] == (0, messages)
 
-    def test_under_limit_single_chunk(self):
+    def test_under_limit_single_segment(self):
         messages = _dialog(3, 10)  # 60 words total
-        chunks = split_turn_chunks(messages, 100)
-        assert len(chunks) == 1
-        assert chunks[0][0] == 0
-        assert chunks[0][1] == messages
+        segments = split_turn_segments(messages, 100)
+        assert len(segments) == 1
+        assert segments[0][0] == 0
+        assert segments[0][1] == messages
 
     def test_splits_at_turn_boundaries(self):
-        # 4 turns x 20 words each; limit 40 -> 2 turns per chunk
+        # 4 turns x 20 words each; limit 40 -> 2 turns per segment
         messages = _dialog(4, 10)
-        chunks = split_turn_chunks(messages, 40)
-        assert len(chunks) == 2
-        offsets = [offset for offset, _ in chunks]
+        segments = split_turn_segments(messages, 40)
+        assert len(segments) == 2
+        offsets = [offset for offset, _ in segments]
         assert offsets == [0, 4]
-        # Every chunk starts with a user message and ends with an assistant
-        for _, chunk in chunks:
-            assert chunk[0].role == "user"
-            assert chunk[-1].role == "assistant"
+        # Every segment starts with a user message and ends with an assistant
+        for _, segment in segments:
+            assert segment[0].role == "user"
+            assert segment[-1].role == "assistant"
         # No message lost or duplicated, order preserved
-        flattened = [m for _, chunk in chunks for m in chunk]
+        flattened = [m for _, segment in segments for m in segment]
         assert flattened == messages
 
     def test_never_splits_inside_a_turn(self):
-        # One turn alone exceeds the limit -> becomes its own oversized chunk
+        # One turn alone exceeds the limit -> becomes its own oversized segment
         messages = [
             _msg("user", 5),
             _msg("assistant", 5),
@@ -70,17 +70,17 @@ class TestSplitTurnChunks:
             _msg("user", 5),
             _msg("assistant", 5),
         ]
-        chunks = split_turn_chunks(messages, 60)
-        assert [offset for offset, _ in chunks] == [0, 2, 4]
-        assert [len(chunk) for _, chunk in chunks] == [2, 2, 2]
+        segments = split_turn_segments(messages, 60)
+        assert [offset for offset, _ in segments] == [0, 2, 4]
+        assert [len(segment) for _, segment in segments] == [2, 2, 2]
 
     def test_offsets_are_original_indices(self):
         messages = _dialog(5, 30)  # 60 words per turn
-        chunks = split_turn_chunks(messages, 120)
-        # 2 turns per chunk -> offsets 0, 4, 8
-        assert [offset for offset, _ in chunks] == [0, 4, 8]
-        for offset, chunk in chunks:
-            for i, msg in enumerate(chunk):
+        segments = split_turn_segments(messages, 120)
+        # 2 turns per segment -> offsets 0, 4, 8
+        assert [offset for offset, _ in segments] == [0, 4, 8]
+        for offset, segment in segments:
+            for i, msg in enumerate(segment):
                 assert msg is messages[offset + i]
 
     def test_multi_assistant_turn_stays_together(self):
@@ -91,9 +91,9 @@ class TestSplitTurnChunks:
             _msg("user", 10),
             _msg("assistant", 10),
         ]
-        chunks = split_turn_chunks(messages, 30)
-        assert [offset for offset, _ in chunks] == [0, 3]
-        assert len(chunks[0][1]) == 3
+        segments = split_turn_segments(messages, 30)
+        assert [offset for offset, _ in segments] == [0, 3]
+        assert len(segments[0][1]) == 3
 
 
 class TestFormatHistoryLineNumbers:
