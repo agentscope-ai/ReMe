@@ -5,7 +5,60 @@ from datetime import datetime, timedelta
 from agentscope.message import Msg
 
 from ...evolve.auto_memory import AutoMemoryStep, _normalize_msg_timestamp
+from ...file_io import validate_session_id
 from ....components import R
+
+# Runtime-context key carrying the 0-based line offset of the current chunk
+# inside the full session file (chunked ingestion of long sessions).
+_LINE_OFFSET_KEY = "beam_line_offset"
+
+
+def _msg_word_count(msg: Msg) -> int:
+    """Whitespace-separated word count of a message's text content."""
+    return len((msg.get_text_content() or "").split())
+
+
+def split_turn_chunks(messages: list[Msg], max_words: int) -> list[tuple[int, list[Msg]]]:
+    """Split *messages* into chunks of complete turns bounded by *max_words*.
+
+    A turn starts at every ``user`` message and spans all following non-user
+    messages (assistant replies). Chunks only break at turn boundaries, so a
+    ``user + assistant`` exchange is never split across two chunks. A single
+    turn larger than *max_words* still becomes its own (oversized) chunk.
+
+    Returns ``[(offset, msgs), ...]`` where ``offset`` is the 0-based index of
+    the chunk's first message in *messages* — i.e. its line number in the
+    session file minus 1. ``max_words <= 0`` disables splitting.
+    """
+    if not messages:
+        return []
+    if max_words <= 0:
+        return [(0, list(messages))]
+
+    # Group into turns: each user message opens a new turn.
+    turns: list[list[Msg]] = []
+    for msg in messages:
+        if msg.role == "user" or not turns:
+            turns.append([msg])
+        else:
+            turns[-1].append(msg)
+
+    chunks: list[tuple[int, list[Msg]]] = []
+    current: list[Msg] = []
+    current_words = 0
+    offset = 0
+    for turn in turns:
+        turn_words = sum(_msg_word_count(m) for m in turn)
+        if current and current_words + turn_words > max_words:
+            chunks.append((offset, current))
+            offset += len(current)
+            current = []
+            current_words = 0
+        current.extend(turn)
+        current_words += turn_words
+    if current:
+        chunks.append((offset, current))
+    return chunks
 
 
 def _parse_iso_seconds(value: str) -> datetime | None:
@@ -121,7 +174,74 @@ class BeamAutoMemoryStep(AutoMemoryStep):
 
     Date pinning for ``daily_write`` is handled by the base class through the
     agent wrapper's server-owned ``injected_job_kwargs``.
+
+    Long sessions are ingested incrementally: the message list is split into
+    chunks of complete turns (``max_chunk_words`` step config, default 10000
+    words per chunk) and each chunk runs one agent pass — the first pass
+    creates the daily note, later passes merge into it. Line numbers shown to
+    the agent always refer to the ORIGINAL session file, not the chunk.
     """
+
+    async def execute(self):
+        assert self.context is not None
+        raw_messages = self.context.get("messages") or []
+        session_id: str = self.context.get("session_id", "")
+        max_words = int(self.kwargs.get("max_chunk_words", 10000) or 0)
+
+        messages = self._build_messages(raw_messages)
+        chunks = split_turn_chunks(messages, max_words)
+
+        if len(chunks) <= 1:
+            self.context[_LINE_OFFSET_KEY] = 0
+            await super().execute()
+            return
+
+        # Persist the FULL session file up-front so every chunk's [Ln] labels
+        # (and the note's source markers) match the final on-disk layout. The
+        # per-chunk saves inside the base execute become no-op appends.
+        if session_id and validate_session_id(session_id) is None:
+            await self._save_session_messages(session_id, messages)
+
+        base_hint = self.context.get("memory_hint", "") or ""
+        answers: list[str] = []
+        failed_chunks = 0
+        self.logger.info(
+            f"[{self.name}] chunked ingestion session_id={session_id!r} "
+            f"messages={len(messages)} chunks={len(chunks)} max_chunk_words={max_words}",
+        )
+        for part, (offset, chunk) in enumerate(chunks, start=1):
+            part_hint = (
+                f"This is part {part}/{len(chunks)} of one long session "
+                f"(lines {offset + 1}-{offset + len(chunk)} of the session file). "
+                "Earlier parts were already recorded; extract ONLY from the turns shown below."
+            )
+            self.context["messages"] = chunk
+            self.context["memory_hint"] = f"{base_hint}\n{part_hint}".strip()
+            self.context[_LINE_OFFSET_KEY] = offset
+            # One bad chunk (e.g. transiently corrupted note frontmatter) must
+            # not lose the remaining chunks of the session.
+            try:
+                await super().execute()
+                ok = bool(self.context.response.success)
+                summary = self.context.response.answer or ""
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                ok = False
+                summary = f"Error: {exc}"
+                self.logger.warning(
+                    f"[{self.name}] chunk {part}/{len(chunks)} failed session_id={session_id!r}: {exc}",
+                )
+            if not ok:
+                failed_chunks += 1
+            answers.append(f"[part {part}/{len(chunks)}] {summary}")
+
+        # Restore caller-visible context and aggregate the response.
+        self.context["messages"] = raw_messages
+        self.context["memory_hint"] = base_hint
+        self.context.response.success = failed_chunks < len(chunks)
+        self.context.response.answer = "\n".join(answers)
+        self.context.response.metadata.update(
+            {"n_messages": len(messages), "chunks": len(chunks), "failed_chunks": failed_chunks},
+        )
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
         # Interpolate timestamps: if any message carries created_at, fill in
@@ -135,15 +255,18 @@ class BeamAutoMemoryStep(AutoMemoryStep):
     def _format_history(self, messages: list[Msg]) -> str:
         # Annotate every turn with its physical line number in the session
         # file so the agent can cite information sources as
-        # [<session file path>:<start line>-<end line>]. A BEAM batch is already
+        # [[<session file path>#L<start>-L<end>]]. A BEAM batch is already
         # in chronological order, matching the one-message-per-line layout
         # written by AutoMemoryStep._save_session_messages, so number each turn
-        # by its position (no re-sorting).
+        # by its position plus the chunk's offset into the full session file
+        # (no re-sorting). When the session is ingested in chunks, the offset
+        # keeps [Ln] labels aligned with the ORIGINAL file, not the chunk.
         session_id = self.context.get("session_id", "") if self.context is not None else ""
+        line_offset = int(self.context.get(_LINE_OFFSET_KEY, 0) or 0) if self.context is not None else 0
         source_path = self._session_source_path(session_id)
 
         turns: list[str] = []
-        for line, msg in enumerate(messages, start=1):
+        for line, msg in enumerate(messages, start=line_offset + 1):
             text = (msg.get_text_content() or "").strip()
             if not text:
                 continue
@@ -153,9 +276,13 @@ class BeamAutoMemoryStep(AutoMemoryStep):
         if not turns:
             return "(empty)"
 
+        first_line = line_offset + 1
+        last_line = line_offset + len(messages)
         preamble = (
             f"Source file: {source_path}\n"
-            "(Each turn below is prefixed with [Ln] = its line number in the source file.)"
+            f"(Excerpt covering lines {first_line}-{last_line} of the source file. Each turn below is "
+            "prefixed with [Ln] = its line number in the source file; copy these numbers verbatim "
+            "into source markers.)"
         )
         return preamble + "\n\n" + "\n\n".join(turns)
 

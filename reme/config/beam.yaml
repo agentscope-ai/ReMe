@@ -164,6 +164,10 @@ jobs:
         - messages
     steps:
       - backend: beam_auto_memory_step
+        # Long sessions are split into turn-aligned chunks and fed to the
+        # agent incrementally; each chunk holds at most this many words.
+        # <= 0 disables splitting.
+        max_chunk_words: 10000
 
   # ── Reindex (full rebuild) ──
   reindex:

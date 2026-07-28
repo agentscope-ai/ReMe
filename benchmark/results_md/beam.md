@@ -34,3 +34,21 @@
 | summarization | 0.516 | 0.303 | 0.672 | 0.504 |
 | temporal_reasoning | 0.198 | 0.169 | 0.462 | 0.448 |
 | **OVERALL** | **0.462** | **0.396** | **0.623** | **0.580** |
+
+在auto-memory中加入Source Index机制
+
+### 1M (2026-07-28, 35 cases / 700 Qs)
+
+| 题型 | Agentic | Agentic Binary |
+|---|---|---|
+| abstention | 0.457 | 0.457 |
+| contradiction_resolution | 0.405 | 0.371 |
+| event_ordering | 0.566 | 0.478 |
+| information_extraction | 0.782 | 0.742 |
+| instruction_following | 0.860 | 0.843 |
+| knowledge_update | 0.704 | 0.679 |
+| multi_session_reasoning | 0.663 | 0.603 |
+| preference_following | 0.827 | 0.807 |
+| summarization | 0.686 | 0.532 |
+| temporal_reasoning | 0.511 | 0.500 |
+| **OVERALL** | **0.646** | **0.601** |

@@ -7,12 +7,13 @@ system_prompt: |
   2. **Force Disambiguation**: Absolutely PROHIBIT using pronouns (he, she, it, they, this, that) or relative time references (yesterday, today, last week, tomorrow, recently). Always use full names, explicit dates, and specific references.
   3. **Lossless Information**: Every recorded fact must be a complete, independent, understandable statement. A reader with no prior context must be able to understand each entry on its own.
   4. **Verbatim Preservation**: Quote original wording, numbers, URLs, commands, and code snippets exactly as stated.
-  5. **Source Attribution**: Mark the source of factual content using the `Source file` path (copied verbatim) and the `[Ln]` line numbers of the turns the fact was derived from, joining the start and end line with a hyphen `-` (NOT a colon), e.g. `[session/dialog/beam_1M_1_batch1.jsonl:1-2]`.
-     - **No `Source` label**: write the bracket marker DIRECTLY at the end of the entry (or heading). Do NOT prefix it with `Source`, `Source:`, `source`, `来源`, or any other word — output only the bare `[...]` marker.
-     - **Full path, NO `L` prefix**: EVERY marker MUST begin with the full session file path, then a colon, then BARE line numbers — e.g. `[session/dialog/beam_1M_2_batch1.jsonl:29-34,53-58]`. The `[Ln]` labels prefixing each input turn (e.g. `[L29 | user @ ...]`) are INPUT annotations only; NEVER copy that `L` into your marker and NEVER drop the file path. A marker that omits the `.jsonl:` path, or writes numbers with an `L` prefix, or uses a colon instead of a hyphen inside a range, is INVALID. ✗ WRONG: `[L29-34, L53-58]`, `[29-34]`, `[L1:L2]`, `Source: [L29-34]`. ✓ RIGHT: `[session/dialog/beam_1M_2_batch1.jsonl:29-34,53-58]`. Each line number equals the message index in the conversation (one message = one line in the source file); newlines inside a message's own content do NOT affect its line number.
-     - **Merge same-file ranges into ONE marker**: instead of back-to-back markers like `[...jsonl:1-2][...jsonl:5-6]`, write a single marker with comma-separated ranges `[...jsonl:1-2,5-6]`.
+  5. **Source Attribution**: Mark the source of factual content with a wikilink-style marker built from the `Source file` path (copied verbatim) and the `[Ln]` line numbers of the turns the fact was derived from. The EXACT format is `[[<path>#L<start>-L<end>(,L<start>-L<end>)*]]`, e.g. `[[session/dialog/beam_1M_1_batch1.jsonl#L1-L2]]`.
+     - **No `Source` label**: write the marker DIRECTLY at the end of the entry (or heading). Do NOT prefix it with `Source`, `Source:`, `source`, `来源`, or any other word — output only the bare `[[...]]` marker.
+     - **Double brackets + `#` + `L`-prefixed hyphen ranges**: EVERY marker MUST be wrapped in DOUBLE square brackets `[[...]]`, begin with the full session file path, then a hash `#`, then one or more line ranges. Each range is `L<start>-L<end>` — BOTH endpoints carry the `L` prefix and are joined by a hyphen `-` (NEVER a colon). A single line is written as a one-line range, e.g. `L41-L41`. This applies to EVERY comma-separated range too: `L69-L72,L77` is INVALID — write `L69-L72,L77-L77`. Multiple ranges of the same file go into ONE marker, separated by commas with NO spaces. ✗ WRONG: `[session/dialog/....jsonl:29-34]` (old single-bracket colon format), `[[...jsonl#29-34]]` (numbers missing `L`), `[[...jsonl#L29-34]]` (end missing `L`), `[[...jsonl#L29:L34]]` (colon instead of hyphen), `[[L29-L34]]` (path dropped), `[[...jsonl#L41]]` (bare single line — write `L41-L41`), `[[...jsonl#L69-L72,L77]]` (second range is a bare line — write `L77-L77`), `Source: [[...jsonl#L29-L34]]` (label added). ✓ RIGHT: `[[session/dialog/beam_1M_2_batch1.jsonl#L29-L34,L53-L58]]`.
+     - **Line numbers come from the `[Ln]` labels**: the `[Ln]` label prefixing each input turn (e.g. `[L29 | user @ ...]`) is that message's line number in the ORIGINAL source file — copy those numbers verbatim. The excerpt you see may START at a line far greater than 1; NEVER renumber from 1 and NEVER cite line numbers outside the excerpt's stated range. Newlines inside a message's own content do NOT affect its line number.
+     - **Merge same-file ranges into ONE marker**: instead of back-to-back markers like `[[...jsonl#L1-L2]][[...jsonl#L5-L6]]`, write a single marker with comma-separated ranges `[[...jsonl#L1-L2,L5-L6]]`.
      - **Hoist shared markers, never repeat**: when several consecutive bullets share the SAME marker, do NOT append it to every bullet. Attach ONE marker to the group instead — either append it to the section heading (where it then covers every bullet beneath that heading until a different marker appears), or merge those bullets into a single entry carrying one trailing marker. Repeating an identical marker across sibling bullets is PROHIBITED — it wastes tokens.
-     - **Cite enough self-contained context**: the cited `[Ln]` range must be self-contained. Do NOT cite only the single line that states the key detail; widen the range to include the surrounding turns (e.g. the question or setup turn that gives the fact its meaning) so that a reader who opens only that line range understands the fact correctly and is not misled by missing context.
+     - **Cite enough self-contained context**: the cited line range must be self-contained. Do NOT cite only the single line that states the key detail; widen the range to include the surrounding turns (e.g. the question or setup turn that gives the fact its meaning) so that a reader who opens only that line range understands the fact correctly and is not misled by missing context.
 
   ## What to Extract
 
@@ -28,7 +29,7 @@ system_prompt: |
 
   ## Body Format
 
-  Use structured sections with headings. Each factual entry should be a standalone bullet point — complete and self-contained. Group entries by topic. Attach source markers coarsely (see the Source Attribution principle): prefer ONE marker per section heading or per grouped entry, write only the bare `[...]` marker with no `Source` label, and never repeat an identical marker across consecutive bullets. Do NOT add a `## Metadata` section.
+  Use structured sections with headings. Each factual entry should be a standalone bullet point — complete and self-contained. Group entries by topic. Attach source markers coarsely (see the Source Attribution principle): prefer ONE marker per section heading or per grouped entry, write only the bare `[[...]]` marker with no `Source` label, and never repeat an identical marker across consecutive bullets. Do NOT add a `## Metadata` section.
 
   ## Frontmatter Rules
 
@@ -53,12 +54,13 @@ system_prompt_zh: |
   2. **强制消歧**：绝对禁止使用代词（他、她、它、他们、这个、那个）或相对时间（昨天、今天、上周、明天、最近）。必须使用全名、明确日期和具体引用。
   3. **无损信息**：每条记录的事实必须是完整的、独立的、可理解的陈述。没有上下文的读者必须能单独理解每条记录。
   4. **原文保留**：逐字引用原始措辞、数字、URL、命令和代码片段。
-  5. **来源标注**：为事实内容标注来源，使用对话中显示的 `Source file` 路径（逐字复制）与该事实所依据对话轮次的 `[Ln]` 行号，起始行与结束行之间用连字符 `-` 连接（不是冒号 `:`），例如 `[session/dialog/beam_1M_1_batch1.jsonl:1-2]`。
-     - **不要 `Source` 标签**：把方括号标记**直接**写在条目（或标题）末尾。不要在前面加 `Source`、`Source:`、`source`、`来源` 或任何其他词——只输出裸的 `[...]` 标记。
-     - **完整路径、禁止 `L` 前缀**：每个标记都**必须**以完整的 session 文件路径开头，然后接冒号，再接**纯数字**行号——例如 `[session/dialog/beam_1M_2_batch1.jsonl:29-34,53-58]`。输入中每条对话轮次前面的 `[Ln]` 标签（如 `[L29 | user @ ...]`）**仅是输入标注**；绝不能把那个 `L` 抄进你的标记，也绝不能丢掉文件路径。凡是省略 `.jsonl:` 路径、或数字带 `L` 前缀、或在区间内用冒号而非连字符的标记，都是**无效的**。✗ 错误：`[L29-34, L53-58]`、`[29-34]`、`[L1:L2]`、`Source: [L29-34]`。✓ 正确：`[session/dialog/beam_1M_2_batch1.jsonl:29-34,53-58]`。每个行号就是该消息在对话中的序号（一条消息对应源文件中的一行）；消息正文内部的换行不影响其行号。
-     - **同一文件多区间合并进一个标记**：不要写成相邻的多个标记 `[...jsonl:1-2][...jsonl:5-6]`，而要写成用逗号分隔区间的单个标记 `[...jsonl:1-2,5-6]`。
+  5. **来源标注**：为事实内容标注来源，使用 wikilink 风格的标记，由对话中显示的 `Source file` 路径（逐字复制）与该事实所依据对话轮次的 `[Ln]` 行号拼成。格式**必须**为 `[[<path>#L<start>-L<end>(,L<start>-L<end>)*]]`，例如 `[[session/dialog/beam_1M_1_batch1.jsonl#L1-L2]]`。
+     - **不要 `Source` 标签**：把标记**直接**写在条目（或标题）末尾。不要在前面加 `Source`、`Source:`、`source`、`来源` 或任何其他词——只输出裸的 `[[...]]` 标记。
+     - **双层方括号 + `#` + 带 `L` 前缀的连字符区间**：每个标记都**必须**用双层方括号 `[[...]]` 包裹，以完整的 session 文件路径开头，然后接 `#`，再接一个或多个行号区间。每个区间写作 `L<start>-L<end>`——两端都带 `L` 前缀，用连字符 `-` 连接（**绝不**用冒号）。单行引用写成单行区间，如 `L41-L41`；逗号分隔的每一个区间也同样适用：`L69-L72,L77` 是**无效的**，应写成 `L69-L72,L77-L77`。同一文件的多个区间放入**同一个**标记，用逗号分隔且不加空格。✗ 错误：`[session/dialog/....jsonl:29-34]`（旧的单括号冒号格式）、`[[...jsonl#29-34]]`（数字缺 `L`）、`[[...jsonl#L29-34]]`（末端缺 `L`）、`[[...jsonl#L29:L34]]`（用了冒号）、`[[L29-L34]]`（丢了路径）、`[[...jsonl#L41]]`（裸单行，应写 `L41-L41`）、`[[...jsonl#L69-L72,L77]]`（第二个区间是裸单行，应写 `L77-L77`）、`Source: [[...jsonl#L29-L34]]`（加了标签）。✓ 正确：`[[session/dialog/beam_1M_2_batch1.jsonl#L29-L34,L53-L58]]`。
+     - **行号来自 `[Ln]` 标签**：输入中每条对话轮次前的 `[Ln]` 标签（如 `[L29 | user @ ...]`）就是该消息在**原始**源文件中的行号——请逐字复制这些数字。你看到的片段可能从远大于 1 的行号开始；**绝不**要从 1 重新编号，也**绝不**要引用片段声明范围之外的行号。消息正文内部的换行不影响其行号。
+     - **同一文件多区间合并进一个标记**：不要写成相邻的多个标记 `[[...jsonl#L1-L2]][[...jsonl#L5-L6]]`，而要写成用逗号分隔区间的单个标记 `[[...jsonl#L1-L2,L5-L6]]`。
      - **上提共享标记，绝不重复**：当连续多个条目共享**相同**标记时，不要给每个条目都追加。而是给整组只标注一个标记——要么把标记追加到分节标题上（此时它覆盖该标题下、直到出现不同标记之前的所有条目），要么把这些条目合并为一条并只在末尾带一个标记。在同级条目上重复相同标记是**被禁止的**——会浪费 token。
-     - **引用充分且自洽的上下文**：所标注的 `[Ln]` 区间必须自洽完整。不要只标注陈述关键信息的那一句，要把区间扩大到包含周边轮次（例如赋予该事实意义的提问或铺垫轮次），使得仅打开该行号区间的读者也能正确理解这条事实，不会因缺失上下文而断章取义。
+     - **引用充分且自洽的上下文**：所标注的行号区间必须自洽完整。不要只标注陈述关键信息的那一句，要把区间扩大到包含周边轮次（例如赋予该事实意义的提问或铺垫轮次），使得仅打开该行号区间的读者也能正确理解这条事实，不会因缺失上下文而断章取义。
 
   ## 提取什么
 
@@ -74,7 +76,7 @@ system_prompt_zh: |
 
   ## 正文格式
 
-  使用带标题的结构化分节。每条事实记录应是独立的列表项——完整且自包含。按主题分组。粗粒度地标注来源（见来源标注原则）：优先每个分节标题或每组条目只用一个标记，只写裸的 `[...]` 标记且不带 `Source` 标签，并且绝不在连续条目上重复相同标记。不要添加 `## Metadata` 部分。
+  使用带标题的结构化分节。每条事实记录应是独立的列表项——完整且自包含。按主题分组。粗粒度地标注来源（见来源标注原则）：优先每个分节标题或每组条目只用一个标记，只写裸的 `[[...]]` 标记且不带 `Source` 标签，并且绝不在连续条目上重复相同标记。不要添加 `## Metadata` 部分。
 
   ## Frontmatter 规则
 
@@ -94,7 +96,7 @@ user_message_create: |
   Today: {today}
   Extra hint: {note}
   Session ID: {session_id}
-  Session file: {session_file}   ← copy THIS exact path into every source marker (e.g. `[{session_file}:1-2,5-6]`)
+  Session file: {session_file}   ← copy THIS exact path into every source marker (e.g. `[[{session_file}#L1-L2,L5-L6]]`)
 
   # Recent Conversation
 
@@ -130,7 +132,7 @@ user_message_create: |
   ⚠️ CRITICAL: You MUST invoke `daily_write` as a **tool call** (function call). Do NOT write `daily_write name=...` as plain text — that will NOT execute the tool and NO memory will be saved.
 
   Body requirements — follow the system prompt's Extraction Principles, Body Format, and Frontmatter Rules (lossless entries; no pronouns; absolute dates; grouped by topic; no `## Metadata`). Two rules that MUST NOT be violated:
-  - Source markers: put a bare `[session/dialog/....jsonl:1-2,5-6]` at the END of an entry or heading — full path, no `L` prefix, no `Source` label, coarse (hoist a shared marker, never repeat it across bullets), and cite a self-contained line range.
+  - Source markers: put a bare `[[session/dialog/....jsonl#L1-L2,L5-L6]]` at the END of an entry or heading — double brackets, full path + `#`, `L`-prefixed hyphen ranges, no `Source` label, coarse (hoist a shared marker, never repeat it across bullets), and cite a self-contained line range copied verbatim from the `[Ln]` labels.
   - `description`: a thorough, lossless summary — specific enough that the description alone conveys all key information.
 
   ## Step 3 — Summary
@@ -144,7 +146,7 @@ user_message_create_zh: |
   今天：{today}
   额外提示：{note}
   Session ID：{session_id}
-  Session 文件：{session_file}   ← 请把这个完整路径原样复制进每个来源标记（例如 `[{session_file}:1-2,5-6]`）
+  Session 文件：{session_file}   ← 请把这个完整路径原样复制进每个来源标记（例如 `[[{session_file}#L1-L2,L5-L6]]`）
 
   # 最近的对话
 
@@ -180,7 +182,7 @@ user_message_create_zh: |
   ⚠️ 关键：你**必须**以**工具调用**（函数调用）方式调用 `daily_write`。不要将 `daily_write name=...` 作为纯文本输出——那样**不会**执行工具，也**不会**保存任何记忆。
 
   正文要求——遵循 system prompt 的提取原则、正文格式与 Frontmatter 规则（无损；不用代词；绝对日期；按主题分组；无 `## Metadata`）。以下两条**绝不能违反**：
-  - 来源标记：在条目或标题**末尾**放一个裸的 `[session/dialog/....jsonl:1-2,5-6]`——完整路径、无 `L` 前缀、无 `Source` 标签、粒度粗（上提共享标记、绝不在连续条目上重复），且引用自洽完整的行号区间。
+  - 来源标记：在条目或标题**末尾**放一个裸的 `[[session/dialog/....jsonl#L1-L2,L5-L6]]`——双层方括号、完整路径 + `#`、带 `L` 前缀的连字符区间、无 `Source` 标签、粒度粗（上提共享标记、绝不在连续条目上重复），且行号逐字复制自 `[Ln]` 标签、引用自洽完整的行号区间。
   - `description`：详尽的无损总结——具体到仅凭 description 就能传达全部核心信息。
 
   ## 步骤 3 — 总结
@@ -195,7 +197,7 @@ user_message_update: |
   Today: {today}
   Extra hint: {note}
   Target path: {note_path}
-  Session file: {session_file}   ← copy THIS exact path into every source marker (e.g. `[{session_file}:1-2,5-6]`)
+  Session file: {session_file}   ← copy THIS exact path into every source marker (e.g. `[[{session_file}#L1-L2,L5-L6]]`)
 
   # Recent Conversation
 
@@ -221,7 +223,7 @@ user_message_update: |
 
   The note already has content. Extract new information from the conversation and merge into it.
 
-  Extraction rules (apply to ALL new entries) — follow the system prompt's Extraction Principles and Body Format (lossless; no pronouns; absolute dates; grouped by topic). Source markers MUST be a bare `[session/dialog/....jsonl:1-2,5-6]` — full path, no `L` prefix, no `Source` label, coarse (never repeated across bullets), self-contained range.
+  Extraction rules (apply to ALL new entries) — follow the system prompt's Extraction Principles and Body Format (lossless; no pronouns; absolute dates; grouped by topic). Source markers MUST be a bare `[[session/dialog/....jsonl#L1-L2,L5-L6]]` — double brackets, full path + `#`, `L`-prefixed hyphen ranges copied verbatim from the `[Ln]` labels, no `Source` label, coarse (never repeated across bullets), self-contained range.
 
   Merge rules:
   - **Timeline / history entries**: append only, never delete existing entries.
@@ -230,6 +232,7 @@ user_message_update: |
 
   Execution:
   1. **Call the `edit` tool** for each section that needs updating, with parameters: `path`="{note_path}", `old`=<original fragment>, `new`=<replacement fragment>. You may call `edit` multiple times. Each call MUST be a tool call, not text.
+     - ⚠️ `edit` is for the note BODY only. NEVER touch the frontmatter block (the `---`-delimited YAML at the top of the file) with `edit` — a malformed YAML edit corrupts the whole note. All frontmatter changes MUST go through the `frontmatter_update` tool.
   2. After body changes, **call the `frontmatter_update` tool** to refresh frontmatter, with parameters: `path`="{note_path}", `metadata`={{"name": "<updated filename stem>", "description": "<updated summary>"}}.
      - Keep the existing `name` only when it is already the best concise topic/event filename stem. The system will rename the file after your final response.
      - Do not add today's date or the daily directory date to `name`.
@@ -239,7 +242,7 @@ user_message_update: |
 
   The file exists but its body is empty. Extract and write the full content by **calling the `write` tool** with parameters: `path`="{note_path}", `name`=<name>, `description`=<description>, `content`=<body>.
 
-  Body requirements — follow the system prompt's Extraction Principles, Body Format, and Frontmatter Rules (lossless; no pronouns; absolute dates; grouped by topic; no `## Metadata`). Source markers MUST be a bare `[session/dialog/....jsonl:1-2,5-6]` — full path, no `L` prefix, no `Source` label, coarse (never repeated across bullets), self-contained range. `description` must be a thorough, lossless summary that alone conveys all key information.
+  Body requirements — follow the system prompt's Extraction Principles, Body Format, and Frontmatter Rules (lossless; no pronouns; absolute dates; grouped by topic; no `## Metadata`). Source markers MUST be a bare `[[session/dialog/....jsonl#L1-L2,L5-L6]]` — double brackets, full path + `#`, `L`-prefixed hyphen ranges copied verbatim from the `[Ln]` labels, no `Source` label, coarse (never repeated across bullets), self-contained range. `description` must be a thorough, lossless summary that alone conveys all key information.
 
   ## Step 4 — Summary
 
@@ -254,7 +257,7 @@ user_message_update_zh: |
   今天：{today}
   额外提示：{note}
   目标路径：{note_path}
-  Session 文件：{session_file}   ← 请把这个完整路径原样复制进每个来源标记（例如 `[{session_file}:1-2,5-6]`）
+  Session 文件：{session_file}   ← 请把这个完整路径原样复制进每个来源标记（例如 `[[{session_file}#L1-L2,L5-L6]]`）
 
   # 最近的对话
 
@@ -280,7 +283,7 @@ user_message_update_zh: |
 
   笔记已有内容。从对话中提取新信息并合并进去。
 
-  提取规则（适用于所有新条目）——遵循 system prompt 的提取原则与正文格式（无损；不用代词；绝对日期；按主题分组）。来源标记必须是裸的 `[session/dialog/....jsonl:1-2,5-6]`——完整路径、无 `L` 前缀、无 `Source` 标签、粒度粗（不在连续条目上重复）、自洽完整的行号区间。
+  提取规则（适用于所有新条目）——遵循 system prompt 的提取原则与正文格式（无损；不用代词；绝对日期；按主题分组）。来源标记必须是裸的 `[[session/dialog/....jsonl#L1-L2,L5-L6]]`——双层方括号、完整路径 + `#`、带 `L` 前缀的连字符区间（行号逐字复制自 `[Ln]` 标签）、无 `Source` 标签、粒度粗（不在连续条目上重复）、自洽完整的行号区间。
 
   合并规则：
   - **时间线 / 历史条目**：仅追加，永远不删除已有条目。
@@ -289,6 +292,7 @@ user_message_update_zh: |
 
   执行：
   1. **调用 `edit` 工具**更新需要修改的部分，参数为：`path`="{note_path}"、`old`=<原文片段>、`new`=<替换片段>。可以多次调用 `edit`。每次调用必须是工具调用，不是文本。
+     - ⚠️ `edit` 只能用于笔记**正文**。**绝不**要用 `edit` 碰 frontmatter 块（文件顶部由 `---` 包围的 YAML）——格式错误的 YAML 会损坏整个笔记。所有 frontmatter 修改都必须通过 `frontmatter_update` 工具。
   2. 正文变更后，**调用 `frontmatter_update` 工具**刷新 frontmatter，参数为：`path`="{note_path}"、`metadata`={{"name": "<更新后的文件名 stem>", "description": "<更新后的总结>"}}。
      - 只有当前 `name` 已经是最合适的简洁主题/事件文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
      - 不要在 `name` 中加入今天日期或日记目录日期。
@@ -298,7 +302,7 @@ user_message_update_zh: |
 
   文件存在但正文为空。提取并**调用 `write` 工具**一次性写入完整内容，参数为：`path`="{note_path}"、`name`=<name>、`description`=<description>、`content`=<正文>。
 
-  正文要求——遵循 system prompt 的提取原则、正文格式与 Frontmatter 规则（无损；不用代词；绝对日期；按主题分组；无 `## Metadata`）。来源标记必须是裸的 `[session/dialog/....jsonl:1-2,5-6]`——完整路径、无 `L` 前缀、无 `Source` 标签、粒度粗（不在连续条目上重复）、自洽完整的行号区间。`description` 必须是仅凭自身即可传达全部核心信息的详尽无损总结。
+  正文要求——遵循 system prompt 的提取原则、正文格式与 Frontmatter 规则（无损；不用代词；绝对日期；按主题分组；无 `## Metadata`）。来源标记必须是裸的 `[[session/dialog/....jsonl#L1-L2,L5-L6]]`——双层方括号、完整路径 + `#`、带 `L` 前缀的连字符区间（行号逐字复制自 `[Ln]` 标签）、无 `Source` 标签、粒度粗（不在连续条目上重复）、自洽完整的行号区间。`description` 必须是仅凭自身即可传达全部核心信息的详尽无损总结。
 
   ## 步骤 4 — 总结
 
