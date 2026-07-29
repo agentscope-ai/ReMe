@@ -5,7 +5,7 @@ import os
 from ...base_step import BaseStep
 from ...index._dedup import _ToolContextDedupMixin
 from ....enumeration import ChunkEnum
-from ....utils.counter import global_counter_next
+from ....utils.counter import global_counter_inc
 
 
 class BaseAgenticAnswerStep(BaseStep):
@@ -46,7 +46,7 @@ class BaseAgenticAnswerStep(BaseStep):
         if self.app_context is not None:
             tool_context_id = (
                 f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_"
-                f"{global_counter_next(self.app_context.metadata, [self.TOOL_CONTEXT_PREFIX])}"
+                f"{global_counter_inc(self.app_context.metadata, [self.TOOL_CONTEXT_PREFIX])}"
             )
         else:
             tool_context_id = f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_local"

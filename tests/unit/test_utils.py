@@ -2,11 +2,19 @@
 
 import asyncio
 import sys
+import threading
 
 import numpy as np
 import pytest
 
 from reme.utils import common_utils
+from reme.utils.counter import (
+    COUNTER_TREE_KEY,
+    global_counter_add,
+    global_counter_get,
+    global_counter_get_all,
+    global_counter_inc,
+)
 from reme.utils.similarity_utils import batch_cosine_similarity, cosine_similarity
 
 
@@ -65,3 +73,114 @@ def test_mock_reme_server_uses_reme_entrypoint(monkeypatch):
     asyncio.run(run())
 
     assert captured["cmd"][:4] == [sys.executable, "-m", "reme.reme", "start"]
+
+
+def test_inc_returns_old_value_starting_at_zero():
+    """First call returns 0, then values increase by 1 per call."""
+    metadata: dict = {}
+
+    assert global_counter_inc(metadata, ["a"]) == 0
+    assert global_counter_inc(metadata, ["a"]) == 1
+    assert global_counter_inc(metadata, ["a"]) == 2
+
+
+def test_add_returns_old_value_and_adds_val():
+    """``add`` is fetch-and-add: old value out, ``val`` added in."""
+    metadata: dict = {}
+
+    assert global_counter_add(metadata, ["a"], 10) == 0
+    assert global_counter_add(metadata, ["a"], 5) == 10
+    assert global_counter_inc(metadata, ["a"]) == 15
+    assert global_counter_get(metadata, ["a"]) == 16
+
+
+def test_counters_are_isolated_by_key_path():
+    """Sibling and nested keys, plus the root, hold independent counters."""
+    metadata: dict = {}
+
+    assert global_counter_inc(metadata, ["a"]) == 0
+    assert global_counter_inc(metadata, ["b"]) == 0
+    assert global_counter_inc(metadata, ["a", "child"]) == 0
+    assert global_counter_inc(metadata, []) == 0
+
+    assert global_counter_get(metadata, ["a"]) == 1
+    assert global_counter_get(metadata, ["b"]) == 1
+    assert global_counter_get(metadata, ["a", "child"]) == 1
+    assert global_counter_get(metadata, []) == 1
+
+
+def test_get_does_not_create_missing_nodes():
+    """``get`` reports 0 for missing paths and leaves the tree untouched."""
+    metadata: dict = {}
+
+    assert global_counter_get(metadata, ["missing"]) == 0
+    assert COUNTER_TREE_KEY not in metadata
+
+    global_counter_inc(metadata, ["a"])
+    assert global_counter_get(metadata, ["a", "missing"]) == 0
+    assert "missing" not in metadata[COUNTER_TREE_KEY]["children"]["a"]["children"]
+
+
+def test_get_all_returns_none_for_missing_key():
+    """``get_all`` returns None when the tree or the path does not exist."""
+    metadata: dict = {}
+
+    assert global_counter_get_all(metadata, []) is None
+    assert global_counter_get_all(metadata, ["missing"]) is None
+
+    global_counter_inc(metadata, ["a"])
+    assert global_counter_get_all(metadata, ["missing"]) is None
+    assert global_counter_get_all(metadata, ["a", "missing"]) is None
+
+
+def test_get_all_returns_subtree_and_whole_tree():
+    """``get_all`` returns the node at ``key``; an empty key returns the root."""
+    metadata: dict = {}
+    global_counter_add(metadata, ["a"], 2)
+    global_counter_add(metadata, ["a", "child"], 3)
+
+    subtree = global_counter_get_all(metadata, ["a"])
+    assert subtree == {"value": 2, "children": {"child": {"value": 3, "children": {}}}}
+
+    root = global_counter_get_all(metadata, [])
+    assert root["value"] == 0
+    assert root["children"]["a"] == subtree
+
+
+def test_get_all_returns_deep_copy():
+    """Mutating the returned subtree must not affect the live counter tree."""
+    metadata: dict = {}
+    global_counter_add(metadata, ["a", "child"], 3)
+
+    subtree = global_counter_get_all(metadata, ["a"])
+    subtree["value"] = 999
+    subtree["children"]["child"]["value"] = 999
+    subtree["children"]["extra"] = {"value": 1, "children": {}}
+
+    assert global_counter_get(metadata, ["a"]) == 0
+    assert global_counter_get(metadata, ["a", "child"]) == 3
+    assert global_counter_get_all(metadata, ["a", "extra"]) is None
+
+
+def test_concurrent_inc_yields_unique_values():
+    """Parallel increments on one key never return duplicate values."""
+    metadata: dict = {}
+    results: list[int] = []
+    results_lock = threading.Lock()
+    calls_per_thread = 200
+
+    def worker():
+        for _ in range(calls_per_thread):
+            value = global_counter_inc(metadata, ["shared"])
+            with results_lock:
+                results.append(value)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    total = len(threads) * calls_per_thread
+    assert sorted(results) == list(range(total))
+    assert global_counter_get(metadata, ["shared"]) == total

@@ -18,6 +18,7 @@ from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
 from reme.schema import ComponentConfig
+from reme.utils import global_counter_get
 
 # -- helpers ------------------------------------------------------------------
 
@@ -128,6 +129,73 @@ def test_stream_job_merges_config_kwargs_into_context():
         done = await queue.get()
         assert done.done is True
         assert seen["default_value"] == "from-config"
+
+    asyncio.run(run())
+
+
+# -- Job call counters -------------------------------------------------------
+
+
+def test_base_job_records_calls_by_name():
+    async def run():
+        app_context = SimpleNamespace(metadata={})
+        job = BaseJob(name="search", app_context=app_context)
+
+        await job()
+        await job()
+
+        assert global_counter_get(app_context.metadata, ["__job_counter", "BaseJob", "search"]) == 2
+
+    asyncio.run(run())
+
+
+def test_stream_job_records_concrete_subclass_path():
+    async def run():
+        class ProjectStreamJob(StreamJob):
+            pass
+
+        app_context = SimpleNamespace(metadata={})
+        job = ProjectStreamJob(name="chat", app_context=app_context)
+
+        await job(stream_queue=asyncio.Queue())
+
+        assert global_counter_get(app_context.metadata, ["__job_counter", "StreamJob", "ProjectStreamJob", "chat"]) == 1
+
+    asyncio.run(run())
+
+
+def test_background_job_records_calls_by_name():
+    async def run():
+        app_context = SimpleNamespace(metadata={})
+        job = BackgroundJob(name="watch", app_context=app_context)
+
+        await job()
+
+        assert global_counter_get(app_context.metadata, ["__job_counter", "BackgroundJob", "watch"]) == 1
+
+    asyncio.run(run())
+
+
+def test_cron_job_records_each_triggered_execution():
+    async def run():
+        app_context = SimpleNamespace(metadata={})
+        job = CronJob(name="nightly", cron="* * * * *", app_context=app_context)
+        job._stop_event = asyncio.Event()
+        waits = 0
+
+        async def wait_once(_delay):
+            nonlocal waits
+            waits += 1
+            if waits > 1:
+                job._stop_event.set()
+
+        job._wait_or_stop = wait_once
+        job._next_fire_delay = lambda: 0.0
+        job._build_steps = lambda: []
+
+        await job()
+
+        assert global_counter_get(app_context.metadata, ["__job_counter", "CronJob", "nightly"]) == 1
 
     asyncio.run(run())
 
