@@ -27,7 +27,7 @@ _CALL_TIMEOUT = 600
 
 def _plugin_root() -> str:
     return os.environ.get("CODEX_PLUGIN_ROOT") or os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__))
+        os.path.dirname(os.path.abspath(__file__)),
     )
 
 
