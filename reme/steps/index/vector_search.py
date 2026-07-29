@@ -3,7 +3,8 @@
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
-from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, join_chunk_entries
+from ._source_format import merge_session_chunk_intervals, render_chunk_entries
 from ..base_step import BaseStep
 from ...components import R
 
@@ -48,11 +49,12 @@ class VectorSearchStep(_ToolContextDedupMixin, BaseStep):
             results = results[:limit]
 
         dialog_dir = self.config_value("dialog_dir")
-        self.context.response.answer = format_chunks_answer(
-            results,
+        entries = render_chunk_entries(
+            merge_session_chunk_intervals(results, dialog_dir),
             dialog_dir,
             include_source=self.include_source,
         )
+        self.context.response.answer = join_chunk_entries(entries)
         if not results:
             self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [

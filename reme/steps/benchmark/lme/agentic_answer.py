@@ -11,6 +11,16 @@ class LmeAgenticAnswerStep(BaseAgenticAnswerStep):
     The agent uses the ``agent_wrapper`` component in ReAct mode, calling the
     ``search`` job tool to retrieve relevant memory chunks before generating
     a final answer.
+
+    Every job tool call carries an injected ``_search`` payload that enables
+    session-transcript compression in ``search_v2_step`` and forwards the
+    original benchmark query as the compression relevance filter
+    (query-aware compression).
     """
 
     TOOL_CONTEXT_PREFIX = "lme_agentic_answer"
+
+    def _injected_job_kwargs(self, query: str) -> dict:
+        injected = super()._injected_job_kwargs(query)
+        injected["_search"] = {"_compress": {"session": "true"}, "queries": [query], "type": "query-aware"}
+        return injected

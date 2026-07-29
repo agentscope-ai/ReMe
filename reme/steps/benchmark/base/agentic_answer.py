@@ -13,6 +13,10 @@ class BaseAgenticAnswerStep(BaseStep):
 
     Subclasses only need to set:
         TOOL_CONTEXT_PREFIX (str): prefix used to build the unique tool_context_id.
+        JOB_TOOLS (list[str]): tools exposed to the ReAct agent; override to customize.
+        INJECTED_JOB_KWARGS (dict): server-owned kwargs injected into every job
+            tool call via ``injected_job_kwargs``; override the attribute or the
+            ``_injected_job_kwargs`` hook to customize.
 
     And apply their own ``@R.register(...)`` decorator and docstring.
 
@@ -29,6 +33,16 @@ class BaseAgenticAnswerStep(BaseStep):
     # backend's iteration-counting semantics; other backends ignore it.
     MAX_ITERATION = 10
     TOOL_CONTEXT_PREFIX: str = "content_agentic_answer"
+    JOB_TOOLS: list[str] = ["search", "add_draft", "read_all_draft", "read"]
+    INJECTED_JOB_KWARGS: dict = {}
+
+    def _injected_job_kwargs(self, query: str) -> dict:  # pylint: disable=unused-argument
+        """Server-owned kwargs injected into every job tool call.
+
+        Overridable hook: subclasses can extend the static
+        ``INJECTED_JOB_KWARGS`` with per-request values derived from ``query``.
+        """
+        return dict(self.INJECTED_JOB_KWARGS)
 
     async def execute(self):
         assert self.context is not None
@@ -54,10 +68,12 @@ class BaseAgenticAnswerStep(BaseStep):
             tool_context_id = f"{self.TOOL_CONTEXT_PREFIX}_{os.getpid()}_local"
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["search", "add_draft", "read_all_draft","read"],
+            "job_tools": list(self.JOB_TOOLS),
             "react_config": {"max_iters": self.MAX_ITERATION},
             "tool_context_id": tool_context_id,
         }
+        if injected_job_kwargs := self._injected_job_kwargs(f"Query: {query}, query time: {query_time}"):
+            wrapper_kwargs["injected_job_kwargs"] = injected_job_kwargs
 
         if self.context.stream:
             text = await self._stream_reply(query, **wrapper_kwargs)

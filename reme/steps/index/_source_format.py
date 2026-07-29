@@ -1,16 +1,20 @@
 """Shared helpers: render retrieved chunks and assemble search-step answers.
 
 Raw session transcripts (``*.jsonl`` under the dialog dir) store one serialized
-``Msg`` per line. :func:`render_chunk_body` turns those back into a readable
-dialog; all other chunks keep their raw ``text``. Used by
+``Msg`` per line. :func:`render_chunk_body` renders those line-aligned — one
+message per line with a ``L<n>:`` prefix carrying the real line number in the
+session file; all other chunks keep their raw ``text``. Used by
 ``search``/``vector_search``/``bm25_search`` so every step renders session hits
 identically.
 
-:func:`format_chunks_answer` assembles a full answer string from a list of
-chunks, with optional per-chunk score formatting and link expansion. Raw
-session chunks from the same file whose line ranges overlap, contain one
-another, or are adjacent are merged into their union before rendering (see
-:func:`_merge_session_chunk_intervals`) so a passage is never shown twice.
+:func:`render_chunk_entries` renders each chunk into a ``{"path",
+"start_line", "end_line", "score", "body", "link"}`` entry dict, with optional
+per-chunk score formatting and link expansion; :func:`join_chunk_entries`
+assembles the source headers and joins those entries into the final answer
+string. Chunks are rendered as given; callers that want raw session chunks from
+the same file with overlapping, contained, or adjacent line ranges collapsed
+into their union should pre-merge them via :func:`merge_session_chunk_intervals`
+so a passage is never shown twice.
 :data:`ALL_RETURNED_MESSAGE` is the English notice shown when tool_context dedup
 removes every previously-returned result. :data:`NO_RESULTS_MESSAGE` is the
 English notice shown when the search returned no results at all.
@@ -20,7 +24,6 @@ from typing import Callable, Final
 
 from agentscope.message import Msg
 
-from ..evolve._evolve import format_history
 from ...schema import FileChunk
 from ...utils.link_expansion import render_expansion_lines
 
@@ -35,36 +38,61 @@ ALL_RETURNED_MESSAGE: Final[str] = (
 NO_RESULTS_MESSAGE: Final[str] = "No relevant information was found for the given query."
 
 
-def is_session_chunk(chunk: FileChunk, dialog_dir: str) -> bool:
-    """True if the chunk comes from a raw session transcript (a jsonl file under the dialog dir)."""
-    path = (chunk.path or "").strip().strip("/")
+def is_session_path(path: str, dialog_dir: str) -> bool:
+    """True if the path points at a raw session transcript (a jsonl file under the dialog dir)."""
+    path = (path or "").strip().strip("/")
     if not path.endswith(".jsonl"):
         return False
     dialog_dir = (dialog_dir or "").strip("/")
     return path == dialog_dir or path.startswith(f"{dialog_dir}/")
 
 
-def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
-    """Render a chunk's body, compacting raw session transcripts into a readable form.
+def is_session_chunk(chunk: FileChunk, dialog_dir: str) -> bool:
+    """True if the chunk comes from a raw session transcript (a jsonl file under the dialog dir)."""
+    return is_session_path(chunk.path, dialog_dir)
 
-    Session chunks are jsonl where each line is a serialized ``Msg``. Parse every line
-    and render via :func:`format_history`; on any parse error (or no usable messages),
-    fall back to the chunk's raw ``text``.
+
+def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
+    """Render a chunk's body; raw session transcripts render line-aligned and numbered.
+
+    Session chunks are jsonl where each line is a serialized ``Msg``. They
+    render via :func:`render_session_chunk_lines` — one message per line with
+    internal newlines flattened — and every line gets a ``L<n>:`` prefix
+    carrying its real line number in the session file, so verbatim and
+    compressed session bodies share the same line-numbered format. All other
+    chunks keep their raw ``text``.
     """
     if not is_session_chunk(chunk, dialog_dir):
         return chunk.text
-    try:
-        messages: list[Msg] = []
-        for line in chunk.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            messages.append(Msg.model_validate_json(line))
-        if not messages:
-            return chunk.text
-        return format_history(messages)
-    except Exception:
-        return chunk.text
+    lines = render_session_chunk_lines(chunk)
+    return "\n".join(f"L{chunk.start_line + i}: {line}" for i, line in enumerate(lines))
+
+
+def render_session_chunk_lines(chunk: FileChunk) -> list[str]:
+    """Render a raw session chunk line-aligned with the original jsonl file.
+
+    Output line ``i`` maps to file line ``chunk.start_line + i`` (1-based).
+    Each jsonl line (one serialized ``Msg`` per line) becomes a single rendered
+    line ``[speaker @ created_at] content`` with internal whitespace and
+    newlines flattened to single spaces. Blank lines stay blank and
+    unparseable lines pass through stripped, so the file-line mapping is
+    never broken.
+    """
+    rendered: list[str] = []
+    for raw in chunk.text.splitlines():
+        line = raw.strip()
+        if not line:
+            rendered.append("")
+            continue
+        try:
+            msg = Msg.model_validate_json(line)
+        except Exception:
+            rendered.append(line)
+            continue
+        speaker = msg.name or msg.role or "?"
+        content = " ".join((msg.get_text_content() or "").split())
+        rendered.append(f"[{speaker} @ {msg.created_at}] {content}".rstrip())
+    return rendered
 
 
 def _build_union_chunk(group: list[FileChunk]) -> FileChunk:
@@ -97,7 +125,7 @@ def _build_union_chunk(group: list[FileChunk]) -> FileChunk:
     )
 
 
-def _merge_session_chunk_intervals(chunks: list[FileChunk], dialog_dir: str) -> list[FileChunk]:
+def merge_session_chunk_intervals(chunks: list[FileChunk], dialog_dir: str) -> list[FileChunk]:
     """Merge raw session chunks from the same file into their line-range union.
 
     Only chunks recognized as raw session transcripts (see
@@ -155,39 +183,71 @@ def _finalize_group(group: list[FileChunk]) -> FileChunk:
     return _build_union_chunk(group)
 
 
-def format_chunks_answer(
+def render_chunk_entries(
     chunks: list[FileChunk],
     dialog_dir: str,
     *,
     include_source: bool = True,
     score_fn: Callable[[FileChunk], str] | None = None,
     link_expansion: dict[str, dict] | None = None,
-) -> str:
-    """Render a list of chunks into a single answer string.
+) -> list[dict[str, str]]:
+    """Render each chunk into an entry dict of source fields, body, and link.
 
-    Raw session chunks from the same file that overlap, contain one another, or
-    are adjacent are merged into their union first (see
-    :func:`_merge_session_chunk_intervals`).
+    Chunks are rendered exactly as given, in input order. Callers that want
+    overlapping/contained/adjacent raw session chunks collapsed into their
+    union should pre-merge the list via :func:`merge_session_chunk_intervals`
+    before calling.
 
-    When *include_source* is ``True`` (default), each chunk is prefixed with a
-    source header showing path, line range, and score. When ``False``, only the
-    rendered bodies are included, separated by blank lines.
+    When *include_source* is ``True`` (default), each entry carries the source
+    fields ``path`` / ``start_line`` / ``end_line`` / ``score`` (the formatted
+    score string) plus ``body`` and ``link`` (the per-path expansion lines,
+    empty string when there is none). When ``False``, each entry carries only
+    ``body``.
 
-    *score_fn* customizes the score string in the header (default
-    ``"score={chunk.score:.4f}"``). *link_expansion* appends per-path expansion
-    lines after each chunk's header block (used by hybrid search).
+    *score_fn* customizes the formatted ``score`` string (default
+    ``"score={chunk.score:.4f}"``). *link_expansion* provides the per-path
+    expansion lines (used by hybrid search).
     """
-    chunks = _merge_session_chunk_intervals(chunks, dialog_dir)
     if not include_source:
-        return "\n\n".join(render_chunk_body(c, dialog_dir) for c in chunks)
+        return [{"body": render_chunk_body(c, dialog_dir)} for c in chunks]
 
     fmt = score_fn or (lambda c: f"score={c.score:.4f}")
-    lines: list[str] = []
+    entries: list[dict[str, str]] = []
     for c in chunks:
-        lines.append(
-            f"========== {c.path}:{c.start_line}-{c.end_line} "
-            f"[{fmt(c)}] ==========\n{render_chunk_body(c, dialog_dir)}",
+        entries.append(
+            {
+                "path": c.path,
+                "start_line": str(c.start_line),
+                "end_line": str(c.end_line),
+                "score": fmt(c),
+                "body": render_chunk_body(c, dialog_dir),
+                "link": "\n".join(render_expansion_lines((link_expansion or {}).get(c.path, {}))),
+            },
         )
-        if link_expansion:
-            lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
-    return "\n".join(lines)
+    return entries
+
+
+def join_chunk_entries(entries: list[dict[str, str]]) -> str:
+    """Assemble entries into the final answer string.
+
+    For each entry, a source header line is rebuilt from ``path`` /
+    ``start_line`` / ``end_line`` / ``score`` when ``path`` is present, then
+    followed by the non-empty ``body`` and ``link`` parts, joined with ``\\n``.
+    Entries are separated by a blank line; missing or empty parts are skipped.
+    """
+    parts: list[str] = []
+    for entry in entries:
+        tmp = []
+        if path := entry.get("path", "").strip():
+            tmp.append(
+                f"========== {path}:{entry.get('start_line', '')}-{entry.get('end_line', '')} "
+                f"[{entry.get('score', '')}] ==========",
+            )
+        for key in ("body", "link"):
+            value = entry.get(key, "").strip()
+            if not value:
+                continue
+            tmp.append(value)
+        if tmp:
+            parts.append("\n".join(tmp))
+    return "\n\n".join(parts)

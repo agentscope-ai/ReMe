@@ -2,7 +2,8 @@
 
 This is the local fork of the upstream search step. It uses
 :class:`_ToolContextDedupMixin` for subset-aware interval-merging dedup and
-:func:`format_chunks_answer` for session-aware chunk formatting with
+:func:`render_chunk_entries` / :func:`join_chunk_entries` for session-aware
+chunk formatting with
 :data:`ALL_RETURNED_MESSAGE` / :data:`NO_RESULTS_MESSAGE` notices.
 """
 
@@ -12,7 +13,8 @@ import os
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
-from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, is_session_path, join_chunk_entries
+from ._source_format import merge_session_chunk_intervals, render_chunk_entries, render_session_chunk_lines
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
@@ -209,12 +211,16 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         )
 
         dialog_dir = self.config_value("dialog_dir")
-        self.context.response.answer = format_chunks_answer(
-            fused,
+        merged_chunks = merge_session_chunk_intervals(fused, dialog_dir)
+        entries = render_chunk_entries(
+            merged_chunks,
             dialog_dir,
             score_fn=lambda c: self._format_scores(c.scores, hybrid),
             link_expansion=link_expansion,
         )
+        if self._session_compress_enabled():
+            await self._compress_session_entries(entries, merged_chunks, query, dialog_dir)
+        self.context.response.answer = join_chunk_entries(entries)
         if not fused:
             self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [
@@ -230,3 +236,97 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         if dedup is not None:
             self.context.response.metadata["dedup"] = dedup
         return self.context.response
+
+    def _session_compress_enabled(self) -> bool:
+        """True when the injected ``_search._compress.session`` flag is truthy."""
+        assert self.context is not None
+        search_cfg: dict = self.context.get("_search") or {}
+        value = (search_cfg.get("_compress") or {}).get("session")
+        return value is True or str(value).strip().lower() == "true"
+
+    async def _compress_session_entries(
+        self,
+        entries: list[dict[str, str]],
+        chunks: list[FileChunk],
+        query: str,
+        dialog_dir: str,
+    ) -> None:
+        """Compress session-transcript entry bodies in place via the ``compressor`` job.
+
+        Only entries whose ``path`` points at a raw session transcript are
+        compressed; other entries and all non-``body`` fields stay untouched.
+        When ``_search.type`` is ``query-independent`` the compressor runs
+        without queries (generic compression); otherwise (``query-aware``,
+        the default) it receives the injected ``_search.queries`` plus the
+        current search query.
+
+        The compressor input is the line-aligned rendering of the entry's
+        chunk (one message per line, see :func:`render_session_chunk_lines`),
+        so input line ``i`` maps to file line ``chunk.start_line + i``. The
+        output is adopted only when the compressor succeeded, its line count
+        equals the input's, and it is not longer than the input. Adopted
+        bodies get a ``L<line>:`` prefix per line carrying the true line
+        number in the original session jsonl file, plus a leading
+        ``compressed session chunk:`` marker, so downstream consumers can
+        tell them from verbatim transcripts and ``read`` the exact original
+        lines.
+        """
+        assert self.context is not None
+        search_cfg: dict = self.context.get("_search") or {}
+        query_type = str(search_cfg.get("type") or "query-aware").strip().lower()
+        if query_type == "query-independent":
+            queries: list[str] = []
+        else:
+            queries = [str(q).strip() for q in (search_cfg.get("queries") or []) if str(q).strip()]
+            if query and query not in queries:
+                queries.append(query)
+
+        async def compress(entry: dict[str, str], chunk: FileChunk) -> None:
+            path = entry.get("path", "")
+            lines = render_session_chunk_lines(chunk)
+            # Trim leading/trailing blank lines but track the offset so the
+            # L-markers stay aligned with the original file line numbers.
+            start = 0
+            end = len(lines)
+            while start < end and not lines[start].strip():
+                start += 1
+            while end > start and not lines[end - 1].strip():
+                end -= 1
+            if start >= end:
+                return
+            trimmed = lines[start:end]
+            text = "\n".join(trimmed)
+            response = await self.run_job("compressor", text=text, queries=queries)
+            compressed = str(response.answer or "").strip()
+            if not response.success or not compressed:
+                self.logger.warning(
+                    f"[{self.name}] session body compression failed path={path!r} "
+                    f"success={response.success} answer={compressed[:100]!r}; keeping original",
+                )
+                return
+            compressed_lines = compressed.splitlines()
+            if len(compressed_lines) != len(trimmed):
+                self.logger.warning(
+                    f"[{self.name}] compressed line count mismatch "
+                    f"({len(compressed_lines)} != {len(trimmed)}) path={path!r}; keeping original",
+                )
+                return
+            if len(compressed) > len(text):
+                self.logger.info(
+                    f"[{self.name}] compressed body longer than original "
+                    f"({len(compressed)} > {len(text)}) path={path!r}; keeping original",
+                )
+                return
+            first_line = chunk.start_line + start
+            numbered = "\n".join(f"L{first_line + i}: {line}" for i, line in enumerate(compressed_lines))
+            entry["body"] = f"compressed session chunk:\n{numbered}"
+
+        targets = [
+            (entry, chunk)
+            for entry, chunk in zip(entries, chunks)
+            if is_session_path(entry.get("path", ""), dialog_dir)
+        ]
+        if not targets:
+            return
+        self.logger.info(f"[{self.name}] compressing {len(targets)} session entries with {len(queries)} queries")
+        await asyncio.gather(*(compress(entry, chunk) for entry, chunk in targets))
