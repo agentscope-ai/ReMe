@@ -1,28 +1,4 @@
-"""MCP service: expose jobs as MCP tools.
-
-Channel binding (the `<channel source="reme" kind="workspace_change" ...>`
-push from background steps to a specific Claude Code window) is uniform
-across transports: a single `ChannelSink` lives on
-`ApplicationContext.metadata["channel_sink"]`, unbound at startup, and any
-client calling the `claim_channel` MCP tool binds itself as the recipient
-via `fastmcp.server.dependencies.get_context().session`. Last-claim-wins.
-
-Under stdio (one client per server process) the client should claim once
-after init; until then channel events drop silently. Under shared
-streamable-http / sse the human picks which window receives events.
-
-``ChannelSink`` is colocated here because it is the runtime mechanism
-behind this service's channel feature — pushes ``notifications/claude/channel``
-frames to the bound MCP session. Lossy by design: not bound → no-op;
-``send_message`` raises → log warning, swallow (failed notifications must
-not surface as ingest failures). Uses ``ServerSession.send_message``
-(low-level raw frame) instead of ``send_notification`` because the latter
-validates against a closed ``ServerNotification`` RootModel union that
-does not include ``notifications/claude/channel`` — Pydantic rejects
-custom methods. Meta keys are filtered to ``[A-Za-z0-9_]+``: Claude Code
-silently drops keys with hyphens / other chars when projecting onto
-``<channel>`` attrs.
-"""
+"""MCP service: expose jobs as MCP tools."""
 
 from typing import TYPE_CHECKING, Any
 
@@ -79,9 +55,7 @@ class MCPService(BaseService):
             conflicts = sorted(self.injected_job_kwargs.keys() & kwargs.keys())
             if conflicts:
                 names = ", ".join(conflicts)
-                raise ToolError(
-                    f"{names} injected by the MCP server and cannot be provided by the caller",
-                )
+                raise ToolError(f"{names} injected by the MCP server and cannot be provided by the caller")
             kwargs.update(self.injected_job_kwargs)
             response = await job(**kwargs)
             if self.tool_error_on_failure and not response.success:
