@@ -1,0 +1,16 @@
+{
+  "description": "On conversation stop, record this QwenPaw conversation into ReMe long-term memory (background, async).",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QWENPAW_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
