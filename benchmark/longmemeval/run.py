@@ -259,7 +259,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     """
     from reme import Application
     from reme.config import resolve_app_config
-    from reme.utils.evaluation_interface import check_job_count
+    from reme.utils.evaluation_interface import track_job_counts
 
     reme_cfg = eval_config["reme"]
     dream_trigger_hour = reme_cfg.get("dream_trigger_hour", 23)
@@ -433,13 +433,13 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             f"[Item {item_index}] Asking (agentic): {question[:80]}... query_time={query_time}",
         )
 
-        search_calls_before = check_job_count("search", app.context)
-        query_resp = await app.run_job(
-            "agentic_answer",
-            query=question,
-            query_time=query_time,
-        )
-        agentic_search_calls = check_job_count("search", app.context) - search_calls_before
+        with track_job_counts(["search"], app.context) as counts:
+            query_resp = await app.run_job(
+                "agentic_answer",
+                query=question,
+                query_time=query_time,
+            )
+        agentic_search_calls = counts["search"]
         agentic_response = (query_resp.answer or "").strip()
         if not agentic_response:
             agentic_response = "(no answer generated)"

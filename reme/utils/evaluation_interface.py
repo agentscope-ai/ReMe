@@ -28,3 +28,40 @@ def check_job_count(job_name: str, app_context: "ApplicationContext") -> int:
         raise TypeError(f"Job '{job_name}' does not inherit from a supported job implementation")
     # pylint: disable-next=protected-access
     return global_counter_get(app_context.metadata, job._counter_key(entry_class))
+
+
+class JobCountTracker:
+    """Measure registered job calls made while this context is active."""
+
+    def __init__(self, job_names: list[str], app_context: "ApplicationContext") -> None:
+        self.job_names = list(dict.fromkeys(job_names))
+        self.app_context = app_context
+        self._start_counts: dict[str, int] = {}
+        self.counts: dict[str, int] = {}
+
+    def __enter__(self) -> dict[str, int]:
+        self._start_counts = {name: check_job_count(name, self.app_context) for name in self.job_names}
+        return self.counts
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        self.counts.update(
+            {
+                name: check_job_count(name, self.app_context) - start_count
+                for name, start_count in self._start_counts.items()
+            },
+        )
+        return False
+
+
+def track_job_counts(job_names: list[str], app_context: "ApplicationContext") -> JobCountTracker:
+    """Return a context manager that reports call deltas for ``job_names``.
+
+    Example:
+
+    .. code-block:: python
+
+        with track_job_counts(["search"], app.context) as counts:
+            await app.run_job("agentic_answer", query="...")
+        assert counts == {"search": 2}
+    """
+    return JobCountTracker(job_names, app_context)

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from reme.components.job import BaseJob, StreamJob
-from reme.utils.evaluation_interface import check_job_count
+from reme.utils.evaluation_interface import check_job_count, track_job_counts
 
 
 def test_check_job_count_reads_registered_base_job_count():
@@ -49,3 +49,40 @@ def test_check_job_count_rejects_unknown_job_name():
 
     with pytest.raises(KeyError, match="Job 'missing' not found"):
         check_job_count("missing", app_context)
+
+
+def test_track_job_counts_returns_calls_made_inside_context():
+    """The context manager reports only the calls made in its body."""
+
+    async def run():
+        app_context = SimpleNamespace(metadata={}, jobs={})
+        search = BaseJob(name="search", app_context=app_context)
+        app_context.jobs[search.name] = search
+
+        await search()
+        with track_job_counts(["search"], app_context) as counts:
+            await search()
+            await search()
+
+        assert counts == {"search": 2}
+
+    asyncio.run(run())
+
+
+def test_track_job_counts_updates_results_when_body_raises():
+    """Calls made before an exception are still included in the delta."""
+
+    async def run():
+        app_context = SimpleNamespace(metadata={}, jobs={})
+        search = BaseJob(name="search", app_context=app_context)
+        app_context.jobs[search.name] = search
+        counts = {}
+
+        with pytest.raises(RuntimeError, match="boom"):
+            with track_job_counts(["search"], app_context) as counts:
+                await search()
+                raise RuntimeError("boom")
+
+        assert counts == {"search": 1}
+
+    asyncio.run(run())

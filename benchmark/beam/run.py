@@ -252,17 +252,16 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 
     Returns (answer, metadata)
     """
-    from reme.utils.evaluation_interface import check_job_count
+    from reme.utils.evaluation_interface import track_job_counts
 
-    search_calls_before = check_job_count("search", app.context)
-    query_resp = await app.run_job(
-        "agentic_answer",
-        query=question,
-    )
+    with track_job_counts(["search"], app.context) as counts:
+        query_resp = await app.run_job(
+            "agentic_answer",
+            query=question,
+        )
     answer = (query_resp.answer or "").strip()
-    search_calls = check_job_count("search", app.context) - search_calls_before
 
-    return answer, {"mode": "agentic", "search_calls": search_calls}
+    return answer, {"mode": "agentic", "search_calls": counts["search"]}
 
 
 # ---------------------------------------------------------------------------
