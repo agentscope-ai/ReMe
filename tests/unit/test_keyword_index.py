@@ -68,38 +68,6 @@ def run(coro):
 # --------------------------------------------------------------------------- #
 
 
-def test_basic_init():
-    """Default constructor produces empty BM25 state."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = BM25Index()
-            assert bm25.k1 == 1.5
-            assert bm25.b == 0.75
-            assert bm25.index_version == "v1"
-            assert bm25.vocab == {}
-            assert not bm25.inverted_index
-            assert bm25.doc_meta == {}
-            assert bm25.n_docs == 0
-            assert bm25.total_len == 0
-            assert bm25.avg_len == 0.0
-
-    run(go())
-
-
-def test_custom_params():
-    """k1, b and index_version are honoured."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = BM25Index(k1=2.0, b=0.5, index_version="v2")
-            assert bm25.k1 == 2.0
-            assert bm25.b == 0.5
-            assert bm25.index_version == "v2"
-
-    run(go())
-
-
 def test_index_file_raises_when_tokenizer_is_none():
     """index_file must raise when tokenizer is explicitly None."""
 

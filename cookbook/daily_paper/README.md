@@ -1,0 +1,376 @@
+# Daily Paper Cookbook
+
+[中文](README_ZH.md)
+
+Daily Paper is a local-first, file-native workflow for turning research rankings into a daily reading package.
+
+## Capabilities
+
+- Collect papers from the Hugging Face weekly and monthly rankings while excluding yesterday's papers and recent
+  recommendations.
+- Rank and select candidates, then use Claude Code to produce detailed Chinese notes and a five-minute Chinese brief.
+- Keep PDFs, notes, and memories as ordinary user-owned files; indexes and caches remain rebuildable.
+- Support daily scheduling, optional DingTalk delivery, conversation memory, auto-dream consolidation, and BM25 recall
+  for the background DingTalk agent.
+
+The workflow is assembled by [`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml). Its schemas live in
+[`reme/schema/daily_paper.py`](../../reme/schema/daily_paper.py), and its steps live in
+[`reme/steps/cookbook/daily_paper/`](../../reme/steps/cookbook/daily_paper/).
+
+## Quick start
+
+Daily Paper requires Python 3.11 or later, the `core` dependencies, network access to Hugging Face and arXiv, and
+credentials for the configured Claude Code endpoint. Auto-memory and auto-dream additionally require the AgentScope LLM
+credentials.
+
+From the repository root:
+
+```bash
+python -m pip install -e ".[core]"
+export CLAUDE_CODE_API_KEY="your-api-key"
+reme start config=daily_cookbook job=daily_paper
+```
+
+The built-in configuration uses `qwen3.7-max` through DashScope's Anthropic-compatible endpoint. Override
+`CLAUDE_CODE_MODEL_NAME` and `CLAUDE_CODE_BASE_URL` when using another compatible model or provider.
+
+This is enough to generate paper notes and the daily brief. To use auto-memory and auto-dream, also configure:
+
+```bash
+export LLM_API_KEY="your-api-key"
+```
+
+By default, outputs are written under `reme_workspace/` in the directory where ReMe starts.
+
+### Optional SSH proxy
+
+The outbound proxy is disabled by default. To enable it, uncomment `components.outbound_proxy.default` in
+`daily_cookbook.yaml`, configure non-interactive SSH authentication, and set:
+
+```bash
+export REME_PROXY_IP="your-ssh-proxy-host"
+export REME_PROXY_ACCOUNT="your-ssh-account"
+```
+
+## What it creates
+
+A successful run writes ordinary PDFs and Markdown files beneath `workspace_dir`:
+
+```text
+reme_workspace/
+├── daily/
+│   ├── YYYY-MM-DD.md
+│   └── YYYY-MM-DD/
+│       ├── daily-paper-brief.md
+│       ├── paper-<arxiv-id>.md
+│       └── ...
+├── resource/
+│   └── papers/
+│       ├── <arxiv-id>.pdf
+│       └── ...
+├── digest/
+│   ├── personal/
+│   ├── project/
+│   ├── resource/
+│   └── wiki/
+├── metadata/
+│   └── ... derived catalogs, indexes, and caches
+└── mem_session/
+    ├── agentscope/
+    └── claude_config/
+```
+
+- `paper-<arxiv-id>.md` is a detailed Chinese reading note with YAML frontmatter linking back to the source PDF and
+  paper pages.
+- `daily-paper-brief.md` is a roughly five-minute Chinese digest with wikilinks to every selected paper note.
+- `daily/YYYY-MM-DD.md` is a derived day index rebuilt from the Markdown files for that date.
+- `resource/papers/` holds reusable source PDFs.
+- `digest/` contains durable auto-dream output; files there remain ordinary user-owned Markdown.
+- `metadata/` and search caches are derived state. `reindex` rebuilds the file store, BM25 index, and graph from source
+  files.
+
+The paper notes are the source of truth for recommendation history: their frontmatter contains the `arxiv_id` values
+used for future deduplication. The day index is derived and can be rebuilt. The workflow does not currently write a
+separate run manifest.
+
+## How the workflow works
+
+```mermaid
+flowchart LR
+    HF[Hugging Face<br/>weekly + monthly] --> C[1. Collect]
+    Y[Yesterday's papers] --> C
+    H[Recent local notes] --> C
+    C --> R[2. Rank]
+    R --> S[3. Select]
+    S --> A[4. Analyze PDFs]
+    A --> D[5. Build brief]
+    D --> N[6. Notify DingTalk]
+    A --> P[PDFs + paper notes]
+    D --> B[Brief + day index]
+```
+
+### 1. Collect and deduplicate
+
+The Collect step fetches the weekly ranking for the run date's ISO week, the monthly ranking for its calendar month, and
+the Hugging Face Daily Papers IDs for exactly the previous calendar day. It merges weekly and monthly metadata by arXiv
+ID and preserves each list's display rank.
+
+It then scans `daily/<prior-date>/paper-*.md` over the configured history window and excludes IDs found in note
+frontmatter. The job fails clearly if no eligible papers remain.
+
+### 2. Rank candidates
+
+The Rank step uses reciprocal-rank fusion:
+
+```text
+score = 1 / (rrf_k + monthly_rank)
+      + weekly_weight / (rrf_k + weekly_rank)
+```
+
+A missing rank contributes zero. Candidates are ordered by fused score, upvotes, and arXiv ID. The bounded candidate
+pool also reserves several positions for papers whose titles or summaries match memory-related terms such as agent
+memory, memory retrieval, continual learning, context compression, knowledge graphs, and RAG. This reserve is a simple
+keyword heuristic, not a semantic classifier.
+
+### 3. Select papers
+
+Claude Code receives the bounded candidate pool and returns a structured `PaperSelection`. The implementation requires
+exactly `top_k` unique in-pool IDs with consecutive ranks. Invalid output is returned to the agent once as validation
+feedback; a second invalid response fails the job.
+
+### 4. Download and analyze PDFs
+
+Selected papers are processed sequentially. For each paper, the workflow:
+
+1. validates the modern arXiv ID format;
+2. downloads and validates the PDF, or reuses an existing file with a valid `%PDF-` header;
+3. extracts text with `pypdf`, adding page markers and applying page and character limits;
+4. asks Claude Code for a structured detailed reading; and
+5. writes normalized frontmatter plus the generated Markdown body.
+
+The current extractor requires a usable PDF text layer. Scanned or image-only PDFs fail because there is no OCR
+fallback. If extraction exceeds a configured limit, the note records that the input was truncated.
+
+### 5. Build the brief and index
+
+Claude Code reads every detailed note and produces the daily brief. The code verifies that each source-note wikilink is
+present and appends any missing links before writing the file. It then rebuilds `daily/YYYY-MM-DD.md` from that day's
+Markdown frontmatter.
+
+### 6. Optionally notify DingTalk
+
+The final step sends the brief body, without YAML frontmatter, to each configured DingTalk group in order. With no
+conversation IDs it is a no-op. If one group fails, the step still attempts the remaining groups and reports the
+combined failure afterward.
+
+## Memory and search
+
+The standalone configuration separates agent wrappers by responsibility:
+
+- `daily_paper` selects papers, analyzes them, and builds the brief. It keeps Claude Code's normal local tools and
+  disables `WebSearch`, but currently has no memory-retrieval job configured.
+- `dingtalk_wait` runs the background DingTalk agent and exposes `memory_search` as a callable tool.
+- `memory` runs auto-memory and the LLM-backed auto-dream steps through AgentScope. Its built-in shell and file tools
+  are disabled; memory changes go through the narrower ReMe jobs such as `daily_write`, `read`, `edit`, and `write`.
+
+The built-in `memory_search` job uses BM25 over Markdown under `daily/` and `digest/`. ReMe's search step can fuse
+vector results, but this cookbook does not configure an embedding store by default, so vector retrieval is not run.
+`node_search` is a narrower digest recall tool used internally by auto-dream.
+
+`index_update_loop` indexes existing memory files when the service starts and watches those directories for later
+changes. Run `reindex` when recovering the derived file store or forcing a complete index rebuild. Source Markdown and
+PDFs are not deleted by `reindex`.
+
+`auto_memory` writes or updates one daily note from caller-supplied conversation messages and a stable `session_id`.
+`auto_dream` scans recent daily notes, integrates durable units under `digest/`, and writes interest topics. Both are
+on-demand jobs in this cookbook; no auto-dream cron is configured. The DingTalk agent can recall through
+`memory_search`, but it does not automatically call `auto_memory` after a conversation.
+
+## Dates, reruns, and idempotency
+
+- `date` must be an exact `YYYY-MM-DD` value. When omitted, the job uses today in the application timezone, which is
+  `Asia/Shanghai` in the built-in configuration.
+- “Yesterday” means `date - 1 day`, not the previous 24 hours.
+- `history_days` considers prior dated note directories only; the current run date is never part of its history scan.
+- If `daily/<date>/daily-paper-brief.md` already exists and `force=false`, collection, ranking, model calls, PDF work,
+  and digest generation are skipped. The existing brief remains available to the DingTalk notification step.
+- `force=true` regenerates the notes and brief. Existing valid PDFs are still reused.
+
+Each PDF, detailed note, and final brief uses a temporary file followed by replacement so callers do not see a partially
+written file. The complete multi-file workflow is not transactional, and there is no global lock for two concurrent runs
+of the same date.
+
+## Running the cookbook
+
+The main jobs in the standalone configuration are:
+
+| Job                 | Behavior                                                        |
+|---------------------|-----------------------------------------------------------------|
+| `daily_paper`       | On-demand generation through the CLI or HTTP service            |
+| `daily_paper_cron`  | The same pipeline every day at 08:00 in `Asia/Shanghai`         |
+| `dingtalk_wait`     | A supervised background DingTalk agent with `memory_search`     |
+| `auto_memory`       | Write or update a daily note from conversation messages         |
+| `auto_dream`        | Consolidate recent daily notes into digest memory and interests |
+| `memory_search`     | BM25 recall over daily and digest Markdown                      |
+| `reindex`           | Rebuild derived search state from existing memory files         |
+| `index_update_loop` | Initialize and continuously update search state in service mode |
+
+Supporting jobs such as `node_search`, `daily_list`, `daily_write`, `read`, `write`, `edit`, and frontmatter updates
+provide the constrained tools used by the memory agent.
+
+### One-time runs
+
+The quick-start command generates today's brief. To generate a specific date with selected overrides:
+
+```bash
+reme start \
+  config=daily_cookbook \
+  job=daily_paper \
+  date=2026-07-21 \
+  top_k=3 \
+  history_days=30
+```
+
+Regenerate a date whose brief already exists:
+
+```bash
+reme start config=daily_cookbook job=daily_paper date=2026-07-21 force=true
+```
+
+Add `service.show_metadata=true` to a one-time command when the response metadata is useful for diagnostics.
+
+### Long-running service and cron
+
+Start the standalone HTTP service and its scheduled/background jobs:
+
+```bash
+reme start config=daily_cookbook
+```
+
+It listens on `127.0.0.1:8001` by default, so it can run beside the default ReMe service. Call the on-demand job from
+another terminal with either the ReMe client or HTTP:
+
+```bash
+reme daily_paper host=127.0.0.1 port=8001
+```
+
+```bash
+curl -s http://127.0.0.1:8001/daily_paper \
+  -H 'Content-Type: application/json' \
+  -d '{"date":"2026-07-21","top_k":3,"force":false}'
+```
+
+Recall memory, record a conversation, consolidate it, or explicitly rebuild the search index:
+
+```bash
+reme memory_search host=127.0.0.1 port=8001 query="agent memory" limit=5
+
+reme auto_memory host=127.0.0.1 port=8001 \
+  session_id=example-session \
+  messages='[{"name":"user","role":"user","content":"I prefer concise paper summaries."}]'
+
+reme auto_dream host=127.0.0.1 port=8001 date=2026-07-21
+reme reindex host=127.0.0.1 port=8001
+```
+
+Service and schedule settings can be overridden at startup:
+
+```bash
+reme start \
+  config=daily_cookbook \
+  service.host=0.0.0.0 \
+  service.port=8101 \
+  jobs.daily_paper_cron.cron="30 7 * * *"
+```
+
+## Configuration
+
+The most useful job settings are:
+
+| Setting           |      Default | Purpose                                                      |
+|-------------------|-------------:|--------------------------------------------------------------|
+| `candidate_limit` |         `20` | Maximum number of papers sent to selection                   |
+| `memory_reserve`  |          `5` | Candidate positions reserved by the memory-keyword heuristic |
+| `top_k`           |          `3` | Number of papers selected and analyzed                       |
+| `rrf_k`           |         `60` | Reciprocal-rank fusion constant                              |
+| `weekly_weight`   |        `0.7` | Weight of the weekly ranking in fusion                       |
+| `history_days`    |         `30` | Prior recommendation window excluded by arXiv ID             |
+| `hf_timeout`      | `30` seconds | Hugging Face request timeout                                 |
+| `hf_max_retries`  |          `3` | Maximum Hugging Face request attempts                        |
+| `pdf_timeout`     | `90` seconds | arXiv download timeout                                       |
+| `max_pdf_bytes`   |   `52428800` | Maximum PDF size (50 MiB)                                    |
+| `max_pdf_pages`   |         `80` | Maximum pages extracted for analysis                         |
+| `max_pdf_chars`   |     `240000` | Maximum extracted characters sent for one paper              |
+
+The public job parameters are `date`, `force`, `top_k`, `weekly_weight`, and `history_days`. Explicit invocation values
+take precedence over the job defaults.
+
+The standalone application also accepts these environment variables:
+
+| Variable                                | Purpose                                        |
+|-----------------------------------------|------------------------------------------------|
+| `DAILY_PAPER_WORKSPACE_DIR`             | Overrides the default `reme_workspace`         |
+| `DAILY_PAPER_PROJECT_PATH`              | Repository/project path visible to Claude Code |
+| `REME_PROXY_IP`                         | Optional SSH proxy host                        |
+| `REME_PROXY_ACCOUNT`                    | Optional SSH proxy account                     |
+| `DAILY_PAPER_HOST` / `DAILY_PAPER_PORT` | HTTP bind address                              |
+| `CLAUDE_CODE_API_KEY`                   | API key for the Claude Code endpoint           |
+| `CLAUDE_CODE_MODEL_NAME`                | Claude Code model; default `qwen3.7-max`       |
+| `CLAUDE_CODE_BASE_URL`                  | Claude Code Anthropic-compatible endpoint      |
+| `LLM_API_KEY`                           | API key for the AgentScope memory model        |
+| `LLM_MODEL_NAME`                        | Memory model; default `qwen3.7-max`            |
+| `LLM_BASE_URL`                          | Memory model's Anthropic-compatible endpoint   |
+
+`DAILY_PAPER_PROJECT_PATH` defaults to `..` relative to the workspace. With the default `reme_workspace`, starting from
+the repository root resolves it back to the repository. If the workspace lives elsewhere, set both paths explicitly.
+
+ReMe loads an uncommitted `.env` file found from the current directory upward, so the same values may be placed there
+instead of exported in the shell.
+
+## DingTalk configuration
+
+DingTalk is optional. Configure it only when brief delivery or the background DingTalk agent is needed:
+
+```dotenv
+DINGTALK_APP_KEY=your-app-key
+DINGTALK_APP_SECRET=your-app-secret
+DINGTALK_ROBOT_CODE=your-robot-code
+DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
+```
+
+`DINGTALK_CONVERSATION_IDS` is required only for proactive brief delivery. The background `dingtalk_wait` job uses the
+first three credentials but not the conversation list.
+
+## Failure recovery and boundaries
+
+| Situation                            | Behavior                                                       |
+|--------------------------------------|----------------------------------------------------------------|
+| Temporary Hugging Face failure       | Retries with exponential delay up to `hf_max_retries` attempts |
+| No eligible papers                   | Fails before ranking                                           |
+| Invalid `top_k` or selection output  | Fails after validation; selection output gets one retry        |
+| Oversized, invalid, or textless PDF  | Stops during analysis                                          |
+| PDF exceeds page or character limits | Continues with truncated text and records the truncation       |
+| One paper analysis fails             | Stops the job; earlier PDFs and notes remain on disk           |
+| Brief misses a source-note link      | Appends the missing wikilink before writing                    |
+| Auto-dream partial integration       | Successful units remain; failed paths are not checkpointed     |
+
+To recover, inspect the date's notes and PDFs, fix the network, credential, model, or PDF issue, then rerun the same
+date with `force=true`. Valid cached PDFs will be reused.
+
+The built-in Claude Code components run with `permission_mode: bypassPermissions` and disable `WebSearch`.
+`dingtalk_wait` can call the local `memory_search` job; `daily_paper` currently has no job tools. The analysis and brief
+prompts constrain what the agent should read, but these steps do not set a strict per-call tool allowlist or an
+operating-system sandbox. The AgentScope memory wrapper disables its built-in shell and filesystem tools, but runs its
+ReMe job tools in bypass permission mode. Run the cookbook only with a trusted project and workspace, and tighten the
+agent configuration before shared or production use.
+
+## Tests
+
+The focused unit suite mocks Hugging Face, arXiv, Claude Code, and DingTalk boundaries:
+
+```bash
+python -m pip install -e ".[dev,core]"
+pytest tests/unit/test_daily_paper.py -v
+```
+
+Real runs access external services and may incur model costs; they should not be used as ordinary unit tests.

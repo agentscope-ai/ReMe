@@ -1,0 +1,32 @@
+topic_user: |
+  你只负责筛选与当前新闻直接相关的代表性 ETF，并说明每条相关新闻与 ETF 的关系。
+  不搜索或补充新闻、不下载数据、不计算收益、不提供预测或投资建议。
+
+  输入文件：
+  - 新闻（时间窗口为 ({window_start}, {decision_at}]）：{filtered_news_path}
+  - 候选 ETF：{filtered_etf_path}
+
+  输出要求：
+  1. 从候选 ETF 中选择与新闻有明确传导关系的代表性 ETF，不要为了凑数纳入弱相关 ETF。
+  2. 为每只 ETF 返回相关新闻的 news_id，并用 reason 简洁说明直接传导关系。
+  3. 返回以下 JSON：
+     ```json
+     {{
+       "etfs": [
+         {{
+           "etf_code": "518880.SH",
+           "etf_name": "华安易富黄金ETF",
+           "events": [
+             {{
+               "reason": "避险需求直接影响黄金价格",
+               "news_id": "20260724070000_4d19"
+             }},
+             {{
+               "reason": "美元变化影响黄金计价",
+               "news_id": "20260724072145_6fa5"
+             }}
+           ]
+         }}
+       ]
+     }}
+     ```

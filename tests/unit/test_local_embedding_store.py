@@ -29,6 +29,27 @@ class BadHealthAsEmbedding:
         return [[1.0]]
 
 
+class InsufficientQuotaError(Exception):
+    """OpenAI-compatible quota error used without importing the provider SDK."""
+
+    body = {"error": {"code": "insufficient_quota"}}
+
+
+class QuotaThenSuccessAsEmbedding:
+    """Fail once for quota, then return a valid embedding."""
+
+    dimensions = 2
+
+    def __init__(self):
+        self.calls = 0
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            raise InsufficientQuotaError("quota exhausted")
+        return [[1.0, 0.0] for _ in texts]
+
+
 class BadNodeEmbeddingStore(BaseEmbeddingStore):
     """Embedding store that returns wrong-dimensional vectors."""
 
@@ -105,5 +126,55 @@ def test_health_check_rejects_wrong_dimension():
 
         assert await store.health_check() is False
         assert store.is_healthy is False
+
+    run(go())
+
+
+def test_insufficient_quota_waits_sixty_seconds_before_retry(monkeypatch):
+    """Quota exhaustion uses the dedicated delay before ReMe retries."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(
+            name="t_local_embedding_quota",
+            max_retries=2,
+            quota_retry_delay=60.0,
+        )
+        embedding = QuotaThenSuccessAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        result = await store._call_with_retry(["text"])
+
+        assert result == [[1.0, 0.0]]
+        assert embedding.calls == 2
+        assert sleeps == [60.0]
+
+    run(go())
+
+
+def test_insufficient_quota_does_not_retry_without_opt_in(monkeypatch):
+    """The default store behavior remains unchanged for embedded consumers."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(name="t_local_embedding_default_quota", max_retries=2)
+        embedding = QuotaThenSuccessAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        result = await store._call_with_retry(["text"])
+
+        assert result is None
+        assert embedding.calls == 1
+        assert not sleeps
 
     run(go())

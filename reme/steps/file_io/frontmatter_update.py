@@ -17,14 +17,20 @@ from pathlib import Path
 import frontmatter
 
 from ._file_io import get_path_lock
-from ._path import resolve_path
+from ._path import _check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("frontmatter_update_step")
 class FrontmatterUpdateStep(BaseStep):
-    """Set frontmatter keys on a markdown file from a ``metadata`` dict."""
+    """Set frontmatter keys on a markdown file from a ``metadata`` dict.
+
+    Permission: honors the request-scoped ``_allowed_paths`` constraint
+    injected by the server into the RuntimeContext;
+    without it, restricting read/edit/write alone would still leave
+    frontmatter of arbitrary workspace Markdown files mutable.
+    """
 
     async def execute(self):
         assert self.context is not None
@@ -37,6 +43,8 @@ class FrontmatterUpdateStep(BaseStep):
         target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
+        elif not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+            payload = {"path": path, "error": "no permission to update this file"}
         else:
             lock = await get_path_lock(target)
             async with lock:

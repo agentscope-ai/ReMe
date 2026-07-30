@@ -30,6 +30,8 @@ workspace files
 
 ## 索引怎么构建
 
+### 索引更新
+
 索引由后台 Job `index_update_loop` 维护，配置来自 `reme/config/default.yaml`：
 
 ```yaml
@@ -63,6 +65,20 @@ index_update_loop:
 Markdown chunker 会解析 YAML frontmatter、标题结构和 `[[...]]`，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
 [Memory as File](./memory_as_file.md#memory-chunking)。
 
+### 索引优化
+
+BM25 和 FAISS HNSW 向量索引在删除节点时都采用墓碑（tombstone）标记而非物理移除，积累过多会拖慢搜索。为此内置了闲暇时间索引优化机制——`optimize_index_cron` 定时任务在低峰期压缩墓碑并重建索引：
+
+```yaml
+optimize_index_cron:
+  backend: cron
+  cron: "0 2 * * *"
+  steps:
+    - backend: optimize_index_step
+```
+
+默认每天凌晨 2 点执行，调整 cron 表达式即可自定义调度时间。
+
 ## file_store 里有什么
 
 默认 `file_store.default` 是 `local`：
@@ -85,7 +101,7 @@ file_store:
 | `file_graph.default`    | 启用   | 保存 `FileNode` 和 wikilink 边           |
 | `embedding_store`       | 默认关闭 | 开启后为 chunk 生成 embedding，并支持向量召回      |
 
-所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。
+所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。此时若将 `file_store` 的 `backend` 从 `local` 改为 `faiss`，向量检索会从线性扫描升级为 FAISS HNSW 索引，在大规模 chunk 场景下召回效率更高。
 
 ## 怎么搜索
 

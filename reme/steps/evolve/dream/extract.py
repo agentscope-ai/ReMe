@@ -104,6 +104,7 @@ class DreamExtractStep(BaseStep):
             return self._finish(state, True, f"No changed dream input for {', '.join(dates)}")
         if not llm_available(self):
             state.errors.append("no llm configured; dream extract requires an LLM")
+            state.failed_paths = list(changed)
             self.logger.warning(f"[{self.name}] skip no llm changed={len(changed)}")
             return self._finish(state, False, state.errors[-1])
 

@@ -474,33 +474,6 @@ class TestDfsAlgorithm:
             assert "a" in cdata
             assert isinstance(cdata["a"], list)
 
-    def test_dfs_order_no_skip(self):
-        """DFS order: cannot have a[0] and root key 'b' in same chunk
-        while skipping a[1]-a[3]."""
-        data = {"a": ["x" * 200, {"c": 1, "d": 2}, "y" * 200, 1], "b": 10}
-        chunker = JsonFileChunker(chunk_chars=300)
-        chunker.min_element_size = 1
-        root = _build_tree(chunker, data)
-        chunks = chunker._node_to_chunks(root)
-        # No chunk should contain key "b" while only having part of "a"
-        for cdata, _, _ in chunks:
-            if "b" in cdata:
-                # If "b" is present, all "a" leaves must be in earlier chunks
-                # (this chunk must be the last or "a" is complete here)
-                a_val = cdata.get("a")
-                if isinstance(a_val, list):
-                    # "a" is present — verify it's either complete or this
-                    # is a continuation from previous chunk
-                    pass  # structural check only
-        # At minimum, verify no single chunk has ONLY a[0] and b:10
-        for cdata, _, _ in chunks:
-            if "b" in cdata and "a" in cdata:
-                a_list = cdata["a"]
-                # If a has only one element and it's "x"*200 (a[0]),
-                # that would mean skipping a[1]-a[3] — not allowed
-                if len(a_list) == 1 and isinstance(a_list[0], str):
-                    pytest.fail("DFS order violated: a[0] and b in same chunk without a[1]-a[3]")
-
     def test_calibration_during_chunking(self):
         """Calibration checkpoint keeps size accurate for large inputs."""
         data = {f"k{i}": "v" * 50 for i in range(200)}

@@ -703,6 +703,39 @@ def test_read_start_line_exceeds_total():
     _run(run())
 
 
+def test_read_trailing_newline_does_not_inflate_total_lines():
+    """A trailing '\\n' must not count as an extra line (small-file path).
+
+    ``line1\\nline2\\nline3\\n`` is 3 lines, matching both the large-file
+    path (line-by-line iteration) and the indexer's chunker. Before the fix,
+    ``content.split("\\n")`` counted the trailing empty element too, so the
+    boundary message reported 4 and start_line=4 (one past real EOF) was
+    silently accepted instead of rejected.
+    """
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            _seed_md(Path(tmp), "Short.md", "line1\nline2\nline3\n")
+            store = await _make_store()
+
+            resp = await _read(store, path="Short.md", start_line=99)
+            assert resp.success is False
+            assert "exceeds file length (3 lines)" in str(resp.answer)
+
+            past_eof = await _read(store, path="Short.md", start_line=4)
+            assert past_eof.success is False
+            assert "exceeds file length (3 lines)" in str(past_eof.answer)
+
+            in_range = await _read(store, path="Short.md", start_line=3)
+            assert in_range.success is True
+            assert str(in_range.answer).strip() == "line3"
+
+            await store.close()
+        print("✓ test_read_trailing_newline_does_not_inflate_total_lines passed")
+
+    _run(run())
+
+
 def test_read_truncation():
     """A file larger than DEFAULT_MAX_BYTES triggers truncation with a continuation notice."""
 
@@ -1175,6 +1208,7 @@ if __name__ == "__main__":
     test_read_missing_file()
     test_read_start_after_end()
     test_read_start_line_exceeds_total()
+    test_read_trailing_newline_does_not_inflate_total_lines()
     test_read_truncation()
     test_read_empty_path_rejected()
     print("\n=== crud_md (write/edit) E2E tests ===")

@@ -2,12 +2,14 @@
 
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
+from importlib import metadata
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, ClassVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from ..base_component import BaseComponent
+from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk
 
@@ -19,17 +21,34 @@ class BaseAgentWrapper(BaseComponent):
     """Abstract base for agent wrapper components with swappable backends."""
 
     component_type = ComponentEnum.AGENT_WRAPPER
+    SDK_PACKAGE: ClassVar[str | None] = None
 
-    def __init__(self, cwd: str | Path | None = None, **kwargs) -> None:
+    def __init__(
+        self,
+        cwd: str | Path | None = None,
+        project_path: str | Path | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
         self._cwd = cwd
+        self._project_path = project_path
+        self.outbound_proxy = self.bind(
+            "default",
+            BaseOutboundProxy,
+            optional=True,
+        )
+        if self.SDK_PACKAGE:
+            try:
+                sdk_version = metadata.version(self.SDK_PACKAGE)
+            except metadata.PackageNotFoundError:
+                sdk_version = "unknown"
+            self.logger.info(f"Agent SDK name={self.name} package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:
         """Working directory shared by the agent's shell and file tools.
 
-        Defaults to the project root (the workspace) — the same directory
-        Claude Code has always used. Override via the ``cwd`` init argument;
+        Defaults to the project root. Override via the ``cwd`` init argument;
         a relative value resolves against the workspace root.
         """
         if not self._cwd:
@@ -54,13 +73,73 @@ class BaseAgentWrapper(BaseComponent):
 
     @property
     def project_path(self) -> Path:
-        """Project root that contains shared assets such as skills."""
-        return self.workspace_path
+        """Project root containing shared assets such as skills.
+
+        A relative configured path resolves from the workspace so applications
+        can keep runtime data in a subdirectory such as ``.reme`` while loading
+        project assets from its parent. The workspace remains the default for
+        backward compatibility.
+        """
+        if not self._project_path:
+            return self.workspace_path
+        project_path = Path(self._project_path).expanduser()
+        if not project_path.is_absolute():
+            project_path = self.workspace_path / project_path
+        return project_path.resolve(strict=False)
 
     @property
     def project_skills_root(self) -> Path:
         """Project-level skills directory shared by agent backends."""
         return self.project_path / "skills"
+
+    def _resolve_project_skills(self, skills: list[str] | str | None) -> dict[str, Path]:
+        """Resolve selected skill names to validated project directories."""
+        if skills is None:
+            return {}
+        if skills == "all":
+            if not self.project_skills_root.is_dir():
+                raise FileNotFoundError(f"Project skills directory not found: {self.project_skills_root}")
+            names = sorted(
+                path.name
+                for path in self.project_skills_root.iterdir()
+                if path.is_dir() and (path / "SKILL.md").is_file()
+            )
+        else:
+            names = [skills] if isinstance(skills, str) else list(skills)
+            names = list(dict.fromkeys(names))
+
+        sources: dict[str, Path] = {}
+        for name in names:
+            if not name or Path(name).name != name or name in {".", ".."}:
+                raise ValueError(f"Invalid skill name: {name!r}")
+            source = self.project_skills_root / name
+            if not source.is_dir():
+                raise FileNotFoundError(f"Skill directory not found: {source}")
+            if not (source / "SKILL.md").is_file():
+                raise FileNotFoundError(f"Skill '{name}' is missing SKILL.md: {source}")
+            sources[name] = source
+        return sources
+
+    @property
+    def subprocess_environment(self) -> dict[str, str]:
+        """Configured environment variables for child agent processes."""
+        if self.app_context is None:
+            return {}
+        return self.app_context.app_config.environment
+
+    @property
+    def command_proxy_environment(self) -> dict[str, str]:
+        """Managed proxy variables for agent command tools only."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return {}
+        return self.outbound_proxy.merge_environment()
+
+    @property
+    def bash_environment(self) -> dict[str, str]:
+        """Configured command environment with the managed proxy applied last."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return dict(self.subprocess_environment)
+        return self.outbound_proxy.merge_environment(self.subprocess_environment)
 
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
@@ -75,6 +154,46 @@ class BaseAgentWrapper(BaseComponent):
         if schema is None or isinstance(schema, dict):
             return schema
         raise TypeError("output_schema must be a JSON schema dict or BaseModel class")
+
+    @staticmethod
+    def _resolve_injected_job_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Collect server-owned kwargs merged into every job tool call.
+
+        ``injected_job_kwargs`` values are enforced constraints added by the
+        wrapper after receiving the model's tool arguments; the model can
+        neither see nor override them. ``tool_context_id`` keeps its dedicated
+        option but is carried through the same mechanism.
+        """
+        injected = dict(kwargs.get("injected_job_kwargs") or {})
+        if tool_context_id := kwargs.get("tool_context_id"):
+            injected["tool_context_id"] = tool_context_id
+        return injected
+
+    @staticmethod
+    def _merge_injected_job_kwargs(model_kwargs: dict[str, Any], injected: dict[str, Any]) -> dict[str, Any]:
+        """Merge server-owned kwargs over model tool arguments, rejecting conflicts.
+
+        Silently letting model values win would make injected constraints
+        bypassable, so any overlap is an explicit error.
+        """
+        if conflicts := sorted(injected.keys() & model_kwargs.keys()):
+            names = ", ".join(conflicts)
+            raise ValueError(f"injected tool arguments cannot be provided by the model: {names}")
+        return {**model_kwargs, **injected}
+
+    @staticmethod
+    def _strip_injected_parameters(parameters: dict | None, injected: dict[str, Any]) -> dict | None:
+        """Hide injected keys from the tool parameter schema exposed to the model."""
+        if not parameters or not injected:
+            return parameters
+        parameters = dict(parameters)
+        if "properties" in parameters:
+            parameters["properties"] = {
+                name: schema for name, schema in parameters["properties"].items() if name not in injected
+            }
+        if "required" in parameters:
+            parameters["required"] = [name for name in parameters["required"] if name not in injected]
+        return parameters
 
     def _resolve_job_tools(self, job_tools: list[str]) -> list["BaseJob"]:
         """Resolve job name strings to BaseJob instances via app_context."""
@@ -111,6 +230,10 @@ class BaseAgentWrapper(BaseComponent):
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:
         """Send inputs to the agent and return a dict with session_id and last_message."""
+
+    async def compact_session(self, session_id: str) -> None:
+        """Request compaction of one persisted agent session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

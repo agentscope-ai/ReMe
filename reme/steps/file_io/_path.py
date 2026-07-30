@@ -82,10 +82,17 @@ def resolve_path(
             return workspace_path.resolve(), None
         return None, "`path` is required"
     s = str(raw).strip()
+    # ``~`` paths refer to the user's home directory rather than the workspace.
+    # They are deliberately unsupported: do not expand them (which could make a
+    # home-relative path look like a workspace escape), and report them as a
+    # missing target to callers.
+    if s.startswith("~"):
+        return None, f"file {s!r} does not exist"
     p = Path(s)
     workspace = workspace_path.resolve()
     if p.is_absolute():
-        logger.info("absolute path detected, recommending relative paths")
+        if Path(s).is_absolute():
+            logger.info("absolute path detected, recommending relative paths")
         target = p.resolve()
     else:
         for part in p.parts:
@@ -96,6 +103,48 @@ def resolve_path(
     if not is_relative_to(target, workspace):
         return None, "`path` must stay inside the workspace"
     return target, None
+
+
+def _check_path_permission(workspace_path: Path, target: Path, allowed_paths) -> bool:
+    """Return whether ``target`` is covered by the optional allowed-path scope.
+
+    ``None`` leaves access unrestricted. Existing files allow that exact path;
+    existing directories allow their descendants. Missing entries are treated
+    as directory-like path prefixes, so a scoped ``write`` may create the path
+    itself or a descendant. Containment is path-component based, never a string
+    prefix. Entries beginning with ``~`` are ignored. Invalid constraints and
+    workspace-escaping entries fail closed.
+    """
+    if allowed_paths is None:
+        return True
+    if isinstance(allowed_paths, (str, Path)):
+        allowed_paths = [allowed_paths]
+    if not isinstance(allowed_paths, (list, tuple)) or not allowed_paths:
+        logger.warning("invalid _allowed_paths constraint; denying access (fail closed)")
+        return False
+
+    allowed_files: list[Path] = []
+    allowed_dirs: list[Path] = []
+    for raw in allowed_paths:
+        raw_string = str(raw).strip()
+        if raw_string.startswith("~"):
+            logger.warning(f"home-relative _allowed_paths entry {raw_string!r}; skipping")
+            continue
+        resolved, err = resolve_path(workspace_path, raw_string)
+        if err or resolved is None:
+            logger.warning(f"invalid _allowed_paths entry {raw_string!r} ({err}); denying access (fail closed)")
+            return False
+        if resolved.is_file():
+            allowed_files.append(resolved)
+        elif resolved.is_dir():
+            allowed_dirs.append(resolved)
+        else:
+            allowed_dirs.append(resolved)
+
+    resolved_target = target.resolve()
+    return resolved_target in allowed_files or any(
+        is_relative_to(resolved_target, directory) for directory in allowed_dirs
+    )
 
 
 def gate_md(target: Path) -> tuple[Path, bool]:

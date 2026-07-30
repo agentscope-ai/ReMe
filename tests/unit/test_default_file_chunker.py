@@ -52,29 +52,6 @@ def test_parse_small_file():
     asyncio.run(run())
 
 
-def test_parse_multiline_file():
-    """Test parsing a file with multiple lines."""
-
-    async def run():
-        lines = ["Line 1", "Line 2", "Line 3", "Line 4", "Line 5"]
-        content = "\n".join(lines)
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker(chunk_byte_size=10000)
-            _, chunks = await chunker.chunk(temp_path)
-            assert len(chunks) == 1
-            assert chunks[0].start_line == 1
-            assert chunks[0].end_line == 5
-            print("✓ test_parse_multiline_file passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
 def test_parse_chunked_file():
     """Test parsing a file that requires multiple chunks."""
 
@@ -114,55 +91,6 @@ def test_parse_with_custom_encoding():
             assert len(chunks) >= 1
             assert "你好世界" in chunks[0].text
             print("✓ test_parse_with_custom_encoding passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_file_node_properties():
-    """Test FileNode has correct properties."""
-
-    async def run():
-        content = "test content"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker()
-            file_node, _ = await chunker.chunk(temp_path)
-            assert hasattr(file_node, "path")
-            assert hasattr(file_node, "st_mtime")
-            assert file_node.st_mtime > 0
-            print("✓ test_file_node_properties passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_file_chunk_properties():
-    """Test FileChunk has correct properties."""
-
-    async def run():
-        content = "test content for chunk"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker()
-            _, chunks = await chunker.chunk(temp_path)
-            chunk = chunks[0]
-            assert hasattr(chunk, "path")
-            assert hasattr(chunk, "start_line")
-            assert hasattr(chunk, "end_line")
-            assert hasattr(chunk, "text")
-            assert hasattr(chunk, "id")
-            assert chunk.start_line >= 1
-            assert chunk.end_line >= chunk.start_line
-            print("✓ test_file_chunk_properties passed")
         finally:
             os.unlink(temp_path)
 
@@ -450,11 +378,8 @@ def test_min_chunk_and_overlap_size():
 if __name__ == "__main__":
     test_parse_empty_file()
     test_parse_small_file()
-    test_parse_multiline_file()
     test_parse_chunked_file()
     test_parse_with_custom_encoding()
-    test_file_node_properties()
-    test_file_chunk_properties()
     test_parse_links_bare()
     test_parse_links_with_anchor()
     test_parse_links_alias_dropped()

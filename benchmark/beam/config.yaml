@@ -1,0 +1,23 @@
+# BEAM evaluation configuration
+# This file controls what/how to evaluate.
+
+dataset:
+  beam_root: "benchmark/datasets/BEAM"   # BEAM dataset root
+  chat_size: "1M"                       # 100K | 500K | 1M | 10M (dataset variant)
+  case_ids: []                          # empty = all cases; or ["1", "2", "3"]
+  start_index: 0                        # first case index (for pagination)
+  num_items: 0                          # 0 = all cases; >0 = limit
+  workspace_root: "benchmark/memory_workspaces/beam"  # workspace root for case workspaces
+
+evaluation:
+  num_workers: 18                       # 0 = auto; 1 = sequential; >1 = parallel (per-case)
+
+reme:
+  config: "beam.yaml"                   # reme config (in reme/config/)
+
+output:
+  dir: "benchmark/results/beam"
+  log_dir: "logs"                       # log directory (relative to project root)
+  log_prefix: "beam"                    # benchmark name used in log filenames
+  log_to_console: true
+  log_to_file: true

@@ -3,7 +3,7 @@
 import frontmatter
 
 from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
-from ._path import NON_MD_WARNING, gate_md, resolve_path
+from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -17,6 +17,9 @@ class WriteStep(BaseStep):
     into the frontmatter as-is. ``name`` / ``description`` keys inside
     ``metadata`` are ignored — only the top-level explicit parameters are
     honored for those two reserved fields.
+
+    Permission: honors the request-scoped ``_allowed_paths`` constraint
+    injected by the server into the RuntimeContext.
 
     Concurrency: in-process per-path ``asyncio.Lock`` serializes concurrent
     writes to the same file (multi-worker / multi-process safety is out of
@@ -43,6 +46,10 @@ class WriteStep(BaseStep):
             return None
 
         target, is_md = gate_md(target)
+
+        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+            self._fail("no permission to write this file", path=str(target))
+            return None
 
         # Non-markdown files have no frontmatter convention: name/description
         # and metadata are silently dropped and the body is written verbatim.

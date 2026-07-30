@@ -1,7 +1,10 @@
 """AgentScope backend for the unified agent wrapper."""
 
+import asyncio
 import json
+import os
 import re
+import subprocess
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -39,6 +42,7 @@ from agentscope.state import AgentState
 from agentscope.tool import (
     Bash,
     Edit,
+    ExecResult,
     FunctionTool,
     Glob,
     Grep,
@@ -57,7 +61,6 @@ from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 from ...utils import AsStateHandler
-from ...utils.env_utils import load_env
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -69,21 +72,55 @@ _UUID_RE = re.compile(
 
 
 class WorkspaceBackend(LocalBackend):
-    """LocalBackend whose reported cwd is the configured agent workspace.
+    """Local backend pinned to the agent cwd and configured environment.
 
     Some AgentScope builtin tools use ``backend.getcwd()`` for default search
     paths or safety checks. Pinning it here keeps those operations aligned with
     the cwd passed to Bash. Tools that require absolute file paths still keep
-    their own validation behavior.
+    their own validation behavior. Subprocesses receive the startup environment
+    captured in ``ApplicationConfig.environment`` in addition to the parent
+    process environment.
     """
 
-    def __init__(self, cwd: str) -> None:
+    def __init__(self, cwd: str, environment: dict[str, str] | None = None) -> None:
         super().__init__()
         self._workspace_cwd = cwd
+        self._environment = {**os.environ, **(environment or {})}
 
     async def getcwd(self) -> str:
         """Return the configured workspace directory."""
         return self._workspace_cwd
+
+    async def exec_shell(
+        self,
+        command: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: float | None = None,
+    ) -> ExecResult:
+        """Run a local subprocess with the configured agent environment."""
+        kwargs: dict[str, Any] = {
+            "env": self._environment,
+            "stderr": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+        }
+        if cwd is not None:
+            kwargs["cwd"] = cwd
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+        try:
+            process = await asyncio.create_subprocess_exec(*command, **kwargs)
+        except (FileNotFoundError, NotADirectoryError, OSError) as exc:
+            return ExecResult(exit_code=127, stdout=b"", stderr=str(exc).encode("utf-8"))
+
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            return ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
+        return ExecResult(exit_code=process.returncode or 0, stdout=stdout, stderr=stderr)
 
 
 class BypassAnalysisBash(Bash):
@@ -110,6 +147,8 @@ class BypassAnalysisBash(Bash):
 class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
 
+    SDK_PACKAGE = "agentscope"
+
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
@@ -117,18 +156,24 @@ class AsAgentWrapper(BaseAgentWrapper):
         self._session_cleanup_done = False
 
     @classmethod
-    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None) -> FunctionTool:
+    def _make_tool(
+        cls,
+        job: "BaseJob",
+        tool_context_id: str | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
+    ) -> FunctionTool:
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
         async def run_job(**kwargs) -> ToolChunk:
-            if tool_context_id:
-                assert "tool_context_id" not in kwargs, "tool_context_id is injected by agent_wrapper"
-                kwargs["tool_context_id"] = tool_context_id
-            response = await job(**kwargs)
+            response = await job(**cls._merge_injected_job_kwargs(kwargs, injected))
             state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
             return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
 
         tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
-        if job.parameters:
-            tool.input_schema = job.parameters
+        if parameters := cls._strip_injected_parameters(job.parameters, injected):
+            tool.input_schema = parameters
         return tool
 
     def _builtin_tools(
@@ -139,7 +184,7 @@ class AsAgentWrapper(BaseAgentWrapper):
     ) -> list[ToolBase]:
         """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
         cwd = str(self.cwd)
-        backend = WorkspaceBackend(cwd)
+        backend = WorkspaceBackend(cwd, self.bash_environment)
         factories = {
             "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
             "edit": lambda: Edit(backend=backend),
@@ -248,18 +293,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
         """Resolve configured skill names to AgentScope local skill directories."""
-        if skills is None:
-            return []
-        if skills == "all":
-            return [str(self.project_skills_root)]
-        if isinstance(skills, str):
-            skills = [skills]
-        return [str(self.project_skills_root / skill) for skill in skills]
-
-    def _load_tool_env(self) -> dict[str, str]:
-        """Load project environment variables for tools spawned by AgentScope."""
-        project_env = self.project_path / ".env"
-        return load_env(project_env) if project_env.exists() else load_env()
+        return [str(path) for path in self._resolve_project_skills(skills).values()]
 
     async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
@@ -268,7 +302,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
         self._cleanup_expired_sessions()
-        self._load_tool_env()
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
@@ -281,7 +314,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             builtin_tools = []
         tools: list[ToolBase] = []
         tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
-        tools.extend(self._make_tool(job, tool_context_id) for job in resolved_jobs)
+        tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,
@@ -334,6 +367,14 @@ class AsAgentWrapper(BaseAgentWrapper):
             result["structured_output"] = res.content
 
         return result
+
+    async def compact_session(self, session_id: str) -> None:
+        """Force compression of an AgentScope session."""
+        kwargs = self._merged_kwargs({"resume": session_id})
+        agent, _ = await self._build_agent(None, **kwargs)
+        config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
+        await agent.compress_context(ContextConfig(**config))
+        await self._dump_state(agent.state)
 
     # ----- StreamChunk conversion -------------------------------------------
 

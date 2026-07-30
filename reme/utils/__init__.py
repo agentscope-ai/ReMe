@@ -15,6 +15,7 @@ from .service_utils import find_reme, locate_reme, precheck_start, cli_find_reme
 from .similarity_utils import cosine_similarity, batch_cosine_similarity
 from .token_utils import estimate_token_count
 from .agent_state_io import AsStateHandler
+from .counter import global_counter_next
 
 __all__ = [
     "hash_text",
@@ -37,4 +38,5 @@ __all__ = [
     "batch_cosine_similarity",
     "estimate_token_count",
     "AsStateHandler",
+    "global_counter_next",
 ]

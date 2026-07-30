@@ -98,7 +98,7 @@ Place state according to its lifetime:
   Application restart.
 
 Use narrow, namespaced keys in `app_context.metadata`, following existing patterns such as
-`tool_contexts` and `channel_sink`. The ApplicationContext is shared, so account for
+`tool_contexts`. The ApplicationContext is shared, so account for
 concurrent access when values are mutable. New Step code must not fall back to `self.kwargs`
 or another Step field to emulate shared state when `app_context` is absent; tests of shared
 state should construct an `ApplicationContext`. If shared state grows into a stable

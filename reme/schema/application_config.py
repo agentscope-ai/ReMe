@@ -28,6 +28,10 @@ class ApplicationConfig(BaseModel):
     """Root config for the ReMe application."""
 
     app_name: str = Field(default=os.getenv("APP_NAME", "ReMe"), description="Application display name")
+    environment: dict[str, str] = Field(
+        default_factory=dict,
+        description="Environment variables loaded once at startup and passed to agent subprocesses",
+    )
     workspace_dir: str = Field(default=".reme", description="Workspace root directory for runtime files")
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
@@ -35,6 +39,7 @@ class ApplicationConfig(BaseModel):
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
+    dialog_dir: str = Field(default="session/dialog", description="Subdirectory for dialog session transcripts")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
     language: str = Field(default="", description="Default language for LLM interactions")

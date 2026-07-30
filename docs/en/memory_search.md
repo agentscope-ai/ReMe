@@ -32,6 +32,8 @@ and `[[wikilinks]]`. JSONL uses the `default` chunker and creates overlapping ch
 
 ## How the Index Is Built
 
+### Index Update
+
 The background Job `index_update_loop` maintains the index using configuration from `reme/config/default.yaml`:
 
 ```yaml
@@ -67,6 +69,22 @@ stable batch of changes.
 The Markdown chunker parses YAML frontmatter, heading structure, and `[[...]]` into `FileNode`, `FileChunk`, and `FileLink`
 objects. For detailed chunking rules, see [Memory as File](./memory_as_file.md#memory-chunking).
 
+### Index Optimization
+
+Both BM25 and the FAISS HNSW vector index use tombstone markers instead of physical removal when deleting nodes;
+too many tombstones degrade search performance. An idle-time optimization mechanism is built in—the `optimize_index_cron`
+scheduled job compacts tombstones and rebuilds indexes during off-peak hours:
+
+```yaml
+optimize_index_cron:
+  backend: cron
+  cron: "0 2 * * *"
+  steps:
+    - backend: optimize_index_step
+```
+
+By default it runs at 2:00 AM daily; adjust the cron expression to customize the schedule.
+
 ## What file_store Contains
 
 The default `file_store.default` backend is `local`:
@@ -90,7 +108,8 @@ It combines three kinds of capability:
 | `embedding_store` | Disabled | When enabled, generate embeddings for chunks and support vector recall. |
 
 Out of the box, search therefore uses primarily BM25 plus link expansion. After setting `embedding_store: default`,
-`SearchStep` runs vector and keyword recall together.
+`SearchStep` runs vector and keyword recall together. Additionally, switching the `file_store` `backend` from `local` to
+`faiss` upgrades vector retrieval from a linear scan to a FAISS HNSW index, offering faster recall at scale.
 
 ## How to Search
 

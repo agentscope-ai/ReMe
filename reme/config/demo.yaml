@@ -39,6 +39,44 @@ jobs:
     steps:
       - backend: add_step
 
+  llm_demo:
+    backend: base
+    description: "LLM agent demo with the add job available as a tool"
+    query: "Use the add tool to calculate 1 + 2 and return the result."
+    sys_prompt: "Use the add tool for arithmetic tasks."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "message sent to the agent"
+          default: "Use the add tool to calculate 1 + 2 and return the result."
+        sys_prompt:
+          type: string
+          description: "optional system prompt for the agent"
+    steps:
+      - backend: llm_demo_step
+        agent_wrapper: codex
+
+  stream_llm_demo:
+    backend: stream
+    description: "streaming LLM agent demo with the add job available as a tool"
+    query: "Use the add tool to calculate 1 + 2 and return the result."
+    sys_prompt: "Use the add tool for arithmetic tasks."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "message sent to the agent"
+          default: "Use the add tool to calculate 1 + 2 and return the result."
+        sys_prompt:
+          type: string
+          description: "optional system prompt for the agent"
+    steps:
+      - backend: stream_llm_demo_step
+        agent_wrapper: codex
+
   stream_demo:
     backend: stream
     description: "stream demo job: repeat query 10x and stream char-by-char"
@@ -61,3 +99,51 @@ jobs:
     steps:
       - backend: stream_demo_step1
       - backend: stream_demo_step2
+
+components:
+  as_llm:
+    default:
+      backend: openai
+      model: qwen3.7-max
+      stream: true
+      context_size: 200000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters:
+        max_tokens: 65536
+        thinking_enable: false
+
+  agent_wrapper:
+    as:
+      backend: agentscope
+      as_llm: default
+      job_tools:
+        - add
+      permission_mode: bypass
+      react_config:
+        max_iters: 100
+      context_config:
+        trigger_ratio: 0.89
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 3
+    cc:
+      backend: claude_code
+      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      job_tools:
+        - add
+      permission_mode: bypassPermissions
+    codex:
+      backend: codex
+      auth_mode: oauth
+      model: ${CODEX_MODEL_NAME:-}
+      codex_home: ${CODEX_HOME:-~/.codex}
+      job_tools:
+        - add
+      approval_mode: auto_review
+      sandbox: full-access

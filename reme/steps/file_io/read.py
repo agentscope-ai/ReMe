@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
-from ._path import NON_MD_WARNING, gate_md, resolve_path
+from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -21,6 +21,9 @@ class ReadStep(BaseStep):
             neighbors (out/in link targets) with name/description meta,
             fetched via the file_store. Same rendering as SearchStep.
         max_neighbors_per_direction (int, default 10): cap per direction.
+
+    Permission: honors the request-scoped ``_allowed_paths`` constraint
+    injected by the server into the RuntimeContext.
     """
 
     def _fail(self, message: str, **meta) -> None:
@@ -101,6 +104,9 @@ class ReadStep(BaseStep):
         target = self._resolve_target(raw)
         if target is None:
             return None
+        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+            self._fail("no permission to access this file", path=str(target))
+            return None
         if not self._validate_line_args(start_line, end_line):
             return None
         if not self._check_file(target):
@@ -112,6 +118,12 @@ class ReadStep(BaseStep):
                 return None
 
             all_lines = content.split("\n")
+            if content.endswith("\n"):
+                # split() yields a trailing empty element for the final newline;
+                # drop it so total matches the large-file path (line-by-line
+                # iteration) and the indexer (default_file_chunker), both of
+                # which do not count that trailing newline as its own line.
+                all_lines.pop()
             total = len(all_lines)
             bounds = self._resolve_range(total, start_line, end_line, target)
             if bounds is None:
@@ -131,8 +143,8 @@ class ReadStep(BaseStep):
                     requested_end,
                     max_collect_bytes=DEFAULT_MAX_BYTES * 2,
                 )
-            except Exception as e:  # pylint: disable=broad-except
-                self._fail(f"read failed: {e}", path=str(target))
+            except Exception as exc:  # pylint: disable=broad-except
+                self._fail(f"read failed: {exc}", path=str(target))
                 return None
             if s > total:
                 self._fail(f"start_line {s} exceeds file length ({total} lines)", path=str(target), total_lines=total)

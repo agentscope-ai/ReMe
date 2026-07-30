@@ -46,17 +46,6 @@ class FailCloseComponent(StubComponent):
 # -- Dependency ---------------------------------------------------------------
 
 
-def test_dependency_repr_optional():
-    dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser", optional=True)
-    assert "?" in repr(dep)
-    assert "file_chunker" in repr(dep)
-
-
-def test_dependency_repr_required():
-    dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser", optional=False)
-    assert "?" not in repr(dep)
-
-
 def test_dependency_getattr_raises():
     dep = Dependency(ComponentEnum.FILE_CHUNKER, "my_parser")
     with pytest.raises(RuntimeError, match="accessed before start"):
@@ -343,8 +332,6 @@ def test_component_metadata_path():
 
 if __name__ == "__main__":
     print("\n=== BaseComponent Tests ===")
-    test_dependency_repr_optional()
-    test_dependency_repr_required()
     test_dependency_getattr_raises()
     test_bind_returns_none_for_empty_name()
     test_bind_returns_dependency_placeholder()

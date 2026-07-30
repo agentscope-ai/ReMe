@@ -63,3 +63,12 @@ class BaseFileStore(BaseComponent):
     @abstractmethod
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         """Full-text keyword search over chunk text."""
+
+    # -- maintenance ------------------------------------------------------------
+
+    async def optimize_index(self) -> None:
+        """Optional idle-time maintenance hook (e.g. compacting derived indexes).
+
+        Meant to be invoked off the request path (cron / idle schedulers).
+        Backends without derived index state keep the default no-op.
+        """

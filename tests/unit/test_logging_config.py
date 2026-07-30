@@ -1,10 +1,12 @@
 """Tests for logging configuration handoff during app startup."""
 
 import concurrent.futures
+from datetime import datetime
 import io
 import logging
 import threading
 import time
+from unittest.mock import Mock
 
 import pytest
 
@@ -23,6 +25,20 @@ class DummyLogger:
     def info(self, *_args, **_kwargs):
         """No-op."""
         return None
+
+
+def test_loguru_filename_includes_start_time_and_process_id(monkeypatch, tmp_path):
+    """Independent ReMe processes should write to distinct Loguru files."""
+    fixed_datetime = Mock()
+    fixed_datetime.now.return_value = datetime(2026, 7, 20, 15, 42, 18)
+    monkeypatch.setattr(logger_utils, "datetime", fixed_datetime)
+    monkeypatch.setattr(logger_utils.os, "getpid", lambda: 31247)
+
+    logger = logger_utils._init_loguru(str(tmp_path), "INFO", False, True)  # pylint: disable=protected-access
+    try:
+        assert (tmp_path / "2026-07-20_15-42-18_31247.log").is_file()
+    finally:
+        logger.remove()
 
 
 def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, capsys):
@@ -47,6 +63,26 @@ def test_stdlib_formatter_matches_qwenpaw_console_format(monkeypatch, tmp_path, 
     formatted_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(record.created))
     assert capsys.readouterr().out == (f"INFO src/qwenpaw/worker.py:42 | {formatted_time} | Memory index loaded\n")
     logger_utils.get_logger(log_to_console=False, log_to_file=False, force_init=True)
+
+
+def test_stdlib_file_creation_is_delayed_until_first_record(monkeypatch, tmp_path):
+    """Stdlib logging should not leave an empty file when no records are emitted."""
+    fixed_datetime = Mock()
+    fixed_datetime.now.return_value = datetime(2026, 7, 23, 17, 50, 25)
+    monkeypatch.setattr(logger_utils, "datetime", fixed_datetime)
+
+    logger = logger_utils._init_stdlib(str(tmp_path), "INFO", False, True)  # pylint: disable=protected-access
+    log_path = tmp_path / "2026-07-23_17-50-25.log"
+    try:
+        assert not log_path.exists()
+
+        logger.info("Application started")
+
+        assert log_path.read_text(encoding="utf-8").endswith("Application started\n")
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
 
 
 def test_stdlib_forwards_screen_and_file_logs_to_qwenpaw(monkeypatch, tmp_path):

@@ -1,0 +1,11 @@
+{
+  "name": "dingtalk-message",
+  "version": "0.3.0",
+  "description": "钉钉消息发送技能。支持企业内部机器人（批量单聊/群聊）和 Webhook 自定义机器人两种接入方式，支持多机器人管理，支持文本、Markdown、链接、ActionCard、FeedCard等多种消息类型。",
+  "publishConfig": {
+    "registry": "https://contextlab.alibaba-inc.com/skill"
+  },
+  "aoneKit": {
+    "generated": true
+  }
+}
