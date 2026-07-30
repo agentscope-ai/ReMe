@@ -54,6 +54,9 @@ class BaseAgenticAnswerStep(BaseStep):
             "system_prompt": sys_prompt,
             "job_tools": ["search", "add_draft", "read_all_draft"],
             "react_config": {"max_iters": self.MAX_ITERATION},
+            # Benchmarks anchor "now" via query_time in the system prompt; the
+            # real wall-clock time injected by AgentScope would conflict with it.
+            "injection_config": {"inject_runtime_state": False},
             "tool_context_id": tool_context_id,
         }
 

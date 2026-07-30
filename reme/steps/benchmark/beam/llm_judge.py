@@ -77,7 +77,11 @@ async def _llm_equivalence(agent_wrapper, reference: str, system: str) -> bool:
     )
     user_prompt = f"First snippet: {reference}\n\nSecond snippet: {system}"
 
-    result = await agent_wrapper.reply(user_prompt, system_prompt=system_prompt)
+    result = await agent_wrapper.reply(
+        user_prompt,
+        system_prompt=system_prompt,
+        injection_config={"inject_runtime_state": False},
+    )
     raw = (result.get("result") or "").strip().lower()
     return "yes" in raw
 
@@ -277,7 +281,7 @@ class BeamRubricJudgeStep(BaseStep):
         for item in rubric:
             prompt = judge_template.replace("<rubric_item>", item).replace("<llm_response>", llm_response)
 
-            result = await self.agent_wrapper.reply(prompt)
+            result = await self.agent_wrapper.reply(prompt, injection_config={"inject_runtime_state": False})
             raw = (result.get("result") or "").strip()
 
             try:

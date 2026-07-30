@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
-from agentscope.agent import Agent, ContextConfig, ReActConfig
+from agentscope.agent import Agent, ContextConfig, InjectionConfig, ReActConfig
 from agentscope.agent._config import ModelConfig
 from agentscope.event import (
     DataBlockDeltaEvent,
@@ -337,6 +337,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             model_config=ModelConfig(**(kwargs.get("model_config") or {})),
             context_config=ContextConfig(**(kwargs.get("context_config") or {})),
             react_config=ReActConfig(**(kwargs.get("react_config") or {})),
+            injection_config=InjectionConfig(**(kwargs.get("injection_config") or {})),
         )
 
         if isinstance(inputs, str):
