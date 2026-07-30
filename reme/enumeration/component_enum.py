@@ -36,4 +36,6 @@ class ComponentEnum(str, Enum):
 
     AGENT_WRAPPER = "agent_wrapper"
 
+    MAIL = "mail"
+
     OUTBOUND_PROXY = "outbound_proxy"
