@@ -11,7 +11,7 @@ from typing import Any, TYPE_CHECKING
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AssistantMessage, ResultMessage, UserMessage
@@ -35,6 +35,11 @@ class CcAgentWrapper(BaseAgentWrapper):
     SDK_PACKAGE = "claude-agent-sdk"
     DEFAULT_DISALLOWED_TOOLS = ["WebSearch"]
     MCP_SERVER_NAME = "mcp_server"
+
+    @staticmethod
+    def _claude_usage(usage: dict[str, Any] | None) -> TokenUsage:
+        """Normalize Claude CLI usage, whose cache dimensions are separate."""
+        return TokenUsage.from_provider(usage or {}, input_includes_cache=False)
 
     @property
     def session_path(self) -> Path:
@@ -248,12 +253,17 @@ class CcAgentWrapper(BaseAgentWrapper):
         if event_type == "message_delta":
             delta = raw.get("delta", {})
             usage = raw.get("usage", {})
+            normalized = cls._claude_usage(usage)
             return cls._chunk(
                 ChunkEnum.USAGE,
                 session_id=session_id,
-                chunk=json.dumps(usage),
-                output_tokens=usage.get("output_tokens"),
-                metadata={"stop_reason": delta.get("stop_reason")},
+                chunk=json.dumps(normalized.model_dump()),
+                input_tokens=normalized.input_tokens,
+                output_tokens=normalized.output_tokens,
+                metadata={
+                    "stop_reason": delta.get("stop_reason"),
+                    "usage": normalized.model_dump(),
+                },
             )
 
         if event_type == "message_stop":
@@ -389,14 +399,16 @@ class CcAgentWrapper(BaseAgentWrapper):
         """Convert the SDK terminal result into usage and error chunks."""
         session_id = msg.session_id or ""
         usage = msg.usage or {}
+        normalized = cls._claude_usage(usage)
         chunks = [
             cls._chunk(
                 ChunkEnum.USAGE,
                 session_id=session_id,
-                chunk=json.dumps(usage),
-                input_tokens=usage.get("input_tokens"),
-                output_tokens=usage.get("output_tokens"),
+                chunk=json.dumps(normalized.model_dump()),
+                input_tokens=normalized.input_tokens,
+                output_tokens=normalized.output_tokens,
                 metadata={
+                    "usage": normalized.model_dump(),
                     "duration_ms": msg.duration_ms,
                     "duration_api_ms": msg.duration_api_ms,
                     "stop_reason": msg.stop_reason,
@@ -447,7 +459,9 @@ class CcAgentWrapper(BaseAgentWrapper):
             "session_id": last_msg.session_id or "",
             "last_message": asdict(last_msg),
             "result": last_msg.result,
+            "usage": self._claude_usage(last_msg.usage).model_dump(),
         }
+        self._record_token_usage(TokenUsage.model_validate(result["usage"]))
         if kwargs.get("output_schema") is not None:
             result["structured_output"] = last_msg.structured_output
         return result
@@ -523,6 +537,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                             )
                         for chunk in self._result_message_to_chunks(msg):
                             yield chunk
+                        self._record_token_usage(self._claude_usage(msg.usage))
                         if reply_open or not emitted_reply_end:
                             emitted_reply_end = True
                             reply_open = False

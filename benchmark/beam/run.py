@@ -252,16 +252,23 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 
     Returns (answer, metadata)
     """
-    from reme.utils.evaluation_interface import track_job_counts
+    from reme.utils.evaluation_interface import track_agent_token_counts, track_job_counts
 
-    with track_job_counts(["search"], app.context) as counts:
+    with track_job_counts(["search"], app.context) as counts, track_agent_token_counts(
+        ["bench"],
+        app.context,
+    ) as token_counts:
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
         )
     answer = (query_resp.answer or "").strip()
 
-    return answer, {"mode": "agentic", "search_calls": counts["search"]}
+    return answer, {
+        "mode": "agentic",
+        "search_calls": counts["search"],
+        "token_count": token_counts["bench"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -454,6 +461,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 logger.info(
                     f"[Case {case_id}] Agentic search calls: {agentic_meta.get('search_calls', 0)}",
                 )
+                logger.info(f"[Case {case_id}] Bench token usage: {agentic_meta.get('token_count', 0)}")
 
                 # Judge agentic answer
                 logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
@@ -685,6 +693,7 @@ def main(  # pylint: disable=too-many-statements
     all_scores: list[float] = []
     all_binary_scores: list[float] = []
     all_search_calls: list[int] = []
+    all_token_counts: list[int] = []
 
     for case_result in results:
         if "error" in case_result:
@@ -708,6 +717,7 @@ def main(  # pylint: disable=too-many-statements
             all_scores.append(score)
             all_binary_scores.append(binary_score)
             all_search_calls.append(q.get("agentic_metadata", {}).get("search_calls", 0))
+            all_token_counts.append(q.get("agentic_metadata", {}).get("token_count", 0))
 
     print("\n  ── AGENTIC ──")
     if all_scores:
@@ -723,6 +733,8 @@ def main(  # pylint: disable=too-many-statements
         print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
         avg_search_calls = sum(all_search_calls) / len(all_search_calls)
         print(f"    Average search calls/query: {avg_search_calls:.2f}")
+        avg_token_count = sum(all_token_counts) / len(all_token_counts)
+        print(f"    Average bench tokens/query: {avg_token_count:.2f}")
     else:
         print("    (no results)")
 

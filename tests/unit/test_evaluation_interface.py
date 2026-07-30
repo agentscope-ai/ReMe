@@ -6,7 +6,13 @@ from types import SimpleNamespace
 import pytest
 
 from reme.components.job import BaseJob, StreamJob
-from reme.utils.evaluation_interface import check_job_count, track_job_counts
+from reme.utils import global_counter_add
+from reme.utils.evaluation_interface import (
+    check_agent_token_count,
+    check_job_count,
+    track_agent_token_counts,
+    track_job_counts,
+)
 
 
 def test_check_job_count_reads_registered_base_job_count():
@@ -86,3 +92,15 @@ def test_track_job_counts_updates_results_when_body_raises():
         assert counts == {"search": 1}
 
     asyncio.run(run())
+
+
+def test_track_agent_token_counts_returns_delta_for_one_agent():
+    """Token tracking mirrors job-count tracking over the token counter tree."""
+    app_context = SimpleNamespace(metadata={}, jobs={})
+    global_counter_add(app_context.metadata, ["__token_counter", "bench", "total_tokens"], 10)
+
+    with track_agent_token_counts(["bench"], app_context) as counts:
+        global_counter_add(app_context.metadata, ["__token_counter", "bench", "total_tokens"], 25)
+
+    assert counts == {"bench": 25}
+    assert check_agent_token_count("bench", app_context) == 35

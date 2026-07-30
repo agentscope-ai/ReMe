@@ -65,3 +65,67 @@ def track_job_counts(job_names: list[str], app_context: "ApplicationContext") ->
         assert counts == {"search": 2}
     """
     return JobCountTracker(job_names, app_context)
+
+
+def check_agent_token_count(
+    agent_name: str,
+    app_context: "ApplicationContext",
+    metric: str = "total_tokens",
+) -> int:
+    """Return one application-lifetime token metric for an agent wrapper.
+
+    The agent name is the configured ``agent_wrapper`` component name (for
+    example ``"bench"``), and ``metric`` is one leaf in ReMe's token counter
+    tree, such as ``input_tokens`` or ``total_tokens``.
+    """
+    return global_counter_get(app_context.metadata, ["__token_counter", agent_name, metric])
+
+
+class AgentTokenCountTracker:
+    """Measure one token metric for agent wrappers during a context block."""
+
+    def __init__(
+        self,
+        agent_names: list[str],
+        app_context: "ApplicationContext",
+        metric: str = "total_tokens",
+    ) -> None:
+        self.agent_names = list(dict.fromkeys(agent_names))
+        self.app_context = app_context
+        self.metric = metric
+        self._start_counts: dict[str, int] = {}
+        self.counts: dict[str, int] = {}
+
+    def __enter__(self) -> dict[str, int]:
+        self._start_counts = {
+            name: check_agent_token_count(name, self.app_context, self.metric)
+            for name in self.agent_names
+        }
+        return self.counts
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        self.counts.update(
+            {
+                name: check_agent_token_count(name, self.app_context, self.metric) - start_count
+                for name, start_count in self._start_counts.items()
+            },
+        )
+        return False
+
+
+def track_agent_token_counts(
+    agent_names: list[str],
+    app_context: "ApplicationContext",
+    metric: str = "total_tokens",
+) -> AgentTokenCountTracker:
+    """Return a context manager that reports agent token deltas.
+
+    Example:
+
+    .. code-block:: python
+
+        with track_agent_token_counts(["bench"], app.context) as counts:
+            await app.run_job("agentic_answer", query="...")
+        assert counts["bench"] > 0
+    """
+    return AgentTokenCountTracker(agent_names, app_context, metric)

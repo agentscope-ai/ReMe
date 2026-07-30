@@ -18,7 +18,7 @@ from typing import Any, TYPE_CHECKING
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
@@ -78,6 +78,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "launch_args_override",
         },
     )
+
+    @staticmethod
+    def _codex_usage(usage: Any) -> TokenUsage:
+        """Normalize Codex's per-turn token usage snapshot."""
+        return TokenUsage.from_provider(usage, input_includes_cache=True)
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -421,7 +426,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "last_message": final_response,
             "result": final_response,
             "turn": self._serialize(result),
+            "usage": TokenUsage().model_dump(),
         }
+        if (raw_usage := getattr(result, "usage", None)) is not None:
+            usage = self._codex_usage(raw_usage.last)
+            response["usage"] = usage.model_dump()
+            self._record_token_usage(usage)
         if kwargs.get("output_schema") is not None:
             try:
                 response["structured_output"] = json.loads(final_response)
@@ -508,13 +518,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ]
         if method == "thread/tokenUsage/updated":
             usage = payload.token_usage.last
-            data = cls._serialize(usage)
+            normalized = cls._codex_usage(usage)
             return [
                 make_chunk(
                     ChunkEnum.USAGE,
-                    chunk=data,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
+                    chunk=normalized.model_dump(),
+                    input_tokens=normalized.input_tokens,
+                    output_tokens=normalized.output_tokens,
+                    metadata={"usage": normalized.model_dump()},
                 ),
             ]
         if method == "error":
@@ -564,10 +575,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
             turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
             stream = turn.stream()
             completed = False
+            final_usage: TokenUsage | None = None
             try:
                 async for event in stream:
                     if event.method == "turn/completed":
                         completed = True
+                    if event.method == "thread/tokenUsage/updated":
+                        final_usage = self._codex_usage(event.payload.token_usage.last)
                     for chunk in self._event_to_chunks(event, thread.id):
                         yield chunk
             finally:
@@ -577,3 +591,5 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     except Exception as exc:  # pylint: disable=broad-exception-caught
                         self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
                 await stream.aclose()
+                if final_usage is not None:
+                    self._record_token_usage(final_usage)

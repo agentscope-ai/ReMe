@@ -59,7 +59,7 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
 from ...utils import AsStateHandler
 
 if TYPE_CHECKING:
@@ -148,6 +148,14 @@ class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
 
     SDK_PACKAGE = "agentscope"
+
+    @staticmethod
+    def _agentscope_usage(usage: Any) -> TokenUsage:
+        """Normalize AgentScope usage while preserving provider cache semantics."""
+        module = type(usage).__module__ if usage is not None else ""
+        # Anthropic reports normal, cache-read, and cache-write input tokens
+        # separately; OpenAI-style adapters report prompt tokens inclusive.
+        return TokenUsage.from_provider(usage, input_includes_cache="_anthropic" not in module)
 
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
@@ -343,8 +351,18 @@ class AsAgentWrapper(BaseAgentWrapper):
         kwargs = self._merged_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
+        usages: list[TokenUsage] = []
         await agent.observe(inputs)
-        await agent.reply()
+        async for event in agent.reply_stream():
+            if isinstance(event, ModelCallEndEvent):
+                # AgentScope's event intentionally contains only the portable
+                # input/output pair. Cache dimensions are unavailable here.
+                usages.append(
+                    TokenUsage(
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                    ),
+                )
         await self._dump_state(agent.state)
         last_msg = agent.state.context[-1]
 
@@ -365,6 +383,12 @@ class AsAgentWrapper(BaseAgentWrapper):
                 tool_choice=ToolChoice(mode="auto"),
             )
             result["structured_output"] = res.content
+            if res.usage is not None:
+                usages.append(self._agentscope_usage(res.usage))
+
+        usage = TokenUsage.combine(usages)
+        result["usage"] = usage.model_dump()
+        self._record_token_usage(usage)
 
         return result
 
@@ -453,13 +477,16 @@ class AsAgentWrapper(BaseAgentWrapper):
         if isinstance(event, ModelCallStartEvent):
             return cls._chunk(ChunkEnum.USAGE, chunk="", metadata={"model_name": getattr(event, "model_name", None)})
         if isinstance(event, ModelCallEndEvent):
-            usage = {"input_tokens": event.input_tokens, "output_tokens": event.output_tokens}
+            usage = TokenUsage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
             return cls._chunk(
                 ChunkEnum.USAGE,
-                chunk=json.dumps(usage),
-                input_tokens=event.input_tokens,
-                output_tokens=event.output_tokens,
-                metadata={"model_name": getattr(event, "model_name", None)},
+                chunk=json.dumps(usage.model_dump()),
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                metadata={
+                    "model_name": getattr(event, "model_name", None),
+                    "usage": usage.model_dump(),
+                },
             )
         if isinstance(event, ExceedMaxItersEvent):
             return cls._chunk(ChunkEnum.ERROR, chunk="Exceeded max iterations")
@@ -469,11 +496,20 @@ class AsAgentWrapper(BaseAgentWrapper):
         """Stream agent events as unified StreamChunk objects."""
         kwargs = self._merged_stream_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
+        usages: list[TokenUsage] = []
 
         async for event in agent.reply_stream(inputs):
+            if isinstance(event, ModelCallEndEvent):
+                usages.append(
+                    TokenUsage(
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                    ),
+                )
             chunk = self._event_to_chunk(event)
             if chunk is not None:
                 chunk.session_id = chunk.session_id or agent.state.session_id
                 yield chunk
 
         await self._dump_state(agent.state)
+        self._record_token_usage(TokenUsage.combine(usages))
