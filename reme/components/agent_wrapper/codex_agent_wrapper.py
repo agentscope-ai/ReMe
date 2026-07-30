@@ -575,13 +575,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
             turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
             stream = turn.stream()
             completed = False
-            final_usage: TokenUsage | None = None
             try:
                 async for event in stream:
                     if event.method == "turn/completed":
                         completed = True
-                    if event.method == "thread/tokenUsage/updated":
-                        final_usage = self._codex_usage(event.payload.token_usage.last)
                     for chunk in self._event_to_chunks(event, thread.id):
                         yield chunk
             finally:
@@ -591,5 +588,3 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     except Exception as exc:  # pylint: disable=broad-exception-caught
                         self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
                 await stream.aclose()
-                if final_usage is not None:
-                    self._record_token_usage(final_usage)

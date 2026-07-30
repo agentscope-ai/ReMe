@@ -863,6 +863,70 @@ async def test_reply_stream_interrupts_turn_when_consumer_closes_early(tmp_path,
 
 
 @pytest.mark.asyncio
+async def test_reply_stream_does_not_record_token_usage(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
+    recorded_usages = []
+    usage = TokenUsageBreakdown(
+        cachedInputTokens=0,
+        inputTokens=3,
+        outputTokens=5,
+        reasoningOutputTokens=0,
+        totalTokens=8,
+    )
+
+    class FakeTurn:
+        id = "turn-1"
+
+        async def stream(self):
+            yield SimpleNamespace(
+                method="thread/tokenUsage/updated",
+                payload=SimpleNamespace(token_usage=SimpleNamespace(last=usage)),
+            )
+            yield SimpleNamespace(
+                method="turn/completed",
+                payload=SimpleNamespace(
+                    turn=SimpleNamespace(
+                        id=self.id,
+                        status=SimpleNamespace(value="completed"),
+                        duration_ms=1,
+                        error=None,
+                    ),
+                ),
+            )
+
+        async def interrupt(self):
+            raise AssertionError("Completed turns must not be interrupted")
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def turn(self, _inputs, **_kwargs):
+            return FakeTurn()
+
+    class FakeCodex:
+        def __init__(self, _config):
+            pass
+
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
+
+        async def close(self):
+            return None
+
+        async def thread_start(self, **_kwargs):
+            return FakeThread()
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
+    monkeypatch.setattr(wrapper, "_record_token_usage", recorded_usages.append)
+
+    chunks = [chunk async for chunk in wrapper.reply_stream("answer")]
+    await wrapper.close()
+
+    assert any(chunk.chunk_type == ChunkEnum.USAGE for chunk in chunks)
+    assert not recorded_usages
+
+
+@pytest.mark.asyncio
 async def test_close_waits_for_active_turn(tmp_path, monkeypatch):
     wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
     turn_started = asyncio.Event()
