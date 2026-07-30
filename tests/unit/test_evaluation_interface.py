@@ -9,7 +9,9 @@ from reme.components.job import BaseJob, StreamJob
 from reme.utils import global_counter_add
 from reme.utils.evaluation_interface import (
     check_agent_token_count,
+    check_agent_token_usage,
     check_job_count,
+    track_agent_token_usage,
     track_agent_token_counts,
     track_job_counts,
 )
@@ -104,3 +106,26 @@ def test_track_agent_token_counts_returns_delta_for_one_agent():
 
     assert counts == {"bench": 25}
     assert check_agent_token_count("bench", app_context) == 35
+
+
+def test_track_agent_token_usage_preserves_unreported_cache_as_none():
+    """Detailed usage tracking does not turn an unknown cache value into zero."""
+    app_context = SimpleNamespace(metadata={}, jobs={})
+    for metric, value in (("input_tokens", 10), ("output_tokens", 5), ("total_tokens", 15)):
+        global_counter_add(app_context.metadata, ["__token_counter", "bench", metric], value)
+
+    with track_agent_token_usage(["bench"], app_context) as usages:
+        for metric, value in (("input_tokens", 20), ("output_tokens", 7), ("total_tokens", 27)):
+            global_counter_add(app_context.metadata, ["__token_counter", "bench", metric], value)
+
+    assert usages == {
+        "bench": {
+            "input_tokens": 20,
+            "output_tokens": 7,
+            "cache_read_tokens": None,
+            "cache_write_tokens": None,
+            "reasoning_tokens": None,
+            "total_tokens": 27,
+        },
+    }
+    assert check_agent_token_usage("bench", app_context)["cache_read_tokens"] is None

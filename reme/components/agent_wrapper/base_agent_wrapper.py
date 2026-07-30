@@ -246,6 +246,11 @@ class BaseAgentWrapper(BaseComponent):
             value = getattr(usage, field)
             if value is not None:
                 global_counter_add(metadata, [self.TOKEN_COUNTER_PREFIX, self.name, field], value)
+                global_counter_add(
+                    metadata,
+                    [self.TOKEN_COUNTER_PREFIX, self.name, f"{field}_reported_calls"],
+                    1,
+                )
 
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:

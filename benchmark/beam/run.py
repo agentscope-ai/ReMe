@@ -252,12 +252,12 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 
     Returns (answer, metadata)
     """
-    from reme.utils.evaluation_interface import track_agent_token_counts, track_job_counts
+    from reme.utils.evaluation_interface import track_agent_token_usage, track_job_counts
 
-    with track_job_counts(["search"], app.context) as counts, track_agent_token_counts(
+    with track_job_counts(["search"], app.context) as tool_counts, track_agent_token_usage(
         ["bench"],
         app.context,
-    ) as token_counts:
+    ) as token_usages:
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
@@ -266,8 +266,8 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 
     return answer, {
         "mode": "agentic",
-        "search_calls": counts["search"],
-        "token_count": token_counts["bench"],
+        "tool_counts": tool_counts,
+        "token_usage": token_usages["bench"],
     }
 
 
@@ -459,9 +459,9 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     agentic_answer = "(no answer generated)"
                 logger.info(f"[Case {case_id}] Agentic answer: {agentic_answer[:200]}...")
                 logger.info(
-                    f"[Case {case_id}] Agentic search calls: {agentic_meta.get('search_calls', 0)}",
+                    f"[Case {case_id}] Agentic tool calls: {agentic_meta.get('tool_counts', {})}",
                 )
-                logger.info(f"[Case {case_id}] Bench token usage: {agentic_meta.get('token_count', 0)}")
+                logger.info(f"[Case {case_id}] Bench token usage: {agentic_meta.get('token_usage', {})}")
 
                 # Judge agentic answer
                 logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
@@ -692,8 +692,8 @@ def main(  # pylint: disable=too-many-statements
     type_binary_scores: dict[str, list[float]] = {}
     all_scores: list[float] = []
     all_binary_scores: list[float] = []
-    all_search_calls: list[int] = []
-    all_token_counts: list[int] = []
+    all_tool_call_totals: list[int] = []
+    all_token_usages: list[dict[str, int | None]] = []
 
     for case_result in results:
         if "error" in case_result:
@@ -716,8 +716,9 @@ def main(  # pylint: disable=too-many-statements
             type_binary_scores[qtype].append(binary_score)
             all_scores.append(score)
             all_binary_scores.append(binary_score)
-            all_search_calls.append(q.get("agentic_metadata", {}).get("search_calls", 0))
-            all_token_counts.append(q.get("agentic_metadata", {}).get("token_count", 0))
+            metadata = q.get("agentic_metadata", {})
+            all_tool_call_totals.append(sum(metadata.get("tool_counts", {}).values()))
+            all_token_usages.append(metadata.get("token_usage", {}))
 
     print("\n  ── AGENTIC ──")
     if all_scores:
@@ -731,10 +732,16 @@ def main(  # pylint: disable=too-many-statements
         binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
         print(f"    {'-'*38}")
         print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
-        avg_search_calls = sum(all_search_calls) / len(all_search_calls)
-        print(f"    Average search calls/query: {avg_search_calls:.2f}")
-        avg_token_count = sum(all_token_counts) / len(all_token_counts)
-        print(f"    Average bench tokens/query: {avg_token_count:.2f}")
+        tool_call_mean, tool_call_variance = _mean_and_variance(all_tool_call_totals)
+        print(f"    Tool calls/query: mean={tool_call_mean:.2f} variance={tool_call_variance:.2f}")
+        print("    Bench tokens/query:")
+        for metric in _TOKEN_USAGE_METRICS:
+            values = [usage[metric] for usage in all_token_usages if usage.get(metric) is not None]
+            if values:
+                mean, variance = _mean_and_variance(values)
+                print(f"      {metric}: mean={mean:.2f} variance={variance:.2f}")
+            else:
+                print(f"      {metric}: unavailable")
     else:
         print("    (no results)")
 
@@ -772,6 +779,24 @@ def main(  # pylint: disable=too-many-statements
     print("\n" + "=" * 70)
     print("  [DONE] BEAM EVALUATION COMPLETED SUCCESSFULLY")
     print("=" * 70 + "\n")
+
+
+_TOKEN_USAGE_METRICS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+    "total_tokens",
+)
+
+
+def _mean_and_variance(values: list[int]) -> tuple[float, float]:
+    """Return population mean and variance for one per-question metric."""
+    if not values:
+        return 0.0, 0.0
+    mean = sum(values) / len(values)
+    return mean, sum((value - mean) ** 2 for value in values) / len(values)
 
 
 if __name__ == "__main__":

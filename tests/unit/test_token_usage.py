@@ -64,5 +64,6 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
             "output_tokens": {"value": 6, "children": {}},
             "total_tokens": {"value": 19, "children": {}},
             "cache_read_tokens": {"value": 6, "children": {}},
+            "cache_read_tokens_reported_calls": {"value": 1, "children": {}},
         },
     }

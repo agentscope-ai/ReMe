@@ -3,13 +3,21 @@
 from typing import TYPE_CHECKING
 
 from ..components.job import BackgroundJob, BaseJob, CronJob, StreamJob
-from .counter import global_counter_get
+from .counter import global_counter_get, global_counter_get_all
 
 if TYPE_CHECKING:
     from ..components.application_context import ApplicationContext
 
 
 _JOB_ENTRY_CLASSES = {CronJob, StreamJob, BackgroundJob, BaseJob}
+_TOKEN_METRICS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+    "total_tokens",
+)
 
 
 def check_job_count(job_name: str, app_context: "ApplicationContext") -> int:
@@ -81,6 +89,21 @@ def check_agent_token_count(
     return global_counter_get(app_context.metadata, ["__token_counter", agent_name, metric])
 
 
+def check_agent_token_usage(agent_name: str, app_context: "ApplicationContext") -> dict[str, int | None]:
+    """Return all token metrics currently accumulated for one agent wrapper.
+
+    Optional cache and reasoning metrics remain ``None`` until the backend has
+    reported them at least once. This keeps unknown usage distinct from zero.
+    """
+    tree = global_counter_get_all(app_context.metadata, ["__token_counter", agent_name])
+    children = tree.get("children", {}) if tree is not None else {}
+    usage: dict[str, int | None] = {}
+    for metric in _TOKEN_METRICS:
+        node = children.get(metric)
+        usage[metric] = node["value"] if node is not None else None
+    return usage
+
+
 class AgentTokenCountTracker:
     """Measure one token metric for agent wrappers during a context block."""
 
@@ -129,3 +152,51 @@ def track_agent_token_counts(
         assert counts["bench"] > 0
     """
     return AgentTokenCountTracker(agent_names, app_context, metric)
+
+
+class AgentTokenUsageTracker:
+    """Measure all token metrics for agent wrappers during a context block."""
+
+    def __init__(self, agent_names: list[str], app_context: "ApplicationContext") -> None:
+        self.agent_names = list(dict.fromkeys(agent_names))
+        self.app_context = app_context
+        self._start_usage: dict[str, dict[str, int | None]] = {}
+        self._start_report_counts: dict[str, dict[str, int]] = {}
+        self.usages: dict[str, dict[str, int | None]] = {}
+
+    def __enter__(self) -> dict[str, dict[str, int | None]]:
+        self._start_usage = {
+            name: check_agent_token_usage(name, self.app_context) for name in self.agent_names
+        }
+        self._start_report_counts = {
+            name: {
+                metric: check_agent_token_count(name, self.app_context, f"{metric}_reported_calls")
+                for metric in ("cache_read_tokens", "cache_write_tokens", "reasoning_tokens")
+            }
+            for name in self.agent_names
+        }
+        return self.usages
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        for name in self.agent_names:
+            end_usage = check_agent_token_usage(name, self.app_context)
+            delta: dict[str, int | None] = {}
+            for metric in _TOKEN_METRICS:
+                current = end_usage[metric]
+                start = self._start_usage[name][metric]
+                if metric in self._start_report_counts[name]:
+                    end_reports = check_agent_token_count(name, self.app_context, f"{metric}_reported_calls")
+                    if end_reports == self._start_report_counts[name][metric]:
+                        delta[metric] = None
+                        continue
+                delta[metric] = (current or 0) - (start or 0)
+            self.usages[name] = delta
+        return False
+
+
+def track_agent_token_usage(
+    agent_names: list[str],
+    app_context: "ApplicationContext",
+) -> AgentTokenUsageTracker:
+    """Return a context manager that reports full per-agent token usage deltas."""
+    return AgentTokenUsageTracker(agent_names, app_context)
