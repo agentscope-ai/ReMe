@@ -121,8 +121,7 @@ class AgentTokenCountTracker:
 
     def __enter__(self) -> dict[str, int]:
         self._start_counts = {
-            name: check_agent_token_count(name, self.app_context, self.metric)
-            for name in self.agent_names
+            name: check_agent_token_count(name, self.app_context, self.metric) for name in self.agent_names
         }
         return self.counts
 
@@ -165,9 +164,7 @@ class AgentTokenUsageTracker:
         self.usages: dict[str, dict[str, int | None]] = {}
 
     def __enter__(self) -> dict[str, dict[str, int | None]]:
-        self._start_usage = {
-            name: check_agent_token_usage(name, self.app_context) for name in self.agent_names
-        }
+        self._start_usage = {name: check_agent_token_usage(name, self.app_context) for name in self.agent_names}
         self._start_report_counts = {
             name: {
                 metric: check_agent_token_count(name, self.app_context, f"{metric}_reported_calls")

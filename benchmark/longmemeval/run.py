@@ -433,10 +433,13 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             f"[Item {item_index}] Asking (agentic): {question[:80]}... query_time={query_time}",
         )
 
-        with track_job_counts(["search"], app.context) as tool_counts, track_agent_token_usage(
-            ["bench"],
-            app.context,
-        ) as token_usages:
+        with (
+            track_job_counts(["search"], app.context) as tool_counts,
+            track_agent_token_usage(
+                ["bench"],
+                app.context,
+            ) as token_usages,
+        ):
             query_resp = await app.run_job("agentic_answer", query=question, query_time=query_time)
         agentic_tool_counts = tool_counts
         agentic_token_usage = token_usages["bench"]
@@ -719,15 +722,15 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     print("\n  ── Agentic (ReAct) ──")
     print(f"  Overall accuracy: {agentic_correct}/{total} ({100*agentic_correct/total:.1f}%)")
     tool_call_totals = [sum(r.get("agentic_tool_counts", {}).values()) for r in results]
-    tool_call_mean, tool_call_variance = _mean_and_variance(tool_call_totals)
-    print(f"  Tool calls/query: mean={tool_call_mean:.2f} variance={tool_call_variance:.2f}")
+    tool_call_mean, tool_call_std = _mean_and_std(tool_call_totals)
+    print(f"  Tool calls/query: mean={tool_call_mean:.2f} std={tool_call_std:.2f}")
     token_usages = [r.get("agentic_token_usage", {}) for r in results]
     print("  Bench tokens/query:")
     for metric in _TOKEN_USAGE_METRICS:
         values = [usage[metric] for usage in token_usages if usage.get(metric) is not None]
         if values:
-            mean, variance = _mean_and_variance(values)
-            print(f"    {metric}: mean={mean:.2f} variance={variance:.2f}")
+            mean, std = _mean_and_std(values)
+            print(f"    {metric}: mean={mean:.2f} std={std:.2f}")
         else:
             print(f"    {metric}: unavailable")
     print("  Per-type accuracy:")
@@ -753,12 +756,12 @@ _TOKEN_USAGE_METRICS = (
 )
 
 
-def _mean_and_variance(values: list[int]) -> tuple[float, float]:
-    """Return population mean and variance for one per-query metric."""
+def _mean_and_std(values: list[int]) -> tuple[float, float]:
+    """Return population mean and standard deviation for one per-query metric."""
     if not values:
         return 0.0, 0.0
     mean = sum(values) / len(values)
-    return mean, sum((value - mean) ** 2 for value in values) / len(values)
+    return mean, (sum((value - mean) ** 2 for value in values) / len(values)) ** 0.5
 
 
 if __name__ == "__main__":

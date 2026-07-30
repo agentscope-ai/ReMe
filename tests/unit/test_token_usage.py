@@ -12,6 +12,7 @@ class _UsageWrapper(BaseAgentWrapper):
 
 
 def test_claude_style_usage_normalizes_cache_into_complete_input():
+    """Cache-excluded provider input is normalized into the complete input total."""
     usage = TokenUsage.from_provider(
         {
             "input_tokens": 10,
@@ -33,6 +34,7 @@ def test_claude_style_usage_normalizes_cache_into_complete_input():
 
 
 def test_codex_style_usage_does_not_double_count_cached_input():
+    """Cache-inclusive provider input is preserved without adding cached tokens twice."""
     usage = TokenUsage.from_provider(
         {
             "input_tokens": 60,
@@ -50,6 +52,7 @@ def test_codex_style_usage_does_not_double_count_cached_input():
 
 
 def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
+    """Recorded usage accumulates per agent, and optional metrics track reported calls."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = _UsageWrapper(name="research", app_context=context)
     wrapper._record_token_usage(  # pylint: disable=protected-access

@@ -233,21 +233,21 @@ class BaseAgentWrapper(BaseComponent):
         """Add one completed invocation to the application token tree."""
         if self.app_context is None:
             return
-        metadata = getattr(self.app_context, "metadata", None)
-        if not isinstance(metadata, dict):
+        counters = getattr(self.app_context, "metadata", None)
+        if not isinstance(counters, dict):
             return
         for field in ("input_tokens", "output_tokens", "total_tokens"):
             global_counter_add(
-                metadata,
+                counters,
                 [self.TOKEN_COUNTER_PREFIX, self.name, field],
                 getattr(usage, field),
             )
         for field in ("cache_read_tokens", "cache_write_tokens", "reasoning_tokens"):
             value = getattr(usage, field)
             if value is not None:
-                global_counter_add(metadata, [self.TOKEN_COUNTER_PREFIX, self.name, field], value)
+                global_counter_add(counters, [self.TOKEN_COUNTER_PREFIX, self.name, field], value)
                 global_counter_add(
-                    metadata,
+                    counters,
                     [self.TOKEN_COUNTER_PREFIX, self.name, f"{field}_reported_calls"],
                     1,
                 )

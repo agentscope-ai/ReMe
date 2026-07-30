@@ -254,10 +254,13 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
     """
     from reme.utils.evaluation_interface import track_agent_token_usage, track_job_counts
 
-    with track_job_counts(["search"], app.context) as tool_counts, track_agent_token_usage(
-        ["bench"],
-        app.context,
-    ) as token_usages:
+    with (
+        track_job_counts(["search"], app.context) as tool_counts,
+        track_agent_token_usage(
+            ["bench"],
+            app.context,
+        ) as token_usages,
+    ):
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
@@ -732,14 +735,14 @@ def main(  # pylint: disable=too-many-statements
         binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
         print(f"    {'-'*38}")
         print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
-        tool_call_mean, tool_call_variance = _mean_and_variance(all_tool_call_totals)
-        print(f"    Tool calls/query: mean={tool_call_mean:.2f} variance={tool_call_variance:.2f}")
+        tool_call_mean, tool_call_std = _mean_and_std(all_tool_call_totals)
+        print(f"    Tool calls/query: mean={tool_call_mean:.2f} std={tool_call_std:.2f}")
         print("    Bench tokens/query:")
         for metric in _TOKEN_USAGE_METRICS:
             values = [usage[metric] for usage in all_token_usages if usage.get(metric) is not None]
             if values:
-                mean, variance = _mean_and_variance(values)
-                print(f"      {metric}: mean={mean:.2f} variance={variance:.2f}")
+                mean, std = _mean_and_std(values)
+                print(f"      {metric}: mean={mean:.2f} std={std:.2f}")
             else:
                 print(f"      {metric}: unavailable")
     else:
@@ -791,12 +794,12 @@ _TOKEN_USAGE_METRICS = (
 )
 
 
-def _mean_and_variance(values: list[int]) -> tuple[float, float]:
-    """Return population mean and variance for one per-question metric."""
+def _mean_and_std(values: list[int]) -> tuple[float, float]:
+    """Return population mean and standard deviation for one per-question metric."""
     if not values:
         return 0.0, 0.0
     mean = sum(values) / len(values)
-    return mean, sum((value - mean) ** 2 for value in values) / len(values)
+    return mean, (sum((value - mean) ** 2 for value in values) / len(values)) ** 0.5
 
 
 if __name__ == "__main__":

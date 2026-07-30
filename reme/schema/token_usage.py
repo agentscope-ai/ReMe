@@ -75,10 +75,6 @@ class TokenUsage(BaseModel):
             "output_tokens": sum(item.output_tokens for item in usages),
         }
         for field in optional:
-            reported = [
-                getattr(item, field)
-                for item in usages
-                if getattr(item, field) is not None
-            ]
+            reported = [getattr(item, field) for item in usages if getattr(item, field) is not None]
             values[field] = sum(reported) if reported else None
         return cls(**values)
