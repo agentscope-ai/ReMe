@@ -1,5 +1,7 @@
 """Tests for unified agent token accounting."""
 
+from types import SimpleNamespace
+
 from agentscope.model._model_usage import ChatUsage
 import pytest
 
@@ -14,55 +16,44 @@ class _UsageWrapper(BaseAgentWrapper):
         raise NotImplementedError
 
 
-def test_claude_style_usage_normalizes_cache_into_complete_input():
-    """Cache-excluded provider input is normalized into the complete input total."""
+def test_provider_usage_keeps_only_input_and_output_tokens():
+    """Provider-specific cache and reasoning details are not persisted."""
     usage = TokenUsage.from_provider(
         {
             "input_tokens": 10,
             "output_tokens": 4,
             "cache_read_input_tokens": 20,
             "cache_creation_input_tokens": 30,
-        },
-        input_includes_cache=False,
+            "reasoning_output_tokens": 2,
+        }
     )
 
     assert usage.model_dump() == {
-        "input_tokens": 60,
+        "input_tokens": 10,
         "output_tokens": 4,
-        "cache_read_tokens": 20,
-        "cache_write_tokens": 30,
-        "reasoning_tokens": None,
-        "total_tokens": 64,
+        "total_tokens": 14,
     }
 
 
-def test_codex_style_usage_does_not_double_count_cached_input():
-    """Cache-inclusive provider input is preserved without adding cached tokens twice."""
+def test_provider_usage_uses_reported_input_without_cache_adjustment():
+    """Reported input is kept unchanged across backend-specific usage shapes."""
     usage = TokenUsage.from_provider(
         {
             "input_tokens": 60,
             "output_tokens": 4,
             "cached_input_tokens": 20,
             "reasoning_output_tokens": 2,
-        },
-        input_includes_cache=True,
+        }
     )
 
     assert usage.input_tokens == 60
-    assert usage.cache_read_tokens == 20
-    assert usage.reasoning_tokens == 2
     assert usage.total_tokens == 64
 
 
-def test_agentscope_anthropic_usage_includes_cache_tokens(tmp_path):
-    """AgentScope uses one usage type, so provider identity comes from its model."""
+def test_agentscope_usage_keeps_portable_input_and_output(tmp_path):
+    """AgentScope usage has the same input/output-only contract."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-    wrapper.as_llm = type(
-        "AnthropicLLM",
-        (),
-        {"model": type("AnthropicModel", (), {"__module__": "agentscope.model._anthropic._model"})()},
-    )()
     usage = ChatUsage(
         input_tokens=10,
         output_tokens=4,
@@ -72,20 +63,17 @@ def test_agentscope_anthropic_usage_includes_cache_tokens(tmp_path):
     )
 
     assert wrapper._agentscope_usage(usage).model_dump() == {  # pylint: disable=protected-access
-        "input_tokens": 60,
+        "input_tokens": 10,
         "output_tokens": 4,
-        "cache_read_tokens": 20,
-        "cache_write_tokens": 30,
-        "reasoning_tokens": None,
-        "total_tokens": 64,
+        "total_tokens": 14,
     }
 
 
-def test_combined_usage_marks_partially_reported_metrics_as_unknown():
-    """A partial cache/reasoning sum must not be presented as a full total."""
+def test_combined_usage_sums_all_model_calls():
+    """One wrapper invocation records aggregate input/output usage."""
     usage = TokenUsage.combine(
         [
-            TokenUsage(input_tokens=10, output_tokens=4, cache_read_tokens=6),
+            TokenUsage(input_tokens=10, output_tokens=4),
             TokenUsage(input_tokens=5, output_tokens=2),
         ],
     )
@@ -93,19 +81,16 @@ def test_combined_usage_marks_partially_reported_metrics_as_unknown():
     assert usage.model_dump() == {
         "input_tokens": 15,
         "output_tokens": 6,
-        "cache_read_tokens": None,
-        "cache_write_tokens": None,
-        "reasoning_tokens": None,
         "total_tokens": 21,
     }
 
 
 def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
-    """Recorded usage accumulates per agent, and optional metrics track reported calls."""
+    """Recorded usage accumulates input, output, and total tokens per agent."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = _UsageWrapper(name="research", app_context=context)
     wrapper._record_token_usage(  # pylint: disable=protected-access
-        TokenUsage(input_tokens=10, output_tokens=4, cache_read_tokens=6),
+        TokenUsage(input_tokens=10, output_tokens=4),
     )
     wrapper._record_token_usage(TokenUsage(input_tokens=3, output_tokens=2))  # pylint: disable=protected-access
 
@@ -115,10 +100,68 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
             "input_tokens": {"value": 13, "children": {}},
             "output_tokens": {"value": 6, "children": {}},
             "total_tokens": {"value": 19, "children": {}},
-            "cache_read_tokens": {"value": 6, "children": {}},
-            "cache_read_tokens_reported_calls": {"value": 1, "children": {}},
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatch):
+    """AgentScope 2.0.5 exposes full-reply usage on the final message."""
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
+    message = SimpleNamespace(
+        usage=SimpleNamespace(input_tokens=10, output_tokens=4),
+        model_dump=lambda: {"text": "answer"},
+        get_text_content=lambda: "answer",
+    )
+    agent = SimpleNamespace(
+        state=SimpleNamespace(session_id="session-1", context=[message]),
+        observe=lambda _inputs: _async_none(),
+        reply=lambda: _async_value(message),
+    )
+
+    async def build_agent(inputs, **_kwargs):
+        return agent, inputs
+
+    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
+    monkeypatch.setattr(wrapper, "_dump_state", _async_none)
+
+    result = await wrapper.reply("hello")
+
+    assert result["usage"] == {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14}
+    assert global_counter_get_all(context.metadata, ["__token_counter", "research"])["children"]["total_tokens"]["value"] == 14
+
+
+@pytest.mark.asyncio
+async def test_agentscope_reply_without_usage_leaves_token_counters_unset(tmp_path, monkeypatch):
+    """AgentScope 2.0.4 messages without usage remain visibly unavailable."""
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
+    message = SimpleNamespace(model_dump=lambda: {"text": "answer"}, get_text_content=lambda: "answer")
+    agent = SimpleNamespace(
+        state=SimpleNamespace(session_id="session-1", context=[message]),
+        observe=lambda _inputs: _async_none(),
+        reply=lambda: _async_value(message),
+    )
+
+    async def build_agent(inputs, **_kwargs):
+        return agent, inputs
+
+    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
+    monkeypatch.setattr(wrapper, "_dump_state", _async_none)
+
+    result = await wrapper.reply("hello")
+
+    assert result["usage"] is None
+    assert "__token_counter" not in context.metadata
+
+
+async def _async_none(*_args, **_kwargs):
+    return None
+
+
+async def _async_value(value):
+    return value
 
 
 @pytest.mark.asyncio

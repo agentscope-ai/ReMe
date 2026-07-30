@@ -38,8 +38,8 @@ class CcAgentWrapper(BaseAgentWrapper):
 
     @staticmethod
     def _claude_usage(usage: dict[str, Any] | None) -> TokenUsage:
-        """Normalize Claude CLI usage, whose cache dimensions are separate."""
-        return TokenUsage.from_provider(usage or {}, input_includes_cache=False)
+        """Normalize Claude CLI's input/output usage."""
+        return TokenUsage.from_provider(usage or {})
 
     @property
     def session_path(self) -> Path:
@@ -455,13 +455,15 @@ class CcAgentWrapper(BaseAgentWrapper):
         if last_msg is None:
             raise ValueError("No message received from Claude Code.")
 
+        usage = self._claude_usage(last_msg.usage) if last_msg.usage is not None else None
         result = {
             "session_id": last_msg.session_id or "",
             "last_message": asdict(last_msg),
             "result": last_msg.result,
-            "usage": self._claude_usage(last_msg.usage).model_dump(),
+            "usage": usage.model_dump() if usage is not None else None,
         }
-        self._record_token_usage(TokenUsage.model_validate(result["usage"]))
+        if usage is not None:
+            self._record_token_usage(usage)
         if kwargs.get("output_schema") is not None:
             result["structured_output"] = last_msg.structured_output
         return result

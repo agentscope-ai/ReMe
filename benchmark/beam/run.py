@@ -787,9 +787,6 @@ def main(  # pylint: disable=too-many-statements
 _TOKEN_USAGE_METRICS = (
     "input_tokens",
     "output_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "reasoning_tokens",
     "total_tokens",
 )
 

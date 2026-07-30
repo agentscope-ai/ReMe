@@ -81,8 +81,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     @staticmethod
     def _codex_usage(usage: Any) -> TokenUsage:
-        """Normalize Codex's per-turn token usage snapshot."""
-        return TokenUsage.from_provider(usage, input_includes_cache=True)
+        """Normalize Codex's full-turn input/output usage snapshot."""
+        return TokenUsage.from_provider(usage)
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -426,7 +426,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "last_message": final_response,
             "result": final_response,
             "turn": self._serialize(result),
-            "usage": TokenUsage().model_dump(),
+            "usage": None,
         }
         if (raw_usage := getattr(result, "usage", None)) is not None:
             usage = self._codex_usage(raw_usage.last)

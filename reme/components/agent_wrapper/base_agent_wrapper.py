@@ -242,15 +242,6 @@ class BaseAgentWrapper(BaseComponent):
                 [self.TOKEN_COUNTER_PREFIX, self.name, field],
                 getattr(usage, field),
             )
-        for field in ("cache_read_tokens", "cache_write_tokens", "reasoning_tokens"):
-            value = getattr(usage, field)
-            if value is not None:
-                global_counter_add(counters, [self.TOKEN_COUNTER_PREFIX, self.name, field], value)
-                global_counter_add(
-                    counters,
-                    [self.TOKEN_COUNTER_PREFIX, self.name, f"{field}_reported_calls"],
-                    1,
-                )
 
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:

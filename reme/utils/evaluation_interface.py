@@ -20,9 +20,6 @@ _JOB_ENTRY_CLASSES = {CronJob, StreamJob, BackgroundJob, BaseJob}
 _TOKEN_METRICS = (
     "input_tokens",
     "output_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "reasoning_tokens",
     "total_tokens",
 )
 
@@ -102,8 +99,8 @@ def check_agent_token_count(
 def check_agent_token_usage(agent_name: str, app_context: "ApplicationContext") -> dict[str, int | None]:
     """Return all token metrics currently accumulated for one agent wrapper.
 
-    Optional cache and reasoning metrics remain ``None`` until the backend has
-    reported them at least once. This keeps unknown usage distinct from zero.
+    A metric remains ``None`` until the backend has reported it. This keeps
+    unavailable usage distinct from zero.
     """
     tree = global_counter_get_all(app_context.metadata, ["__token_counter", agent_name])
     children = tree.get("children", {}) if tree is not None else {}
@@ -176,18 +173,10 @@ class AgentTokenUsageTracker:
         self.agent_names = list(dict.fromkeys(agent_names))
         self.app_context = app_context
         self._start_usage: dict[str, dict[str, int | None]] = {}
-        self._start_report_counts: dict[str, dict[str, int]] = {}
         self.usages: dict[str, dict[str, int | None]] = {}
 
     def __enter__(self) -> dict[str, dict[str, int | None]]:
         self._start_usage = {name: check_agent_token_usage(name, self.app_context) for name in self.agent_names}
-        self._start_report_counts = {
-            name: {
-                metric: check_agent_token_count(name, self.app_context, f"{metric}_reported_calls")
-                for metric in ("cache_read_tokens", "cache_write_tokens", "reasoning_tokens")
-            }
-            for name in self.agent_names
-        }
         return self.usages
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
@@ -197,12 +186,7 @@ class AgentTokenUsageTracker:
             for metric in _TOKEN_METRICS:
                 current = end_usage[metric]
                 start = self._start_usage[name][metric]
-                if metric in self._start_report_counts[name]:
-                    end_reports = check_agent_token_count(name, self.app_context, f"{metric}_reported_calls")
-                    if end_reports == self._start_report_counts[name][metric]:
-                        delta[metric] = None
-                        continue
-                delta[metric] = (current or 0) - (start or 0)
+                delta[metric] = None if current is None else current - (start or 0)
             self.usages[name] = delta
         return False
 

@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 core = [
-    "agentscope==2.0.4.post1",
+    "agentscope==2.0.5",
     "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",

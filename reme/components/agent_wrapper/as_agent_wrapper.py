@@ -149,15 +149,10 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     SDK_PACKAGE = "agentscope"
 
-    def _agentscope_usage(self, usage: Any) -> TokenUsage:
-        """Normalize AgentScope usage while preserving provider cache semantics."""
-        model = self.as_llm.model if self.as_llm is not None else None
-        module = type(model).__module__ if model is not None else ""
-        # Anthropic reports normal, cache-read, and cache-write input tokens
-        # separately. AgentScope normalizes every provider's usage into the
-        # same ChatUsage type, so the model implementation identifies the
-        # provider instead of the usage object's module.
-        return TokenUsage.from_provider(usage, input_includes_cache="_anthropic" not in module)
+    @staticmethod
+    def _agentscope_usage(usage: Any) -> TokenUsage:
+        """Normalize AgentScope's portable input/output usage."""
+        return TokenUsage.from_provider(usage)
 
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
@@ -353,26 +348,19 @@ class AsAgentWrapper(BaseAgentWrapper):
         kwargs = self._merged_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
-        usages: list[TokenUsage] = []
         await agent.observe(inputs)
-        async for event in agent.reply_stream():
-            if isinstance(event, ModelCallEndEvent):
-                # AgentScope's event intentionally contains only the portable
-                # input/output pair. Cache dimensions are unavailable here.
-                usages.append(
-                    TokenUsage(
-                        input_tokens=event.input_tokens,
-                        output_tokens=event.output_tokens,
-                    ),
-                )
+        last_msg = await agent.reply()
         await self._dump_state(agent.state)
-        last_msg = agent.state.context[-1]
 
         result = {
             "session_id": agent.state.session_id,
             "last_message": last_msg.model_dump(),
             "result": last_msg.get_text_content(),
         }
+
+        usage = self._agentscope_usage(last_msg.usage) if hasattr(last_msg, "usage") and last_msg.usage else None
+        if usage is None:
+            self.logger.error("AgentScope did not return token usage; token accounting is unavailable for this reply.")
 
         output_schema: dict | None = kwargs.get("output_schema")
         if output_schema is not None:
@@ -385,12 +373,15 @@ class AsAgentWrapper(BaseAgentWrapper):
                 tool_choice=ToolChoice(mode="auto"),
             )
             result["structured_output"] = res.content
-            if res.usage is not None:
-                usages.append(self._agentscope_usage(res.usage))
+            if res.usage is None:
+                usage = None
+                self.logger.error("AgentScope did not return structured-output token usage; token accounting is unavailable.")
+            elif usage is not None:
+                usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
 
-        usage = TokenUsage.combine(usages)
-        result["usage"] = usage.model_dump()
-        self._record_token_usage(usage)
+        result["usage"] = usage.model_dump() if usage is not None else None
+        if usage is not None:
+            self._record_token_usage(usage)
 
         return result
 

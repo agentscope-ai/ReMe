@@ -108,8 +108,8 @@ def test_track_agent_token_counts_returns_delta_for_one_agent():
     assert check_agent_token_count("bench", app_context) == 35
 
 
-def test_track_agent_token_usage_preserves_unreported_cache_as_none():
-    """Detailed usage tracking does not turn an unknown cache value into zero."""
+def test_track_agent_token_usage_reports_only_supported_metrics():
+    """Detailed usage tracking reports the shared input/output contract."""
     app_context = SimpleNamespace(metadata={}, jobs={})
     for metric, value in (("input_tokens", 10), ("output_tokens", 5), ("total_tokens", 15)):
         global_counter_add(app_context.metadata, ["__token_counter", "bench", metric], value)
@@ -122,10 +122,22 @@ def test_track_agent_token_usage_preserves_unreported_cache_as_none():
         "bench": {
             "input_tokens": 20,
             "output_tokens": 7,
-            "cache_read_tokens": None,
-            "cache_write_tokens": None,
-            "reasoning_tokens": None,
             "total_tokens": 27,
         },
     }
-    assert check_agent_token_usage("bench", app_context)["cache_read_tokens"] is None
+
+
+def test_track_agent_token_usage_keeps_unavailable_usage_as_none():
+    """A backend that reports no usage remains unavailable to benchmarks."""
+    app_context = SimpleNamespace(metadata={}, jobs={})
+
+    with track_agent_token_usage(["bench"], app_context) as usages:
+        pass
+
+    assert usages == {
+        "bench": {
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+        },
+    }
