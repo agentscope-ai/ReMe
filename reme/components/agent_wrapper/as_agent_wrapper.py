@@ -149,12 +149,14 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     SDK_PACKAGE = "agentscope"
 
-    @staticmethod
-    def _agentscope_usage(usage: Any) -> TokenUsage:
+    def _agentscope_usage(self, usage: Any) -> TokenUsage:
         """Normalize AgentScope usage while preserving provider cache semantics."""
-        module = type(usage).__module__ if usage is not None else ""
+        model = self.as_llm.model if self.as_llm is not None else None
+        module = type(model).__module__ if model is not None else ""
         # Anthropic reports normal, cache-read, and cache-write input tokens
-        # separately; OpenAI-style adapters report prompt tokens inclusive.
+        # separately. AgentScope normalizes every provider's usage into the
+        # same ChatUsage type, so the model implementation identifies the
+        # provider instead of the usage object's module.
         return TokenUsage.from_provider(usage, input_includes_cache="_anthropic" not in module)
 
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):

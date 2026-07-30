@@ -1,6 +1,8 @@
 """Tests for unified agent token accounting."""
 
-from reme.components.agent_wrapper import BaseAgentWrapper
+from agentscope.model._model_usage import ChatUsage
+
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.schema import TokenUsage
 from reme.utils import global_counter_get_all
@@ -49,6 +51,52 @@ def test_codex_style_usage_does_not_double_count_cached_input():
     assert usage.cache_read_tokens == 20
     assert usage.reasoning_tokens == 2
     assert usage.total_tokens == 64
+
+
+def test_agentscope_anthropic_usage_includes_cache_tokens(tmp_path):
+    """AgentScope uses one usage type, so provider identity comes from its model."""
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
+    wrapper.as_llm = type(
+        "AnthropicLLM",
+        (),
+        {"model": type("AnthropicModel", (), {"__module__": "agentscope.model._anthropic._model"})()},
+    )()
+    usage = ChatUsage(
+        input_tokens=10,
+        output_tokens=4,
+        time=0.0,
+        cache_input_tokens=20,
+        cache_creation_input_tokens=30,
+    )
+
+    assert wrapper._agentscope_usage(usage).model_dump() == {  # pylint: disable=protected-access
+        "input_tokens": 60,
+        "output_tokens": 4,
+        "cache_read_tokens": 20,
+        "cache_write_tokens": 30,
+        "reasoning_tokens": None,
+        "total_tokens": 64,
+    }
+
+
+def test_combined_usage_marks_partially_reported_metrics_as_unknown():
+    """A partial cache/reasoning sum must not be presented as a full total."""
+    usage = TokenUsage.combine(
+        [
+            TokenUsage(input_tokens=10, output_tokens=4, cache_read_tokens=6),
+            TokenUsage(input_tokens=5, output_tokens=2),
+        ],
+    )
+
+    assert usage.model_dump() == {
+        "input_tokens": 15,
+        "output_tokens": 6,
+        "cache_read_tokens": None,
+        "cache_write_tokens": None,
+        "reasoning_tokens": None,
+        "total_tokens": 21,
+    }
 
 
 def test_token_counter_is_a_per_agent_metric_tree(tmp_path):

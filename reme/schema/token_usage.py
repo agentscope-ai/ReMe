@@ -68,7 +68,12 @@ class TokenUsage(BaseModel):
 
     @classmethod
     def combine(cls, usages: list["TokenUsage"]) -> "TokenUsage":
-        """Combine completed model calls without turning unknown into zero."""
+        """Combine completed model calls without turning partial data into a total.
+
+        A cache or reasoning metric is reported only when every model call
+        supplied that metric. A sum over only the reporting calls would look
+        complete while silently undercounting the invocation.
+        """
         optional = ("cache_read_tokens", "cache_write_tokens", "reasoning_tokens")
         values: dict[str, int | None] = {
             "input_tokens": sum(item.input_tokens for item in usages),
@@ -76,5 +81,5 @@ class TokenUsage(BaseModel):
         }
         for field in optional:
             reported = [getattr(item, field) for item in usages if getattr(item, field) is not None]
-            values[field] = sum(reported) if reported else None
+            values[field] = sum(reported) if reported and len(reported) == len(usages) else None
         return cls(**values)

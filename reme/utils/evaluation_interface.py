@@ -1,4 +1,11 @@
-"""Read-only evaluation helpers for application job execution statistics."""
+"""Read-only evaluation helpers for application job execution statistics.
+
+These helpers take before/after snapshots of application-lifetime counters.
+They are intentionally not thread-safe request attribution: overlapping calls
+in the same Application contribute to each other's deltas. They are intended
+for the benchmark utilities, where each tracked evaluation runs without other
+work sharing its Application instance.
+"""
 
 from typing import TYPE_CHECKING
 
@@ -39,7 +46,10 @@ def check_job_count(job_name: str, app_context: "ApplicationContext") -> int:
 
 
 class JobCountTracker:
-    """Measure registered job calls made while this context is active."""
+    """Measure registered job calls made while this context is active.
+
+    Not thread-safe for per-request attribution; see the module docstring.
+    """
 
     def __init__(self, job_names: list[str], app_context: "ApplicationContext") -> None:
         self.job_names = list(dict.fromkeys(job_names))
@@ -105,7 +115,10 @@ def check_agent_token_usage(agent_name: str, app_context: "ApplicationContext") 
 
 
 class AgentTokenCountTracker:
-    """Measure one token metric for agent wrappers during a context block."""
+    """Measure one token metric for agent wrappers during a context block.
+
+    Not thread-safe for per-request attribution; see the module docstring.
+    """
 
     def __init__(
         self,
@@ -154,7 +167,10 @@ def track_agent_token_counts(
 
 
 class AgentTokenUsageTracker:
-    """Measure all token metrics for agent wrappers during a context block."""
+    """Measure all token metrics for agent wrappers during a context block.
+
+    Not thread-safe for per-request attribution; see the module docstring.
+    """
 
     def __init__(self, agent_names: list[str], app_context: "ApplicationContext") -> None:
         self.agent_names = list(dict.fromkeys(agent_names))
