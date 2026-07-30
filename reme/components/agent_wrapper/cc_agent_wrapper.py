@@ -537,6 +537,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                             )
                         for chunk in self._result_message_to_chunks(msg):
                             yield chunk
+                        self._record_token_usage(self._claude_usage(msg.usage))
                         if reply_open or not emitted_reply_end:
                             emitted_reply_end = True
                             reply_open = False

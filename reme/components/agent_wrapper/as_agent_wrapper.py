@@ -498,11 +498,20 @@ class AsAgentWrapper(BaseAgentWrapper):
         """Stream agent events as unified StreamChunk objects."""
         kwargs = self._merged_stream_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
+        usages: list[TokenUsage] = []
 
         async for event in agent.reply_stream(inputs):
+            if isinstance(event, ModelCallEndEvent):
+                usages.append(
+                    TokenUsage(
+                        input_tokens=event.input_tokens,
+                        output_tokens=event.output_tokens,
+                    ),
+                )
             chunk = self._event_to_chunk(event)
             if chunk is not None:
                 chunk.session_id = chunk.session_id or agent.state.session_id
                 yield chunk
 
         await self._dump_state(agent.state)
+        self._record_token_usage(TokenUsage.combine(usages))

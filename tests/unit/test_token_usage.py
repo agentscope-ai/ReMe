@@ -1,7 +1,6 @@
 """Tests for unified agent token accounting."""
 
 from agentscope.model._model_usage import ChatUsage
-import pytest
 
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
@@ -119,34 +118,3 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
             "cache_read_tokens_reported_calls": {"value": 1, "children": {}},
         },
     }
-
-
-@pytest.mark.asyncio
-async def test_agentscope_stream_reply_does_not_record_token_usage(tmp_path, monkeypatch):
-    """Only non-streaming AgentScope replies contribute to token accounting."""
-    context = ApplicationContext(workspace_dir=str(tmp_path))
-    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-
-    class FakeAgent:
-        """Minimal AgentScope stream double."""
-
-        state = type("State", (), {"session_id": "session-1"})()
-
-        async def reply_stream(self, inputs):
-            """Yield no events for the supplied input."""
-            if inputs is None:
-                yield None
-
-    async def build_agent(inputs, **_kwargs):
-        """Build the minimal stream double."""
-        return FakeAgent(), inputs
-
-    async def dump_state(_state):
-        """Avoid durable state writes in this accounting test."""
-        return None
-
-    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
-
-    assert [chunk async for chunk in wrapper.reply_stream("hello")] == []
-    assert "__token_counter" not in context.metadata
