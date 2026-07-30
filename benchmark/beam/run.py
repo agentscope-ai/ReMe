@@ -252,13 +252,17 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
 
     Returns (answer, metadata)
     """
+    from reme.utils.evaluation_interface import check_job_count
+
+    search_calls_before = check_job_count("search", app.context)
     query_resp = await app.run_job(
         "agentic_answer",
         query=question,
     )
     answer = (query_resp.answer or "").strip()
+    search_calls = check_job_count("search", app.context) - search_calls_before
 
-    return answer, {"mode": "agentic"}
+    return answer, {"mode": "agentic", "search_calls": search_calls}
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +452,9 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 if not agentic_answer:
                     agentic_answer = "(no answer generated)"
                 logger.info(f"[Case {case_id}] Agentic answer: {agentic_answer[:200]}...")
+                logger.info(
+                    f"[Case {case_id}] Agentic search calls: {agentic_meta.get('search_calls', 0)}",
+                )
 
                 # Judge agentic answer
                 logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
@@ -678,6 +685,7 @@ def main(  # pylint: disable=too-many-statements
     type_binary_scores: dict[str, list[float]] = {}
     all_scores: list[float] = []
     all_binary_scores: list[float] = []
+    all_search_calls: list[int] = []
 
     for case_result in results:
         if "error" in case_result:
@@ -700,6 +708,7 @@ def main(  # pylint: disable=too-many-statements
             type_binary_scores[qtype].append(binary_score)
             all_scores.append(score)
             all_binary_scores.append(binary_score)
+            all_search_calls.append(q.get("agentic_metadata", {}).get("search_calls", 0))
 
     print("\n  ── AGENTIC ──")
     if all_scores:
@@ -713,6 +722,8 @@ def main(  # pylint: disable=too-many-statements
         binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
         print(f"    {'-'*38}")
         print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
+        avg_search_calls = sum(all_search_calls) / len(all_search_calls)
+        print(f"    Average search calls/query: {avg_search_calls:.2f}")
     else:
         print("    (no results)")
 

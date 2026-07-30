@@ -58,21 +58,23 @@ class BaseJob(BaseComponent):
         # dict(params) copies kwargs so steps cannot mutate the shared spec.
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
-    def _record_call(self, entry_class: type["BaseJob"]) -> None:
-        """Increment this job's application-lifetime call counter.
+    def _counter_key(self, entry_class: type["BaseJob"]) -> list[str]:
+        """Build this job's application-lifetime call counter key.
 
         The counter path groups calls by the built-in job implementation that
         accepted the call, then preserves any project-specific subclasses
         between that implementation and the concrete job class.
         """
-        metadata = getattr(self.app_context, "metadata", None)
-        if not isinstance(metadata, dict):
-            return
-
         mro = type(self).mro()
         entry_index = mro.index(entry_class)
         subclass_path = [cls.__name__ for cls in mro[:entry_index]]
-        global_counter_inc(metadata, ["__job_counter", entry_class.__name__, *subclass_path, self.name])
+        return ["__job_counter", entry_class.__name__, *subclass_path, self.name]
+
+    def _record_call(self, entry_class: type["BaseJob"]) -> None:
+        """Increment this job's application-lifetime call counter."""
+        metadata = getattr(self.app_context, "metadata", None)
+        if isinstance(metadata, dict):
+            global_counter_inc(metadata, self._counter_key(entry_class))
 
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""

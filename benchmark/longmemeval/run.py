@@ -259,6 +259,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     """
     from reme import Application
     from reme.config import resolve_app_config
+    from reme.utils.evaluation_interface import check_job_count
 
     reme_cfg = eval_config["reme"]
     dream_trigger_hour = reme_cfg.get("dream_trigger_hour", 23)
@@ -432,16 +433,19 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             f"[Item {item_index}] Asking (agentic): {question[:80]}... query_time={query_time}",
         )
 
+        search_calls_before = check_job_count("search", app.context)
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
             query_time=query_time,
         )
+        agentic_search_calls = check_job_count("search", app.context) - search_calls_before
         agentic_response = (query_resp.answer or "").strip()
         if not agentic_response:
             agentic_response = "(no answer generated)"
 
         logger.info(f"[Item {item_index}] Agentic response: {agentic_response[:200]}...")
+        logger.info(f"[Item {item_index}] Agentic search calls: {agentic_search_calls}")
 
         # ── Phase 5: Judge agentic response (via answer_judge_step) ──────────
         logger.info(f"[Item {item_index}] Judging agentic (binary, type={item['question_type']})...")
@@ -464,6 +468,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         "ground_truth": item["answer"],
         "agentic_response": agentic_response,
         "agentic_judgment": agentic_judgment,
+        "agentic_search_calls": agentic_search_calls,
         "sessions_ingested": len(sorted_sessions),
         "dreams_triggered": len(dream_dates_triggered),
     }
@@ -711,6 +716,8 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     # Agentic stats
     print("\n  ── Agentic (ReAct) ──")
     print(f"  Overall accuracy: {agentic_correct}/{total} ({100*agentic_correct/total:.1f}%)")
+    avg_search_calls = sum(r.get("agentic_search_calls", 0) for r in results) / total if total else 0
+    print(f"  Average search calls/query: {avg_search_calls:.2f}")
     print("  Per-type accuracy:")
     for qtype, stats in sorted(agentic_type_stats.items()):
         acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
