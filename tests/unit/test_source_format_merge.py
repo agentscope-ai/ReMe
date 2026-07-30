@@ -4,9 +4,8 @@ Session chunks (``*.jsonl`` under the dialog dir) whose line ranges overlap,
 contain one another, or are adjacent are merged into their union by the caller
 (``merge_session_chunk_intervals``) before rendering with
 ``render_chunk_entries`` + ``join_chunk_entries``. Bodies here are plain
-(non-``Msg``) text lines, which pass through stripped and get a ``L<n>:``
-line-number prefix — letting these tests assert the union content, line order,
-and file-line numbering directly.
+(non-``Msg``) text lines, which pass through stripped — letting these tests
+assert the union content and line order directly.
 """
 
 from reme.schema import FileChunk
@@ -33,7 +32,7 @@ def test_overlapping_session_chunks_merge_into_union_without_duplicates():
 
     answer = _render([a, b], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\nL4: m4\nL5: m5"
+    assert answer == "m1\nm2\nm3\nm4\nm5"
 
 
 def test_contained_session_chunk_is_absorbed_by_the_larger_range():
@@ -43,7 +42,7 @@ def test_contained_session_chunk_is_absorbed_by_the_larger_range():
 
     answer = _render([big, small], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\nL4: m4\nL5: m5"
+    assert answer == "m1\nm2\nm3\nm4\nm5"
 
 
 def test_adjacent_session_chunks_merge_end_plus_one_equals_next_start():
@@ -53,7 +52,7 @@ def test_adjacent_session_chunks_merge_end_plus_one_equals_next_start():
 
     answer = _render([a, b], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\nL4: m4\nL5: m5\nL6: m6"
+    assert answer == "m1\nm2\nm3\nm4\nm5\nm6"
 
 
 def test_session_chunks_with_a_gap_are_not_merged():
@@ -63,7 +62,7 @@ def test_session_chunks_with_a_gap_are_not_merged():
 
     answer = _render([a, b], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\n\nL5: m5\nL6: m6"
+    assert answer == "m1\nm2\nm3\n\nm5\nm6"
 
 
 def test_session_chunks_from_different_files_are_not_merged():
@@ -73,7 +72,7 @@ def test_session_chunks_from_different_files_are_not_merged():
 
     answer = _render([a, b], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: A1\nL2: A2\nL3: A3\n\nL2: B2\nL3: B3\nL4: B4"
+    assert answer == "A1\nA2\nA3\n\nB2\nB3\nB4"
 
 
 def test_non_session_chunks_are_never_merged():
@@ -94,7 +93,7 @@ def test_merge_preserves_line_order_regardless_of_input_rank_order():
     # Higher-scored later-range chunk is listed first (as a ranker would).
     answer = _render([later, earlier], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\nL4: m4\nL5: m5"
+    assert answer == "m1\nm2\nm3\nm4\nm5"
 
 
 def test_merged_header_spans_the_union_range_and_keeps_best_score():
@@ -117,7 +116,7 @@ def test_separate_intervals_in_same_file_stay_separate():
 
     answer = _render([a, b, c], _DIALOG_DIR, include_source=False)
 
-    assert answer == "L1: m1\nL2: m2\nL3: m3\nL4: m4\n\nL10: m10\nL11: m11"
+    assert answer == "m1\nm2\nm3\nm4\n\nm10\nm11"
 
 
 def test_same_file_units_stay_adjacent_and_sorted_even_when_interleaved_by_rank():
@@ -133,7 +132,7 @@ def test_same_file_units_stay_adjacent_and_sorted_even_when_interleaved_by_rank(
 
     # s1's two units are adjacent and sorted by start_line (1-3 before 10-12),
     # placed at s1's earliest rank (0), so the whole s1 block precedes s2.
-    assert answer == "L1: S1a\nL2: S1b\nL3: S1c\n\nL10: S1x\nL11: S1y\nL12: S1z\n\nL1: S2a\nL2: S2b\nL3: S2c"
+    assert answer == "S1a\nS1b\nS1c\n\nS1x\nS1y\nS1z\n\nS2a\nS2b\nS2c"
 
 
 def test_same_file_units_adjacency_with_source_headers():

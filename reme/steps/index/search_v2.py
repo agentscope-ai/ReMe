@@ -14,7 +14,7 @@ from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
 from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, is_session_path, join_chunk_entries
-from ._source_format import merge_session_chunk_intervals, render_chunk_entries, render_session_chunk_lines
+from ._source_format import merge_session_chunk_intervals, render_chunk_entries
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
@@ -211,15 +211,14 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         )
 
         dialog_dir = self.config_value("dialog_dir")
-        merged_chunks = merge_session_chunk_intervals(fused, dialog_dir)
         entries = render_chunk_entries(
-            merged_chunks,
+            merge_session_chunk_intervals(fused, dialog_dir),
             dialog_dir,
             score_fn=lambda c: self._format_scores(c.scores, hybrid),
             link_expansion=link_expansion,
         )
         if self._session_compress_enabled():
-            await self._compress_session_entries(entries, merged_chunks, query, dialog_dir)
+            await self._compress_session_entries(entries, query, dialog_dir)
         self.context.response.answer = join_chunk_entries(entries)
         if not fused:
             self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
@@ -244,13 +243,7 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         value = (search_cfg.get("_compress") or {}).get("session")
         return value is True or str(value).strip().lower() == "true"
 
-    async def _compress_session_entries(
-        self,
-        entries: list[dict[str, str]],
-        chunks: list[FileChunk],
-        query: str,
-        dialog_dir: str,
-    ) -> None:
+    async def _compress_session_entries(self, entries: list[dict[str, str]], query: str, dialog_dir: str) -> None:
         """Compress session-transcript entry bodies in place via the ``compressor`` job.
 
         Only entries whose ``path`` points at a raw session transcript are
@@ -260,16 +253,11 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         the default) it receives the injected ``_search.queries`` plus the
         current search query.
 
-        The compressor input is the line-aligned rendering of the entry's
-        chunk (one message per line, see :func:`render_session_chunk_lines`),
-        so input line ``i`` maps to file line ``chunk.start_line + i``. The
-        output is adopted only when the compressor succeeded, its line count
-        equals the input's, and it is not longer than the input. Adopted
-        bodies get a ``L<line>:`` prefix per line carrying the true line
-        number in the original session jsonl file, plus a leading
-        ``compressed session chunk:`` marker, so downstream consumers can
-        tell them from verbatim transcripts and ``read`` the exact original
-        lines.
+        The compressor receives the already-rendered body (one message per
+        line) stripped. Its output is adopted whenever the compressor
+        succeeded and the result is not longer than the input; adopted bodies
+        get a leading ``compressed session chunk:`` marker so downstream
+        consumers can tell them from verbatim transcripts.
         """
         assert self.context is not None
         search_cfg: dict = self.context.get("_search") or {}
@@ -281,22 +269,12 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
             if query and query not in queries:
                 queries.append(query)
 
-        async def compress(entry: dict[str, str], chunk: FileChunk) -> None:
+        async def compress(entry: dict[str, str]) -> None:
             path = entry.get("path", "")
-            lines = render_session_chunk_lines(chunk)
-            # Trim leading/trailing blank lines but track the offset so the
-            # L-markers stay aligned with the original file line numbers.
-            start = 0
-            end = len(lines)
-            while start < end and not lines[start].strip():
-                start += 1
-            while end > start and not lines[end - 1].strip():
-                end -= 1
-            if start >= end:
+            body = (entry.get("body", "") or "").strip()
+            if not body:
                 return
-            trimmed = lines[start:end]
-            text = "\n".join(trimmed)
-            response = await self.run_job("compressor", text=text, queries=queries)
+            response = await self.run_job("compressor", text=body, queries=queries)
             compressed = str(response.answer or "").strip()
             if not response.success or not compressed:
                 self.logger.warning(
@@ -304,29 +282,16 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
                     f"success={response.success} answer={compressed[:100]!r}; keeping original",
                 )
                 return
-            compressed_lines = compressed.splitlines()
-            if len(compressed_lines) != len(trimmed):
-                self.logger.warning(
-                    f"[{self.name}] compressed line count mismatch "
-                    f"({len(compressed_lines)} != {len(trimmed)}) path={path!r}; keeping original",
-                )
-                return
-            if len(compressed) > len(text):
+            if len(compressed) > len(body):
                 self.logger.info(
                     f"[{self.name}] compressed body longer than original "
-                    f"({len(compressed)} > {len(text)}) path={path!r}; keeping original",
+                    f"({len(compressed)} > {len(body)}) path={path!r}; keeping original",
                 )
                 return
-            first_line = chunk.start_line + start
-            numbered = "\n".join(f"L{first_line + i}: {line}" for i, line in enumerate(compressed_lines))
-            entry["body"] = f"compressed session chunk:\n{numbered}"
+            entry["body"] = f"compressed session chunk:\n{compressed}"
 
-        targets = [
-            (entry, chunk)
-            for entry, chunk in zip(entries, chunks)
-            if is_session_path(entry.get("path", ""), dialog_dir)
-        ]
+        targets = [e for e in entries if is_session_path(e.get("path", ""), dialog_dir)]
         if not targets:
             return
         self.logger.info(f"[{self.name}] compressing {len(targets)} session entries with {len(queries)} queries")
-        await asyncio.gather(*(compress(entry, chunk) for entry, chunk in targets))
+        await asyncio.gather(*(compress(entry) for entry in targets))

@@ -1089,9 +1089,9 @@ def test_search_v2_step_keeps_original_body_when_compressed_is_longer():
     asyncio.run(run())
 
 
-def test_search_v2_step_compression_strips_input_and_numbers_lines_from_start_line():
-    """The compressor receives the line-aligned rendering; adopted output is prefixed
-    with ``L<line>:`` markers counted from the chunk's start_line in the session file."""
+def test_search_v2_step_compression_strips_input_and_adds_marker():
+    """The compressor receives the stripped rendered body; adopted output is
+    prefixed with the ``compressed session chunk:`` marker only (no line numbers)."""
 
     async def run():
         session = FileChunk(
@@ -1116,7 +1116,7 @@ def test_search_v2_step_compression_strips_input_and_numbers_lines_from_start_li
         resp = await step(ctx)
 
         assert calls[0]["text"] == "first message line\nsecond message line"
-        assert "compressed session chunk:\nL4: first compact\nL5: second compact" in resp.answer
+        assert "compressed session chunk:\nfirst compact\nsecond compact" in resp.answer
 
     asyncio.run(run())
 
@@ -1153,13 +1153,13 @@ def test_search_v2_step_compression_input_is_line_aligned_with_session_jsonl():
         assert len(sent_lines) == 2
         assert sent_lines[0].startswith("[user @") and "line one line two" in sent_lines[0]
         assert sent_lines[1].startswith("[assistant @") and "long answer" in sent_lines[1]
-        assert "compressed session chunk:\nL7: [user @ t] u\nL8: [assistant @ t] a" in resp.answer
+        assert "compressed session chunk:\n[user @ t] u\n[assistant @ t] a" in resp.answer
 
     asyncio.run(run())
 
 
-def test_search_v2_step_keeps_original_body_on_compressed_line_count_mismatch():
-    """Compressed output whose line count differs from the input is rejected."""
+def test_search_v2_step_adopts_shorter_output_regardless_of_line_count():
+    """A shorter compressor output is adopted even when its line count differs."""
 
     async def run():
         session = FileChunk(
@@ -1181,8 +1181,8 @@ def test_search_v2_step_keeps_original_body_on_compressed_line_count_mismatch():
 
         resp = await step(ctx)
 
-        assert "first message line" in resp.answer
-        assert "merged into one line" not in resp.answer
+        assert "compressed session chunk:\nmerged into one line" in resp.answer
+        assert "first message line" not in resp.answer
 
     asyncio.run(run())
 

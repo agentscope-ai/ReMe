@@ -2,8 +2,8 @@
 
 Raw session transcripts (``*.jsonl`` under the dialog dir) store one serialized
 ``Msg`` per line. :func:`render_chunk_body` renders those line-aligned — one
-message per line with a ``L<n>:`` prefix carrying the real line number in the
-session file; all other chunks keep their raw ``text``. Used by
+message per line with internal newlines flattened; all other chunks keep their
+raw ``text``. Used by
 ``search``/``vector_search``/``bm25_search`` so every step renders session hits
 identically.
 
@@ -53,19 +53,17 @@ def is_session_chunk(chunk: FileChunk, dialog_dir: str) -> bool:
 
 
 def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
-    """Render a chunk's body; raw session transcripts render line-aligned and numbered.
+    """Render a chunk's body; raw session transcripts render one message per line.
 
     Session chunks are jsonl where each line is a serialized ``Msg``. They
     render via :func:`render_session_chunk_lines` — one message per line with
-    internal newlines flattened — and every line gets a ``L<n>:`` prefix
-    carrying its real line number in the session file, so verbatim and
-    compressed session bodies share the same line-numbered format. All other
-    chunks keep their raw ``text``.
+    internal newlines flattened — so verbatim and compressed session bodies
+    share the same single-line-per-message format. All other chunks keep
+    their raw ``text``.
     """
     if not is_session_chunk(chunk, dialog_dir):
         return chunk.text
-    lines = render_session_chunk_lines(chunk)
-    return "\n".join(f"L{chunk.start_line + i}: {line}" for i, line in enumerate(lines))
+    return "\n".join(render_session_chunk_lines(chunk))
 
 
 def render_session_chunk_lines(chunk: FileChunk) -> list[str]:

@@ -1,21 +1,15 @@
 compress_prompt: |
   You are a text compression engine. The text below is a conversation transcript. Compress it so it becomes shorter while losing zero information.
 
-  ## Dialogue Handling
-
-  1. The text is a dialogue with exactly ONE message per line. Each line starts with a `[user @ <timestamp>]` or `[assistant @ <timestamp>]` marker followed by that message's content.
-  2. Preserve this line structure exactly: output exactly one line per input line, in the original order, each keeping its original `[role @ timestamp]` marker. Never merge, split, drop, or reorder lines — the output must have exactly as many lines as the input.
-  3. Only compress the content of assistant lines. Copy every user line verbatim, without any modification.
-
-  ## Compression Rules (assistant messages only)
+  ## Compression Rules
 
   1. Delete sentences that carry no real information: greetings, pleasantries, small talk, thanks, apologies, courtesy formulas, filler words, and empty transitions (e.g. "Hi there!", "Hope you're doing well", "Thanks so much!", "As we all know").
   2. You may rewrite, merge, or restructure sentences to make them shorter, but you must NOT lose any information. Every fact, entity, number, date, condition, causal relation, opinion, preference, and nuance present in the original must remain fully recoverable from your output.
   3. Never delete informative content, and never weaken it into a vaguer statement. Compression must come only from removing zero-information phrasing and from tighter wording.
   4. Never add new information, comments, guesses, or interpretations of your own.
-  5. Copy critical details verbatim: numbers, dates, times, amounts, identifiers, proper names, quotes, file paths, and code must appear exactly as in the original.
-  6. Keep the original language of the text and preserve the original order of information where practical.
-  7. If an assistant line carries no real information (pure greetings/small talk), keep only its `[assistant @ <timestamp>]` marker on that line.
+  5. Copy critical details verbatim: numbers, dates, times, amounts, identifiers, proper names, quotes, file paths, and code must appear exactly as in the original. Vague or relative time expressions (e.g. "last Wednesday", "two weeks ago") must also be preserved as-is.
+  6. Keep the original language of the text, and try to preserve the original format (such as the `[role @ timestamp]` message lines) and the original order of information.
+  7. If the entire text carries no real information (pure greetings/small talk), output nothing.
 
   ## Output Format
 
@@ -27,21 +21,15 @@ compress_prompt: |
 compress_prompt_zh: |
   你是一个文本压缩引擎。下面的文本是一段对话记录。请压缩它，使其变短，但信息量零损失。
 
-  ## 对话处理
-
-  1. 文本是对话格式，严格每行一条消息。每行以形如 `[user @ <时间戳>]` 或 `[assistant @ <时间戳>]` 的标记开头，后面跟该消息的内容。
-  2. 严格保持行结构：输入有多少行，输出就必须有多少行，顺序不变，每行保留其原有的 `[role @ 时间戳]` 标记。不得合并、拆分、删除或重排任何行。
-  3. 只压缩 assistant 行的内容。所有 user 行必须逐字保留，不做任何修改。
-
-  ## 压缩规则（仅针对 assistant 消息）
+  ## 压缩规则
 
   1. 删除没有实际信息量的语句：问候、寒暄、客套、感谢、道歉、口头禅、空洞的过渡语（例如"你好呀！""希望你一切都好""非常感谢！""众所周知"）。
   2. 可以改写、合并、调整语句以减小长度，但不得损失任何信息。原文中的每一个事实、实体、数字、日期、条件、因果关系、观点、偏好和细微含义，都必须能从你的输出中完整还原。
   3. 不得删减信息内容，也不得把信息弱化成更模糊的表述。压缩只能来自删除零信息量的表达和更紧凑的措辞。
   4. 不得添加任何新信息、评论、猜测或你自己的解读。
-  5. 关键细节必须逐字保留：数字、日期、时间、金额、标识符、专有名词、引语、文件路径和代码必须与原文完全一致。
-  6. 保持文本的原始语言，并尽量保持信息的原有顺序。
-  7. 如果某一 assistant 行没有任何实际信息（纯问候/寒暄），该行只保留 `[assistant @ <时间戳>]` 标记。
+  5. 关键细节必须逐字保留：数字、日期、时间、金额、标识符、专有名词、引语、文件路径和代码必须与原文完全一致。模糊或相对的时间描述（如"上周三""两周前"）也必须原样保留。
+  6. 保持文本的原始语言，尽量保持原有的格式（如 `[role @ 时间戳]` 的消息行）和信息的原有顺序。
+  7. 如果整段文本没有任何实际信息（纯问候/寒暄），则输出空。
 
   ## 输出格式
 
@@ -54,13 +42,7 @@ compress_prompt_zh: |
 compress_query_prompt: |
   You are a text compression engine. The text below is a conversation transcript. Compress it so it becomes shorter, guided by the queries as a relevance filter, without losing any potentially useful information.
 
-  ## Dialogue Handling
-
-  1. The text is a dialogue with exactly ONE message per line. Each line starts with a `[user @ <timestamp>]` or `[assistant @ <timestamp>]` marker followed by that message's content.
-  2. Preserve this line structure exactly: output exactly one line per input line, in the original order, each keeping its original `[role @ timestamp]` marker. Never merge, split, drop, or reorder lines — the output must have exactly as many lines as the input.
-  3. Only compress the content of assistant lines. Copy every user line verbatim, without any modification.
-
-  ## Compression Rules (assistant messages only)
+  ## Compression Rules
 
   1. Delete sentences that carry no real information: greetings, pleasantries, small talk, thanks, apologies, courtesy formulas, filler words, and empty transitions (e.g. "Hi there!", "Hope you're doing well", "Thanks so much!", "As we all know").
   2. You may rewrite, merge, or restructure sentences to make them shorter, but the kept content must NOT lose information. Every fact, entity, number, date, condition, causal relation, opinion, preference, and nuance you keep must remain fully recoverable from your output.
@@ -68,8 +50,8 @@ compress_query_prompt: |
   4. You may delete a piece of information ONLY when both conditions hold for EVERY query: it is certainly unrelated to that query, AND it is certainly of no help whatsoever for answering that query.
   5. If you are unsure whether something can be deleted, KEEP it. When in doubt, always err on the side of keeping.
   6. Do NOT answer the queries. Do NOT add new information, comments, guesses, or interpretations of your own.
-  7. Copy critical details verbatim: numbers, dates, times, amounts, identifiers, proper names, quotes, file paths, and code must appear exactly as in the original.
-  8. Keep the original language of the text and preserve the original order of information where practical.
+  7. Copy critical details verbatim: numbers, dates, times, amounts, identifiers, proper names, quotes, file paths, and code must appear exactly as in the original. Vague or relative time expressions (e.g. "last Wednesday", "two weeks ago") must also be preserved as-is.
+  8. Keep the original language of the text, and try to preserve the original format (such as the `[role @ timestamp]` message lines) and the original order of information.
 
   ## Output Format
 
@@ -85,13 +67,7 @@ compress_query_prompt: |
 compress_query_prompt_zh: |
   你是一个文本压缩引擎。下面的文本是一段对话记录。请以下列 query 列表作为相关性过滤条件，压缩文本使其变短，同时不丢失任何可能有用的信息。
 
-  ## 对话处理
-
-  1. 文本是对话格式，严格每行一条消息。每行以形如 `[user @ <时间戳>]` 或 `[assistant @ <时间戳>]` 的标记开头，后面跟该消息的内容。
-  2. 严格保持行结构：输入有多少行，输出就必须有多少行，顺序不变，每行保留其原有的 `[role @ 时间戳]` 标记。不得合并、拆分、删除或重排任何行。
-  3. 只压缩 assistant 行的内容。所有 user 行必须逐字保留，不做任何修改。
-
-  ## 压缩规则（仅针对 assistant 消息）
+  ## 压缩规则
 
   1. 删除没有实际信息量的语句：问候、寒暄、客套、感谢、道歉、口头禅、空洞的过渡语（例如"你好呀！""希望你一切都好""非常感谢！""众所周知"）。
   2. 可以改写、合并、调整语句以减小长度，但保留下来的内容不得损失信息。你保留的每一个事实、实体、数字、日期、条件、因果关系、观点、偏好和细微含义，都必须能从你的输出中完整还原。
@@ -99,8 +75,8 @@ compress_query_prompt_zh: |
   4. 只有对每一个 query 都同时满足以下两个条件时，才可以删除一条信息：它一定与该 query 无关，并且对回答该 query 一定没有任何帮助。
   5. 对于不确定是否可以删除的信息，一律保留。拿不准时，永远倾向于保留。
   6. 不要回答这些 query 本身。不得添加任何新信息、评论、猜测或你自己的解读。
-  7. 关键细节必须逐字保留：数字、日期、时间、金额、标识符、专有名词、引语、文件路径和代码必须与原文完全一致。
-  8. 保持文本的原始语言，并尽量保持信息的原有顺序。
+  7. 关键细节必须逐字保留：数字、日期、时间、金额、标识符、专有名词、引语、文件路径和代码必须与原文完全一致。模糊或相对的时间描述（如"上周三""两周前"）也必须原样保留。
+  8. 保持文本的原始语言，尽量保持原有的格式（如 `[role @ 时间戳]` 的消息行）和信息的原有顺序。
 
   ## 输出格式
 
