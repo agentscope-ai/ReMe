@@ -473,13 +473,17 @@ async def test_reply_stream_emits_one_reply_end_for_normal_sdk_lifecycle(tmp_pat
             usage={"input_tokens": 1, "output_tokens": 2},
         )
 
+    wrapper = _wrapper(tmp_path)
+    recorded_usages = []
     monkeypatch.setattr("claude_agent_sdk.query", query)
-    chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello")]
+    monkeypatch.setattr(wrapper, "_record_token_usage", recorded_usages.append)
+    chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
 
     assert sum(chunk.chunk_type == ChunkEnum.REPLY_END for chunk in chunks) == 1
     delta_usage = next(chunk for chunk in chunks if chunk.metadata.get("stop_reason") == "end_turn")
     assert delta_usage.chunk_type == ChunkEnum.USAGE
     assert delta_usage.output_tokens == 2
+    assert not recorded_usages
 
 
 @pytest.mark.asyncio
