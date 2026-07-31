@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+from agentscope.event import ModelCallEndEvent
 from agentscope.model._model_usage import ChatUsage
 import pytest
 
@@ -25,7 +26,7 @@ def test_provider_usage_keeps_only_input_and_output_tokens():
             "cache_read_input_tokens": 20,
             "cache_creation_input_tokens": 30,
             "reasoning_output_tokens": 2,
-        }
+        },
     )
 
     assert usage.model_dump() == {
@@ -43,7 +44,7 @@ def test_provider_usage_uses_reported_input_without_cache_adjustment():
             "output_tokens": 4,
             "cached_input_tokens": 20,
             "reasoning_output_tokens": 2,
-        }
+        },
     )
 
     assert usage.input_tokens == 60
@@ -106,7 +107,7 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
 
 @pytest.mark.asyncio
 async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatch):
-    """AgentScope 2.0.5 exposes full-reply usage on the final message."""
+    """Reply usage is recorded: from the final message (>=2.0.5) or model-call events (<2.0.5)."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
     message = SimpleNamespace(
@@ -118,6 +119,9 @@ async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatc
         state=SimpleNamespace(session_id="session-1", context=[message]),
         observe=lambda _inputs: _async_none(),
         reply=lambda: _async_value(message),
+        reply_stream=lambda: _async_events(
+            [ModelCallEndEvent(reply_id="r1", input_tokens=10, output_tokens=4)],
+        ),
     )
 
     async def build_agent(inputs, **_kwargs):
@@ -129,12 +133,15 @@ async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatc
     result = await wrapper.reply("hello")
 
     assert result["usage"] == {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14}
-    assert global_counter_get_all(context.metadata, ["__token_counter", "research"])["children"]["total_tokens"]["value"] == 14
+    assert (
+        global_counter_get_all(context.metadata, ["__token_counter", "research"])["children"]["total_tokens"]["value"]
+        == 14
+    )
 
 
 @pytest.mark.asyncio
 async def test_agentscope_reply_without_usage_leaves_token_counters_unset(tmp_path, monkeypatch):
-    """AgentScope 2.0.4 messages without usage remain visibly unavailable."""
+    """Replies without any usage information remain visibly unavailable."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
     message = SimpleNamespace(model_dump=lambda: {"text": "answer"}, get_text_content=lambda: "answer")
@@ -142,6 +149,7 @@ async def test_agentscope_reply_without_usage_leaves_token_counters_unset(tmp_pa
         state=SimpleNamespace(session_id="session-1", context=[message]),
         observe=lambda _inputs: _async_none(),
         reply=lambda: _async_value(message),
+        reply_stream=lambda: _async_events([]),
     )
 
     async def build_agent(inputs, **_kwargs):
@@ -162,6 +170,11 @@ async def _async_none(*_args, **_kwargs):
 
 async def _async_value(value):
     return value
+
+
+async def _async_events(events):
+    for event in events:
+        yield event
 
 
 @pytest.mark.asyncio

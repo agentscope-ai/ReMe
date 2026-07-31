@@ -59,7 +59,6 @@ class LmeAnswerJudgeStep(BaseStep):
         result = await self.agent_wrapper.reply(
             user_prompt,
             system_prompt=self.prompt_format(judge_prompt_key),
-            injection_config={"inject_runtime_state": False},
         )
 
         raw_answer = (result.get("result") or "").strip()

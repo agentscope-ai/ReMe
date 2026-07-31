@@ -9,7 +9,6 @@ from reme.components.job import BaseJob, StreamJob
 from reme.utils import global_counter_add
 from reme.utils.evaluation_interface import (
     check_agent_token_count,
-    check_agent_token_usage,
     check_job_count,
     track_agent_token_usage,
     track_agent_token_counts,

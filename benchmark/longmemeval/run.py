@@ -571,6 +571,16 @@ def main(
             f"Filtered by question_types={question_types}: {before_filter} -> {len(items_with_idx)} items",
         )
 
+    # Filter by question_id if specified
+    question_ids = dataset_cfg.get("question_ids") or []
+    if question_ids:
+        qid_set = set(question_ids)
+        before_filter = len(items_with_idx)
+        items_with_idx = [(idx, item) for idx, item in items_with_idx if item.get("question_id") in qid_set]
+        logger.info(
+            f"Filtered by question_ids ({len(qid_set)} ids): {before_filter} -> {len(items_with_idx)} items",
+        )
+
     logger.info(
         "Evaluating %d item(s) starting from index %d%s",
         len(items_with_idx),

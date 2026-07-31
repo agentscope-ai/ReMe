@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
-from agentscope.agent import Agent, ContextConfig, InjectionConfig, ReActConfig
+import agentscope
+from agentscope.agent import Agent, ContextConfig, ReActConfig
 from agentscope.agent._config import ModelConfig
 from agentscope.event import (
     DataBlockDeltaEvent,
@@ -60,10 +61,19 @@ from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, TokenUsage
-from ...utils import AsStateHandler
+from ...utils import AsStateHandler, version_tuple
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
+
+# agentscope>=2.0.5 reworked the agent loop: InjectionConfig (runtime-state
+# injection) was introduced, and token usage moved from per-call
+# ModelCallEndEvent fields onto the aggregated ``Msg.usage`` of the reply.
+_AS_GE_2_0_5 = version_tuple(agentscope.__version__) >= (2, 0, 5)
+if _AS_GE_2_0_5:
+    from agentscope.agent import InjectionConfig
+else:
+    InjectionConfig = None
 
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -328,6 +338,28 @@ class AsAgentWrapper(BaseAgentWrapper):
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
 
+        version_kwargs: dict[str, Any] = {}
+        react_config = dict(kwargs.get("react_config") or {})
+        if _AS_GE_2_0_5:
+            # Default to no runtime-state injection: the injected wall-clock
+            # "ground truth" time conflicts with callers that anchor time
+            # explicitly (benchmarks, historical ingestion). Callers can still
+            # opt back in by passing injection_config explicitly.
+            injection = {"inject_runtime_state": False, **(kwargs.get("injection_config") or {})}
+            version_kwargs["injection_config"] = InjectionConfig(**injection)
+            # agentscope>=2.0.5 counts Reasoning and Acting passes separately,
+            # so one full ReAct round costs two iterations. Callers express
+            # max_iters in reasoning rounds; double it here so the effective
+            # budget matches agentscope<2.0.5 semantics.
+            react_config["max_iters"] = 2 * int(react_config.get("max_iters", ReActConfig().max_iters))
+        elif kwargs.get("injection_config"):
+            # agentscope<2.0.5 has no runtime-state injection at all, so a
+            # request to disable it is already satisfied; other fields cannot
+            # be honored and are dropped.
+            self.logger.debug(
+                f"injection_config requires agentscope>=2.0.5; ignored on {agentscope.__version__}",
+            )
+
         agent = Agent(
             name=self.name,
             system_prompt=system_prompt,
@@ -336,8 +368,8 @@ class AsAgentWrapper(BaseAgentWrapper):
             state=state,
             model_config=ModelConfig(**(kwargs.get("model_config") or {})),
             context_config=ContextConfig(**(kwargs.get("context_config") or {})),
-            react_config=ReActConfig(**(kwargs.get("react_config") or {})),
-            injection_config=InjectionConfig(**(kwargs.get("injection_config") or {})),
+            react_config=ReActConfig(**react_config),
+            **version_kwargs,
         )
 
         if isinstance(inputs, str):
@@ -350,7 +382,23 @@ class AsAgentWrapper(BaseAgentWrapper):
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)
-        last_msg = await agent.reply()
+        if _AS_GE_2_0_5:
+            last_msg = await agent.reply()
+            usage = self._agentscope_usage(last_msg.usage) if getattr(last_msg, "usage", None) else None
+        else:
+            # agentscope<2.0.5 reports usage per model call instead of on the
+            # reply message, so accumulate ModelCallEndEvent fields here.
+            usages: list[TokenUsage] = []
+            async for event in agent.reply_stream():
+                if isinstance(event, ModelCallEndEvent):
+                    usages.append(
+                        TokenUsage(
+                            input_tokens=event.input_tokens,
+                            output_tokens=event.output_tokens,
+                        ),
+                    )
+            last_msg = agent.state.context[-1]
+            usage = TokenUsage.combine(usages) if usages else None
         await self._dump_state(agent.state)
 
         result = {
@@ -359,7 +407,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             "result": last_msg.get_text_content(),
         }
 
-        usage = self._agentscope_usage(last_msg.usage) if hasattr(last_msg, "usage") and last_msg.usage else None
         if usage is None:
             self.logger.error("AgentScope did not return token usage; token accounting is unavailable for this reply.")
 
@@ -376,7 +423,9 @@ class AsAgentWrapper(BaseAgentWrapper):
             result["structured_output"] = res.content
             if res.usage is None:
                 usage = None
-                self.logger.error("AgentScope did not return structured-output token usage; token accounting is unavailable.")
+                self.logger.error(
+                    "AgentScope did not return structured-output token usage; token accounting is unavailable.",
+                )
             elif usage is not None:
                 usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
 
