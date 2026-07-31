@@ -46,6 +46,37 @@ snapshot (components, workspace). If the `mcp__reme__…` tools are not availabl
 is not running — tell the user to start it with the command above. The plugin connects at
 `http://127.0.0.1:2333/mcp`; a different host/port must match the `url` in `plugins/reme/.mcp.json`.
 
+## Proactive & dream job output
+
+`auto_dream`, `proactive`, and `auto_memory` consolidation jobs run server-side and produce
+structured results that reach the MCP layer via the standard `response.answer` (human-facing text)
+plus `response.metadata` (machine-parseable data) pattern.
+
+- **`response.answer` is always a plain string** suitable for display directly in a reply. For
+  `proactive` specifically the format is one or more of, joined with blank lines:
+  - `Summary: <one-line digest of what the server observed>` (omitted when identical to Topics)
+  - `Topics:` followed by a bulleted list of topic entries when any were extracted
+  - `Content:` followed by the raw proactive content string when requested
+- **`response.metadata` holds the structured detail**: `topics[]` list with title/reason/evidence/
+  keywords/paths fields, `summary`, `skipped`, `content`, plus model-dump fields from
+  `ProactiveResult`. When a step needs to branch on *what* topics were found (instead of simply
+  showing a summary to the user), read from `metadata.topics` rather than parsing the text answer.
+
+This matches the step fixes in issue #379: LLM-facing answers are self-contained readable strings;
+structured consumers use metadata.
+
+## Search answers are self-contained
+
+`search` (and `search_v2`) return readable text even when nothing matches:
+
+- `NO_RESULTS_MESSAGE` when the fused candidate set is empty
+- `ALL_RETURNED_MESSAGE` when the dedup layer reports that every previously-seen result has
+  already been surfaced
+
+So never treat `answer == ""` as "search ran successfully but produced 0 hits" — instead, look at
+the length (or content) of `response.answer`, and **always** cross-check against
+`response.metadata.results` (the list of result objects, empty or not) for programmatic use.
+
 ## Workspace model
 
 ```
