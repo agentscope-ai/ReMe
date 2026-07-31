@@ -173,7 +173,10 @@ reme proactive date=2026-06-20
 这些流程需要可用 LLM；未配置 LLM 时请先使用 `write/read/search` 这类基础能力。
 
 更多细节见 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md)、[Auto Dream](./auto_dream.md) 和
-[Proactive](./proactive.md)。
+ [Proactive](./proactive.md)。
+
+如果是要把 ReMe 接入 [LongMemEval](https://github.com/xiaowu0162/longmemeval) 之类的评测，参考
+[LME Benchmark](./lme_benchmark.md)。
 
 ---
 

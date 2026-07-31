@@ -181,6 +181,9 @@ These flows require a working LLM. Without an LLM configuration, start with basi
 For more detail, see [Auto Memory](./auto_memory.md), [Auto Resource](./auto_resource.md),
 [Auto Dream](./auto_dream.md), and [Proactive](./proactive.md).
 
+To plug ReMe into benchmarks such as [LongMemEval](https://github.com/xiaowu0162/longmemeval), see
+[LME Benchmark](./lme_benchmark.md).
+
 ---
 
 ## HTTP and Configuration
