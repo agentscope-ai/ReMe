@@ -32,21 +32,27 @@ EMBEDDING_BASE_URL=...
 
 ## 2. 下载数据集
 
-完整说明见 [`datasets/README.md`](datasets/README.md)。
+每个基准的数据都存放在各自目录下：`benchmark/<name>/dataset`（输入数据）、
+`benchmark/<name>/workspaces`（按条目隔离的记忆工作区）、
+`benchmark/<name>/results`（评测输出）。三者均不纳入 Git 版本管理。
 
-**LongMemEval**（从 HuggingFace 镜像下载）：
+**LongMemEval** —— ReMe 仅使用 **cleaned-S** 版本，数据托管在 HuggingFace：
+[agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2)
+（下载脚本经 hf-mirror.com 镜像源获取，如需更换源请修改 `download.py` 中的 `BASE_URL`）：
 
 ```bash
-cd benchmark/datasets/longmemeval
-python download.py            # 下载 cleaned-S 数据文件，已存在则自动跳过
+cd benchmark/longmemeval
+python download.py            # 保存为 dataset/longmemeval_s_reme_cleaned.json，已存在则自动跳过
 ```
 
-**BEAM**（公开仓库，clone 到 `benchmark/datasets/` 下）：
+**BEAM**（公开仓库，clone 到 `benchmark/beam/dataset/` 下）：
 
 ```bash
-cd benchmark/datasets
+cd benchmark/beam/dataset
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
+
+clone 完成后，`benchmark/beam/dataset/BEAM/` 目录下应包含 `chats/`、`src/`、`topics/` 等子目录。
 
 ## 3. 运行 LongMemEval
 
@@ -76,12 +82,12 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 | `dataset.path` | 待评测的数据集文件（如 `longmemeval_s_reme_cleaned.json`），已包含 ground truth。 |
 | `dataset.start_index` / `num_items` | 评测条目的切片范围。 |
 | `dataset.question_types` | 按问题类型过滤，空表示全部。 |
-| `dataset.workspace_root` | 条目工作区根目录（`benchmark/memory_workspaces/longmemeval-s`）。 |
+| `dataset.workspace_root` | 条目工作区根目录（`benchmark/longmemeval/workspaces/longmemeval-s`）。 |
 | `evaluation.num_workers` | `0` = 自动（cpu-2），`1` = 串行，`>1` = 并行。 |
 | `evaluation.filter_future_sessions` | 仅摄入时间戳 ≤ `question_date` 的会话。 |
 | `reme.config` | 使用的 ReMe 配置（`lme.yaml`）。 |
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | dream 触发行为。 |
-| `output.dir` | 结果目录（`benchmark/results/longmemeval`）。 |
+| `output.dir` | 结果目录（`benchmark/longmemeval/results`）。 |
 
 ## 4. 运行 BEAM
 
@@ -105,14 +111,14 @@ python benchmark/beam/run.py --eval_only               # 复用已有工作区�
 
 | 配置项 | 含义 |
 | --- | --- |
-| `dataset.beam_root` | BEAM 数据集根目录（`benchmark/datasets/BEAM`）。 |
+| `dataset.beam_root` | BEAM 数据集根目录（`benchmark/beam/dataset/BEAM`）。 |
 | `dataset.chat_size` | 运行的变体：`100K` / `500K` / `1M` / `10M`。 |
 | `dataset.case_ids` | 指定 case（如 `["1","2"]`），空表示全部。 |
 | `dataset.start_index` / `num_items` | case 分页（`num_items` 为 `0` 表示全部）。 |
-| `dataset.workspace_root` | case 工作区根目录（`benchmark/memory_workspaces/beam`）。 |
+| `dataset.workspace_root` | case 工作区根目录（`benchmark/beam/workspaces/beam`）。 |
 | `evaluation.num_workers` | `0` = 自动，`1` = 串行，`>1` = 并行。 |
 | `reme.config` | 使用的 ReMe 配置（`beam.yaml`）。 |
-| `output.dir` | 结果目录（`benchmark/results/beam`）。 |
+| `output.dir` | 结果目录（`benchmark/beam/results`）。 |
 
 ## 5. 输出与日志
 
@@ -138,5 +144,5 @@ bash benchmark/kill.sh <PID>
 
 已记录的评测结果见：
 
-- [`result-longmemeval.md`](./result-longmemeval.md)
-- [`result-beam.md`](./result-beam.md)
+- [`longmemeval.md`](./results_md/longmemeval.md)
+- [`beam.md`](./results_md/beam.md)

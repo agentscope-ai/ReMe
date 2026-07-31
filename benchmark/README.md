@@ -34,21 +34,30 @@ Model names and component wiring live in the ReMe configs referenced by each ben
 
 ## 2. Download Datasets
 
-See [`datasets/README_EN.md`](datasets/README_EN.md) for full details.
+Each benchmark keeps its own data under its directory:
+`benchmark/<name>/dataset` (input data), `benchmark/<name>/workspaces`
+(per-item memory workspaces), and `benchmark/<name>/results` (evaluation outputs).
+All three are excluded from Git.
 
-**LongMemEval** (downloaded from a HuggingFace mirror):
+**LongMemEval** — ReMe uses only the **cleaned-S** split, hosted on HuggingFace:
+[agentscope-ai/ReMe_longmemeval_clean_s_v2](https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2)
+(the script downloads via the hf-mirror.com mirror; to use a different mirror,
+modify `BASE_URL` in `download.py`):
 
 ```bash
-cd benchmark/datasets/longmemeval
-python download.py            # downloads the cleaned-S dataset; skips if already present
+cd benchmark/longmemeval
+python download.py            # saves dataset/longmemeval_s_reme_cleaned.json; skips if already present
 ```
 
-**BEAM** (public repository, cloned into `benchmark/datasets/`):
+**BEAM** (public repository, cloned into `benchmark/beam/dataset/`):
 
 ```bash
-cd benchmark/datasets
+cd benchmark/beam/dataset
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
+
+After cloning, `benchmark/beam/dataset/BEAM/` should contain `chats/`, `src/`,
+`topics/` and other subdirectories.
 
 ## 3. Run LongMemEval
 
@@ -78,12 +87,12 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 | `dataset.path` | Dataset file to evaluate (e.g. `longmemeval_s_reme_cleaned.json`); ground truth is included. |
 | `dataset.start_index` / `num_items` | Slice of items to evaluate. |
 | `dataset.question_types` | Filter by question type; empty = all. |
-| `dataset.workspace_root` | Per-item workspace root (`benchmark/memory_workspaces/longmemeval-s`). |
+| `dataset.workspace_root` | Per-item workspace root (`benchmark/longmemeval/workspaces/longmemeval-s`). |
 | `evaluation.num_workers` | `0` = auto (cpu-2), `1` = sequential, `>1` = parallel. |
 | `evaluation.filter_future_sessions` | Only ingest sessions with timestamp ≤ `question_date`. |
 | `reme.config` | ReMe config used (`lme.yaml`). |
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | Dream triggering behavior. |
-| `output.dir` | Results directory (`benchmark/results/longmemeval`). |
+| `output.dir` | Results directory (`benchmark/longmemeval/results`). |
 
 ## 4. Run BEAM
 
@@ -107,14 +116,14 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 
 | Key | Meaning |
 | --- | --- |
-| `dataset.beam_root` | BEAM dataset root (`benchmark/datasets/BEAM`). |
+| `dataset.beam_root` | BEAM dataset root (`benchmark/beam/dataset/BEAM`). |
 | `dataset.chat_size` | Variant to run: `100K` / `500K` / `1M` / `10M`. |
 | `dataset.case_ids` | Specific cases (e.g. `["1","2"]`); empty = all cases. |
 | `dataset.start_index` / `num_items` | Case pagination (`num_items` `0` = all). |
-| `dataset.workspace_root` | Per-case workspace root (`benchmark/memory_workspaces/beam`). |
+| `dataset.workspace_root` | Per-case workspace root (`benchmark/beam/workspaces/beam`). |
 | `evaluation.num_workers` | `0` = auto, `1` = sequential, `>1` = parallel. |
 | `reme.config` | ReMe config used (`beam.yaml`). |
-| `output.dir` | Results directory (`benchmark/results/beam`). |
+| `output.dir` | Results directory (`benchmark/beam/results`). |
 
 ## 5. Outputs & Logs
 
@@ -141,5 +150,5 @@ The script gracefully sends `SIGTERM` to the whole process tree, then escalates 
 
 Recorded evaluation results are available in:
 
-- [`result-longmemeval.md`](./result-longmemeval.md)
-- [`result-beam.md`](./result-beam.md)
+- [`longmemeval.md`](./results_md/longmemeval.md)
+- [`beam.md`](./results_md/beam.md)

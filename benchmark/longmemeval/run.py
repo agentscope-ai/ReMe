@@ -32,7 +32,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root for evaluation items — read from config.yaml (dataset.workspace_root)
-_WORKSPACE_ROOT_DEFAULT = "benchmark/memory_workspaces/longmemeval-s"
+_WORKSPACE_ROOT_DEFAULT = "benchmark/longmemeval/workspaces/longmemeval-s"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -573,7 +573,7 @@ def main(
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/longmemeval")
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/longmemeval/results")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace root directory

@@ -33,7 +33,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root — read from config.yaml (dataset.workspace_root)
-_WORKSPACE_ROOT_DEFAULT = "benchmark/memory_workspaces/beam"
+_WORKSPACE_ROOT_DEFAULT = "benchmark/beam/workspaces/beam"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -310,7 +310,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
-    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/datasets/BEAM")
+    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/beam/dataset/BEAM")
     chat_path = beam_root / "chats" / chat_size / case_id / "chat.json"
     probing_questions_path = beam_root / "chats" / chat_size / case_id / "probing_questions" / "probing_questions.json"
 
@@ -544,7 +544,7 @@ def main(  # pylint: disable=too-many-statements
     setup_logging(log_level, reme_log_level, log_dir=log_dir_abs)
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
-    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/datasets/BEAM")
+    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/beam/dataset/BEAM")
 
     # Determine which cases to run
     case_ids = dataset_cfg.get("case_ids") or []
@@ -576,7 +576,7 @@ def main(  # pylint: disable=too-many-statements
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/beam")
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/beam/results")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace root directory

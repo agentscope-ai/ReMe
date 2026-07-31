@@ -14,7 +14,7 @@ A ``semantic`` alignment path is also available which uses ReMe's
 configured ``as_embedding`` model (replacing BEAM's sentence_transformers).
 
 This replicates the evaluation logic from
-``benchmark/datasets/BEAM/src/evaluation/compute_metrics.py``.
+``benchmark/beam/dataset/BEAM/src/evaluation/compute_metrics.py``.
 """
 
 import json
