@@ -2,7 +2,6 @@
 
 from .common_utils import (
     hash_text,
-    version_tuple,
     execute_stream_task,
     mock_reme_server,
     call_action,
@@ -20,7 +19,6 @@ from .counter import global_counter_add, global_counter_get, global_counter_get_
 
 __all__ = [
     "hash_text",
-    "version_tuple",
     "execute_stream_task",
     "mock_reme_server",
     "call_action",

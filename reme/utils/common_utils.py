@@ -22,20 +22,6 @@ def hash_text(text: str, encoding: str = "utf-8") -> str:
     return hashlib.sha256(text.encode(encoding)).hexdigest()
 
 
-def version_tuple(version: str) -> tuple[int, ...]:
-    """Parse the leading numeric parts of a version string into a tuple.
-
-    Non-numeric suffixes are ignored, e.g. "2.0.4.post1" -> (2, 0, 4),
-    so tuples compare correctly across pre/post releases.
-    """
-    parts: list[int] = []
-    for part in version.split("."):
-        if not part.isdigit():
-            break
-        parts.append(int(part))
-    return tuple(parts)
-
-
 def _format_chunk(
     chunk: StreamChunk,
     output_format: Literal["str", "bytes", "chunk"],

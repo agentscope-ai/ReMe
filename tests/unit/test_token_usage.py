@@ -2,7 +2,6 @@
 
 from types import SimpleNamespace
 
-from agentscope.event import ModelCallEndEvent
 from agentscope.model._model_usage import ChatUsage
 import pytest
 
@@ -107,11 +106,12 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
 
 @pytest.mark.asyncio
 async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatch):
-    """Reply usage is recorded: from the final message (>=2.0.5) or model-call events (<2.0.5)."""
+    """AgentScope 2.0.4.post1 reports aggregate usage on the final message."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
     message = SimpleNamespace(
-        usage=SimpleNamespace(input_tokens=10, output_tokens=4),
+        # Match the AgentScope 2.0.4.post1 accumulation test: 10/20 + 5/8.
+        usage=SimpleNamespace(input_tokens=15, output_tokens=28),
         model_dump=lambda: {"text": "answer"},
         get_text_content=lambda: "answer",
     )
@@ -119,9 +119,7 @@ async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatc
         state=SimpleNamespace(session_id="session-1", context=[message]),
         observe=lambda _inputs: _async_none(),
         reply=lambda: _async_value(message),
-        reply_stream=lambda: _async_events(
-            [ModelCallEndEvent(reply_id="r1", input_tokens=10, output_tokens=4)],
-        ),
+        reply_stream=_unexpected_reply_stream,
     )
 
     async def build_agent(inputs, **_kwargs):
@@ -132,10 +130,10 @@ async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatc
 
     result = await wrapper.reply("hello")
 
-    assert result["usage"] == {"input_tokens": 10, "output_tokens": 4, "total_tokens": 14}
+    assert result["usage"] == {"input_tokens": 15, "output_tokens": 28, "total_tokens": 43}
     assert (
         global_counter_get_all(context.metadata, ["__token_counter", "research"])["children"]["total_tokens"]["value"]
-        == 14
+        == 43
     )
 
 
@@ -144,12 +142,16 @@ async def test_agentscope_reply_without_usage_leaves_token_counters_unset(tmp_pa
     """Replies without any usage information remain visibly unavailable."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-    message = SimpleNamespace(model_dump=lambda: {"text": "answer"}, get_text_content=lambda: "answer")
+    message = SimpleNamespace(
+        usage=None,
+        model_dump=lambda: {"text": "answer"},
+        get_text_content=lambda: "answer",
+    )
     agent = SimpleNamespace(
         state=SimpleNamespace(session_id="session-1", context=[message]),
         observe=lambda _inputs: _async_none(),
         reply=lambda: _async_value(message),
-        reply_stream=lambda: _async_events([]),
+        reply_stream=_unexpected_reply_stream,
     )
 
     async def build_agent(inputs, **_kwargs):
@@ -172,9 +174,8 @@ async def _async_value(value):
     return value
 
 
-async def _async_events(events):
-    for event in events:
-        yield event
+def _unexpected_reply_stream(*_args, **_kwargs):
+    raise AssertionError("Non-streaming replies must use Agent.reply()")
 
 
 @pytest.mark.asyncio
