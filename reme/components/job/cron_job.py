@@ -47,7 +47,7 @@ class CronJob(BackgroundJob):
             if self._stop_event.is_set():
                 break
             try:
-                self._record_call(CronJob)
+                self._record_call()
                 await self._execute_steps()
             except Exception as exc:
                 self.logger.exception(f"Cron job '{self.name}' failed: {exc}")

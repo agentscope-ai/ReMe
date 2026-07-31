@@ -9,14 +9,12 @@ work sharing its Application instance.
 
 from typing import TYPE_CHECKING
 
-from ..components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .counter import global_counter_get, global_counter_get_all
 
 if TYPE_CHECKING:
     from ..components.application_context import ApplicationContext
 
 
-_JOB_ENTRY_CLASSES = {CronJob, StreamJob, BackgroundJob, BaseJob}
 _TOKEN_METRICS = (
     "input_tokens",
     "output_tokens",
@@ -31,15 +29,9 @@ def check_job_count(job_name: str, app_context: "ApplicationContext") -> int:
     current Application instance. Unknown job names use the same ``KeyError``
     contract as :meth:`Application.run_job`.
     """
-    job = app_context.jobs.get(job_name)
-    if job is None:
+    if job_name not in app_context.jobs:
         raise KeyError(f"Job '{job_name}' not found")
-
-    entry_class = next((cls for cls in type(job).mro() if cls in _JOB_ENTRY_CLASSES), None)
-    if entry_class is None:
-        raise TypeError(f"Job '{job_name}' does not inherit from a supported job implementation")
-    # pylint: disable-next=protected-access
-    return global_counter_get(app_context.metadata, job._counter_key(entry_class))
+    return global_counter_get(app_context.metadata, ["__job_counter", job_name])
 
 
 class JobCountTracker:

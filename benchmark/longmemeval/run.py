@@ -735,7 +735,7 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     tool_call_mean, tool_call_std = _mean_and_std(tool_call_totals)
     print(f"  Tool calls/query: mean={tool_call_mean:.2f} std={tool_call_std:.2f}")
     token_usages = [r.get("agentic_token_usage", {}) for r in results]
-    print("  Bench tokens/query:")
+    print("  Bench reported tokens/query:")
     for metric in _TOKEN_USAGE_METRICS:
         values = [usage[metric] for usage in token_usages if usage.get(metric) is not None]
         if values:

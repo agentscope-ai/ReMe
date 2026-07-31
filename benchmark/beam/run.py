@@ -737,7 +737,7 @@ def main(  # pylint: disable=too-many-statements
         print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
         tool_call_mean, tool_call_std = _mean_and_std(all_tool_call_totals)
         print(f"    Tool calls/query: mean={tool_call_mean:.2f} std={tool_call_std:.2f}")
-        print("    Bench tokens/query:")
+        print("    Bench reported tokens/query:")
         for metric in _TOKEN_USAGE_METRICS:
             values = [usage[metric] for usage in all_token_usages if usage.get(metric) is not None]
             if values:
