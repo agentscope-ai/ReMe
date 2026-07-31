@@ -8,6 +8,7 @@
   <a href="https://pepy.tech/project/reme-ai/"><img src="https://img.shields.io/pypi/dm/reme-ai" alt="PyPI Downloads"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/commit-activity/m/agentscope-ai/ReMe?style=flat-square" alt="GitHub commit activity"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
+  <a href="https://docs.agentscope.io/reme"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="文档"></a>
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
   <a href="./README_ZH.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
@@ -301,7 +302,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
 
 - **问题反馈与需求**：请先查看 [Open Issues](https://github.com/agentscope-ai/ReMe/issues)；如无相关讨论，可新建 Issue
   说明背景、目标行为和影响范围。
-- **代码贡献**：改动前建议阅读 [贡献指南](https://docs.agentscope.io/reme/stable/zh/contributing)。架构与扩展方式以源码、schema
+- **代码贡献**：改动前建议阅读 [贡献指南](https://docs.agentscope.io/reme/latest/zh/contribution)。架构与扩展方式以源码、schema
   和测试为准。
 - **文档贡献**：用户可见文档请提交到[统一文档仓库](https://github.com/agentscope-ai/docs)的 `reme/<version>/{en,zh}/` 目录。
 - **提交规范**：建议使用 Conventional Commits，例如 `feat(search): add link expansion option`、
@@ -309,7 +310,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
 - **提交前检查**：提交 PR 前请尽量运行 `pre-commit run --all-files` 和 `pytest`；如有依赖 LLM、embedding 或外部服务的测试无法运行，请在
   PR 中说明。
 - **获取帮助**：如需反馈 Bug 或功能请求，请使用 [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues)；项目文档见
-  [https://docs.agentscope.io/](https://docs.agentscope.io/reme/stable/zh/)。
+  [https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)。
 
 ### 贡献者
 
