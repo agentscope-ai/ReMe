@@ -144,12 +144,12 @@ def test_base_job_records_calls_by_name():
         await job()
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "BaseJob", "search"]) == 2
+        assert global_counter_get(app_context.metadata, ["__job_counter", "search"]) == 2
 
     asyncio.run(run())
 
 
-def test_stream_job_records_concrete_subclass_path():
+def test_stream_job_subclass_records_calls_by_job_name():
     async def run():
         class ProjectStreamJob(StreamJob):
             pass
@@ -159,7 +159,7 @@ def test_stream_job_records_concrete_subclass_path():
 
         await job(stream_queue=asyncio.Queue())
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "StreamJob", "ProjectStreamJob", "chat"]) == 1
+        assert global_counter_get(app_context.metadata, ["__job_counter", "chat"]) == 1
 
     asyncio.run(run())
 
@@ -171,7 +171,7 @@ def test_background_job_records_calls_by_name():
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "BackgroundJob", "watch"]) == 1
+        assert global_counter_get(app_context.metadata, ["__job_counter", "watch"]) == 1
 
     asyncio.run(run())
 
@@ -195,7 +195,7 @@ def test_cron_job_records_each_triggered_execution():
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "CronJob", "nightly"]) == 1
+        assert global_counter_get(app_context.metadata, ["__job_counter", "nightly"]) == 1
 
     asyncio.run(run())
 

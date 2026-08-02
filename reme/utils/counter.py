@@ -2,10 +2,70 @@
 
 import copy
 import threading
+from collections.abc import Mapping
 from typing import Any
 
 COUNTER_TREE_KEY = "_counter_tree"
 COUNTER_LOCK_KEY = "_counter_tree_lock"
+_COUNTER_INIT_LOCK = threading.Lock()
+
+
+def _get_counter_lock(metadata: dict[str, Any]) -> Any:
+    """Return the metadata-scoped lock, creating it once when needed."""
+    lock = metadata.get(COUNTER_LOCK_KEY)
+    if lock is not None:
+        return lock
+
+    # Two threads may reach the first counter operation concurrently. Guard
+    # initialization so they cannot install and then use different locks.
+    with _COUNTER_INIT_LOCK:
+        lock = metadata.get(COUNTER_LOCK_KEY)
+        if lock is None:
+            lock = threading.Lock()
+            metadata[COUNTER_LOCK_KEY] = lock
+        return lock
+
+
+def global_counter_add_many(
+    metadata: dict[str, Any],
+    updates: Mapping[tuple[str, ...], int],
+) -> dict[tuple[str, ...], int]:
+    """Atomically fetch-and-add multiple counter paths.
+
+    All paths are validated before the counter tree is mutated. The returned
+    mapping contains each path's value immediately before its increment.
+    """
+    normalized = dict(updates)
+    for path, value in normalized.items():
+        if not isinstance(path, tuple) or not all(isinstance(part, str) for part in path):
+            raise TypeError("counter paths must be tuples of strings")
+        if not isinstance(value, int):
+            raise TypeError("counter increments must be integers")
+    if not normalized:
+        return {}
+
+    lock = _get_counter_lock(metadata)
+    with lock:
+        tree = metadata.get(COUNTER_TREE_KEY)
+        if tree is None:
+            tree = {"value": 0, "children": {}}
+            metadata[COUNTER_TREE_KEY] = tree
+
+        nodes: dict[tuple[str, ...], dict[str, Any]] = {}
+        for path in normalized:
+            node = tree
+            for part in path:
+                child = node["children"].get(part)
+                if child is None:
+                    child = {"value": 0, "children": {}}
+                    node["children"][part] = child
+                node = child
+            nodes[path] = node
+
+        previous = {path: node["value"] for path, node in nodes.items()}
+        for path, value in normalized.items():
+            nodes[path]["value"] += value
+        return previous
 
 
 def global_counter_add(metadata: dict[str, Any], key: list[str], val: int) -> int:
@@ -23,28 +83,8 @@ def global_counter_add(metadata: dict[str, Any], key: list[str], val: int) -> in
     If they are missing they are created lazily so the function is safe to
     call with a plain ``dict``.
     """
-    lock = metadata.get(COUNTER_LOCK_KEY)
-    if lock is None:
-        lock = threading.Lock()
-        metadata[COUNTER_LOCK_KEY] = lock
-
-    with lock:
-        tree = metadata.get(COUNTER_TREE_KEY)
-        if tree is None:
-            tree = {"value": 0, "children": {}}
-            metadata[COUNTER_TREE_KEY] = tree
-
-        node: dict[str, Any] = tree
-        for part in key:
-            assert isinstance(part, str)
-            tmp = node["children"].get(part, None)
-            if tmp is None:
-                tmp = {"value": 0, "children": {}}
-                node["children"][part] = tmp
-            node = tmp
-        res = node["value"]
-        node["value"] = res + val
-    return res
+    path = tuple(key)
+    return global_counter_add_many(metadata, {path: val})[path]
 
 
 def global_counter_inc(metadata: dict[str, Any], key: list[str]) -> int:
@@ -63,10 +103,7 @@ def global_counter_get(metadata: dict[str, Any], key: list[str]) -> int:
     path that does not exist yet is reported as 0, matching the value the
     node would hold right before its first increment.
     """
-    lock = metadata.get(COUNTER_LOCK_KEY)
-    if lock is None:
-        lock = threading.Lock()
-        metadata[COUNTER_LOCK_KEY] = lock
+    lock = _get_counter_lock(metadata)
 
     with lock:
         tree = metadata.get(COUNTER_TREE_KEY)
@@ -91,10 +128,7 @@ def global_counter_get_all(metadata: dict[str, Any], key: list[str]) -> dict[str
     Returns ``None`` when the tree or any part of ``key`` does not exist.
     An empty ``key`` returns a copy of the whole tree.
     """
-    lock = metadata.get(COUNTER_LOCK_KEY)
-    if lock is None:
-        lock = threading.Lock()
-        metadata[COUNTER_LOCK_KEY] = lock
+    lock = _get_counter_lock(metadata)
 
     with lock:
         tree = metadata.get(COUNTER_TREE_KEY)

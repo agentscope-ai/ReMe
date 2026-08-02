@@ -12,7 +12,7 @@ from ..base_component import BaseComponent
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk, TokenUsage
-from ...utils import global_counter_add
+from ...utils import global_counter_add_many
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -236,12 +236,15 @@ class BaseAgentWrapper(BaseComponent):
         counters = getattr(self.app_context, "metadata", None)
         if not isinstance(counters, dict):
             return
-        for field in ("input_tokens", "output_tokens", "total_tokens"):
-            global_counter_add(
-                counters,
-                [self.TOKEN_COUNTER_PREFIX, self.name, field],
-                getattr(usage, field),
-            )
+        prefix = (self.TOKEN_COUNTER_PREFIX, self.name)
+        global_counter_add_many(
+            counters,
+            {
+                (*prefix, "input_tokens"): usage.input_tokens,
+                (*prefix, "output_tokens"): usage.output_tokens,
+                (*prefix, "total_tokens"): usage.total_tokens,
+            },
+        )
 
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:

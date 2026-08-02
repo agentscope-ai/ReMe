@@ -9,8 +9,10 @@ import pytest
 
 from reme.utils import common_utils
 from reme.utils.counter import (
+    COUNTER_LOCK_KEY,
     COUNTER_TREE_KEY,
     global_counter_add,
+    global_counter_add_many,
     global_counter_get,
     global_counter_get_all,
     global_counter_inc,
@@ -92,6 +94,79 @@ def test_add_returns_old_value_and_adds_val():
     assert global_counter_add(metadata, ["a"], 5) == 10
     assert global_counter_inc(metadata, ["a"]) == 15
     assert global_counter_get(metadata, ["a"]) == 16
+
+
+def test_add_many_returns_old_values_and_updates_all_paths():
+    """``add_many`` updates sibling metrics under one counter-tree lock."""
+    metadata: dict = {}
+    global_counter_add(metadata, ["usage", "input"], 2)
+
+    previous = global_counter_add_many(
+        metadata,
+        {
+            ("usage", "input"): 3,
+            ("usage", "output"): 4,
+            ("usage", "total"): 7,
+        },
+    )
+
+    assert previous == {
+        ("usage", "input"): 2,
+        ("usage", "output"): 0,
+        ("usage", "total"): 0,
+    }
+    assert global_counter_get(metadata, ["usage", "input"]) == 5
+    assert global_counter_get(metadata, ["usage", "output"]) == 4
+    assert global_counter_get(metadata, ["usage", "total"]) == 7
+
+
+def test_add_many_holds_the_counter_lock_once_for_the_batch():
+    """A multi-metric update is one critical section, not several writes."""
+
+    class CountingLock:
+        """Lock test double that counts entered critical sections."""
+
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.entries = 0
+
+        def __enter__(self):
+            self.lock.acquire()
+            self.entries += 1
+            return self
+
+        def __exit__(self, *_args):
+            self.lock.release()
+
+    lock = CountingLock()
+    metadata = {COUNTER_LOCK_KEY: lock}
+
+    global_counter_add_many(
+        metadata,
+        {
+            ("usage", "input"): 3,
+            ("usage", "output"): 4,
+            ("usage", "total"): 7,
+        },
+    )
+
+    assert lock.entries == 1
+
+
+def test_add_many_validates_every_update_before_mutating():
+    """One invalid update leaves every valid counter unchanged."""
+    metadata: dict = {}
+
+    with pytest.raises(TypeError, match="increments must be integers"):
+        global_counter_add_many(
+            metadata,
+            {
+                ("usage", "input"): 3,
+                ("usage", "output"): "invalid",
+            },
+        )
+
+    assert COUNTER_TREE_KEY not in metadata
 
 
 def test_counters_are_isolated_by_key_path():

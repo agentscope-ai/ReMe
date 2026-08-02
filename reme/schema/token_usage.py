@@ -6,10 +6,12 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class TokenUsage(BaseModel):
-    """Token usage for one completed agent invocation.
+    """Portable token usage reported for one completed agent invocation.
 
-    ``input_tokens`` and ``output_tokens`` are the complete usage reported by
-    one backend invocation. ``total_tokens`` is their derived sum.
+    Only the provider's top-level input and output counters are retained.
+    Provider-specific cache and reasoning breakdowns are intentionally
+    excluded, so values may not share identical billing semantics across
+    providers. ``total_tokens`` is always their derived sum.
     """
 
     input_tokens: int = Field(default=0, ge=0)
@@ -26,7 +28,7 @@ class TokenUsage(BaseModel):
         cls,
         usage: Any,
     ) -> "TokenUsage":
-        """Normalize a provider usage object or mapping to input/output totals."""
+        """Keep only a provider's portable top-level input/output counters."""
 
         def get(*names: str) -> int | None:
             for name in names:

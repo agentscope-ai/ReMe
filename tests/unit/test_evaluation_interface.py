@@ -32,8 +32,8 @@ def test_check_job_count_reads_registered_base_job_count():
     asyncio.run(run())
 
 
-def test_check_job_count_resolves_custom_job_inheritance_path():
-    """check_job_count resolves counters recorded under subclassed job paths."""
+def test_check_job_count_reads_custom_job_by_name():
+    """check_job_count reads subclassed job counters without depending on inheritance."""
 
     async def run():
         class ProjectStreamJob(StreamJob):

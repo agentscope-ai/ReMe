@@ -58,27 +58,15 @@ class BaseJob(BaseComponent):
         # dict(params) copies kwargs so steps cannot mutate the shared spec.
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
-    def _counter_key(self, entry_class: type["BaseJob"]) -> list[str]:
-        """Build this job's application-lifetime call counter key.
-
-        The counter path groups calls by the built-in job implementation that
-        accepted the call, then preserves any project-specific subclasses
-        between that implementation and the concrete job class.
-        """
-        mro = type(self).mro()
-        entry_index = mro.index(entry_class)
-        subclass_path = [cls.__name__ for cls in mro[:entry_index]]
-        return ["__job_counter", entry_class.__name__, *subclass_path, self.name]
-
-    def _record_call(self, entry_class: type["BaseJob"]) -> None:
+    def _record_call(self) -> None:
         """Increment this job's application-lifetime call counter."""
         metadata = getattr(self.app_context, "metadata", None)
         if isinstance(metadata, dict):
-            global_counter_inc(metadata, self._counter_key(entry_class))
+            global_counter_inc(metadata, ["__job_counter", self.name])
 
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
-        self._record_call(BaseJob)
+        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(**merged)
         try:

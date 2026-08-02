@@ -50,6 +50,24 @@ def test_provider_usage_uses_reported_input_without_cache_adjustment():
     assert usage.total_tokens == 64
 
 
+def test_provider_usage_accepts_prompt_and_completion_aliases():
+    """Portable OpenAI-style aliases normalize to the common counters."""
+    usage = TokenUsage.from_provider({"prompt_tokens": 3, "completion_tokens": 2})
+
+    assert usage.model_dump() == {
+        "input_tokens": 3,
+        "output_tokens": 2,
+        "total_tokens": 5,
+    }
+
+
+def test_total_tokens_is_always_derived_from_input_and_output():
+    """Caller-supplied totals cannot violate the portable usage invariant."""
+    usage = TokenUsage(input_tokens=3, output_tokens=2, total_tokens=999)
+
+    assert usage.total_tokens == 5
+
+
 def test_agentscope_usage_keeps_portable_input_and_output(tmp_path):
     """AgentScope usage has the same input/output-only contract."""
     context = ApplicationContext(workspace_dir=str(tmp_path))
