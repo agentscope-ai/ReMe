@@ -1,0 +1,12 @@
+# Build an immutable candidate from a source checkout:
+#   docker build -f sandbox/Dockerfile.candidate \
+#     --build-arg BASE_IMAGE=reme-sandbox-base:agentscope-2.0.4-post1 \
+#     -t reme-candidate:<candidate-id> .
+ARG BASE_IMAGE=reme-sandbox-base:agentscope-2.0.4-post1
+FROM ${BASE_IMAGE}
+
+COPY . /opt/reme
+RUN python -m pip install --no-deps /opt/reme \
+    && python -c "import reme; assert reme.__file__.startswith('/opt/reme') or 'site-packages' in reme.__file__"
+
+WORKDIR /workspace

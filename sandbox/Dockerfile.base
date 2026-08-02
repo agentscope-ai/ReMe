@@ -1,0 +1,26 @@
+# Build from the repository root:
+#   docker build -f sandbox/Dockerfile.base \
+#     -t reme-sandbox-base:agentscope-2.0.4-post1 .
+FROM python:3.11-slim
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git tar \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the repository's exact dependency contract, then remove the dummy
+# ReMe package. Source candidates are installed later with --no-deps, so no
+# fixed ReMe implementation can leak into an experiment.
+WORKDIR /tmp/reme-dependencies
+COPY pyproject.toml README.md ./
+RUN mkdir reme \
+    && printf '__version__ = "0.0.0"\n' > reme/__init__.py \
+    && python -m pip install '.[core]' \
+    && python -m pip uninstall -y reme-ai \
+    && test "$(python -c 'import agentscope; print(agentscope.__version__)')" = "2.0.4.post1" \
+    && rm -rf /tmp/reme-dependencies
+
+WORKDIR /workspace

@@ -61,9 +61,14 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=0.23",
 ]
+sandbox = [
+    "agentscope==2.0.4.post1",
+    "aiodocker",
+]
 full = [
     "reme-ai[core]",
     "reme-ai[dev]",
+    "reme-ai[sandbox]",
 ]
 
 [project.urls]
@@ -75,7 +80,7 @@ Repository = "https://github.com/agentscope-ai/ReMe"
 reme = "reme.reme:main"
 
 [tool.setuptools]
-packages = { find = { where = ["."], include = ["reme*"] } }
+packages = { find = { where = ["."], include = ["reme*", "sandbox*"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
