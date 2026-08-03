@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import tarfile
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from reme.schema import ApplicationConfig
 from sandbox import DockerReMeSandboxFactory, ImageCandidate, SourceCandidate, SourceSnapshot
 from sandbox.direct_docker_workspace import DirectDockerWorkspace
 from sandbox import worker
@@ -49,11 +51,31 @@ class FakeBackend:
     async def exec_shell(self, command, *, cwd=None, timeout=None):
         """Record a command and emulate validation, worker, and tar output."""
         self.commands.append((command, cwd, timeout))
+        if command[:2] == ["rm", "-rf"]:
+            roots = tuple(f"{path}/" for path in command[2:])
+            for path in list(self.files):
+                if path in command[2:] or path.startswith(roots):
+                    del self.files[path]
         if command[:2] == ["python3", "-c"] or (len(command) > 2 and command[1:3] == ["-c", command[2]]):
             stdout = b'{"reme": "/workspace/candidate/reme/__init__.py", "agentscope": "2.0.4.post1"}\n'
             return FakeExecResult(stdout=stdout)
         if "/workspace/harness/worker.py" in command:
             response_path = command[command.index("--response") + 1]
+            self.files["/workspace/case/runtime-layout.json"] = json.dumps(
+                {
+                    "workspace_root": "reme_workspace",
+                    "configured_paths": {
+                        "metadata_dir": "reme_workspace/metadata",
+                        "session_dir": "reme_workspace/session",
+                        "resource_dir": "reme_workspace/resource",
+                        "dialog_dir": "reme_workspace/session/dialog",
+                        "daily_dir": "reme_workspace/daily",
+                        "digest_dir": "reme_workspace/digest",
+                        "mem_session_dir": "reme_workspace/mem_session",
+                    },
+                    "analysis_excludes": ["reme_workspace/metadata", "reme_workspace/resource"],
+                },
+            ).encode()
             self.files[response_path] = json.dumps(
                 {"success": True, "answer": "yes", "metadata": {"job": "ok"}, "error": None},
             ).encode()
@@ -65,12 +87,12 @@ class FakeBackend:
 class FakeWorkspace:
     """A distinct workspace object for each factory call."""
 
-    def __init__(self, case_id, image, env):
+    def __init__(self, case_id, image, env, backend=None):
         """Initialize one unique fake workspace."""
         self.case_id = case_id
         self.image = image
         self.env = env
-        self.backend = FakeBackend()
+        self.backend = backend or FakeBackend()
         self.initialized = False
         self.closed = False
 
@@ -183,12 +205,179 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
     assert "/workspace/candidate.tar.gz" not in workspaces[0].backend.files
     assert exported.read_bytes() == b"case-archive"
     assert json.loads(workspaces[0].backend.files["/workspace/case/manifest.json"])["candidate_mode"] == "image"
+    export_command = next(command for command, _, _ in workspaces[0].backend.commands if command[:2] == ["tar", "-czf"])
+    assert "logs" in export_command
+    assert "results" in export_command
+    assert "reme_workspace" in export_command
+    assert "inbox" not in export_command
+    assert "--exclude=reme_workspace/metadata" in export_command
+    assert "--exclude=reme_workspace/resource" in export_command
+    assert "--exclude=reme_workspace/session" not in export_command
+
+
+@pytest.mark.asyncio
+async def test_one_container_can_reset_and_run_another_case(tmp_path):
+    """Reset removes case state while retaining the installed candidate and worker."""
+    workspaces = []
+
+    def build(case_id, image, env):
+        """Capture the single workspace reused across cases."""
+        workspace = FakeWorkspace(case_id, image, env)
+        workspaces.append(workspace)
+        return workspace
+
+    factory = DockerReMeSandboxFactory(ImageCandidate("reme-candidate:test"), workspace_builder=build)
+    case = await factory.create_case("case-1")
+    await case.run_job("auto_memory", {"session_id": "first"})
+    await case.export(tmp_path / "case-1.tar.gz")
+
+    backend = workspaces[0].backend
+    worker_bytes = backend.files["/workspace/harness/worker.py"]
+    backend.files["/workspace/candidate/reme/__init__.py"] = b"candidate-code"
+    assert any(path.startswith("/workspace/case/") for path in backend.files)
+
+    await case.reset_case("case-2")
+
+    assert case.case_id == "case-2"
+    assert len(workspaces) == 1
+    assert backend.files["/workspace/harness/worker.py"] == worker_bytes
+    assert backend.files["/workspace/candidate/reme/__init__.py"] == b"candidate-code"
+    assert not any(path.startswith("/workspace/case/") for path in backend.files)
+    assert "/tmp/reme-case-export.tar.gz" not in backend.files
+
+    result = await case.run_job("agentic_answer", {"query": "second"})
+    await case.export(tmp_path / "case-2.tar.gz")
+
+    assert result.success is True
+    manifest = json.loads(backend.files["/workspace/case/manifest.json"])
+    assert manifest["case_id"] == "case-2"
+
+
+@pytest.mark.asyncio
+async def test_full_export_keeps_complete_case_tree(tmp_path):
+    """The explicit full profile preserves the previous export contract."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    await case.export_full(tmp_path / "full.tar.gz")
+
+    export_command = next(command for command, _, _ in workspace.backend.commands if command[:2] == ["tar", "-czf"])
+    assert export_command == [
+        "tar",
+        "-czf",
+        "/tmp/reme-case-export.tar.gz",
+        "-C",
+        "/workspace/case",
+        ".",
+    ]
+    manifest = json.loads(workspace.backend.files["/workspace/case/manifest.json"])
+    assert manifest["export_profile"] == "full"
+
+
+@pytest.mark.asyncio
+async def test_analysis_export_requires_runtime_layout(tmp_path):
+    """Selective export fails clearly before any job resolves configured paths."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    with pytest.raises(RuntimeError, match="completed job"):
+        await case.export(tmp_path / "analysis.tar.gz")
+
+
+def test_runtime_layout_uses_resolved_custom_memory_directories(tmp_path):
+    """Selective export paths come from config instead of fixed directory names."""
+    workspace = tmp_path / "runtime"
+    config = ApplicationConfig(
+        workspace_dir=str(workspace),
+        daily_dir="memories/daily-notes",
+        digest_dir="memories/digests",
+        mem_session_dir="traces/agent-sessions",
+    )
+
+    worker._write_runtime_layout(tmp_path, config)  # pylint: disable=protected-access
+
+    layout = json.loads((tmp_path / "runtime-layout.json").read_text())
+    assert layout["configured_paths"]["daily_dir"] == "runtime/memories/daily-notes"
+    assert layout["configured_paths"]["digest_dir"] == "runtime/memories/digests"
+    assert layout["configured_paths"]["mem_session_dir"] == "runtime/traces/agent-sessions"
+    assert layout["analysis_excludes"] == [
+        "runtime/metadata",
+        "runtime/resource",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reset_case_rejects_unsafe_id_without_deleting_state():
+    """An invalid next case ID cannot trigger cleanup."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+    before = list(workspace.backend.commands)
+
+    with pytest.raises(ValueError, match="case_id"):
+        await case.reset_case("../case-2")
+
+    assert case.case_id == "case-1"
+    assert workspace.backend.commands == before
+
+
+@pytest.mark.asyncio
+async def test_jobs_in_one_container_are_serialized():
+    """Concurrent host calls cannot execute two case jobs at once."""
+
+    class TrackingBackend(FakeBackend):
+        """Measure concurrent worker processes in one fake container."""
+
+        def __init__(self):
+            super().__init__()
+            self.active_jobs = 0
+            self.max_active_jobs = 0
+
+        async def exec_shell(self, command, *, cwd=None, timeout=None):
+            is_job = "/workspace/harness/worker.py" in command
+            if is_job:
+                self.active_jobs += 1
+                self.max_active_jobs = max(self.max_active_jobs, self.active_jobs)
+                await asyncio.sleep(0.01)
+            try:
+                return await super().exec_shell(command, cwd=cwd, timeout=timeout)
+            finally:
+                if is_job:
+                    self.active_jobs -= 1
+
+    backend = TrackingBackend()
+    workspace = FakeWorkspace("case-1", "candidate:test", {}, backend=backend)
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    first, second = await asyncio.gather(
+        case.run_job("agentic_answer", {"query": "first"}),
+        case.run_job("agentic_answer", {"query": "second"}),
+    )
+
+    assert first.success is second.success is True
+    assert backend.max_active_jobs == 1
 
 
 @pytest.mark.asyncio
 async def test_worker_calls_application_directly_and_always_closes(monkeypatch, tmp_path):
     """The worker calls Application.run_job without any HTTP service."""
     events = []
+    monkeypatch.setenv("TMPDIR", str(tmp_path / "original-tmp"))
 
     class FakeReMe:
         """Record the direct ReMe application lifecycle."""
@@ -223,6 +412,13 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
     )
 
     assert result == {"success": True, "answer": "answer", "metadata": {"direct": True}, "error": None}
+    assert worker.os.environ["TMPDIR"] == str(tmp_path / "tmp")
+    layout = json.loads((tmp_path / "runtime-layout.json").read_text())
+    assert layout["workspace_root"] == "workspace"
+    assert layout["analysis_excludes"] == [
+        "workspace/metadata",
+        "workspace/resource",
+    ]
     assert events == [
         ("construct", str(tmp_path / "workspace")),
         "start",

@@ -17,9 +17,11 @@ pip install -e ".[sandbox]"
 
 ## Isolation model
 
-- One candidate may create many case sandboxes.
-- Every case is a separate Docker container.
-- Every case writes to its own `/workspace/case/reme_workspace`.
+- One candidate may create many container sandboxes.
+- `create_cases()` gives every case a separate container; `reset_case()` can
+  instead reuse one container for sequential cases.
+- The active case writes to `/workspace/case/reme_workspace`, which is deleted
+  before the container is assigned to the next case.
 - Source-candidate bytes are snapshotted once and reused unchanged across all
   cases created by the same factory.
 - Export happens before container shutdown.
@@ -123,9 +125,44 @@ The high-level methods map to the existing `lme.yaml` jobs:
 - `judge()` → `answer_judge`, with `yes=1`, `no=0`
 - `run_job()` → any explicitly named ReMe job
 
-`export()` downloads a gzip archive containing the complete ReMe runtime
-workspace, ReMe logs, command audit log, per-job JSON results, canonical answer
-and score files, and a manifest. Environment variable names are recorded, but
-their secret values are never written to the manifest.
+`export()` defaults to an analysis-focused gzip archive containing all ReMe log
+files, the command audit log, per-job JSON results, canonical answer and score
+files, persisted agent sessions, and the user-owned workspace files, including
+files written outside the expected daily/digest paths. It also includes a
+validated runtime layout and a manifest. It omits request copies, temporary
+files, source resources, and rebuildable indexes/caches. Raw dialog sessions
+under the configured `session_dir`/`dialog_dir` are included. Use
+`export(profile="full")` or `export_full()` to download the complete disposable
+case tree. Environment variable names are recorded, but their secret values
+are never written to the manifest.
 
-For an ephemeral Docker workspace, always call `export()` before `close()`.
+For an ephemeral Docker workspace, always call `export()` or `export_full()`
+before `close()`.
+
+## Reuse one container for sequential cases
+
+When container startup and source installation dominate the benchmark, one
+container can process multiple cases sequentially. Finish and optionally
+export the active case, then reset the disposable case directory before
+uploading the next case's sessions:
+
+```python
+case = await factory.create_case("session-001")
+try:
+    await case.ingest_session(session_id="session-001", messages=[...])
+    first = await case.answer(query="...")
+    await case.export("artifacts/session-001.tar.gz")
+
+    await case.reset_case("session-002")
+    await case.ingest_session(session_id="session-002", messages=[...])
+    second = await case.answer(query="...")
+finally:
+    await case.close()
+```
+
+`reset_case()` deletes the ReMe runtime workspace, requests, logs, results,
+manifest, case-scoped temporary files, and temporary export archive. It retains
+the installed candidate, candidate virtual environment, and benchmark worker.
+Jobs, exports, and resets share one lock, so they never overlap within a
+container. Do not retain paths or state from the previous case after reset
+returns.

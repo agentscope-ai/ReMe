@@ -11,14 +11,16 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential git tar \
     && rm -rf /var/lib/apt/lists/*
 
-# Install the repository's exact dependency contract, then remove the dummy
-# ReMe package. Source candidates are installed later with --no-deps, so no
-# fixed ReMe implementation can leak into an experiment.
+# Install the benchmark sandbox dependency contract, then remove the dummy
+# ReMe package. The sandbox-runtime extra deliberately omits cookbook-only
+# tushare, dingtalk-stream, pypdf, and polars. Source candidates are installed
+# later with --no-deps, so no fixed ReMe implementation can leak into an
+# experiment.
 WORKDIR /tmp/reme-dependencies
 COPY pyproject.toml README.md ./
 RUN mkdir reme \
     && printf '__version__ = "0.0.0"\n' > reme/__init__.py \
-    && python -m pip install '.[core]' \
+    && python -m pip install '.[sandbox-runtime]' \
     && python -m pip uninstall -y reme-ai \
     && test "$(python -c 'import agentscope; print(agentscope.__version__)')" = "2.0.4.post1" \
     && rm -rf /tmp/reme-dependencies

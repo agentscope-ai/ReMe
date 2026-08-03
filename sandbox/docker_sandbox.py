@@ -7,8 +7,9 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Literal, Protocol
 import uuid
 
 from .candidate import ImageCandidate, SourceCandidate
@@ -20,6 +21,7 @@ CANDIDATE_VENV = "/workspace/candidate-venv"
 HARNESS_ROOT = "/workspace/harness"
 SOURCE_ARCHIVE = "/workspace/candidate.tar.gz"
 EXPORT_ARCHIVE = "/tmp/reme-case-export.tar.gz"
+RUNTIME_LAYOUT = f"{CASE_ROOT}/runtime-layout.json"
 _CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
@@ -66,6 +68,12 @@ WorkspaceBuilder = Callable[[str, str, dict[str, str]], Workspace]
 
 class SandboxCommandError(RuntimeError):
     """A required command failed inside a case sandbox."""
+
+
+def _validate_case_id(case_id: str) -> None:
+    """Reject identifiers that are unsafe for Docker names and manifests."""
+    if not _CASE_ID_RE.fullmatch(case_id):
+        raise ValueError("case_id must contain only letters, numbers, '.', '_' or '-' and be <= 128 characters")
 
 
 def _utc_now() -> str:
@@ -122,8 +130,7 @@ class DockerReMeSandboxFactory:
 
     async def create_case(self, case_id: str) -> "DockerReMeSandbox":
         """Start and prepare a new container for one benchmark case."""
-        if not _CASE_ID_RE.fullmatch(case_id):
-            raise ValueError("case_id must contain only letters, numbers, '.', '_' or '-' and be <= 128 characters")
+        _validate_case_id(case_id)
         image = self.candidate.base_image if isinstance(self.candidate, SourceCandidate) else self.candidate.image
         workspace = self._workspace_builder(case_id, image, self.env)
         case = DockerReMeSandbox(
@@ -186,6 +193,7 @@ class DockerReMeSandbox:
         self.python = "python3"
         self.actions: list[ActionRecord] = []
         self._closed = False
+        self._operation_lock = asyncio.Lock()
 
     @property
     def runtime_workspace(self) -> str:
@@ -206,18 +214,7 @@ class DockerReMeSandbox:
         """Start Docker, upload the worker, and prepare the selected candidate."""
         await self.workspace.initialize()
         self.backend = self.workspace.get_backend()
-        await self._exec_checked(
-            "create_case_layout",
-            [
-                "mkdir",
-                "-p",
-                f"{CASE_ROOT}/inbox",
-                self.runtime_workspace,
-                self.logs_dir,
-                self.results_dir,
-                HARNESS_ROOT,
-            ],
-        )
+        await self._create_case_layout()
         worker = Path(__file__).with_name("worker.py").read_bytes()
         await self.backend.write_file(f"{HARNESS_ROOT}/worker.py", worker)
 
@@ -225,6 +222,22 @@ class DockerReMeSandbox:
             await self._install_source_candidate()
         else:
             await self._validate_candidate(self.python)
+
+    async def _create_case_layout(self) -> None:
+        """Create the disposable directories owned by the active case."""
+        await self._exec_checked(
+            "create_case_layout",
+            [
+                "mkdir",
+                "-p",
+                f"{CASE_ROOT}/inbox",
+                f"{CASE_ROOT}/tmp",
+                self.runtime_workspace,
+                self.logs_dir,
+                self.results_dir,
+                HARNESS_ROOT,
+            ],
+        )
 
     async def _install_source_candidate(self) -> None:
         assert self.backend is not None
@@ -294,8 +307,8 @@ class DockerReMeSandbox:
             )
         return result
 
-    async def run_job(self, job: str, arguments: dict[str, Any] | None = None) -> JobResult:
-        """Run one ReMe job directly in-process inside the container."""
+    async def _run_job(self, job: str, arguments: dict[str, Any] | None = None) -> JobResult:
+        """Run one ReMe job while the caller holds the operation lock."""
         assert self.backend is not None, "sandbox is not initialized"
         request_id = uuid.uuid4().hex
         request_path = f"{CASE_ROOT}/inbox/{request_id}.json"
@@ -319,6 +332,11 @@ class DockerReMeSandbox:
             raise SandboxCommandError(f"job {job!r} did not produce {response_path}") from exc
         return JobResult.from_dict(payload)
 
+    async def run_job(self, job: str, arguments: dict[str, Any] | None = None) -> JobResult:
+        """Run one ReMe job without overlapping another operation."""
+        async with self._operation_lock:
+            return await self._run_job(job, arguments)
+
     async def ingest_session(
         self,
         *,
@@ -329,21 +347,23 @@ class DockerReMeSandbox:
         update_index: bool = True,
     ) -> JobResult:
         """Add one session, optionally making it searchable immediately."""
-        result = await self.run_job(
-            "auto_memory",
-            {"messages": messages, "session_id": session_id, "date": date, "memory_hint": memory_hint},
-        )
-        if result.success and update_index:
-            index_result = await self.run_job("index_update")
-            if not index_result.success:
-                return index_result
-        return result
+        async with self._operation_lock:
+            result = await self._run_job(
+                "auto_memory",
+                {"messages": messages, "session_id": session_id, "date": date, "memory_hint": memory_hint},
+            )
+            if result.success and update_index:
+                index_result = await self._run_job("index_update")
+                if not index_result.success:
+                    return index_result
+            return result
 
     async def answer(self, *, query: str, query_time: str = "") -> JobResult:
         """Generate an answer with the candidate's agentic_answer job."""
-        result = await self.run_job("agentic_answer", {"query": query, "query_time": query_time})
-        await self._write_named_result("answer.json", result)
-        return result
+        async with self._operation_lock:
+            result = await self._run_job("agentic_answer", {"query": query, "query_time": query_time})
+            await self._write_named_result("answer.json", result)
+            return result
 
     async def judge(
         self,
@@ -354,27 +374,28 @@ class DockerReMeSandbox:
         question_type: str = "",
     ) -> JobResult:
         """Run LLM-as-Judge and persist a normalized numeric score."""
-        result = await self.run_job(
-            "answer_judge",
-            {
-                "query": query,
-                "agent_answer": agent_answer,
-                "golden_answer": golden_answer,
-                "question_type": question_type,
-            },
-        )
-        verdict = str(result.answer).strip().lower()
-        score = 1 if verdict == "yes" else 0 if verdict == "no" else None
-        assert self.backend is not None
-        await self.backend.write_file(
-            f"{self.results_dir}/score.json",
-            json.dumps(
-                {"success": result.success, "score": score, "verdict": verdict, "raw": asdict(result)},
-                ensure_ascii=False,
-                default=str,
-            ).encode("utf-8"),
-        )
-        return result
+        async with self._operation_lock:
+            result = await self._run_job(
+                "answer_judge",
+                {
+                    "query": query,
+                    "agent_answer": agent_answer,
+                    "golden_answer": golden_answer,
+                    "question_type": question_type,
+                },
+            )
+            verdict = str(result.answer).strip().lower()
+            score = 1 if verdict == "yes" else 0 if verdict == "no" else None
+            assert self.backend is not None
+            await self.backend.write_file(
+                f"{self.results_dir}/score.json",
+                json.dumps(
+                    {"success": result.success, "score": score, "verdict": verdict, "raw": asdict(result)},
+                    ensure_ascii=False,
+                    default=str,
+                ).encode("utf-8"),
+            )
+            return result
 
     async def _write_named_result(self, name: str, result: JobResult) -> None:
         assert self.backend is not None
@@ -383,8 +404,77 @@ class DockerReMeSandbox:
             json.dumps(asdict(result), ensure_ascii=False, default=str).encode("utf-8"),
         )
 
-    async def export(self, destination: str | Path, *, include_candidate: bool = False) -> Path:
-        """Download the complete runtime workspace, logs, results and manifest."""
+    async def export(
+        self,
+        destination: str | Path,
+        *,
+        profile: Literal["analysis", "full"] = "analysis",
+        include_candidate: bool = False,
+    ) -> Path:
+        """Download analysis artifacts, or the full case when requested."""
+        if profile not in ("analysis", "full"):
+            raise ValueError("export profile must be 'analysis' or 'full'")
+        async with self._operation_lock:
+            return await self._export(destination, profile=profile, include_candidate=include_candidate)
+
+    async def export_full(self, destination: str | Path, *, include_candidate: bool = False) -> Path:
+        """Download every file under the disposable case root."""
+        return await self.export(destination, profile="full", include_candidate=include_candidate)
+
+    @staticmethod
+    def _validated_workspace_path(value: Any, workspace_root: PurePosixPath, *, allow_root: bool) -> str:
+        """Validate one case-relative path received from candidate-controlled state."""
+        if not isinstance(value, str):
+            raise SandboxCommandError("sandbox runtime layout contains a non-string path")
+        path = PurePosixPath(value)
+        is_root = path == workspace_root
+        is_descendant = workspace_root in path.parents
+        is_unsafe = path.is_absolute() or ".." in path.parts
+        if is_unsafe or (is_root and not allow_root) or (not is_root and not is_descendant):
+            raise SandboxCommandError(f"sandbox runtime layout contains unsafe path: {value!r}")
+        return path.as_posix()
+
+    async def _analysis_archive_spec(self) -> tuple[str, list[str]]:
+        """Read and validate the worker-resolved workspace export rules."""
+        assert self.backend is not None
+        try:
+            payload = json.loads((await self.backend.read_file(RUNTIME_LAYOUT)).decode("utf-8"))
+        except FileNotFoundError as exc:
+            raise SandboxCommandError("analysis export requires at least one completed job") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SandboxCommandError(f"invalid sandbox runtime layout: {exc}") from exc
+
+        if not isinstance(payload, dict):
+            raise SandboxCommandError("sandbox runtime layout must be an object")
+        expected_root = PurePosixPath(self.runtime_workspace).relative_to(CASE_ROOT)
+        workspace_root_value = self._validated_workspace_path(
+            payload.get("workspace_root"),
+            expected_root,
+            allow_root=True,
+        )
+        if PurePosixPath(workspace_root_value) != expected_root:
+            raise SandboxCommandError(
+                f"sandbox runtime layout changed workspace root: {workspace_root_value!r}",
+            )
+
+        values = payload.get("analysis_excludes")
+        if not isinstance(values, list):
+            raise SandboxCommandError("sandbox runtime layout has invalid analysis_excludes")
+        excludes: list[str] = []
+        for value in values:
+            normalized = self._validated_workspace_path(value, expected_root, allow_root=False)
+            if normalized not in excludes:
+                excludes.append(normalized)
+        return workspace_root_value, excludes
+
+    async def _export(
+        self,
+        destination: str | Path,
+        *,
+        profile: Literal["analysis", "full"],
+        include_candidate: bool,
+    ) -> Path:
+        """Export the active case while the caller holds the operation lock."""
         assert self.backend is not None, "sandbox is not initialized"
         if include_candidate and isinstance(self.candidate, ImageCandidate):
             raise ValueError("an image candidate has no source directory to export")
@@ -399,6 +489,7 @@ class DockerReMeSandbox:
             "candidate_mode": "source" if isinstance(self.candidate, SourceCandidate) else "image",
             "config": self.config,
             "environment_names": self.environment_names,
+            "export_profile": profile,
             "exported_at": _utc_now(),
         }
         await self.backend.write_file(
@@ -411,7 +502,23 @@ class DockerReMeSandbox:
                 (json.dumps(asdict(action), ensure_ascii=False) + "\n").encode("utf-8") for action in self.actions
             ),
         )
-        command = ["tar", "-czf", EXPORT_ARCHIVE, "-C", CASE_ROOT, "."]
+        if profile == "analysis":
+            workspace_root, analysis_excludes = await self._analysis_archive_spec()
+            command = [
+                "tar",
+                "-czf",
+                EXPORT_ARCHIVE,
+                "-C",
+                CASE_ROOT,
+                *(f"--exclude={path}" for path in analysis_excludes),
+                "manifest.json",
+                "runtime-layout.json",
+                "logs",
+                "results",
+                workspace_root,
+            ]
+        else:
+            command = ["tar", "-czf", EXPORT_ARCHIVE, "-C", CASE_ROOT, "."]
         if include_candidate:
             command.extend(["-C", "/workspace", "candidate"])
         await self._exec_checked("export_case", command)
@@ -421,11 +528,31 @@ class DockerReMeSandbox:
         target.write_bytes(payload)
         return target
 
+    async def reset_case(self, case_id: str) -> None:
+        """Discard the active case and prepare this container for another.
+
+        Candidate code, its virtual environment, and the uploaded worker stay
+        intact. The runtime workspace, requests, logs, results, manifest, and
+        previous export archive are removed. Operations are serialized so a
+        reset cannot overlap a job or export.
+        """
+        _validate_case_id(case_id)
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            await self._exec_checked(
+                "clear_case",
+                ["rm", "-rf", CASE_ROOT, EXPORT_ARCHIVE],
+            )
+            await self._create_case_layout()
+            self.case_id = case_id
+            self.actions = []
+
     async def close(self) -> None:
         """Destroy the case container. Export before calling this method."""
-        if not self._closed:
-            self._closed = True
-            await self.workspace.close()
+        async with self._operation_lock:
+            if not self._closed:
+                self._closed = True
+                await self.workspace.close()
 
     async def __aenter__(self) -> "DockerReMeSandbox":
         return self
