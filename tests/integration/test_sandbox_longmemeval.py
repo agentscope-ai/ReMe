@@ -99,6 +99,7 @@ async def test_first_longmemeval_case_analysis_export(tmp_path):
                 date=session_dt.strftime("%Y-%m-%d"),
             )
             assert result.success, result.error or result.answer
+            await case.commit_memory_history(f"session: {session_id}")
 
         answer = await case.answer(
             query=item["question"],
@@ -124,6 +125,8 @@ async def test_first_longmemeval_case_analysis_export(tmp_path):
     assert layout["configured_paths"]["mem_session_dir"] == "reme_workspace/mem_session"
 
     assert any(name.startswith("reme_workspace/daily/") and name.endswith(".md") for name in names)
+    assert "reme_workspace/.git/HEAD" in names
+    assert any(name.startswith("reme_workspace/.git/objects/") for name in names)
     assert any(name.startswith("reme_workspace/mem_session/") for name in names)
     assert any(name.startswith("reme_workspace/session/dialog/") and name.endswith(".jsonl") for name in names)
     excluded_prefixes = (

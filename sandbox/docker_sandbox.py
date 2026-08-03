@@ -23,6 +23,8 @@ SOURCE_ARCHIVE = "/workspace/candidate.tar.gz"
 EXPORT_ARCHIVE = "/tmp/reme-case-export.tar.gz"
 RUNTIME_LAYOUT = f"{CASE_ROOT}/runtime-layout.json"
 _CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_GIT_AUTHOR_NAME = "ReMe Sandbox"
+_GIT_AUTHOR_EMAIL = "reme-sandbox@localhost"
 
 
 class Backend(Protocol):
@@ -238,6 +240,11 @@ class DockerReMeSandbox:
                 HARNESS_ROOT,
             ],
         )
+        await self._exec_checked(
+            "initialize_memory_history",
+            ["git", "init", "--quiet"],
+            cwd=self.runtime_workspace,
+        )
 
     async def _install_source_candidate(self) -> None:
         assert self.backend is not None
@@ -357,6 +364,70 @@ class DockerReMeSandbox:
                 if not index_result.success:
                     return index_result
             return result
+
+    async def commit_memory_history(self, message: str) -> None:
+        """Create a host-requested checkpoint containing only daily-memory changes."""
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("memory history commit message must be a non-empty string")
+        async with self._operation_lock:
+            await self._commit_memory_history(message)
+
+    async def _daily_history_path(self) -> str:
+        """Return the validated workspace-relative daily directory from the runtime layout."""
+        assert self.backend is not None
+        try:
+            payload = json.loads((await self.backend.read_file(RUNTIME_LAYOUT)).decode("utf-8"))
+        except (FileNotFoundError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise SandboxCommandError(f"cannot resolve daily history path from runtime layout: {exc}") from exc
+
+        expected_root = PurePosixPath(self.runtime_workspace).relative_to(CASE_ROOT)
+        configured_paths = payload.get("configured_paths") if isinstance(payload, dict) else None
+        if not isinstance(configured_paths, dict):
+            raise SandboxCommandError("sandbox runtime layout has invalid configured_paths")
+        case_relative = self._validated_workspace_path(
+            configured_paths.get("daily_dir"),
+            expected_root,
+            allow_root=False,
+        )
+        return PurePosixPath(case_relative).relative_to(expected_root).as_posix()
+
+    async def _commit_memory_history(self, message: str) -> None:
+        """Commit one host-selected boundary while tracking only the configured daily directory."""
+        daily_path = await self._daily_history_path()
+        await self._exec_checked(
+            "stage_memory_history",
+            ["git", "add", "-A", "--", daily_path],
+            cwd=self.runtime_workspace,
+        )
+        diff_result = await self._exec(
+            "check_memory_history",
+            ["git", "diff", "--cached", "--quiet", "--", daily_path],
+            cwd=self.runtime_workspace,
+        )
+        if diff_result.exit_code not in (0, 1):
+            raise SandboxCommandError(
+                f"cannot inspect staged daily-memory changes: {_decode(diff_result.stderr)}",
+            )
+        commit_command = [
+            "git",
+            "-c",
+            f"user.name={_GIT_AUTHOR_NAME}",
+            "-c",
+            f"user.email={_GIT_AUTHOR_EMAIL}",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "--only",
+            "-m",
+            message,
+        ]
+        if diff_result.exit_code == 1:
+            commit_command.extend(["--", daily_path])
+        await self._exec_checked(
+            "commit_memory_history",
+            commit_command,
+            cwd=self.runtime_workspace,
+        )
 
     async def answer(self, *, query: str, query_time: str = "") -> JobResult:
         """Generate an answer with the candidate's agentic_answer job."""

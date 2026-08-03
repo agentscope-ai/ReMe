@@ -56,6 +56,8 @@ class FakeBackend:
             for path in list(self.files):
                 if path in command[2:] or path.startswith(roots):
                     del self.files[path]
+        if command[:2] == ["git", "init"]:
+            self.files[f"{cwd}/.git/HEAD"] = b"ref: refs/heads/master\n"
         if command[:2] == ["python3", "-c"] or (len(command) > 2 and command[1:3] == ["-c", command[2]]):
             stdout = b'{"reme": "/workspace/candidate/reme/__init__.py", "agentscope": "2.0.4.post1"}\n'
             return FakeExecResult(stdout=stdout)
@@ -216,6 +218,84 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_host_selects_when_to_commit_configured_daily_directory():
+    """Several ingested sessions can be grouped into one explicit host checkpoint."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    first = await case.ingest_session(messages=[], session_id="session-001", update_index=False)
+    second = await case.ingest_session(messages=[], session_id="session-002", update_index=False)
+
+    assert first.success is second.success is True
+    commands = workspace.backend.commands
+    assert not any("commit" in command for command, _, _ in commands)
+
+    await case.commit_memory_history("sessions: session-001, session-002")
+
+    assert (["git", "init", "--quiet"], case.runtime_workspace, case.command_timeout) in commands
+    assert (["git", "add", "-A", "--", "daily"], case.runtime_workspace, case.command_timeout) in commands
+    commit = next(command for command, cwd, _ in commands if "commit" in command and cwd == case.runtime_workspace)
+    assert "--allow-empty" in commit
+    assert "--only" in commit
+    assert commit[-2:] == ["-m", "sessions: session-001, session-002"]
+    assert all(path not in commit for path in ("metadata", "session", "resource", "."))
+
+
+@pytest.mark.asyncio
+async def test_memory_history_uses_resolved_custom_daily_directory():
+    """Git pathspecs follow the candidate's validated daily_dir configuration."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+    workspace.backend.files["/workspace/case/runtime-layout.json"] = json.dumps(
+        {
+            "workspace_root": "reme_workspace",
+            "configured_paths": {"daily_dir": "reme_workspace/memories/daily-notes"},
+            "analysis_excludes": [],
+        },
+    ).encode()
+
+    assert await case._daily_history_path() == "memories/daily-notes"  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_failed_ingest_session_does_not_create_history_commit():
+    """Failed memory construction must not be represented as a successful session boundary."""
+
+    class FailingJobBackend(FakeBackend):
+        """Return a failed response for every emulated ReMe job."""
+
+        async def exec_shell(self, command, *, cwd=None, timeout=None):
+            result = await super().exec_shell(command, cwd=cwd, timeout=timeout)
+            if "/workspace/harness/worker.py" in command:
+                response_path = command[command.index("--response") + 1]
+                self.files[response_path] = json.dumps(
+                    {"success": False, "answer": "failed", "metadata": {}, "error": "failed"},
+                ).encode()
+            return result
+
+    backend = FailingJobBackend()
+    workspace = FakeWorkspace("case-1", "candidate:test", {}, backend=backend)
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    result = await case.ingest_session(messages=[], session_id="session-001", update_index=False)
+
+    assert result.success is False
+    assert not any("commit" in command for command, _, _ in backend.commands)
+
+
+@pytest.mark.asyncio
 async def test_one_container_can_reset_and_run_another_case(tmp_path):
     """Reset removes case state while retaining the installed candidate and worker."""
     workspaces = []
@@ -234,6 +314,8 @@ async def test_one_container_can_reset_and_run_another_case(tmp_path):
     backend = workspaces[0].backend
     worker_bytes = backend.files["/workspace/harness/worker.py"]
     backend.files["/workspace/candidate/reme/__init__.py"] = b"candidate-code"
+    old_git_object = "/workspace/case/reme_workspace/.git/objects/old-case-object"
+    backend.files[old_git_object] = b"old case history"
     assert any(path.startswith("/workspace/case/") for path in backend.files)
 
     await case.reset_case("case-2")
@@ -242,8 +324,18 @@ async def test_one_container_can_reset_and_run_another_case(tmp_path):
     assert len(workspaces) == 1
     assert backend.files["/workspace/harness/worker.py"] == worker_bytes
     assert backend.files["/workspace/candidate/reme/__init__.py"] == b"candidate-code"
-    assert not any(path.startswith("/workspace/case/") for path in backend.files)
+    assert old_git_object not in backend.files
+    assert backend.files["/workspace/case/reme_workspace/.git/HEAD"].startswith(b"ref:")
+    assert not any(path.startswith("/workspace/case/results/") for path in backend.files)
     assert "/tmp/reme-case-export.tar.gz" not in backend.files
+    git_init_positions = [
+        index for index, (command, _, _) in enumerate(backend.commands) if command == ["git", "init", "--quiet"]
+    ]
+    clear_position = next(
+        index for index, (command, _, _) in enumerate(backend.commands) if command[:2] == ["rm", "-rf"]
+    )
+    assert len(git_init_positions) == 2
+    assert git_init_positions[0] < clear_position < git_init_positions[1]
 
     result = await case.run_job("agentic_answer", {"query": "second"})
     await case.export(tmp_path / "case-2.tar.gz")

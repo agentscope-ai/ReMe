@@ -71,6 +71,7 @@ async def main():
                 session_id=case.case_id,
                 messages=[{"role": "user", "content": "Remember this."}],
             )
+            await case.commit_memory_history(f"session: {case.case_id}")
             answer = await case.answer(query="What should you remember?")
             await case.judge(
                 query="What should you remember?",
@@ -136,6 +137,16 @@ under the configured `session_dir`/`dialog_dir` are included. Use
 case tree. Environment variable names are recorded, but their secret values
 are never written to the manifest.
 
+The runtime workspace is also a local Git repository. Session ingestion never
+commits implicitly: the host chooses checkpoint boundaries by calling
+`commit_memory_history(message)`. It may checkpoint after every session or
+after any batch of sessions, and controls the commit message. Each checkpoint
+commits only the configured `daily_dir`; empty commits are retained as explicit
+boundaries. The exported workspace includes `.git`, so the daily-memory
+construction history can be inspected offline without a remote or push. A
+`reset_case()` removes this repository together with the old runtime workspace
+and initializes a fresh repository for the next case.
+
 For an ephemeral Docker workspace, always call `export()` or `export_full()`
 before `close()`.
 
@@ -150,11 +161,13 @@ uploading the next case's sessions:
 case = await factory.create_case("session-001")
 try:
     await case.ingest_session(session_id="session-001", messages=[...])
+    await case.commit_memory_history("session: session-001")
     first = await case.answer(query="...")
     await case.export("artifacts/session-001.tar.gz")
 
     await case.reset_case("session-002")
     await case.ingest_session(session_id="session-002", messages=[...])
+    await case.commit_memory_history("session: session-002")
     second = await case.answer(query="...")
 finally:
     await case.close()
