@@ -3,14 +3,14 @@
 
 dataset:
   beam_root: "benchmark/beam/dataset/BEAM"   # BEAM dataset root
-  chat_size: "1M"                       # 100K | 500K | 1M | 10M (dataset variant)
+  chat_size: "100K"                      # 100K | 500K | 1M | 10M (dataset variant)
   case_ids: []                          # empty = all cases; or ["1", "2", "3"]
   start_index: 0                        # first case index (for pagination)
   num_items: 0                          # 0 = all cases; >0 = limit
   workspace_root: "benchmark/beam/workspaces/beam"  # workspace root for case workspaces
 
 evaluation:
-  num_workers: 18                       # 0 = auto; 1 = sequential; >1 = parallel (per-case)
+  num_workers: 20                       # 0 = auto; 1 = sequential; >1 = parallel (per-case)
   compress_session: false               # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:

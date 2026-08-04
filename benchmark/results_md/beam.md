@@ -5,19 +5,30 @@
 ### 100K
 
 
-| 题型 | Prompted(limit=15) | Agentic |
-|---|---|---|
-| abstention | 0.525 | 0.575 |
-| contradiction_resolution | 0.100 | 0.384 |
-| event_ordering | 0.403 | 0.465 |
-| information_extraction | 0.618 | 0.884 |
-| instruction_following | 0.481 | 0.719 |
-| knowledge_update | 0.637 | 0.650 |
-| multi_session_reasoning | 0.444 | 0.633 |
-| preference_following | 0.706 | 0.829 |
-| summarization | 0.423 | 0.617 |
-| temporal_reasoning | 0.344 | 0.550 |
-| **OVERALL** | **0.468** | **0.631** |
+agentscope==2.0.4.post1, conda reme 环境, 20 并发, 从头构建 memory
+(2026-08-04, 20 cases / 400 Qs, 总耗时 61.8 min)
+
+| 题型 | Agentic | Binary | input tok/q | output tok/q | total tok/q | tool calls/q |
+|---|---|---|---|---|---|---|
+| abstention | 0.500 | 0.500 | 90,460 | 1,121 | 91,581 | 4.15 |
+| contradiction_resolution | 0.338 | 0.300 | 27,951 | 751 | 28,703 | 2.48 |
+| event_ordering | 0.533 | 0.472 | 143,223 | 5,658 | 148,880 | 4.55 |
+| information_extraction | 0.833 | 0.796 | 38,650 | 794 | 39,444 | 2.62 |
+| instruction_following | 0.794 | 0.762 | 32,991 | 782 | 33,773 | 2.35 |
+| knowledge_update | 0.688 | 0.675 | 26,218 | 716 | 26,934 | 2.08 |
+| multi_session_reasoning | 0.644 | 0.584 | 76,239 | 3,229 | 79,469 | 4.00 |
+| preference_following | 0.858 | 0.842 | 28,486 | 865 | 29,350 | 2.17 |
+| summarization | 0.581 | 0.412 | 83,303 | 1,866 | 85,168 | 3.88 |
+| temporal_reasoning | 0.581 | 0.550 | 35,142 | 1,213 | 36,354 | 2.42 |
+| **OVERALL** | **0.635** | **0.589** | **58,266** | **1,699** | **59,966** | **3.07** |
+
+**Memory Construction Token 消耗（default agent / qwen3.6-flash, per case）**
+
+| 指标 | 均值 ± 标准差 |
+|---|---|
+| input_tokens | 2,172,316 ± 975,656 |
+| output_tokens | 136,697 ± 37,484 |
+| total_tokens | 2,309,013 ± 1,009,612 |
 
 ### 1M
 
