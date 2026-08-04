@@ -15,6 +15,7 @@ evaluation:
   # Judgment is always binary (yes/no) — defined in lme/llm_judge.yaml
   num_workers: 32            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
   filter_future_sessions: true  # true = only ingest sessions with timestamp <= question_date
+  compress_session: false   # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:
   config: "lme.yaml" # reme config to use (in reme/config/)

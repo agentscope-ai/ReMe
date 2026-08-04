@@ -12,15 +12,9 @@ class LmeAgenticAnswerStep(BaseAgenticAnswerStep):
     ``search`` job tool to retrieve relevant memory chunks before generating
     a final answer.
 
-    Every job tool call carries an injected ``_search`` payload that enables
-    session-transcript compression in ``search_v2_step`` and forwards the
-    original benchmark query as the compression relevance filter
-    (query-aware compression).
+    Session-transcript compression in ``search_v2_step`` is controlled by the
+    ``compress_session`` flag in the runtime context (set by the benchmark
+    runner from ``evaluation.compress_session``); it is off by default.
     """
 
     TOOL_CONTEXT_PREFIX = "lme_agentic_answer"
-
-    def _injected_job_kwargs(self, query: str) -> dict:
-        injected = super()._injected_job_kwargs(query)
-        injected["_search"] = {"_compress": {"session": "true"}, "queries": [query], "type": "query-aware"}
-        return injected

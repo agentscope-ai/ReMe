@@ -41,8 +41,21 @@ class BaseAgenticAnswerStep(BaseStep):
 
         Overridable hook: subclasses can extend the static
         ``INJECTED_JOB_KWARGS`` with per-request values derived from ``query``.
+
+        When the runtime context carries a truthy ``compress_session`` flag,
+        session-transcript compression is enabled in ``search_v2_step`` by
+        injecting a ``_search._compress.session`` marker plus the current
+        ``query`` as the query-aware relevance filter. Default (falsy) leaves
+        session chunks uncompressed.
         """
-        return dict(self.INJECTED_JOB_KWARGS)
+        injected = dict(self.INJECTED_JOB_KWARGS)
+        if self.context is not None and self.context.get("compress_session"):
+            injected["_search"] = {
+                "_compress": {"session": "true"},
+                "queries": [query],
+                "type": "query-aware",
+            }
+        return injected
 
     async def execute(self):
         assert self.context is not None
@@ -72,7 +85,7 @@ class BaseAgenticAnswerStep(BaseStep):
             "react_config": {"max_iters": self.MAX_ITERATION},
             "tool_context_id": tool_context_id,
         }
-        if injected_job_kwargs := self._injected_job_kwargs(f"Query: {query}, query time: {query_time}"):
+        if injected_job_kwargs := self._injected_job_kwargs(f"{query}(query time: {query_time})"):
             wrapper_kwargs["injected_job_kwargs"] = injected_job_kwargs
 
         if self.context.stream:

@@ -11,6 +11,7 @@ dataset:
 
 evaluation:
   num_workers: 18                       # 0 = auto; 1 = sequential; >1 = parallel (per-case)
+  compress_session: false               # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:
   config: "beam.yaml"                   # reme config (in reme/config/)

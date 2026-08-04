@@ -426,6 +426,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
         # ── Phase 4: Ask question via agentic_answer job (ReAct agent) ──
         question = item["question"]
+        compress_session = bool(eval_config["evaluation"].get("compress_session", False))
         question_date_raw = item.get("question_date", "")
         question_dt = parse_haystack_date(question_date_raw) if question_date_raw else None
         query_time = to_iso(question_dt) if question_dt else ""
@@ -440,7 +441,12 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
                 app.context,
             ) as token_usages,
         ):
-            query_resp = await app.run_job("agentic_answer", query=question, query_time=query_time)
+            query_resp = await app.run_job(
+                "agentic_answer",
+                query=question,
+                query_time=query_time,
+                compress_session=compress_session,
+            )
         agentic_tool_counts = tool_counts
         agentic_token_usage = token_usages["bench"]
         agentic_response = (query_resp.answer or "").strip()

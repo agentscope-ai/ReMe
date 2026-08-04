@@ -247,7 +247,7 @@ def get_available_cases(beam_root: Path, chat_size: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Answer generation
 # ---------------------------------------------------------------------------
-async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
+async def answer_question_agentic(app, question: str, compress_session: bool = False) -> tuple[str, dict]:
     """Answer a probing question using ReMe's agentic_answer job.
 
     Returns (answer, metadata)
@@ -264,6 +264,7 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
+            compress_session=compress_session,
         )
     answer = (query_resp.answer or "").strip()
 
@@ -323,6 +324,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
+    compress_session = bool(eval_config["evaluation"].get("compress_session", False))
     beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/beam/dataset/BEAM")
     chat_path = beam_root / "chats" / chat_size / case_id / "chat.json"
     probing_questions_path = beam_root / "chats" / chat_size / case_id / "probing_questions" / "probing_questions.json"
@@ -452,6 +454,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     agentic_answer, agentic_meta = await answer_question_agentic(
                         app,
                         question,
+                        compress_session=compress_session,
                     )
                 except Exception as e:
                     logger.error(f"[Case {case_id}] Agentic answer failed: {e}")
