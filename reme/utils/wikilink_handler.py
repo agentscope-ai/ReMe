@@ -144,15 +144,32 @@ class WikilinkHandler:
             if text[i] != "`":
                 i += 1
                 continue
-            run = len(text[i:]) - len(text[i:].lstrip("`"))
+            run_end = i + 1
+            while run_end < len(text) and text[run_end] == "`":
+                run_end += 1
+            run = run_end - i
             delimiter = "`" * run
-            close = text.find(delimiter, i + run)
+            close = text.find(delimiter, run_end)
             if close < 0:
-                i += run
+                i = run_end
                 continue
             spans.append((i, close + run))
             i = close + run
         return sorted(spans)
+
+    @staticmethod
+    def _apply_replacements(text: str, replacements: list[tuple[int, int, str]]) -> str:
+        """Apply ordered, non-overlapping source-span replacements in one pass."""
+        if not replacements:
+            return text
+        parts: list[str] = []
+        cursor = 0
+        for start, end, replacement in replacements:
+            parts.append(text[cursor:start])
+            parts.append(replacement)
+            cursor = end
+        parts.append(text[cursor:])
+        return "".join(parts)
 
     @staticmethod
     def _matching_paren(text: str, opening: int, limit: int) -> int | None:
@@ -395,14 +412,14 @@ class WikilinkHandler:
         if new is None or not matches:
             return text, len(matches)
 
-        rewritten = text
-        for match in reversed(matches):
+        replacements: list[tuple[int, int, str]] = []
+        for match in matches:
             replacement = new
             if match.syntax == "markdown" and source_path and not Path(source_path).is_absolute():
                 replacement = posixpath.relpath(new, posixpath.dirname(source_path) or ".")
                 replacement = _encode_markdown_path(replacement)
-            rewritten = rewritten[: match.target_start] + replacement + rewritten[match.target_end :]
-        return rewritten, len(matches)
+            replacements.append((match.target_start, match.target_end, replacement))
+        return cls._apply_replacements(text, replacements), len(matches)
 
     @classmethod
     def rebase_links_for_move(
@@ -422,10 +439,10 @@ class WikilinkHandler:
         old_source_path = _normalize_workspace_path(old_source_path)
         new_source_path = _normalize_workspace_path(new_source_path)
         matches = list(cls.iter_matches(text, old_source_path))
-        rewritten = text
+        replacements: list[tuple[int, int, str]] = []
         changed = 0
         new_dir = posixpath.dirname(new_source_path) or "."
-        for match in reversed(matches):
+        for match in matches:
             target = new_source_path if retarget_self and match.target == old_source_path else match.target
             if match.syntax == "markdown":
                 replacement = posixpath.relpath(target, new_dir)
@@ -434,11 +451,11 @@ class WikilinkHandler:
                 replacement = new_source_path
             else:
                 continue
-            if rewritten[match.target_start : match.target_end] == replacement:
+            if text[match.target_start : match.target_end] == replacement:
                 continue
-            rewritten = rewritten[: match.target_start] + replacement + rewritten[match.target_end :]
+            replacements.append((match.target_start, match.target_end, replacement))
             changed += 1
-        return rewritten, changed
+        return cls._apply_replacements(text, replacements), changed
 
     # -- Validation ----------------------------------------------------
 

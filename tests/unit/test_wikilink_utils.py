@@ -332,6 +332,31 @@ def test_oversized_markdown_links_are_not_rewritten():
     assert rewritten == original
 
 
+def test_dense_local_links_rewrite_in_one_pass():
+    """Large batches preserve source order and rewrite every target."""
+    original = ("[[old.md]] [label](old.md#intro)\n" * 10_000).rstrip()
+
+    rewritten, count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old="old.md",
+        new="archive/new.md",
+        source_path="note.md",
+    )
+
+    assert count == 20_000
+    assert rewritten.count("[[archive/new.md]]") == 10_000
+    assert rewritten.count("[label](archive/new.md#intro)") == 10_000
+
+
+def test_dense_inline_code_delimiters_do_not_hide_following_link():
+    """Scanning many short code spans still reaches a later local link."""
+    text = "`x` " * 50_000 + "[target](target.md)"
+
+    links = WikilinkHandler.extract_links(text, "note.md")
+
+    assert [link.target_path for link in links] == ["target.md"]
+
+
 def test_unsupported_backslash_escapes_are_not_rebased_or_retargeted():
     """Move and retarget leave skipped Markdown destinations byte-for-byte unchanged."""
     original = r"[hash](target\#v1.md) [query](target\?raw.md)"
