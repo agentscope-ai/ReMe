@@ -10,7 +10,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from reme.enumeration import ComponentEnum
 from reme.schema import ApplicationConfig
+from reme.utils import global_counter_add
 from sandbox import DockerReMeSandboxFactory, ImageCandidate, SourceCandidate, SourceSnapshot
 from sandbox.direct_docker_workspace import DirectDockerWorkspace
 from sandbox import worker
@@ -79,7 +81,15 @@ class FakeBackend:
                 },
             ).encode()
             self.files[response_path] = json.dumps(
-                {"success": True, "answer": "yes", "metadata": {"job": "ok"}, "error": None},
+                {
+                    "success": True,
+                    "answer": "yes",
+                    "metadata": {"job": "ok"},
+                    "token_usage": {
+                        "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+                    },
+                    "error": None,
+                },
             ).encode()
         if command[:2] == ["tar", "-czf"]:
             self.files[command[2]] = b"case-archive"
@@ -204,6 +214,9 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
 
     assert result.success is True
     assert result.answer == "yes"
+    assert result.token_usage == {
+        "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+    }
     assert "/workspace/candidate.tar.gz" not in workspaces[0].backend.files
     assert exported.read_bytes() == b"case-archive"
     assert json.loads(workspaces[0].backend.files["/workspace/case/manifest.json"])["candidate_mode"] == "image"
@@ -477,6 +490,10 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         def __init__(self, **config):
             """Record construction."""
             events.append(("construct", config["workspace_dir"]))
+            self.context = SimpleNamespace(
+                metadata={},
+                components={ComponentEnum.AGENT_WRAPPER: {"bench": SimpleNamespace()}},
+            )
 
         async def start(self):
             """Record startup."""
@@ -485,6 +502,9 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         async def run_job(self, name, **arguments):
             """Return a successful direct job response."""
             events.append(("run_job", name, arguments))
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "input_tokens"], 12)
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "output_tokens"], 3)
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "total_tokens"], 15)
             return SimpleNamespace(success=True, answer="answer", metadata={"direct": True})
 
         async def close(self):
@@ -503,7 +523,15 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         },
     )
 
-    assert result == {"success": True, "answer": "answer", "metadata": {"direct": True}, "error": None}
+    assert result == {
+        "success": True,
+        "answer": "answer",
+        "metadata": {"direct": True},
+        "token_usage": {
+            "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+        },
+        "error": None,
+    }
     assert worker.os.environ["TMPDIR"] == str(tmp_path / "tmp")
     layout = json.loads((tmp_path / "runtime-layout.json").read_text())
     assert layout["workspace_root"] == "workspace"
@@ -517,3 +545,48 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         ("run_job", "agentic_answer", {"query": "hello"}),
         "close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_returns_usage_accumulated_before_job_failure(monkeypatch, tmp_path):
+    """A failed step still reports tokens spent before the exception."""
+
+    class FailingReMe:
+        """Record token usage and then fail the requested job."""
+
+        def __init__(self, **_config):
+            self.context = SimpleNamespace(
+                metadata={},
+                components={ComponentEnum.AGENT_WRAPPER: {"bench": SimpleNamespace()}},
+            )
+
+        async def start(self):
+            """Start without side effects."""
+
+        async def run_job(self, _name, **_arguments):
+            """Consume tokens before surfacing a step error."""
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "input_tokens"], 8)
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "output_tokens"], 2)
+            global_counter_add(self.context.metadata, ["__token_counter", "bench", "total_tokens"], 10)
+            raise RuntimeError("step failed")
+
+        async def close(self):
+            """Close without side effects."""
+
+    monkeypatch.setattr("reme.config.resolve_app_config", lambda **kwargs: kwargs)
+    monkeypatch.setattr("reme.reme.ReMe", FailingReMe)
+
+    result = await worker._run(  # pylint: disable=protected-access
+        {
+            "job": "agentic_answer",
+            "config": "lme.yaml",
+            "case_root": str(tmp_path),
+            "workspace_dir": str(tmp_path / "workspace"),
+        },
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "RuntimeError: step failed"
+    assert result["token_usage"] == {
+        "bench": {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
+    }

@@ -80,8 +80,10 @@ async def _run(request: dict[str, Any]) -> dict[str, Any]:
     # Import after setting TMPDIR so ReMe and its subprocesses cannot leave
     # case-specific temporary files outside the disposable case root.
     from reme.config import resolve_app_config
+    from reme.enumeration import ComponentEnum
     from reme.reme import ReMe
     from reme.schema import ApplicationConfig
+    from reme.utils.evaluation_interface import track_agent_token_usage
 
     app_config = resolve_app_config(
         config=config,
@@ -95,11 +97,24 @@ async def _run(request: dict[str, Any]) -> dict[str, Any]:
     app = ReMe(**app_config)
     try:
         await app.start()
-        response = await app.run_job(job, **job_args)
+        agent_names = list(app.context.components.get(ComponentEnum.AGENT_WRAPPER, {}))
+        try:
+            with track_agent_token_usage(agent_names, app.context) as token_usage:
+                response = await app.run_job(job, **job_args)
+        except Exception as exc:  # Preserve usage accumulated before a job failure.
+            return {
+                "success": False,
+                "answer": "",
+                "metadata": {},
+                "token_usage": token_usage,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(),
+            }
         return {
             "success": bool(response.success),
             "answer": response.answer,
             "metadata": response.metadata,
+            "token_usage": token_usage,
             "error": None if response.success else str(response.answer),
         }
     finally:
@@ -125,6 +140,7 @@ def main() -> int:
             "success": False,
             "answer": "",
             "metadata": {},
+            "token_usage": {},
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc(),
         }
