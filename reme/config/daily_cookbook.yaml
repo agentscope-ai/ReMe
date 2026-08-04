@@ -238,7 +238,7 @@ jobs:
       properties:
         path:
           type: string
-          description: "Workspace-relative markdown path."
+          description: "Workspace-relative markdown path, optionally followed by #L9-L10,L15-L20."
         start_line:
           type: integer
         end_line:

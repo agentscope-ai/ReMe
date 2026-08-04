@@ -30,7 +30,7 @@ Integrate 阶段对每个 unit 独立运行。一个 unit 只落到一个目标 
 |--------------|----------------------------------------------------|
 | 已有相同记忆       | 召回后更新旧节点，而不是重复创建。                                  |
 | 新旧材料有关联      | 在正文中写入 workspace-relative wikilink。                    |
-| digest 与来源断开 | 用 `derived_from:: [[...]]` 指回 daily/resource 原始材料。 |
+| digest 与来源断开 | 在 `## Sources` 章节加入指向 daily/resource 的链接。 |
 | 节点只有孤立正文     | 在 CREATE 和 UPDATE 时都补充相关 digest 节点链接。              |
 
 ## 工具链
@@ -73,19 +73,21 @@ Agent 先用 unit 的触发条件、动词、名词、同义词和可能的 fail
 | 动作            | 链接含义                                                |
 |---------------|-----------------------------------------------------|
 | `CREATE`      | 写入新的 `digest/<bucket>/<slug>.md`，并在新正文里加入来源和相关节点链接。 |
-| `CORROBORATE` | 同一抽象再次出现，追加新的 `derived_from:: [[...]]`，必要时强化描述。     |
+| `CORROBORATE` | 同一抽象再次出现，追加来源链接，必要时强化描述。     |
 | `REFINE`      | 新材料扩展了旧节点，把补充内容插入合适段落，并保留旧链接。                       |
 | `CORRECT`     | 新材料修正旧节点，用来源链接标出修正依据。                               |
 
-UPDATE 必须尽量只增不删：不要删除已有 wikilink 或 `derived_from`。这是为了让后续图谱索引和检索不会丢边。
+UPDATE 必须尽量只增不删：不要删除已有 wikilink 或来源条目。这是为了让后续图谱索引和检索不会丢边。
 
 ### 3. 写来源边
 
-来源边使用 markdown wikilink：
+来源边是归档在固定章节下的普通 Markdown Wikilink：
 
 ```markdown
-derived_from:: [[daily/2026-06-20/session.md]]
-derived_from:: [[resource/2026-06-20/paper.md]]
+## Sources
+
+- [[daily/2026-06-20/session.md]]
+- [[resource/2026-06-20/paper.md]]
 ```
 
 这些边表示 digest 节点的证据来源。纯文本描述不算来源边，因为只有 wikilink 能被 file graph 稳定解析。更完整的 wikilink
@@ -93,16 +95,13 @@ derived_from:: [[resource/2026-06-20/paper.md]]
 
 ### 4. 写 digest 关联边
 
-digest 之间的关联也使用完整 workspace-relative 路径：
+digest 之间的关联使用完整 workspace-relative 路径，并自然织入正文：
 
 ```markdown
-relates_to:: [[digest/wiki/hybrid-search.md]]
-depends_on:: [[digest/procedure/rebuild-index.md]]
-blocks_on:: [[digest/personal/team-review-preference.md]]
+这个设计扩展了 [[digest/wiki/hybrid-search.md]]，并使用
+[[digest/procedure/rebuild-index.md]]。评审时遵循
+[[digest/personal/team-review-preference.md]]。
 ```
-
-谓词是开放的，常见写法包括 `relates_to::`、`depends_on::`、`blocks_on::`。谓词在括号外，目标路径在 `[[...]]` 内，并且应包含
-`.md` 后缀。
 
 ## Bucket 差异
 

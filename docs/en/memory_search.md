@@ -66,7 +66,7 @@ stable batch of changes.
 4. For a deleted file, remove its records from `file_store`, `keyword_index`, and `file_graph`.
 5. When changes exist, dump state to `metadata/` so it can be restored on the next startup.
 
-The Markdown chunker parses YAML frontmatter, heading structure, and `[[...]]` into `FileNode`, `FileChunk`, and `FileLink`
+The Markdown chunker parses YAML frontmatter, heading structure, and local Wikilink/Markdown links into `FileNode`, `FileChunk`, and `FileLink`
 objects. For detailed chunking rules, see [Memory as File](./memory_as_file.md#memory-chunking).
 
 ### Index Optimization
@@ -194,7 +194,7 @@ matched chunk
   -> file_store.get_outlinks(path)
   -> file_store.get_inlinks(path)
   -> file_store.get_nodes(neighbor_paths)
-  -> render neighbor path, name, description, predicate, and anchor
+  -> render neighbor path, name, description, and anchor
 ```
 
 This keeps search results short while still showing which long-term nodes, resources, or other daily notes a memory connects
@@ -216,10 +216,8 @@ Typical text structure:
 ...matched memory fragment...
   outlinks (2):
     -> digest/indexing.md  name="Indexing"  description="..."
-      via predicate=related
   inlinks (1):
     <- daily/2026-06-19.md  name="..."
-      via plain
 ```
 
 `counts` reports how many vector and keyword candidates were recalled and how many results were ultimately returned. With

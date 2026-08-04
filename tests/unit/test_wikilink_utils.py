@@ -1,8 +1,8 @@
-"""Tests for the wikilink helpers in ``reme.utils.wikilink_handler``.
+"""Tests for local-link helpers in ``reme.utils.wikilink_handler``.
 
 Two pure async helpers used by file_move / file_delete:
 
-  * ``retarget_links(src, dst, scope?, dry_run?)`` — rewrite wikilink
+  * ``retarget_links(src, dst, scope?, dry_run?)`` — rewrite local-link
     targets across the workspace, using the file_graph's reverse index to
     find inbound sources (no fs scan).
   * ``find_inbound(target, scope?)`` — report inbound count without
@@ -196,8 +196,8 @@ def test_retarget_image_marker_preserved():
     asyncio.run(run())
 
 
-def test_retarget_dataview_predicate_preserved():
-    """Line-level + inline-bracketed Dataview predicates pass through outside ``[[..]]``."""
+def test_retarget_preserves_surrounding_relation_text():
+    """Retargeting changes only the inner wikilink target."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -212,7 +212,29 @@ def test_retarget_dataview_predicate_preserved():
             assert "colleague:: [[people/Alice.md]]" in body
             assert "[负责:: [[people/Alice.md]]]" in body
             await store.close()
-        print("✓ test_retarget_dataview_predicate_preserved passed")
+        print("✓ test_retarget_preserves_surrounding_relation_text passed")
+
+    asyncio.run(run())
+
+
+def test_retarget_local_markdown_link_preserves_label_anchor_and_title():
+    """Retargeting rewrites only a Markdown destination's relative path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            root = Path(tmp)
+            original = '[Alice](../topics/Alice.md#L9-L10,L15-L20 "profile")'
+            store = await _store_with({"notes/note.md": original})
+            payload = await WikilinkHandler.retarget_links(
+                store,
+                src="topics/Alice.md",
+                dst="people/Alice.md",
+            )
+            assert payload["links_changed"] == 1
+            assert (root / "notes/note.md").read_text(encoding="utf-8") == (
+                '[Alice](../people/Alice.md#L9-L10,L15-L20 "profile")'
+            )
+            await store.close()
 
     asyncio.run(run())
 
@@ -387,7 +409,8 @@ if __name__ == "__main__":
     test_retarget_alias_preserved()
     test_retarget_anchor_and_alias_together()
     test_retarget_image_marker_preserved()
-    test_retarget_dataview_predicate_preserved()
+    test_retarget_preserves_surrounding_relation_text()
+    test_retarget_local_markdown_link_preserves_label_anchor_and_title()
     test_retarget_multiple_files_aggregate_counts()
     test_retarget_dry_run_does_not_write()
     test_retarget_scope_limits_sweep()

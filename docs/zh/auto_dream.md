@@ -7,7 +7,7 @@
   <img src="../figure/auto-dream-and-proactive.svg" alt="ReMe Auto Dream and Proactive 从 daily 到 digest 再到 proactive 的流程" width="92%">
 </p>
 
-它消费的 daily 输入通常来自 [Auto Memory](./auto_memory.md) 和 [Auto Resource](./auto_resource.md)。`digest/`、`derived_from::`
+它消费的 daily 输入通常来自 [Auto Memory](./auto_memory.md) 和 [Auto Resource](./auto_resource.md)。`digest/`、Sources 章节
 和 wikilink 的文件语义见 [Memory as File](./memory_as_file.md)；Integrate 阶段的链接策略详见 [Auto Link](./auto_link.md)。
 `interests.yaml` 的读取接口见 [Proactive](./proactive.md)。
 
@@ -189,7 +189,7 @@ jobs:
 
 `auto_dream` 只消费 daily 输入，不改写 daily 正文。daily 是事实和现场记录，digest 才是抽象后的长期记忆层。
 
-`digest` 不是原文复制。正文应保留可复用抽象，细节通过 `derived_from:: [[daily/<date>/...]]` 指回来源。链接写法遵循
+`digest` 不是原文复制。正文应保留可复用抽象，细节通过 Sources 章节中的 `- [[daily/<date>/...]]` 指回来源。链接写法遵循
 [Memory as File](./memory_as_file.md) 中的 workspace-relative wikilink 语义。
 
 `auto_dream` 不凭空生成总览。只有 daily 输入中确实出现、并被抽取为 unit 或 topic 的内容，才会进入 digest 或

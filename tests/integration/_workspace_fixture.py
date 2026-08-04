@@ -84,7 +84,8 @@ token used to assert identity and claims between parties.
 ## Related
 Often issued by [[digest/wiki/oauth2.md]] flows.
 
-derived_from:: [[daily/2026-05-15/auth-design/notes.md]]
+## Sources
+- [[daily/2026-05-15/auth-design/notes.md]]
 """,
     "digest/wiki/oauth2.md": """\
 ---
@@ -103,7 +104,8 @@ issued by an authorization server.
 - Client credentials
 - Refresh token
 
-derived_from:: [[daily/2026-05-10/oauth-intro/notes.md]]
+## Sources
+- [[daily/2026-05-10/oauth-intro/notes.md]]
 """,
     "digest/procedure/key-rotation.md": """\
 ---
@@ -127,7 +129,8 @@ issuance.
 Default rotation cadence is **30 days**. Driven by historical practice;
 no formal compliance requirement has tightened this so far.
 
-derived_from:: [[daily/2026-05-20/rotation-plan/notes.md]]
+## Sources
+- [[daily/2026-05-20/rotation-plan/notes.md]]
 """,
     "digest/personal/no-trailing-summary.md": """\
 ---
@@ -144,7 +147,8 @@ description: 不要在回复末尾加总结段落
 **How to apply**: 任意编码 / 编辑任务回复结束时,直接停在最后一条
 有信息量的话上,不要再补一段"以上就是本次的修改..."。
 
-derived_from:: [[daily/2026-05-01/style-feedback/notes.md]]
+## Sources
+- [[daily/2026-05-01/style-feedback/notes.md]]
 """,
     # ----- daily provenance stubs (so the digest links don't dangle) -----
     "daily/2026-05-01/style-feedback/notes.md": """\

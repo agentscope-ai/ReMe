@@ -105,7 +105,6 @@ def test_parse_links_bare():
     assert link.source_path == "src.md"
     assert link.target_path == "note"
     assert link.target_anchor is None
-    assert link.predicate is None
     print("✓ test_parse_links_bare passed")
 
 
@@ -115,7 +114,6 @@ def test_parse_links_with_anchor():
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "section A"
-    assert links[0].predicate is None
     print("✓ test_parse_links_with_anchor passed")
 
 
@@ -137,47 +135,18 @@ def test_parse_links_anchor_and_alias():
     print("✓ test_parse_links_anchor_and_alias passed")
 
 
-def test_parse_links_predicate_simple():
-    """Dataview inline: predicate:: [[target]]."""
-    links = WikilinkHandler.extract_links("author:: [[Alice]]", "src.md")
-    assert len(links) == 1
-    assert links[0].predicate == "author"
-    assert links[0].target_path == "Alice"
-    assert links[0].target_anchor is None
-    print("✓ test_parse_links_predicate_simple passed")
-
-
-def test_parse_links_predicate_bracketed():
-    """Dataview inline-bracket: [predicate:: [[target]]]."""
-    links = WikilinkHandler.extract_links("text [author:: [[Alice]]] more", "src.md")
-    assert len(links) == 1
-    assert links[0].predicate == "author"
-    assert links[0].target_path == "Alice"
-    print("✓ test_parse_links_predicate_bracketed passed")
-
-
-def test_parse_links_predicate_bracketed_with_anchor():
-    """[predicate:: [[target_path#target_anchor]]] — combined form."""
+def test_parse_links_ignores_legacy_relation_wrappers():
+    """Legacy relation text remains compatible as ordinary wikilinks."""
     links = WikilinkHandler.extract_links(
-        "[predicate:: [[target_path#target_anchor]]]",
+        "related:: [[a]]\n- related:: [[b]]\n[related:: [[c#section]]]",
         "src.md",
     )
-    assert len(links) == 1
-    link = links[0]
-    assert link.source_path == "src.md"
-    assert link.predicate == "predicate"
-    assert link.target_path == "target_path"
-    assert link.target_anchor == "target_anchor"
-    print("✓ test_parse_links_predicate_bracketed_with_anchor passed")
-
-
-def test_parse_links_predicate_sticks_to_first():
-    """Line-level predicate covers all wikilinks in its value portion."""
-    links = WikilinkHandler.extract_links("pred:: [[a]] and bare [[b]]", "src.md")
-    assert len(links) == 2
-    assert links[0].predicate == "pred" and links[0].target_path == "a"
-    assert links[1].predicate == "pred" and links[1].target_path == "b"
-    print("✓ test_parse_links_predicate_sticks_to_first passed")
+    assert [(link.target_path, link.target_anchor) for link in links] == [
+        ("a", None),
+        ("b", None),
+        ("c", "section"),
+    ]
+    assert all(not hasattr(link, "predicate") for link in links)
 
 
 def test_parse_links_multiple_on_one_line():
@@ -190,21 +159,47 @@ def test_parse_links_multiple_on_one_line():
     print("✓ test_parse_links_multiple_on_one_line passed")
 
 
+def test_parse_wikilink_line_ranges():
+    """Line-range fragments remain attached to their target."""
+    links = WikilinkHandler.extract_links(
+        "[[a.md#L9-L10]] [[b.md#L9-L10,L15-L20]]",
+        "src.md",
+    )
+    assert [(link.target_path, link.target_anchor) for link in links] == [
+        ("a.md", "L9-L10"),
+        ("b.md", "L9-L10,L15-L20"),
+    ]
+
+
+def test_parse_local_markdown_links():
+    """Local Markdown destinations resolve relative to their source file."""
+    links = WikilinkHandler.extract_links(
+        "[plain](../wiki/a.md) [ranges](../wiki/b.md#L9-L10,L15-L20)",
+        "daily/note.md",
+    )
+    assert [(link.target_path, link.target_anchor) for link in links] == [
+        ("wiki/a.md", None),
+        ("wiki/b.md", "L9-L10,L15-L20"),
+    ]
+
+
+def test_parse_markdown_links_filters_non_file_links():
+    """External URLs, images and Markdown examples in code do not create graph edges."""
+    text = (
+        "[local](local.md) [web](https://example.com) [mail](mailto:a@example.com) ![image](image.png)\n"
+        "`[inline](inline.md) [[inline-wiki.md]]`\n"
+        "```md\n[fenced](fenced.md) [[fenced-wiki.md]]\n```"
+    )
+    links = WikilinkHandler.extract_links(text, "note.md")
+    assert [(link.target_path, link.target_anchor) for link in links] == [("local.md", None)]
+
+
 def test_parse_links_no_match():
     """Strings without [[]] yield no links, even if '::' appears."""
     assert len(WikilinkHandler.extract_links("no link here :: foo", "src.md")) == 0
     assert len(WikilinkHandler.extract_links("plain text without brackets", "src.md")) == 0
     assert len(WikilinkHandler.extract_links("", "src.md")) == 0
     print("✓ test_parse_links_no_match passed")
-
-
-def test_parse_links_predicate_with_underscore_and_digits():
-    """Predicate identifier accepts letters, digits, underscore (no dash per Dataview spec)."""
-    links = WikilinkHandler.extract_links("see_also2:: [[target]]", "src.md")
-    assert len(links) == 1
-    assert links[0].predicate == "see_also2"
-    assert links[0].target_path == "target"
-    print("✓ test_parse_links_predicate_with_underscore_and_digits passed")
 
 
 def test_parse_links_in_file():
@@ -227,11 +222,8 @@ def test_parse_links_in_file():
         try:
             chunker = DefaultFileChunker()
             file_node, _ = await chunker.chunk(temp_path)
-            triples = {(link.predicate, link.target_path, link.target_anchor) for link in file_node.links}
-            assert (None, "alpha", None) in triples
-            assert (None, "beta", "h2") in triples
-            assert ("author", "Alice", None) in triples
-            assert ("ref", "paper", "chapter 1") in triples
+            pairs = {(link.target_path, link.target_anchor) for link in file_node.links}
+            assert pairs == {("alpha", None), ("beta", "h2"), ("Alice", None), ("paper", "chapter 1")}
             assert all(link.source_path == file_node.path for link in file_node.links)
             print("✓ test_parse_links_in_file passed")
         finally:
@@ -289,6 +281,27 @@ def test_chunk_does_not_split_wikilink_at_boundary():
             # And the link should appear intact in some chunk.
             assert any(link in c.text for c in chunks), "link was split across all chunks"
             print("✓ test_chunk_does_not_split_wikilink_at_boundary passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_chunk_does_not_split_markdown_link_at_boundary():
+    """A local Markdown link remains intact when a byte boundary lands inside it."""
+
+    async def run():
+        prefix = "x" * 80
+        link = "[label](a-very-long-target.md#L9-L20)"
+        content = f"{prefix}{link}{'y' * 90}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+        try:
+            chunker = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
+            _, chunks = await chunker.chunk(temp_path)
+            assert any(link in chunk.text for chunk in chunks)
+            assert all("[label]" not in chunk.text or link in chunk.text for chunk in chunks)
         finally:
             os.unlink(temp_path)
 
@@ -384,16 +397,16 @@ if __name__ == "__main__":
     test_parse_links_with_anchor()
     test_parse_links_alias_dropped()
     test_parse_links_anchor_and_alias()
-    test_parse_links_predicate_simple()
-    test_parse_links_predicate_bracketed()
-    test_parse_links_predicate_bracketed_with_anchor()
-    test_parse_links_predicate_sticks_to_first()
+    test_parse_links_ignores_legacy_relation_wrappers()
     test_parse_links_multiple_on_one_line()
+    test_parse_wikilink_line_ranges()
+    test_parse_local_markdown_links()
+    test_parse_markdown_links_filters_non_file_links()
     test_parse_links_no_match()
-    test_parse_links_predicate_with_underscore_and_digits()
     test_parse_links_in_file()
     test_parse_links_empty_when_no_content()
     test_chunk_does_not_split_wikilink_at_boundary()
+    test_chunk_does_not_split_markdown_link_at_boundary()
     test_chunk_does_not_split_wikilink_in_overlap()
     test_chunk_falls_back_for_oversize_link()
     test_min_chunk_and_overlap_size()

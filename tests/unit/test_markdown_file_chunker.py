@@ -284,9 +284,9 @@ def test_parse_links_literal_targets():
             path = _write_md(tmp, "note.md", body)
             chunker = MarkdownFileChunker()
             node, _ = await chunker.chunk(path)
-            triples = {(link.target_path, link.target_anchor, link.predicate) for link in node.links}
-            assert ("topics/Alice.md", None, None) in triples
-            assert ("topics/Bob.md", "sec", None) in triples
+            pairs = {(link.target_path, link.target_anchor) for link in node.links}
+            assert ("topics/Alice.md", None) in pairs
+            assert ("topics/Bob.md", "sec") in pairs
             # source_path always equals the node's own path
             for link in node.links:
                 assert link.source_path == node.path
@@ -317,8 +317,8 @@ def test_parse_links_short_and_no_ext_kept_literally():
     asyncio.run(run())
 
 
-def test_parse_links_predicate_inline_and_line():
-    """Both `pred:: [[X]]` (line-level) and `[pred:: [[X]]]` (inline) propagate predicate."""
+def test_parse_links_legacy_relation_text_is_ignored():
+    """Old relation wrappers do not prevent their inner wikilinks from parsing."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -326,16 +326,14 @@ def test_parse_links_predicate_inline_and_line():
             path = _write_md(tmp, "note.md", body)
             chunker = MarkdownFileChunker()
             node, _ = await chunker.chunk(path)
-            pairs = {(link.target_path, link.predicate) for link in node.links}
-            assert ("A.md", "extends") in pairs
-            assert ("B.md", "concerns") in pairs
-        print("✓ test_parse_links_predicate_inline_and_line passed")
+            assert {link.target_path for link in node.links} == {"A.md", "B.md"}
+        print("✓ test_parse_links_legacy_relation_text_is_ignored passed")
 
     asyncio.run(run())
 
 
 def test_parse_links_deduped():
-    """Repeated wikilinks with the same (target, predicate, anchor) emit one FileLink."""
+    """Repeated wikilinks with the same target and anchor emit one FileLink."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -616,7 +614,7 @@ if __name__ == "__main__":
     test_parse_chunk_ids_match_node_chunk_ids()
     test_parse_links_literal_targets()
     test_parse_links_short_and_no_ext_kept_literally()
-    test_parse_links_predicate_inline_and_line()
+    test_parse_links_legacy_relation_text_is_ignored()
     test_parse_links_deduped()
     test_parse_min_chunk_byte_size_clamped()
     test_parse_embed_toc_prefixes_chunk_text()

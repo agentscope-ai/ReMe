@@ -139,6 +139,33 @@ async def read_file_lines_safe(
     return "\n".join(lines), total, encoding
 
 
+async def read_file_line_ranges_safe(
+    file_path,
+    ranges: list[tuple[int, int]],
+    *,
+    max_collect_bytes: int = DEFAULT_MAX_BYTES * 2,
+) -> tuple[list[str], int, str]:
+    """Read several sorted 1-based inclusive ranges in one file pass."""
+    encoding = await detect_file_encoding(file_path)
+    collected = 0
+    total = 0
+    range_index = 0
+    lines: list[list[str]] = [[] for _ in ranges]
+    async with aiofiles.open(str(file_path), "r", encoding=encoding, errors="replace") as f:
+        async for line in f:
+            total += 1
+            while range_index < len(ranges) and total > ranges[range_index][1]:
+                range_index += 1
+            if range_index >= len(ranges):
+                continue
+            start, end = ranges[range_index]
+            if start <= total <= end and collected < max_collect_bytes:
+                cleaned = line.rstrip("\n")
+                lines[range_index].append(cleaned)
+                collected += len(cleaned.encode(encoding, errors="replace")) + 1
+    return ["\n".join(group) for group in lines], total, encoding
+
+
 async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
     """Detect the encoding of an existing file so writes can preserve it."""
     try:

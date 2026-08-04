@@ -182,15 +182,13 @@ def test_auto_dream_and_proactive():
                     if (env.workspace_dir / rel).is_file()
                 }
                 digest_wikilinks = [rel for rel, text in target_texts.items() if "[[digest/" in text]
-                provenance_links = [
-                    rel for rel, text in target_texts.items() if f"derived_from:: [[{DREAM_INPUT_PATH}]]" in text
-                ]
+                source_links = [rel for rel, text in target_texts.items() if f"- [[{DREAM_INPUT_PATH}]]" in text]
                 print(f"[wikilink] integrated targets: {target_paths}")
                 print(f"[wikilink] integrated targets with [[digest/...]] links: {digest_wikilinks}")
-                print(f"[wikilink] integrated targets with derived_from source links: {provenance_links}")
+                print(f"[wikilink] integrated targets with source links: {source_links}")
                 assert target_texts, f"no integrated target files found: {target_paths}"
-                assert provenance_links, (
-                    "no derived_from wikilink back to the changed daily note in integrated targets\n"
+                assert source_links, (
+                    "no source wikilink back to the changed daily note in integrated targets\n"
                     f"targets: {target_paths}"
                 )
                 assert digest_wikilinks, (

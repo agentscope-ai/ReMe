@@ -107,14 +107,16 @@ name: 钴
 description: 锂电正极材料关键原料，主产区集中于刚果(金)
 ---
 
-downstream_product:: [[digest/wiki/三元正极.md]]
-producer:: [[digest/wiki/嘉能可.md]]
-source_event:: [[daily/2026-05-18/2026-05-18-close.md]]
-
 # 钴
+
+用于 [[digest/wiki/三元正极.md]]；主要生产商包括 [[digest/wiki/嘉能可.md]]。
 
 ## 供给端
 嘉能可三季度钴产量同比下滑 18%，需要继续跟踪供给收缩对价格的影响。
+
+## Sources
+
+- [[daily/2026-05-18/2026-05-18-close.md]]
 
 ## 政策风险
 刚果(金)矿权政策变化可能影响 KFM 矿运营，需联动跟踪洛阳钼业。
@@ -179,10 +181,10 @@ reme search query="锂电 上下游 三元 正极 钴 宁德" limit=5
 嘉能可三季度钴产量同比下滑 18%...
 
   outlinks:
-    -> digest/wiki/三元正极.md name="三元正极" via predicate=downstream_product
-    -> digest/wiki/嘉能可.md name="嘉能可" via predicate=producer
+    -> digest/wiki/三元正极.md name="三元正极"
+    -> digest/wiki/嘉能可.md name="嘉能可"
   inlinks:
-    <- digest/wiki/三元正极.md name="三元正极" via predicate=upstream_material
+    <- digest/wiki/三元正极.md name="三元正极"
 
 ========== digest/wiki/三元正极.md:5-18 [score=0.0139 keyword=3.2017] ==========
 ...
@@ -291,10 +293,9 @@ name: TypeScript 项目构建 OOM 排查路径
 description: build 卡住且内存上涨时，优先检查类型检查进程内存
 ---
 
-source_event:: [[daily/2026-03-10/build-oom-2026-03-10.md]]
-related_preference:: [[digest/personal/code-style.md]]
-
 # TypeScript 项目构建 OOM 排查路径
+
+执行这个 runbook 时遵循 [[digest/personal/code-style.md]]。
 
 ## 症状
 构建卡在后段，CPU 不高但内存持续上涨。
@@ -307,6 +308,10 @@ related_preference:: [[digest/personal/code-style.md]]
 ## 已知无效路径
 - 单纯删除 `.cache` 未解决 2026-03-10 的问题。
 - 升级 terser 插件未解决 2026-03-10 的问题。
+
+## Sources
+
+- [[daily/2026-03-10/build-oom-2026-03-10.md]]
 ```
 
 示例 `digest/personal/code-style.md`：
@@ -398,13 +403,14 @@ name: Alice
 description: 用户朋友，常推荐阅读材料
 ---
 
-recommended_book:: [[digest/wiki/deep-work.md]]
-source_event:: [[daily/2026-04-20/lunch-with-alice.md]]
-
 # Alice
 
 ## 阅读推荐
-2026-04-20 午餐时推荐过一本关于注意力和深度工作的书。
+2026-04-20 午餐时推荐过 [[digest/wiki/deep-work.md]]，这是一本关于注意力和深度工作的书。
+
+## Sources
+
+- [[daily/2026-04-20/lunch-with-alice.md]]
 ```
 
 ### 一次联想式回忆
@@ -426,7 +432,7 @@ reme search query="Alice 推荐 注意力 书 深度" limit=5
 ```text
 digest/personal/alice.md
   outlinks:
-    -> digest/wiki/deep-work.md via predicate=recommended_book
+    -> digest/wiki/deep-work.md
 daily/2026-04-20/lunch-with-alice.md
 ```
 

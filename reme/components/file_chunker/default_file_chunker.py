@@ -72,11 +72,11 @@ class DefaultFileChunker(BaseFileChunker):
             chunks,
         )
 
-    def _link_byte_spans(self, content: str) -> list[tuple[int, int]]:
-        """Return [start, end) byte spans of every wikilink in content."""
+    def _link_byte_spans(self, content: str, source_path: str = "") -> list[tuple[int, int]]:
+        """Return byte spans of local Wikilinks and Markdown links."""
         spans: list[tuple[int, int]] = []
         last_char, last_byte = 0, 0
-        for wm in WikilinkHandler.iter_matches(content):
+        for wm in WikilinkHandler.iter_matches(content, source_path):
             last_byte += len(content[last_char : wm.start].encode(self.encoding))
             match_bytes = len(content[wm.start : wm.end].encode(self.encoding))
             spans.append((last_byte, last_byte + match_bytes))
@@ -107,7 +107,7 @@ class DefaultFileChunker(BaseFileChunker):
         n = len(content_bytes)
         newline_positions = [i for i, b in enumerate(content_bytes) if b == ord("\n")]
         if parse_links:
-            link_spans = self._link_byte_spans(content)
+            link_spans = self._link_byte_spans(content, rel_path)
             link_starts = [s for s, _ in link_spans]
         else:
             link_spans: list[tuple[int, int]] = []

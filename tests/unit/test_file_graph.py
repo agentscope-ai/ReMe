@@ -38,6 +38,25 @@ def make_node(path: str, links: list[tuple[str, str | None]] | None = None) -> F
     )
 
 
+def test_file_node_loads_legacy_predicate_as_plain_link():
+    """Persisted typed links remain loadable after predicate removal."""
+    node = FileNode.model_validate(
+        {
+            "path": "a.md",
+            "st_mtime": 1.0,
+            "links": [
+                {
+                    "source_path": "a.md",
+                    "target_path": "b.md",
+                    "target_anchor": "intro",
+                    "predicate": "related",
+                },
+            ],
+        },
+    )
+    assert node.links == [FileLink(source_path="a.md", target_path="b.md", target_anchor="intro")]
+
+
 # Both backends should satisfy the same BaseFileGraph contract.
 BACKENDS = [LocalFileGraph, NxFileGraph]
 

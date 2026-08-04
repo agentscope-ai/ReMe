@@ -10,10 +10,9 @@ configured section limit is exceeded; otherwise build a mistletoe AST →
 ``MdNode`` tree (sections nest by heading level) → recursively chunk children
 and merge adjacent small subtrees at their parent. Leaf blocks (table / code /
 list / paragraph) split on internal boundaries and each piece is annotated
-``[Part X/N]``. Wikilink extraction is
+``[Part X/N]``. Local-link extraction is
 delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
-the single source of truth for ``[[...]]`` syntax (including
-Dataview-style typed predicates).
+the single source of truth for Wikilinks and Markdown links.
 """
 
 import re
