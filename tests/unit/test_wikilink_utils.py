@@ -278,6 +278,44 @@ def test_rebase_local_markdown_links_encodes_reserved_path_characters():
     assert [link.target_path for link in WikilinkHandler.extract_links(rebased, "archive/note.md")] == expected_targets
 
 
+def test_markdown_links_skip_unsupported_backslash_escapes():
+    """Ambiguous punctuation escapes do not create incorrect graph targets."""
+    text = (
+        r"[hash](dir/name\#part.md) [query](dir/name\?part.md) [star](dir/name\*part.md) "
+        r"[paren](dir/name\(v1\).md) [encoded-hash](dir/name%23part.md) [encoded-query](dir/name%3Fpart.md)"
+    )
+
+    links = WikilinkHandler.extract_links(text, "note.md")
+
+    assert [(link.target_path, link.target_anchor) for link in links] == [
+        ("dir/name(v1).md", None),
+        ("dir/name#part.md", None),
+        ("dir/name?part.md", None),
+    ]
+
+
+def test_unsupported_backslash_escapes_are_not_rebased_or_retargeted():
+    """Move and retarget leave skipped Markdown destinations byte-for-byte unchanged."""
+    original = r"[hash](target\#v1.md) [query](target\?raw.md)"
+
+    rebased, rebase_count = WikilinkHandler.rebase_links_for_move(
+        original,
+        old_source_path="old/note.md",
+        new_source_path="archive/note.md",
+    )
+    retargeted, retarget_count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old="old/target#v1.md",
+        new="new/target#v1.md",
+        source_path="old/note.md",
+    )
+
+    assert rebase_count == 0
+    assert rebased == original
+    assert retarget_count == 0
+    assert retargeted == original
+
+
 def test_retarget_multiple_files_aggregate_counts():
     """links_changed sums across files; by_file lists per-file counts."""
 

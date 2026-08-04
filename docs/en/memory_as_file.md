@@ -204,7 +204,9 @@ Local inline Markdown links also create `FileLink` edges. Their destinations fol
 semantics and are normalized to workspace-relative graph paths. Web URLs, mail links, Markdown images, pure page fragments,
 and links inside inline code are not indexed. Links in a fenced block are ignored only when the opening fence starts at the
 beginning of a line after at most three spaces. Fences prefixed by a container marker, such as the blockquote form `> ~~~`,
-are not recognized as code fences by the current parser, so local links inside those containers are indexed.
+are not recognized as code fences by the current parser, so local links inside those containers are indexed. Markdown
+destinations with unsupported backslash-escaped punctuation, including `\#` and `\?`, are also not indexed or rewritten.
+Use URL encoding such as `%23` and `%3F` when those characters belong to a filename.
 
 Anchors such as `#L9`, `#L9-L10`, and `#L9-L10,L15-L20` remain ordinary `target_anchor` strings in the graph. The graph
 parser does not validate line-anchor syntax, so values such as `#L0`, `#L10-L9`, and `#L9,` are also stored. The `read` job

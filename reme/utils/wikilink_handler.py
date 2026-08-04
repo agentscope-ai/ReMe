@@ -32,6 +32,7 @@ will miss those sources — keep the watcher in sync.
 
 import posixpath
 import re
+import string
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote as url_quote
@@ -61,6 +62,8 @@ class WikilinkMatch:
 
 class WikilinkHandler:
     """Parse, extract, rewrite, and validate local Markdown links."""
+
+    SUPPORTED_MARKDOWN_DESTINATION_ESCAPES = frozenset("\\()`")
 
     # Captures: optional image marker (``!``), the bare target, an
     # optional ``#anchor`` slice (with ``#``), and an optional ``|alias``
@@ -208,7 +211,21 @@ class WikilinkHandler:
     @staticmethod
     def _normalize_markdown_destination(destination: str, source_path: str) -> tuple[str, str | None] | None:
         """Resolve one local Markdown destination to a workspace-relative target."""
-        destination = re.sub(r"\\([\\()`])", r"\1", destination.strip())
+        destination = destination.strip()
+        decoded: list[str] = []
+        i = 0
+        while i < len(destination):
+            char = destination[i]
+            if char == "\\" and i + 1 < len(destination) and destination[i + 1] in string.punctuation:
+                escaped = destination[i + 1]
+                if escaped not in WikilinkHandler.SUPPORTED_MARKDOWN_DESTINATION_ESCAPES:
+                    return None
+                decoded.append(escaped)
+                i += 2
+                continue
+            decoded.append(char)
+            i += 1
+        destination = "".join(decoded)
         parsed = urlsplit(destination)
         if parsed.scheme or parsed.netloc or parsed.query or not parsed.path:
             return None
