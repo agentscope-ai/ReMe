@@ -47,6 +47,11 @@ def _encode_markdown_path(path: str) -> str:
     return url_quote(path, safe="/-._~!$&'*+,;=@")
 
 
+def _normalize_workspace_path(path: str) -> str:
+    """Use POSIX separators for workspace paths on every platform."""
+    return path.replace("\\", "/")
+
+
 @dataclass(frozen=True)
 class WikilinkMatch:
     """The graph-relevant parts and source spans of one local link."""
@@ -211,6 +216,7 @@ class WikilinkHandler:
     @staticmethod
     def _normalize_markdown_destination(destination: str, source_path: str) -> tuple[str, str | None] | None:
         """Resolve one local Markdown destination to a workspace-relative target."""
+        source_path = _normalize_workspace_path(source_path)
         destination = destination.strip()
         decoded: list[str] = []
         i = 0
@@ -306,6 +312,7 @@ class WikilinkHandler:
     @classmethod
     def iter_matches(cls, text: str, source_path: str = ""):
         """Yield local Wikilink and inline Markdown-link occurrences in source order."""
+        source_path = _normalize_workspace_path(source_path)
         blocked = cls._code_spans(text)
         matches = [*cls._iter_wikilinks(text), *cls._iter_markdown_links(text, source_path, blocked)]
         previous_end = -1
@@ -333,6 +340,7 @@ class WikilinkHandler:
         """
         if not text:
             return []
+        source_path = _normalize_workspace_path(source_path)
         out: list[FileLink] = []
         seen: set[tuple] = set()
         for wm in cls.iter_matches(text, source_path):
@@ -367,6 +375,9 @@ class WikilinkHandler:
         Markdown destinations are compared after document-relative path
         normalization.
         """
+        source_path = _normalize_workspace_path(source_path)
+        old = _normalize_workspace_path(old)
+        new = _normalize_workspace_path(new) if new is not None else None
         matches = [match for match in cls.iter_matches(text, source_path) if match.target == old]
         if new is None or not matches:
             return text, len(matches)
@@ -395,6 +406,8 @@ class WikilinkHandler:
         link must be rendered relative to the new source directory. Wikilinks
         remain workspace-relative and only need rewriting for self-references.
         """
+        old_source_path = _normalize_workspace_path(old_source_path)
+        new_source_path = _normalize_workspace_path(new_source_path)
         matches = list(cls.iter_matches(text, old_source_path))
         rewritten = text
         changed = 0
@@ -459,6 +472,7 @@ class WikilinkHandler:
         """
         if not file_store.file_graph:
             return []
+        target = _normalize_workspace_path(target)
         inlinks = await file_store.file_graph.get_inlinks(target, scope=LinkScopeEnum.ALL)
         return sorted({link.source_path for link in inlinks if link.source_path})
 
@@ -483,6 +497,8 @@ class WikilinkHandler:
 
         On bad inputs returns ``{"target": ..., "error": str}``.
         """
+        target = _normalize_workspace_path(target)
+        scope = _normalize_workspace_path(scope)
         if not target:
             return {"target": target, "error": "target is required"}
         if Path(target).is_absolute():
@@ -532,6 +548,9 @@ class WikilinkHandler:
         matching only; candidate sources come from the file_graph's reverse
         index.
         """
+        src = _normalize_workspace_path(src)
+        dst = _normalize_workspace_path(dst)
+        scope = _normalize_workspace_path(scope)
         err = cls.validate_src_dst(src, dst)
         if err is not None:
             return {"src": src, "dst": dst, "error": err}

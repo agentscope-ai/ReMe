@@ -316,6 +316,41 @@ def test_unsupported_backslash_escapes_are_not_rebased_or_retargeted():
     assert retargeted == original
 
 
+def test_markdown_links_normalize_windows_source_paths():
+    """Windows source separators do not lose the document-relative base directory."""
+    links = WikilinkHandler.extract_links(
+        "[peer](peer.md) [wiki](../wiki/a.md)",
+        r"notes\file.md",
+    )
+
+    assert [(link.source_path, link.target_path) for link in links] == [
+        ("notes/file.md", "notes/peer.md"),
+        ("notes/file.md", "wiki/a.md"),
+    ]
+
+
+def test_markdown_link_rewrites_normalize_windows_workspace_paths():
+    """Retarget and move calculations use POSIX graph paths for Windows inputs."""
+    original = "[peer](peer.md) [wiki](../wiki/a.md)"
+
+    retargeted, retarget_count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old=r"notes\peer.md",
+        new=r"archive\peer.md",
+        source_path=r"notes\file.md",
+    )
+    rebased, rebase_count = WikilinkHandler.rebase_links_for_move(
+        original,
+        old_source_path=r"notes\file.md",
+        new_source_path=r"archive\deep\file.md",
+    )
+
+    assert retarget_count == 1
+    assert retargeted == "[peer](../archive/peer.md) [wiki](../wiki/a.md)"
+    assert rebase_count == 2
+    assert rebased == "[peer](../../notes/peer.md) [wiki](../../wiki/a.md)"
+
+
 def test_retarget_multiple_files_aggregate_counts():
     """links_changed sums across files; by_file lists per-file counts."""
 

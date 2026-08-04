@@ -201,8 +201,9 @@ ReMe does not append `.md` automatically, search by filename, or automatically r
 workspace-relative paths with their extensions.
 
 Local inline Markdown links also create `FileLink` edges. Their destinations follow standard document-relative path
-semantics and are normalized to workspace-relative graph paths. Web URLs, mail links, Markdown images, pure page fragments,
-and links inside inline code are not indexed. Links in a fenced block are ignored only when the opening fence starts at the
+semantics and are normalized to workspace-relative graph paths using `/` separators on every platform. Web URLs, mail links,
+Markdown images, pure page fragments, and links inside inline code are not indexed. Links in a fenced block are ignored only
+when the opening fence starts at the
 beginning of a line after at most three spaces. Fences prefixed by a container marker, such as the blockquote form `> ~~~`,
 are not recognized as code fences by the current parser, so local links inside those containers are indexed. Markdown
 destinations with unsupported backslash-escaped punctuation, including `\#` and `\?`, are also not indexed or rewritten.

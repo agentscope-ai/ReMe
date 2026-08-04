@@ -306,7 +306,7 @@ def test_to_workspace_relative_inside_workspace():
             mixin = ComponentMixin()
             abs_path = mixin.workspace_path / "sub" / "file.md"
             rel = mixin.to_workspace_relative(abs_path)
-            assert rel == str(abs_path.relative_to(mixin.workspace_path))
+            assert rel == abs_path.relative_to(mixin.workspace_path).as_posix()
         finally:
             os.chdir(old_cwd)
 
