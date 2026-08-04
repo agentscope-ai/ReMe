@@ -66,7 +66,7 @@ stable batch of changes.
 4. For a deleted file, remove its records from `file_store`, `keyword_index`, and `file_graph`.
 5. When changes exist, dump state to `metadata/` so it can be restored on the next startup.
 
-The Markdown chunker parses YAML frontmatter, heading structure, and local Wikilink/Markdown links into `FileNode`, `FileChunk`, and `FileLink`
+The Markdown chunker parses YAML frontmatter, heading structure, and wikilinks into `FileNode`, `FileChunk`, and `FileLink`
 objects. For detailed chunking rules, see [Memory as File](./memory_as_file.md#memory-chunking).
 
 ### Index Optimization

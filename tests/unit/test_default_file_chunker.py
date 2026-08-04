@@ -160,52 +160,27 @@ def test_parse_links_multiple_on_one_line():
 
 
 def test_parse_wikilink_line_ranges():
-    """Line-range fragments remain attached to their target."""
+    """Workspace paths and supported line-range forms create FileLink edges."""
     links = WikilinkHandler.extract_links(
-        "[[a.md#L9-L10]] [[b.md#L9-L10,L15-L20]]",
+        "[[daily/2026-06-20/session.md]] [[notes/example.md#L9]] "
+        + "[[notes/example.md#L9-L10]] [[notes/example.md#L9-L10,L15-L20]]",
         "src.md",
     )
     assert [(link.target_path, link.target_anchor) for link in links] == [
-        ("a.md", "L9-L10"),
-        ("b.md", "L9-L10,L15-L20"),
+        ("daily/2026-06-20/session.md", None),
+        ("notes/example.md", "L9"),
+        ("notes/example.md", "L9-L10"),
+        ("notes/example.md", "L9-L10,L15-L20"),
     ]
 
 
-def test_parse_local_markdown_links():
-    """Local Markdown destinations resolve relative to their source file."""
+def test_parse_markdown_links_are_ignored():
+    """Ordinary Markdown links do not create FileLink edges."""
     links = WikilinkHandler.extract_links(
-        "[plain](../wiki/a.md) [ranges](../wiki/b.md#L9-L10,L15-L20)",
+        "[plain](../wiki/a.md) [section](../wiki/a.md#section) [ranges](../wiki/b.md#L9-L10,L15-L20)",
         "daily/note.md",
     )
-    assert [(link.target_path, link.target_anchor) for link in links] == [
-        ("wiki/a.md", None),
-        ("wiki/b.md", "L9-L10,L15-L20"),
-    ]
-
-
-def test_parse_markdown_links_filters_non_file_links():
-    """External URLs, images and Markdown examples in code do not create graph edges."""
-    text = (
-        "[local](local.md) [web](https://example.com) [mail](mailto:a@example.com) ![image](image.png)\n"
-        "`[inline](inline.md) [[inline-wiki.md]]`\n"
-        "```md\n[fenced](fenced.md) [[fenced-wiki.md]]\n```"
-    )
-    links = WikilinkHandler.extract_links(text, "note.md")
-    assert [(link.target_path, link.target_anchor) for link in links] == [("local.md", None)]
-
-
-def test_parse_markdown_links_handles_crlf_fences_and_escaped_bang():
-    """CRLF fences end normally, and an escaped bang does not make an image."""
-    text = (
-        "```md\r\n[fenced](ignored.md) [[ignored-wiki.md]]\r\n```\r\n"
-        "[plain](plain.md) [[plain-wiki.md]] \\![escaped-bang](escaped.md)"
-    )
-    links = WikilinkHandler.extract_links(text, "note.md")
-    assert [(link.target_path, link.target_anchor) for link in links] == [
-        ("plain.md", None),
-        ("plain-wiki.md", None),
-        ("escaped.md", None),
-    ]
+    assert not links
 
 
 def test_parse_links_no_match():
@@ -295,27 +270,6 @@ def test_chunk_does_not_split_wikilink_at_boundary():
             # And the link should appear intact in some chunk.
             assert any(link in c.text for c in chunks), "link was split across all chunks"
             print("✓ test_chunk_does_not_split_wikilink_at_boundary passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_chunk_does_not_split_markdown_link_at_boundary():
-    """A local Markdown link remains intact when a byte boundary lands inside it."""
-
-    async def run():
-        prefix = "x" * 80
-        link = "[label](a-very-long-target.md#L9-L20)"
-        content = f"{prefix}{link}{'y' * 90}"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
-            f.write(content)
-            temp_path = f.name
-        try:
-            chunker = DefaultFileChunker(chunk_byte_size=100, overlap_byte_size=10)
-            _, chunks = await chunker.chunk(temp_path)
-            assert any(link in chunk.text for chunk in chunks)
-            assert all("[label]" not in chunk.text or link in chunk.text for chunk in chunks)
         finally:
             os.unlink(temp_path)
 
@@ -414,13 +368,11 @@ if __name__ == "__main__":
     test_parse_links_ignores_legacy_relation_wrappers()
     test_parse_links_multiple_on_one_line()
     test_parse_wikilink_line_ranges()
-    test_parse_local_markdown_links()
-    test_parse_markdown_links_filters_non_file_links()
+    test_parse_markdown_links_are_ignored()
     test_parse_links_no_match()
     test_parse_links_in_file()
     test_parse_links_empty_when_no_content()
     test_chunk_does_not_split_wikilink_at_boundary()
-    test_chunk_does_not_split_markdown_link_at_boundary()
     test_chunk_does_not_split_wikilink_in_overlap()
     test_chunk_falls_back_for_oversize_link()
     test_min_chunk_and_overlap_size()

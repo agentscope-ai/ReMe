@@ -62,7 +62,7 @@ index_update_loop:
 4. 对删除的文件，从 `file_store`、`keyword_index` 和 `file_graph` 清掉对应记录。
 5. 有变化时 dump 到 `metadata/`，让下次启动可以恢复。
 
-Markdown chunker 会解析 YAML frontmatter、标题结构，以及本地 Wikilink/Markdown 链接，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
+Markdown chunker 会解析 YAML frontmatter、标题结构和 wikilink，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
 [Memory as File](./memory_as_file.md#memory-chunking)。
 
 ### 索引优化

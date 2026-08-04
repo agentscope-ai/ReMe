@@ -6,8 +6,6 @@ dangle:
 
   1. ``shutil.copyfile(src_path, dst_path)``. Both files now exist on disk;
      inbound ``[[src_path]]`` still resolves (to the original location).
-     For Markdown files, document-relative links in the copy are rebased so
-     they keep their workspace targets after a cross-directory move.
   2. ``retarget_links(src_path, dst_path)``. Rewrites every inbound
      ``[[src_path]]`` → ``[[dst_path]]`` across the workspace. Both files
      exist throughout, so rewrites can land in any order without
@@ -82,36 +80,10 @@ class MoveStep(BaseStep):
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
         dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        # Step 1 — copy and preserve the copied document's outgoing targets.
+        # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
+        # targets do not change when their containing document moves.
         shutil.copyfile(str(src_abs), str(dst_abs))
         payload: dict = {"src_path": src_path, "dst_path": dst_path, "size": dst_abs.stat().st_size}
-
-        # Markdown destinations are relative to their containing document.
-        # Rebase the copied document's local links before removing the source;
-        # otherwise a cross-directory move silently changes their targets.
-        if src_abs.suffix.lower() == ".md":
-            try:
-                raw = dst_abs.read_bytes()
-                body = raw.decode("utf-8")
-                rebased, _ = WikilinkHandler.rebase_links_for_move(
-                    body,
-                    old_source_path=src_path,
-                    new_source_path=dst_path,
-                    retarget_self=retarget,
-                )
-                if rebased != body:
-                    dst_abs.write_bytes(rebased.encode("utf-8"))
-            except UnicodeDecodeError:
-                # Keep opaque/non-UTF-8 Markdown movable. The indexer cannot
-                # parse its links reliably, so preserving its bytes is safest.
-                pass
-            except Exception as exc:
-                error = f"move-link rebase raised: {exc!r}"
-                payload["error"] = error
-                payload["retarget"] = {"error": error}
-                payload["src_removed"] = False
-                return payload
-            payload["size"] = dst_abs.stat().st_size
 
         # Step 2 — retarget. workspace_dir stays consistent throughout: refs still
         # at [[src_path]] resolve to the original; refs already rewritten to

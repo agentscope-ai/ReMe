@@ -174,13 +174,10 @@ Frontmatter 适合放稳定、短小、结构化的字段；正文适合放需�
 Wikilink 用 `[[...]]` 表达文件之间的关系：
 
 ```text
-[[digest/wiki/光伏.md]]
-[[digest/wiki/光伏.md#产业链]]
-[[digest/wiki/光伏.md|光伏]]
-![[resource/2026-06-01/report.md]]
-[[digest/wiki/光伏.md#L9-L10,L15-L20]]
-[光伏](../digest/wiki/光伏.md)
-[行号锚点元数据](../digest/wiki/光伏.md#L9-L10,L15-L20)
+[[daily/2026-06-20/session.md]]
+[[notes/example.md#L9]]
+[[notes/example.md#L9-L10]]
+[[notes/example.md#L9-L10,L15-L20]]
 ```
 
 ReMe 的 wikilink 是**字面路径语义**：
@@ -191,20 +188,12 @@ ReMe 的 wikilink 是**字面路径语义**：
 
 它不会自动补 `.md`，不会按文件名搜索，也不会自动解析 folder note。推荐写完整的 workspace 相对路径，并带上扩展名。
 
-本地行内 Markdown 链接也会建立 `FileLink`。其目标遵循标准的“相对于当前文档”路径语义，进入图谱时会规范化为
-使用 `/` 分隔符的 workspace 相对路径，在所有平台上保持一致。网页 URL、邮件链接、Markdown 图片、纯页内 fragment，
-以及行内代码中的链接不会进入图谱。
-只有 fence 标记位于行首最多三个空格之后时，其中的链接才会被忽略。当前解析器不识别带容器前缀的 fence，例如
-blockquote 形式的 `> ~~~`，因此这类容器内的本地链接仍会进入图谱。四空格缩进代码块和 HTML comment 中的
-本地链接同样会进入图谱，并可能被 move 或 retarget 操作改写。Markdown destination 如果包含当前不支持的
-反斜杠标点转义（包括 `\#` 和 `\?`），也不会被索引或改写；文件名中确实包含这些字符时，应使用 `%23`、`%3F`
-等 URL 编码。行内 Markdown 链接从开始的 `[` 到结束的 `)` 必须不超过 200 个字符；更长的候选链接不会被索引或改写。
+`[label](../wiki/example.md)` 这类普通 Markdown 链接不会建立 `FileLink`，move 或 retarget 操作也不会改写它们。
 
 `#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器
 不会校验行号锚点，因此 `#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定
 范围时需要分别传入从 1 开始、首尾均包含的 `start_line` 和 `end_line`，例如
-`read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。标题和 block anchor 同样只提供图谱元数据，不会改变
-`read` 的行为。
+`read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。
 
 Wikilink 的作用：
 

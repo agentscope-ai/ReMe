@@ -1,8 +1,8 @@
-"""Tests for local-link helpers in ``reme.utils.wikilink_handler``.
+"""Tests for wikilink helpers in ``reme.utils.wikilink_handler``.
 
 Two pure async helpers used by file_move / file_delete:
 
-  * ``retarget_links(src, dst, scope?, dry_run?)`` — rewrite local-link
+  * ``retarget_links(src, dst, scope?, dry_run?)`` — rewrite wikilink
     targets across the workspace, using the file_graph's reverse index to
     find inbound sources (no fs scan).
   * ``find_inbound(target, scope?)`` — report inbound count without
@@ -217,227 +217,26 @@ def test_retarget_preserves_surrounding_relation_text():
     asyncio.run(run())
 
 
-def test_retarget_local_markdown_link_preserves_label_anchor_and_title():
-    """Retargeting rewrites only a Markdown destination's relative path."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            root = Path(tmp)
-            original = '[Alice](../topics/Alice.md#L9-L10,L15-L20 "profile")'
-            store = await _store_with({"notes/note.md": original})
-            payload = await WikilinkHandler.retarget_links(
-                store,
-                src="topics/Alice.md",
-                dst="people/Alice.md",
-            )
-            assert payload["links_changed"] == 1
-            assert (root / "notes/note.md").read_text(encoding="utf-8") == (
-                '[Alice](../people/Alice.md#L9-L10,L15-L20 "profile")'
-            )
-            await store.close()
-
-    asyncio.run(run())
-
-
-def test_retarget_local_markdown_link_encodes_reserved_path_characters():
-    """Retargeting keeps URL-reserved filename characters in the path."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            root = Path(tmp)
-            store = await _store_with({"notes/note.md": "[Alice](../topics/Alice.md)"})
-            payload = await WikilinkHandler.retarget_links(
-                store,
-                src="topics/Alice.md",
-                dst="people/Alice?draft.md",
-            )
-            assert payload["links_changed"] == 1
-            body = (root / "notes/note.md").read_text(encoding="utf-8")
-            assert body == "[Alice](../people/Alice%3Fdraft.md)"
-            assert [link.target_path for link in WikilinkHandler.extract_links(body, "notes/note.md")] == [
-                "people/Alice?draft.md",
-            ]
-            await store.close()
-
-    asyncio.run(run())
-
-
-def test_rebase_local_markdown_links_encodes_reserved_path_characters():
-    """Moving a document does not turn encoded filename characters into URL syntax."""
-    original = "[hash](target%23v1.md) [query](target%3Fraw.md) [percent](100%25.md)"
-    expected_targets = ["old/target#v1.md", "old/target?raw.md", "old/100%.md"]
-
-    rebased, count = WikilinkHandler.rebase_links_for_move(
-        original,
-        old_source_path="old/note.md",
-        new_source_path="archive/note.md",
+def test_markdown_links_are_ignored():
+    """Only double-bracket wikilinks create graph edges or get rewritten."""
+    markdown_links = (
+        "[label](../wiki/example.md) "
+        "[label](../wiki/example.md#section) "
+        "[label](../wiki/example.md#L9-L10,L15-L20)"
     )
+    original = f"{markdown_links} [[wiki/example.md#L9]]"
 
-    assert count == 3
-    assert rebased == "[hash](../old/target%23v1.md) [query](../old/target%3Fraw.md) [percent](../old/100%25.md)"
-    assert [link.target_path for link in WikilinkHandler.extract_links(rebased, "archive/note.md")] == expected_targets
-
-
-def test_markdown_links_skip_unsupported_backslash_escapes():
-    """Ambiguous punctuation escapes do not create incorrect graph targets."""
-    text = (
-        r"[hash](dir/name\#part.md) [query](dir/name\?part.md) [star](dir/name\*part.md) "
-        r"[paren](dir/name\(v1\).md) [encoded-hash](dir/name%23part.md) [encoded-query](dir/name%3Fpart.md)"
-    )
-
-    links = WikilinkHandler.extract_links(text, "note.md")
-
-    assert [(link.target_path, link.target_anchor) for link in links] == [
-        ("dir/name(v1).md", None),
-        ("dir/name#part.md", None),
-        ("dir/name?part.md", None),
-    ]
-
-
-def test_malformed_external_url_does_not_abort_local_link_extraction():
-    """Invalid external URLs are ignored while later local links remain indexable."""
-    text = "[invalid](//[) [local](target.md)"
-
-    links = WikilinkHandler.extract_links(text, "notes/note.md")
-
-    assert [link.target_path for link in links] == ["notes/target.md"]
-
-
-def test_markdown_link_tolerates_and_rewrites_trailing_text():
-    """A destination token remains actionable when trailing text is not a valid title."""
-    original = "[label](old.md trailing text)"
-
-    links = WikilinkHandler.extract_links(original, "note.md")
     rewritten, count = WikilinkHandler.scan_and_rewrite(
         original,
-        old="old.md",
-        new="new.md",
-        source_path="note.md",
+        old="wiki/example.md",
+        new="archive/example.md",
     )
 
-    assert [link.target_path for link in links] == ["old.md"]
+    assert [(link.target_path, link.target_anchor) for link in WikilinkHandler.extract_links(original, "note.md")] == [
+        ("wiki/example.md", "L9"),
+    ]
     assert count == 1
-    assert rewritten == "[label](new.md trailing text)"
-
-
-def test_markdown_link_source_span_is_limited_to_200_characters():
-    """A complete 200-character link is accepted while a 201-character link is skipped."""
-    overhead = len("[](accepted.md)")
-    accepted = f"[{'a' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead)}](accepted.md)"
-    rejected = f"[{'b' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead + 1)}](rejected.md)"
-
-    assert len(accepted) == WikilinkHandler.MAX_MARKDOWN_LINK_CHARS
-    assert len(rejected) == WikilinkHandler.MAX_MARKDOWN_LINK_CHARS + 1
-    links = WikilinkHandler.extract_links(f"{accepted} {rejected} [short](short.md)", "note.md")
-
-    assert [link.target_path for link in links] == ["accepted.md", "short.md"]
-
-
-def test_oversized_malformed_labels_do_not_hide_later_short_links():
-    """Bounded failures keep scanning and still find a later valid candidate."""
-    text = "[" * 10_000 + "[short](short.md)"
-
-    links = WikilinkHandler.extract_links(text, "note.md")
-
-    assert [link.target_path for link in links] == ["short.md"]
-
-
-def test_oversized_markdown_links_are_not_rewritten():
-    """Extraction and rewrite operations share the same source-span bound."""
-    overhead = len("[](old.md)")
-    original = f"[{'x' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead + 1)}](old.md)"
-
-    rewritten, count = WikilinkHandler.scan_and_rewrite(
-        original,
-        old="old.md",
-        new="new.md",
-        source_path="note.md",
-    )
-
-    assert count == 0
-    assert rewritten == original
-
-
-def test_dense_local_links_rewrite_in_one_pass():
-    """Large batches preserve source order and rewrite every target."""
-    original = ("[[old.md]] [label](old.md#intro)\n" * 10_000).rstrip()
-
-    rewritten, count = WikilinkHandler.scan_and_rewrite(
-        original,
-        old="old.md",
-        new="archive/new.md",
-        source_path="note.md",
-    )
-
-    assert count == 20_000
-    assert rewritten.count("[[archive/new.md]]") == 10_000
-    assert rewritten.count("[label](archive/new.md#intro)") == 10_000
-
-
-def test_dense_inline_code_delimiters_do_not_hide_following_link():
-    """Scanning many short code spans still reaches a later local link."""
-    text = "`x` " * 50_000 + "[target](target.md)"
-
-    links = WikilinkHandler.extract_links(text, "note.md")
-
-    assert [link.target_path for link in links] == ["target.md"]
-
-
-def test_unsupported_backslash_escapes_are_not_rebased_or_retargeted():
-    """Move and retarget leave skipped Markdown destinations byte-for-byte unchanged."""
-    original = r"[hash](target\#v1.md) [query](target\?raw.md)"
-
-    rebased, rebase_count = WikilinkHandler.rebase_links_for_move(
-        original,
-        old_source_path="old/note.md",
-        new_source_path="archive/note.md",
-    )
-    retargeted, retarget_count = WikilinkHandler.scan_and_rewrite(
-        original,
-        old="old/target#v1.md",
-        new="new/target#v1.md",
-        source_path="old/note.md",
-    )
-
-    assert rebase_count == 0
-    assert rebased == original
-    assert retarget_count == 0
-    assert retargeted == original
-
-
-def test_markdown_links_normalize_windows_source_paths():
-    """Windows source separators do not lose the document-relative base directory."""
-    links = WikilinkHandler.extract_links(
-        "[peer](peer.md) [wiki](../wiki/a.md)",
-        r"notes\file.md",
-    )
-
-    assert [(link.source_path, link.target_path) for link in links] == [
-        ("notes/file.md", "notes/peer.md"),
-        ("notes/file.md", "wiki/a.md"),
-    ]
-
-
-def test_markdown_link_rewrites_normalize_windows_workspace_paths():
-    """Retarget and move calculations use POSIX graph paths for Windows inputs."""
-    original = "[peer](peer.md) [wiki](../wiki/a.md)"
-
-    retargeted, retarget_count = WikilinkHandler.scan_and_rewrite(
-        original,
-        old=r"notes\peer.md",
-        new=r"archive\peer.md",
-        source_path=r"notes\file.md",
-    )
-    rebased, rebase_count = WikilinkHandler.rebase_links_for_move(
-        original,
-        old_source_path=r"notes\file.md",
-        new_source_path=r"archive\deep\file.md",
-    )
-
-    assert retarget_count == 1
-    assert retargeted == "[peer](../archive/peer.md) [wiki](../wiki/a.md)"
-    assert rebase_count == 2
-    assert rebased == "[peer](../../notes/peer.md) [wiki](../../wiki/a.md)"
+    assert rewritten == f"{markdown_links} [[archive/example.md#L9]]"
 
 
 def test_retarget_multiple_files_aggregate_counts():
@@ -611,9 +410,7 @@ if __name__ == "__main__":
     test_retarget_anchor_and_alias_together()
     test_retarget_image_marker_preserved()
     test_retarget_preserves_surrounding_relation_text()
-    test_retarget_local_markdown_link_preserves_label_anchor_and_title()
-    test_retarget_local_markdown_link_encodes_reserved_path_characters()
-    test_rebase_local_markdown_links_encodes_reserved_path_characters()
+    test_markdown_links_are_ignored()
     test_retarget_multiple_files_aggregate_counts()
     test_retarget_dry_run_does_not_write()
     test_retarget_scope_limits_sweep()

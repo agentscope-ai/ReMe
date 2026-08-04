@@ -31,7 +31,6 @@ import os
 import tempfile
 import warnings
 from pathlib import Path
-from unittest.mock import patch
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
@@ -298,61 +297,6 @@ def test_move_default_retargets_inbound_links():
             assert notes.count("[[knowledge/draft/draft.md]]") == 2
             await store.close()
         print("✓ test_move_default_retargets_inbound_links passed")
-
-    asyncio.run(run())
-
-
-def test_move_rebases_document_relative_links():
-    """Moving a Markdown source preserves its outgoing targets and self-links."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "old/note.md": '[target](target.md#intro "title") [self](note.md) [[old/note.md]]',
-                    "old/target.md": "target",
-                },
-            )
-            step = crud_move.MoveStep(file_store=store)
-            await step(src_path="old/note.md", dst_path="archive/deep/renamed.md")
-
-            assert step.context.response.success is True
-            body = (Path(tmp) / "archive/deep/renamed.md").read_text(encoding="utf-8")
-            links = WikilinkHandler.extract_links(body, "archive/deep/renamed.md")
-            assert [(link.target_path, link.target_anchor) for link in links] == [
-                ("old/target.md", "intro"),
-                ("archive/deep/renamed.md", None),
-            ]
-            assert '#intro "title"' in body
-            assert "[[archive/deep/renamed.md]]" in body
-            await store.close()
-
-    asyncio.run(run())
-
-
-def test_move_rebase_failure_is_reported_as_failure():
-    """A failed link rebase keeps both files and returns an unsuccessful response."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            root = Path(tmp)
-            store = await _make_store({"old/note.md": "[target](target.md)"})
-            step = crud_move.MoveStep(file_store=store)
-
-            with patch.object(
-                WikilinkHandler,
-                "rebase_links_for_move",
-                side_effect=RuntimeError("boom"),
-            ):
-                await step(src_path="old/note.md", dst_path="archive/note.md")
-
-            payload = _metadata(step)
-            assert step.context.response.success is False
-            assert "move-link rebase raised" in payload["error"]
-            assert payload["src_removed"] is False
-            assert (root / "old/note.md").exists()
-            assert (root / "archive/note.md").exists()
-            await store.close()
 
     asyncio.run(run())
 
