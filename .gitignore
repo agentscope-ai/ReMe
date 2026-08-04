@@ -76,3 +76,6 @@ benchmark/results/
 # integration tests outputs
 tests/integration/logs/
 daily/
+
+#meta-reme
+meta-reme/bundles/

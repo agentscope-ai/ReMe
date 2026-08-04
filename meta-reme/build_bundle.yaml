@@ -1,0 +1,88 @@
+version: 1
+
+# Paths are relative to the full ReMe repository.  Directories are expanded in
+# sorted order by bundle_builder.py; caches and compiled Python files are never
+# copied.
+common:
+  include:
+    - LICENSE
+    - README.md
+    - pyproject.toml
+    - reme/__init__.py
+    - reme/application.py
+    - reme/constants.py
+    - reme/reme.py
+    - reme/components
+    - reme/enumeration
+    - reme/schema
+    - reme/utils
+    - reme/config/__init__.py
+    - reme/config/config_parser.py
+    - reme/steps/base_step.py
+    - reme/steps/common
+    - reme/steps/evolve
+    - reme/steps/file_io
+    - reme/steps/index
+    - reme/steps/transfer
+  step_packages:
+    - common
+    - evolve
+    - file_io
+    - index
+    - transfer
+  validation:
+    imports:
+      - reme
+      - reme.application
+    required_steps:
+      - auto_memory_step
+      - search_step
+      - search_v2_step
+    forbidden_paths:
+      - reme/steps/cookbook
+
+targets:
+  default:
+    include:
+      - reme/config/default.yaml
+    validation:
+      imports:
+        - reme.steps.evolve
+        - reme.steps.index
+      required_steps:
+        - auto_memory_cc_step
+        - auto_resource_step
+      forbidden_paths:
+        - reme/steps/benchmark
+
+  lme:
+    include:
+      - reme/config/lme.yaml
+      - reme/steps/benchmark/base
+      - reme/steps/benchmark/lme
+    benchmark_package: lme
+    validation:
+      imports:
+        - reme.steps.benchmark.lme
+      required_steps:
+        - lme_auto_memory_step
+        - lme_agentic_answer_step
+        - lme_answer_judge_step
+      forbidden_paths:
+        - reme/steps/benchmark/beam
+
+  beam:
+    include:
+      - reme/config/beam.yaml
+      - reme/steps/benchmark/base
+      - reme/steps/benchmark/beam
+    benchmark_package: beam
+    validation:
+      imports:
+        - reme.steps.benchmark.beam
+      required_steps:
+        - beam_auto_memory_step
+        - beam_agentic_answer_step
+        - beam_rubric_judge_step
+      forbidden_paths:
+        - reme/steps/benchmark/lme
