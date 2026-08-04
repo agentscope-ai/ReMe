@@ -294,6 +294,23 @@ def test_markdown_links_skip_unsupported_backslash_escapes():
     ]
 
 
+def test_markdown_link_tolerates_and_rewrites_trailing_text():
+    """A destination token remains actionable when trailing text is not a valid title."""
+    original = "[label](old.md trailing text)"
+
+    links = WikilinkHandler.extract_links(original, "note.md")
+    rewritten, count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old="old.md",
+        new="new.md",
+        source_path="note.md",
+    )
+
+    assert [link.target_path for link in links] == ["old.md"]
+    assert count == 1
+    assert rewritten == "[label](new.md trailing text)"
+
+
 def test_markdown_link_source_span_is_limited_to_200_characters():
     """A complete 200-character link is accepted while a 201-character link is skipped."""
     overhead = len("[](accepted.md)")

@@ -205,8 +205,9 @@ semantics and are normalized to workspace-relative graph paths using `/` separat
 Markdown images, pure page fragments, and links inside inline code are not indexed. Links in a fenced block are ignored only
 when the opening fence starts at the
 beginning of a line after at most three spaces. Fences prefixed by a container marker, such as the blockquote form `> ~~~`,
-are not recognized as code fences by the current parser, so local links inside those containers are indexed. Markdown
-destinations with unsupported backslash-escaped punctuation, including `\#` and `\?`, are also not indexed or rewritten.
+are not recognized as code fences by the current parser, so local links inside those containers are indexed. Local links in
+four-space indented code blocks and HTML comments are also indexed and may be rewritten by move or retarget operations.
+Markdown destinations with unsupported backslash-escaped punctuation, including `\#` and `\?`, are not indexed or rewritten.
 Use URL encoding such as `%23` and `%3F` when those characters belong to a filename. An inline Markdown link must fit within
 200 characters from its opening `[` through its closing `)`; longer candidates are not indexed or rewritten.
 

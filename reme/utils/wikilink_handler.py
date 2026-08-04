@@ -201,7 +201,13 @@ class WikilinkHandler:
 
     @staticmethod
     def _markdown_destination(text: str, opening: int, closing: int) -> tuple[int, int] | None:
-        """Return the raw destination span, excluding angle brackets and title."""
+        """Return the raw destination span, excluding angle brackets and trailing text.
+
+        Parsing is intentionally permissive: once a destination token has
+        been recognized, the remaining text does not have to be a valid
+        Markdown title. Such candidates are still indexed and may therefore
+        be rewritten by move/retarget operations.
+        """
         i = opening + 1
         while i < closing and text[i].isspace():
             i += 1
