@@ -256,7 +256,12 @@ class WikilinkHandler:
             decoded.append(char)
             i += 1
         destination = "".join(decoded)
-        parsed = urlsplit(destination)
+        try:
+            parsed = urlsplit(destination)
+        except ValueError:
+            # Malformed external URLs (for example an invalid IPv6 host) are
+            # not local file links and must not abort indexing the document.
+            return None
         if parsed.scheme or parsed.netloc or parsed.query or not parsed.path:
             return None
         path = unquote(parsed.path)

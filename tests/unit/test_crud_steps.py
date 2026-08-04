@@ -31,6 +31,7 @@ import os
 import tempfile
 import warnings
 from pathlib import Path
+from unittest.mock import patch
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
@@ -324,6 +325,33 @@ def test_move_rebases_document_relative_links():
             ]
             assert '#intro "title"' in body
             assert "[[archive/deep/renamed.md]]" in body
+            await store.close()
+
+    asyncio.run(run())
+
+
+def test_move_rebase_failure_is_reported_as_failure():
+    """A failed link rebase keeps both files and returns an unsuccessful response."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            root = Path(tmp)
+            store = await _make_store({"old/note.md": "[target](target.md)"})
+            step = crud_move.MoveStep(file_store=store)
+
+            with patch.object(
+                WikilinkHandler,
+                "rebase_links_for_move",
+                side_effect=RuntimeError("boom"),
+            ):
+                await step(src_path="old/note.md", dst_path="archive/note.md")
+
+            payload = _metadata(step)
+            assert step.context.response.success is False
+            assert "move-link rebase raised" in payload["error"]
+            assert payload["src_removed"] is False
+            assert (root / "old/note.md").exists()
+            assert (root / "archive/note.md").exists()
             await store.close()
 
     asyncio.run(run())

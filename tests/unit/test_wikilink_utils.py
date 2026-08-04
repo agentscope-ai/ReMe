@@ -294,6 +294,15 @@ def test_markdown_links_skip_unsupported_backslash_escapes():
     ]
 
 
+def test_malformed_external_url_does_not_abort_local_link_extraction():
+    """Invalid external URLs are ignored while later local links remain indexable."""
+    text = "[invalid](//[) [local](target.md)"
+
+    links = WikilinkHandler.extract_links(text, "notes/note.md")
+
+    assert [link.target_path for link in links] == ["notes/target.md"]
+
+
 def test_markdown_link_tolerates_and_rewrites_trailing_text():
     """A destination token remains actionable when trailing text is not a valid title."""
     original = "[label](old.md trailing text)"

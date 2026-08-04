@@ -106,7 +106,9 @@ class MoveStep(BaseStep):
                 # parse its links reliably, so preserving its bytes is safest.
                 pass
             except Exception as exc:
-                payload["retarget"] = {"error": f"move-link rebase raised: {exc!r}"}
+                error = f"move-link rebase raised: {exc!r}"
+                payload["error"] = error
+                payload["retarget"] = {"error": error}
                 payload["src_removed"] = False
                 return payload
             payload["size"] = dst_abs.stat().st_size
@@ -119,10 +121,13 @@ class MoveStep(BaseStep):
             try:
                 report = await WikilinkHandler.retarget_links(self.file_store, src=src_path, dst=dst_path)
             except Exception as exc:
-                payload["retarget"] = {"error": f"retarget raised: {exc!r}"}
+                error = f"retarget raised: {exc!r}"
+                payload["error"] = error
+                payload["retarget"] = {"error": error}
                 payload["src_removed"] = False
                 return payload
             if "error" in report:
+                payload["error"] = report["error"]
                 payload["retarget"] = report
                 payload["src_removed"] = False
                 return payload
