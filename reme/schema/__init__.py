@@ -40,6 +40,7 @@ from .file_node import FileNode
 from .request import Request
 from .response import Response
 from .stream_chunk import StreamChunk
+from .token_usage import TokenUsage
 
 __all__ = [
     "ApplicationConfig",
@@ -83,5 +84,6 @@ __all__ = [
     "Response",
     "SelectedPaper",
     "StreamChunk",
+    "TokenUsage",
     "TopicSelectionOutput",
 ]

@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from ..base_component import BaseComponent
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
+from ...utils import global_counter_add_many
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -22,6 +23,7 @@ class BaseAgentWrapper(BaseComponent):
 
     component_type = ComponentEnum.AGENT_WRAPPER
     SDK_PACKAGE: ClassVar[str | None] = None
+    TOKEN_COUNTER_PREFIX: ClassVar[str] = "__token_counter"
 
     def __init__(
         self,
@@ -226,6 +228,23 @@ class BaseAgentWrapper(BaseComponent):
     def _chunk(chunk_type: ChunkEnum = ChunkEnum.CONTENT, **kwargs: Any) -> StreamChunk:
         """Create a StreamChunk with a short backend-friendly call site."""
         return StreamChunk(chunk_type=chunk_type, **kwargs)
+
+    def _record_token_usage(self, usage: TokenUsage) -> None:
+        """Add one completed invocation to the application token tree."""
+        if self.app_context is None:
+            return
+        counters = getattr(self.app_context, "metadata", None)
+        if not isinstance(counters, dict):
+            return
+        prefix = (self.TOKEN_COUNTER_PREFIX, self.name)
+        global_counter_add_many(
+            counters,
+            {
+                (*prefix, "input_tokens"): usage.input_tokens,
+                (*prefix, "output_tokens"): usage.output_tokens,
+                (*prefix, "total_tokens"): usage.total_tokens,
+            },
+        )
 
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:

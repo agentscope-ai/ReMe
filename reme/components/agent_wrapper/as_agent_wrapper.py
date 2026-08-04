@@ -59,7 +59,7 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
 from ...utils import AsStateHandler
 
 if TYPE_CHECKING:
@@ -148,6 +148,11 @@ class AsAgentWrapper(BaseAgentWrapper):
     """Agent wrapper backed by AgentScope framework."""
 
     SDK_PACKAGE = "agentscope"
+
+    @staticmethod
+    def _agentscope_usage(usage: Any) -> TokenUsage:
+        """Normalize AgentScope's portable input/output usage."""
+        return TokenUsage.from_provider(usage)
 
     def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
         super().__init__(**kwargs)
@@ -344,15 +349,18 @@ class AsAgentWrapper(BaseAgentWrapper):
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
         await agent.observe(inputs)
-        await agent.reply()
+        last_msg = await agent.reply()
+        usage = self._agentscope_usage(last_msg.usage) if last_msg.usage is not None else None
         await self._dump_state(agent.state)
-        last_msg = agent.state.context[-1]
 
         result = {
             "session_id": agent.state.session_id,
             "last_message": last_msg.model_dump(),
             "result": last_msg.get_text_content(),
         }
+
+        if usage is None:
+            self.logger.error("AgentScope did not return token usage; token accounting is unavailable for this reply.")
 
         output_schema: dict | None = kwargs.get("output_schema")
         if output_schema is not None:
@@ -365,6 +373,17 @@ class AsAgentWrapper(BaseAgentWrapper):
                 tool_choice=ToolChoice(mode="auto"),
             )
             result["structured_output"] = res.content
+            if res.usage is None:
+                usage = None
+                self.logger.error(
+                    "AgentScope did not return structured-output token usage; token accounting is unavailable.",
+                )
+            elif usage is not None:
+                usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
+
+        result["usage"] = usage.model_dump() if usage is not None else None
+        if usage is not None:
+            self._record_token_usage(usage)
 
         return result
 
@@ -453,13 +472,16 @@ class AsAgentWrapper(BaseAgentWrapper):
         if isinstance(event, ModelCallStartEvent):
             return cls._chunk(ChunkEnum.USAGE, chunk="", metadata={"model_name": getattr(event, "model_name", None)})
         if isinstance(event, ModelCallEndEvent):
-            usage = {"input_tokens": event.input_tokens, "output_tokens": event.output_tokens}
+            usage = TokenUsage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
             return cls._chunk(
                 ChunkEnum.USAGE,
-                chunk=json.dumps(usage),
-                input_tokens=event.input_tokens,
-                output_tokens=event.output_tokens,
-                metadata={"model_name": getattr(event, "model_name", None)},
+                chunk=json.dumps(usage.model_dump()),
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                metadata={
+                    "model_name": getattr(event, "model_name", None),
+                    "usage": usage.model_dump(),
+                },
             )
         if isinstance(event, ExceedMaxItersEvent):
             return cls._chunk(ChunkEnum.ERROR, chunk="Exceeded max iterations")

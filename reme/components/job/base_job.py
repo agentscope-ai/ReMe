@@ -7,6 +7,7 @@ from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
+from ...utils import global_counter_inc
 
 if TYPE_CHECKING:
     from ...steps import BaseStep
@@ -57,8 +58,15 @@ class BaseJob(BaseComponent):
         # dict(params) copies kwargs so steps cannot mutate the shared spec.
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
+    def _record_call(self) -> None:
+        """Increment this job's application-lifetime call counter."""
+        metadata = getattr(self.app_context, "metadata", None)
+        if isinstance(metadata, dict):
+            global_counter_inc(metadata, ["__job_counter", self.name])
+
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
+        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(**merged)
         try:

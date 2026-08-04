@@ -18,7 +18,7 @@ from typing import Any, TYPE_CHECKING
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk
+from ...schema import StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
@@ -78,6 +78,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "launch_args_override",
         },
     )
+
+    @staticmethod
+    def _codex_usage(usage: Any) -> TokenUsage:
+        """Normalize Codex's full-turn input/output usage snapshot."""
+        return TokenUsage.from_provider(usage)
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -421,7 +426,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "last_message": final_response,
             "result": final_response,
             "turn": self._serialize(result),
+            "usage": None,
         }
+        if (raw_usage := getattr(result, "usage", None)) is not None:
+            usage = self._codex_usage(raw_usage.last)
+            response["usage"] = usage.model_dump()
+            self._record_token_usage(usage)
         if kwargs.get("output_schema") is not None:
             try:
                 response["structured_output"] = json.loads(final_response)
@@ -508,13 +518,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ]
         if method == "thread/tokenUsage/updated":
             usage = payload.token_usage.last
-            data = cls._serialize(usage)
+            normalized = cls._codex_usage(usage)
             return [
                 make_chunk(
                     ChunkEnum.USAGE,
-                    chunk=data,
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
+                    chunk=normalized.model_dump(),
+                    input_tokens=normalized.input_tokens,
+                    output_tokens=normalized.output_tokens,
+                    metadata={"usage": normalized.model_dump()},
                 ),
             ]
         if method == "error":

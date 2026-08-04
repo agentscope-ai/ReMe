@@ -259,6 +259,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     """
     from reme import Application
     from reme.config import resolve_app_config
+    from reme.utils.evaluation_interface import track_agent_token_usage, track_job_counts
 
     reme_cfg = eval_config["reme"]
     dream_trigger_hour = reme_cfg.get("dream_trigger_hour", 23)
@@ -432,16 +433,23 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             f"[Item {item_index}] Asking (agentic): {question[:80]}... query_time={query_time}",
         )
 
-        query_resp = await app.run_job(
-            "agentic_answer",
-            query=question,
-            query_time=query_time,
-        )
+        with (
+            track_job_counts(["search"], app.context) as tool_counts,
+            track_agent_token_usage(
+                ["bench"],
+                app.context,
+            ) as token_usages,
+        ):
+            query_resp = await app.run_job("agentic_answer", query=question, query_time=query_time)
+        agentic_tool_counts = tool_counts
+        agentic_token_usage = token_usages["bench"]
         agentic_response = (query_resp.answer or "").strip()
         if not agentic_response:
             agentic_response = "(no answer generated)"
 
         logger.info(f"[Item {item_index}] Agentic response: {agentic_response[:200]}...")
+        logger.info(f"[Item {item_index}] Agentic tool calls: {agentic_tool_counts}")
+        logger.info(f"[Item {item_index}] Bench token usage: {agentic_token_usage}")
 
         # ── Phase 5: Judge agentic response (via answer_judge_step) ──────────
         logger.info(f"[Item {item_index}] Judging agentic (binary, type={item['question_type']})...")
@@ -464,6 +472,8 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         "ground_truth": item["answer"],
         "agentic_response": agentic_response,
         "agentic_judgment": agentic_judgment,
+        "agentic_tool_counts": agentic_tool_counts,
+        "agentic_token_usage": agentic_token_usage,
         "sessions_ingested": len(sorted_sessions),
         "dreams_triggered": len(dream_dates_triggered),
     }
@@ -559,6 +569,16 @@ def main(
         items_with_idx = [(idx, item) for idx, item in items_with_idx if item.get("question_type") in question_types]
         logger.info(
             f"Filtered by question_types={question_types}: {before_filter} -> {len(items_with_idx)} items",
+        )
+
+    # Filter by question_id if specified
+    question_ids = dataset_cfg.get("question_ids") or []
+    if question_ids:
+        qid_set = set(question_ids)
+        before_filter = len(items_with_idx)
+        items_with_idx = [(idx, item) for idx, item in items_with_idx if item.get("question_id") in qid_set]
+        logger.info(
+            f"Filtered by question_ids ({len(qid_set)} ids): {before_filter} -> {len(items_with_idx)} items",
         )
 
     logger.info(
@@ -711,6 +731,18 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     # Agentic stats
     print("\n  ── Agentic (ReAct) ──")
     print(f"  Overall accuracy: {agentic_correct}/{total} ({100*agentic_correct/total:.1f}%)")
+    tool_call_totals = [sum(r.get("agentic_tool_counts", {}).values()) for r in results]
+    tool_call_mean, tool_call_std = _mean_and_std(tool_call_totals)
+    print(f"  Tool calls/query: mean={tool_call_mean:.2f} std={tool_call_std:.2f}")
+    token_usages = [r.get("agentic_token_usage", {}) for r in results]
+    print("  Bench reported tokens/query:")
+    for metric in _TOKEN_USAGE_METRICS:
+        values = [usage[metric] for usage in token_usages if usage.get(metric) is not None]
+        if values:
+            mean, std = _mean_and_std(values)
+            print(f"    {metric}: mean={mean:.2f} std={std:.2f}")
+        else:
+            print(f"    {metric}: unavailable")
     print("  Per-type accuracy:")
     for qtype, stats in sorted(agentic_type_stats.items()):
         acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
@@ -722,6 +754,21 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     print("\n" + "=" * 60)
     print("  [DONE] EVALUATION COMPLETED SUCCESSFULLY")
     print("=" * 60 + "\n")
+
+
+_TOKEN_USAGE_METRICS = (
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+)
+
+
+def _mean_and_std(values: list[int]) -> tuple[float, float]:
+    """Return population mean and standard deviation for one per-query metric."""
+    if not values:
+        return 0.0, 0.0
+    mean = sum(values) / len(values)
+    return mean, (sum((value - mean) ** 2 for value in values) / len(values)) ** 0.5
 
 
 if __name__ == "__main__":
