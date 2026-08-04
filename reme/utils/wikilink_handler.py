@@ -202,7 +202,7 @@ class WikilinkHandler:
 
     @classmethod
     async def find_inbound(cls, file_store, target: str, scope: str = "") -> dict:
-        """Count local links across the workspace that point at ``target``.
+        """Count wikilinks across the workspace that point at ``target``.
 
         The target file itself is excluded — self-references don't survive a
         delete and aren't actionable for the caller. Sources come from the

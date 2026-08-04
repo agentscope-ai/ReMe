@@ -81,7 +81,7 @@ UPDATE 必须尽量只增不删：不要删除已有 wikilink 或来源条目。
 
 ### 3. 写来源边
 
-来源边是归档在固定章节下的普通 Markdown Wikilink：
+来源边是归档在 Markdown 固定章节下的普通 Wikilink：
 
 ```markdown
 ## Sources

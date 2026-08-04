@@ -86,7 +86,7 @@ later graph indexing and retrieval from losing edges.
 
 ### 3. Write source edges
 
-Source edges are ordinary Markdown wikilinks grouped under a heading:
+Source edges are ordinary wikilinks grouped under a Markdown heading:
 
 ```markdown
 ## Sources

@@ -7,8 +7,6 @@ class FileLink(BaseModel):
     """file link
     [[target_path]]
     [[target_path#target_anchor]]
-    [label](target_path)
-    [label](target_path#L9-L10,L15-L20)
     """
 
     model_config = ConfigDict(extra="forbid")

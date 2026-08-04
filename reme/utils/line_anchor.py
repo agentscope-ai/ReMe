@@ -1,4 +1,4 @@
-"""Parse GitHub-style 1-based line anchors used by local file links."""
+"""Parse and format GitHub-style 1-based line-anchor strings."""
 
 import re
 

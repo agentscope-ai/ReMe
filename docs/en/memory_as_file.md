@@ -219,8 +219,8 @@ Parsed result:
 ```text
 FileLink
   source_path = current file
-  target_path = digest/wiki/solar.md
-  target_anchor = supply-chain
+  target_path = notes/example.md
+  target_anchor = L9-L10,L15-L20
 ```
 
 Older documents containing wrappers such as `related:: [[path]]`,

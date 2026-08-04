@@ -209,8 +209,8 @@ search 命中    -> 可展开出入链，帮助理解上下文
 ```text
 FileLink
   source_path = 当前文件
-  target_path = digest/wiki/光伏.md
-  target_anchor = 产业链
+  target_path = notes/example.md
+  target_anchor = L9-L10,L15-L20
 ```
 
 旧文档中的 `related:: [[path]]`、`- related:: [[path]]` 或
