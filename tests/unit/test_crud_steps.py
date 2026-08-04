@@ -611,59 +611,6 @@ def test_read_line_range():
     _run(run())
 
 
-def test_read_path_line_anchor():
-    """A single line-range fragment selects its inclusive range."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
-            store = await _make_store()
-            resp = await _read(store, path="Notes.md#L2-L4")
-            assert resp.success is True
-            assert str(resp.answer) == "L2\nL3\nL4"
-            assert resp.metadata["line_ranges"] == [{"start_line": 2, "end_line": 4}]
-            await store.close()
-
-    _run(run())
-
-
-def test_read_path_multiple_line_ranges():
-    """Comma-separated line ranges return labeled excerpts in source order."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            body = "\n".join(f"line {number}" for number in range(1, 21)) + "\n"
-            _seed_md(Path(tmp), "Notes.md", body)
-            store = await _make_store()
-            resp = await _read(store, path="Notes.md#L2-L3,L15-L17")
-            answer = str(resp.answer)
-            assert resp.success is True
-            assert "Notes.md#L2-L3" in answer
-            assert "line 2\nline 3" in answer
-            assert "Notes.md#L15-L17" in answer
-            assert "line 15\nline 16\nline 17" in answer
-            assert "line 4" not in answer
-            assert resp.metadata["target_anchor"] == "L2-L3,L15-L17"
-            await store.close()
-
-    _run(run())
-
-
-def test_read_line_anchor_rejects_conflicting_range_args():
-    """Callers must choose either a path fragment or explicit range arguments."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Notes.md", "L1\nL2\n")
-            store = await _make_store()
-            resp = await _read(store, path="Notes.md#L1", start_line=1)
-            assert resp.success is False
-            assert "cannot be combined" in str(resp.answer)
-            await store.close()
-
-    _run(run())
-
-
 def test_read_absolute_path_inside_workspace_accepted():
     """Absolute paths that resolve inside the workspace are accepted."""
 

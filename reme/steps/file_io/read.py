@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from ._file_io import read_file_line_ranges_safe, read_file_lines_safe, read_file_safe, truncate_text_output
+from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
-from ...utils import expand_links, format_line_anchor, parse_line_anchor, render_expansion_lines
+from ...utils import expand_links, render_expansion_lines
 
 
 @R.register("read_step")
@@ -49,18 +49,6 @@ class ReadStep(BaseStep):
             self.logger.info(f"[{self.name}] {NON_MD_WARNING} path={target}")
         return target
 
-    def _split_line_anchor(self, raw: str) -> tuple[str, list[tuple[int, int]] | None] | None:
-        """Separate a valid ``#L...`` suffix from a path."""
-        path, marker, anchor = raw.rpartition("#")
-        if not marker:
-            return raw, None
-        try:
-            ranges = parse_line_anchor(anchor)
-        except ValueError as exc:
-            self._fail(str(exc), path=path, target_anchor=anchor)
-            return None
-        return (path, ranges) if ranges is not None else (raw, None)
-
     def _validate_line_args(self, start_line, end_line) -> bool:
         """Accept ``None`` or any value that parses via ``int()`` (JSON/CLI often stringify)."""
         for label, value in (("start_line", start_line), ("end_line", end_line)):
@@ -95,33 +83,6 @@ class ReadStep(BaseStep):
             return None
         return s, e
 
-    def _resolve_ranges(
-        self,
-        total: int,
-        ranges: list[tuple[int, int]],
-        target: Path,
-    ) -> list[tuple[int, int]] | None:
-        """Validate anchor ranges against EOF and clip their end lines."""
-        for start, _ in ranges:
-            if start > total:
-                self._fail(
-                    f"start_line {start} exceeds file length ({total} lines)",
-                    path=str(target),
-                    total_lines=total,
-                )
-                return None
-        return [(start, min(end, total)) for start, end in ranges]
-
-    @staticmethod
-    def _format_range_excerpts(path: str, ranges: list[tuple[int, int]], excerpts: list[str]) -> str:
-        """Render one range plainly and multiple ranges as labeled blocks."""
-        if len(ranges) == 1:
-            return excerpts[0]
-        return "\n\n".join(
-            f"========== {path}#L{start}-L{end} ==========\n{excerpt}"
-            for (start, end), excerpt in zip(ranges, excerpts)
-        )
-
     async def _load_content(self, target: Path) -> str | None:
         """Read via the encoding-aware helper; convert exceptions to ``_fail``."""
         try:
@@ -139,16 +100,8 @@ class ReadStep(BaseStep):
         with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
         max_neighbors_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
 
-        parsed_path = self._split_line_anchor(raw)
-        if parsed_path is None:
-            return None
-        raw_path, anchor_ranges = parsed_path
-        if anchor_ranges is not None and (start_line is not None or end_line is not None):
-            self._fail("line anchor cannot be combined with start_line or end_line", path=raw_path)
-            return None
-
         # Validate inputs and target before touching the filesystem twice.
-        target = self._resolve_target(raw_path)
+        target = self._resolve_target(raw)
         if target is None:
             return None
         if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
@@ -172,67 +125,36 @@ class ReadStep(BaseStep):
                 # which do not count that trailing newline as its own line.
                 all_lines.pop()
             total = len(all_lines)
-            if anchor_ranges is not None:
-                ranges = self._resolve_ranges(total, anchor_ranges, target)
-                if ranges is None:
-                    return None
-                excerpts = ["\n".join(all_lines[start - 1 : end]) for start, end in ranges]
-                s, e = ranges[0][0], ranges[-1][1]
-                excerpt = self._format_range_excerpts(raw_path, ranges, excerpts)
-            else:
-                bounds = self._resolve_range(total, start_line, end_line, target)
-                if bounds is None:
-                    return None
-                s, e = bounds
-                excerpt = "\n".join(all_lines[s - 1 : e])
+            bounds = self._resolve_range(total, start_line, end_line, target)
+            if bounds is None:
+                return None
+            s, e = bounds
+            excerpt = "\n".join(all_lines[s - 1 : e])
         else:
+            s = max(1, int(start_line) if start_line is not None else 1)
+            requested_end = int(end_line) if end_line is not None else None
+            if requested_end is not None and s > requested_end:
+                self._fail(f"start_line ({s}) > end_line ({requested_end})", path=str(target))
+                return None
             try:
-                if anchor_ranges is not None:
-                    excerpts, total, _encoding = await read_file_line_ranges_safe(
-                        target,
-                        anchor_ranges,
-                        max_collect_bytes=DEFAULT_MAX_BYTES * 2,
-                    )
-                    ranges = self._resolve_ranges(total, anchor_ranges, target)
-                    if ranges is None:
-                        return None
-                    s, e = ranges[0][0], ranges[-1][1]
-                    excerpt = self._format_range_excerpts(raw_path, ranges, excerpts)
-                else:
-                    s = max(1, int(start_line) if start_line is not None else 1)
-                    requested_end = int(end_line) if end_line is not None else None
-                    if requested_end is not None and s > requested_end:
-                        self._fail(f"start_line ({s}) > end_line ({requested_end})", path=str(target))
-                        return None
-                    excerpt, total, _encoding = await read_file_lines_safe(
-                        target,
-                        s,
-                        requested_end,
-                        max_collect_bytes=DEFAULT_MAX_BYTES * 2,
-                    )
-                    if s > total:
-                        self._fail(
-                            f"start_line {s} exceeds file length ({total} lines)",
-                            path=str(target),
-                            total_lines=total,
-                        )
-                        return None
-                    e = min(total, requested_end if requested_end is not None else total)
+                excerpt, total, _encoding = await read_file_lines_safe(
+                    target,
+                    s,
+                    requested_end,
+                    max_collect_bytes=DEFAULT_MAX_BYTES * 2,
+                )
             except Exception as exc:  # pylint: disable=broad-except
                 self._fail(f"read failed: {exc}", path=str(target))
                 return None
+            if s > total:
+                self._fail(f"start_line {s} exceeds file length ({total} lines)", path=str(target), total_lines=total)
+                return None
+            e = min(total, requested_end if requested_end is not None else total)
 
         text = truncate_text_output(excerpt, start_line=s, total_lines=total, file_path=str(target))
 
         self.context.response.success = True
         self.context.response.answer = text
-        if anchor_ranges is not None:
-            self.context.response.metadata.update(
-                {
-                    "target_anchor": format_line_anchor(ranges),
-                    "line_ranges": [{"start_line": start, "end_line": end} for start, end in ranges],
-                },
-            )
         self.logger.info(f"[{self.name}] read path={target} lines={s}-{e}/{total} bytes={len(text.encode('utf-8'))}")
 
         if with_neighbors and target.suffix.lower() == ".md":
