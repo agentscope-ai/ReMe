@@ -73,7 +73,6 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 sandbox = [
-    "agentscope==2.0.4.post1",
     "aiodocker",
 ]
 full = [
