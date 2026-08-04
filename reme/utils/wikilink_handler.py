@@ -107,7 +107,10 @@ class WikilinkHandler:
                 fence = (token[0], len(token), offset)
             elif fence is not None:
                 fence_char, fence_length, fence_start = fence
-                if re.match(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*(?:\n)?$", line):
+                if re.match(
+                    rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*(?:\r\n?|\n)?$",
+                    line,
+                ):
                     spans.append((fence_start, offset + len(line)))
                     fence = None
             offset += len(line)
@@ -228,7 +231,12 @@ class WikilinkHandler:
                 i += 1
                 continue
             preceding_backslashes = len(text[:i]) - len(text[:i].rstrip("\\"))
-            if preceding_backslashes % 2 or (i > 0 and text[i - 1] == "!"):
+            bang_is_image = False
+            if i > 0 and text[i - 1] == "!":
+                bang_at = i - 1
+                bang_backslashes = len(text[:bang_at]) - len(text[:bang_at].rstrip("\\"))
+                bang_is_image = bang_backslashes % 2 == 0
+            if preceding_backslashes % 2 or bang_is_image:
                 i += 1
                 continue
 
@@ -348,6 +356,40 @@ class WikilinkHandler:
                 replacement = replacement.replace(" ", "%20").replace("(", "\\(").replace(")", "\\)")
             rewritten = rewritten[: match.target_start] + replacement + rewritten[match.target_end :]
         return rewritten, len(matches)
+
+    @classmethod
+    def rebase_links_for_move(
+        cls,
+        text: str,
+        old_source_path: str,
+        new_source_path: str,
+        *,
+        retarget_self: bool = True,
+    ) -> tuple[str, int]:
+        """Preserve local-link targets when a Markdown source file moves.
+
+        Markdown destinations are document-relative, so every local Markdown
+        link must be rendered relative to the new source directory. Wikilinks
+        remain workspace-relative and only need rewriting for self-references.
+        """
+        matches = list(cls.iter_matches(text, old_source_path))
+        rewritten = text
+        changed = 0
+        new_dir = posixpath.dirname(new_source_path) or "."
+        for match in reversed(matches):
+            target = new_source_path if retarget_self and match.target == old_source_path else match.target
+            if match.syntax == "markdown":
+                replacement = posixpath.relpath(target, new_dir)
+                replacement = replacement.replace(" ", "%20").replace("(", "\\(").replace(")", "\\)")
+            elif retarget_self and match.target == old_source_path:
+                replacement = new_source_path
+            else:
+                continue
+            if rewritten[match.target_start : match.target_end] == replacement:
+                continue
+            rewritten = rewritten[: match.target_start] + replacement + rewritten[match.target_end :]
+            changed += 1
+        return rewritten, changed
 
     # -- Validation ----------------------------------------------------
 

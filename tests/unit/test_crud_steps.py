@@ -301,6 +301,34 @@ def test_move_default_retargets_inbound_links():
     asyncio.run(run())
 
 
+def test_move_rebases_document_relative_links():
+    """Moving a Markdown source preserves its outgoing targets and self-links."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store(
+                {
+                    "old/note.md": '[target](target.md#intro "title") [self](note.md) [[old/note.md]]',
+                    "old/target.md": "target",
+                },
+            )
+            step = crud_move.MoveStep(file_store=store)
+            await step(src_path="old/note.md", dst_path="archive/deep/renamed.md")
+
+            assert step.context.response.success is True
+            body = (Path(tmp) / "archive/deep/renamed.md").read_text(encoding="utf-8")
+            links = WikilinkHandler.extract_links(body, "archive/deep/renamed.md")
+            assert [(link.target_path, link.target_anchor) for link in links] == [
+                ("old/target.md", "intro"),
+                ("archive/deep/renamed.md", None),
+            ]
+            assert '#intro "title"' in body
+            assert "[[archive/deep/renamed.md]]" in body
+            await store.close()
+
+    asyncio.run(run())
+
+
 def test_move_opt_out_leaves_links_dangling():
     """retarget=False moves the file but leaves inbound references stale."""
 

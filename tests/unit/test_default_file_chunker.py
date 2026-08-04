@@ -194,6 +194,20 @@ def test_parse_markdown_links_filters_non_file_links():
     assert [(link.target_path, link.target_anchor) for link in links] == [("local.md", None)]
 
 
+def test_parse_markdown_links_handles_crlf_fences_and_escaped_bang():
+    """CRLF fences end normally, and an escaped bang does not make an image."""
+    text = (
+        "```md\r\n[fenced](ignored.md) [[ignored-wiki.md]]\r\n```\r\n"
+        "[plain](plain.md) [[plain-wiki.md]] \\![escaped-bang](escaped.md)"
+    )
+    links = WikilinkHandler.extract_links(text, "note.md")
+    assert [(link.target_path, link.target_anchor) for link in links] == [
+        ("plain.md", None),
+        ("plain-wiki.md", None),
+        ("escaped.md", None),
+    ]
+
+
 def test_parse_links_no_match():
     """Strings without [[]] yield no links, even if '::' appears."""
     assert len(WikilinkHandler.extract_links("no link here :: foo", "src.md")) == 0
