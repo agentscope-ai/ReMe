@@ -182,7 +182,8 @@ and then adds the new chunk text. Deletion is lazy; the index can later be compa
 "Progressive" in Memory Search does not mean putting the entire repository into one result. Retrieval expands in three layers:
 
 1. Chunk recall: return only the `limit` most relevant text fragments.
-2. File location: each result includes `path:start_line-end_line`, allowing the caller to read the source precisely with `read`.
+2. File location: each result includes `path:start_line-end_line`. Pass the path and line bounds separately as `path`,
+   `start_line`, and `end_line` when calling `read`; the range is not part of the `path` value.
 3. Link neighbors: call `expand_links()` for each matched file and expand at most `max_links_per_direction` outlinks and
    inlinks.
 

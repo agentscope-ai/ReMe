@@ -180,7 +180,7 @@ Wikilink 用 `[[...]]` 表达文件之间的关系：
 ![[resource/2026-06-01/report.md]]
 [[digest/wiki/光伏.md#L9-L10,L15-L20]]
 [光伏](../digest/wiki/光伏.md)
-[指定行](../digest/wiki/光伏.md#L9-L10,L15-L20)
+[行号锚点元数据](../digest/wiki/光伏.md#L9-L10,L15-L20)
 ```
 
 ReMe 的 wikilink 是**字面路径语义**：
@@ -192,10 +192,15 @@ ReMe 的 wikilink 是**字面路径语义**：
 它不会自动补 `.md`，不会按文件名搜索，也不会自动解析 folder note。推荐写完整的 workspace 相对路径，并带上扩展名。
 
 本地行内 Markdown 链接也会建立 `FileLink`。其目标遵循标准的“相对于当前文档”路径语义，进入图谱时会规范化为
-workspace 相对路径。网页 URL、邮件链接、图片、纯页内 fragment，以及行内代码或 fenced code 中的链接不会进入图谱。
+workspace 相对路径。网页 URL、邮件链接、Markdown 图片、纯页内 fragment，以及行内代码中的链接不会进入图谱。
+只有 fence 标记位于行首最多三个空格之后时，其中的链接才会被忽略。当前解析器不识别带容器前缀的 fence，例如
+blockquote 形式的 `> ~~~`，因此这类容器内的本地链接仍会进入图谱。
 
-`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 表示一个或多个从 1 开始、首尾均包含的行区间。图谱仍将其保存为普通
-`target_anchor`；把它追加到 `read` 的 `path` 后，读取步骤会返回对应行。原有标题和 block anchor 的图谱语义保持不变。
+`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器
+不会校验行号锚点，因此 `#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定
+范围时需要分别传入从 1 开始、首尾均包含的 `start_line` 和 `end_line`，例如
+`read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。标题和 block anchor 同样只提供图谱元数据，不会改变
+`read` 的行为。
 
 Wikilink 的作用：
 

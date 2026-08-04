@@ -188,7 +188,7 @@ Wikilinks express relationships between files with `[[...]]`:
 ![[resource/2026-06-01/report.md]]
 [[digest/wiki/solar.md#L9-L10,L15-L20]]
 [solar](../digest/wiki/solar.md)
-[selected lines](../digest/wiki/solar.md#L9-L10,L15-L20)
+[line anchor metadata](../digest/wiki/solar.md#L9-L10,L15-L20)
 ```
 
 ReMe wikilinks use **literal path semantics**:
@@ -201,12 +201,16 @@ ReMe does not append `.md` automatically, search by filename, or automatically r
 workspace-relative paths with their extensions.
 
 Local inline Markdown links also create `FileLink` edges. Their destinations follow standard document-relative path
-semantics and are normalized to workspace-relative graph paths. Web URLs, mail links, images, pure page fragments, and links
-inside inline or fenced code are not indexed.
+semantics and are normalized to workspace-relative graph paths. Web URLs, mail links, Markdown images, pure page fragments,
+and links inside inline code are not indexed. Links in a fenced block are ignored only when the opening fence starts at the
+beginning of a line after at most three spaces. Fences prefixed by a container marker, such as the blockquote form `> ~~~`,
+are not recognized as code fences by the current parser, so local links inside those containers are indexed.
 
-`#L9`, `#L9-L10`, and `#L9-L10,L15-L20` select one or more inclusive, 1-based line ranges. They remain ordinary
-`target_anchor` values in the graph; the `read` job interprets them when appended to its `path`. Existing heading and block
-anchors continue to work as graph anchors.
+Anchors such as `#L9`, `#L9-L10`, and `#L9-L10,L15-L20` remain ordinary `target_anchor` strings in the graph. The graph
+parser does not validate line-anchor syntax, so values such as `#L0`, `#L10-L9`, and `#L9,` are also stored. The `read` job
+does not interpret an anchor appended to `path`; use the separate 1-based, inclusive `start_line` and `end_line` arguments to
+read a range, for example `read(path="digest/wiki/solar.md", start_line=9, end_line=10)`. Heading and block anchors likewise
+provide graph metadata rather than changing `read` behavior.
 
 Wikilinks support these behaviors:
 

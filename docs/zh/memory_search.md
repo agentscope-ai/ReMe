@@ -172,7 +172,8 @@ delete，后续可通过 optimize 压缩索引。
 Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是分三层展开：
 
 1. 第一层是 chunk 召回：只返回最相关的 `limit` 个文本片段。
-2. 第二层是文件定位：每个结果带 `path:start_line-end_line`，可以继续用 `read` 精读原文件。
+2. 第二层是文件定位：每个结果带 `path:start_line-end_line`。调用 `read` 时需要把它们分别作为 `path`、
+   `start_line` 和 `end_line` 传入，行号范围不是 `path` 的一部分。
 3. 第三层是链接邻居：对命中文件调用 `expand_links()`，展开最多 `max_links_per_direction` 个 outlinks 和 inlinks。
 
 展开的数据来自 `file_graph`，不是重新扫文件：
