@@ -34,10 +34,16 @@ import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote as url_quote
 from urllib.parse import unquote, urlsplit
 
 from ..enumeration import LinkScopeEnum
 from ..schema import FileLink
+
+
+def _encode_markdown_path(path: str) -> str:
+    """Serialize a normalized local path as a Markdown URL destination."""
+    return url_quote(path, safe="/-._~!$&'*+,;=@")
 
 
 @dataclass(frozen=True)
@@ -353,7 +359,7 @@ class WikilinkHandler:
             replacement = new
             if match.syntax == "markdown" and source_path and not Path(source_path).is_absolute():
                 replacement = posixpath.relpath(new, posixpath.dirname(source_path) or ".")
-                replacement = replacement.replace(" ", "%20").replace("(", "\\(").replace(")", "\\)")
+                replacement = _encode_markdown_path(replacement)
             rewritten = rewritten[: match.target_start] + replacement + rewritten[match.target_end :]
         return rewritten, len(matches)
 
@@ -380,7 +386,7 @@ class WikilinkHandler:
             target = new_source_path if retarget_self and match.target == old_source_path else match.target
             if match.syntax == "markdown":
                 replacement = posixpath.relpath(target, new_dir)
-                replacement = replacement.replace(" ", "%20").replace("(", "\\(").replace(")", "\\)")
+                replacement = _encode_markdown_path(replacement)
             elif retarget_self and match.target == old_source_path:
                 replacement = new_source_path
             else:

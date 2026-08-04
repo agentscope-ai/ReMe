@@ -239,6 +239,45 @@ def test_retarget_local_markdown_link_preserves_label_anchor_and_title():
     asyncio.run(run())
 
 
+def test_retarget_local_markdown_link_encodes_reserved_path_characters():
+    """Retargeting keeps URL-reserved filename characters in the path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            root = Path(tmp)
+            store = await _store_with({"notes/note.md": "[Alice](../topics/Alice.md)"})
+            payload = await WikilinkHandler.retarget_links(
+                store,
+                src="topics/Alice.md",
+                dst="people/Alice?draft.md",
+            )
+            assert payload["links_changed"] == 1
+            body = (root / "notes/note.md").read_text(encoding="utf-8")
+            assert body == "[Alice](../people/Alice%3Fdraft.md)"
+            assert [link.target_path for link in WikilinkHandler.extract_links(body, "notes/note.md")] == [
+                "people/Alice?draft.md",
+            ]
+            await store.close()
+
+    asyncio.run(run())
+
+
+def test_rebase_local_markdown_links_encodes_reserved_path_characters():
+    """Moving a document does not turn encoded filename characters into URL syntax."""
+    original = "[hash](target%23v1.md) [query](target%3Fraw.md) [percent](100%25.md)"
+    expected_targets = ["old/target#v1.md", "old/target?raw.md", "old/100%.md"]
+
+    rebased, count = WikilinkHandler.rebase_links_for_move(
+        original,
+        old_source_path="old/note.md",
+        new_source_path="archive/note.md",
+    )
+
+    assert count == 3
+    assert rebased == "[hash](../old/target%23v1.md) [query](../old/target%3Fraw.md) [percent](../old/100%25.md)"
+    assert [link.target_path for link in WikilinkHandler.extract_links(rebased, "archive/note.md")] == expected_targets
+
+
 def test_retarget_multiple_files_aggregate_counts():
     """links_changed sums across files; by_file lists per-file counts."""
 
@@ -411,6 +450,8 @@ if __name__ == "__main__":
     test_retarget_image_marker_preserved()
     test_retarget_preserves_surrounding_relation_text()
     test_retarget_local_markdown_link_preserves_label_anchor_and_title()
+    test_retarget_local_markdown_link_encodes_reserved_path_characters()
+    test_rebase_local_markdown_links_encodes_reserved_path_characters()
     test_retarget_multiple_files_aggregate_counts()
     test_retarget_dry_run_does_not_write()
     test_retarget_scope_limits_sweep()
