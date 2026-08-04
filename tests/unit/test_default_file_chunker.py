@@ -146,7 +146,7 @@ def test_parse_links_ignores_legacy_relation_wrappers():
         ("b", None),
         ("c", "section"),
     ]
-    assert all(not hasattr(link, "predicate") for link in links)
+    assert all(link.predicate is None for link in links)
 
 
 def test_parse_links_multiple_on_one_line():

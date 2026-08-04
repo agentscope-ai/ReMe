@@ -38,8 +38,8 @@ def make_node(path: str, links: list[tuple[str, str | None]] | None = None) -> F
     )
 
 
-def test_file_node_loads_legacy_predicate_as_plain_link():
-    """Persisted typed links remain loadable after predicate removal."""
+def test_file_node_loads_legacy_predicate_without_persisting_it():
+    """Legacy predicates are accepted for compatibility but omitted from new snapshots."""
     node = FileNode.model_validate(
         {
             "path": "a.md",
@@ -54,7 +54,10 @@ def test_file_node_loads_legacy_predicate_as_plain_link():
             ],
         },
     )
-    assert node.links == [FileLink(source_path="a.md", target_path="b.md", target_anchor="intro")]
+    assert node.links == [
+        FileLink(source_path="a.md", target_path="b.md", target_anchor="intro", predicate="related"),
+    ]
+    assert "predicate" not in node.model_dump_json()
 
 
 # Both backends should satisfy the same BaseFileGraph contract.
