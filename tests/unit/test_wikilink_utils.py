@@ -294,6 +294,44 @@ def test_markdown_links_skip_unsupported_backslash_escapes():
     ]
 
 
+def test_markdown_link_source_span_is_limited_to_200_characters():
+    """A complete 200-character link is accepted while a 201-character link is skipped."""
+    overhead = len("[](accepted.md)")
+    accepted = f"[{'a' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead)}](accepted.md)"
+    rejected = f"[{'b' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead + 1)}](rejected.md)"
+
+    assert len(accepted) == WikilinkHandler.MAX_MARKDOWN_LINK_CHARS
+    assert len(rejected) == WikilinkHandler.MAX_MARKDOWN_LINK_CHARS + 1
+    links = WikilinkHandler.extract_links(f"{accepted} {rejected} [short](short.md)", "note.md")
+
+    assert [link.target_path for link in links] == ["accepted.md", "short.md"]
+
+
+def test_oversized_malformed_labels_do_not_hide_later_short_links():
+    """Bounded failures keep scanning and still find a later valid candidate."""
+    text = "[" * 10_000 + "[short](short.md)"
+
+    links = WikilinkHandler.extract_links(text, "note.md")
+
+    assert [link.target_path for link in links] == ["short.md"]
+
+
+def test_oversized_markdown_links_are_not_rewritten():
+    """Extraction and rewrite operations share the same source-span bound."""
+    overhead = len("[](old.md)")
+    original = f"[{'x' * (WikilinkHandler.MAX_MARKDOWN_LINK_CHARS - overhead + 1)}](old.md)"
+
+    rewritten, count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old="old.md",
+        new="new.md",
+        source_path="note.md",
+    )
+
+    assert count == 0
+    assert rewritten == original
+
+
 def test_unsupported_backslash_escapes_are_not_rebased_or_retargeted():
     """Move and retarget leave skipped Markdown destinations byte-for-byte unchanged."""
     original = r"[hash](target\#v1.md) [query](target\?raw.md)"

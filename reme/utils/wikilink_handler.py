@@ -68,6 +68,7 @@ class WikilinkMatch:
 class WikilinkHandler:
     """Parse, extract, rewrite, and validate local Markdown links."""
 
+    MAX_MARKDOWN_LINK_CHARS = 200
     SUPPORTED_MARKDOWN_DESTINATION_ESCAPES = frozenset("\\()`")
 
     # Captures: optional image marker (``!``), the bare target, an
@@ -154,12 +155,12 @@ class WikilinkHandler:
         return sorted(spans)
 
     @staticmethod
-    def _matching_paren(text: str, opening: int) -> int | None:
-        """Find the closing parenthesis of an inline Markdown link."""
+    def _matching_paren(text: str, opening: int, limit: int) -> int | None:
+        """Find a link's closing parenthesis before the exclusive ``limit``."""
         depth = 1
         quote = ""
         escaped = False
-        for i in range(opening + 1, len(text)):
+        for i in range(opening + 1, limit):
             char = text[i]
             if escaped:
                 escaped = False
@@ -246,7 +247,7 @@ class WikilinkHandler:
 
     @classmethod
     def _iter_markdown_links(cls, text: str, source_path: str, blocked: list[tuple[int, int]] | None = None):
-        """Yield inline Markdown links to local files, excluding images and code."""
+        """Yield bounded inline Markdown links to local files, excluding images and code."""
         blocked = blocked if blocked is not None else cls._code_spans(text)
         blocked_index = 0
         i = 0
@@ -259,20 +260,32 @@ class WikilinkHandler:
             if text[i] != "[":
                 i += 1
                 continue
-            preceding_backslashes = len(text[:i]) - len(text[:i].rstrip("\\"))
+            preceding_backslashes = 0
+            cursor = i
+            while cursor > 0 and text[cursor - 1] == "\\":
+                preceding_backslashes += 1
+                cursor -= 1
             bang_is_image = False
             if i > 0 and text[i - 1] == "!":
                 bang_at = i - 1
-                bang_backslashes = len(text[:bang_at]) - len(text[:bang_at].rstrip("\\"))
+                bang_backslashes = 0
+                cursor = bang_at
+                while cursor > 0 and text[cursor - 1] == "\\":
+                    bang_backslashes += 1
+                    cursor -= 1
                 bang_is_image = bang_backslashes % 2 == 0
             if preceding_backslashes % 2 or bang_is_image:
                 i += 1
                 continue
 
+            # Bound every candidate's full ``[label](destination)`` source
+            # span. This keeps malformed Markdown scanning linear with a
+            # small constant while still allowing later nested candidates.
+            limit = min(i + cls.MAX_MARKDOWN_LINK_CHARS, len(text))
             depth = 1
             label_end = i + 1
             escaped = False
-            while label_end < len(text) and depth:
+            while label_end < limit and depth:
                 char = text[label_end]
                 if escaped:
                     escaped = False
@@ -287,7 +300,7 @@ class WikilinkHandler:
                 i += 1
                 continue
 
-            closing = cls._matching_paren(text, label_end)
+            closing = cls._matching_paren(text, label_end, limit)
             span = cls._markdown_destination(text, label_end, closing) if closing is not None else None
             if span is None:
                 i += 1
