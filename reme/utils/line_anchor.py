@@ -2,7 +2,6 @@
 
 import re
 
-
 _LINE_ANCHOR_RE = re.compile(r"L[0-9]+(?:-L[0-9]+)?(?:,L[0-9]+(?:-L[0-9]+)?)*")
 
 
