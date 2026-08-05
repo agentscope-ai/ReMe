@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>ReMe</title>
+  <rect width="32" height="32" rx="9" fill="#fff0e7"/>
+  <text
+    x="16"
+    y="22.5"
+    fill="#f36b21"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="20"
+    font-weight="800"
+    text-anchor="middle"
+  >R</text>
+</svg>

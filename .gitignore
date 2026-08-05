@@ -32,6 +32,10 @@ build/
 dist/
 *.egg-info/
 
+# Website build integration source (not generated output)
+!website/build/
+!website/build/**
+
 # Logs / temporary files
 *.log
 nohup.out

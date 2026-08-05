@@ -1,0 +1,18 @@
+# Build output
+.next/
+.vinext/
+dist/
+out/
+
+# Dependencies
+node_modules/
+
+# Cache and local state
+.cache/
+.wrangler/
+*.cache
+
+# Misc
+coverage/
+.vscode/
+.idea/
