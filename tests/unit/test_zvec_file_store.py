@@ -6,6 +6,9 @@ import asyncio
 import json
 import os
 import tempfile
+import tomllib
+import warnings
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -69,6 +72,35 @@ def node(path: str) -> FileNode:
 def chunk(chunk_id: str, path: str, text: str, **metadata) -> FileChunk:
     """Build a minimal file chunk."""
     return FileChunk(id=chunk_id, path=path, text=text, start_line=1, end_line=1, metadata=metadata)
+
+
+def embedded_chunk(chunk_id: str, path: str, text: str, embedding: list[float]) -> FileChunk:
+    """Build a chunk carrying an explicit, caller-provided embedding."""
+    file_chunk = chunk(chunk_id, path, text)
+    file_chunk.embedding = np.asarray(embedding, dtype=np.float16)
+    return file_chunk
+
+
+def _track_rebuilds(store: ZvecLocalFileStore) -> list[bool]:
+    """Record calls to the collection rebuild path."""
+    rebuilds: list[bool] = []
+    original_rebuild = store._rebuild_collection
+    store._rebuild_collection = lambda: rebuilds.append(True) or original_rebuild()
+    return rebuilds
+
+
+def _tamper_with_collection(store: ZvecLocalFileStore, mutate) -> None:
+    """Mutate the persisted collection behind the store's back, then release the handle.
+
+    zvec holds an in-process lock on the collection directory, so the store must
+    already be closed and the local handle must be dropped before another store
+    reopens the same path.
+    """
+    zvec = pytest.importorskip("zvec")
+    collection = zvec.open(path=str(store.zvec_path))
+    mutate(zvec, collection)
+    collection.flush()
+    del collection
 
 
 def _new_zvec_store(name, **kwargs):
@@ -142,6 +174,37 @@ def test_zvec_same_id_text_change_updates_vector_in_place():
     run(go())
 
 
+def test_zvec_explicit_embedding_change_updates_collection():
+    """A same-id, same-text update with a new explicit embedding replaces the vector."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _started_store("t_zvec_explicit_embedding")
+
+            await store.upsert([(node("a.md"), [embedded_chunk("same", "a.md", "same text", [1.0, 0.0])])])
+            await store.upsert([(node("a.md"), [embedded_chunk("same", "a.md", "same text", [0.0, 1.0])])])
+
+            # "beta" embeds to [0, 1]; the collection must hold the new vector.
+            results = await store.vector_search("beta", 5, {})
+            assert [c.id for c in results] == ["same"]
+            assert results[0].scores["vector"] == pytest.approx(1.0, abs=1e-5)
+            await store.close()
+
+            # The stale vector must not survive a restart either.
+            reopened = _new_zvec_store("t_zvec_explicit_embedding")
+            reopened.embedding_store = FakeEmbeddingStore()
+            rebuilds = _track_rebuilds(reopened)
+            await reopened.start()
+
+            assert not rebuilds  # the collection was already in sync, no repair needed
+            results = await reopened.vector_search("beta", 5, {})
+            assert [c.id for c in results] == ["same"]
+            assert results[0].scores["vector"] == pytest.approx(1.0, abs=1e-5)
+            await reopened.close()
+
+    run(go())
+
+
 def test_zvec_upsert_removes_stale_chunks_from_collection():
     """Re-upserting a path deletes vectors of chunks that no longer exist."""
 
@@ -198,6 +261,22 @@ def test_zvec_vector_search_applies_post_filter():
             assert [c.id for c in await store.vector_search("alpha", 10, {"path": "b.md"})] == ["b"]
             assert [c.id for c in await store.vector_search("alpha", 10, {"kind": "x"})] == ["a"]
             assert await store.vector_search("alpha", 10, {"path": "c.md"}) == []
+            await store.close()
+
+    run(go())
+
+
+def test_zvec_vector_search_uses_current_query_api():
+    """The ANN query path must not rely on zvec's deprecated VectorQuery alias."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _started_store("t_zvec_query_api")
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", DeprecationWarning)
+                assert [c.id for c in await store.vector_search("alpha", 5, {})] == ["a"]
             await store.close()
 
     run(go())
@@ -384,6 +463,94 @@ def test_zvec_hnsw_m_mismatch_triggers_rebuild():
     run(go())
 
 
+def test_zvec_missing_collection_document_triggers_rebuild():
+    """A collection that lost a document is rebuilt even though the sidecar matches."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = await _started_store("t_zvec_missing_doc")
+            await seed.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            await seed.close()
+
+            _tamper_with_collection(seed, lambda _zvec, collection: collection.delete(ids=["a"]))
+            # The sidecar still claims the chunk is indexed.
+            assert json.loads(seed.zvec_sidecar_path.read_text())["ids"] == ["a"]
+
+            store = _new_zvec_store("t_zvec_missing_doc")
+            store.embedding_store = FakeEmbeddingStore()
+            rebuilds = _track_rebuilds(store)
+            await store.start()
+
+            assert rebuilds == [True]
+            assert store._indexed_ids == {"a"}
+            assert store._collection.stats.doc_count == 1
+            assert [c.id for c in await store.vector_search("alpha", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
+def test_zvec_unexpected_collection_document_triggers_rebuild():
+    """A collection holding a document no chunk owns is rebuilt."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = await _started_store("t_zvec_extra_doc")
+            await seed.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            await seed.close()
+
+            _tamper_with_collection(
+                seed,
+                lambda zvec, collection: collection.upsert(
+                    [zvec.Doc(id="ghost", vectors={"embedding": [0.0, 1.0]})],
+                ),
+            )
+
+            store = _new_zvec_store("t_zvec_extra_doc")
+            store.embedding_store = FakeEmbeddingStore()
+            rebuilds = _track_rebuilds(store)
+            await store.start()
+
+            assert rebuilds == [True]
+            assert store._indexed_ids == {"a"}
+            assert store._collection.stats.doc_count == 1
+            assert [c.id for c in await store.vector_search("beta", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
+def test_zvec_corrupted_collection_vector_triggers_rebuild():
+    """An expected id whose stored vector was replaced is rebuilt from the chunks."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = await _started_store("t_zvec_bad_vector")
+            await seed.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            await seed.close()
+
+            _tamper_with_collection(
+                seed,
+                lambda zvec, collection: collection.upsert(
+                    [zvec.Doc(id="a", vectors={"embedding": [0.0, 1.0]})],
+                ),
+            )
+
+            store = _new_zvec_store("t_zvec_bad_vector")
+            store.embedding_store = FakeEmbeddingStore()
+            rebuilds = _track_rebuilds(store)
+            await store.start()
+
+            assert rebuilds == [True]
+            # The rebuilt collection carries the vector of the authoritative chunk.
+            results = await store.vector_search("alpha", 5, {})
+            assert [c.id for c in results] == ["a"]
+            assert results[0].scores["vector"] == pytest.approx(1.0, abs=1e-5)
+            await store.close()
+
+    run(go())
+
+
 def test_zvec_stale_embedding_dimension_rebuilds_from_backfill():
     """Persisted vectors with a stale dimension are dropped and re-embedded."""
 
@@ -414,6 +581,18 @@ def test_zvec_stale_embedding_dimension_rebuilds_from_backfill():
             await store.close()
 
     run(go())
+
+
+# -- packaging ------------------------------------------------------------
+
+
+def test_zvec_declared_as_installable_dependency():
+    """The registered backend needs a supported installation path in pyproject."""
+    pyproject = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    if not pyproject.exists():  # running against an installed package, not the repo
+        pytest.skip("pyproject.toml is not available")
+    optional = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["optional-dependencies"]
+    assert any(dep.replace(" ", "").startswith("zvec") for dep in optional["core"])
 
 
 # -- maintenance ------------------------------------------------------------

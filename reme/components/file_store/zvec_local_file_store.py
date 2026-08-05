@@ -3,6 +3,7 @@
 import hashlib
 import json
 import shutil
+import time
 from uuid import uuid4
 
 import aiofiles
@@ -14,6 +15,8 @@ from ...schema import FileChunk, FileNode
 
 # Batch size for bulk inserts during a rebuild.
 _ZVEC_INSERT_BATCH_SIZE = 1024
+# Batch size for the startup fetch that verifies persisted collection contents.
+_ZVEC_VERIFY_BATCH_SIZE = 1024
 
 
 @R.register("zvec")
@@ -33,7 +36,9 @@ class ZvecLocalFileStore(LocalFileStore):
     sidecar records an order-independent digest of the live
     ``(chunk_id, embedding)`` set at dump time; on load a digest mismatch
     (crash between the chunk dump and the collection flush, externally mixed
-    files, model change) triggers a clean rebuild.
+    files, model change) triggers a clean rebuild, and the opened collection is
+    additionally verified against the ids and vectors it should hold so a
+    damaged or externally modified collection is rebuilt instead of served.
 
     HNSW parameters (``hnsw_m``, ``hnsw_ef_construction``) are baked into the
     collection schema at creation time; changing ``hnsw_m`` on an existing
@@ -43,7 +48,8 @@ class ZvecLocalFileStore(LocalFileStore):
     idle-time index compaction hook.
 
     zvec is imported lazily inside ``__init__`` so that merely importing this
-    module does not require the optional dependency.
+    module does not require the optional dependency; the backend targets the
+    zvec version declared in ``pyproject.toml`` (``zvec>=0.6.0``).
     """
 
     def __init__(
@@ -67,7 +73,7 @@ class ZvecLocalFileStore(LocalFileStore):
             import zvec
         except ImportError as e:
             raise ImportError(
-                "zvec is required for ZvecLocalFileStore. Install with `pip install zvec`.",
+                "zvec is required for ZvecLocalFileStore. Install with `pip install 'zvec>=0.6.0'`.",
             ) from e
         return zvec
 
@@ -112,6 +118,19 @@ class ZvecLocalFileStore(LocalFileStore):
         """Build a zvec Doc carrying only the id and the float32 vector."""
         vector = np.asarray(chunk.embedding, dtype=np.float32).tolist()
         return self._zvec.Doc(id=chunk.id, vectors={"embedding": vector})
+
+    @staticmethod
+    def _vector_fingerprint(vector) -> bytes:
+        """Canonical bytes of a vector, comparable across an insert/fetch round trip.
+
+        Vectors are inserted as float32 and hashed as float16 (the JSONL
+        serialization dtype), so normalizing through float32 then float16 makes
+        an in-memory chunk embedding and the vector read back from the
+        collection byte-identical whenever they represent the same value.
+        """
+        if vector is None:
+            return b""
+        return np.asarray(np.asarray(vector, dtype=np.float32), dtype=np.float16).tobytes()
 
     def _upsert_docs(self, chunks: list[FileChunk]) -> None:
         if not chunks or self._collection is None:
@@ -226,7 +245,8 @@ class ZvecLocalFileStore(LocalFileStore):
 
         - vector dimension against the active embedding model;
         - HNSW ``M`` against the active config (baked into the graph topology);
-        - the sidecar embedding digest against the authoritative JSONL.
+        - the sidecar embedding digest against the authoritative JSONL;
+        - the collection contents against the ids and vectors it should hold.
         """
         if not (self.zvec_path.exists() and self.zvec_sidecar_path.exists()):
             return False
@@ -250,6 +270,7 @@ class ZvecLocalFileStore(LocalFileStore):
             persisted_m = vector_schema.index_param.m
             if persisted_m != self.hnsw_m:
                 raise ValueError(f"zvec HNSW M mismatch: persisted={persisted_m}, configured={self.hnsw_m}")
+            self._verify_collection_contents(collection, indexed_ids)
 
             self._collection = collection
             self._indexed_ids = indexed_ids
@@ -262,6 +283,37 @@ class ZvecLocalFileStore(LocalFileStore):
                 shutil.rmtree(self.zvec_path, ignore_errors=True)
             self.zvec_sidecar_path.unlink(missing_ok=True)
             return False
+
+    def _verify_collection_contents(self, collection, expected_ids: set[str]) -> None:
+        """Check that the opened collection really holds the expected (id, vector) pairs.
+
+        The sidecar only binds the collection to a chunk generation; it cannot
+        show that the collection itself lost, gained, or corrupted documents
+        (a crash between flushes, an external write, a partial copy). The
+        document count catches missing or extra ids cheaply, and the fetched
+        vectors catch same-id corruption. Any failure raises so the caller
+        rebuilds from the authoritative chunks.
+        """
+        started_at = time.monotonic()
+        doc_count = collection.stats.doc_count
+        if doc_count != len(expected_ids):
+            raise ValueError(f"zvec collection holds {doc_count} documents, expected {len(expected_ids)}")
+
+        ids = sorted(expected_ids)
+        for start in range(0, len(ids), _ZVEC_VERIFY_BATCH_SIZE):
+            batch = ids[start : start + _ZVEC_VERIFY_BATCH_SIZE]
+            docs = collection.fetch(batch, include_vector=True)
+            for cid in batch:
+                doc = docs.get(cid)
+                if doc is None:
+                    raise ValueError(f"zvec collection is missing chunk {cid}")
+                indexed = self._vector_fingerprint(doc.vectors.get("embedding"))
+                if indexed != self._vector_fingerprint(self.file_chunks[cid].embedding):
+                    raise ValueError(f"zvec vector for chunk {cid} does not match the persisted chunk")
+        self.logger.info(
+            f"{self.name}: verified zvec collection contents: docs={doc_count}, "
+            f"elapsed={time.monotonic() - started_at:.3f}s",
+        )
 
     async def dump(self) -> None:
         """Persist chunks JSONL via the parent, then flush zvec and write the sidecar."""
@@ -298,28 +350,30 @@ class ZvecLocalFileStore(LocalFileStore):
             return
         assert self.file_graph is not None
 
-        # Snapshot pre-upsert chunk state so we can diff after the parent ran.
+        # Snapshot pre-upsert chunk ids so we can drop chunks the new revision removed.
         old_nodes = await self.file_graph.get_nodes([node.path for node, _ in files])
         old_ids_by_path = {n.path: set(n.chunk_ids) for n in old_nodes}
-        old_text_by_id = {
-            cid: chunk.text
-            for n in old_nodes
-            for cid in n.chunk_ids
-            if (chunk := self.file_chunks.get(cid)) is not None
-        }
         await super().upsert(files)
 
         if self._collection is None or self.embedding_store is None:
             return
-        self._sync_collection_after_upsert(files, old_ids_by_path, old_text_by_id)
+        self._sync_collection_after_upsert(files, old_ids_by_path)
 
     def _sync_collection_after_upsert(
         self,
         files: list[tuple[FileNode, list[FileChunk]]],
         old_ids_by_path: dict[str, set[str]],
-        old_text_by_id: dict[str, str],
     ) -> None:
-        """Apply add / delete deltas to the zvec collection natively."""
+        """Apply add / delete deltas to the zvec collection natively.
+
+        Every eligible chunk of the request is re-upserted instead of being
+        diffed against its previous text: the parent accepts a caller-provided
+        embedding, so unchanged text does not imply an unchanged vector. zvec
+        upsert is idempotent, so re-sending an identical vector is cheap and
+        keeps the collection consistent with ``self.file_chunks``. Chunks that
+        no longer carry a usable vector are removed so the indexed id set stays
+        exactly the set of embeddable chunks.
+        """
         to_delete: list[str] = []
         to_upsert: list[FileChunk] = []
         for node, _ in files:
@@ -328,9 +382,8 @@ class ZvecLocalFileStore(LocalFileStore):
             for cid in new_ids:
                 chunk = self.file_chunks.get(cid)
                 if chunk is None or not self._embedding_dim_matches(chunk.embedding):
+                    to_delete.append(cid)  # _delete_docs ignores ids that were never indexed
                     continue
-                if cid in self._indexed_ids and old_text_by_id.get(cid) == chunk.text:
-                    continue  # unchanged text -> vector already in the collection
                 to_upsert.append(chunk)
         self._delete_docs(to_delete)
         self._upsert_docs(to_upsert)
@@ -400,7 +453,7 @@ class ZvecLocalFileStore(LocalFileStore):
     def _query_collection(self, collection, vector: list[float], topk: int) -> list[tuple[str, float]]:
         """Run an ANN query and convert cosine distance to similarity (higher = closer)."""
         docs = collection.query(
-            self._zvec.VectorQuery(field_name="embedding", vector=vector),
+            self._zvec.Query(field_name="embedding", vector=vector),
             topk=max(1, topk),
         )
         return [(doc.id, 1.0 - float(doc.score)) for doc in docs]
