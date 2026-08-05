@@ -32,7 +32,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root for evaluation items — read from config.yaml (dataset.workspace_root)
-_WORKSPACE_ROOT_DEFAULT = "benchmark/memory_workspaces/longmemeval-s"
+_WORKSPACE_ROOT_DEFAULT = "benchmark/longmemeval/workspaces/longmemeval-s"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -426,6 +426,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
         # ── Phase 4: Ask question via agentic_answer job (ReAct agent) ──
         question = item["question"]
+        compress_session = bool(eval_config["evaluation"].get("compress_session", False))
         question_date_raw = item.get("question_date", "")
         question_dt = parse_haystack_date(question_date_raw) if question_date_raw else None
         query_time = to_iso(question_dt) if question_dt else ""
@@ -440,7 +441,12 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
                 app.context,
             ) as token_usages,
         ):
-            query_resp = await app.run_job("agentic_answer", query=question, query_time=query_time)
+            query_resp = await app.run_job(
+                "agentic_answer",
+                query=question,
+                query_time=query_time,
+                compress_session=compress_session,
+            )
         agentic_tool_counts = tool_counts
         agentic_token_usage = token_usages["bench"]
         agentic_response = (query_resp.answer or "").strip()
@@ -593,7 +599,7 @@ def main(
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/longmemeval")
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/longmemeval/results")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace root directory

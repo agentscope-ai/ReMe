@@ -3,8 +3,9 @@
 Source: https://huggingface.co/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2
 (downloaded via the hf-mirror.com mirror for reliability).
 
-The file ``longmemeval_s_reme_cleaned.json`` is saved under this directory using the same
-name as on the remote (``benchmark/longmemeval/config.yaml`` points to it).
+The file ``longmemeval_s_reme_cleaned.json`` is saved under ``dataset/`` next to this
+script using the same name as on the remote (``benchmark/longmemeval/config.yaml``
+points to it).
 
 Usage:
     python download.py           # download cleaned-S (skip if it already exists)
@@ -15,7 +16,7 @@ import sys
 import urllib.request
 
 BASE_URL = "https://hf-mirror.com/datasets/agentscope-ai/ReMe_longmemeval_clean_s_v2/resolve/main"
-TARGET_DIR = os.path.dirname(os.path.abspath(__file__))
+TARGET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dataset")
 
 # Files to download (saved with the same name as on the remote).
 FILES = [
@@ -59,6 +60,7 @@ def _progress(block_num, block_size, total_size):
 
 
 if __name__ == "__main__":
+    os.makedirs(TARGET_DIR, exist_ok=True)
     print(f"Downloading LongMemEval cleaned-S dataset to: {TARGET_DIR}\n")
     for fname in FILES:
         download_file(fname)

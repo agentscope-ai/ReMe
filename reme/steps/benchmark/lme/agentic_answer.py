@@ -11,6 +11,10 @@ class LmeAgenticAnswerStep(BaseAgenticAnswerStep):
     The agent uses the ``agent_wrapper`` component in ReAct mode, calling the
     ``search`` job tool to retrieve relevant memory chunks before generating
     a final answer.
+
+    Session-transcript compression in ``search_v2_step`` is controlled by the
+    ``compress_session`` flag in the runtime context (set by the benchmark
+    runner from ``evaluation.compress_session``); it is off by default.
     """
 
     TOOL_CONTEXT_PREFIX = "lme_agentic_answer"

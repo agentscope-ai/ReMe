@@ -61,17 +61,14 @@ datasets/
 # Claude Code skills (local only)
 .claude/skills/
 
-# Memory workspaces (keep dirs, ignore contents)
-benchmark/memory_workspaces/
+# Benchmark memory workspaces (created on demand by run.py via mkdir)
+benchmark/*/workspaces/
 
-# LongMemEval raw data (download via download.py)
-benchmark/datasets/longmemeval/longmemeval_s_reme_cleaned.json
+# Benchmark datasets (LongMemEval via download.py, BEAM via git clone)
+benchmark/*/dataset/
 
-# BEAM dataset (clone via git)
-benchmark/datasets/BEAM/
-
-# Benchmark outputs
-benchmark/results/
+# Benchmark outputs (created on demand by run.py via mkdir)
+benchmark/*/results/
 
 # integration tests outputs
 tests/integration/logs/

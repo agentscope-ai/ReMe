@@ -71,8 +71,11 @@ class AutoMemoryStep(BaseStep):
     def _session_path(self, session_id: str) -> Path:
         return self.file_store.workspace_path / self._session_dir() / "dialog" / f"{session_id}.jsonl"
 
+    def _session_source_path(self, session_id: str) -> str:
+        return f"{self._session_dir()}/dialog/{session_id}.jsonl"
+
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/dialog/{session_id}.jsonl]]"
+        return f"[[{self._session_source_path(session_id)}]]"
 
     def _daily_note_path(self, day: str, name: str) -> str:
         return f"{self.config_value('daily_dir')}/{day}/{name}.md"
@@ -240,6 +243,14 @@ class AutoMemoryStep(BaseStep):
         """
         return {}
 
+    def _format_history(self, messages: list[Msg]) -> str:
+        """Render the conversation history injected into the prompt.
+
+        Overridable hook: subclasses can annotate messages (e.g. with their
+        source line numbers in the session file) before rendering.
+        """
+        return format_history(messages)
+
     # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
@@ -308,7 +319,8 @@ class AutoMemoryStep(BaseStep):
             note=memory_hint or "(none)",
             note_path=note_path,
             session_id=session_id,
-            history=format_history(messages),
+            session_file=self._session_source_path(session_id),
+            history=self._format_history(messages),
         )
 
         self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")

@@ -8,6 +8,7 @@ import aiofiles
 import aiofiles.os
 
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
+from ...schema import FileChunk
 from ...utils import get_logger
 
 logger = get_logger(log_to_file=False)
@@ -214,3 +215,44 @@ def truncate_text_output(
     except Exception:
         logger.warning("truncate_text_output failed, returning original text", exc_info=True)
         return text
+
+
+def truncate_session_output(
+    text: str,
+    *,
+    start_line: int = 1,
+    total_lines: int = 0,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+    file_path: str | None = None,
+    encoding: str = "utf-8",
+) -> str:
+    """Render session jsonl lines then truncate by bytes preserving line integrity.
+
+    Each line of *text* is expected to be a serialized ``Msg`` JSON from a raw
+    session transcript (``*.jsonl``). Lines are first rendered via
+    :func:`~reme.steps.index._source_format.render_session_chunk_lines` — one
+    message per line as ``[speaker @ created_at] content`` with internal
+    newlines flattened — and then truncated with the same byte-budget logic
+    as :func:`truncate_text_output`.
+    """
+    if not text or max_bytes <= 0:
+        return text
+
+    # Render each jsonl line into a human-readable [speaker @ time] content line.
+    # Import locally to avoid a hard dependency from file_io on the index package
+    # at module load time; the import is safe (no circular dependency).
+    from ..index._source_format import render_session_chunk_lines
+
+    chunk = FileChunk(text=text)
+    rendered_lines = render_session_chunk_lines(chunk)
+    rendered_text = "\n".join(rendered_lines)
+
+    # Reuse the same byte-budget truncation as truncate_text_output.
+    return truncate_text_output(
+        rendered_text,
+        start_line=start_line,
+        total_lines=total_lines,
+        max_bytes=max_bytes,
+        file_path=file_path,
+        encoding=encoding,
+    )

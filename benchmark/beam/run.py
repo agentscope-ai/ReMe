@@ -33,7 +33,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root — read from config.yaml (dataset.workspace_root)
-_WORKSPACE_ROOT_DEFAULT = "benchmark/memory_workspaces/beam"
+_WORKSPACE_ROOT_DEFAULT = "benchmark/beam/workspaces/beam"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -247,7 +247,7 @@ def get_available_cases(beam_root: Path, chat_size: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Answer generation
 # ---------------------------------------------------------------------------
-async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
+async def answer_question_agentic(app, question: str, compress_session: bool = False) -> tuple[str, dict]:
     """Answer a probing question using ReMe's agentic_answer job.
 
     Returns (answer, metadata)
@@ -264,6 +264,7 @@ async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
         query_resp = await app.run_job(
             "agentic_answer",
             query=question,
+            compress_session=compress_session,
         )
     answer = (query_resp.answer or "").strip()
 
@@ -323,7 +324,8 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
-    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/datasets/BEAM")
+    compress_session = bool(eval_config["evaluation"].get("compress_session", False))
+    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/beam/dataset/BEAM")
     chat_path = beam_root / "chats" / chat_size / case_id / "chat.json"
     probing_questions_path = beam_root / "chats" / chat_size / case_id / "probing_questions" / "probing_questions.json"
 
@@ -384,12 +386,19 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     app = Application(**cfg)
     await app.start()
 
+    from reme.utils.evaluation_interface import check_agent_token_usage  # noqa: E402
+
+    _MEM_AGENT_NAMES = ("default", "bench")
     sessions_ingested = 0
+    memory_token_usage: dict[str, dict[str, int | None]] = {}
     try:
         if not eval_only:
-            # ── Phase 1: Ingest sessions ──────────────────────────────
+            # ── Phase 1: Ingest sessions (with token tracking) ─────────
             sessions = load_beam_chat(chat_path, chat_size, case_id)
             logger.info(f"[Case {case_id}] Loaded {len(sessions)} sessions from chat.json")
+
+            # Snapshot token counters before memory construction
+            mem_token_start = {name: check_agent_token_usage(name, app.context) for name in _MEM_AGENT_NAMES}
 
             for i, session in enumerate(sessions):
                 logger.info(
@@ -416,6 +425,17 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
             logger.info(f"[Case {case_id}] Running digest_update...")
             await app.run_job("digest_update")
             logger.info(f"[Case {case_id}] Ingestion complete.")
+
+            # Compute memory construction token deltas
+            for name in _MEM_AGENT_NAMES:
+                end_usage = check_agent_token_usage(name, app.context)
+                delta: dict[str, int | None] = {}
+                for metric in _TOKEN_USAGE_METRICS:
+                    current = end_usage[metric]
+                    start = mem_token_start[name][metric]
+                    delta[metric] = None if current is None else current - (start or 0)
+                memory_token_usage[name] = delta
+            logger.info(f"[Case {case_id}] Memory construction token usage: {memory_token_usage}")
 
         # ── Phase 2: Answer + Judge probing questions ───────────────
         with open(probing_questions_path, encoding="utf-8") as f:
@@ -452,6 +472,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     agentic_answer, agentic_meta = await answer_question_agentic(
                         app,
                         question,
+                        compress_session=compress_session,
                     )
                 except Exception as e:
                     logger.error(f"[Case {case_id}] Agentic answer failed: {e}")
@@ -494,6 +515,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         "sessions_ingested": sessions_ingested,
         "total_questions": len(all_question_results),
         "questions": all_question_results,
+        "memory_token_usage": memory_token_usage,
     }
 
 
@@ -561,7 +583,7 @@ def main(  # pylint: disable=too-many-statements
     setup_logging(log_level, reme_log_level, log_dir=log_dir_abs)
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
-    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/datasets/BEAM")
+    beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/beam/dataset/BEAM")
 
     # Determine which cases to run
     case_ids = dataset_cfg.get("case_ids") or []
@@ -593,7 +615,7 @@ def main(  # pylint: disable=too-many-statements
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/beam")
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/beam/results")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace root directory
@@ -697,10 +719,14 @@ def main(  # pylint: disable=too-many-statements
     all_binary_scores: list[float] = []
     all_tool_call_totals: list[int] = []
     all_token_usages: list[dict[str, int | None]] = []
+    all_memory_token_usages: list[dict[str, dict[str, int | None]]] = []
 
     for case_result in results:
         if "error" in case_result:
             continue
+        mem_usage = case_result.get("memory_token_usage", {})
+        if mem_usage:
+            all_memory_token_usages.append(mem_usage)
         for q in case_result.get("questions", []):
             judgment = q.get("agentic_judgment", {})
             score = judgment.get("llm_judge_score", 0.0)
@@ -722,6 +748,26 @@ def main(  # pylint: disable=too-many-statements
             metadata = q.get("agentic_metadata", {})
             all_tool_call_totals.append(sum(metadata.get("tool_counts", {}).values()))
             all_token_usages.append(metadata.get("token_usage", {}))
+
+    # Memory construction token usage summary
+    if all_memory_token_usages:
+        print("\n  ── Memory Construction Token Usage ──")
+        for agent_name in ("default", "bench"):
+            for metric in _TOKEN_USAGE_METRICS:
+                values = [
+                    usage[agent_name][metric]
+                    for usage in all_memory_token_usages
+                    if usage.get(agent_name, {}).get(metric) is not None
+                ]
+                if values:
+                    total = sum(values)
+                    mean, std = _mean_and_std(values)
+                    print(
+                        f"    {agent_name}/{metric}: total={total} mean={mean:.2f} std={std:.2f} ({len(values)} cases)",
+                    )
+                else:
+                    print(f"    {agent_name}/{metric}: unavailable")
+        print()
 
     print("\n  ── AGENTIC ──")
     if all_scores:
@@ -757,7 +803,14 @@ def main(  # pylint: disable=too-many-statements
             continue
         n_qs = case_result.get("total_questions", 0)
         n_sessions = case_result.get("sessions_ingested", 0)
+        mem_usage = case_result.get("memory_token_usage", {})
         parts = [f"Case {case_id}: {n_sessions} sessions, {n_qs} questions"]
+        # Append memory construction total tokens if available
+        for agent_name in ("default", "bench"):
+            agent_usage = mem_usage.get(agent_name, {})
+            total = agent_usage.get("total_tokens")
+            if total is not None:
+                parts.append(f"mem_{agent_name}_tokens={total}")
         questions = case_result.get("questions", [])
         scores = [q.get("agentic_judgment", {}).get("llm_judge_score", 0.0) for q in questions]
         if scores:

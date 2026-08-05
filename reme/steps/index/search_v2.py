@@ -2,7 +2,8 @@
 
 This is the local fork of the upstream search step. It uses
 :class:`_ToolContextDedupMixin` for subset-aware interval-merging dedup and
-:func:`format_chunks_answer` for session-aware chunk formatting with
+:func:`render_chunk_entries` / :func:`join_chunk_entries` for session-aware
+chunk formatting with
 :data:`ALL_RETURNED_MESSAGE` / :data:`NO_RESULTS_MESSAGE` notices.
 """
 
@@ -12,7 +13,8 @@ import os
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
-from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, is_session_path, join_chunk_entries
+from ._source_format import merge_session_chunk_intervals, render_chunk_entries
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
@@ -116,9 +118,12 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
-        strict_date_filter: bool = bool(
-            self.context.get("strict_date_filter") or self.kwargs.get("strict_date_filter", False),
-        )
+        # Injected value takes precedence over YAML kwargs; check existence
+        # (not truthiness) so an explicit False can disable a YAML-true flag.
+        _strict_date_filter = self.context.get("strict_date_filter")
+        if _strict_date_filter is None:
+            _strict_date_filter = self.kwargs.get("strict_date_filter", False)
+        strict_date_filter: bool = bool(_strict_date_filter)
 
         if not query:
             self.context.response.success = False
@@ -209,12 +214,15 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         )
 
         dialog_dir = self.config_value("dialog_dir")
-        self.context.response.answer = format_chunks_answer(
-            fused,
+        entries = render_chunk_entries(
+            merge_session_chunk_intervals(fused, dialog_dir),
             dialog_dir,
             score_fn=lambda c: self._format_scores(c.scores, hybrid),
             link_expansion=link_expansion,
         )
+        if self._session_compress_enabled():
+            await self._compress_session_entries(entries, query, dialog_dir)
+        self.context.response.answer = join_chunk_entries(entries)
         if not fused:
             self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [
@@ -230,3 +238,93 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         if dedup is not None:
             self.context.response.metadata["dedup"] = dedup
         return self.context.response
+
+    def _session_compress_enabled(self) -> bool:
+        """True when the injected ``_search._compress.session`` flag is truthy."""
+        assert self.context is not None
+        search_cfg: dict = self.context.get("_search") or {}
+        value = (search_cfg.get("_compress") or {}).get("session")
+        return value is True or str(value).strip().lower() == "true"
+
+    async def _compress_session_entries(self, entries: list[dict[str, str]], query: str, dialog_dir: str) -> None:
+        """Compress session-transcript entry bodies in place via the ``compressor`` job.
+
+        Only entries whose ``path`` points at a raw session transcript are
+        compressed; other entries and all non-``body`` fields stay untouched.
+        When ``_search.type`` is ``query-independent`` the compressor runs
+        without queries (generic compression); otherwise (``query-aware``,
+        the default) it receives the injected ``_search.queries`` plus the
+        current search query.
+
+        The compressor receives the already-rendered body (one message per
+        line) stripped. Its output is adopted whenever the compressor
+        succeeded and the result is not longer than the input; adopted bodies
+        get a leading ``compressed session chunk:`` marker so downstream
+        consumers can tell them from verbatim transcripts.
+
+        Degrades gracefully when the ``compressor`` job is missing from the
+        active config: the whole method becomes a no-op and a warning is
+        logged, so search behaves as if compression were disabled. This
+        avoids a hard ``Job compressor not found`` failure when a benchmark
+        config forgets to define the compressor job/component.
+
+        Per-entry exceptions raised by the compressor job (e.g. a temporary
+        LLM outage) are caught inside ``compress`` so they never propagate
+        through ``asyncio.gather``: the failing entry keeps its original body
+        while the remaining entries are still compressed, preserving already
+        retrieved search results.
+        """
+        assert self.context is not None
+        # Guard: when the compressor job is missing from the active config
+        # (e.g. a benchmark config that forgot to define it), degrade
+        # gracefully to the no-compression behavior instead of raising
+        # "Job compressor not found" from run_job below.
+        # Skipped when there is no app_context (e.g. unit tests that mock
+        # run_job directly), so the mock can still drive compression.
+        if self.app_context is not None and self.get_job("compressor") is None:
+            self.logger.warning(
+                f"[{self.name}] compressor job not found in config; "
+                "skipping session chunk compression (degrading to uncompressed behavior)",
+            )
+            return
+        search_cfg: dict = self.context.get("_search") or {}
+        query_type = str(search_cfg.get("type") or "query-aware").strip().lower()
+        if query_type == "query-independent":
+            queries: list[str] = []
+        else:
+            queries = [str(q).strip() for q in (search_cfg.get("queries") or []) if str(q).strip()]
+            if query and query not in queries:
+                queries.append(query)
+
+        async def compress(entry: dict[str, str]) -> None:
+            path = entry.get("path", "")
+            body = (entry.get("body", "") or "").strip()
+            if not body:
+                return
+            try:
+                response = await self.run_job("compressor", text=body, queries=queries)
+            except Exception as exc:  # pylint: disable=broad-except
+                self.logger.warning(
+                    f"[{self.name}] session body compression raised path={path!r} " f"error={exc!r}; keeping original",
+                )
+                return
+            compressed = str(response.answer or "").strip()
+            if not response.success or not compressed:
+                self.logger.warning(
+                    f"[{self.name}] session body compression failed path={path!r} "
+                    f"success={response.success} answer={compressed[:100]!r}; keeping original",
+                )
+                return
+            if len(compressed) > len(body):
+                self.logger.info(
+                    f"[{self.name}] compressed body longer than original "
+                    f"({len(compressed)} > {len(body)}) path={path!r}; keeping original",
+                )
+                return
+            entry["body"] = f"compressed session chunk:\n{compressed}"
+
+        targets = [e for e in entries if is_session_path(e.get("path", ""), dialog_dir)]
+        if not targets:
+            return
+        self.logger.info(f"[{self.name}] compressing {len(targets)} session entries with {len(queries)} queries")
+        await asyncio.gather(*(compress(entry) for entry in targets))

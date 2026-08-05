@@ -2,11 +2,13 @@
 
 import asyncio
 
+from agentscope.message import Msg
+
 from reme.components.file_store import BaseFileStore
 from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
-from reme.schema import FileChunk, FileLink, FileNode
+from reme.schema import FileChunk, FileLink, FileNode, Response
 from reme.steps.index import (
     AddDraftStep,
     Bm25SearchStep,
@@ -982,5 +984,278 @@ def test_search_step_non_strict_date_filter_not_in_search_filter():
 
         for _, _, _, sf in store.calls:
             assert "strict_date_filter" not in sf
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_compresses_session_bodies_when_injected_flag_set():
+    """With ``_search._compress.session`` truthy, session bodies are replaced by the
+    compressor job output while headers and non-session entries stay untouched."""
+
+    async def run():
+        session = _chunk("s1", "session/dialog/s1.jsonl", "hello world dialog text", "vector", 0.9, line=2)
+        note = _chunk("n1", "daily/a.md", "note text", "vector", 0.8)
+        store = FakeSearchStore(vector_results=[session, note])
+        step = SearchV2Step(file_store=store, expand_links=False)
+        calls: list[dict] = []
+
+        async def fake_run_job(name, /, **kwargs):
+            calls.append({"name": name, **kwargs})
+            return Response(success=True, answer="compressed!")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(
+            query="alpha",
+            limit=5,
+            _search={"_compress": {"session": "true"}, "queries": ["orig question"]},
+        )
+
+        resp = await step(ctx)
+
+        assert resp.success is True
+        assert "compressed!" in resp.answer
+        assert "hello world dialog text" not in resp.answer
+        assert "note text" in resp.answer
+        assert "session/dialog/s1.jsonl:2-2" in resp.answer
+        assert calls == [
+            {"name": "compressor", "text": "hello world dialog text", "queries": ["orig question", "alpha"]},
+        ]
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_query_independent_compression_passes_no_queries():
+    """With ``_search.type`` = ``query-independent`` the compressor receives no queries;
+    any other (or missing) type keeps the query-aware behavior."""
+
+    async def run():
+        session = _chunk("s1", "session/dialog/s1.jsonl", "hello world dialog text", "vector", 0.9)
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+        calls: list[dict] = []
+
+        async def fake_run_job(name, /, **kwargs):
+            calls.append({"name": name, **kwargs})
+            return Response(success=True, answer="compressed!")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(
+            query="alpha",
+            limit=5,
+            _search={"_compress": {"session": "true"}, "queries": ["orig question"], "type": "query-independent"},
+        )
+
+        resp = await step(ctx)
+
+        assert "compressed!" in resp.answer
+        assert calls == [{"name": "compressor", "text": "hello world dialog text", "queries": []}]
+
+        # Explicit query-aware type behaves exactly like the default.
+        calls.clear()
+        ctx = RuntimeContext(
+            query="alpha",
+            limit=5,
+            _search={"_compress": {"session": "true"}, "queries": ["orig question"], "type": "query-aware"},
+        )
+
+        await step(ctx)
+
+        assert calls == [
+            {"name": "compressor", "text": "hello world dialog text", "queries": ["orig question", "alpha"]},
+        ]
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_keeps_original_body_when_compressed_is_longer():
+    """A compressed body longer than the original is rejected in favor of the original."""
+
+    async def run():
+        session = _chunk("s1", "session/dialog/s1.jsonl", "short", "vector", 0.9)
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(name, /, **kwargs):  # pylint: disable=unused-argument
+            return Response(success=True, answer="a much longer compressed output")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": True}})
+
+        resp = await step(ctx)
+
+        assert "short" in resp.answer
+        assert "much longer" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_compression_strips_input_and_adds_marker():
+    """The compressor receives the stripped rendered body; adopted output is
+    prefixed with the ``compressed session chunk:`` marker only (no line numbers)."""
+
+    async def run():
+        session = FileChunk(
+            id="s1",
+            path="session/dialog/s1.jsonl",
+            text="first message line\nsecond message line",
+            start_line=4,
+            end_line=5,
+            scores={"vector": 0.9, "score": 0.9},
+        )
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+        calls: list[dict] = []
+
+        async def fake_run_job(name, /, **kwargs):
+            calls.append({"name": name, **kwargs})
+            return Response(success=True, answer="first compact\nsecond compact\n")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        assert calls[0]["text"] == "first message line\nsecond message line"
+        assert "compressed session chunk:\nfirst compact\nsecond compact" in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_compression_input_is_line_aligned_with_session_jsonl():
+    """Serialized Msg jsonl lines render one message per line (newlines flattened),
+    so compressor input line ``i`` maps to session file line ``start_line + i``."""
+
+    async def run():
+        m1 = Msg(name="user", role="user", content=[{"type": "text", "text": "line one\nline two"}])
+        m2 = Msg(name="assistant", role="assistant", content=[{"type": "text", "text": "long answer"}])
+        session = FileChunk(
+            id="s1",
+            path="session/dialog/s1.jsonl",
+            text=m1.model_dump_json() + "\n" + m2.model_dump_json(),
+            start_line=7,
+            end_line=8,
+            scores={"vector": 0.9, "score": 0.9},
+        )
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+        calls: list[dict] = []
+
+        async def fake_run_job(name, /, **kwargs):
+            calls.append({"name": name, **kwargs})
+            return Response(success=True, answer="[user @ t] u\n[assistant @ t] a")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        sent_lines = calls[0]["text"].splitlines()
+        assert len(sent_lines) == 2
+        assert sent_lines[0].startswith("[user @") and "line one line two" in sent_lines[0]
+        assert sent_lines[1].startswith("[assistant @") and "long answer" in sent_lines[1]
+        assert "compressed session chunk:\n[user @ t] u\n[assistant @ t] a" in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_adopts_shorter_output_regardless_of_line_count():
+    """A shorter compressor output is adopted even when its line count differs."""
+
+    async def run():
+        session = FileChunk(
+            id="s1",
+            path="session/dialog/s1.jsonl",
+            text="first message line\nsecond message line",
+            start_line=4,
+            end_line=5,
+            scores={"vector": 0.9, "score": 0.9},
+        )
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(name, /, **kwargs):  # pylint: disable=unused-argument
+            return Response(success=True, answer="merged into one line")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        assert "compressed session chunk:\nmerged into one line" in resp.answer
+        assert "first message line" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_skips_compression_without_injected_flag():
+    """Without the injected ``_search`` payload the compressor job is never invoked."""
+
+    async def run():
+        session = _chunk("s1", "session/dialog/s1.jsonl", "dialog text", "vector", 0.9)
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(name, /, **kwargs):  # pylint: disable=unused-argument
+            raise AssertionError("compressor job must not be called")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha")
+
+        resp = await step(ctx)
+
+        assert "dialog text" in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_keeps_original_body_when_compression_fails():
+    """A failed compressor response (success=False) never replaces the body."""
+
+    async def run():
+        session = _chunk("s1", "session/dialog/s1.jsonl", "dialog text", "vector", 0.9)
+        store = FakeSearchStore(vector_results=[session])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(name, /, **kwargs):  # pylint: disable=unused-argument
+            return Response(success=False, answer="boom")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        assert "dialog text" in resp.answer
+        assert "boom" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_keeps_original_body_when_compression_raises():
+    """A compressor job that raises (e.g. temporary LLM outage) keeps the original
+    body for that entry while other entries are still compressed; the search itself
+    never fails."""
+
+    async def run():
+        failing = _chunk("s1", "session/dialog/s1.jsonl", "dialog text one", "vector", 0.9, line=2)
+        ok = _chunk("s2", "session/dialog/s2.jsonl", "dialog text two", "vector", 0.8, line=1)
+        store = FakeSearchStore(vector_results=[failing, ok])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(_name, /, **kwargs):
+            if "one" in kwargs.get("text", ""):
+                raise RuntimeError("temporary LLM outage")
+            return Response(success=True, answer="compressed!")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        assert resp.success is True
+        # The failing entry keeps its original body.
+        assert "dialog text one" in resp.answer
+        # The healthy entry is still compressed.
+        assert "compressed!" in resp.answer
+        assert "dialog text two" not in resp.answer
 
     asyncio.run(run())

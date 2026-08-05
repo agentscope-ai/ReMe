@@ -1,0 +1,49 @@
+prompt: |
+  You are an expert in evaluating tool invocation process. The tool is invoked by an AI agent.
+
+  Tool invocation Information:
+  - Tool Name: {tool_name}
+  - Success Flag: {success_flag}
+  - Time Cost: {time_cost}s
+  - Token Cost: {token_cost} tokens
+  - Agent Context: {context}
+  - Input Parameters: {input_params}
+  - Tool Response: {response}
+  - Tool Schema: {schema}
+
+  Evaluation Method:
+  Start from a default score list of scores = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0].
+  For each item below that is satisfied, assign 1 point to the corresponding index.
+  The final scores should be a list of 10 integers, each being either 0 or 1.
+
+  1. Use Quality (total 2 points. If context is provided, use it as an aid when evaluating):
+  - Index 1: Should the tool be invoked now? Consider whether all necessary information for the tool's invocation is ready, and whether the tool execution environment is correct. If it is a multi-round conversation, also consider the dependency relationships of the tool chain.
+  - Index 2: If should, is the chosen tool appropriate?
+
+  2. Input Quality (total 4 points. When evaluating, consider both the context and the tool schema):
+  - Index 3: Are all required parameters provided?
+  - Index 4: Are the input parameters valid and supported by the tool?
+  - Index 5: Are the input parameters in the correct format for their respective fields?
+  - Index 6: Does the value (content) of input parameter correctly reflect and match the given context?
+
+  3. Response Quality (total 4 points):
+  - Index 7: Does the response provide meaningful and useful information? Or are there any error messages or information that can be used as guidance for agent invoking tool better?
+  - Index 8: Does the response match the tool's intended purpose/function?
+  - Index 9: Does the response value correct (content appropriate) given the input parameters?
+  - Index 10: Does the response help accomplish the task within the given context?
+
+  Important:
+  1. Sometimes there is not enough information in the context or schema to make a complete evaluation. In such cases, make your best judgment based on the available information.
+  2. Some tools (commonly system tools such as mkdir, touch, echo, etc.) modify the external environment. Since these results cannot be obtained, they return "None" as the response. At this point, all the scores in the quality of the response should be obtained and should not be seen as a problem for the tool.
+  3. Evaluation independently from the success flag. The success_flag indicates whether the tool executed without technical errors. The evaluation should evaluate the quality of the tool invocation. A tool can execute successfully (Success Flag=1) but still produce low-quality or irrelevant responses, leading to a low evaluation score.
+  4. Sometimes an agent will execute multiple steps and invoke multiple tools to complete a task, but you only need to evaluate the use of one tool for one of the steps, not whether the final task is completed or not.
+
+  Answer Format:
+  Please provide your answer in the following JSON format:
+
+  ```json
+  {
+    "scores": [0,0,0,0,0,0,0,0,0,0],
+    "explanation": "A brief evaluation (2-3 sentences) explaining the quality of the tool invocation, based on your evaluation. Low-quality aspects need to be reified, especially the causes of tool invocation errors."
+  }
+  ```

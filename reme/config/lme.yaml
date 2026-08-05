@@ -163,6 +163,28 @@ jobs:
     steps:
       - backend: lme_auto_memory_step
 
+  # ── Text compression (direct LLM call, no agent) ──
+  compressor:
+    backend: base
+    description: "Compress text via a direct LLM call, optionally guided by queries as relevance filter"
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "the text to compress"
+        queries:
+          type: array
+          description: "optional list of queries; content potentially relevant to any query is kept, content certainly irrelevant to all queries may be dropped"
+          items:
+            type: string
+          default: []
+      required:
+        - text
+    steps:
+      - backend: compressor_step
+        as_llm: compressor
+
   # ── Reindex (full rebuild) ──
   reindex:
     backend: base
@@ -216,7 +238,7 @@ jobs:
       - backend: search_v2_step
         vector_weight: 0.7
         candidate_multiplier: 5.0
-        expand_links: true
+        expand_links: false
         max_links_per_direction: 10
 
   add_draft:
@@ -508,6 +530,19 @@ components:
       parameters:
         max_tokens: 65536
         thinking_enable: true
+    compressor:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.6-flash}
+      stream: false
+      context_size: 200000
+      max_retries: 5
+      retry_delay: 5.0
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
+        thinking_enable: false
 
   agent_wrapper:
     default:
