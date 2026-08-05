@@ -1,0 +1,45 @@
+# Tool Memory flow / op excerpt from ReMe 0.1.x–0.3.x style config (ExpG).
+# Not compatible with current ReMe main (0.4+, Memory-as-File) without adaptation.
+
+flow:
+  retrieve_tool_memory:
+    flow_content: retrieve_tool_memory_op
+    description: "Retrieves tool memories from the vector database based on tool names to provide tool usage patterns and best practices"
+    input_schema:
+      tool_names:
+        type: string
+        description: "Comma-separated tool names (e.g., 'tool_name1,tool_name2')"
+        required: true
+
+  add_tool_call_result:
+    flow_content: parse_tool_call_result_op >> update_vector_store_op
+    description: "Evaluates and adds tool call results to the tool memory database, creating new memory or updating existing memory for the specified tool"
+    input_schema:
+      tool_call_results:
+        type: array
+        description: "List of tool call result objects, each containing: tool_name, input, output, success, time_cost, token_cost, create_time"
+        required: true
+
+  summary_tool_memory:
+    flow_content: summary_tool_memory_op >> update_vector_store_op
+    description: "Analyzes tool call history and generates comprehensive usage patterns, best practices, and recommendations for the specified tools"
+    input_schema:
+      tool_names:
+        type: string
+        description: "Comma-separated tool names to summarize (e.g., 'tool_name1,tool_name2')"
+        required: true
+
+op:
+  parse_tool_call_result_op:
+    backend: parse_tool_call_result_op
+    llm: default
+    params:
+      max_history_tool_call_cnt: 100
+      evaluation_sleep_interval: 1.0
+
+  summary_tool_memory_op:
+    backend: summary_tool_memory_op
+    llm: default
+    params:
+      data_from: '2025-09-10 10:56:58'
+      summary_sleep_interval: 1.0

@@ -52,6 +52,9 @@ Agent 能够可靠召回。
 
 ## 📰 新闻
 
+- [2026.08] - 基于 ReMe 对智能体工具使用的执行增强工作见
+  [ExpG (arXiv:2608.03403)](https://arxiv.org/abs/2608.03403)；结果归档于
+  [`benchmark/toolmemory`](benchmark/toolmemory)。
 - [2026.07] - 新增可选 Cookbook 工作流：[每日论文](cookbook/daily_paper/README_ZH.md)用于论文发现与解析，
   [Auto Fin](cookbook/auto-fin/README_ZH.md)用于结合财联社新闻和历史行情开展文件化 ETF 事件研究。
 - [2026.07] -
