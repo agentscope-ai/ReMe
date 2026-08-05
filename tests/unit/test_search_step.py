@@ -1241,7 +1241,7 @@ def test_search_v2_step_keeps_original_body_when_compression_raises():
         store = FakeSearchStore(vector_results=[failing, ok])
         step = SearchV2Step(file_store=store, expand_links=False)
 
-        async def fake_run_job(name, /, **kwargs):
+        async def fake_run_job(_name, /, **kwargs):
             if "one" in kwargs.get("text", ""):
                 raise RuntimeError("temporary LLM outage")
             return Response(success=True, answer="compressed!")
