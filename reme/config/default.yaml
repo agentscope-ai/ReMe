@@ -1,5 +1,3 @@
-workspace_dir: ~/.copaw/workspaces/default/
-
 service:
   backend: http
 
