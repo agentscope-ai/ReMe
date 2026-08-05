@@ -1,6 +1,8 @@
 """common steps"""
 
 from .add import AddStep
+from .app_config import AppConfigStep
+from .chat import ChatStep
 from .demo import DemoEchoStep1, DemoEchoStep2
 from .health_check import HealthCheckStep
 from .help import HelpStep
@@ -14,6 +16,8 @@ from .version import VersionStep
 
 __all__ = [
     "AddStep",
+    "AppConfigStep",
+    "ChatStep",
     "DemoEchoStep1",
     "DemoEchoStep2",
     "HealthCheckStep",

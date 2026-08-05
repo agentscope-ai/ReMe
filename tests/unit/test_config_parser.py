@@ -49,6 +49,24 @@ def test_default_config_registers_daily_write_job():
     assert job["parameters"]["required"] == ["name", "description", "session_id", "content"]
 
 
+def test_default_config_registers_app_config_job():
+    """The default service exposes the effective application config."""
+    job = _load_config("default.yaml")["jobs"]["app_config"]
+
+    assert job["backend"] == "base"
+    assert job["steps"] == [{"backend": "app_config_step"}]
+
+
+def test_default_config_registers_workspace_web_jobs():
+    """The local web client has stable save and streaming chat actions."""
+    jobs = _load_config("default.yaml")["jobs"]
+
+    assert jobs["save"]["steps"] == [{"backend": "save_step"}]
+    assert jobs["load"]["steps"] == [{"backend": "load_step", "max_bytes": 5242880}]
+    assert jobs["chat"]["backend"] == "stream"
+    assert jobs["chat"]["steps"] == [{"backend": "chat_step", "agent_wrapper": "default"}]
+
+
 def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     """Markdown frontmatter-to-chunk metadata is disabled by default for compatibility."""
     cfg = _load_config("default.yaml")
