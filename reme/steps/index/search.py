@@ -158,12 +158,9 @@ class SearchStep(BaseStep):
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
-        # Injected value takes precedence over YAML kwargs; check existence
-        # (not truthiness) so an explicit False can disable a YAML-true flag.
-        _strict_date_filter = self.context.get("strict_date_filter")
-        if _strict_date_filter is None:
-            _strict_date_filter = self.kwargs.get("strict_date_filter", False)
-        strict_date_filter: bool = bool(_strict_date_filter)
+        strict_date_filter: bool = bool(
+            self.context.get("strict_date_filter") or self.kwargs.get("strict_date_filter", False),
+        )
 
         if not query:
             self.context.response.success = False
