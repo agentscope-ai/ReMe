@@ -81,6 +81,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "*" = ["py.typed", "**/*.yaml", "**/*.json"]
+"reme" = ["web/**"]
 "reme.components.tokenizer" = ["stopwords"]
 
 [tool.setuptools.dynamic]

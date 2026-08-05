@@ -121,6 +121,9 @@ reme start service.port=8181
 
 启动后可以检查服务状态；如果使用了自定义端口，请将下面 URL 中的 `2333` 替换为对应端口。
 
+如果安装包中包含 Web 构建产物，HTTP 服务还会在 <http://127.0.0.1:2333/> 提供 ReMe Workspace。可以设置
+`service.web_enabled=false` 关闭，或通过 `service.web_static_dir` / `REME_WEB_STATIC_DIR` 指定自定义静态目录。
+
 ```bash
 reme version
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'

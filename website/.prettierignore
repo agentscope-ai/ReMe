@@ -2,6 +2,7 @@
 .next/
 .vinext/
 dist/
+dist-static/
 out/
 
 # Dependencies

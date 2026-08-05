@@ -128,6 +128,10 @@ reme start service.port=8181
 
 After startup, check the service status. If you use a custom port, replace `2333` in the URL below with that port.
 
+The HTTP service also serves the bundled ReMe Workspace at <http://127.0.0.1:2333/> when the web build is available.
+Set `service.web_enabled=false` to disable it, or use `service.web_static_dir` / `REME_WEB_STATIC_DIR` to provide a custom
+static build.
+
 ```bash
 reme version
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'

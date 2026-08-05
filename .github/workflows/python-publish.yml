@@ -23,6 +23,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: website/package-lock.json
+    - name: Build web workspace
+      working-directory: website
+      run: |
+        npm ci
+        npm run build:static
+        rm -rf ../reme/web
+        mkdir -p ../reme/web
+        cp -R dist-static/. ../reme/web/
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -38,6 +52,7 @@ jobs:
         WHEEL="$(ls dist/*.whl)"
         pip install "${WHEEL}[core]"
         python -c "import reme; print(reme.__version__)"
+        python -c "from importlib.resources import files; assert (files('reme') / 'web' / 'index.html').is_file()"
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:

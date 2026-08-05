@@ -3,19 +3,21 @@
 import asyncio
 import warnings
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from .base_service import BaseService
 from ..component_registry import R
 from ..job import BaseJob, StreamJob
 from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ...schema import Request, Response
-from ...utils import execute_stream_task
+from ...utils import execute_stream_task, resolve_web_static_dir
 
 if TYPE_CHECKING:
     from ...application import Application
@@ -33,10 +35,19 @@ _WEBSOCKET_DEPRECATION_PATTERNS = (
 class HttpService(BaseService):
     """Map non-stream jobs to JSON POST endpoints and StreamJobs to SSE endpoints."""
 
-    def __init__(self, host: str = REME_DEFAULT_HOST, port: int = REME_DEFAULT_PORT, **kwargs):
+    def __init__(
+        self,
+        host: str = REME_DEFAULT_HOST,
+        port: int = REME_DEFAULT_PORT,
+        web_enabled: bool = True,
+        web_static_dir: str | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.host: str = host
         self.port: int = port
+        self.web_enabled = web_enabled
+        self.web_static_dir = web_static_dir
 
     # ----- BaseService contract ------------------------------------------
 
@@ -68,6 +79,40 @@ class HttpService(BaseService):
         for pattern in _WEBSOCKET_DEPRECATION_PATTERNS:
             warnings.filterwarnings("ignore", category=DeprecationWarning, message=pattern)
         uvicorn.run(self.service, host=self.host, port=self.port, **self.kwargs)
+
+    def finalize_service(self, app: "Application") -> None:
+        """Serve the optional workspace UI after all job endpoints are registered."""
+        del app
+        if not self.web_enabled:
+            return
+
+        static_dir = resolve_web_static_dir(self.web_static_dir)
+        if static_dir is None:
+            self.logger.info("Web workspace is unavailable; no static build was found")
+            return
+
+        index_file = static_dir / "index.html"
+        assets_dir = static_dir / "assets"
+        if assets_dir.is_dir():
+            self.service.mount(
+                "/assets",
+                StaticFiles(directory=str(assets_dir)),
+                name="web-assets",
+            )
+
+        no_cache_headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+        @self.service.get("/{full_path:path}", include_in_schema=False)
+        async def workspace_spa(full_path: str):
+            if full_path in {"docs", "redoc", "openapi.json"}:
+                raise HTTPException(status_code=404, detail="Not Found")
+
+            if full_path and ".." not in full_path and not Path(full_path).is_absolute():
+                static_file = static_dir / full_path
+                if static_file.is_file():
+                    return FileResponse(static_file)
+
+            return FileResponse(index_file, headers=no_cache_headers)
 
     # ----- Endpoint factories --------------------------------------------
 
