@@ -34,7 +34,7 @@ class BaseAgenticAnswerStep(BaseStep):
     MAX_ITERATION = 10
     TOOL_CONTEXT_PREFIX: str = "content_agentic_answer"
     JOB_TOOLS: list[str] = ["search", "add_draft", "read_all_draft", "read"]
-    INJECTED_JOB_KWARGS: dict = {}
+    INJECTED_JOB_KWARGS: dict = {"read_step_format_session": True}
 
     def _injected_job_kwargs(self, query: str) -> dict:  # pylint: disable=unused-argument
         """Server-owned kwargs injected into every job tool call.

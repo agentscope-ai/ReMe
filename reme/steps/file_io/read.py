@@ -2,9 +2,10 @@
 
 from pathlib import Path
 
-from ._file_io import read_file_lines_safe, read_file_safe, truncate_text_output
+from ._file_io import read_file_lines_safe, read_file_safe, truncate_session_output, truncate_text_output
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..base_step import BaseStep
+from ..index._source_format import is_session_path
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
 from ...utils import expand_links, render_expansion_lines
@@ -21,6 +22,14 @@ class ReadStep(BaseStep):
             neighbors (out/in link targets) with name/description meta,
             fetched via the file_store. Same rendering as SearchStep.
         max_neighbors_per_direction (int, default 10): cap per direction.
+        read_step_format_session (bool, default False): when true and the
+            resolved path is a raw session transcript (``*.jsonl`` under the
+            dialog dir), render each jsonl line as
+            ``[speaker @ created_at] content`` before truncation via
+            :func:`truncate_session_output`. Non-session files fall back to
+            the standard :func:`truncate_text_output` path. Injected at
+            runtime via ``injected_job_kwargs`` (takes precedence) or set in
+            the YAML ``steps`` config as a fallback.
 
     Permission: honors the request-scoped ``_allowed_paths`` constraint
     injected by the server into the RuntimeContext.
@@ -93,6 +102,29 @@ class ReadStep(BaseStep):
             self._fail(f"read failed: {e}", path=str(target))
             return None
 
+    def _truncate_with_session_format(self, excerpt: str, target: Path, start_line: int, total: int) -> str:
+        """Truncate *excerpt* using session-aware rendering when *target* is a session file.
+
+        Falls back to :func:`truncate_text_output` when the path is not under
+        the workspace or is not a raw session transcript.
+        """
+        try:
+            rel_path = str(target.relative_to(self.workspace_path))
+        except ValueError:
+            self.logger.info(f"[{self.name}] skip session format: path outside workspace_path path={target}")
+            return truncate_text_output(excerpt, start_line=start_line, total_lines=total, file_path=str(target))
+
+        dialog_dir = self.config_value("dialog_dir")
+        if not is_session_path(rel_path, dialog_dir):
+            return truncate_text_output(excerpt, start_line=start_line, total_lines=total, file_path=str(target))
+
+        return truncate_session_output(
+            excerpt,
+            start_line=start_line,
+            total_lines=total,
+            file_path=str(target),
+        )
+
     # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
@@ -100,6 +132,10 @@ class ReadStep(BaseStep):
         start_line, end_line = self.context.get("start_line"), self.context.get("end_line")
         with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
         max_neighbors_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
+        format_session: bool = bool(
+            self.context.get("read_step_format_session")
+            or self.kwargs.get("read_step_format_session", False),
+        )
 
         # Validate inputs and target before touching the filesystem twice.
         target = self._resolve_target(raw)
@@ -152,7 +188,10 @@ class ReadStep(BaseStep):
                 return None
             e = min(total, requested_end if requested_end is not None else total)
 
-        text = truncate_text_output(excerpt, start_line=s, total_lines=total, file_path=str(target))
+        if format_session:
+            text = self._truncate_with_session_format(excerpt, target, s, total)
+        else:
+            text = truncate_text_output(excerpt, start_line=s, total_lines=total, file_path=str(target))
 
         self.context.response.success = True
         self.context.response.answer = text
