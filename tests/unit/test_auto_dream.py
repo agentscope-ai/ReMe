@@ -11,7 +11,7 @@ from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
-from reme.schema import DreamState
+from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.proactive import ProactiveStep
@@ -94,6 +94,48 @@ def test_scan_day_files_includes_nested_md_and_excludes_interests():
         ]
 
 
+def test_dream_extract_matches_posix_catalog_paths(tmp_path):
+    """Unchanged nested files retain their POSIX catalog entries on every platform."""
+
+    class Catalog(_Catalog):
+        """Catalog seeded with POSIX paths and recording deletions."""
+
+        def __init__(self, nodes):
+            super().__init__()
+            self.nodes = nodes
+            self.deleted = []
+
+        async def delete(self, path):
+            self.deleted.extend(path if isinstance(path, list) else [path])
+
+        async def get_nodes(self, paths=None):
+            return self.nodes
+
+    async def run():
+        note = _touch(tmp_path / "daily" / "2026-05-28" / "nested" / "session.md")
+        rel_path = note.relative_to(tmp_path).as_posix()
+        catalog = Catalog([FileNode(path=rel_path, st_mtime=note.stat().st_mtime)])
+        step = DreamExtractStep(scan_days=1, app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+        with patch("reme.steps.evolve.dream.extract.refresh_day_index", return_value={}):
+            response = await step(
+                RuntimeContext(
+                    date="2026-05-28",
+                    file_catalog=catalog,
+                    file_store=_FileStore(tmp_path),
+                ),
+            )
+
+        dream = response.metadata["dream"]
+        assert response.success is True
+        assert dream["unchanged_paths"] == [rel_path]
+        assert dream["changed_paths"] == []
+        assert dream["deleted_paths"] == []
+        assert not catalog.deleted
+
+    asyncio.run(run())
+
+
 def test_recent_dates_includes_anchor_and_previous_days():
     """Recent date window is inclusive and chronological."""
     assert recent_dates("2026-05-28", 3) == ["2026-05-26", "2026-05-27", "2026-05-28"]
@@ -152,7 +194,7 @@ def test_extract_without_llm_marks_changed_paths_failed(tmp_path):
 
         dream = response.metadata["dream"]
         assert response.success is False
-        assert str(note.relative_to(tmp_path)) in dream["changed_paths"]
+        assert note.relative_to(tmp_path).as_posix() in dream["changed_paths"]
         assert dream["failed_paths"] == dream["changed_paths"]
 
     asyncio.run(run())
@@ -299,9 +341,9 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
                 dates=["2026-05-26", "2026-05-27", "2026-05-28"],
                 workspace=str(workspace),
                 daily_dir="daily",
-                changed_paths=[str(ok.relative_to(workspace)), str(failed.relative_to(workspace))],
-                failed_paths=[str(failed.relative_to(workspace))],
-                interests_paths=[str(interests.relative_to(workspace))],
+                changed_paths=[ok.relative_to(workspace).as_posix(), failed.relative_to(workspace).as_posix()],
+                failed_paths=[failed.relative_to(workspace).as_posix()],
+                interests_paths=[interests.relative_to(workspace).as_posix()],
                 integrate_results=[
                     {
                         "action": "CREATE",
@@ -320,10 +362,10 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
             assert "topics:" not in resp.answer
             assert "Changes:" in resp.answer
             assert "- [digest/procedure/example.md][CREATE]: Created a concise procedure node." in resp.answer
-            assert str(ok.relative_to(workspace)) in upserted
-            assert str(failed.relative_to(workspace)) not in upserted
-            assert str(interests.relative_to(workspace)) in upserted
-            assert str(day_index.relative_to(workspace)) in upserted
+            assert ok.relative_to(workspace).as_posix() in upserted
+            assert failed.relative_to(workspace).as_posix() not in upserted
+            assert interests.relative_to(workspace).as_posix() in upserted
+            assert day_index.relative_to(workspace).as_posix() in upserted
             assert catalog.dumps == 1
 
     asyncio.run(run())
