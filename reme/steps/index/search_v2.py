@@ -258,8 +258,26 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         succeeded and the result is not longer than the input; adopted bodies
         get a leading ``compressed session chunk:`` marker so downstream
         consumers can tell them from verbatim transcripts.
+
+        Degrades gracefully when the ``compressor`` job is missing from the
+        active config: the whole method becomes a no-op and a warning is
+        logged, so search behaves as if compression were disabled. This
+        avoids a hard ``Job compressor not found`` failure when a benchmark
+        config forgets to define the compressor job/component.
         """
         assert self.context is not None
+        # Guard: when the compressor job is missing from the active config
+        # (e.g. a benchmark config that forgot to define it), degrade
+        # gracefully to the no-compression behavior instead of raising
+        # "Job compressor not found" from run_job below.
+        # Skipped when there is no app_context (e.g. unit tests that mock
+        # run_job directly), so the mock can still drive compression.
+        if self.app_context is not None and self.get_job("compressor") is None:
+            self.logger.warning(
+                f"[{self.name}] compressor job not found in config; "
+                "skipping session chunk compression (degrading to uncompressed behavior)",
+            )
+            return
         search_cfg: dict = self.context.get("_search") or {}
         query_type = str(search_cfg.get("type") or "query-aware").strip().lower()
         if query_type == "query-independent":

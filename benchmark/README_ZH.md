@@ -48,6 +48,7 @@ python download.py            # 保存为 dataset/longmemeval_s_reme_cleaned.jso
 **BEAM**（公开仓库，clone 到 `benchmark/beam/dataset/` 下）：
 
 ```bash
+mkdir -p benchmark/beam/dataset
 cd benchmark/beam/dataset
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```

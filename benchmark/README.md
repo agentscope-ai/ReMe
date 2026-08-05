@@ -52,6 +52,7 @@ python download.py            # saves dataset/longmemeval_s_reme_cleaned.json; s
 **BEAM** (public repository, cloned into `benchmark/beam/dataset/`):
 
 ```bash
+mkdir -p benchmark/beam/dataset
 cd benchmark/beam/dataset
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
