@@ -68,7 +68,7 @@ class ListStep(BaseStep):
         out: list[str] = []
         for entry in files:
             try:
-                out.append(str(entry.relative_to(workspace_dir)))
+                out.append(entry.relative_to(workspace_dir).as_posix())
             except ValueError:
                 out.append(str(entry))
         return out

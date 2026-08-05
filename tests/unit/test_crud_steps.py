@@ -30,7 +30,7 @@ import asyncio
 import os
 import tempfile
 import warnings
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
@@ -175,6 +175,14 @@ def test_list_lists_files():
         print("✓ test_list_lists_files passed")
 
     asyncio.run(run())
+
+
+def test_list_formats_workspace_relative_windows_paths_as_posix():
+    """Workspace-relative list results use the graph's portable path format."""
+    workspace = PureWindowsPath("C:/workspace")
+    files = [workspace / "topics" / "a.md"]
+
+    assert crud_list.ListStep._format_relative(files, workspace) == ["topics/a.md"]
 
 
 def test_list_empty_directory_has_explicit_answer():
