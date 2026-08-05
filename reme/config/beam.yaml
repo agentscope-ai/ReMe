@@ -223,7 +223,7 @@ jobs:
       - backend: search_v2_step
         vector_weight: 0.7
         candidate_multiplier: 5.0
-        expand_links: true
+        expand_links: false
         max_links_per_direction: 10
 
   add_draft:

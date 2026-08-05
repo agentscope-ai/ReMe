@@ -398,9 +398,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
             logger.info(f"[Case {case_id}] Loaded {len(sessions)} sessions from chat.json")
 
             # Snapshot token counters before memory construction
-            mem_token_start = {
-                name: check_agent_token_usage(name, app.context) for name in _MEM_AGENT_NAMES
-            }
+            mem_token_start = {name: check_agent_token_usage(name, app.context) for name in _MEM_AGENT_NAMES}
 
             for i, session in enumerate(sessions):
                 logger.info(
@@ -764,7 +762,9 @@ def main(  # pylint: disable=too-many-statements
                 if values:
                     total = sum(values)
                     mean, std = _mean_and_std(values)
-                    print(f"    {agent_name}/{metric}: total={total} mean={mean:.2f} std={std:.2f} ({len(values)} cases)")
+                    print(
+                        f"    {agent_name}/{metric}: total={total} mean={mean:.2f} std={std:.2f} ({len(values)} cases)",
+                    )
                 else:
                     print(f"    {agent_name}/{metric}: unavailable")
         print()

@@ -133,8 +133,7 @@ class ReadStep(BaseStep):
         with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
         max_neighbors_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
         format_session: bool = bool(
-            self.context.get("read_step_format_session")
-            or self.kwargs.get("read_step_format_session", False),
+            self.context.get("read_step_format_session") or self.kwargs.get("read_step_format_session", False),
         )
 
         # Validate inputs and target before touching the filesystem twice.
