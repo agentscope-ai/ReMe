@@ -10,7 +10,7 @@ import warnings
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.file_store import LocalFileStore
-from reme.schema import FileLink, FileNode
+from reme.schema import FileFrontMatter, FileLink, FileNode, TraverseGraph
 from reme.steps.common.add import AddStep
 from reme.steps.common.health_check import _file_graph_status
 from reme.steps.common.llm_demo import LLMDemoStep
@@ -42,7 +42,13 @@ def _run(coro):
     asyncio.run(coro)
 
 
-def _node(path: str, links: list[tuple[str, str | None]] | None = None) -> FileNode:
+def _node(
+    path: str,
+    links: list[tuple[str, str | None]] | None = None,
+    *,
+    name: str = "",
+    description: str = "",
+) -> FileNode:
     """Build a FileNode with (target_path, target_anchor) outgoing edges."""
     return FileNode(
         path=path,
@@ -50,6 +56,7 @@ def _node(path: str, links: list[tuple[str, str | None]] | None = None) -> FileN
         links=[
             FileLink(source_path=path, target_path=target, target_anchor=anchor) for target, anchor in (links or [])
         ],
+        front_matter=FileFrontMatter(name=name, description=description),
     )
 
 
@@ -63,7 +70,7 @@ async def _make_store(nodes: list[FileNode]) -> LocalFileStore:
 
 
 def _edges(step) -> list[dict]:
-    return step.context.response.metadata.get("edges", [])
+    return step.context.response.answer["edges"]
 
 
 def test_add_step_coerces_numeric_inputs():
@@ -207,15 +214,33 @@ def test_traverse_forward_depth_1():
             step = traverse_mod.TraverseStep(file_store=store)
             await step(path="a.md", direction="forward", depth=1)
             results = _edges(step)
-            paths = {r["path"] for r in results}
+            paths = {r["target"] for r in results}
             assert paths == {"b.md", "c.md"}
-            # Anchors remain part of traversal metadata.
-            c_edge = next(r for r in results if r["path"] == "c.md")
-            assert c_edge["anchor"] == "intro"
-            assert c_edge["via"] == "a.md"
+            c_edge = next(r for r in results if r["target"] == "c.md")
+            assert c_edge["target_anchor"] == "intro"
+            assert c_edge["source"] == "a.md"
             assert c_edge["depth"] == 1
             await store.close()
         print("✓ test_traverse_forward_depth_1 passed")
+
+    asyncio.run(run())
+
+
+def test_traverse_normalizes_windows_seed_path():
+    """Windows-style seeds match the graph's portable POSIX path keys."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            store = await _make_store(
+                [
+                    _node("topics/a.md", [("topics/b.md", None)]),
+                    _node("topics/b.md"),
+                ],
+            )
+            step = traverse_mod.TraverseStep(file_store=store)
+            await step(path=r"topics\a.md", direction="forward", depth=1)
+            assert [edge["target"] for edge in _edges(step)] == ["topics/b.md"]
+            await store.close()
 
     asyncio.run(run())
 
@@ -235,7 +260,10 @@ def test_traverse_backward_returns_inlinks():
             step = traverse_mod.TraverseStep(file_store=store)
             await step(path="b.md", direction="backward", depth=1)
             results = _edges(step)
-            assert {r["path"] for r in results} == {"a.md", "c.md"}
+            assert {(r["source"], r["target"]) for r in results} == {
+                ("a.md", "b.md"),
+                ("c.md", "b.md"),
+            }
             await store.close()
         print("✓ test_traverse_backward_returns_inlinks passed")
 
@@ -257,7 +285,7 @@ def test_traverse_depth_2_expands():
             step = traverse_mod.TraverseStep(file_store=store)
             await step(path="a.md", direction="forward", depth=2)
             results = _edges(step)
-            depth_map = {r["path"]: r["depth"] for r in results}
+            depth_map = {r["target"]: r["depth"] for r in results}
             assert depth_map.get("b.md") == 1
             assert depth_map.get("c.md") == 2
             await store.close()
@@ -320,9 +348,92 @@ def test_traverse_both_directions():
             step = traverse_mod.TraverseStep(file_store=store)
             await step(path="center.md", direction="both", depth=1)
             results = _edges(step)
-            assert {r["path"] for r in results} == {"upstream.md", "downstream.md"}
+            assert {(r["source"], r["target"]) for r in results} == {
+                ("upstream.md", "center.md"),
+                ("center.md", "downstream.md"),
+            }
             await store.close()
         print("✓ test_traverse_both_directions passed")
+
+    asyncio.run(run())
+
+
+def test_traverse_both_preserves_reciprocal_edge_directions():
+    """Opposite wikilinks remain two distinct directed graph edges."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            store = await _make_store(
+                [
+                    _node("a.md", [("b.md", None)]),
+                    _node("b.md", [("a.md", None)]),
+                ],
+            )
+            step = traverse_mod.TraverseStep(file_store=store)
+            response = await step(path="a.md", direction="both", depth=1)
+            graph = TraverseGraph.model_validate(response.answer)
+
+            assert {(edge.source, edge.target) for edge in graph.edges} == {
+                ("a.md", "b.md"),
+                ("b.md", "a.md"),
+            }
+            assert response.metadata == {}
+            await store.close()
+
+    asyncio.run(run())
+
+
+def test_traverse_returns_frontmatter_and_unresolved_nodes():
+    """Graph nodes expose labels and distinguish indexed files from dangling targets."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            store = await _make_store(
+                [
+                    _node(
+                        "a.md",
+                        [("missing.md", "details")],
+                        name="Alpha",
+                        description="Root note",
+                    ),
+                ],
+            )
+            step = traverse_mod.TraverseStep(file_store=store)
+            response = await step(path="a.md", direction="forward", depth=1)
+            graph = TraverseGraph.model_validate(response.answer)
+            nodes = {node.path: node for node in graph.nodes}
+
+            assert graph.version == 1
+            assert graph.seeds == ["a.md"]
+            assert nodes["a.md"].model_dump() == {
+                "id": "a.md",
+                "path": "a.md",
+                "name": "Alpha",
+                "description": "Root note",
+                "depth": 0,
+                "indexed": True,
+            }
+            assert nodes["missing.md"].indexed is False
+            assert nodes["missing.md"].depth == 1
+            assert graph.edges[0].target_anchor == "details"
+            await store.close()
+
+    asyncio.run(run())
+
+
+def test_traverse_depth_zero_returns_only_seed_nodes():
+    """A zero-hop traversal is valid and emits no edges."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+            store = await _make_store([_node("a.md", [("b.md", None)]), _node("b.md")])
+            step = traverse_mod.TraverseStep(file_store=store)
+            response = await step(path="a.md", direction="forward", depth=0)
+            graph = TraverseGraph.model_validate(response.answer)
+
+            assert [node.path for node in graph.nodes] == ["a.md"]
+            assert graph.edges == []
+            await store.close()
 
     asyncio.run(run())
 
@@ -335,4 +446,7 @@ if __name__ == "__main__":
     test_traverse_short_seed_yields_empty()
     test_traverse_not_found_seed()
     test_traverse_both_directions()
+    test_traverse_both_preserves_reciprocal_edge_directions()
+    test_traverse_returns_frontmatter_and_unresolved_nodes()
+    test_traverse_depth_zero_returns_only_seed_nodes()
     print("\n所有测试通过!")

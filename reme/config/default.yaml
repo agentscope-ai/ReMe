@@ -258,19 +258,29 @@ jobs:
 
   traverse:
     backend: base
-    description: "Walk the wikilink graph from a path."
+    description: >-
+      Return a bounded wikilink graph with frontend-ready nodes and directed edges.
     parameters:
       type: object
       properties:
         path:
-          type: string
-          description: "path"
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+              minItems: 1
+          description: "workspace-relative path or paths used as graph seeds"
         depth:
           type: integer
-          description: "hop limit"
+          minimum: 0
+          description: "maximum number of wikilink hops"
           default: 1
         direction:
           type: string
+          description: >-
+            traversal direction; returned edges always preserve the original
+            wikilink source-to-target direction
           enum:
             - forward
             - backward
@@ -280,6 +290,15 @@ jobs:
         - path
     steps:
       - backend: traverse_step
+
+  graph_snapshot:
+    backend: base
+    description: "Return the category-rooted digest wikilink graph with daily-note leaves."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: graph_snapshot_step
 
   reindex:
     backend: base

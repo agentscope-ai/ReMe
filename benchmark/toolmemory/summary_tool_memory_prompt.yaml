@@ -1,0 +1,32 @@
+prompt: |
+  You are an expert in analyzing tool usage patterns and generating practical usage guidance for agents.
+
+  Tool Information:
+  - Tool Name: {tool_name}
+  - Tool Schema: {tool_schema}
+
+  Recent Tool Invocation Experiences:
+  {experiences}
+
+  Important:
+  1. Assume the tool (tool schema) can't be changed, your task is to guide agent to use it better.
+  2. Your answer must be based on the information given, don't make it up. If not enough data, state "Not enough data to determine Core Function/Success Patterns/Common Issues/Best Practices."
+  3. Your answer will be used to guide the use of the tool in the future, so do not include content related to recent tool invocation experience such as "case #3" or "Call #2", but some values can be used as examples.
+  4. Pay attention to information not mentioned in the tool schema, such as the response upon successful tool invocation. It's also welcome to uncover insights, such as how tools can be used more effectively, and possible dependencies between tools. But if they aren't, don't make them up.
+  5. Finally, to avoid deriving incorrect guidance from individual invocation, check whether, if the agent follows the proposed guidance, it can perform better on all recent invocation histories. If not, revise the guidance until it can. Specifically:
+     - Don't write guidance in an absolute tone without a very deterministic message (meaning that all invocation histories are satisfied, otherwise it will result in failure).
+     - Sometimes there may be inconsistencies. Consider whether this is due to the context in which the tool is being used.
+
+  Your Task:
+  Based on the tool invocation history, generate a concise and logical tool usage guidance following this structure:
+  1. Core Function: What this tool does and when to use it.
+  2. Success Patterns: Parameter patterns and usage scenarios that work well.
+  3. Common Issues: Main pitfalls to avoid and why they fail.
+  4. Best Practices: 2-3 actionable recommendations.
+
+  Answer Format:
+  Provide a structured, concise guidance (max 200 words). Focus on actionable insights derived from actual usage data. Avoid generic advice and think step by step.
+
+  ```txt
+  Your concise, data-driven tool usage guidance
+  ```
