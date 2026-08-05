@@ -123,6 +123,86 @@ class WorkspaceBackend(LocalBackend):
         return ExecResult(exit_code=process.returncode or 0, stdout=stdout, stderr=stderr)
 
 
+class WorkspaceRead(Read):
+    """AgentScope Read accepting paths relative to the configured agent workspace."""
+
+    description = Read.description.replace(
+        "must be an absolute path, not a relative path",
+        "may be absolute or relative to the workspace",
+    )
+    input_schema = {
+        **Read.input_schema,
+        "properties": {
+            **Read.input_schema["properties"],
+            "file_path": {
+                "type": "string",
+                "description": "Absolute path or path relative to the workspace.",
+            },
+        },
+    }
+
+    async def call(
+        self,
+        file_path: str,
+        offset: int = 1,
+        limit: int = 2000,
+        _agent_state: AgentState | None = None,
+    ) -> ToolChunk:
+        """Resolve a workspace-relative path before delegating to AgentScope."""
+        cwd = await self._backend.getcwd()  # pylint: disable=protected-access
+        target = self._backend.abspath(file_path, cwd=cwd)  # pylint: disable=protected-access
+        return await super().call(target, offset, limit, _agent_state)
+
+
+class WorkspaceWrite(Write):
+    """AgentScope Write accepting paths relative to the configured agent workspace."""
+
+    input_schema = {
+        **Write.input_schema,
+        "properties": {
+            **Write.input_schema["properties"],
+            "file_path": {
+                "type": "string",
+                "description": "Absolute path or path relative to the workspace.",
+            },
+        },
+    }
+
+    async def call(self, file_path: str, content: str, _agent_state: AgentState | None = None) -> ToolChunk:
+        """Resolve a workspace-relative path before delegating to AgentScope."""
+        cwd = await self._backend.getcwd()  # pylint: disable=protected-access
+        target = self._backend.abspath(file_path, cwd=cwd)  # pylint: disable=protected-access
+        return await super().call(target, content, _agent_state)
+
+
+class WorkspaceEdit(Edit):
+    """AgentScope Edit accepting paths relative to the configured agent workspace."""
+
+    input_schema = {
+        **Edit.input_schema,
+        "properties": {
+            **Edit.input_schema["properties"],
+            "file_path": {
+                "type": "string",
+                "description": "Absolute path or path relative to the workspace.",
+            },
+        },
+    }
+
+    async def call(
+        self,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
+        _agent_state: AgentState | None = None,
+    ) -> ToolChunk:
+        """Resolve a workspace-relative path before delegating to AgentScope."""
+        cwd = await self._backend.getcwd()  # pylint: disable=protected-access
+        target = self._backend.abspath(file_path, cwd=cwd)  # pylint: disable=protected-access
+        return await super().call(target, old_string, new_string, replace_all, _agent_state)
+
+
 class BypassAnalysisBash(Bash):
     """Bash variant that delegates permission decisions to PermissionEngine.
 
@@ -192,11 +272,11 @@ class AsAgentWrapper(BaseAgentWrapper):
         backend = WorkspaceBackend(cwd, self.bash_environment)
         factories = {
             "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
-            "edit": lambda: Edit(backend=backend),
+            "edit": lambda: WorkspaceEdit(backend=backend),
             "glob": lambda: Glob(backend=backend),
             "grep": lambda: Grep(backend=backend),
-            "read": lambda: Read(backend=backend),
-            "write": lambda: Write(backend=backend),
+            "read": lambda: WorkspaceRead(backend=backend),
+            "write": lambda: WorkspaceWrite(backend=backend),
         }
         if names is False:
             selected_names = []

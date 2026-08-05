@@ -8,6 +8,8 @@ Parameters:
     path        — dir to list under (relative to the workspace or absolute). Empty = workspace root.
     limit       — cap on the number of returned items (default 100, must be > 0).
     recursive   — descend into subdirectories. Default False = direct children only.
+    sort_by     — optional ordering; ``mtime`` returns most recently modified files first.
+    extensions  — optional extension allowlist applied before sorting and limiting.
 
 No frontmatter is read. Callers needing frontmatter-based filtering
 should iterate the result and call ``frontmatter_read`` per candidate.
@@ -36,7 +38,7 @@ class ListStep(BaseStep):
         if meta:
             self.context.response.metadata.update(meta)
 
-    def _collect_params(self) -> tuple[str, bool, int]:
+    def _collect_params(self) -> tuple[str, bool, int, str, frozenset[str]]:
         """Read ``path`` / ``recursive`` / ``limit`` from context; coerce permissively."""
         assert self.context is not None
         path = str(self.context.get("path") or "")
@@ -47,20 +49,37 @@ class ListStep(BaseStep):
             limit = int(raw_limit) if raw_limit is not None else DEFAULT_LIMIT
         except (TypeError, ValueError):
             limit = DEFAULT_LIMIT
-        return path, recursive, limit if limit > 0 else DEFAULT_LIMIT
+        sort_by = str(self.context.get("sort_by") or "")
+        raw_extensions = self.context.get("extensions") or []
+        if isinstance(raw_extensions, str):
+            raw_extensions = raw_extensions.split(",")
+        extensions = frozenset(
+            normalized for value in raw_extensions if (normalized := str(value).strip().lower().lstrip("."))
+        )
+        return path, recursive, limit if limit > 0 else DEFAULT_LIMIT, sort_by, extensions
 
     @staticmethod
-    def _walk_files(target_dir: Path, recursive: bool, limit: int) -> list[Path]:
-        """Return up to ``limit`` regular files under ``target_dir``; short-circuits at the cap."""
+    def _walk_files(
+        target_dir: Path,
+        recursive: bool,
+        limit: int,
+        sort_by: str = "",
+        extensions: frozenset[str] = frozenset(),
+    ) -> list[Path]:
+        """Return up to ``limit`` regular files, scanning all entries only when sorting."""
         entries: Iterable[Path] = target_dir.rglob("*") if recursive else target_dir.iterdir()
         files: list[Path] = []
         for entry in entries:
             if not entry.is_file():  # skip dirs, sockets, broken links, etc.
                 continue
+            if extensions and entry.suffix.lower().lstrip(".") not in extensions:
+                continue
             files.append(entry)
-            if len(files) >= limit:
+            if sort_by != "mtime" and len(files) >= limit:
                 break
-        return files
+        if sort_by == "mtime":
+            files.sort(key=lambda entry: (-entry.stat().st_mtime, entry.as_posix()))
+        return files[:limit]
 
     @staticmethod
     def _format_relative(files: list[Path], workspace_dir: Path) -> list[str]:
@@ -75,7 +94,7 @@ class ListStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
-        path, recursive, limit = self._collect_params()
+        path, recursive, limit, sort_by, extensions = self._collect_params()
         workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
         target_dir, err = resolve_path(workspace_dir, path, allow_empty=True)
         if err or target_dir is None:
@@ -89,7 +108,10 @@ class ListStep(BaseStep):
             self._fail(f"path {target_dir} is not a directory", path=str(target_dir))
             return None
 
-        items = self._format_relative(self._walk_files(target_dir, recursive, limit), workspace_dir)
+        items = self._format_relative(
+            self._walk_files(target_dir, recursive, limit, sort_by, extensions),
+            workspace_dir,
+        )
 
         self.context.response.success = True
         location = path or "."
