@@ -73,7 +73,7 @@ Performance comparison (%) across MetaTool, API-Bank, and BFCL-V3. **Bold** indi
 
 | Path | Role |
 | --- | --- |
-| [`tool_memory.py`](./tool_memory.py) | Experiment-side HTTP client (`ToolMemoryFetcher`) that calls Tool Memory APIs |
+| [`tool_memory.py`](./tool_memory.py) | HTTP client for official ReMe Tool Memory APIs (`add_tool_call_result` / `summary_tool_memory` / `retrieve_tool_memory`) |
 | [`parse_tool_call_result_prompt.yaml`](./parse_tool_call_result_prompt.yaml) | Prompt for multi-aspect evaluation of each tool call |
 | [`summary_tool_memory_prompt.yaml`](./summary_tool_memory_prompt.yaml) | Prompt for summarizing tool call history into guidance |
 | [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | Tool Memory flow / op config excerpt |

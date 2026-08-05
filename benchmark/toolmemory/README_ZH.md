@@ -73,7 +73,7 @@ MetaTool、API-Bank、BFCL-V3 上的性能对比（%）。**加粗**为各模型
 
 | 路径 | 作用 |
 | --- | --- |
-| [`tool_memory.py`](./tool_memory.py) | 实验侧 HTTP 客户端（`ToolMemoryFetcher`），调用 Tool Memory 接口 |
+| [`tool_memory.py`](./tool_memory.py) | 官方风格 ReMe Tool Memory HTTP 客户端（`add_tool_call_result` / `summary_tool_memory` / `retrieve_tool_memory`） |
 | [`parse_tool_call_result_prompt.yaml`](./parse_tool_call_result_prompt.yaml) | 单次工具调用多维评估用的 prompt |
 | [`summary_tool_memory_prompt.yaml`](./summary_tool_memory_prompt.yaml) | 将工具调用历史总结为 guidance 的 prompt |
 | [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | Tool Memory 相关的 flow / op 配置摘录 |
