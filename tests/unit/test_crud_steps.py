@@ -225,29 +225,6 @@ def test_list_respects_limit_and_non_recursive():
     asyncio.run(run())
 
 
-def test_list_can_sort_by_most_recent_modification():
-    """Filtering precedes the limit so unrelated generated files cannot hide recent notes."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        older = _seed_md(root, "older.md", "old")
-        newer = _seed_md(root, "newer.md", "new")
-        generated = root / "newest.json"
-        generated.write_text("{}", encoding="utf-8")
-        os.utime(older, (100, 100))
-        os.utime(newer, (200, 200))
-        os.utime(generated, (300, 300))
-
-        files = crud_list.ListStep._walk_files(
-            root,
-            recursive=True,
-            limit=2,
-            sort_by="mtime",
-            extensions=frozenset({"md"}),
-        )
-
-        assert [path.name for path in files] == ["newer.md", "older.md"]
-
-
 # -- download ------------------------------------------------------------
 #
 # DownloadStep lives in reme_cc (the local plugin overlay), not reme

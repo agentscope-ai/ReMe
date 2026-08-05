@@ -1,9 +1,8 @@
 """Application configuration models."""
 
 import os
-from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..enumeration import ComponentEnum
 
@@ -33,11 +32,7 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Environment variables loaded once at startup and passed to agent subprocesses",
     )
-    workspace_dir: str = Field(
-        default=".reme",
-        description="Workspace root directory for runtime files",
-        validate_default=True,
-    )
+    workspace_dir: str = Field(default=".reme", description="Workspace root directory for runtime files")
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
     mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
@@ -58,9 +53,3 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
-
-    @field_validator("workspace_dir", mode="before")
-    @classmethod
-    def normalize_workspace_dir(cls, value) -> str:
-        """Expand home-relative paths once so every component sees the same absolute workspace."""
-        return str(Path(value).expanduser().resolve(strict=False))
