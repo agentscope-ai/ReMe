@@ -14,7 +14,7 @@ import time
 import numpy as np
 import pytest
 
-from reme.components.file_store import FaissLocalFileStore, LocalFileStore
+from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.components.file_store import local_file_store as local_file_store_module
 from reme.schema import FileChunk, FileNode
 from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
@@ -146,6 +146,32 @@ def node(path: str) -> FileNode:
 def chunk(chunk_id: str, path: str, text: str, **metadata) -> FileChunk:
     """Build a minimal file chunk."""
     return FileChunk(id=chunk_id, path=path, text=text, start_line=1, end_line=1, metadata=metadata)
+
+
+def _new_local_store(name, **kwargs):
+    """Construct a LocalFileStore with embedding disabled at bind time."""
+    return LocalFileStore(name=name, embedding_store="", **kwargs)
+
+
+def _new_zvec_store(name, **kwargs):
+    """Construct a zvec store with embedding disabled at bind time."""
+    try:
+        store = ZvecLocalFileStore(name=name, embedding_store="", **kwargs)
+    except ImportError:
+        pytest.skip("zvec is not installed")
+    return store
+
+
+def _ensure_zvec_collection(store):
+    """Materialize the zvec collection once an embedding backend is attached.
+
+    Fresh zvec stores start with no collection because ``embedding_store=""``.
+    Tests that attach a fake provider after ``start()`` must explicitly create
+    the collection before the first upsert, otherwise vectors are accepted by
+    the parent but never synced into zvec.
+    """
+    if isinstance(store, ZvecLocalFileStore) and store._collection is None and store.embedding_store is not None:
+        store._collection = store._create_collection()
 
 
 async def set_chunks_with_graph(store: LocalFileStore, chunks: dict[str, FileChunk]) -> None:
@@ -454,14 +480,16 @@ def test_chunk_persistence_loads_legacy_json_embedding_list():
     run(go())
 
 
-def test_same_chunk_id_with_changed_text_gets_new_embedding():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_same_chunk_id_with_changed_text_gets_new_embedding(store_factory):
     """Changing a chunk text refreshes its embedding."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_embedding_reuse", embedding_store="")
+            store = store_factory(name="t_embedding_reuse")
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
+            _ensure_zvec_collection(store)
 
             await store.upsert([(node("note.md"), [chunk("same", "note.md", "alpha text")])])
             assert store.file_chunks["same"].embedding.tolist() == [1.0, 0.0]
@@ -474,12 +502,13 @@ def test_same_chunk_id_with_changed_text_gets_new_embedding():
     run(go())
 
 
-def test_load_backfills_missing_embeddings_from_persisted_chunks():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_load_backfills_missing_embeddings_from_persisted_chunks(store_factory):
     """Startup backfills old chunks in the background and persists vectors."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            store = store_factory(name="t_embedding_backfill")
             await store.start()
             await store.upsert(
                 [
@@ -489,7 +518,7 @@ def test_load_backfills_missing_embeddings_from_persisted_chunks():
             )
             await store.close()
 
-            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            store = store_factory(name="t_embedding_backfill")
             store.embedding_store = FakeEmbeddingStore()
             await store.start()
             await store._embedding_backfill_task
@@ -498,7 +527,7 @@ def test_load_backfills_missing_embeddings_from_persisted_chunks():
             assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
             await store.close()
 
-            store = LocalFileStore(name="t_embedding_backfill", embedding_store="")
+            store = store_factory(name="t_embedding_backfill")
             await store.start()
             assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
             assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
@@ -588,12 +617,13 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
     run(go())
 
 
-def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions(store_factory):
     """Loading persisted chunks re-embeds vectors that do not match current dimensions."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_embedding_stale_dim", embedding_store="")
+            store = store_factory(name="t_embedding_stale_dim")
             await store.start()
             stale = chunk("a", "a.md", "alpha text")
             stale.embedding = np.array([1.0], dtype=np.float16)
@@ -601,7 +631,7 @@ def test_load_reembeds_persisted_chunks_with_stale_embedding_dimensions():
             await store.dump()
             await store.close()
 
-            store = LocalFileStore(name="t_embedding_stale_dim", embedding_store="")
+            store = store_factory(name="t_embedding_stale_dim")
             fake = CountingFakeEmbeddingStore()
             store.embedding_store = fake
             await store.start()
@@ -689,14 +719,16 @@ def test_upsert_reembeds_prefilled_chunk_with_stale_dimension():
     run(go())
 
 
-def test_search_filter_applies_to_vector_and_keyword_results():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_search_filter_applies_to_vector_and_keyword_results(store_factory):
     """Search filters apply consistently to vector and keyword results."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_filter", embedding_store="")
+            store = store_factory(name="t_filter")
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
+            _ensure_zvec_collection(store)
 
             await store.upsert(
                 [
@@ -860,14 +892,16 @@ def test_date_filter_extract_and_match():
     assert LocalFileStore._matches_search_filter(c, {"start_date": "2026-01-01", "end_date": "2026-12-31"}) is True
 
 
-def test_date_filter_with_vector_and_keyword_search():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_date_filter_with_vector_and_keyword_search(store_factory):
     """vector_search and keyword_search respect start_date/end_date filters."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t_date_search", embedding_store="")
+            store = store_factory(name="t_date_search")
             await store.start()
             store.embedding_store = FakeEmbeddingStore()
+            _ensure_zvec_collection(store)
 
             await store.upsert(
                 [
