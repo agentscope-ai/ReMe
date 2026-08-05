@@ -71,10 +71,10 @@ def scan_day_files(workspace: Path, day: str, daily: str, interests_name: str = 
     out: list[str] = []
     day_index = workspace / daily / f"{day}.md"
     if day_index.is_file():
-        out.append(str(day_index.relative_to(workspace)))
+        out.append(day_index.relative_to(workspace).as_posix())
     daily_root = workspace / daily / day
     if daily_root.is_dir():
-        out.extend(str(p.relative_to(workspace)) for p in sorted(daily_root.rglob("*.md")) if p.is_file())
+        out.extend(p.relative_to(workspace).as_posix() for p in sorted(daily_root.rglob("*.md")) if p.is_file())
     return [p for p in out if p != f"{daily}/{day}/{interests_name}"]
 
 

@@ -22,7 +22,7 @@ ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了
 |----------|----------------------------------------------------------------------|
 | 可读       | 用户可以直接打开 workspace，像读普通笔记一样读 daily、digest 和原始材料。                         |
 | 可编辑      | 用户和 Agent 都能用文件操作修正、补充、移动或删除记忆，不必依赖专用数据库客户端。                    |
-| 可追溯      | digest 中的长期结论可以通过 `derived_from:: [[...]]` 回到 daily、resource 或 session 原文。 |
+| 可追溯      | digest 中的长期结论可以通过 Sources 章节回到 daily、resource 或 session 原文。 |
 | 可迁移      | workspace 是普通目录，Markdown、JSONL、YAML 和资源文件可以被备份、同步、版本管理或迁移到其他工具。          |
 | 可索引      | 文件虽然是普通文本，但 ReMe 会解析 frontmatter、chunk、wikilink，构建检索索引和文件图谱。         |
 | 可协作      | 人负责判断和修正，Agent 负责整理、链接和检索；二者看到和操作的是同一套文件。                       |
@@ -124,9 +124,7 @@ tags: [新能源, 光伏]
 # 结论
 
 光伏产业链可以拆成 [[digest/wiki/硅料.md]]、硅片、电池片和组件。
-
-upstream:: [[digest/wiki/硅料.md]]
-[company:: [[digest/wiki/隆基绿能.md|隆基]]]
+主要生产商包括 [[digest/wiki/隆基绿能.md|隆基]]。
 ```
 
 ### Frontmatter
@@ -156,15 +154,18 @@ confidence: observed
 
 用户多次要求文档补充动机、边界和例子，但避免营销式表述。
 
-derived_from:: [[daily/2026-06-20/session-a.md]]
-related:: [[digest/procedure/技术文档写作.md]]
+执行 [[digest/procedure/技术文档写作.md]] 时应用这个偏好。
+
+## Sources
+
+- [[daily/2026-06-20/session-a.md]]
 ```
 
 这样做有三个好处：
 
 1. `name` 和 `description` 可以在列表、召回结果和 Agent 判断中作为轻量摘要。
 2. 正文可以承载更完整的事实、条件、反例和来源。
-3. `derived_from::`、`related::` 这类 typed wikilink 可以被图谱解析，后续移动文件时也能被维护。
+3. 普通 Wikilink 可以被图谱解析，后续移动文件时也能被维护。
 
 Frontmatter 适合放稳定、短小、结构化的字段；正文适合放需要人读的解释。不要把大段正文塞进 YAML 字段。
 
@@ -173,10 +174,10 @@ Frontmatter 适合放稳定、短小、结构化的字段；正文适合放需�
 Wikilink 用 `[[...]]` 表达文件之间的关系：
 
 ```text
-[[digest/wiki/光伏.md]]
-[[digest/wiki/光伏.md#产业链]]
-[[digest/wiki/光伏.md|光伏]]
-![[resource/2026-06-01/report.md]]
+[[daily/2026-06-20/session.md]]
+[[notes/example.md#L9]]
+[[notes/example.md#L9-L10]]
+[[notes/example.md#L9-L10,L15-L20]]
 ```
 
 ReMe 的 wikilink 是**字面路径语义**：
@@ -187,21 +188,20 @@ ReMe 的 wikilink 是**字面路径语义**：
 
 它不会自动补 `.md`，不会按文件名搜索，也不会自动解析 folder note。推荐写完整的 workspace 相对路径，并带上扩展名。
 
+`[label](../wiki/example.md)` 这类普通 Markdown 链接不会建立 `FileLink`，move 或 retarget 操作也不会改写它们。
+
+`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器
+不会校验行号锚点，因此 `#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定
+范围时需要分别传入从 1 开始、首尾均包含的 `start_line` 和 `end_line`，例如
+`read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。
+
 Wikilink 的作用：
 
 ```text
 正文链接       -> 建立 FileLink
-predicate:: 链接 -> 建立带关系名的 FileLink
 move 文件      -> 默认改写入边中的 [[旧路径]]
 delete 文件    -> 返回仍存在的入边，提示清理引用
 search 命中    -> 可展开出入链，帮助理解上下文
-```
-
-支持的关系写法：
-
-```markdown
-industry:: [[digest/wiki/新能源.md]]
-[competitor:: [[digest/wiki/比亚迪.md]]]
 ```
 
 解析结果：
@@ -209,31 +209,35 @@ industry:: [[digest/wiki/新能源.md]]
 ```text
 FileLink
   source_path = 当前文件
-  target_path = digest/wiki/新能源.md
-  predicate   = industry
+  target_path = notes/example.md
+  target_anchor = L9-L10,L15-L20
 ```
+
+旧文档中的 `related:: [[path]]`、`- related:: [[path]]` 或
+`[related:: [[path]]]` 仍然可以读取。ReMe 会忽略外围文本，把内部 `[[path]]`
+作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`，
+用源文件重建不含旧关系字段的派生图索引。
 
 ### 来源和关系
 
 ReMe 里最重要的两类链接是来源链接和概念关系链接。
 
-来源链接说明“这条长期记忆从哪里来”：
+Sources 章节说明“这条长期记忆从哪里来”：
 
 ```markdown
-derived_from:: [[daily/2026-06-20/session-a.md]]
-derived_from:: [[resource/2026-06-20/report.pdf]]
+## Sources
+
+- [[daily/2026-06-20/session-a.md]]
+- [[resource/2026-06-20/report.pdf]]
 ```
 
-概念关系链接说明“这个节点和哪些长期记忆有关”：
+概念关系链接说明“这个节点和哪些长期记忆有关”，并自然织入正文：
 
 ```markdown
-related:: [[digest/wiki/光伏产业链.md]]
-depends_on:: [[digest/procedure/调研报告拆解流程.md]]
-contrasts_with:: [[digest/wiki/集中式逆变器.md]]
+这份分析扩展了 [[digest/wiki/光伏产业链.md]]，遵循
+[[digest/procedure/调研报告拆解流程.md]]，并与
+[[digest/wiki/集中式逆变器.md]] 对比。
 ```
-
-普通正文 wikilink 也会建立图边，但当关系本身有语义价值时，推荐使用 `predicate:: [[path]]`。这能让搜索、图遍历和后续 Agent
-整合更容易理解链接含义。
 
 ## 人工编辑和 Agent 编辑
 
@@ -247,8 +251,8 @@ contrasts_with:: [[digest/wiki/集中式逆变器.md]]
 | 删除文件   | 删除前检查入链；ReMe 的 delete 会返回仍然指向目标的来源文件，方便清理悬空引用。                 |
 | 修改元数据  | 用 frontmatter 表达短字段；正文发生实质变化时同步更新 `description`。                  |
 
-一个实用规则是：**可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 `derived_from:: [[...]]` 和已有
-digest-to-digest wikilink，是长期记忆可追溯和可扩展的基础。
+一个实用规则是：**可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 Sources 条目和已有
+digest-to-digest Wikilink，是长期记忆可追溯和可扩展的基础。
 
 ## 路径语义
 

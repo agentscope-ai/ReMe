@@ -18,8 +18,8 @@ integrate_system_prompt_procedure: |
     genuinely needs more.
   - If the draft starts copying paragraphs or narrating the event, it belongs
     in the source material, not digest.
-  - Provenance edges carry details: cite every relevant unit_paths entry with
-    `derived_from:: [[<path>]]`.
+  - The Sources section carries details: cite every relevant unit_paths entry
+    as `- [[<path>]]`.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Procedure Body Shape
@@ -30,9 +30,9 @@ integrate_system_prompt_procedure: |
   - Steps: numbered or terse bullets; each step is verb-led.
   - Pre-conditions / inputs: short list, not prose.
   - Failure modes / caveats: brief.
-  - `derived_from:: [[<material-path>]]`: at least one, and normally every
-    relevant path in unit_paths. Plain-prose provenance does NOT count; only
-    wikilinks survive future updates.
+  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
+    for every relevant path in unit_paths. Plain-prose provenance does NOT
+    count; only wikilinks survive future updates.
 
   ## Workflow
 
@@ -50,7 +50,7 @@ integrate_system_prompt_procedure: |
      - unrelated: ignore.
   3. Choose exactly one action:
      - CREATE: no same_abstraction hit; write `{digest_dir}/procedure/<slug>.md`.
-     - CORROBORATE: same procedure observed again; append derived_from and
+     - CORROBORATE: same procedure observed again; append its source link and
        optionally strengthen wording.
      - REFINE: new pre-condition, edge case, failure mode, scope, or step;
        expand the relevant span or slot the step into the right position.
@@ -58,21 +58,18 @@ integrate_system_prompt_procedure: |
        tighten or annotate inline with `> note: contradicted by [[<path>]] - <one-line>`.
   4. Weave related digest nodes into the body as wikilinks on both CREATE and
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
-     derived_from entries. Default to weaving more, not less; this is the only
+     source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
 
   ## Wikilink Graph
 
-  - Source provenance links point from digest back to material:
-    `derived_from:: [[daily/<date>/<session>.md]]` or
-    `derived_from:: [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material with bare list
+    items such as `- [[daily/<date>/<session>.md]]` and
+    `- [[resource/<path>]]`.
   - Procedure nodes may link to any digest bucket:
     `[[{digest_dir}/procedure/<slug>.md]]`,
     `[[{digest_dir}/personal/<slug>.md]]`, or
     `[[{digest_dir}/wiki/<slug>.md]]`.
-  - Useful predicates include `derived_from::`, `relates_to::`,
-    `depends_on::`, and `blocks_on::`; predicates are open and live outside
-    the brackets.
   - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/procedure/`. UPDATE may target any
     bucket if recall legitimately found the same abstraction.
@@ -101,7 +98,7 @@ integrate_system_prompt_procedure_zh: |
 
   - 正文短且抽象，通常 50-200 words；只有流程本身确实需要时才更长。
   - 如果草稿开始复制段落或叙述事件，说明细节放错层了。
-  - Provenance edge 承载细节：用 `derived_from:: [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Procedure 正文形态
@@ -112,7 +109,7 @@ integrate_system_prompt_procedure_zh: |
   - Steps：编号或短 bullet；每步以动词开头。
   - Pre-conditions / inputs：短列表，不写长 prose。
   - Failure modes / caveats：简短。
-  - `derived_from:: [[<material-path>]]`：至少一条，通常覆盖 unit_paths 中每个相关 path。
+  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
     纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
 
   ## 工作流
@@ -126,22 +123,20 @@ integrate_system_prompt_procedure_zh: |
      - unrelated：忽略。
   3. 选择且只选择一个 action：
      - CREATE：没有 same_abstraction 命中；写入 `{digest_dir}/procedure/<slug>.md`。
-     - CORROBORATE：同一流程再次出现；追加 derived_from，可选强化措辞。
+     - CORROBORATE：同一流程再次出现；追加来源链接，可选强化措辞。
      - REFINE：新增前置条件、边界情况、失败模式、适用范围或步骤；扩展相关段落或把步骤插到正确位置。
      - CORRECT：顺序错误、缺关键步骤、结果不好或有冲突；收紧表述，或用
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
-     wikilink 或 derived_from。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+     wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
 
   ## Wikilink 图
 
-  - 来源 provenance 从 digest 指回材料：
-    `derived_from:: [[daily/<date>/<session>.md]]` 或 `derived_from:: [[resource/<path>]]`。
+  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
+    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
   - Procedure 节点可以链接任意 digest bucket：
     `[[{digest_dir}/procedure/<slug>.md]]`、`[[{digest_dir}/personal/<slug>.md]]`、
     `[[{digest_dir}/wiki/<slug>.md]]`。
-  - 常用 predicate：`derived_from::`、`relates_to::`、`depends_on::`、`blocks_on::`；
-    predicate 词表开放，写在方括号外。
   - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/procedure/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
@@ -171,8 +166,8 @@ integrate_system_prompt_personal: |
 
   - Body is short and operational, usually 50-200 words.
   - Do not narrate what the user said in detail; cite source material instead.
-  - Provenance edges carry details: cite every relevant unit_paths entry with
-    `derived_from:: [[<path>]]`.
+  - The Sources section carries details: cite every relevant unit_paths entry
+    as `- [[<path>]]`.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Personal Body Shape
@@ -185,9 +180,9 @@ integrate_system_prompt_personal: |
   - `How to apply:` contexts, tasks, boundaries, or exceptions.
   - Do not invent exceptions or soften a hard preference unless the source
     material explicitly supports that exception.
-  - `derived_from:: [[<material-path>]]`: at least one, and normally every
-    relevant path in unit_paths. Plain-prose provenance does NOT count; only
-    wikilinks survive future updates.
+  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
+    for every relevant path in unit_paths. Plain-prose provenance does NOT
+    count; only wikilinks survive future updates.
 
   For preferences, prefer one node per preference rather than one large person
   node; that is the granularity downstream search will hit.
@@ -208,7 +203,7 @@ integrate_system_prompt_personal: |
      - unrelated: ignore.
   3. Choose exactly one action:
      - CREATE: no same_abstraction hit; write `{digest_dir}/personal/<slug>.md`.
-     - CORROBORATE: the rule is reaffirmed; append derived_from and optionally
+     - CORROBORATE: the rule is reaffirmed; append its source link and optionally
        strengthen confidence.
      - REFINE: scope, condition, exception, or example changed; expand `How to apply:`.
      - CORRECT: the user/team changed their mind or evidence conflicts; tighten
@@ -216,21 +211,18 @@ integrate_system_prompt_personal: |
        `> note: contradicted by [[<path>]] - <one-line>`.
   4. Weave related digest nodes into the body as wikilinks on both CREATE and
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
-     derived_from entries. Default to weaving more, not less; this is the only
+     source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
 
   ## Wikilink Graph
 
-  - Source provenance links point from digest back to material:
-    `derived_from:: [[daily/<date>/<session>.md]]` or
-    `derived_from:: [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material with bare list
+    items such as `- [[daily/<date>/<session>.md]]` and
+    `- [[resource/<path>]]`.
   - Personal nodes may link to any digest bucket:
     `[[{digest_dir}/personal/<slug>.md]]`,
     `[[{digest_dir}/procedure/<slug>.md]]`, or
     `[[{digest_dir}/wiki/<slug>.md]]`.
-  - Useful predicates include `derived_from::`, `applies_to::`,
-    `relates_to::`, `depends_on::`, and `contradicts::`; predicates are open
-    and live outside the brackets.
   - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/personal/`. UPDATE may target any bucket
     if recall legitimately found the same abstraction.
@@ -260,7 +252,7 @@ integrate_system_prompt_personal_zh: |
 
   - 正文短且可操作，通常 50-200 words。
   - 不要详细复述用户说了什么；用来源材料承载细节。
-  - Provenance edge 承载细节：用 `derived_from:: [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Personal 正文形态
@@ -271,7 +263,7 @@ integrate_system_prompt_personal_zh: |
   - `Why:` 原因或上下文，帮助未来判断边界情况。
   - `How to apply:` 适用上下文、任务、边界或例外。
   - 不要凭空添加例外，也不要软化明确偏好；只有来源材料明确支持时才写例外。
-  - `derived_from:: [[<material-path>]]`：至少一条，通常覆盖 unit_paths 中每个相关 path。
+  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
     纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
 
   偏好类内容优先一条偏好一个 node，而不是一个人一个大 node；这是下游搜索更容易命中的粒度。
@@ -287,22 +279,20 @@ integrate_system_prompt_personal_zh: |
      - unrelated：忽略。
   3. 选择且只选择一个 action：
      - CREATE：没有 same_abstraction 命中；写入 `{digest_dir}/personal/<slug>.md`。
-     - CORROBORATE：规则被再次确认；追加 derived_from，可选强化置信度。
+     - CORROBORATE：规则被再次确认；追加来源链接，可选强化置信度。
      - REFINE：scope、条件、例外或例子变化；扩展 `How to apply:`。
      - CORRECT：用户/团队改变主意或证据冲突；收紧到新旧证据都支持的表述，或用
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
-     wikilink 或 derived_from。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+     wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
 
   ## Wikilink 图
 
-  - 来源 provenance 从 digest 指回材料：
-    `derived_from:: [[daily/<date>/<session>.md]]` 或 `derived_from:: [[resource/<path>]]`。
+  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
+    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
   - Personal 节点可以链接任意 digest bucket：
     `[[{digest_dir}/personal/<slug>.md]]`、`[[{digest_dir}/procedure/<slug>.md]]`、
     `[[{digest_dir}/wiki/<slug>.md]]`。
-  - 常用 predicate：`derived_from::`、`applies_to::`、`relates_to::`、`depends_on::`、
-    `contradicts::`；predicate 词表开放，写在方括号外。
   - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/personal/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
@@ -335,8 +325,8 @@ integrate_system_prompt_wiki: |
     genuinely needs more.
   - If the draft starts copying paragraphs or narrating the event, it belongs
     in the source material, not digest.
-  - Provenance edges carry details: cite every relevant unit_paths entry with
-    `derived_from:: [[<path>]]`.
+  - The Sources section carries details: cite every relevant unit_paths entry
+    as `- [[<path>]]`.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Wiki Body Shape
@@ -346,11 +336,10 @@ integrate_system_prompt_wiki: |
   - First line: one-sentence definition or claim.
   - Body: short paragraphs or tight bullets with properties, sub-claims,
     distinctions, and one-line examples.
-  - Relations: typed wikilinks where the relation has semantic weight; most
-    cross-node links can stay bare.
-  - `derived_from:: [[<material-path>]]`: at least one, and normally every
-    relevant path in unit_paths. Plain-prose provenance does NOT count; only
-    wikilinks survive future updates.
+  - Relations: weave related nodes into natural prose with ordinary wikilinks.
+  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
+    for every relevant path in unit_paths. Plain-prose provenance does NOT
+    count; only wikilinks survive future updates.
 
   ## Workflow
 
@@ -368,8 +357,8 @@ integrate_system_prompt_wiki: |
      - unrelated: ignore.
   3. Choose exactly one action:
      - CREATE: no same_abstraction hit; write `{digest_dir}/wiki/<slug>.md`.
-     - CORROBORATE: the principle is reaffirmed by a new instance; append
-       derived_from and optionally strengthen wording.
+     - CORROBORATE: the principle is reaffirmed by a new instance; append its
+       source link and optionally strengthen wording.
      - REFINE: nuance, scope, edge case, or framing changes; tighten the
        relevant span. Body grows in precision, not detail volume.
      - CORRECT: factual contradiction or overstatement; tighten to the narrower
@@ -377,22 +366,18 @@ integrate_system_prompt_wiki: |
        `> note: contradicted by [[<path>]] - <one-line>`.
   4. Weave related digest nodes into the body as wikilinks on both CREATE and
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
-     derived_from entries. Default to weaving more, not less; this is the only
+     source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
 
   ## Wikilink Graph
 
-  - Source provenance links point from digest back to material:
-    `derived_from:: [[daily/<date>/<session>.md]]` or
-    `derived_from:: [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material with bare list
+    items such as `- [[daily/<date>/<session>.md]]` and
+    `- [[resource/<path>]]`.
   - Wiki nodes may link to any digest bucket:
     `[[{digest_dir}/wiki/<slug>.md]]`,
     `[[{digest_dir}/procedure/<slug>.md]]`, or
     `[[{digest_dir}/personal/<slug>.md]]`.
-  - Useful predicates include `derived_from::`, `is_a::`, `extends::`,
-    `depends_on::`, `relates_to::`, and `contradicts::`; predicates are open
-    and live outside the brackets. Most cross-node links can stay bare unless
-    the relation has clear semantic weight.
   - Wikilinks must be full workspace-relative paths with `.md`.
   - CREATE writes inside `{digest_dir}/wiki/`. UPDATE may target any bucket if
     recall legitimately found the same abstraction.
@@ -422,7 +407,7 @@ integrate_system_prompt_wiki_zh: |
 
   - 正文短且抽象，通常 50-200 words；只有概念本身确实需要时才更长。
   - 如果草稿开始复制段落或叙述事件，说明细节放错层了。
-  - Provenance edge 承载细节：用 `derived_from:: [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Wiki 正文形态
@@ -431,8 +416,8 @@ integrate_system_prompt_wiki_zh: |
 
   - First line：一句话定义或主张。
   - Body：短段落或紧凑 bullets，写属性、子主张、区分和一行例子。
-  - Relations：有明确语义重量时使用 typed wikilink；大多数 cross-node link 可以裸写。
-  - `derived_from:: [[<material-path>]]`：至少一条，通常覆盖 unit_paths 中每个相关 path。
+  - Relations：在自然语言中用普通 Wikilink 织入相关节点。
+  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
     纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
 
   ## 工作流
@@ -446,23 +431,20 @@ integrate_system_prompt_wiki_zh: |
      - unrelated：忽略。
   3. 选择且只选择一个 action：
      - CREATE：没有 same_abstraction 命中；写入 `{digest_dir}/wiki/<slug>.md`。
-     - CORROBORATE：原则被新实例再次确认；追加 derived_from，可选强化措辞。
+     - CORROBORATE：原则被新实例再次确认；追加来源链接，可选强化措辞。
      - REFINE：nuance、scope、edge case 或 framing 改变；收紧相关段落。正文增长的是精度，不是细节量。
      - CORRECT：事实冲突或过度概括；收紧到更窄且有支持的表述，或用
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
-     wikilink 或 derived_from。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+     wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
 
   ## Wikilink 图
 
-  - 来源 provenance 从 digest 指回材料：
-    `derived_from:: [[daily/<date>/<session>.md]]` 或 `derived_from:: [[resource/<path>]]`。
+  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
+    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
   - Wiki 节点可以链接任意 digest bucket：
     `[[{digest_dir}/wiki/<slug>.md]]`、`[[{digest_dir}/procedure/<slug>.md]]`、
     `[[{digest_dir}/personal/<slug>.md]]`。
-  - 常用 predicate：`derived_from::`、`is_a::`、`extends::`、`depends_on::`、
-    `relates_to::`、`contradicts::`；predicate 词表开放，写在方括号外。有明确语义重量时才加
-    predicate，大多数 cross-node link 可以裸写。
   - Wikilink 必须是带 `.md` 的 workspace-relative path。
   - CREATE 写入 `{digest_dir}/wiki/`。如果 recall 合法命中同一抽象，UPDATE 可以跨 bucket。
   - `edit` 只改正文，并尽量只增不删：不要删除 old span 中已有的 wikilink。
@@ -489,8 +471,8 @@ integrate_user_message: |
   {material_blob}
 
   Integrate this single unit into digest memory. Cite every relevant unit_paths
-  entry with `derived_from:: [[<path>]]`, recall related digest nodes, and weave
-  useful digest wikilinks into the target node.
+  entry as `- [[<path>]]` under `## Sources`, recall related digest nodes, and
+  weave useful digest wikilinks into the target node.
 
 integrate_user_message_zh: |
   提示：{hint}
@@ -506,5 +488,5 @@ integrate_user_message_zh: |
 
   {material_blob}
 
-  将这个单独的 unit 整合进 digest memory。用 `derived_from:: [[<path>]]` 引用 unit_paths 中每个相关来源，
-  召回相关 digest 节点，并把有用的 digest wikilink 织入目标节点。
+  将这个单独的 unit 整合进 digest memory。在 `## Sources` 下用 `- [[<path>]]` 引用 unit_paths 中每个
+  相关来源，召回相关 digest 节点，并把有用的 digest wikilink 织入目标节点。

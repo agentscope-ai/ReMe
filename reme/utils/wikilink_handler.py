@@ -2,7 +2,7 @@
 
 One class, :class:`WikilinkHandler`, owning every wikilink concern:
 
-* **Pure text** — regex, Dataview predicate inference, validation:
+* **Pure text** — regex, extraction, rewrite, validation:
   :meth:`~WikilinkHandler.extract_links` (used by
   :mod:`reme.components.file_chunker.markdown_file_chunker`),
   :meth:`~WikilinkHandler.scan_and_rewrite`,
@@ -16,13 +16,12 @@ One class, :class:`WikilinkHandler`, owning every wikilink concern:
   post-rename to point inbound ``[[src]]`` at the new path). Source
   candidates come from the file_graph's reverse index — no fs scan.
 
-Wikilink convention. Targets are taken **literally** — ``[[X]]`` →
+Wikilink targets are taken **literally** — ``[[X]]`` →
 ``target="X"``, no implicit ``.md``, no short-form basename search,
 no folder-note expansion. Anchor and alias survive a rewrite
-verbatim. Image marker (``!``) and Dataview predicate (``pred::``
-outside the brackets) sit outside ``[[...]]`` and are not touched by
-a rewrite. Recommended form: full path relative to the workspace with
-extension (``[[topics/x.md]]``).
+verbatim. Text outside ``[[...]]`` is ignored. Recommended form: full
+path relative to the workspace with extension (``[[topics/x.md]]``).
+Ordinary Markdown links such as ``[label](path.md)`` are ignored.
 
 Stale graph entries are harmless (``scan_and_rewrite`` returns
 count=0 and the file is skipped), but a graph missing recent writes
@@ -37,26 +36,23 @@ from ..enumeration import LinkScopeEnum
 from ..schema import FileLink
 
 
+def _normalize_workspace_path(path: str) -> str:
+    """Use POSIX separators for workspace paths on every platform."""
+    return path.replace("\\", "/")
+
+
 @dataclass(frozen=True)
 class WikilinkMatch:
-    """One ``[[...]]`` occurrence with parts surfaced.
-
-    ``anchor`` / ``alias`` are stored **without** the leading ``#`` /
-    ``|`` so they map cleanly to :class:`FileLink.target_anchor`; the
-    rewrite path reads the raw regex groups (with delimiters) directly
-    and doesn't go through this dataclass.
-    """
+    """The graph-relevant parts and source span of one wikilink."""
 
     target: str
     anchor: str | None
-    alias: str | None
-    bang: bool
     start: int
     end: int
 
 
 class WikilinkHandler:
-    """Pure-text wikilink operations: parse, extract, rewrite, validate."""
+    """Parse, extract, rewrite, and validate wikilinks."""
 
     # Captures: optional image marker (``!``), the bare target, an
     # optional ``#anchor`` slice (with ``#``), and an optional ``|alias``
@@ -77,54 +73,39 @@ class WikilinkHandler:
 
     FORBIDDEN_IN_NEW = ("[", "]", "#", "|", "\n", "\r")
 
-    _DATAVIEW_LINE_RE = re.compile(
-        r"^[ \t]*(?:[-*+][ \t]+)?(?P<predicate>[A-Za-z][A-Za-z0-9_]*)\s*::\s*(?P<value>.+?)\s*$",
-        re.MULTILINE,
-    )
-
-    _INLINE_FIELD_OPEN_RE = re.compile(r"\[(?P<predicate>[A-Za-z][A-Za-z0-9_]*)\s*::\s*")
-
     # -- Low-level scan ------------------------------------------------
 
     @classmethod
     def iter_matches(cls, text: str):
-        """Yield :class:`WikilinkMatch` for every ``[[...]]`` in ``text``.
-
-        Skips matches whose target is empty after strip (defensive).
-        """
+        """Yield every non-empty ``[[...]]`` occurrence in ``text``."""
         for m in cls.WIKILINK_RE.finditer(text):
             target = m.group("target").strip()
             if not target:
                 continue
             anchor_raw = m.group("anchor")
-            alias_raw = m.group("alias")
             yield WikilinkMatch(
                 target=target,
                 anchor=anchor_raw[1:].strip() if anchor_raw else None,
-                alias=alias_raw[1:].strip() if alias_raw else None,
-                bang=bool(m.group("bang")),
                 start=m.start(),
                 end=m.end(),
             )
 
-    # -- FileLink extraction (with predicate inference) ---------------
+    # -- FileLink extraction ------------------------------------------
 
     @classmethod
     def extract_links(cls, text: str, source_path: str) -> list[FileLink]:
         """Emit :class:`FileLink` edges for every wikilink in ``text``.
 
-        No resolution: ``target_path`` is the bracket contents verbatim.
-        Results are deduped by ``(target_path, predicate, target_anchor)``
-        preserving order.
+        Targets remain literal. Results are deduped by
+        ``(target_path, target_anchor)`` while preserving order.
         """
         if not text:
             return []
-        inline_spans = cls._iter_inline_fields(text)
+        source_path = _normalize_workspace_path(source_path)
         out: list[FileLink] = []
         seen: set[tuple] = set()
         for wm in cls.iter_matches(text):
-            predicate = cls._predicate_for(text, wm.start, inline_spans)
-            key = (wm.target, predicate, wm.anchor)
+            key = (wm.target, wm.anchor)
             if key in seen:
                 continue
             seen.add(key)
@@ -133,7 +114,6 @@ class WikilinkHandler:
                     source_path=source_path,
                     target_path=wm.target,
                     target_anchor=wm.anchor,
-                    predicate=predicate,
                 ),
             )
         return out
@@ -147,20 +127,19 @@ class WikilinkHandler:
         old: str,
         new: str | None,
     ) -> tuple[str, int]:
-        """Find (and optionally rewrite) wikilinks whose target equals ``old``.
+        """Find and optionally rewrite wikilinks whose target is ``old``.
 
         Returns ``(new_text, count)``. When ``new`` is ``None`` no rewrite
         happens (the original text is returned), but the count is still
-        populated — used by ``find_inbound``. Matching is literal:
-        ``target == old``. No short-link, no implicit ``.md``, no
-        folder-note expansion.
+        populated — used by ``find_inbound``. Matching is literal.
         """
+        old = _normalize_workspace_path(old)
+        new = _normalize_workspace_path(new) if new is not None else None
         count = 0
 
         def sub(match: re.Match) -> str:
             nonlocal count
-            target = match.group("target").strip()
-            if target != old:
+            if match.group("target").strip() != old:
                 return match.group(0)
             count += 1
             if new is None:
@@ -170,8 +149,7 @@ class WikilinkHandler:
             bang = match.group("bang") or ""
             return f"{bang}[[{new}{anchor}{alias}]]"
 
-        new_text = cls.WIKILINK_RE.sub(sub, text)
-        return new_text, count
+        return cls.WIKILINK_RE.sub(sub, text), count
 
     # -- Validation ----------------------------------------------------
 
@@ -201,53 +179,6 @@ class WikilinkHandler:
         prefix = scope.rstrip("/") + "/"
         return rel == scope or rel.startswith(prefix)
 
-    # -- Predicate helpers (internal) ---------------------------------
-
-    @classmethod
-    def _iter_inline_fields(cls, text: str) -> list[tuple[int, int, str]]:
-        """Find inline-bracketed ``[predicate:: …]`` field spans by depth scan."""
-        out: list[tuple[int, int, str]] = []
-        for m in cls._INLINE_FIELD_OPEN_RE.finditer(text):
-            depth = 1
-            i = m.end()
-            n = len(text)
-            while i < n:
-                c = text[i]
-                if c == "\n":
-                    break
-                if c == "[":
-                    depth += 1
-                elif c == "]":
-                    depth -= 1
-                    if depth == 0:
-                        out.append((m.start(), i + 1, m.group("predicate")))
-                        break
-                i += 1
-        return out
-
-    @classmethod
-    def _predicate_for(
-        cls,
-        text: str,
-        pos: int,
-        inline_spans: list[tuple[int, int, str]],
-    ) -> str | None:
-        """Resolve the predicate governing a wikilink at offset ``pos``.
-
-        Precedence: inline-bracketed > line-level Dataview > none.
-        """
-        for field_start, field_end, predicate in inline_spans:
-            if field_start <= pos < field_end:
-                return predicate
-        line_start = text.rfind("\n", 0, pos) + 1
-        line_end = text.find("\n", pos)
-        if line_end == -1:
-            line_end = len(text)
-        m = cls._DATAVIEW_LINE_RE.match(text[line_start:line_end])
-        if m and line_start + m.start("value") <= pos:
-            return m.group("predicate")
-        return None
-
     # -- Async file_graph-aware operations -----------------------------
 
     @classmethod
@@ -260,11 +191,12 @@ class WikilinkHandler:
         required to surface sources whose edges sit in the pending bucket.
         Each returned ``FileLink`` carries the linking node's ``source_path``;
         we dedupe to a sorted list since one source can host multiple edges
-        (different anchor/predicate) to the same target. Returns ``[]`` when
+        (different anchors) to the same target. Returns ``[]`` when
         there is no file_graph attached or no source references the target.
         """
         if not file_store.file_graph:
             return []
+        target = _normalize_workspace_path(target)
         inlinks = await file_store.file_graph.get_inlinks(target, scope=LinkScopeEnum.ALL)
         return sorted({link.source_path for link in inlinks if link.source_path})
 
@@ -272,12 +204,10 @@ class WikilinkHandler:
     async def find_inbound(cls, file_store, target: str, scope: str = "") -> dict:
         """Count wikilinks across the workspace that point at ``target``.
 
-        Literal matching: ``[[target]]`` only. The target file itself is
-        excluded — self-references don't survive a delete and aren't
-        actionable for the caller. Sources come from the file_graph's
-        reverse index; per-file counts come from reading each candidate
-        source (the graph dedupes by ``(target, predicate, anchor)`` so
-        it can't count repeated bare-wikilink occurrences directly).
+        The target file itself is excluded — self-references don't survive a
+        delete and aren't actionable for the caller. Sources come from the
+        file_graph's reverse index; per-file counts come from reading each
+        candidate source because the graph dedupes repeated edges.
 
         Result shape::
 
@@ -291,6 +221,8 @@ class WikilinkHandler:
 
         On bad inputs returns ``{"target": ..., "error": str}``.
         """
+        target = _normalize_workspace_path(target)
+        scope = _normalize_workspace_path(scope)
         if not target:
             return {"target": target, "error": "target is required"}
         if Path(target).is_absolute():
@@ -340,6 +272,9 @@ class WikilinkHandler:
         matching only; candidate sources come from the file_graph's reverse
         index.
         """
+        src = _normalize_workspace_path(src)
+        dst = _normalize_workspace_path(dst)
+        scope = _normalize_workspace_path(scope)
         err = cls.validate_src_dst(src, dst)
         if err is not None:
             return {"src": src, "dst": dst, "error": err}

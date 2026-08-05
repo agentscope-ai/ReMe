@@ -42,12 +42,12 @@ class ComponentMixin:
         return Path(self.app_context.app_config.workspace_dir).absolute()
 
     def to_workspace_relative(self, path: str | Path) -> str:
-        """Convert `path` to a workspace-relative string; return absolute path when outside."""
+        """Convert ``path`` to a POSIX workspace path; keep outside paths absolute."""
         abs_path = Path(path).absolute()
         try:
-            return str(abs_path.relative_to(self.workspace_path))
+            return abs_path.relative_to(self.workspace_path).as_posix()
         except ValueError:
-            return str(abs_path)
+            return abs_path.as_posix()
 
 
 class Dependency:

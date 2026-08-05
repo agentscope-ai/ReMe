@@ -65,6 +65,7 @@ class MoveStep(BaseStep):
             )
         self.context.response.metadata.update(payload)
 
+    # pylint: disable=too-many-return-statements
     async def _move(self, src_path: str, dst_path: str, overwrite: bool, retarget: bool) -> dict:
         workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
         src_abs, src_err = resolve_path(workspace_dir, src_path) if src_path else (None, "src_path is required")
@@ -79,7 +80,8 @@ class MoveStep(BaseStep):
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
         dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
-        # Step 1 — copy. Both files exist; inbound [[src_path]] still resolves.
+        # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
+        # targets do not change when their containing document moves.
         shutil.copyfile(str(src_abs), str(dst_abs))
         payload: dict = {"src_path": src_path, "dst_path": dst_path, "size": dst_abs.stat().st_size}
 
@@ -91,10 +93,13 @@ class MoveStep(BaseStep):
             try:
                 report = await WikilinkHandler.retarget_links(self.file_store, src=src_path, dst=dst_path)
             except Exception as exc:
-                payload["retarget"] = {"error": f"retarget raised: {exc!r}"}
+                error = f"retarget raised: {exc!r}"
+                payload["error"] = error
+                payload["retarget"] = {"error": error}
                 payload["src_removed"] = False
                 return payload
             if "error" in report:
+                payload["error"] = report["error"]
                 payload["retarget"] = report
                 payload["src_removed"] = False
                 return payload
