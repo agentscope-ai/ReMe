@@ -264,6 +264,12 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         logged, so search behaves as if compression were disabled. This
         avoids a hard ``Job compressor not found`` failure when a benchmark
         config forgets to define the compressor job/component.
+
+        Per-entry exceptions raised by the compressor job (e.g. a temporary
+        LLM outage) are caught inside ``compress`` so they never propagate
+        through ``asyncio.gather``: the failing entry keeps its original body
+        while the remaining entries are still compressed, preserving already
+        retrieved search results.
         """
         assert self.context is not None
         # Guard: when the compressor job is missing from the active config
@@ -292,7 +298,14 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
             body = (entry.get("body", "") or "").strip()
             if not body:
                 return
-            response = await self.run_job("compressor", text=body, queries=queries)
+            try:
+                response = await self.run_job("compressor", text=body, queries=queries)
+            except Exception as exc:  # pylint: disable=broad-except
+                self.logger.warning(
+                    f"[{self.name}] session body compression raised path={path!r} "
+                    f"error={exc!r}; keeping original",
+                )
+                return
             compressed = str(response.answer or "").strip()
             if not response.success or not compressed:
                 self.logger.warning(

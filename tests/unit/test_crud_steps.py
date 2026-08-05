@@ -778,6 +778,39 @@ def test_read_empty_path_rejected():
     _run(run())
 
 
+def test_read_format_session_injected_false_disables_yaml_true():
+    """Runtime-injected ``read_step_format_session=False`` takes precedence
+    over a YAML-true config — existence check, not truthiness."""
+
+    async def run():
+        from agentscope.message import Msg
+
+        m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
+        jsonl_body = m.model_dump_json() + "\n"
+
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            session_path = Path(tmp) / "session" / "dialog" / "s.jsonl"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text(jsonl_body, encoding="utf-8")
+
+            store = await _make_store()
+
+            # YAML config read_step_format_session=True, no injection → formatting active.
+            step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
+            await step(path="session/dialog/s.jsonl")
+            assert "[user @" in str(step.context.response.answer)
+
+            # Same YAML config, but runtime injects False → must disable formatting.
+            step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
+            await step(path="session/dialog/s.jsonl", read_step_format_session=False)
+            assert "[user @" not in str(step.context.response.answer)
+
+            await store.close()
+        print("✓ test_read_format_session_injected_false_disables_yaml_true passed")
+
+    _run(run())
+
+
 # -- write / edit --------------------------------------------------------
 
 

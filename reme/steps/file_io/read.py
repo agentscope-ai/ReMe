@@ -132,9 +132,12 @@ class ReadStep(BaseStep):
         start_line, end_line = self.context.get("start_line"), self.context.get("end_line")
         with_neighbors: bool = bool(self.kwargs.get("with_neighbors", False))
         max_neighbors_per_direction: int = int(self.kwargs.get("max_neighbors_per_direction", 10))
-        format_session: bool = bool(
-            self.context.get("read_step_format_session") or self.kwargs.get("read_step_format_session", False),
-        )
+        # Injected value takes precedence over YAML kwargs; check existence
+        # (not truthiness) so an explicit False can disable a YAML-true flag.
+        _format_session = self.context.get("read_step_format_session")
+        if _format_session is None:
+            _format_session = self.kwargs.get("read_step_format_session", False)
+        format_session: bool = bool(_format_session)
 
         # Validate inputs and target before touching the filesystem twice.
         target = self._resolve_target(raw)

@@ -1228,3 +1228,34 @@ def test_search_v2_step_keeps_original_body_when_compression_fails():
         assert "boom" not in resp.answer
 
     asyncio.run(run())
+
+
+def test_search_v2_step_keeps_original_body_when_compression_raises():
+    """A compressor job that raises (e.g. temporary LLM outage) keeps the original
+    body for that entry while other entries are still compressed; the search itself
+    never fails."""
+
+    async def run():
+        failing = _chunk("s1", "session/dialog/s1.jsonl", "dialog text one", "vector", 0.9, line=2)
+        ok = _chunk("s2", "session/dialog/s2.jsonl", "dialog text two", "vector", 0.8, line=1)
+        store = FakeSearchStore(vector_results=[failing, ok])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        async def fake_run_job(name, /, **kwargs):
+            if "one" in kwargs.get("text", ""):
+                raise RuntimeError("temporary LLM outage")
+            return Response(success=True, answer="compressed!")
+
+        step.run_job = fake_run_job
+        ctx = RuntimeContext(query="alpha", _search={"_compress": {"session": "true"}})
+
+        resp = await step(ctx)
+
+        assert resp.success is True
+        # The failing entry keeps its original body.
+        assert "dialog text one" in resp.answer
+        # The healthy entry is still compressed.
+        assert "compressed!" in resp.answer
+        assert "dialog text two" not in resp.answer
+
+    asyncio.run(run())
