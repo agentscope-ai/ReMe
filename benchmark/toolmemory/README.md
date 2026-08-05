@@ -2,7 +2,7 @@
 
 **Language**: English (default) / [中文](./README_ZH.md)
 
-> Paper: [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)  
+> Paper: [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)
 > Code: [https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">

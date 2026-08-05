@@ -2,7 +2,7 @@
 
 **语言**：中文 / [English](./README.md)
 
-> 论文：[arXiv:2608.03403](https://arxiv.org/abs/2608.03403)  
+> 论文：[arXiv:2608.03403](https://arxiv.org/abs/2608.03403)
 > 代码：[https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">
