@@ -2,12 +2,10 @@
 
 # ReMe Benchmarks
 
-Reproduction guide for the memory benchmarks shipped with ReMe:
+Reproduction guide for the two memory benchmarks shipped with ReMe:
 
 - **LongMemEval** — long-term memory over multi-session chat histories.
 - **BEAM** — memory capability over long-context chat cases with rubric-based judging.
-- **ToolMemory** — related work on experience-driven robust tool use built on ReMe;
-  see [`toolmemory`](./toolmemory) and [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
 
 Each benchmark runs its own end-to-end pipeline: ingest sessions into an isolated
 per-item workspace, answer probing questions via an agentic (ReAct) mode,

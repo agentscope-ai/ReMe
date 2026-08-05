@@ -2,7 +2,8 @@
 
 **Language**: English (default) / [中文](./README_ZH.md)
 
-> Paper: [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)
+> Paper: [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)  
+> Code: [https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">
   <img src="gitcha.png" alt="ExpG challenges and overview" width="85%">
@@ -16,8 +17,7 @@ This folder archives **ExpG**, a tool-use enhancement built on [Agentscope ReMe]
 - Let smaller models with guidance outperform larger, memoryless baselines;
 - Improve consistently across tool selection, tool calling, and response generation.
 
-This work targets **ReMe 0.1.x–0.3.x with Tool Memory**. Current ReMe `main` (0.4+, Memory-as-File) has removed these APIs and needs additional adaptation.
-**How ReMe is used:** Start ReMe's Tool Memory service; historical tool calls are written and evaluated via `add_tool_call_result`, distilled into tool-level guidance via `summary_tool_memory`, then retrieved and injected into later reasoning via `retrieve_tool_memory`. ReMe provides the vector store and service APIs; the acquisition / distillation / reuse strategy is implemented by ExpG.
+**How ReMe is used:** Start the Tool Memory service; historical tool calls are written and evaluated via `add_tool_call_result`, distilled into tool-level guidance via `summary_tool_memory`, then retrieved and injected into later reasoning via `retrieve_tool_memory`. ReMe provides the vector store and service APIs; the acquisition / distillation / reuse strategy is implemented by ExpG. Full implementation and experiments are in [WangCan1178/ExpG](https://github.com/WangCan1178/ExpG).
 
 ---
 
@@ -73,12 +73,12 @@ Performance comparison (%) across MetaTool, API-Bank, and BFCL-V3. **Bold** indi
 
 | Path | Role |
 | --- | --- |
-| [`tool_memory.py`](./tool_memory.py) | Experiment-side HTTP client (`ToolMemoryFetcher`) that calls ReMe Tool Memory APIs |
+| [`tool_memory.py`](./tool_memory.py) | Experiment-side HTTP client (`ToolMemoryFetcher`) that calls Tool Memory APIs |
 | [`parse_tool_call_result_prompt.yaml`](./parse_tool_call_result_prompt.yaml) | Prompt for multi-aspect evaluation of each tool call |
 | [`summary_tool_memory_prompt.yaml`](./summary_tool_memory_prompt.yaml) | Prompt for summarizing tool call history into guidance |
-| [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | ReMe flow / op config excerpt for Tool Memory |
+| [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | Tool Memory flow / op config excerpt |
 
-These are reference snippets for ReMe 0.1.x–0.3.x and are not runnable under current ReMe `main` without adaptation.
+These are reference snippets. For the full runnable codebase, see [WangCan1178/ExpG](https://github.com/WangCan1178/ExpG).
 
 ---
 
@@ -92,6 +92,7 @@ These are reference snippets for ReMe 0.1.x–0.3.x and are not runnable under c
   eprint        = {2608.03403},
   archivePrefix = {arXiv},
   primaryClass  = {cs.AI},
-  url           = {https://arxiv.org/abs/2608.03403}
+  url           = {https://arxiv.org/abs/2608.03403},
+  howpublished  = {\url{https://github.com/WangCan1178/ExpG}}
 }
 ```

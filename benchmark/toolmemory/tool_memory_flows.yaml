@@ -1,5 +1,5 @@
-# Tool Memory flow / op excerpt from ReMe 0.1.x–0.3.x style config (ExpG).
-# Not compatible with current ReMe main (0.4+, Memory-as-File) without adaptation.
+# Tool Memory flow / op config excerpt used by ExpG.
+# Full runnable code: https://github.com/WangCan1178/ExpG
 
 flow:
   retrieve_tool_memory:

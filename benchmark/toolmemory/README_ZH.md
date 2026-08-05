@@ -2,7 +2,8 @@
 
 **语言**：中文 / [English](./README.md)
 
-> 论文：[arXiv:2608.03403](https://arxiv.org/abs/2608.03403)
+> 论文：[arXiv:2608.03403](https://arxiv.org/abs/2608.03403)  
+> 代码：[https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">
   <img src="gitcha.png" alt="ExpG 挑战与概览" width="85%">
@@ -16,9 +17,7 @@
 - 让较小模型在带有经验指导时超越更大、但无记忆的基线；
 - 在工具选择、工具调用和响应生成等多个阶段带来一致收益。
 
-
-本工作基于 **带 Tool Memory 的 ReMe 0.1.x–0.3.x**；当前 ReMe `main`（0.4+，Memory-as-File）已移除上述接口，需另行适配后才能直接使用。
-**如何使用 ReMe：** 启动 ReMe 的 Tool Memory 服务后，历史工具调用经 `add_tool_call_result` 写入并评估，经 `summary_tool_memory` 蒸馏成工具级指导，再经 `retrieve_tool_memory` 取回并注入后续推理。向量存储与服务接口由 ReMe 提供，经验获取 / 蒸馏 / 复用策略由 ExpG 实现。
+**如何使用 ReMe：** 启动 Tool Memory 服务后，历史工具调用经 `add_tool_call_result` 写入并评估，经 `summary_tool_memory` 蒸馏成工具级指导，再经 `retrieve_tool_memory` 取回并注入后续推理。向量存储与服务接口由 ReMe 提供，经验获取 / 蒸馏 / 复用策略由 ExpG 实现。完整实现与实验见 [WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)。
 
 ---
 
@@ -68,19 +67,18 @@ MetaTool、API-Bank、BFCL-V3 上的性能对比（%）。**加粗**为各模型
 | Qwen3-235B | No Method | 78.25 | 79.23 | 80.29 | 85.46 | 85.46 | 85.71 | 71.37 | 71.15 | 73.54 | 78.13 | 78.49 | 79.91 |
 | Qwen3-235B | **ExpG** | **86.34** | **86.70** | **86.94** | **87.47** | **86.97** | **88.22** | **79.61** | **78.52** | **80.04** | **85.29** | **84.98** | **85.69** |
 
-
 ---
 
 ### 参考代码
 
 | 路径 | 作用 |
 | --- | --- |
-| [`tool_memory.py`](./tool_memory.py) | 实验侧 HTTP 客户端（`ToolMemoryFetcher`），调用 ReMe Tool Memory 接口 |
+| [`tool_memory.py`](./tool_memory.py) | 实验侧 HTTP 客户端（`ToolMemoryFetcher`），调用 Tool Memory 接口 |
 | [`parse_tool_call_result_prompt.yaml`](./parse_tool_call_result_prompt.yaml) | 单次工具调用多维评估用的 prompt |
 | [`summary_tool_memory_prompt.yaml`](./summary_tool_memory_prompt.yaml) | 将工具调用历史总结为 guidance 的 prompt |
-| [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | Tool Memory 相关的 ReMe flow / op 配置摘录 |
+| [`tool_memory_flows.yaml`](./tool_memory_flows.yaml) | Tool Memory 相关的 flow / op 配置摘录 |
 
-以上为基于 ReMe 0.1.x–0.3.x 的参考片段，在当前 ReMe `main` 下需另行适配后才能直接运行。
+以上为参考片段。完整可运行代码见 [WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)。
 
 ---
 
@@ -94,6 +92,7 @@ MetaTool、API-Bank、BFCL-V3 上的性能对比（%）。**加粗**为各模型
   eprint        = {2608.03403},
   archivePrefix = {arXiv},
   primaryClass  = {cs.AI},
-  url           = {https://arxiv.org/abs/2608.03403}
+  url           = {https://arxiv.org/abs/2608.03403},
+  howpublished  = {\url{https://github.com/WangCan1178/ExpG}}
 }
 ```
