@@ -23,7 +23,7 @@ ReMe represents memory as files not merely for convenient storage, but to give l
 |---|---|
 | Readable | Users can open the workspace directly and read daily notes, digest nodes, and source material like ordinary notes. |
 | Editable | Users and agents can correct, extend, move, or delete memory with file operations, without a specialized database client. |
-| Traceable | Long-term conclusions in digest can point back to daily, resource, or session sources through `derived_from:: [[...]]`. |
+| Traceable | Long-term conclusions in digest can point back to daily, resource, or session files from a Sources section. |
 | Portable | The workspace is an ordinary directory. Markdown, JSONL, YAML, and resource files can be backed up, synchronized, versioned, or moved to other tools. |
 | Indexable | Although the files are plain text, ReMe parses frontmatter, chunks, and wikilinks to build a retrieval index and file graph. |
 | Collaborative | Humans judge and correct; agents organize, link, and retrieve. Both operate on the same files. |
@@ -131,9 +131,7 @@ tags: [new energy, solar]
 # Conclusions
 
 The solar supply chain consists of [[digest/wiki/polysilicon.md]], wafers, cells, and modules.
-
-upstream:: [[digest/wiki/polysilicon.md]]
-[company:: [[digest/wiki/longi.md|LONGi]]]
+One major producer is [[digest/wiki/longi.md|LONGi]].
 ```
 
 ### Frontmatter
@@ -163,15 +161,18 @@ confidence: observed
 
 The user repeatedly asks documentation to explain motivation, boundaries, and examples while avoiding marketing language.
 
-derived_from:: [[daily/2026-06-20/session-a.md]]
-related:: [[digest/procedure/technical-documentation.md]]
+Apply this preference when following [[digest/procedure/technical-documentation.md]].
+
+## Sources
+
+- [[daily/2026-06-20/session-a.md]]
 ```
 
 This has three benefits:
 
 1. `name` and `description` serve as lightweight summaries in lists, recall results, and agent decisions.
 2. The body can carry fuller facts, conditions, counterexamples, and sources.
-3. Typed wikilinks such as `derived_from::` and `related::` can be parsed by the graph and maintained when files move.
+3. Ordinary wikilinks can be parsed by the graph and maintained when files move.
 
 Frontmatter is best for stable, short, structured fields; the body is best for explanations meant for people. Do not put long
 body text into YAML fields.
@@ -181,10 +182,10 @@ body text into YAML fields.
 Wikilinks express relationships between files with `[[...]]`:
 
 ```text
-[[digest/wiki/solar.md]]
-[[digest/wiki/solar.md#supply-chain]]
-[[digest/wiki/solar.md|solar]]
-![[resource/2026-06-01/report.md]]
+[[daily/2026-06-20/session.md]]
+[[notes/example.md#L9]]
+[[notes/example.md#L9-L10]]
+[[notes/example.md#L9-L10,L15-L20]]
 ```
 
 ReMe wikilinks use **literal path semantics**:
@@ -196,21 +197,21 @@ ReMe wikilinks use **literal path semantics**:
 ReMe does not append `.md` automatically, search by filename, or automatically resolve folder notes. Use complete
 workspace-relative paths with their extensions.
 
+Ordinary Markdown links such as `[label](../wiki/example.md)` do not create `FileLink` edges and are not rewritten by move or
+retarget operations.
+
+Anchors such as `#L9`, `#L9-L10`, and `#L9-L10,L15-L20` remain ordinary `target_anchor` strings in the graph. The graph
+parser does not validate line-anchor syntax, so values such as `#L0`, `#L10-L9`, and `#L9,` are also stored. The `read` job
+does not interpret an anchor appended to `path`; use the separate 1-based, inclusive `start_line` and `end_line` arguments to
+read a range, for example `read(path="digest/wiki/solar.md", start_line=9, end_line=10)`.
+
 Wikilinks support these behaviors:
 
 ```text
 body link          -> create a FileLink
-predicate:: link   -> create a FileLink with a relationship name
 move a file        -> rewrite [[old path]] in inbound edges by default
 delete a file      -> return remaining inbound edges so references can be cleaned up
 search match       -> expand inbound and outbound links to provide context
-```
-
-Supported relationship forms:
-
-```markdown
-industry:: [[digest/wiki/new-energy.md]]
-[competitor:: [[digest/wiki/byd.md]]]
 ```
 
 Parsed result:
@@ -218,31 +219,36 @@ Parsed result:
 ```text
 FileLink
   source_path = current file
-  target_path = digest/wiki/new-energy.md
-  predicate   = industry
+  target_path = notes/example.md
+  target_anchor = L9-L10,L15-L20
 ```
+
+Older documents containing wrappers such as `related:: [[path]]`,
+`- related:: [[path]]`, or `[related:: [[path]]]` remain readable. ReMe
+ignores the surrounding text and indexes the inner `[[path]]` as an ordinary
+link. After upgrading from a version that stored typed links, run `reme reindex`
+once to rebuild the derived graph without the removed relationship field.
 
 ### Sources and Relationships
 
 The two most important link types in ReMe are source links and conceptual relationship links.
 
-A source link explains where a long-term memory came from:
+A Sources section records where a long-term memory came from:
 
 ```markdown
-derived_from:: [[daily/2026-06-20/session-a.md]]
-derived_from:: [[resource/2026-06-20/report.pdf]]
+## Sources
+
+- [[daily/2026-06-20/session-a.md]]
+- [[resource/2026-06-20/report.pdf]]
 ```
 
-A conceptual relationship link explains which other long-term memories relate to the node:
+A conceptual relationship link explains which other long-term memories relate to the node. Weave it into natural prose:
 
 ```markdown
-related:: [[digest/wiki/solar-supply-chain.md]]
-depends_on:: [[digest/procedure/research-report-analysis.md]]
-contrasts_with:: [[digest/wiki/central-inverter.md]]
+This analysis extends [[digest/wiki/solar-supply-chain.md]], follows
+[[digest/procedure/research-report-analysis.md]], and contrasts with
+[[digest/wiki/central-inverter.md]].
 ```
-
-Ordinary body wikilinks also create graph edges, but when the relationship itself has semantic value, prefer
-`predicate:: [[path]]`. This makes the meaning of links clearer to search, graph traversal, and later agent integration.
 
 ## Human and Agent Editing
 
@@ -257,8 +263,8 @@ through ReMe's file tools. Both follow the same conventions:
 | Delete a file | Check inbound links first. ReMe's delete tool returns source files that still point to the target, making dangling references easier to clean up. |
 | Edit metadata | Use frontmatter for short fields. When the body changes substantially, update `description` as well. |
 
-A practical rule is: **an agent may rewrite the wording, but it must not lose evidence edges**. In particular,
-`derived_from:: [[...]]` and existing digest-to-digest wikilinks are the basis for traceable and extensible long-term memory.
+A practical rule is: **an agent may rewrite the wording, but it must not lose evidence edges**. In particular, Sources entries
+and existing digest-to-digest wikilinks are the basis for traceable and extensible long-term memory.
 
 ## Path Semantics
 

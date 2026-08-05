@@ -110,17 +110,19 @@ name: Cobalt
 description: A key raw material for lithium-battery cathodes, with production concentrated in the DRC
 ---
 
-downstream_product:: [[digest/wiki/ternary-cathodes.md]]
-producer:: [[digest/wiki/glencore.md]]
-source_event:: [[daily/2026-05-18/2026-05-18-close.md]]
-
 # Cobalt
+
+Used by [[digest/wiki/ternary-cathodes.md]]; a major producer is [[digest/wiki/glencore.md]].
 
 ## Supply
 Glencore's third-quarter cobalt output fell 18% year over year. Continue monitoring how tighter supply affects prices.
 
 ## Policy risk
 Changes to mining-rights policy in the DRC may affect KFM mine operations and should be tracked together with CMOC.
+
+## Sources
+
+- [[daily/2026-05-18/2026-05-18-close.md]]
 ```
 
 Note that wikilinks use literal path semantics. Prefer complete workspace-relative paths with the `.md` extension. ReMe
@@ -185,10 +187,10 @@ The result shape is:
 Glencore's third-quarter cobalt output fell 18% year over year...
 
   outlinks:
-    -> digest/wiki/ternary-cathodes.md name="Ternary Cathodes" via predicate=downstream_product
-    -> digest/wiki/glencore.md name="Glencore" via predicate=producer
+    -> digest/wiki/ternary-cathodes.md name="Ternary Cathodes"
+    -> digest/wiki/glencore.md name="Glencore"
   inlinks:
-    <- digest/wiki/ternary-cathodes.md name="Ternary Cathodes" via predicate=upstream_material
+    <- digest/wiki/ternary-cathodes.md name="Ternary Cathodes"
 
 ========== digest/wiki/ternary-cathodes.md:5-18 [score=0.0139 keyword=3.2017] ==========
 ...
@@ -301,10 +303,9 @@ name: TypeScript project build OOM diagnostic path
 description: When a build stalls and memory grows, check the type-checking process first
 ---
 
-source_event:: [[daily/2026-03-10/build-oom-2026-03-10.md]]
-related_preference:: [[digest/personal/code-style.md]]
-
 # TypeScript Project Build OOM Diagnostic Path
+
+Apply [[digest/personal/code-style.md]] while following this runbook.
 
 ## Symptoms
 The build stalls near the end. CPU usage is low, but memory keeps growing.
@@ -317,6 +318,10 @@ The build stalls near the end. CPU usage is low, but memory keeps growing.
 ## Known ineffective paths
 - Deleting `.cache` alone did not resolve the issue on 2026-03-10.
 - Upgrading the terser plugin did not resolve the issue on 2026-03-10.
+
+## Sources
+
+- [[daily/2026-03-10/build-oom-2026-03-10.md]]
 ```
 
 Example `digest/personal/code-style.md`:
@@ -411,13 +416,14 @@ name: Alice
 description: A friend of the user who often recommends reading material
 ---
 
-recommended_book:: [[digest/wiki/deep-work.md]]
-source_event:: [[daily/2026-04-20/lunch-with-alice.md]]
-
 # Alice
 
 ## Reading recommendations
-At lunch on 2026-04-20, Alice recommended a book about attention and deep work.
+At lunch on 2026-04-20, Alice recommended [[digest/wiki/deep-work.md]], a book about attention and deep work.
+
+## Sources
+
+- [[daily/2026-04-20/lunch-with-alice.md]]
 ```
 
 ### An associative recall
@@ -439,7 +445,7 @@ Matches:
 ```text
 digest/personal/alice.md
   outlinks:
-    -> digest/wiki/deep-work.md via predicate=recommended_book
+    -> digest/wiki/deep-work.md
 daily/2026-04-20/lunch-with-alice.md
 ```
 

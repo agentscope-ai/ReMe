@@ -141,6 +141,28 @@ def test_read_with_neighbors_injects_block_and_metadata():
     _run(run())
 
 
+def test_read_with_neighbors_uses_posix_nested_path():
+    """Nested graph keys use POSIX separators on every platform."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _store_with(
+                {
+                    "notes/A.md": {"body": "See [[notes/B.md]].", "name": "A Doc"},
+                    "notes/B.md": {"body": "End node.", "name": "B Doc"},
+                },
+            )
+            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes/A.md")
+
+            expansion = resp.metadata.get("link_expansion")
+            assert expansion is not None
+            assert "notes/A.md" in expansion
+            assert expansion["notes/A.md"]["outlinks"][0]["path"] == "notes/B.md"
+            await store.close()
+
+    _run(run())
+
+
 # -- on + zero neighbors -----------------------------------------------------
 
 

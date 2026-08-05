@@ -73,7 +73,7 @@ class DefaultFileChunker(BaseFileChunker):
         )
 
     def _link_byte_spans(self, content: str) -> list[tuple[int, int]]:
-        """Return [start, end) byte spans of every wikilink in content."""
+        """Return byte spans of wikilinks."""
         spans: list[tuple[int, int]] = []
         last_char, last_byte = 0, 0
         for wm in WikilinkHandler.iter_matches(content):

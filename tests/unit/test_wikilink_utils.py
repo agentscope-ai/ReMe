@@ -1,4 +1,4 @@
-"""Tests for the wikilink helpers in ``reme.utils.wikilink_handler``.
+"""Tests for wikilink helpers in ``reme.utils.wikilink_handler``.
 
 Two pure async helpers used by file_move / file_delete:
 
@@ -196,8 +196,8 @@ def test_retarget_image_marker_preserved():
     asyncio.run(run())
 
 
-def test_retarget_dataview_predicate_preserved():
-    """Line-level + inline-bracketed Dataview predicates pass through outside ``[[..]]``."""
+def test_retarget_preserves_surrounding_relation_text():
+    """Retargeting changes only the inner wikilink target."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -212,9 +212,31 @@ def test_retarget_dataview_predicate_preserved():
             assert "colleague:: [[people/Alice.md]]" in body
             assert "[负责:: [[people/Alice.md]]]" in body
             await store.close()
-        print("✓ test_retarget_dataview_predicate_preserved passed")
+        print("✓ test_retarget_preserves_surrounding_relation_text passed")
 
     asyncio.run(run())
+
+
+def test_markdown_links_are_ignored():
+    """Only double-bracket wikilinks create graph edges or get rewritten."""
+    markdown_links = (
+        "[label](../wiki/example.md) "
+        "[label](../wiki/example.md#section) "
+        "[label](../wiki/example.md#L9-L10,L15-L20)"
+    )
+    original = f"{markdown_links} [[wiki/example.md#L9]]"
+
+    rewritten, count = WikilinkHandler.scan_and_rewrite(
+        original,
+        old="wiki/example.md",
+        new="archive/example.md",
+    )
+
+    assert [(link.target_path, link.target_anchor) for link in WikilinkHandler.extract_links(original, "note.md")] == [
+        ("wiki/example.md", "L9"),
+    ]
+    assert count == 1
+    assert rewritten == f"{markdown_links} [[archive/example.md#L9]]"
 
 
 def test_retarget_multiple_files_aggregate_counts():
@@ -387,7 +409,8 @@ if __name__ == "__main__":
     test_retarget_alias_preserved()
     test_retarget_anchor_and_alias_together()
     test_retarget_image_marker_preserved()
-    test_retarget_dataview_predicate_preserved()
+    test_retarget_preserves_surrounding_relation_text()
+    test_markdown_links_are_ignored()
     test_retarget_multiple_files_aggregate_counts()
     test_retarget_dry_run_does_not_write()
     test_retarget_scope_limits_sweep()

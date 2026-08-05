@@ -208,7 +208,7 @@ class ReadStep(BaseStep):
         """Append the rendered neighbor block + stash raw expansion in metadata."""
         assert self.context is not None
         try:
-            rel_path = str(target.relative_to(self.workspace_path))
+            rel_path = target.relative_to(self.workspace_path.resolve()).as_posix()
         except ValueError:
             self.logger.info(f"[{self.name}] skip neighbors: path outside workspace_path path={target}")
             return

@@ -9,7 +9,7 @@ units into `digest/`, and generates the day's `interests.yaml` for proactive use
 </p>
 
 Its daily inputs usually come from [Auto Memory](./auto_memory.md) and [Auto Resource](./auto_resource.md). For the file
-semantics of `digest/`, `derived_from::`, and wikilinks, see [Memory as File](./memory_as_file.md). For the linking strategy
+semantics of `digest/`, Sources sections, and wikilinks, see [Memory as File](./memory_as_file.md). For the linking strategy
 used during Integrate, see [Auto Link](./auto_link.md). To read `interests.yaml`, use [Proactive](./proactive.md).
 
 ## Configuration
@@ -198,8 +198,8 @@ jobs:
 `auto_dream` consumes only daily inputs and does not rewrite daily bodies. Daily preserves facts and the original situation;
 digest is the abstracted long-term memory layer.
 
-`digest` is not a copy of the source text. Its body should preserve reusable abstractions, while details point back to sources
-through `derived_from:: [[daily/<date>/...]]`. Links follow the workspace-relative wikilink semantics described in
+`digest` is not a copy of the source text. Its body should preserve reusable abstractions, while a Sources section points
+back with entries such as `- [[daily/<date>/...]]`. Links follow the workspace-relative wikilink semantics described in
 [Memory as File](./memory_as_file.md).
 
 `auto_dream` does not invent an overview from nothing. Only content that actually appears in daily input and is extracted as

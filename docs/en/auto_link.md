@@ -32,7 +32,7 @@ link to multiple sources and multiple related digest nodes.
 |---|---|
 | The same memory already exists | Recall and update the existing node instead of creating a duplicate. |
 | New and existing material are related | Write workspace-relative wikilinks into the body. |
-| A digest node is disconnected from its sources | Point back to daily/resource source material with `derived_from:: [[...]]`. |
+| A digest node is disconnected from its sources | Add daily/resource links under a `## Sources` section. |
 | A node contains only isolated prose | Add links to related digest nodes on both CREATE and UPDATE. |
 
 ## Toolchain
@@ -77,20 +77,22 @@ Every unit must select one action:
 | Action | Linking semantics |
 |---|---|
 | `CREATE` | Write a new `digest/<bucket>/<slug>.md` and add source and related-node links to its body. |
-| `CORROBORATE` | The same abstraction appeared again; append a new `derived_from:: [[...]]` and strengthen the description when needed. |
+| `CORROBORATE` | The same abstraction appeared again; append its source link and strengthen the description when needed. |
 | `REFINE` | New material extends the existing node; insert the additional content in the appropriate section and preserve existing links. |
 | `CORRECT` | New material corrects the existing node; use source links to identify the basis for the correction. |
 
-An UPDATE should be additive whenever possible: do not delete existing wikilinks or `derived_from` entries. This prevents
+An UPDATE should be additive whenever possible: do not delete existing wikilinks or source entries. This prevents
 later graph indexing and retrieval from losing edges.
 
 ### 3. Write source edges
 
-Source edges use Markdown wikilinks:
+Source edges are ordinary wikilinks grouped under a Markdown heading:
 
 ```markdown
-derived_from:: [[daily/2026-06-20/session.md]]
-derived_from:: [[resource/2026-06-20/paper.md]]
+## Sources
+
+- [[daily/2026-06-20/session.md]]
+- [[resource/2026-06-20/paper.md]]
 ```
 
 These edges represent the evidence behind a digest node. Plain-text descriptions do not count as source edges because only
@@ -99,16 +101,13 @@ wikilinks can be parsed reliably by the file graph. For the complete parsing rul
 
 ### 4. Write relationships between digest nodes
 
-Relationships between digest nodes also use complete workspace-relative paths:
+Relationships between digest nodes use complete workspace-relative paths woven into natural prose:
 
 ```markdown
-relates_to:: [[digest/wiki/hybrid-search.md]]
-depends_on:: [[digest/procedure/rebuild-index.md]]
-blocks_on:: [[digest/personal/team-review-preference.md]]
+This design extends [[digest/wiki/hybrid-search.md]] and uses
+[[digest/procedure/rebuild-index.md]]. Follow
+[[digest/personal/team-review-preference.md]] during review.
 ```
-
-Predicates are open-ended. Common forms include `relates_to::`, `depends_on::`, and `blocks_on::`. The predicate sits outside
-the brackets, while the target path goes inside `[[...]]` and should include the `.md` suffix.
 
 ## Bucket Differences
 

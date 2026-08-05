@@ -1,10 +1,10 @@
 """BFS over wikilink edges from one or more seed files.
 
 One record per traversed *edge* (not per node): the same target can repeat
-if reached via different predicates or paths. Each record carries the
-predecessor plus the link's predicate/anchor so callers can reconstruct
-the path. Adjacency is built once via a single ``file_store.get_nodes()``
-call — BFS then runs purely in memory with no per-frontier round-trips.
+if reached via different anchors or paths. Each record carries the
+predecessor and anchor so callers can reconstruct the path. Adjacency is
+built once via a single ``file_store.get_nodes()`` call — BFS then runs
+purely in memory with no per-frontier round-trips.
 """
 
 from collections import deque
@@ -46,7 +46,7 @@ def _bfs(
     outbound: Adjacency,
     inbound: Adjacency,
 ) -> list[dict]:
-    """In-memory BFS; emits one record per unique (src, dst, predicate) edge."""
+    """In-memory BFS; emits one record per unique (src, dst, anchor) edge."""
     sources: list[Adjacency] = []
     if direction in _OUT:
         sources.append(outbound)
@@ -63,7 +63,7 @@ def _bfs(
             continue
         for src in sources:
             for next_path, link in src.get(current, ()):
-                key = (current, next_path, link.predicate)
+                key = (current, next_path, link.target_anchor)
                 if key in visited:
                     continue
                 visited.add(key)
@@ -72,7 +72,6 @@ def _bfs(
                         "path": next_path,
                         "depth": depth + 1,
                         "via": current,
-                        "predicate": link.predicate,
                         "anchor": link.target_anchor,
                     },
                 )
@@ -119,8 +118,7 @@ class TraverseStep(BaseStep):
                 target = r["path"]
                 if r["anchor"]:
                     target = f"{target}#{r['anchor']}"
-                predicate = r["predicate"] or "-"
-                lines.append(f"[depth={r['depth']}] {r['via']} --{predicate}--> {target}")
+                lines.append(f"[depth={r['depth']}] {r['via']} --> {target}")
             answer = "\n".join(lines)
 
         self.context.response.success = True

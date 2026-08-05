@@ -7,7 +7,7 @@ Property-graph mapping:
     Virtual node: (:File {path})  — placeholder created when something
                   links to a path that hasn't been upserted yet.
 
-    Edge:         (:File)-[:LINKS {idx, anchor, predicate}]->(:File)
+    Edge:         (:File)-[:LINKS {idx, anchor}]->(:File)
 
 The ``links_json`` property doubles as the "is real" marker — its
 presence means the node was upserted with a payload; its absence
@@ -43,7 +43,7 @@ from ...schema import FileLink, FileNode
 from ...schema.file_node import FileFrontMatter
 
 _TYPED_FRONTMATTER_FIELDS = {"name", "description"}
-_LINK_FIELDS = {"source_path", "target_path", "target_anchor", "predicate"}
+_LINK_FIELDS = {"source_path", "target_path", "target_anchor"}
 
 # Properties that distinguish a "real" node from a virtual placeholder.
 # Listed for the demote query (delete_nodes) so we can REMOVE them all.
@@ -169,7 +169,6 @@ class Neo4jFileGraph(BaseFileGraph):
                     {
                         "idx": i,
                         "anchor": link.target_anchor,
-                        "predicate": link.predicate,
                         "target": link.target_path,
                     }
                     for i, link in enumerate(node.links)
@@ -211,7 +210,7 @@ class Neo4jFileGraph(BaseFileGraph):
             UNWIND n.links AS link
             MERGE (t:File {path: link.target})
             MERGE (s)-[r:LINKS {idx: link.idx}]->(t)
-            SET r.anchor = link.anchor, r.predicate = link.predicate
+            SET r.anchor = link.anchor
             """,
             items=payload,
         )
@@ -313,7 +312,6 @@ class Neo4jFileGraph(BaseFileGraph):
                 {
                     "idx": i,
                     "anchor": link.get("target_anchor"),
-                    "predicate": link.get("predicate"),
                     "target": link.get("target_path"),
                 }
                 for i, link in enumerate(links)
@@ -340,7 +338,7 @@ class Neo4jFileGraph(BaseFileGraph):
             UNWIND n.links AS link
             MERGE (t:File {path: link.target})
             MERGE (s)-[r:LINKS {idx: link.idx}]->(t)
-            SET r.anchor = link.anchor, r.predicate = link.predicate
+            SET r.anchor = link.anchor
             """,
             items=payload,
         )
@@ -369,8 +367,7 @@ class Neo4jFileGraph(BaseFileGraph):
                 WHERE s.links_json IS NOT NULL
                 MATCH (s)-[r:LINKS]->(t:File)
                 WHERE 1=1 {target_filter}
-                RETURN t.path AS target, r.anchor AS anchor,
-                       r.predicate AS predicate, r.idx AS idx
+                RETURN t.path AS target, r.anchor AS anchor, r.idx AS idx
                 ORDER BY r.idx ASC
                 """,
                 path=path,
@@ -381,7 +378,6 @@ class Neo4jFileGraph(BaseFileGraph):
                 source_path=path,
                 target_path=row["target"],
                 target_anchor=row.get("anchor"),
-                predicate=row.get("predicate"),
             )
             for row in rows
         ]
@@ -405,8 +401,7 @@ class Neo4jFileGraph(BaseFileGraph):
                 WHERE 1=1 {target_filter}
                 MATCH (s:File)-[r:LINKS]->(t)
                 WHERE s.links_json IS NOT NULL
-                RETURN r.anchor AS anchor, r.predicate AS predicate,
-                       r.idx AS idx, s.path AS source
+                RETURN r.anchor AS anchor, r.idx AS idx, s.path AS source
                 ORDER BY s.path ASC, r.idx ASC
                 """,
                 path=path,
@@ -417,7 +412,6 @@ class Neo4jFileGraph(BaseFileGraph):
                 source_path=row["source"],
                 target_path=path,
                 target_anchor=row.get("anchor"),
-                predicate=row.get("predicate"),
             )
             for row in rows
         ]

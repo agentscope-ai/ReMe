@@ -42,12 +42,14 @@ def _run(coro):
     asyncio.run(coro)
 
 
-def _node(path: str, links: list[tuple[str, str | None, str | None]] | None = None) -> FileNode:
-    """Build a FileNode with (target_path, target_anchor, predicate) outgoing edges."""
+def _node(path: str, links: list[tuple[str, str | None]] | None = None) -> FileNode:
+    """Build a FileNode with (target_path, target_anchor) outgoing edges."""
     return FileNode(
         path=path,
         st_mtime=1.0,
-        links=[FileLink(source_path=path, target_path=t, target_anchor=a, predicate=p) for t, a, p in (links or [])],
+        links=[
+            FileLink(source_path=path, target_path=target, target_anchor=anchor) for target, anchor in (links or [])
+        ],
     )
 
 
@@ -197,7 +199,7 @@ def test_traverse_forward_depth_1():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             store = await _make_store(
                 [
-                    _node("a.md", [("b.md", None, None), ("c.md", "intro", "ref")]),
+                    _node("a.md", [("b.md", None), ("c.md", "intro")]),
                     _node("b.md"),
                     _node("c.md"),
                 ],
@@ -207,9 +209,8 @@ def test_traverse_forward_depth_1():
             results = _edges(step)
             paths = {r["path"] for r in results}
             assert paths == {"b.md", "c.md"}
-            # The 'ref' edge should report its predicate/anchor.
+            # Anchors remain part of traversal metadata.
             c_edge = next(r for r in results if r["path"] == "c.md")
-            assert c_edge["predicate"] == "ref"
             assert c_edge["anchor"] == "intro"
             assert c_edge["via"] == "a.md"
             assert c_edge["depth"] == 1
@@ -226,8 +227,8 @@ def test_traverse_backward_returns_inlinks():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             store = await _make_store(
                 [
-                    _node("a.md", [("b.md", None, None)]),
-                    _node("c.md", [("b.md", None, None)]),
+                    _node("a.md", [("b.md", None)]),
+                    _node("c.md", [("b.md", None)]),
                     _node("b.md"),
                 ],
             )
@@ -248,8 +249,8 @@ def test_traverse_depth_2_expands():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             store = await _make_store(
                 [
-                    _node("a.md", [("b.md", None, None)]),
-                    _node("b.md", [("c.md", None, None)]),
+                    _node("a.md", [("b.md", None)]),
+                    _node("b.md", [("c.md", None)]),
                     _node("c.md"),
                 ],
             )
@@ -311,8 +312,8 @@ def test_traverse_both_directions():
         with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
             store = await _make_store(
                 [
-                    _node("upstream.md", [("center.md", None, None)]),
-                    _node("center.md", [("downstream.md", None, None)]),
+                    _node("upstream.md", [("center.md", None)]),
+                    _node("center.md", [("downstream.md", None)]),
                     _node("downstream.md"),
                 ],
             )

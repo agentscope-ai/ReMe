@@ -12,8 +12,7 @@ and merge adjacent small subtrees at their parent. Leaf blocks (table / code /
 list / paragraph) split on internal boundaries and each piece is annotated
 ``[Part X/N]``. Wikilink extraction is
 delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
-the single source of truth for ``[[...]]`` syntax (including
-Dataview-style typed predicates).
+the single source of truth for ``[[...]]`` syntax.
 """
 
 import re

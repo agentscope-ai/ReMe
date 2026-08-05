@@ -113,7 +113,7 @@ def test_expand_links_returns_outlinks_and_inlinks_with_meta():
             assert len(a_out) == 1
             assert a_out[0]["path"] == "B.md"
             assert a_out[0]["meta"] == {"name": "B Doc", "description": "beta"}
-            assert a_out[0]["edges"] == [{"predicate": None, "anchor": None}]
+            assert a_out[0]["anchors"] == []
             assert result["A.md"]["inlinks"] == []
 
             b_in = result["B.md"]["inlinks"]
@@ -184,13 +184,13 @@ def test_render_expansion_lines_empty_input_yields_empty_list():
 
 
 def test_render_expansion_lines_outlinks_only():
-    """Single outlink with meta + plain edge renders as 3 lines."""
+    """Single outlink with metadata renders without a redundant edge line."""
     expansion = {
         "outlinks": [
             {
                 "path": "B.md",
                 "meta": {"name": "B", "description": "beta"},
-                "edges": [{"predicate": None, "anchor": None}],
+                "anchors": [],
             },
         ],
         "inlinks": [],
@@ -199,20 +199,19 @@ def test_render_expansion_lines_outlinks_only():
     assert lines == [
         "  outlinks (1):",
         '    → B.md  name="B"  description="beta"',
-        "        via plain",
     ]
     print("✓ test_render_expansion_lines_outlinks_only passed")
 
 
-def test_render_expansion_lines_inlinks_only_with_predicate_and_anchor():
-    """Inlink edge with predicate + anchor renders via descriptor."""
+def test_render_expansion_lines_inlinks_only_with_anchor():
+    """Inlink anchor renders via descriptor."""
     expansion = {
         "outlinks": [],
         "inlinks": [
             {
                 "path": "src.md",
                 "meta": {},
-                "edges": [{"predicate": "references", "anchor": "intro"}],
+                "anchors": ["intro"],
             },
         ],
     }
@@ -220,26 +219,26 @@ def test_render_expansion_lines_inlinks_only_with_predicate_and_anchor():
     assert lines == [
         "  inlinks (1):",
         "    ← src.md  (no meta)",
-        "        via predicate=references, anchor=#intro",
+        "        via anchor=#intro",
     ]
-    print("✓ test_render_expansion_lines_inlinks_only_with_predicate_and_anchor passed")
+    print("✓ test_render_expansion_lines_inlinks_only_with_anchor passed")
 
 
 def test_render_expansion_lines_both_directions_in_order():
     """outlinks block precedes inlinks block."""
     expansion = {
         "outlinks": [
-            {"path": "out.md", "meta": {"name": "Out"}, "edges": [{"predicate": None, "anchor": None}]},
+            {"path": "out.md", "meta": {"name": "Out"}, "anchors": []},
         ],
         "inlinks": [
-            {"path": "in.md", "meta": {"description": "incoming"}, "edges": [{"predicate": None, "anchor": None}]},
+            {"path": "in.md", "meta": {"description": "incoming"}, "anchors": []},
         ],
     }
     lines = render_expansion_lines(expansion)
     assert lines[0] == "  outlinks (1):"
-    assert lines[3] == "  inlinks (1):"
+    assert lines[2] == "  inlinks (1):"
     assert lines[1].lstrip().startswith("→")
-    assert lines[4].lstrip().startswith("←")
+    assert lines[3].lstrip().startswith("←")
     print("✓ test_render_expansion_lines_both_directions_in_order passed")
 
 
@@ -250,5 +249,5 @@ if __name__ == "__main__":
     test_expand_links_node_without_meta_returns_empty_meta_dict()
     test_render_expansion_lines_empty_input_yields_empty_list()
     test_render_expansion_lines_outlinks_only()
-    test_render_expansion_lines_inlinks_only_with_predicate_and_anchor()
+    test_render_expansion_lines_inlinks_only_with_anchor()
     test_render_expansion_lines_both_directions_in_order()

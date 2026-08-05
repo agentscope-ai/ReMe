@@ -62,7 +62,7 @@ index_update_loop:
 4. 对删除的文件，从 `file_store`、`keyword_index` 和 `file_graph` 清掉对应记录。
 5. 有变化时 dump 到 `metadata/`，让下次启动可以恢复。
 
-Markdown chunker 会解析 YAML frontmatter、标题结构和 `[[...]]`，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
+Markdown chunker 会解析 YAML frontmatter、标题结构和 wikilink，产出 `FileNode`、`FileChunk` 和 `FileLink`。更细的分块规则见
 [Memory as File](./memory_as_file.md#memory-chunking)。
 
 ### 索引优化
@@ -172,7 +172,8 @@ delete，后续可通过 optimize 压缩索引。
 Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是分三层展开：
 
 1. 第一层是 chunk 召回：只返回最相关的 `limit` 个文本片段。
-2. 第二层是文件定位：每个结果带 `path:start_line-end_line`，可以继续用 `read` 精读原文件。
+2. 第二层是文件定位：每个结果带 `path:start_line-end_line`。调用 `read` 时需要把它们分别作为 `path`、
+   `start_line` 和 `end_line` 传入，行号范围不是 `path` 的一部分。
 3. 第三层是链接邻居：对命中文件调用 `expand_links()`，展开最多 `max_links_per_direction` 个 outlinks 和 inlinks。
 
 展开的数据来自 `file_graph`，不是重新扫文件：
@@ -183,7 +184,7 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
   -> file_store.get_outlinks(path)
   -> file_store.get_inlinks(path)
   -> file_store.get_nodes(neighbor_paths)
-  -> 渲染邻居的 path、name、description、predicate、anchor
+  -> 渲染邻居的 path、name、description、anchor
 ```
 
 这让搜索结果既保持短，又能看到“这条记忆连接到哪些长期节点、资源或其他 daily note”。如果某条结果值得继续追，可以用
@@ -203,10 +204,8 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
 ...命中的记忆片段...
   outlinks (2):
     -> digest/indexing.md  name="Indexing"  description="..."
-      via predicate=related
   inlinks (1):
     <- daily/2026-06-19.md  name="..."
-      via plain
 ```
 
 `counts` 会告诉你本次向量、关键词各召回了多少候选，以及最终返回多少条。默认 embedding 关闭时，`vector` 通常是 `0`，`hybrid` 是
