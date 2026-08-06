@@ -12,9 +12,7 @@ Meta-ReMe 放置于 `meta-reme/`，入口为：
 
 ```bash
 python meta-reme/run.py \
-  --dataset longmemeval \
-  --workspace /path/to/workspace \
-  --config meta-reme/configs/longmemeval.yaml
+  --config benchmark/longmemeval/config_meta_reme.yaml
 ```
 
 主要模块如下：
@@ -32,9 +30,9 @@ meta-reme/
   evaluator.py
   result_store.py
   bundle_builder.py
-  datasets/
-    base.py
-    longmemeval.py
+  data_preparation/
+    basic.py
+    lme.py
     beam.py
 ```
 

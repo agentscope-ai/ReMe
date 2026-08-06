@@ -1,0 +1,7 @@
+# Meta-ReMe preparation configuration for LongMemEval.
+meta_workspace: "benchmark/longmemeval/meta-workspace"
+
+dataset:
+  name: "longmemeval"
+  source: "benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json"
+  train_case_ids: []  # empty = all cases; or a list of question IDs

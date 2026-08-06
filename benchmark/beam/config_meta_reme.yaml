@@ -1,0 +1,8 @@
+# Meta-ReMe preparation configuration for BEAM.
+meta_workspace: "benchmark/beam/meta-workspace"
+
+dataset:
+  name: "beam"
+  source: "benchmark/beam/dataset/BEAM"
+  variant: "1M"  # 100K | 500K | 1M | 10M
+  train_case_ids: []  # empty = all cases; or ["1", "2", "3"]
