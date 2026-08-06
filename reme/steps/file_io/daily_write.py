@@ -3,6 +3,7 @@
 from ._daily_index import parse_daily_date, refresh_day_index, validate_session_id
 from ._path import validate_filename_component
 from ..base_step import BaseStep
+from ..index import normalize_posix_path
 from ...components import R
 from ...steps.evolve import now
 
@@ -21,10 +22,11 @@ class DailyWriteStep(BaseStep):
             self.context.response.metadata.update(meta)
 
     def _session_dir(self) -> str:
-        return str(self.config_value("session_dir")).strip("/")
+        return normalize_posix_path(str(self.config_value("session_dir")))
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/dialog/{session_id}.jsonl]]"
+        path = normalize_posix_path(f"{self._session_dir()}/dialog/{session_id}.jsonl")
+        return f"[[{path}]]"
 
     def _collect_required(self) -> tuple[str, str, str, str] | None:
         assert self.context is not None

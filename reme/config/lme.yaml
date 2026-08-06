@@ -62,7 +62,7 @@ jobs:
   index_update:
     backend: base
     description: "Manually trigger incremental index update for watched dirs."
-    watch_dirs: [daily_dir, digest_dir, dialog_dir]
+    watch_dirs: [daily_dir, digest_dir, session_dir/dialog]
     watch_suffixes: [md, jsonl]
     parameters:
       type: object

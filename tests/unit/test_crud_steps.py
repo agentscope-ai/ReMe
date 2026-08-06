@@ -31,7 +31,9 @@ import os
 import tempfile
 import warnings
 from pathlib import Path, PureWindowsPath
+from types import SimpleNamespace
 
+from reme.components import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileNode
 from reme.steps.file_io import (
@@ -807,6 +809,31 @@ def test_read_format_session_injected_false_disables_yaml_true():
 
             await store.close()
         print("✓ test_read_format_session_injected_false_disables_yaml_true passed")
+
+    _run(run())
+
+
+def test_read_format_session_with_non_normalized_session_dir():
+    """Session formatting recognizes a normalized target when config contains ``./``."""
+
+    async def run():
+        from agentscope.message import Msg
+
+        m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
+        jsonl_body = m.model_dump_json() + "\n"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            session_path = workspace / "sessions" / "dialog" / "s.jsonl"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text(jsonl_body, encoding="utf-8")
+
+            app_context = ApplicationContext(workspace_dir=str(workspace.resolve()), session_dir="./sessions")
+            step = crud_read.ReadStep(app_context=app_context, read_step_format_session=True)
+            step.file_store = SimpleNamespace(workspace_path=workspace)
+            await step(path="sessions/dialog/s.jsonl")
+
+            assert "[user @" in str(step.context.response.answer)
 
     _run(run())
 

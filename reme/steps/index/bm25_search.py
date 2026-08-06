@@ -48,10 +48,10 @@ class Bm25SearchStep(_ToolContextDedupMixin, BaseStep):
         else:
             results = results[:limit]
 
-        dialog_dir = self.config_value("dialog_dir")
+        session_dir = self.config_value("session_dir")
         entries = render_chunk_entries(
-            merge_session_chunk_intervals(results, dialog_dir),
-            dialog_dir,
+            merge_session_chunk_intervals(results, session_dir),
+            session_dir,
             include_source=self.include_source,
         )
         self.context.response.answer = join_chunk_entries(entries)
