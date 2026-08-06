@@ -17,7 +17,7 @@ from pathlib import Path
 import frontmatter
 
 from ._file_io import get_path_lock
-from ._path import _check_path_permission, resolve_path
+from ._path import _check_path_permission, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -43,22 +43,24 @@ class FrontmatterUpdateStep(BaseStep):
         target, err = resolve_path(workspace_dir, path)
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
-        elif not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
-            payload = {"path": path, "error": "no permission to update this file"}
         else:
-            lock = await get_path_lock(target)
-            async with lock:
-                if not target.is_file():
-                    payload = {"path": path, "error": "not found"}
-                elif target.suffix != ".md":
-                    payload = {"path": path, "error": "not markdown"}
-                elif not metadata:
-                    payload = {"path": path, "error": "no fields to update"}
-                else:
-                    post = frontmatter.loads(target.read_text(encoding="utf-8"))
-                    post.metadata.update(metadata)
-                    target.write_text(frontmatter.dumps(post), encoding="utf-8")
-                    payload = {"path": path, "updated": metadata}
+            target, is_md = gate_md(target)
+            if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+                payload = {"path": path, "error": "no permission to update this file"}
+            else:
+                lock = await get_path_lock(target)
+                async with lock:
+                    if not target.is_file():
+                        payload = {"path": path, "error": "not found"}
+                    elif not is_md:
+                        payload = {"path": path, "error": "not markdown"}
+                    elif not metadata:
+                        payload = {"path": path, "error": "no fields to update"}
+                    else:
+                        post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                        post.metadata.update(metadata)
+                        target.write_text(frontmatter.dumps(post), encoding="utf-8")
+                        payload = {"path": path, "updated": metadata}
 
         if "error" in payload:
             self.context.response.success = False

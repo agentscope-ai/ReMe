@@ -13,7 +13,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
-from ._path import resolve_path
+from ._path import gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -35,13 +35,14 @@ class FrontmatterReadStep(BaseStep):
             self.context.response.metadata.update({"path": path, "exists": False, "error": err or "invalid path"})
             self.logger.info(f"[{self.name}] path={path} error={err!r}")
             return
+        target, is_md = gate_md(target)
         if not target.is_file():
             self.context.response.success = False
             self.context.response.answer = f"Error: {path} not found"
             self.context.response.metadata.update({"path": path, "exists": False})
             self.logger.info(f"[{self.name}] path={path} exists=False")
             return
-        if target.suffix != ".md":
+        if not is_md:
             self.context.response.success = False
             self.context.response.answer = "Error: not markdown"
             self.context.response.metadata.update({"path": path, "error": "not markdown"})
