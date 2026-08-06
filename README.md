@@ -59,8 +59,8 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 
 ## 📰 News
 
-- [2026.08] - Experience-driven enhancement of agent tool-use execution built on ReMe is available on
-  [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
+- [2026.08] - [Experience-driven enhancement method](benchmark/toolmemory/README.md) of agent tool-use
+  execution built on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
 - [2026.07] - Introduced optional Cookbooks: [Daily Paper](cookbook/daily_paper/README.md) for paper discovery and
   analysis, and [Auto Fin](cookbook/auto-fin/README.md) for file-native ETF event research based on CLS news and
   historical market reactions.

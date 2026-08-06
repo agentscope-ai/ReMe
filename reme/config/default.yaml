@@ -211,6 +211,36 @@ jobs:
     steps:
       - backend: version_step
 
+  app_config:
+    backend: base
+    description: "return the effective application config with secrets redacted"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: app_config_step
+
+  chat:
+    backend: stream
+    description: "Stream a read-only agent conversation over the ReMe workspace."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "user message"
+        session_id:
+          type: string
+          description: "agent session to resume"
+        system_prompt:
+          type: string
+          description: "optional system prompt override"
+      required:
+        - query
+    steps:
+      - backend: chat_step
+        agent_wrapper: default
+
   health_check:
     backend: base
     description: "return a concise health-check snapshot of reme components"
@@ -542,6 +572,21 @@ jobs:
         with_neighbors: false
         max_neighbors_per_direction: 10
 
+  load:
+    backend: base
+    description: "Load a complete text file for the local editor without agent-output truncation."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "workspace-relative path"
+      required:
+        - path
+    steps:
+      - backend: load_step
+        max_bytes: 5242880
+
   read_image:
     backend: base
     description: "Read an image file as base64 (workspace-relative path)."
@@ -587,6 +632,27 @@ jobs:
         - content
     steps:
       - backend: write_step
+
+  save:
+    backend: base
+    description: "Save text verbatim, optionally rejecting external changes since the file was opened."
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: "workspace-relative path"
+        content:
+          type: string
+          description: "complete file content, including frontmatter"
+        expected_mtime:
+          type: string
+          description: "optional ISO mtime returned by stat"
+      required:
+        - path
+        - content
+    steps:
+      - backend: save_step
 
   daily_write:
     backend: base

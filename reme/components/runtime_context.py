@@ -73,6 +73,11 @@ class RuntimeContext:
         await self._enqueue(StreamChunk(chunk_type=chunk_type, chunk=chunk))
         return self
 
+    async def add_stream_chunk(self, chunk: StreamChunk) -> "RuntimeContext":
+        """Emit a complete chunk while preserving session and tool metadata."""
+        await self._enqueue(chunk)
+        return self
+
     async def add_stream_done(self) -> "RuntimeContext":
         """Emit the terminal DONE marker to close the stream."""
         await self._enqueue(StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True))
