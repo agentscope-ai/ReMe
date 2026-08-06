@@ -4,14 +4,12 @@ import asyncio
 import datetime as dt
 from pathlib import Path
 
-import frontmatter
-
 from ....components import R
 from ....schema import PaperInfo
 from ....utils.arxiv import ARXIV_ID_PATTERN
 from ....utils.huggingface_papers import HuggingFacePapersClient
 from ...evolve import now
-from ._common import DailyPaperStep
+from ._common import DailyPaperStep, iter_note_metadata
 
 
 @R.register("daily_paper_collect_step")
@@ -61,11 +59,7 @@ class DailyPaperCollectStep(DailyPaperStep):
                 continue
             if not earliest <= note_date < run_date:
                 continue
-            for note_path in day_dir.glob("*.md"):
-                try:
-                    metadata = frontmatter.load(note_path).metadata
-                except (OSError, UnicodeError, ValueError):
-                    continue
+            for _, metadata in iter_note_metadata(day_dir):
                 arxiv_id = str(metadata.get("arxiv_id") or "").strip()
                 if ARXIV_ID_PATTERN.fullmatch(arxiv_id):
                     found.add(arxiv_id)
@@ -74,13 +68,7 @@ class DailyPaperCollectStep(DailyPaperStep):
     @staticmethod
     def find_saved_digest(day_dir: Path) -> Path | None:
         """Find a generated brief by frontmatter instead of by its model-generated title."""
-        if not day_dir.is_dir():
-            return None
-        for path in sorted(day_dir.glob("*.md")):
-            try:
-                metadata = frontmatter.load(path).metadata
-            except (OSError, UnicodeError, ValueError):
-                continue
+        for path, metadata in iter_note_metadata(day_dir):
             if metadata.get("kind") == "daily-paper-brief" or path.name == "daily-paper-brief.md":
                 return path
         return None
@@ -112,16 +100,16 @@ class DailyPaperCollectStep(DailyPaperStep):
         if digest_path is not None:
             digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
             self._set_state("existing_digest_path", digest_rel)
-        if digest_path is not None and not force:
-            self._set_state("skip", True)
-            self._set_state("digest_path", digest_rel)
-            self.context.response.success = True
-            self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
-            self.context.response.metadata.update(
-                {"date": day, "digest_path": digest_rel, "skipped": True},
-            )
-            self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
-            return self.context.response
+            if not force:
+                self._set_state("skip", True)
+                self._set_state("digest_path", digest_rel)
+                self.context.response.success = True
+                self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
+                self.context.response.metadata.update(
+                    {"date": day, "digest_path": digest_rel, "skipped": True},
+                )
+                self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
+                return self.context.response
 
         week, month = self._paper_scope_values(run_date)
         yesterday = (run_date - dt.timedelta(days=1)).isoformat()
@@ -161,7 +149,8 @@ class DailyPaperCollectStep(DailyPaperStep):
             int(self._value("history_days", 30)),
             daily_dir,
         )
-        eligible = {key: paper for key, paper in merged.items() if key not in yesterday_ids | historical_ids}
+        excluded_ids = yesterday_ids | historical_ids
+        eligible = {key: paper for key, paper in merged.items() if key not in excluded_ids}
         self.logger.info(
             f"[{self.name}] filter done merged={len(merged)} excluded_yesterday={len(yesterday_ids)} "
             f"excluded_history={len(historical_ids)} eligible={len(eligible)}",

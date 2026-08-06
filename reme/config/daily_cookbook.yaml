@@ -374,9 +374,22 @@ jobs:
         title: ReMe Auto Fin
         timeout: 15
 
-  auto_fin_1200_cron:
+  # Three intraday runs (Asia/Shanghai). Non-trading days are skipped inside
+  # auto_fin_data_step, so a daily trigger is fine. Each rerun refines the same
+  # day's report on top of the earlier run rather than replacing it wholesale.
+  auto_fin_0930_cron:
     backend: cron
-    cron: "0 12 * * *"
+    cron: "30 9 * * *"
+    steps: *auto_fin_steps
+
+  auto_fin_1130_cron:
+    backend: cron
+    cron: "30 11 * * *"
+    steps: *auto_fin_steps
+
+  auto_fin_1800_cron:
+    backend: cron
+    cron: "0 18 * * *"
     steps: *auto_fin_steps
 
   daily_paper:

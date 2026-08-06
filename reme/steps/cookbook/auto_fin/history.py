@@ -26,6 +26,14 @@ class AutoFinHistoryStep(AutoFinStep):
         rows = self._read_jsonl_sync(path)
         return sorted(rows, key=lambda row: str(row.get("trade_date") or ""))
 
+    def _read_news(self, path: Path) -> list[dict[str, str]]:
+        """Parse a news file once per run; the same file recurs across events/ETFs."""
+        cache = self.__dict__.setdefault("_news_cache", {})
+        key = str(path)
+        if key not in cache:
+            cache[key] = AutoFinDataStep.read_news(path)
+        return cache[key]
+
     @staticmethod
     def _number(value: Any) -> float | None:
         try:
@@ -48,22 +56,25 @@ class AutoFinHistoryStep(AutoFinStep):
                 continue
             usable.append((trade_day, row, close, factor))
 
-        entry_index = None
-        entry_price = None
+        event_day = event_time.date()
         before_close = event_time.time() < time(15)
+        entry_index = entry_price = None
+        entered_at_close = False
         for index, (trade_day, row, close, factor) in enumerate(usable):
-            if before_close and trade_day == event_time.date():
-                entry_index, entry_price = index, close * factor
+            # React before the close only when the event day is itself a trading day.
+            if before_close and trade_day == event_day:
+                entry_index, entry_price, entered_at_close = index, close * factor, True
                 break
-            if not before_close and trade_day > event_time.date():
-                opened = cls._number(row.get("open"))
-                if opened is not None:
+            # Otherwise (post-close, or any time on a non-trading day) enter at the
+            # open of the first trading day after the event.
+            if trade_day > event_day:
+                if (opened := cls._number(row.get("open"))) is not None:
                     entry_index, entry_price = index, opened * factor
-                    break
+                break
         result = {f"d{horizon}": None for horizon in HORIZONS}
         if entry_index is None or entry_price is None:
             return result
-        first_close = entry_index + 1 if before_close else entry_index
+        first_close = entry_index + 1 if entered_at_close else entry_index
         for horizon in HORIZONS:
             target = first_close + horizon - 1
             if target < len(usable):
@@ -91,7 +102,7 @@ class AutoFinHistoryStep(AutoFinStep):
         candidates = []
         for relative, news_ids in ids_by_path.items():
             path = self.workspace_path / relative
-            for row in AutoFinDataStep.read_news(path):
+            for row in self._read_news(path):
                 if row["news_id"] in news_ids and row["news_id"] != event["news_id"]:
                     candidates.append(row)
         unique = {row["news_id"]: row for row in candidates}

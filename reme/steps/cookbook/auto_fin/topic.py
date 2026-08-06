@@ -7,7 +7,7 @@ from typing import Any
 
 from ....components import R
 from ....schema import AutoFinEtfsOutput
-from ._base import AutoFinStep, _write
+from ._base import AutoFinStep
 
 
 @R.register("auto_fin_topic_step")
@@ -58,7 +58,7 @@ class AutoFinTopicStep(AutoFinStep):
         )
         normalized = self._normalize(output, news, names, int(self._value("current_news_limit_per_etf", 10)))
         if normalized != output:
-            _write(output_path, normalized.model_dump_json() + "\n")
+            self._write_output(output_path, normalized)
         self.context["auto_fin_news"] = news
         self.context["auto_fin_etfs"] = normalized.model_dump(mode="json")["etfs"]
         self.context.response.metadata.update(

@@ -1,7 +1,9 @@
 """Shared state and file helpers for daily-paper steps."""
 
+import datetime as dt
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -13,6 +15,8 @@ from pydantic import BaseModel
 from ...base_step import BaseStep
 from ...file_io import get_path_lock, validate_filename_component
 
+# Number of papers selected, analyzed, and digested each run. Shared across steps.
+PAPER_COUNT = 3
 _STATE_PREFIX = "daily_paper_"
 _FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
@@ -42,9 +46,44 @@ def normalize_chinese_title(raw: str, fallback: str) -> str:
     if not title or not _CHINESE_PATTERN.search(title):
         title = fallback
     title = _UNSAFE_FILENAME_CHARS.sub("-", title).strip(" .-")
-    if validate_filename_component(title, kind="title"):
-        raise ValueError(f"Unable to produce a safe daily-paper title from {raw!r}")
+    if error := validate_filename_component(title, kind="title"):
+        raise ValueError(f"Unable to produce a safe daily-paper title from {raw!r}: {error}")
     return title
+
+
+def utc_now_iso() -> str:
+    """Return the current UTC time as an ISO-8601 string for note metadata."""
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def iter_note_metadata(day_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+    """Yield ``(path, frontmatter metadata)`` for each readable Markdown note in a day."""
+    if not day_dir.is_dir():
+        return
+    for path in sorted(day_dir.glob("*.md")):
+        try:
+            yield path, frontmatter.load(path).metadata
+        except (OSError, UnicodeError, ValueError):
+            continue
+
+
+def resolve_unique_note_path(
+    day_dir: Path,
+    title: str,
+    *,
+    taken: set[str],
+    taken_suffix: str,
+    disk_suffix: str,
+    existing: Path | None,
+) -> tuple[str, Path]:
+    """Disambiguate a note title against already-used titles and on-disk collisions."""
+    if title in taken:
+        title = f"{title}{taken_suffix}"
+    path = day_dir / f"{title}.md"
+    if path.exists() and path != existing:
+        title = f"{title}{disk_suffix}"
+        path = day_dir / f"{title}.md"
+    return title, path
 
 
 async def write_atomic(path: Path, content: str | bytes) -> None:

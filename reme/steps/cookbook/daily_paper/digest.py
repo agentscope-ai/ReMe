@@ -1,6 +1,5 @@
 """Build the final daily-paper brief from detailed notes."""
 
-import datetime as dt
 import json
 from types import SimpleNamespace
 
@@ -8,10 +7,13 @@ from ....components import R
 from ....schema import AnalyzedPaper, DailyPaperMarkdownOutput
 from ...file_io import refresh_day_index
 from ._common import (
+    PAPER_COUNT,
     DailyPaperStep,
     normalize_chinese_title,
+    resolve_unique_note_path,
     strip_frontmatter,
     structured_output,
+    utc_now_iso,
     write_markdown,
 )
 
@@ -28,7 +30,7 @@ class DailyPaperDigestStep(DailyPaperStep):
         if self.agent_wrapper is None:
             raise RuntimeError("An agent_wrapper is required for the daily brief")
         analyses: list[AnalyzedPaper] = self._state("analyses") or []
-        if len(analyses) != 3:
+        if len(analyses) != PAPER_COUNT:
             raise RuntimeError(
                 "Detailed paper notes are missing before digest generation",
             )
@@ -54,14 +56,16 @@ class DailyPaperDigestStep(DailyPaperStep):
         day = self._run_day()
         daily_dir = str(self.config_value("daily_dir")).strip("/")
         title = normalize_chinese_title(output.title, f"每日论文简报-{day}")
-        if title in {item.title for item in analyses}:
-            title = f"{title}（每日简报）"
         existing_rel = str(self._state("existing_digest_path") or "").strip()
         existing_path = self.workspace_path / existing_rel if existing_rel else None
-        digest_path = self.workspace_path / daily_dir / day / f"{title}.md"
-        if digest_path.exists() and digest_path != existing_path:
-            title = f"{title}（{day}）"
-            digest_path = self.workspace_path / daily_dir / day / f"{title}.md"
+        title, digest_path = resolve_unique_note_path(
+            self.workspace_path / daily_dir / day,
+            title,
+            taken={item.title for item in analyses},
+            taken_suffix="（每日简报）",
+            disk_suffix=f"（{day}）",
+            existing=existing_path,
+        )
         digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
         selected_ids = [item.arxiv_id for item in analyses]
         await write_markdown(
@@ -76,7 +80,7 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "arxiv_ids": selected_ids,
                 "selection_reasoning": [item.reasoning for item in analyses],
                 "source_notes": wikilinks,
-                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "generated_at": utc_now_iso(),
             },
         )
         if existing_path is not None and existing_path != digest_path:

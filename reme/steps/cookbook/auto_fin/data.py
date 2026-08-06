@@ -11,22 +11,9 @@ from typing import Any
 from ....components import R
 from ._base import SHANGHAI_TIMEZONE, AutoFinStep, _news_id, _plain_text, _write, _write_jsonl
 
-DEFAULT_ETF_CODES = [
-    "518880.SH",
-    "159516.SZ",
-    "512800.SH",
-    "512890.SH",
-    "159992.SZ",
-    "159530.SZ",
-    "159869.SZ",
-    "512690.SH",
-    "159755.SZ",
-    "159611.SZ",
-    "159652.SZ",
-    "512760.SH",
-    "159732.SZ",
-]
 NEWS_FILENAME = "auto_fin_news.md"
+MAJOR_NEWS_PAGE_LIMIT = 400  # major_news caps a single response; split the window when hit.
+FUND_PAGE_LIMIT = 2000  # fund_daily / fund_adj cap a single response; page backwards past it.
 
 
 @R.register("auto_fin_data_step")
@@ -67,7 +54,7 @@ class AutoFinDataStep(AutoFinStep):
             end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
             fields="title,pub_time,src,content",
         )
-        if len(rows) < 400 or end - start <= timedelta(minutes=1):
+        if len(rows) < MAJOR_NEWS_PAGE_LIMIT or end - start <= timedelta(minutes=1):
             return rows
         middle = start + (end - start) / 2
         left, right = await asyncio.gather(self._fetch_news(start, middle), self._fetch_news(middle, end))
@@ -162,7 +149,7 @@ class AutoFinDataStep(AutoFinStep):
             for row in page:
                 if trade_date := str(row.get("trade_date") or ""):
                     rows_by_date[trade_date] = row
-            if len(page) < 2000:
+            if len(page) < FUND_PAGE_LIMIT:
                 break
             dates = [
                 datetime.strptime(str(row["trade_date"]), "%Y%m%d").date() for row in page if row.get("trade_date")
@@ -175,6 +162,10 @@ class AutoFinDataStep(AutoFinStep):
             end_date = next_end
         return [rows_by_date[key] for key in sorted(rows_by_date)]
 
+    @staticmethod
+    def _etf_name(row: dict[str, Any]) -> str:
+        return str(row.get("csname") or row.get("extname") or row.get("cname") or "").strip()
+
     async def _cache_etfs(self, codes: list[str], run_date: date) -> dict[str, str]:
         basics = await self._fetch(
             "etf_basic",
@@ -182,13 +173,7 @@ class AutoFinDataStep(AutoFinStep):
             fields="ts_code,csname,extname,cname,list_status",
         )
         names = {
-            str(row.get("ts_code") or "")
-            .strip()
-            .upper(): str(
-                row.get("csname") or row.get("extname") or row.get("cname") or "",
-            )
-            .strip()
-            for row in basics
+            str(row.get("ts_code") or "").strip().upper(): self._etf_name(row) for row in basics
         }
         missing = [code for code in codes if not names.get(code)]
         if missing:
@@ -233,7 +218,10 @@ class AutoFinDataStep(AutoFinStep):
             change = await self._write_news(day, decision_at)
             changes.append({"change": change, "path": str(path)})
 
-        codes = [str(code).strip().upper() for code in self._value("etf_codes", DEFAULT_ETF_CODES)]
+        codes = self._value("etf_codes")
+        if not codes:
+            raise ValueError("auto_fin_data_step requires a non-empty etf_codes")
+        codes = [str(code).strip().upper() for code in codes]
         names = await self._cache_etfs(codes, run_date)
         self.context.update(
             {

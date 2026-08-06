@@ -4,9 +4,9 @@ import json
 
 from ....components import R
 from ....schema import PaperInfo, PaperPick, PaperPickList
-from ._common import DailyPaperStep, structured_output
+from ._common import PAPER_COUNT, DailyPaperStep, structured_output
 
-_PAPER_COUNT = 3
+_MAX_SELECT_ATTEMPTS = 2
 
 
 @R.register("daily_paper_select_step")
@@ -20,15 +20,15 @@ class DailyPaperSelectStep(DailyPaperStep):
     ) -> list[PaperPick]:
         """Validate exactly three unique, in-pool selections."""
         candidate_ids = {paper.arxiv_id for paper in candidates}
-        if len(output.papers) != _PAPER_COUNT:
+        if len(output.papers) != PAPER_COUNT:
             raise ValueError(
-                f"Agent selected {len(output.papers)} papers; expected {_PAPER_COUNT}",
+                f"Agent selected {len(output.papers)} papers; expected {PAPER_COUNT}",
             )
         selected = [
             PaperPick(arxiv_id=item.arxiv_id.strip(), reasoning=item.reasoning.strip()) for item in output.papers
         ]
         selected_ids = [item.arxiv_id for item in selected]
-        if len(set(selected_ids)) != _PAPER_COUNT:
+        if len(set(selected_ids)) != PAPER_COUNT:
             raise ValueError("Agent selection contains duplicate arxiv_ids")
         if any(arxiv_id not in candidate_ids for arxiv_id in selected_ids):
             raise ValueError("Agent returned an arxiv_id outside the candidate pool")
@@ -54,9 +54,9 @@ class DailyPaperSelectStep(DailyPaperStep):
                 "并在 reasoning 中具体说明相对高分候选的优势。"
             )
         )
-        if len(candidates) < _PAPER_COUNT:
+        if len(candidates) < PAPER_COUNT:
             raise ValueError(
-                f"At least {_PAPER_COUNT} paper candidates are required for selection",
+                f"At least {PAPER_COUNT} paper candidates are required for selection",
             )
         self.logger.info(f"[{self.name}] start candidates={len(candidates)}")
 
@@ -73,9 +73,9 @@ class DailyPaperSelectStep(DailyPaperStep):
             for paper in candidates
         ]
         feedback, selected = "", None
-        for attempt in range(1, 3):
+        for attempt in range(1, _MAX_SELECT_ATTEMPTS + 1):
             self.logger.info(
-                f"[{self.name}] agent start attempt={attempt}/2 candidates={len(candidates)}",
+                f"[{self.name}] agent start attempt={attempt}/{_MAX_SELECT_ATTEMPTS} candidates={len(candidates)}",
             )
             result = await self.agent_wrapper.reply(
                 self.prompt_format(
@@ -96,19 +96,19 @@ class DailyPaperSelectStep(DailyPaperStep):
                     candidates,
                 )
                 self.logger.info(
-                    f"[{self.name}] agent done attempt={attempt}/2 valid=True",
+                    f"[{self.name}] agent done attempt={attempt}/{_MAX_SELECT_ATTEMPTS} valid=True",
                 )
                 break
             except (ValueError, TypeError) as exc:
                 feedback = str(exc)
                 self.logger.warning(
-                    f"[{self.name}] agent done attempt={attempt}/2 valid=False error={feedback!r}",
+                    f"[{self.name}] agent done attempt={attempt}/{_MAX_SELECT_ATTEMPTS} valid=False error={feedback!r}",
                 )
         if selected is None:
             raise RuntimeError(f"Agent paper selection failed validation: {feedback}")
 
         self._set_state("selected", selected)
         selected_ids = [item.arxiv_id for item in selected]
-        self.context.response.answer = f"Selected {_PAPER_COUNT} papers with an agent"
+        self.context.response.answer = f"Selected {PAPER_COUNT} papers with an agent"
         self.logger.info(f"[{self.name}] finish selected={','.join(selected_ids)}")
         return self.context.response

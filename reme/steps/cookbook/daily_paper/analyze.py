@@ -1,20 +1,21 @@
 """Download and analyze selected daily-paper PDFs."""
 
 import asyncio
-import datetime as dt
 import json
 from pathlib import Path
-
-import frontmatter
 
 from ....components import R
 from ....schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick
 from ....utils.arxiv import ArxivPdfClient
 from ._common import (
+    PAPER_COUNT,
     DailyPaperStep,
+    iter_note_metadata,
     normalize_chinese_title,
+    resolve_unique_note_path,
     strip_frontmatter,
     structured_output,
+    utc_now_iso,
     write_markdown,
 )
 
@@ -58,13 +59,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
     @staticmethod
     def _find_existing_note(day_dir: Path, arxiv_id: str) -> Path | None:
         """Find a prior generated note independently of its title filename."""
-        if not day_dir.is_dir():
-            return None
-        for path in day_dir.glob("*.md"):
-            try:
-                metadata = frontmatter.load(path).metadata
-            except (OSError, UnicodeError, ValueError):
-                continue
+        for path, metadata in iter_note_metadata(day_dir):
             if metadata.get("arxiv_id") == arxiv_id and (
                 metadata.get("kind") == "daily-paper-analysis" or path.name == f"paper-{arxiv_id}.md"
             ):
@@ -118,14 +113,17 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] agent done arxiv_id={paper.arxiv_id}")
         output = structured_output(result, DailyPaperMarkdownOutput)
         title = normalize_chinese_title(output.title, f"论文解读-{paper.arxiv_id}")
-        if title in used_titles:
-            title = f"{title}（{paper.arxiv_id}）"
         day_dir = self.workspace_path / daily_dir / day
         existing_note = self._find_existing_note(day_dir, paper.arxiv_id)
-        note_path = day_dir / f"{title}.md"
-        if note_path.exists() and note_path != existing_note:
-            title = f"{title}（{paper.arxiv_id}）"
-            note_path = day_dir / f"{title}.md"
+        suffix = f"（{paper.arxiv_id}）"
+        title, note_path = resolve_unique_note_path(
+            day_dir,
+            title,
+            taken=used_titles,
+            taken_suffix=suffix,
+            disk_suffix=suffix,
+            existing=existing_note,
+        )
         used_titles.add(title)
         note_rel = note_path.relative_to(self.workspace_path).as_posix()
         body = strip_frontmatter(output.body)
@@ -151,7 +149,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
                 "weekly_rank": paper.weekly_rank,
                 "fused_score": round(paper.fused_score, 8),
                 "selection_reasoning": selected.reasoning,
-                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "generated_at": utc_now_iso(),
                 "pdf_pages": page_count,
                 "pdf_text_truncated": truncated,
             },
@@ -179,7 +177,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         selected: list[PaperPick] = self._state("selected") or []
         candidates: list[PaperInfo] = self._state("candidates") or []
         candidate_map = {paper.arxiv_id: paper for paper in candidates}
-        if len(selected) != 3 or any(item.arxiv_id not in candidate_map for item in selected):
+        if len(selected) != PAPER_COUNT or any(item.arxiv_id not in candidate_map for item in selected):
             raise RuntimeError("Paper selection state is missing before analysis")
         self.logger.info(f"[{self.name}] start papers={len(selected)}")
 

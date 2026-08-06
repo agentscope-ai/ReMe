@@ -89,6 +89,23 @@ def test_adjusted_returns_use_close_before_1500_and_next_open_after_1500():
     assert after == pytest.approx({"d1": 0.1, "d2": 0.2, "d3": 0.3, "d5": 0.5})
 
 
+def test_returns_enter_next_session_for_before_close_non_trade_day():
+    # A Saturday 14:00 event has no same-day close, so it must fall back to the
+    # first following trading day's open rather than yielding no returns.
+    rows = [
+        {"trade_date": "20260605", "open": 8, "close": 9, "adj_factor": 1},
+        {"trade_date": "20260608", "open": 10, "close": 11, "adj_factor": 1},
+        {"trade_date": "20260609", "open": 11, "close": 12, "adj_factor": 1},
+        {"trade_date": "20260610", "open": 12, "close": 13, "adj_factor": 1},
+        {"trade_date": "20260611", "open": 13, "close": 14, "adj_factor": 1},
+        {"trade_date": "20260612", "open": 14, "close": 15, "adj_factor": 1},
+    ]
+
+    returns = AutoFinHistoryStep._returns(datetime(2026, 6, 6, 14), rows)
+
+    assert returns == pytest.approx({"d1": 0.1, "d2": 0.2, "d3": 0.3, "d5": 0.5})
+
+
 class _SearchJob:
     def __init__(self, path: str, news_id: str):
         self.path = path
@@ -264,6 +281,26 @@ async def test_new_pipeline_prepares_context_and_uses_three_tool_free_agents(
     assert report.startswith("# 黄金观察\n\n> 降息事件偏利好黄金。")
 
 
+def test_previous_and_current_reports_feed_merge_context(tmp_path: Path):
+    step = AutoFinMergeStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
+    run_date = date(2026, 7, 24)
+
+    # Nothing on disk yet: yesterday falls back, today marks a first run.
+    assert step._previous_report(run_date) == "无历史推荐。"
+    assert "首次生成" in step._current_report(run_date)
+
+    (tmp_path / "daily" / "2026-07-23").mkdir(parents=True)
+    (tmp_path / "daily" / "2026-07-23" / "auto_fin.md").write_text("# 昨日建议\n", encoding="utf-8")
+    step._report_path(run_date).parent.mkdir(parents=True)
+    step._report_path(run_date).write_text("# 今晨建议\n", encoding="utf-8")
+
+    # A later same-day rerun sees yesterday's report and its own earlier report.
+    assert step._previous_report(run_date) == "# 昨日建议\n"
+    assert step._current_report(run_date) == "# 今晨建议\n"
+
+
 def test_config_has_fixed_codes_and_no_agent_tools():
     from reme.config.config_parser import _load_config
 
@@ -280,9 +317,15 @@ def test_config_has_fixed_codes_and_no_agent_tools():
     assert search_limit["minimum"] == 1
     assert job["historical_search_limit"] == 10
     assert job["steps"][3]["historical_search_limit"] == 10
-    assert config["jobs"]["auto_fin_1200_cron"]["cron"] == "0 12 * * *"
-    assert config["jobs"]["auto_fin_1200_cron"]["steps"] == job["steps"]
-    assert not {"auto_fin_0930_cron", "auto_fin_1145_cron", "auto_fin_1800_cron"} & config["jobs"].keys()
+    crons = {
+        "auto_fin_0930_cron": "30 9 * * *",
+        "auto_fin_1130_cron": "30 11 * * *",
+        "auto_fin_1800_cron": "0 18 * * *",
+    }
+    for name, schedule in crons.items():
+        assert config["jobs"][name]["cron"] == schedule
+        assert config["jobs"][name]["steps"] == job["steps"]
+    assert "auto_fin_1200_cron" not in config["jobs"]
     wrapper = config["components"]["agent_wrapper"]["default"]
     assert wrapper["backend"] == "agentscope"
     assert wrapper["builtin_tools"] is False

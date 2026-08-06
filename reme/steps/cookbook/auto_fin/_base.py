@@ -150,9 +150,7 @@ class AutoFinStep(BaseStep):
         if value is None:
             raise ValueError(f"Auto Fin Agent returned no structured output: {self._preview(result)}")
         output = value if isinstance(value, model) else model.model_validate(value)
-        payload = output.model_dump(mode="json")
-        serialized_output = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        _write(output_path, f"{serialized_output}\n")
+        serialized_output = self._write_output(output_path, output)
         output_preview, output_truncated = self._text_preview(serialized_output, AGENT_OUTPUT_LOG_LIMIT)
         self.logger.info(
             f"[{self.name}] agent output prompt={prompt_name} schema={model.__name__} "
@@ -160,6 +158,13 @@ class AutoFinStep(BaseStep):
             f"resource={output_path} truncated={str(output_truncated).lower()} output={output_preview}",
         )
         return output, output_path
+
+    @staticmethod
+    def _write_output(path: Path, model: BaseModel) -> str:
+        """Persist a model as compact JSON and return the serialized text."""
+        serialized = json.dumps(model.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+        _write(path, f"{serialized}\n")
+        return serialized
 
     @staticmethod
     def _text_preview(text: str, limit: int) -> tuple[str, bool]:
@@ -170,7 +175,7 @@ class AutoFinStep(BaseStep):
     @staticmethod
     def _preview(value: Any, limit: int = 1000) -> str:
         text = json.dumps(value, ensure_ascii=False, default=str)
-        return text if len(text) <= limit else f"{text[:limit]}...<truncated>"
+        return AutoFinStep._text_preview(text, limit)[0]
 
     async def _fetch(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
         provider = self._value("tushare_provider")
