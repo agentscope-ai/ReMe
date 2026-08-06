@@ -76,81 +76,15 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 
 **结果**
 
-1. Agentic answer 框架回答，每次最多调用 5 次 search
+agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only（复用预构建记忆）
+（2026-08-06，500 题，总计 10.0 min）
 
-| Category | Total | Correct | Wrong | Accuracy |
-|---|---|---|---|---|
-| single-session-user | 70 | 66 | 4 | 94.3% |
-| single-session-assistant | 56 | 52 | 4 | 92.9% |
-| knowledge-update | 78 | 60 | 18 | 76.9% |
-| multi-session | 133 | 93 | 40 | 69.9% |
-| temporal-reasoning | 133 | 78 | 55 | 58.6% |
-| single-session-preference | 30 | 8 | 22 | 26.7% |
-| **Overall** | **500** | **357** | **143** | **71.4%** |
-
-2. prompted-based answer，每次固定使用原始 query 召回 10 个 fileChunk
-
-| Category | Total | Correct | Wrong | Accuracy |
-|---|---|---|---|---|
-| single-session-assistant | 56 | 56 | 0 | 100.0% |
-| single-session-user | 70 | 67 | 3 | 95.7% |
-| knowledge-update | 78 | 69 | 9 | 88.5% |
-| multi-session | 133 | 99 | 34 | 74.4% |
-| temporal-reasoning | 133 | 83 | 50 | 62.4% |
-| single-session-preference | 30 | 16 | 14 | 53.3% |
-| **Overall** | **500** | **390** | **110** | **78.0%** |
-
-3. golden session。使用与 prompt-based answer 相似的方法，唯一区别是，输入的 chunk 是 longMemEval 提供的 golden session。
-
-| Category | Total | Correct | Wrong | Accuracy |
-|---|---|---|---|---|
-| single-session-assistant | 56 | 56 | 0 | 100.0% |
-| single-session-user | 70 | 69 | 1 | 98.6% |
-| knowledge-update | 78 | 74 | 4 | 94.9% |
-| temporal-reasoning | 133 | 124 | 9 | 93.2% |
-| multi-session | 133 | 117 | 16 | 88.0% |
-| single-session-preference | 30 | 17 | 13 | 56.7% |
-| **Overall** | **500** | **457** | **43** | **91.4%** |
-
-4. golden session + time filter。和上一个实验的区别是，输入的 golden 被过滤了一次，要求输入 session 的时间戳必须早于 question 的时间才行。
-
-一共被过滤掉了 75 个 session，44 个 question 受到了影响。temporal-reasoning 类型受影响最大。有 20 个 case 不包含任何一个 groundtruth session。根据 golden session 回答正确并且 golden session 非空，一共有 424 个 case。
-
-| Category | Total | Correct | Wrong | Accuracy |
-|---|---|---|---|---|
-| knowledge-update | 78 | 75 | 3 | 96.2% |
-| single-session-user | 70 | 67 | 3 | 95.7% |
-| multi-session | 133 | 122 | 11 | 91.7% |
-| single-session-assistant | 56 | 55 | 1 | 98.2% |
-| temporal-reasoning | 133 | 91 | 42 | 68.4% |
-| single-session-preference | 30 | 16 | 14 | 53.3% |
-| **Overall** | **500** | **426** | **74** | **85.2%** |
-
-5. 关闭 auto-memory 机制，根据原始 query 一次性混合检索召回原始 session，计算 recall。
-
-| Category | Total | yes-judge | recall@5 / yes | recall@10 / yes |
-|---|---|---|---|---|
-| knowledge-update | 78 | 75 | 99.3% | 100% |
-| single-session-user | 70 | 67 | 100% | 100% |
-| multi-session | 133 | 122 | 91.8% | 95.8% |
-| single-session-assistant | 56 | 55 | 100% | 100% |
-| temporal-reasoning | 133 | 91 | 87.6% | 94.2% |
-| single-session-preference | 30 | 16 | 100% | 100% |
-| **Overall** | **500** | **426** | **87.6%** | **94.2%** |
-
-### 最终 ground truth
-
-#### agentic + prompted（最终 GT，2026-07-16）
-
-| Category | Total | Agentic | Prompted limit=15 |
-|---|---|---|---|
-| single-session-assistant | 56 | 56/56 (100.0%) | 54/56 (96.4%) |
-| single-session-user | 70 | 66/70 (94.3%) | 62/70 (88.6%) |
-| knowledge-update | 78 | 75/78 (96.2%) | 67/78 (85.9%) |
-| temporal-reasoning | 133 | 122/133 (91.7%) | 117/133 (88.0%) |
-| multi-session | 133 | 115/133 (86.5%) | 101/133 (75.9%) |
-| single-session-preference | 30 | 21/30 (70.0%) | 10/30 (33.3%) |
-| **Overall** | **500** | **455/500 (91.0%)** | **411/500 (82.2%)** |
-
-Prompted token 消耗：总 input 13,111,421（平均 26,275/题），总 output 313,370（平均 628/题）。
-平均 sessions_ingested: 44.8，dreams_triggered: 0。
+| 类型 | Agentic | input tok/q | output tok/q | total tok/q | tool calls/q |
+|---|---|---|---|---|---|
+| knowledge-update | 0.910 | 31,581 | 589 | 32,169 | 2.90 |
+| multi-session | 0.842 | 52,837 | 1,474 | 54,311 | 4.21 |
+| single-session-assistant | 1.000 | 15,596 | 279 | 15,875 | 1.89 |
+| single-session-preference | 0.633 | 36,802 | 818 | 37,620 | 3.60 |
+| single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
+| temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
+| **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
