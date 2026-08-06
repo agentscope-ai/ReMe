@@ -29,6 +29,7 @@ want to leave references stale (e.g. moving aside before delete) — the
 original is still removed in that case (move semantics, not copy).
 """
 
+import asyncio
 import shutil
 from pathlib import Path
 
@@ -82,7 +83,7 @@ class MoveStep(BaseStep):
 
         # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
         # targets do not change when their containing document moves.
-        shutil.copyfile(str(src_abs), str(dst_abs))
+        await asyncio.to_thread(shutil.copyfile, str(src_abs), str(dst_abs))
         payload: dict = {"src_path": src_path, "dst_path": dst_path, "size": dst_abs.stat().st_size}
 
         # Step 2 — retarget. workspace_dir stays consistent throughout: refs still

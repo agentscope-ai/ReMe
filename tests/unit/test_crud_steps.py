@@ -29,6 +29,7 @@ outside the workspace are rejected.
 import asyncio
 import os
 import tempfile
+import threading
 import warnings
 from pathlib import Path, PureWindowsPath
 
@@ -248,6 +249,44 @@ def test_move_relocates_within_workspace():
             assert (Path(tmp) / "knowledge/foo/foo.md").read_text(encoding="utf-8") == "draft"
             await store.close()
         print("✓ test_move_relocates_within_workspace passed")
+
+    asyncio.run(run())
+
+
+def test_move_copy_does_not_block_event_loop(monkeypatch):
+    """A slow file copy must not prevent unrelated async work from running."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store({"daily/source.md": "draft"})
+            step = crud_move.MoveStep(file_store=store)
+            copy_started = threading.Event()
+            release_copy = threading.Event()
+            original_copyfile = crud_move.shutil.copyfile
+
+            def blocking_copyfile(src, dst):
+                copy_started.set()
+                assert release_copy.wait(timeout=1)
+                return original_copyfile(src, dst)
+
+            monkeypatch.setattr(crud_move.shutil, "copyfile", blocking_copyfile)
+            release_timer = threading.Timer(0.2, release_copy.set)
+            release_timer.start()
+            try:
+                move_task = asyncio.create_task(
+                    step(src_path="daily/source.md", dst_path="knowledge/source.md", retarget=False),
+                )
+                await asyncio.sleep(0.02)
+
+                assert copy_started.is_set()
+                assert not release_copy.is_set(), "synchronous copyfile blocked the event loop"
+
+                release_copy.set()
+                await move_task
+            finally:
+                release_copy.set()
+                release_timer.join()
+                await store.close()
 
     asyncio.run(run())
 
