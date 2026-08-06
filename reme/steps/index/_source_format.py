@@ -20,6 +20,7 @@ removes every previously-returned result. :data:`NO_RESULTS_MESSAGE` is the
 English notice shown when the search returned no results at all.
 """
 
+import posixpath
 from typing import Callable, Final
 
 from agentscope.message import Msg
@@ -38,12 +39,19 @@ ALL_RETURNED_MESSAGE: Final[str] = (
 NO_RESULTS_MESSAGE: Final[str] = "No relevant information was found for the given query."
 
 
+def normalize_posix_path(path: str) -> str:
+    """Return a normalized, workspace-relative POSIX path string."""
+    normalized = posixpath.normpath((path or "").strip().replace("\\", "/").strip("/"))
+    return "" if normalized == "." else normalized
+
+
 def is_session_path(path: str, session_dir: str) -> bool:
     """True if the path points at a raw transcript under ``{session_dir}/dialog``."""
-    path = (path or "").strip().strip("/")
+    path = normalize_posix_path(path)
     if not path.endswith(".jsonl"):
         return False
-    session_dialog_dir = f"{(session_dir or '').strip('/')}/dialog"
+    session_root = normalize_posix_path(session_dir)
+    session_dialog_dir = posixpath.join(session_root, "dialog")
     return path == session_dialog_dir or path.startswith(f"{session_dialog_dir}/")
 
 

@@ -109,7 +109,7 @@ class ReadStep(BaseStep):
         the workspace or is not a raw session transcript.
         """
         try:
-            rel_path = str(target.relative_to(self.workspace_path))
+            rel_path = target.relative_to(self.workspace_path).as_posix()
         except ValueError:
             self.logger.info(f"[{self.name}] skip session format: path outside workspace_path path={target}")
             return truncate_text_output(excerpt, start_line=start_line, total_lines=total, file_path=str(target))

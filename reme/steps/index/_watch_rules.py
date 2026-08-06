@@ -27,11 +27,16 @@ def build_watch_rules(
     """Build watch rules from application config fields and suffix whitelist."""
     rules: list[WatchRule] = []
     for dir_field in watch_dirs:
-        config_field, separator, child_path = dir_field.partition("/")
-        dir_name = getattr(app_config, config_field, config_field)
-        if separator:
-            dir_name = str(Path(dir_name) / child_path)
-        rules.append(WatchRule(path=workspace_path / dir_name, suffixes=list(watch_suffixes)))
+        literal_path = Path(dir_field)
+        if literal_path.is_absolute():
+            rule_path = literal_path
+        else:
+            config_field, separator, child_path = dir_field.partition("/")
+            dir_name = Path(getattr(app_config, config_field, config_field))
+            if separator:
+                dir_name /= child_path
+            rule_path = dir_name if dir_name.is_absolute() else workspace_path / dir_name
+        rules.append(WatchRule(path=rule_path, suffixes=list(watch_suffixes)))
     return rules
 
 
