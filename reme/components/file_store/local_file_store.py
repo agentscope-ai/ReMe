@@ -693,6 +693,21 @@ class LocalFileStore(BaseFileStore):
             return actual in set(expected)
         return actual == expected
 
+    @classmethod
+    def _tag_contains(cls, actual_tags, expected_tags) -> bool:
+        """Containment-style tag filter: chunk must contain every expected tag.
+
+        Matches the pattern described in the multi-user design note where
+        frontmatter ``tags: [user:alice]`` is used for per-user scoping.
+        """
+        expected = cls._as_filter_values(expected_tags)
+        if not expected:
+            return True
+        if not isinstance(actual_tags, (list, tuple, set, frozenset)):
+            return len(expected) == 1 and actual_tags in expected if actual_tags is not None else False
+        actual = cls._as_filter_values(actual_tags)
+        return expected.issubset(actual)
+
     @staticmethod
     def _extract_date_from_path(path: str) -> str | None:
         """Extract the date from a file path following the project path convention.
@@ -752,6 +767,7 @@ class LocalFileStore(BaseFileStore):
                 return False
 
         metadata_filter = dict(search_filter.get("metadata") or {})
+        tag_filter = search_filter.get("tags")
         reserved = {
             "path",
             "paths",
@@ -763,12 +779,20 @@ class LocalFileStore(BaseFileStore):
             "start_date",
             "end_date",
             "strict_date_filter",
+            "tags",
         }
         for key, value in search_filter.items():
             if key not in reserved:
                 metadata_filter[key] = value
 
-        return all(cls._value_matches(chunk.metadata.get(key), value) for key, value in metadata_filter.items())
+        passes_tags = True
+        if tag_filter is not None:
+            passes_tags = cls._tag_contains(chunk.metadata.get("tags"), tag_filter)
+
+        passes_metadata = all(
+            cls._value_matches(chunk.metadata.get(key), value) for key, value in metadata_filter.items()
+        )
+        return passes_tags and passes_metadata
 
     async def rebuild_links(self) -> None:
         """Rebuild graph links via the underlying file graph."""

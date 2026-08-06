@@ -177,6 +177,17 @@ class SearchStep(BaseStep):
             if value and date_key not in search_filter:
                 search_filter[date_key] = value
 
+        # Promote top-level tags parameter for containment-style tag filtering.
+        # Markdown frontmatter ``tags: [user:alice, project:foo]`` becomes
+        # ``chunk.metadata["tags"]`` when the chunker's
+        # ``include_frontmatter_in_metadata=true``; callers that need strict
+        # user isolation should also enable that chunker option.
+        tags_value = self.context.get("tags")
+        if tags_value is not None and "tags" not in search_filter:
+            if isinstance(tags_value, str):
+                tags_value = [t.strip() for t in tags_value.split(",") if t.strip()]
+            search_filter["tags"] = list(tags_value) if not isinstance(tags_value, list) else tags_value
+
         # Validate and normalize date filters before they reach file_store.
         # _matches_search_filter does lexicographic string comparison against
         # path_date (always a canonical YYYY-MM-DD), so raw caller values like
