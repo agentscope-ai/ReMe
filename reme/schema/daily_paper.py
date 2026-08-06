@@ -40,8 +40,40 @@ class PaperInfo(BaseModel):
         return f"https://arxiv.org/pdf/{self.arxiv_id}"
 
 
+class PaperPick(BaseModel):
+    """One minimal paper selection returned by the agent."""
+
+    arxiv_id: str
+    reasoning: str
+
+
+class PaperPickList(BaseModel):
+    """The ordered papers selected for detailed analysis."""
+
+    papers: list[PaperPick]
+
+
+class DailyPaperMarkdownOutput(BaseModel):
+    """One Chinese Markdown document returned by a tool-free agent."""
+
+    title: str
+    desc: str
+    body: str
+
+
+class AnalyzedPaper(DailyPaperMarkdownOutput):
+    """A persisted paper analysis passed directly to the digest step."""
+
+    arxiv_id: str
+    reasoning: str
+    note_path: str
+    pdf_path: str
+
+
+# Retained for callers that imported the previous public workflow schemas. The
+# streamlined daily-paper steps no longer use these compatibility contracts.
 class SelectedPaper(BaseModel):
-    """One agent-selected paper."""
+    """Legacy selected-paper contract."""
 
     arxiv_id: str
     rank: int
@@ -50,22 +82,29 @@ class SelectedPaper(BaseModel):
 
 
 class PaperSelection(BaseModel):
-    """Structured paper selection result."""
+    """Legacy multi-field paper-selection contract."""
 
     selection_reasoning: str
     selected: list[SelectedPaper]
     alternates: list[str] = Field(default_factory=list)
 
 
+class PaperSelectionOutput(BaseModel):
+    """Legacy single-paper agent output contract."""
+
+    arxiv_id: str
+    selection_reasoning: str = ""
+
+
 class PaperNoteOutput(BaseModel):
-    """Structured Claude Code output for one detailed paper note."""
+    """Legacy detailed-note output contract."""
 
     description: str
     body: str
 
 
 class DailyBriefOutput(BaseModel):
-    """Structured Claude Code output for the final five-minute brief."""
+    """Legacy daily-brief output contract."""
 
     description: str
     body: str

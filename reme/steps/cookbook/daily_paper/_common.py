@@ -10,13 +10,14 @@ import aiofiles
 import frontmatter
 from pydantic import BaseModel
 
-from ....components.outbound_proxy import BaseOutboundProxy
-from ....enumeration import ComponentEnum
-from ...base_step import BaseStep, Ref
-from ...file_io import get_path_lock
+from ...base_step import BaseStep
+from ...file_io import get_path_lock, validate_filename_component
 
 _STATE_PREFIX = "daily_paper_"
 _FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
+_UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_CHINESE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
 
@@ -29,6 +30,21 @@ def structured_output(result: dict[str, Any], model: type[_OutputT]) -> _OutputT
 def strip_frontmatter(body: str) -> str:
     """Remove one model-generated YAML frontmatter block."""
     return _FRONTMATTER_PATTERN.sub("", body.strip(), count=1).strip()
+
+
+def normalize_chinese_title(raw: str, fallback: str) -> str:
+    """Return one safe Chinese title that can also be used as the filename stem."""
+    title = _MARKDOWN_HEADING_PATTERN.sub("", str(raw or "").strip())
+    if title.lower().endswith(".md"):
+        title = title[:-3]
+    title = _UNSAFE_FILENAME_CHARS.sub("-", title)
+    title = re.sub(r"\s+", " ", title).strip(" .-")
+    if not title or not _CHINESE_PATTERN.search(title):
+        title = fallback
+    title = _UNSAFE_FILENAME_CHARS.sub("-", title).strip(" .-")
+    if validate_filename_component(title, kind="title"):
+        raise ValueError(f"Unable to produce a safe daily-paper title from {raw!r}")
+    return title
 
 
 async def write_atomic(path: Path, content: str | bytes) -> None:
@@ -55,12 +71,6 @@ async def write_markdown(path: Path, body: str, metadata: dict[str, Any]) -> Non
 
 class DailyPaperStep(BaseStep):
     """Shared helpers for steps in one daily-paper RuntimeContext."""
-
-    outbound_proxy: BaseOutboundProxy | None = Ref(
-        BaseOutboundProxy,
-        ComponentEnum.OUTBOUND_PROXY,
-        optional=True,
-    )
 
     def _skip(self) -> bool:
         assert self.context is not None

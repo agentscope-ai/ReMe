@@ -7,7 +7,7 @@ from pathlib import Path
 import frontmatter
 
 from ....components import R
-from ....schema import PaperInfo, PaperSelection
+from ....schema import PaperInfo
 from ....utils.arxiv import ARXIV_ID_PATTERN
 from ....utils.huggingface_papers import HuggingFacePapersClient
 from ...evolve import now
@@ -44,7 +44,10 @@ class DailyPaperCollectStep(DailyPaperStep):
         """Read previously recommended paper ids from prior daily note frontmatter."""
         if history_days <= 0:
             return set()
-        earliest, root = run_date - dt.timedelta(days=history_days), workspace / daily_dir
+        earliest, root = (
+            run_date - dt.timedelta(days=history_days),
+            workspace / daily_dir,
+        )
         if not root.is_dir():
             return set()
 
@@ -58,7 +61,7 @@ class DailyPaperCollectStep(DailyPaperStep):
                 continue
             if not earliest <= note_date < run_date:
                 continue
-            for note_path in day_dir.glob("paper-*.md"):
+            for note_path in day_dir.glob("*.md"):
                 try:
                     metadata = frontmatter.load(note_path).metadata
                 except (OSError, UnicodeError, ValueError):
@@ -69,45 +72,18 @@ class DailyPaperCollectStep(DailyPaperStep):
         return found
 
     @staticmethod
-    def load_saved_selection(digest_path: Path) -> dict | None:
-        """Rebuild the saved selection from the digest and paper-note frontmatter."""
-        try:
-            digest_metadata = frontmatter.load(digest_path).metadata
-        except (OSError, UnicodeError, ValueError):
+    def find_saved_digest(day_dir: Path) -> Path | None:
+        """Find a generated brief by frontmatter instead of by its model-generated title."""
+        if not day_dir.is_dir():
             return None
-        arxiv_ids = digest_metadata.get("arxiv_ids")
-        if not isinstance(arxiv_ids, list) or not arxiv_ids:
-            return None
-
-        selected = []
-        for rank, value in enumerate(arxiv_ids, start=1):
-            arxiv_id = str(value or "").strip()
-            if not ARXIV_ID_PATTERN.fullmatch(arxiv_id):
-                return None
+        for path in sorted(day_dir.glob("*.md")):
             try:
-                note_metadata = frontmatter.load(digest_path.parent / f"paper-{arxiv_id}.md").metadata
+                metadata = frontmatter.load(path).metadata
             except (OSError, UnicodeError, ValueError):
-                return None
-            selected.append(
-                {
-                    "arxiv_id": arxiv_id,
-                    "rank": rank,
-                    "reason": str(note_metadata.get("selection_reason") or "").strip(),
-                    "memory_relevance": note_metadata.get("memory_relevance"),
-                },
-            )
-
-        try:
-            selection = PaperSelection.model_validate(
-                {
-                    "selection_reasoning": str(digest_metadata.get("selection_reasoning") or "").strip(),
-                    "selected": selected,
-                    "alternates": digest_metadata.get("alternate_arxiv_ids") or [],
-                },
-            )
-        except (TypeError, ValueError):
-            return None
-        return selection.model_dump()
+                continue
+            if metadata.get("kind") == "daily-paper-brief" or path.name == "daily-paper-brief.md":
+                return path
+        return None
 
     @staticmethod
     def _merge_paper(existing: PaperInfo | None, incoming: PaperInfo) -> PaperInfo:
@@ -130,18 +106,20 @@ class DailyPaperCollectStep(DailyPaperStep):
         self._set_state("run_date", day)
 
         daily_dir = str(self.config_value("daily_dir")).strip("/")
-        digest_rel = f"{daily_dir}/{day}/daily-paper-brief.md"
         force = bool(self._value("force", False))
         self.logger.info(f"[{self.name}] start date={day} force={force}")
-        digest_path = self.workspace_path / digest_rel
-        if digest_path.is_file() and not force:
+        digest_path = self.find_saved_digest(self.workspace_path / daily_dir / day)
+        if digest_path is not None:
+            digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
+            self._set_state("existing_digest_path", digest_rel)
+        if digest_path is not None and not force:
             self._set_state("skip", True)
             self._set_state("digest_path", digest_rel)
             self.context.response.success = True
             self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
-            self.context.response.metadata.update({"date": day, "digest_path": digest_rel, "skipped": True})
-            if selection := self.load_saved_selection(digest_path):
-                self.context.response.metadata["selection"] = selection
+            self.context.response.metadata.update(
+                {"date": day, "digest_path": digest_rel, "skipped": True},
+            )
             self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
             return self.context.response
 
@@ -150,10 +128,8 @@ class DailyPaperCollectStep(DailyPaperStep):
         self.logger.info(
             f"[{self.name}] fetch start week={week} month={month} yesterday={yesterday}",
         )
-        proxy_url = self.outbound_proxy.http_url if self.outbound_proxy is not None else None
         async with HuggingFacePapersClient(
-            proxy_url=proxy_url,
-            timeout=float(self._value("hf_timeout", 30.0)),
+            timeout=float(self._value("hf_timeout", 600.0)),
             max_retries=int(self._value("hf_max_retries", 3)),
         ) as client:
             weekly, monthly, yesterday_ids = await asyncio.gather(
@@ -167,10 +143,16 @@ class DailyPaperCollectStep(DailyPaperStep):
 
         merged: dict[str, PaperInfo] = {}
         for rank, paper in enumerate(monthly, start=1):
-            merged[paper.arxiv_id] = self._merge_paper(merged.get(paper.arxiv_id), paper)
+            merged[paper.arxiv_id] = self._merge_paper(
+                merged.get(paper.arxiv_id),
+                paper,
+            )
             merged[paper.arxiv_id].monthly_rank = rank
         for rank, paper in enumerate(weekly, start=1):
-            merged[paper.arxiv_id] = self._merge_paper(merged.get(paper.arxiv_id), paper)
+            merged[paper.arxiv_id] = self._merge_paper(
+                merged.get(paper.arxiv_id),
+                paper,
+            )
             merged[paper.arxiv_id].weekly_rank = rank
 
         historical_ids = self.load_historical_arxiv_ids(
@@ -185,7 +167,9 @@ class DailyPaperCollectStep(DailyPaperStep):
             f"excluded_history={len(historical_ids)} eligible={len(eligible)}",
         )
         if not eligible:
-            raise RuntimeError("No eligible papers remain after yesterday and history exclusions")
+            raise RuntimeError(
+                "No eligible papers remain after yesterday and history exclusions",
+            )
 
         for key, value in {
             "info": eligible,
@@ -194,7 +178,11 @@ class DailyPaperCollectStep(DailyPaperStep):
             "yesterday": yesterday,
             "excluded_yesterday": sorted(yesterday_ids),
             "excluded_history": sorted(historical_ids),
-            "source_counts": {"weekly": len(weekly), "monthly": len(monthly), "merged": len(merged)},
+            "source_counts": {
+                "weekly": len(weekly),
+                "monthly": len(monthly),
+                "merged": len(merged),
+            },
         }.items():
             self._set_state(key, value)
         self.context.response.success = True
