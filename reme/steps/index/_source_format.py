@@ -38,21 +38,21 @@ ALL_RETURNED_MESSAGE: Final[str] = (
 NO_RESULTS_MESSAGE: Final[str] = "No relevant information was found for the given query."
 
 
-def is_session_path(path: str, dialog_dir: str) -> bool:
-    """True if the path points at a raw session transcript (a jsonl file under the dialog dir)."""
+def is_session_path(path: str, session_dir: str) -> bool:
+    """True if the path points at a raw transcript under ``{session_dir}/dialog``."""
     path = (path or "").strip().strip("/")
     if not path.endswith(".jsonl"):
         return False
-    dialog_dir = (dialog_dir or "").strip("/")
-    return path == dialog_dir or path.startswith(f"{dialog_dir}/")
+    session_dialog_dir = f"{(session_dir or '').strip('/')}/dialog"
+    return path == session_dialog_dir or path.startswith(f"{session_dialog_dir}/")
 
 
-def is_session_chunk(chunk: FileChunk, dialog_dir: str) -> bool:
+def is_session_chunk(chunk: FileChunk, session_dir: str) -> bool:
     """True if the chunk comes from a raw session transcript (a jsonl file under the dialog dir)."""
-    return is_session_path(chunk.path, dialog_dir)
+    return is_session_path(chunk.path, session_dir)
 
 
-def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
+def render_chunk_body(chunk: FileChunk, session_dir: str) -> str:
     """Render a chunk's body; raw session transcripts render one message per line.
 
     Session chunks are jsonl where each line is a serialized ``Msg``. They
@@ -61,7 +61,7 @@ def render_chunk_body(chunk: FileChunk, dialog_dir: str) -> str:
     share the same single-line-per-message format. All other chunks keep
     their raw ``text``.
     """
-    if not is_session_chunk(chunk, dialog_dir):
+    if not is_session_chunk(chunk, session_dir):
         return chunk.text
     return "\n".join(render_session_chunk_lines(chunk))
 
@@ -123,7 +123,7 @@ def _build_union_chunk(group: list[FileChunk]) -> FileChunk:
     )
 
 
-def merge_session_chunk_intervals(chunks: list[FileChunk], dialog_dir: str) -> list[FileChunk]:
+def merge_session_chunk_intervals(chunks: list[FileChunk], session_dir: str) -> list[FileChunk]:
     """Merge raw session chunks from the same file into their line-range union.
 
     Only chunks recognized as raw session transcripts (see
@@ -148,7 +148,7 @@ def merge_session_chunk_intervals(chunks: list[FileChunk], dialog_dir: str) -> l
     # non-session chunks use their own rank and thus keep their position.
     ordered: list[tuple[int, int, FileChunk]] = []
     for idx, c in enumerate(chunks):
-        if is_session_chunk(c, dialog_dir):
+        if is_session_chunk(c, session_dir):
             session_by_path.setdefault(c.path, []).append((idx, c))
         else:
             ordered.append((idx, c.start_line, c))
@@ -183,7 +183,7 @@ def _finalize_group(group: list[FileChunk]) -> FileChunk:
 
 def render_chunk_entries(
     chunks: list[FileChunk],
-    dialog_dir: str,
+    session_dir: str,
     *,
     include_source: bool = True,
     score_fn: Callable[[FileChunk], str] | None = None,
@@ -207,7 +207,7 @@ def render_chunk_entries(
     expansion lines (used by hybrid search).
     """
     if not include_source:
-        return [{"body": render_chunk_body(c, dialog_dir)} for c in chunks]
+        return [{"body": render_chunk_body(c, session_dir)} for c in chunks]
 
     fmt = score_fn or (lambda c: f"score={c.score:.4f}")
     entries: list[dict[str, str]] = []
@@ -218,7 +218,7 @@ def render_chunk_entries(
                 "start_line": str(c.start_line),
                 "end_line": str(c.end_line),
                 "score": fmt(c),
-                "body": render_chunk_body(c, dialog_dir),
+                "body": render_chunk_body(c, session_dir),
                 "link": "\n".join(render_expansion_lines((link_expansion or {}).get(c.path, {}))),
             },
         )

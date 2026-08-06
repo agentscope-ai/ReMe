@@ -114,8 +114,8 @@ class ReadStep(BaseStep):
             self.logger.info(f"[{self.name}] skip session format: path outside workspace_path path={target}")
             return truncate_text_output(excerpt, start_line=start_line, total_lines=total, file_path=str(target))
 
-        dialog_dir = self.config_value("dialog_dir")
-        if not is_session_path(rel_path, dialog_dir):
+        session_dir = self.config_value("session_dir")
+        if not is_session_path(rel_path, session_dir):
             return truncate_text_output(excerpt, start_line=start_line, total_lines=total, file_path=str(target))
 
         return truncate_session_output(
