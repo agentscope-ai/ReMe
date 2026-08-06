@@ -4,8 +4,11 @@
 
 from types import SimpleNamespace
 
+import pytest
 from agentscope.message import Msg
+from pydantic import ValidationError
 
+from reme.application import Application
 from reme.components import ApplicationContext
 from reme.schema import ApplicationConfig, FileChunk
 from reme.steps.evolve.auto_memory import AutoMemoryStep
@@ -21,6 +24,17 @@ def test_dialog_dir_is_not_an_application_config_field():
     assert not hasattr(custom, "dialog_dir")
     assert "dialog_dir" not in custom.model_dump()
     assert "dialog_dir" not in ApplicationConfig.model_json_schema()["properties"]
+
+
+@pytest.mark.parametrize("session_dir", ["/tmp/sessions", "C:\\sessions", "\\\\server\\share\\sessions"])
+def test_application_rejects_absolute_session_dir_before_workspace_setup(tmp_path, session_dir):
+    """Application initialization rejects session directories outside the workspace."""
+    workspace = tmp_path / "workspace"
+
+    with pytest.raises(ValidationError, match="session_dir must be a workspace-relative path"):
+        Application(workspace_dir=str(workspace), session_dir=session_dir)
+
+    assert not workspace.exists()
 
 
 def test_dialog_watch_rule_follows_custom_session_dir(tmp_path):
@@ -41,7 +55,7 @@ def test_dialog_watch_rule_follows_custom_session_dir(tmp_path):
 
 def test_dialog_watch_rule_matches_writer_for_normalized_session_dirs(tmp_path):
     """Nested watch rules use the same defaults and normalization as transcript writers."""
-    for configured in ("", "parent//../sessions", str(tmp_path.parent / "external-sessions")):
+    for configured in ("", "parent//../sessions"):
         app_context = ApplicationContext(session_dir=configured)
         auto_memory = AutoMemoryStep(app_context=app_context)
         auto_memory.file_store = SimpleNamespace(workspace_path=tmp_path)

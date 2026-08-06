@@ -1,8 +1,9 @@
 """Application configuration models."""
 
 import os
+from pathlib import PurePosixPath, PureWindowsPath
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..enumeration import ComponentEnum
 
@@ -53,3 +54,12 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
+
+    @field_validator("session_dir")
+    @classmethod
+    def validate_session_dir(cls, value: str) -> str:
+        """Keep standard session storage inside the configured workspace."""
+        path = value.strip()
+        if PurePosixPath(path.replace("\\", "/")).is_absolute() or PureWindowsPath(path).anchor:
+            raise ValueError("session_dir must be a workspace-relative path")
+        return value
