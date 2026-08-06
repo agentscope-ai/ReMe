@@ -10,6 +10,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+
 if TYPE_CHECKING:
     from ..schema import ApplicationConfig
 
@@ -73,16 +75,16 @@ def print_logo(app_config: "ApplicationConfig"):
 
     match backend:
         case "http":
-            host = extra.get("host", "localhost")
-            port = extra.get("port", 8000)
+            host = extra.get("host", REME_DEFAULT_HOST)
+            port = extra.get("port", REME_DEFAULT_PORT)
             info_table.add_row("🔗", "URL:", f"http://{host}:{port}")
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
         case "mcp":
             transport = extra.get("transport", "stdio")
             info_table.add_row("🚌", "Transport:", transport)
             if transport != "stdio":
-                host = extra.get("host", "localhost")
-                port = extra.get("port", 8000)
+                host = extra.get("host", REME_DEFAULT_HOST)
+                port = extra.get("port", REME_DEFAULT_PORT)
                 url = f"http://{host}:{port}"
                 if transport == "sse":
                     url += "/sse"
