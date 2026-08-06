@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
+import gzip
+import io
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
+import tarfile
 from typing import Any, Callable, Literal, Protocol
 import uuid
 
@@ -21,6 +24,8 @@ CANDIDATE_VENV = "/workspace/candidate-venv"
 HARNESS_ROOT = "/workspace/harness"
 SOURCE_ARCHIVE = "/workspace/candidate.tar.gz"
 EXPORT_ARCHIVE = "/tmp/reme-case-export.tar.gz"
+WORKSPACE_ARCHIVE = "/tmp/reme-workspace-upload.tar.gz"
+WORKSPACE_EXPORT_ARCHIVE = "/tmp/reme-workspace-export.tar.gz"
 RUNTIME_LAYOUT = f"{CASE_ROOT}/runtime-layout.json"
 _CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _GIT_AUTHOR_NAME = "ReMe Sandbox"
@@ -88,6 +93,107 @@ def _decode(value: bytes | str | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value or ""
+
+
+def _workspace_member_path(name: str) -> PurePosixPath | None:
+    """Validate and normalize one relative path in a workspace archive."""
+    path = PurePosixPath(name)
+    if not name or path.is_absolute() or ".." in path.parts or "\\" in name:
+        raise ValueError(f"workspace archive contains unsafe path: {name!r}")
+    if path == PurePosixPath("."):
+        return None
+    return path
+
+
+def _archive_workspace(source: str | Path) -> bytes:
+    """Create a safe, deterministic gzip tar archive from a host workspace.
+
+    ``source`` may be a workspace directory or an archive previously returned
+    by :meth:`DockerReMeSandbox.export_workspace`. Incoming archives are read
+    and rebuilt so links, special files, and traversal paths never reach the
+    sandbox extractor.
+    """
+    supplied_path = Path(source).expanduser()
+    if supplied_path.is_symlink():
+        raise ValueError("workspace source must not be a symbolic link")
+    source_path = supplied_path.resolve(strict=True)
+    entries: list[tuple[PurePosixPath, tarfile.TarInfo, bytes | None]] = []
+    if source_path.is_dir():
+        for item in sorted(source_path.rglob("*"), key=lambda value: value.relative_to(source_path).as_posix()):
+            relative = item.relative_to(source_path)
+            if item.is_symlink():
+                raise ValueError(f"workspace source contains a symbolic link: {relative}")
+            path = _workspace_member_path(relative.as_posix())
+            assert path is not None
+            if item.is_dir():
+                info = tarfile.TarInfo(path.as_posix())
+                info.type = tarfile.DIRTYPE
+                info.mode = item.stat().st_mode & 0o777
+                entries.append((path, info, None))
+            elif item.is_file():
+                info = tarfile.TarInfo(path.as_posix())
+                info.size = item.stat().st_size
+                info.mode = item.stat().st_mode & 0o777
+                entries.append((path, info, item.read_bytes()))
+            else:
+                raise ValueError(f"workspace source contains unsupported file: {relative}")
+    elif source_path.is_file():
+        with tarfile.open(source_path, mode="r:*") as archive:
+            members = archive.getmembers()
+            normalized_paths = [
+                path for member in members if (path := _workspace_member_path(member.name)) is not None
+            ]
+            # ``export()`` archives the whole case, while ``export_workspace``
+            # archives only the workspace contents. Accept both forms so an
+            # existing case artifact can seed independent query sandboxes.
+            case_export = (
+                PurePosixPath("manifest.json") in normalized_paths
+                and any(path.parts and path.parts[0] == "reme_workspace" for path in normalized_paths)
+            )
+            seen: set[PurePosixPath] = set()
+            for member in members:
+                path = _workspace_member_path(member.name)
+                if path is None:
+                    continue
+                if case_export:
+                    if not path.parts or path.parts[0] != "reme_workspace":
+                        continue
+                    if len(path.parts) == 1:
+                        if not member.isdir():
+                            raise ValueError("case export has a non-directory reme_workspace entry")
+                        continue
+                    path = PurePosixPath(*path.parts[1:])
+                if path in seen:
+                    raise ValueError(f"workspace archive contains duplicate path: {path}")
+                seen.add(path)
+                if member.isdir():
+                    info = tarfile.TarInfo(path.as_posix())
+                    info.type = tarfile.DIRTYPE
+                    info.mode = member.mode & 0o777
+                    entries.append((path, info, None))
+                elif member.isfile():
+                    content = archive.extractfile(member)
+                    if content is None:
+                        raise ValueError(f"workspace archive cannot read file: {path}")
+                    data = content.read()
+                    info = tarfile.TarInfo(path.as_posix())
+                    info.size = len(data)
+                    info.mode = member.mode & 0o777
+                    entries.append((path, info, data))
+                else:
+                    raise ValueError(f"workspace archive contains unsupported entry: {member.name!r}")
+    else:
+        raise ValueError(f"workspace source is neither a directory nor a file: {source_path}")
+
+    raw = io.BytesIO()
+    with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed, mode="w") as archive:
+            for _path, info, data in entries:
+                info.mtime = 0
+                info.uid = info.gid = 0
+                info.uname = info.gname = ""
+                archive.addfile(info, io.BytesIO(data) if data is not None else None)
+    return raw.getvalue()
 
 
 def _default_workspace_builder(case_id: str, image: str, env: dict[str, str]) -> Workspace:
@@ -492,6 +598,54 @@ class DockerReMeSandbox:
         """Download every file under the disposable case root."""
         return await self.export(destination, profile="full", include_candidate=include_candidate)
 
+    async def export_workspace(self, destination: str | Path) -> Path:
+        """Download a portable snapshot of this runtime workspace to the host.
+
+        The resulting gzip tar archive can be passed directly to
+        :meth:`upload_workspace` on any initialized case. It contains the
+        workspace contents (including its local Git history), not the enclosing
+        case directory, logs, or candidate source.
+        """
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            await self._exec_checked(
+                "export_workspace",
+                ["tar", "-czf", WORKSPACE_EXPORT_ARCHIVE, "-C", self.runtime_workspace, "."],
+            )
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await self.backend.read_file(WORKSPACE_EXPORT_ARCHIVE))
+            return target
+
+    async def upload_workspace(self, source: str | Path, *, clear: bool = True) -> None:
+        """Copy a host workspace directory or exported archive into this case.
+
+        By default the existing runtime workspace is deleted first, ensuring a
+        query case receives only the supplied memory state. Set ``clear=False``
+        only when intentionally merging files into the current workspace.
+        The copy is made through a validated archive, so each sandbox receives
+        an independent filesystem tree and can run queries in parallel.
+        """
+        archive = _archive_workspace(source)
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            if clear:
+                await self._exec_checked("clear_runtime_workspace", ["rm", "-rf", self.runtime_workspace])
+            await self._exec_checked("create_runtime_workspace", ["mkdir", "-p", self.runtime_workspace])
+            await self.backend.write_file(WORKSPACE_ARCHIVE, archive)
+            await self._exec_checked(
+                "upload_workspace",
+                ["tar", "-xzf", WORKSPACE_ARCHIVE, "-C", self.runtime_workspace],
+            )
+            # A directory copied from the host may not have Git metadata.  Git
+            # init is idempotent and preserves history when the snapshot has it.
+            await self._exec_checked(
+                "initialize_uploaded_memory_history",
+                ["git", "init", "--quiet"],
+                cwd=self.runtime_workspace,
+            )
+            await self._exec_checked("remove_workspace_upload", ["rm", "-f", WORKSPACE_ARCHIVE])
+
     @staticmethod
     def _validated_workspace_path(value: Any, workspace_root: PurePosixPath, *, allow_root: bool) -> str:
         """Validate one case-relative path received from candidate-controlled state."""
@@ -612,7 +766,7 @@ class DockerReMeSandbox:
             assert self.backend is not None, "sandbox is not initialized"
             await self._exec_checked(
                 "clear_case",
-                ["rm", "-rf", CASE_ROOT, EXPORT_ARCHIVE],
+                ["rm", "-rf", CASE_ROOT, EXPORT_ARCHIVE, WORKSPACE_ARCHIVE, WORKSPACE_EXPORT_ARCHIVE],
             )
             await self._create_case_layout()
             self.case_id = case_id

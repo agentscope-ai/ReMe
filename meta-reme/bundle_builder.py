@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -80,19 +81,170 @@ def _resolve_source_path(source_repo: Path, relative: str) -> Path:
     return resolved
 
 
-def _iter_files(source_repo: Path, entries: Iterable[str]) -> list[tuple[Path, Path]]:
+def _is_within(relative: Path, parent: Path) -> bool:
+    """Return whether ``relative`` is ``parent`` or one of its descendants."""
+    return relative == parent or parent in relative.parents
+
+
+def _iter_files(
+    source_repo: Path,
+    entries: Iterable[str],
+    exclusions: Iterable[str] = (),
+) -> list[tuple[Path, Path]]:
+    excluded = [Path(value) for value in exclusions]
     files: dict[Path, Path] = {}
     for entry in entries:
         source = _resolve_source_path(source_repo, entry)
         candidates = [source] if source.is_file() else sorted(path for path in source.rglob("*") if path.is_file())
         for candidate in candidates:
             relative = candidate.relative_to(source_repo)
+            if any(_is_within(relative, path) for path in excluded):
+                continue
             if any(part in _IGNORED_PARTS for part in relative.parts) or candidate.suffix in _IGNORED_SUFFIXES:
                 continue
             if candidate.is_symlink():
                 raise BundleBuildError(f"Symbolic links are not allowed in a bundle: {relative}")
             files[relative] = candidate
     return [(relative, files[relative]) for relative in sorted(files)]
+
+
+def _write_pruned_package_initializers(bundle_root: Path) -> None:
+    """Write registration imports for packages whose optional modules were pruned."""
+    initializers = {
+        "reme/components/client/__init__.py": '''"""Client abstractions included in this generated bundle."""
+
+from .base_client import BaseClient
+
+__all__ = ["BaseClient"]
+''',
+        "reme/components/file_graph/__init__.py": '''"""File graph implementations included in this generated bundle."""
+
+from .base_file_graph import BaseFileGraph
+from .local_file_graph import LocalFileGraph
+
+__all__ = ["BaseFileGraph", "LocalFileGraph"]
+''',
+        "reme/components/file_store/__init__.py": '''"""File store implementations included in this generated bundle."""
+
+from .base_file_store import BaseFileStore
+from .local_file_store import LocalFileStore
+
+__all__ = ["BaseFileStore", "LocalFileStore"]
+''',
+        "reme/components/job/__init__.py": '''"""Job implementations included in this generated bundle."""
+
+from .background_job import BackgroundJob
+from .base_job import BaseJob
+from .cron_job import CronJob
+from .stream_job import StreamJob
+
+__all__ = ["BackgroundJob", "BaseJob", "CronJob", "StreamJob"]
+''',
+        "reme/components/service/__init__.py": '''"""Service implementations included in this generated bundle."""
+
+from .base_service import BaseService
+from .cli_service import CliService
+
+__all__ = ["BaseService", "CliService"]
+''',
+        "reme/components/tokenizer/__init__.py": '''"""Tokenizer implementations included in this generated bundle."""
+
+from .base_tokenizer import BaseTokenizer
+from .regex_tokenizer import RegexTokenizer
+
+__all__ = ["BaseTokenizer", "RegexTokenizer"]
+''',
+    }
+    for relative, content in initializers.items():
+        (bundle_root / relative).write_text(content, encoding="utf-8")
+
+    file_io_init = bundle_root / "reme/steps/file_io/__init__.py"
+    content = file_io_init.read_text(encoding="utf-8")
+    content = content.replace("from .read_image import ReadImageStep\n", "")
+    content = content.replace('    "ReadImageStep",\n', "")
+    file_io_init.write_text(content, encoding="utf-8")
+
+    common_init = bundle_root / "reme/steps/common/__init__.py"
+    content = common_init.read_text(encoding="utf-8")
+    for import_line in (
+        "from .add import AddStep\n",
+        "from .demo import DemoEchoStep1, DemoEchoStep2\n",
+        "from .llm_demo import LLMDemoStep\n",
+        "from .stream_demo import StreamDemoStep1, StreamDemoStep2\n",
+        "from .stream_llm_demo import StreamLLMDemoStep\n",
+        "from .version import VersionStep\n",
+    ):
+        content = content.replace(import_line, "")
+    for exported_name in (
+        "AddStep",
+        "DemoEchoStep1",
+        "DemoEchoStep2",
+        "LLMDemoStep",
+        "StreamDemoStep1",
+        "StreamDemoStep2",
+        "StreamLLMDemoStep",
+        "VersionStep",
+    ):
+        content = content.replace(f'    "{exported_name}",\n', "")
+    common_init.write_text(content, encoding="utf-8")
+
+    auto_memory_cc = bundle_root / "reme/steps/evolve/auto_memory_cc.py"
+    if not auto_memory_cc.exists():
+        evolve_init = bundle_root / "reme/steps/evolve/__init__.py"
+        content = evolve_init.read_text(encoding="utf-8")
+        content = content.replace("from .auto_memory_cc import AutoMemoryCCStep\n", "")
+        content = content.replace('    "AutoMemoryCCStep",\n', "")
+        evolve_init.write_text(content, encoding="utf-8")
+
+    schema_init = bundle_root / "reme/schema/__init__.py"
+    content = schema_init.read_text(encoding="utf-8")
+    auto_fin_import = re.search(r"from \.auto_fin import \((.*?)\)\n", content, flags=re.DOTALL)
+    if auto_fin_import is None:
+        raise BundleBuildError("Could not prune auto-fin schema exports")
+    auto_fin_names = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", auto_fin_import.group(1))
+    content = content[: auto_fin_import.start()] + content[auto_fin_import.end() :]
+    daily_paper_import = re.search(r"from \.daily_paper import ([^\n]+)\n", content)
+    if daily_paper_import is None:
+        raise BundleBuildError("Could not prune daily-paper schema exports")
+    daily_paper_names = [name.strip() for name in daily_paper_import.group(1).split(",")]
+    content = content[: daily_paper_import.start()] + content[daily_paper_import.end() :]
+    for exported_name in auto_fin_names + daily_paper_names:
+        content = content.replace(f'    "{exported_name}",\n', "")
+    schema_init.write_text(content, encoding="utf-8")
+
+    embedding_init = bundle_root / "reme/components/as_embedding/__init__.py"
+    content = embedding_init.read_text(encoding="utf-8")
+    content, count = re.subn(
+        r'\n@R\.register\("dashscope_multimodal"\)\nclass DashScopeMultiModalAsEmbedding\b.*?'
+        r'(?=\n@R\.register\("gemini"\))',
+        "",
+        content,
+        flags=re.DOTALL,
+    )
+    if count != 1:
+        raise BundleBuildError("Could not prune the multimodal embedding backend")
+    content = content.replace('    "DashScopeMultiModalAsEmbedding",\n', "")
+    embedding_init.write_text(content, encoding="utf-8")
+
+
+def _transform_target_config(bundle_root: Path, entries: list[str], transform: Mapping[str, Any]) -> None:
+    """Apply the sealed-bundle service and job restrictions to its one target config."""
+    config_entries = [Path(value) for value in entries if Path(value).parent == Path("reme/config")]
+    config_entries = [value for value in config_entries if value.suffix in {".yaml", ".yml"}]
+    if len(config_entries) != 1:
+        raise BundleBuildError(f"Expected exactly one target YAML config, found: {config_entries}")
+
+    config_path = bundle_root / config_entries[0]
+    config = _mapping(yaml.safe_load(config_path.read_text(encoding="utf-8")), "target config")
+    config = dict(config)
+    service = dict(_mapping(config.get("service", {}), "target config.service"))
+    service["backend"] = transform.get("service_backend", service.get("backend"))
+    config["service"] = service
+    jobs = dict(_mapping(config.get("jobs", {}), "target config.jobs"))
+    for name in _string_list(transform.get("remove_jobs"), "common.config_transform.remove_jobs"):
+        jobs.pop(name, None)
+    config["jobs"] = jobs
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
 def _write_step_initializers(bundle_root: Path, step_packages: list[str], benchmark_package: str | None) -> None:
@@ -134,7 +286,7 @@ def _merged_validation(common: Mapping[str, Any], target_spec: Mapping[str, Any]
     common_validation = _mapping(common.get("validation", {}), "common.validation")
     target_validation = _mapping(target_spec.get("validation", {}), "target.validation")
     result: dict[str, list[str]] = {}
-    for field in ("imports", "required_steps", "forbidden_paths"):
+    for field in ("imports", "required_steps", "forbidden_backends", "forbidden_paths"):
         result[field] = _string_list(common_validation.get(field), f"common.validation.{field}") + _string_list(
             target_validation.get(field),
             f"target.validation.{field}",
@@ -143,6 +295,9 @@ def _merged_validation(common: Mapping[str, Any], target_spec: Mapping[str, Any]
 
 
 def _validate_bundle(bundle_root: Path, validation: Mapping[str, list[str]]) -> None:
+    cached = [path.relative_to(bundle_root) for path in bundle_root.rglob("*") if path.name == "__pycache__"]
+    if cached:
+        raise BundleBuildError(f"Python cache directories were included in bundle: {cached}")
     for relative in validation["forbidden_paths"]:
         if (bundle_root / relative).exists():
             raise BundleBuildError(f"Forbidden path was included in bundle: {relative}")
@@ -154,10 +309,14 @@ def _validate_bundle(bundle_root: Path, validation: Mapping[str, list[str]]) -> 
         "from reme.enumeration import ComponentEnum\n"
         f"imports = {validation['imports']!r}\n"
         f"required = {validation['required_steps']!r}\n"
+        f"forbidden = {validation['forbidden_backends']!r}\n"
         "for name in imports: importlib.import_module(name)\n"
         "registered = R.get_all(ComponentEnum.STEP)\n"
         "missing = [name for name in required if name not in registered]\n"
         "if missing: raise RuntimeError(f'Missing registered steps: {missing}')\n"
+        "unexpected = [entry for entry in forbidden "
+        "if R.get(ComponentEnum(entry.split(':', 1)[0]), entry.split(':', 1)[1]) is not None]\n"
+        "if unexpected: raise RuntimeError(f'Forbidden registered backends: {unexpected}')\n"
     )
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(bundle_root)
@@ -192,12 +351,17 @@ def build_bundle(
         target_spec.get("include"),
         f"targets.{target}.include",
     )
+    exclusions = _string_list(common.get("exclude"), "common.exclude") + _string_list(
+        target_spec.get("exclude"),
+        f"targets.{target}.exclude",
+    )
     step_packages = _string_list(common.get("step_packages"), "common.step_packages")
     benchmark_package = target_spec.get("benchmark_package")
     if benchmark_package is not None and not isinstance(benchmark_package, str):
         raise BundleBuildError(f"'targets.{target}.benchmark_package' must be a string")
-    files = _iter_files(source_repo, entries)
+    files = _iter_files(source_repo, entries, exclusions)
     validation = _merged_validation(common, target_spec)
+    config_transform = _mapping(common.get("config_transform", {}), "common.config_transform")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{target}-bundle-", dir=output_dir))
@@ -209,6 +373,8 @@ def build_bundle(
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         _write_step_initializers(staged_root, step_packages, benchmark_package)
+        _write_pruned_package_initializers(staged_root)
+        _transform_target_config(staged_root, entries, config_transform)
         if validate:
             _validate_bundle(staged_root, validation)
 

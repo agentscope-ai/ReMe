@@ -5,8 +5,6 @@ version: 1
 # copied.
 common:
   include:
-    - LICENSE
-    - README.md
     - pyproject.toml
     - reme/__init__.py
     - reme/application.py
@@ -24,6 +22,32 @@ common:
     - reme/steps/file_io
     - reme/steps/index
     - reme/steps/transfer
+  exclude:
+    - reme/components/client/http_client.py
+    - reme/components/client/mcp_client.py
+    - reme/components/file_graph/neo4j_file_graph.py
+    - reme/components/file_graph/nx_file_graph.py
+    - reme/components/file_store/faiss_local_file_store.py
+    - reme/components/file_store/zvec_local_file_store.py
+    - reme/components/service/http_service.py
+    - reme/components/service/mcp_service.py
+    - reme/components/tokenizer/jieba_tokenizer.py
+    - reme/schema/auto_fin.py
+    - reme/schema/daily_paper.py
+    - reme/steps/common/add.py
+    - reme/steps/common/demo.py
+    - reme/steps/common/llm_demo.py
+    - reme/steps/common/stream_demo.py
+    - reme/steps/common/stream_llm_demo.py
+    - reme/steps/common/version.py
+    - reme/steps/file_io/read_image.py
+    - reme/utils/arxiv.py
+    - reme/utils/huggingface_papers.py
+  config_transform:
+    service_backend: cli
+    remove_jobs:
+      - read_image
+      - version
   step_packages:
     - common
     - evolve
@@ -38,8 +62,50 @@ common:
       - auto_memory_step
       - search_step
       - search_v2_step
+    forbidden_backends:
+      - as_embedding:dashscope_multimodal
+      - client:http
+      - client:mcp
+      - file_graph:neo4j
+      - file_graph:nx
+      - file_store:faiss
+      - file_store:zvec
+      - service:http
+      - service:mcp
+      - step:add_step
+      - step:demo_echo_step1
+      - step:demo_echo_step2
+      - step:llm_demo_step
+      - step:read_image_step
+      - step:stream_demo_step1
+      - step:stream_demo_step2
+      - step:stream_llm_demo_step
+      - step:version_step
+      - tokenizer:jieba
     forbidden_paths:
+      - LICENSE
+      - README.md
       - reme/steps/cookbook
+      - reme/components/client/http_client.py
+      - reme/components/client/mcp_client.py
+      - reme/components/file_graph/neo4j_file_graph.py
+      - reme/components/file_graph/nx_file_graph.py
+      - reme/components/file_store/faiss_local_file_store.py
+      - reme/components/file_store/zvec_local_file_store.py
+      - reme/components/service/http_service.py
+      - reme/components/service/mcp_service.py
+      - reme/components/tokenizer/jieba_tokenizer.py
+      - reme/schema/auto_fin.py
+      - reme/schema/daily_paper.py
+      - reme/steps/common/add.py
+      - reme/steps/common/demo.py
+      - reme/steps/common/llm_demo.py
+      - reme/steps/common/stream_demo.py
+      - reme/steps/common/stream_llm_demo.py
+      - reme/steps/common/version.py
+      - reme/steps/file_io/read_image.py
+      - reme/utils/arxiv.py
+      - reme/utils/huggingface_papers.py
 
 targets:
   default:
@@ -61,6 +127,8 @@ targets:
       - reme/steps/benchmark/base
       - reme/steps/benchmark/lme
     benchmark_package: lme
+    exclude:
+      - reme/steps/evolve/auto_memory_cc.py
     validation:
       imports:
         - reme.steps.benchmark.lme
@@ -68,7 +136,10 @@ targets:
         - lme_auto_memory_step
         - lme_agentic_answer_step
         - lme_answer_judge_step
+      forbidden_backends:
+        - step:auto_memory_cc_step
       forbidden_paths:
+        - reme/steps/evolve/auto_memory_cc.py
         - reme/steps/benchmark/beam
 
   beam:
@@ -77,6 +148,8 @@ targets:
       - reme/steps/benchmark/base
       - reme/steps/benchmark/beam
     benchmark_package: beam
+    exclude:
+      - reme/steps/evolve/auto_memory_cc.py
     validation:
       imports:
         - reme.steps.benchmark.beam
@@ -84,5 +157,8 @@ targets:
         - beam_auto_memory_step
         - beam_agentic_answer_step
         - beam_rubric_judge_step
+      forbidden_backends:
+        - step:auto_memory_cc_step
       forbidden_paths:
+        - reme/steps/evolve/auto_memory_cc.py
         - reme/steps/benchmark/lme

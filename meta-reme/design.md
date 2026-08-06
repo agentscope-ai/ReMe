@@ -51,6 +51,7 @@ meta-reme/
 - auto-memory 正式修改白名单；
 - debug 阶段允许使用的临时目录；
 - sandbox 镜像、超时、并发和重试策略；
+- validation 的默认抽样策略、允许指定的 case/query 以及升级为全量评测的条件；
 - proposer 模型、搜索预算和 top-K 数量；
 - 唯一目标 `mean_query_score`。
 
@@ -185,6 +186,8 @@ prepare → install → ingest → index → answer → export
 
 Agent 可以自主选择完整 case、指定 session、session prefix 或少量 query 进行 debug。部分 session 结果只用于排查语法、配置、记忆写入和运行错误，不进入正式评分。
 
+除 debug 外，validation 还支持显式传入 case ID 列表，并可为每个 case 指定 query ID 子集。该能力用于在全量评测代价过高时先执行 targeted screening，例如优先验证 weakness report 中的失败 query 和少量回归 case。筛选范围必须在运行前固化为 `ValidationSpec`，记录选择理由及其 fingerprint；不得在看到本次得分后追加或替换 query 来美化结果。
+
 现有 sandbox 需要补充失败导出能力：即使在安装、初始化或 ingest 阶段失败，也应 best-effort 导出 `failure.json`、stdout、stderr、Python traceback、action log、已完成阶段和宿主异常。每次运行结束后，宿主下载原始压缩包，并安全解压到：
 
 ```text
@@ -195,13 +198,18 @@ evaluations/<commit>/<mode>/cases/<case>/attempt-<n>/
 
 ## 10. Validation 与结果记录
 
-正式 validation 必须从 frozen commit 创建全新 SourceCandidate。不同 harness、case 之间使用独立 runtime workspace；同一 case 的多个 query 应从相同的 post-ingestion memory snapshot 启动，避免 query 顺序造成状态污染。
+Validation 分为 targeted screening 和 full validation。两者都必须从 frozen commit 创建全新 SourceCandidate，并使用同一套 sandbox、失败分类和结果 schema。不同 harness、case 之间使用独立 runtime workspace；同一 case 本次选中的多个 query 应从相同的 post-ingestion memory snapshot 启动，避免 query 顺序造成状态污染。
 
-每个 harness 的 `search.json` 保存：
+`ValidationSpec` 明确记录目标 commit、mode、选中的 case/query、选择理由和 dataset/code/config/model/image fingerprint。未指定 case 表示覆盖全部 case，某个 case 未指定 query 子集表示覆盖该 case 的全部 query。系统在执行前根据 dataset manifest 展开并固化选择结果；空集合、未知 ID、重复 ID，以及不属于所选 case 的 query 均应直接报错。
+
+部分 validation 的聚合结果必须同时记录已选数量、数据集总数量、覆盖率和 `is_full=false`。其平均分只描述本次固定子集，不得与其他选择范围的分数直接比较，也不得进入正式 leaderboard 或用于选择 winner。编排器可以依据预先配置的筛选规则决定淘汰候选或将其升级为 full validation；只有覆盖完整 search set 且没有 `infra_error` 的结果才具有正式可比性。Baseline 至少执行一次 full validation，最终 winner 仍需进行第 11 节规定的 clean replay。
+
+每次 targeted screening 的聚合结果写入 `evaluations/<commit>/screening/<validation_id>.json`；完整 search validation 仍发布为 harness 级 `evaluations/<commit>/search.json`。两类结果均保存：
 
 - commit、parents、changed paths 和 scope 结果；
 - dataset、代码、配置、模型和镜像 fingerprint；
 - 总平均分、query 数、失败数和运行状态；
+- validation spec、选择理由、case/query 覆盖数量、覆盖率和是否具有正式可比性；
 - 每个 case/session 的处理结果；
 - 每个 query 的问题、golden answer、模型回答、score、Judge 结论、异常、token 和耗时；
 - artifacts 路径及 hash。
@@ -219,10 +227,60 @@ evaluations/<commit>/<mode>/cases/<case>/attempt-<n>/
 → 修改和 sandbox debug
 → 冻结 commit
 → 白名单及接口检查
-→ 完整 search validation
+→ 可选：指定 case/query 的 targeted screening
+→ 通过预设升级条件后执行完整 search validation
 → 更新 registry、summary 和 leaderboard
 ```
+
+Targeted screening 是可选的成本控制阶段。未通过筛选的 candidate 记录结果和淘汰原因，但不消耗“完整 validation 数”预算；其实际 token、时间和费用仍计入对应总预算。筛选规则、样本范围和升级阈值必须在 domain spec 或 proposal 执行前确定，避免根据中间结果反复挑选有利样本。
 
 达到 proposal 数、完整 validation 数、token 或时间预算后，系统选择 search set 平均分最高的候选。完全同分时保留较早的 incumbent，不引入其他优化指标。
 
 最终 winner 必须从 commit SHA 重新构建，并在完整 search set 上进行 clean replay。只有 replay 成功后才加载 test set，分别评测 baseline 和 winner，生成最终报告。整个过程中 test 结果不反馈给 agent，从而保证 test set 只用于衡量泛化效果。
+
+## 12. 中断与恢复
+
+搜索可能持续数小时乃至数天，进程崩溃、机器重启或用户主动终止都不应破坏已完成的成果。恢复机制必须满足三个要求：持久化状态可校验、恢复操作幂等、同一 workspace 同时只有一个编排器写入。
+
+### 12.1 持久化与一致性边界
+
+`events.jsonl` 是搜索状态的事实来源，`run.json` 是由事件日志生成的加速快照。每条事件包含单调递增的 `seq`、唯一 `event_id`、时间戳和关联的 round、proposal、commit、validation、case、attempt 标识。写入事件后再原子替换 `run.json`；恢复时从快照记录的 `last_event_seq` 继续回放。若快照缺失、落后或校验失败，则完全从事件日志重建，不以快照覆盖较新的事件。
+
+`run.json`、case 结果、聚合结果和 registry 均采用“写临时文件 → flush/fsync → 同目录原子 rename”的方式发布。`events.jsonl` 尾部若存在崩溃造成的不完整 JSON 行，恢复时忽略该行并记录诊断信息；中间行损坏则停止恢复并明确报错，避免静默跳过历史。启动时通过 workspace lock 拒绝第二个并发编排器，lock 中记录 PID、主机和启动时间，并允许在确认所属进程已不存在后接管 stale lock。
+
+### 12.2 Case 原子性与结果复用
+
+每个 case 的完整 pipeline（`prepare → install → ingest → index → answer → export`）是最小恢复单元。中断时不尝试复用半写入的记忆、索引或回答；下一次 attempt 在全新的 runtime workspace 中从头执行。中断或基础设施失败的 attempt 目录及原始 artifacts 保留用于审计，不原地覆盖，也不作为有效结果参与聚合；可归因于候选本身的确定性失败仍按第 3 节记为 0 分。
+
+完成的 case 结果发布到第 9 节约定的 attempt 目录，并包含 `case_result.json` 和 `complete.json`。`complete.json` 最后写入，记录结果文件及 artifacts 的 SHA256、dataset/code/config/model/image fingerprint、case ID、attempt ID、所选 query 集合的 fingerprint 和完成状态。仅当完成标志可解析、hash 正确、状态为成功或确定性的候选失败，且所有 fingerprint 与当前 validation 完全一致时，结果才可复用；部分 query 的结果不能冒充该 case 的全量结果。目录或某个 `search.json` 文件的存在本身不能作为完成依据。基础设施故障耗尽重试后仍保留为 `infra_error`，但不把 validation 错误地标记为可聚合完成。
+
+`ValidationSpec` 选中的全部 case/query 达到可聚合状态后，编排器确定性地生成对应聚合结果；targeted screening 写入其 validation ID 对应的结果文件，只有 full validation 才生成 harness 级 `evaluations/<commit>/search.json`。随后记录 `validation_completed` 事件。若聚合阶段中断，可从具有相同选择 fingerprint 的 case 结果重新生成，不重复执行已验证的选择范围。
+
+### 12.3 搜索、Proposal 与 Git 续跑
+
+恢复以最后一个已提交的阶段事件为准，而不是无条件进入“下一轮”：
+
+- **搜索循环**：已记录 `round_completed` 的轮次不再执行；进行中的轮次从其最后一个完成阶段继续。只有尚未产生可恢复产物的 agent 调用才重新发起。
+- **Proposal**：已落盘的 weakness 和 proposal 文件必须具有唯一 ID、fingerprint 和对应的完成事件。仅有临时文件或缺少完成事件的 agent 输出视为未提交，可保留为诊断材料，但不进入搜索状态。
+- **Harness**：commit 只有通过 scope、import、smoke 检查并写入 registry 后才成为 frozen harness。存在 commit 但尚未登记时，恢复流程根据事件和检查结果决定继续冻结或放弃，不能仅凭分支名推断状态。
+- **Git 管理**：恢复时先核对 registry 中的 commit 和 snapshot hash，再清理可证明由本次运行创建且不再被引用的 worktree。未登记分支和 debug commit 默认保留或归档；不得自动删除用户分支、受保护分支或仍被事件、proposal、registry 引用的对象。
+- **Validation**：进行中的 validation 只调度缺少有效完成标志的 case/query 选择；恢复时必须使用原 `ValidationSpec`，不能重新抽样。部分 validation 完成后记录覆盖范围和筛选结论；只有 full validation 才更新正式 leaderboard。
+
+预算只由去重后的完成事件结算，`event_id` 重放不得重复计费。已发起但没有产生完成事件的模型调用或 sandbox attempt 仍记录实际可观测的 token、费用和耗时；若外部系统无法确认消耗，则记为 `unknown` 并按 domain spec 的保守策略处理。时间预算使用累计运行时，不包含进程停止期间的墙钟时间，除非 domain spec 明确配置绝对截止时间。
+
+### 12.4 恢复流程
+
+`run.py` 启动时执行以下恢复流程：
+
+```text
+1. 获取 workspace lock；若已有存活 owner，则拒绝启动
+2. 校验 events.jsonl，并以 run.json 的 last_event_seq 为起点回放；必要时从头重建快照
+3. 校验 registry 中的 commit、snapshot hash 和 frozen harness 状态
+4. 根据阶段事件定位进行中的 round、proposal 或 validation
+5. 校验 case 的 complete.json、fingerprint 和 artifacts hash，复用有效结果
+6. 为未完成 case 创建新的 attempt；从有效 case 结果重新执行缺失的聚合
+7. 清理无引用且可安全识别的临时 worktree，保留或归档其他 Git 状态
+8. 原子写入新快照并追加 resume_completed 事件，从最后一个未完成阶段继续
+```
+
+`resume_started` 和 `resume_completed` 事件记录恢复前后的状态摘要及本次采取的动作。上述流程可重复执行：再次中断不会重复登记 harness、重复结算预算或覆盖已有 attempt。无法验证的状态应停止并给出可操作的错误，不得通过猜测或静默删除数据来推进搜索。

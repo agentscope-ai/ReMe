@@ -150,6 +150,37 @@ and initializes a fresh repository for the next case.
 For an ephemeral Docker workspace, always call `export()` or `export_full()`
 before `close()`.
 
+## Reuse one built memory for parallel queries
+
+Use `export_workspace()` after constructing the memory, then give the snapshot
+to each independent query case with `upload_workspace()`. Upload clears the
+target runtime workspace by default, so the cases start from the same memory
+state but never share mutable files or indexes.
+
+```python
+memory_case = await factory.create_case("build-memory")
+try:
+    await memory_case.ingest_session(session_id="source", messages=[...])
+    await memory_case.run_job("index_update")
+    snapshot = await memory_case.export_workspace("artifacts/built-memory.tar.gz")
+finally:
+    await memory_case.close()
+
+query_cases = await factory.create_cases(["query-1", "query-2"])
+try:
+    await asyncio.gather(*(case.upload_workspace(snapshot) for case in query_cases))
+    answers = await asyncio.gather(
+        *(case.answer(query=query) for case, query in zip(query_cases, queries))
+    )
+finally:
+    await asyncio.gather(*(case.close() for case in query_cases))
+```
+
+`upload_workspace()` also accepts a host directory. It validates and repacks
+the directory or input archive before extraction; symbolic links, special
+files, and traversal paths are rejected. Pass `clear=False` only when an
+intentional merge into the target workspace is required.
+
 ## Reuse one container for sequential cases
 
 When container startup and source installation dominate the benchmark, one

@@ -231,6 +231,96 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_workspace_can_be_cleared_and_uploaded_from_host(tmp_path):
+    """A completed memory can be copied into an independent query case."""
+    source = tmp_path / "built-memory"
+    (source / "daily").mkdir(parents=True)
+    (source / "daily" / "2026-08-06.md").write_text("remember this\n")
+    workspace = FakeWorkspace("query-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("query-1")
+    old_path = f"{case.runtime_workspace}/daily/old.md"
+    workspace.backend.files[old_path] = b"old memory"
+
+    await case.upload_workspace(source)
+
+    payload = workspace.backend.files["/tmp/reme-workspace-upload.tar.gz"]
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        assert archive.getnames() == ["daily", "daily/2026-08-06.md"]
+        assert archive.extractfile("daily/2026-08-06.md").read() == b"remember this\n"
+    clear_index = next(
+        index
+        for index, (command, _, _) in enumerate(workspace.backend.commands)
+        if command == ["rm", "-rf", case.runtime_workspace]
+    )
+    upload_index = next(
+        index
+        for index, (command, _, _) in enumerate(workspace.backend.commands)
+        if command == ["tar", "-xzf", "/tmp/reme-workspace-upload.tar.gz", "-C", case.runtime_workspace]
+    )
+    assert clear_index < upload_index
+    assert old_path not in workspace.backend.files
+    assert (["git", "init", "--quiet"], case.runtime_workspace, case.command_timeout) in workspace.backend.commands
+
+
+@pytest.mark.asyncio
+async def test_workspace_upload_rejects_unsafe_host_archive(tmp_path):
+    """Host archives cannot use traversal paths to write outside the workspace."""
+    source = tmp_path / "unsafe.tar.gz"
+    with tarfile.open(source, mode="w:gz") as archive:
+        info = tarfile.TarInfo("../outside.md")
+        info.size = 4
+        archive.addfile(info, io.BytesIO(b"nope"))
+    workspace = FakeWorkspace("query-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("query-1")
+    commands_before = list(workspace.backend.commands)
+
+    with pytest.raises(ValueError, match="unsafe path"):
+        await case.upload_workspace(source)
+
+    assert workspace.backend.commands == commands_before
+
+
+@pytest.mark.asyncio
+async def test_workspace_upload_accepts_a_complete_case_export(tmp_path):
+    """A previous ``export()`` archive restores only its runtime workspace."""
+    source = tmp_path / "case-export.tar.gz"
+    with tarfile.open(source, mode="w:gz") as archive:
+        manifest = b'{"case_id": "source"}'
+        manifest_info = tarfile.TarInfo("manifest.json")
+        manifest_info.size = len(manifest)
+        archive.addfile(manifest_info, io.BytesIO(manifest))
+        note = b"remember this\n"
+        note_info = tarfile.TarInfo("reme_workspace/daily/2023-05-30.md")
+        note_info.size = len(note)
+        archive.addfile(note_info, io.BytesIO(note))
+        log = b"do not import case logs"
+        log_info = tarfile.TarInfo("logs/actions.jsonl")
+        log_info.size = len(log)
+        archive.addfile(log_info, io.BytesIO(log))
+    workspace = FakeWorkspace("query-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("query-1")
+
+    await case.upload_workspace(source)
+
+    payload = workspace.backend.files["/tmp/reme-workspace-upload.tar.gz"]
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        assert archive.getnames() == ["daily/2023-05-30.md"]
+        assert archive.extractfile("daily/2023-05-30.md").read() == note
+
+
+@pytest.mark.asyncio
 async def test_host_selects_when_to_commit_configured_daily_directory():
     """Several ingested sessions can be grouped into one explicit host checkpoint."""
     workspace = FakeWorkspace("case-1", "candidate:test", {})
@@ -329,6 +419,8 @@ async def test_one_container_can_reset_and_run_another_case(tmp_path):
     backend.files["/workspace/candidate/reme/__init__.py"] = b"candidate-code"
     old_git_object = "/workspace/case/reme_workspace/.git/objects/old-case-object"
     backend.files[old_git_object] = b"old case history"
+    backend.files["/tmp/reme-workspace-upload.tar.gz"] = b"uploaded workspace"
+    backend.files["/tmp/reme-workspace-export.tar.gz"] = b"exported workspace"
     assert any(path.startswith("/workspace/case/") for path in backend.files)
 
     await case.reset_case("case-2")
@@ -341,6 +433,8 @@ async def test_one_container_can_reset_and_run_another_case(tmp_path):
     assert backend.files["/workspace/case/reme_workspace/.git/HEAD"].startswith(b"ref:")
     assert not any(path.startswith("/workspace/case/results/") for path in backend.files)
     assert "/tmp/reme-case-export.tar.gz" not in backend.files
+    assert "/tmp/reme-workspace-upload.tar.gz" not in backend.files
+    assert "/tmp/reme-workspace-export.tar.gz" not in backend.files
     git_init_positions = [
         index for index, (command, _, _) in enumerate(backend.commands) if command == ["git", "init", "--quiet"]
     ]
