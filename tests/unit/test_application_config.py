@@ -39,6 +39,23 @@ def test_dialog_watch_rule_follows_custom_session_dir(tmp_path):
     assert rules[0].suffixes == ["jsonl"]
 
 
+def test_dialog_watch_rule_matches_writer_for_normalized_session_dirs(tmp_path):
+    """Nested watch rules use the same defaults and normalization as transcript writers."""
+    for configured in ("", "parent//../sessions", str(tmp_path.parent / "external-sessions")):
+        app_context = ApplicationContext(session_dir=configured)
+        auto_memory = AutoMemoryStep(app_context=app_context)
+        auto_memory.file_store = SimpleNamespace(workspace_path=tmp_path)
+
+        rules = build_watch_rules(
+            app_context.app_config,
+            tmp_path,
+            watch_dirs=["session_dir/dialog"],
+            watch_suffixes=["jsonl"],
+        )
+
+        assert rules[0].path == auto_memory._session_path("s1").parent
+
+
 def test_absolute_watch_rule_stays_outside_workspace(tmp_path):
     """Absolute literal watch directories retain their original location."""
     config = ApplicationConfig()
