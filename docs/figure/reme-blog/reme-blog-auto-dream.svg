@@ -89,14 +89,15 @@
   <text class="mono" x="940" y="228">digest/procedure/</text>
   <text class="mono" x="940" y="246">build-freeze-playbook.md</text>
   <text class="text" x="924" y="291">Common in</text>
-  <text class="linktext" x="924" y="313">[[wiki/large-ts-projects.md]]</text>
+  <text class="linktext" x="924" y="313">[[wiki/large-ts-projects]]</text>
   <text class="text" x="924" y="347">Follow</text>
-  <text class="linktext" x="924" y="369">[[personal/team-preferences.md]]</text>
+  <text class="linktext" x="924" y="369">[[personal/team-preferences]]</text>
   <line x1="924" y1="399" x2="1138" y2="399" stroke="#d8dee8"/>
   <text class="label" x="924" y="427">Sources</text>
   <text class="linktext" x="924" y="452">[[daily/build-debugging.md]]</text>
   <text class="text" x="924" y="493">Readable body · visible relations</text>
   <text class="text" x="924" y="516">Traceable sources · rebuildable</text>
 
-  <path class="relation" d="M1148 313c14 0 14 56 0 56"/>
+  <path class="relation" d="M1140 313c22 0 22 56 7 56"/>
+  <path d="M1139 369l9-5v10z" fill="#ff963d"/>
 </svg>
