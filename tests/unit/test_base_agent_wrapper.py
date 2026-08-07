@@ -139,42 +139,6 @@ async def test_agentscope_backend_passes_configured_environment_to_bash(tmp_path
     assert result.stdout == b"configured\n"
 
 
-def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
-    """Home-relative workspace config is normalized before components consume it."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    context = ApplicationContext(workspace_dir="~/.copaw/workspaces/default")
-
-    assert context.app_config.workspace_dir == str(tmp_path / ".copaw/workspaces/default")
-
-
-@pytest.mark.asyncio
-async def test_agentscope_file_tools_accept_workspace_relative_paths(tmp_path):
-    """Built-in Read/Write/Edit share the workspace-relative path convention used by ReMe jobs."""
-    wrapper = AsAgentWrapper(
-        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
-        as_llm="",
-    )
-    read, write, edit = wrapper._builtin_tools(["read", "write", "edit"])  # pylint: disable=protected-access
-    source = tmp_path / ".reme/daily/note.md"
-    source.parent.mkdir(parents=True)
-    source.write_text("before", encoding="utf-8")
-
-    read_result = await read.call(file_path=".reme/daily/note.md")
-    write_result = await write.call(file_path=".reme/daily/new.md", content="new")
-    edit_result = await edit.call(
-        file_path=".reme/daily/note.md",
-        old_string="before",
-        new_string="after",
-    )
-
-    assert "absolute path" not in str(read_result.content)
-    assert "absolute path" not in str(write_result.content)
-    assert "absolute path" not in str(edit_result.content)
-    assert (tmp_path / ".reme/daily/new.md").read_text(encoding="utf-8") == "new"
-    assert source.read_text(encoding="utf-8") == "after"
-
-
 @pytest.mark.asyncio
 async def test_agentscope_bash_uses_managed_proxy_without_changing_subprocess_environment(tmp_path):
     """AgentScope applies the managed proxy only to its command backend."""

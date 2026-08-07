@@ -10,6 +10,7 @@ from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index
 from ..file_io import validate_filename_component, validate_session_id
+from ..index import normalize_posix_path
 from ...components import R
 
 _SESSION_ID_KEY = "session_id"
@@ -66,13 +67,13 @@ class AutoMemoryStep(BaseStep):
         self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     def _session_dir(self) -> str:
-        return str(self.config_value("session_dir")).strip("/")
+        return normalize_posix_path(str(self.config_value("session_dir")))
 
     def _session_path(self, session_id: str) -> Path:
         return self.file_store.workspace_path / self._session_dir() / "dialog" / f"{session_id}.jsonl"
 
     def _session_source_path(self, session_id: str) -> str:
-        return f"{self._session_dir()}/dialog/{session_id}.jsonl"
+        return normalize_posix_path(f"{self._session_dir()}/dialog/{session_id}.jsonl")
 
     def _session_link(self, session_id: str) -> str:
         return f"[[{self._session_source_path(session_id)}]]"

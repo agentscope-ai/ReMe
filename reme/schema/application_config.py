@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -40,11 +41,11 @@ class ApplicationConfig(BaseModel):
     )
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
+    # dialog_dir was removed; standard transcripts are always derived as ``{session_dir}/dialog``.
     mem_session_dir: str = Field(default="mem_session", description="Subdirectory for persisted agent sessions")
     resource_dir: str = Field(default="resource", description="Subdirectory for external assets")
     daily_dir: str = Field(default="daily", description="Subdirectory for daily memory")
     digest_dir: str = Field(default="digest", description="Subdirectory for digest memory")
-    dialog_dir: str = Field(default="session/dialog", description="Subdirectory for dialog session transcripts")
     enable_logo: bool = Field(default=True, description="Show ASCII logo on startup")
     timezone: str | None = Field(default="Asia/Shanghai", description="IANA timezone; None uses local time")
     language: str = Field(default="", description="Default language for LLM interactions")
@@ -64,3 +65,12 @@ class ApplicationConfig(BaseModel):
     def normalize_workspace_dir(cls, value) -> str:
         """Expand home-relative paths once so every component sees the same absolute workspace."""
         return str(Path(value).expanduser().resolve(strict=False))
+
+    @field_validator("session_dir")
+    @classmethod
+    def validate_session_dir(cls, value: str) -> str:
+        """Keep standard session storage inside the configured workspace."""
+        path = value.strip()
+        if PurePosixPath(path.replace("\\", "/")).is_absolute() or PureWindowsPath(path).anchor:
+            raise ValueError("session_dir must be a workspace-relative path")
+        return value

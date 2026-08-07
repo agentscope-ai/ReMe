@@ -182,11 +182,16 @@ def test_flag_filter_removes_non_matching():
 def test_flag_filter_default_false():
     ph = PromptHandler()
     ph.load_prompt_dict({"p": "[debug] debug info\nbase"})
-    # When no flags are passed at all, _apply_flag_filter is not called,
-    # so flagged lines are kept as-is (including the tag text after regex sub).
-    result = ph.prompt_format("p", debug=False)
+    result = ph.prompt_format("p")
     assert "debug info" not in result
     assert "base" in result
+
+
+def test_flag_filter_defaults_false_with_format_variables():
+    ph = PromptHandler()
+    ph.load_prompt_dict({"p": "[debug] debug {name}\nhello {name}"})
+    result = ph.prompt_format("p", name="Alice")
+    assert result == "hello Alice"
 
 
 def test_flag_filter_unflagged_lines_always_kept():

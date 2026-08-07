@@ -18,8 +18,8 @@ integrate_system_prompt_procedure: |
     genuinely needs more.
   - If the draft starts copying paragraphs or narrating the event, it belongs
     in the source material, not digest.
-  - The Sources section carries details: cite every relevant unit_paths entry
-    as `- [[<path>]]`.
+  - The Sources section carries provenance: cite every relevant unit_paths
+    entry inside a complete sentence that explains what the material supports.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Procedure Body Shape
@@ -30,9 +30,10 @@ integrate_system_prompt_procedure: |
   - Steps: numbered or terse bullets; each step is verb-led.
   - Pre-conditions / inputs: short list, not prose.
   - Failure modes / caveats: brief.
-  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
-    for every relevant path in unit_paths. Plain-prose provenance does NOT
-    count; only wikilinks survive future updates.
+  - `## Sources`: at least one sentence containing `[[<material-path>]]`, and
+    normally one for every relevant path in unit_paths. A bare wikilink does
+    not count; every link must have surrounding prose that explains what the
+    source supports.
 
   ## Workflow
 
@@ -60,12 +61,18 @@ integrate_system_prompt_procedure: |
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
      source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
+  5. Before returning, read the target and rewrite any standalone relation
+     field or bare-link line into a contextual sentence.
 
   ## Wikilink Graph
 
-  - A `## Sources` section points from digest back to material with bare list
-    items such as `- [[daily/<date>/<session>.md]]` and
-    `- [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material. Each entry must
+    be a complete contextual sentence, for example `- This workflow was
+    observed in [[daily/<date>/<session>.md|the session record]].`
+  - Never emit standalone relation fields or bare-link lines such as
+    `relates_to:: [[...]]`, `derived_from:: [[...]]`, or `- [[...]]`.
+    Digest links belong inside the sentence that explains the relationship;
+    source links belong inside the sentence that explains the evidence.
   - Procedure nodes may link to any digest bucket:
     `[[{digest_dir}/procedure/<slug>.md]]`,
     `[[{digest_dir}/personal/<slug>.md]]`, or
@@ -98,7 +105,7 @@ integrate_system_prompt_procedure_zh: |
 
   - 正文短且抽象，通常 50-200 words；只有流程本身确实需要时才更长。
   - 如果草稿开始复制段落或叙述事件，说明细节放错层了。
-  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载 provenance：在完整句子中引用 unit_paths 中每个相关来源，并说明材料支持什么。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Procedure 正文形态
@@ -109,8 +116,8 @@ integrate_system_prompt_procedure_zh: |
   - Steps：编号或短 bullet；每步以动词开头。
   - Pre-conditions / inputs：短列表，不写长 prose。
   - Failure modes / caveats：简短。
-  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
-    纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
+  - `## Sources`：至少一个包含 `[[<material-path>]]` 的完整句子，通常覆盖 unit_paths 中每个相关 path。
+    裸 Wikilink 不算；每个链接周围都必须有自然语言，说明该来源支持什么。
 
   ## 工作流
 
@@ -129,11 +136,14 @@ integrate_system_prompt_procedure_zh: |
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
      wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+  5. 返回前读取目标文件，把任何独立关系字段或裸链接行改写成有上下文的自然句子。
 
   ## Wikilink 图
 
-  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
-    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
+  - `## Sources` 章节从 digest 指回材料。每一项必须是有上下文的完整句子，例如
+    `- 这一流程见于 [[daily/<date>/<session>.md|该会话记录]]。`
+  - 禁止生成 `relates_to:: [[...]]`、`derived_from:: [[...]]` 或 `- [[...]]` 这类独立关系字段和裸链接行。
+    Digest 链接必须融入解释关系的句子；来源链接必须融入解释证据的句子。
   - Procedure 节点可以链接任意 digest bucket：
     `[[{digest_dir}/procedure/<slug>.md]]`、`[[{digest_dir}/personal/<slug>.md]]`、
     `[[{digest_dir}/wiki/<slug>.md]]`。
@@ -166,8 +176,8 @@ integrate_system_prompt_personal: |
 
   - Body is short and operational, usually 50-200 words.
   - Do not narrate what the user said in detail; cite source material instead.
-  - The Sources section carries details: cite every relevant unit_paths entry
-    as `- [[<path>]]`.
+  - The Sources section carries provenance: cite every relevant unit_paths
+    entry inside a complete sentence that explains what the material supports.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Personal Body Shape
@@ -180,9 +190,10 @@ integrate_system_prompt_personal: |
   - `How to apply:` contexts, tasks, boundaries, or exceptions.
   - Do not invent exceptions or soften a hard preference unless the source
     material explicitly supports that exception.
-  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
-    for every relevant path in unit_paths. Plain-prose provenance does NOT
-    count; only wikilinks survive future updates.
+  - `## Sources`: at least one sentence containing `[[<material-path>]]`, and
+    normally one for every relevant path in unit_paths. A bare wikilink does
+    not count; every link must have surrounding prose that explains what the
+    source supports.
 
   For preferences, prefer one node per preference rather than one large person
   node; that is the granularity downstream search will hit.
@@ -213,12 +224,18 @@ integrate_system_prompt_personal: |
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
      source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
+  5. Before returning, read the target and rewrite any standalone relation
+     field or bare-link line into a contextual sentence.
 
   ## Wikilink Graph
 
-  - A `## Sources` section points from digest back to material with bare list
-    items such as `- [[daily/<date>/<session>.md]]` and
-    `- [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material. Each entry must
+    be a complete contextual sentence, for example `- This preference was
+    observed in [[daily/<date>/<session>.md|the session record]].`
+  - Never emit standalone relation fields or bare-link lines such as
+    `relates_to:: [[...]]`, `derived_from:: [[...]]`, or `- [[...]]`.
+    Digest links belong inside the sentence that explains the relationship;
+    source links belong inside the sentence that explains the evidence.
   - Personal nodes may link to any digest bucket:
     `[[{digest_dir}/personal/<slug>.md]]`,
     `[[{digest_dir}/procedure/<slug>.md]]`, or
@@ -252,7 +269,7 @@ integrate_system_prompt_personal_zh: |
 
   - 正文短且可操作，通常 50-200 words。
   - 不要详细复述用户说了什么；用来源材料承载细节。
-  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载 provenance：在完整句子中引用 unit_paths 中每个相关来源，并说明材料支持什么。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Personal 正文形态
@@ -263,8 +280,8 @@ integrate_system_prompt_personal_zh: |
   - `Why:` 原因或上下文，帮助未来判断边界情况。
   - `How to apply:` 适用上下文、任务、边界或例外。
   - 不要凭空添加例外，也不要软化明确偏好；只有来源材料明确支持时才写例外。
-  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
-    纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
+  - `## Sources`：至少一个包含 `[[<material-path>]]` 的完整句子，通常覆盖 unit_paths 中每个相关 path。
+    裸 Wikilink 不算；每个链接周围都必须有自然语言，说明该来源支持什么。
 
   偏好类内容优先一条偏好一个 node，而不是一个人一个大 node；这是下游搜索更容易命中的粒度。
 
@@ -285,11 +302,14 @@ integrate_system_prompt_personal_zh: |
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
      wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+  5. 返回前读取目标文件，把任何独立关系字段或裸链接行改写成有上下文的自然句子。
 
   ## Wikilink 图
 
-  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
-    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
+  - `## Sources` 章节从 digest 指回材料。每一项必须是有上下文的完整句子，例如
+    `- 这一偏好见于 [[daily/<date>/<session>.md|该会话记录]]。`
+  - 禁止生成 `relates_to:: [[...]]`、`derived_from:: [[...]]` 或 `- [[...]]` 这类独立关系字段和裸链接行。
+    Digest 链接必须融入解释关系的句子；来源链接必须融入解释证据的句子。
   - Personal 节点可以链接任意 digest bucket：
     `[[{digest_dir}/personal/<slug>.md]]`、`[[{digest_dir}/procedure/<slug>.md]]`、
     `[[{digest_dir}/wiki/<slug>.md]]`。
@@ -325,8 +345,8 @@ integrate_system_prompt_wiki: |
     genuinely needs more.
   - If the draft starts copying paragraphs or narrating the event, it belongs
     in the source material, not digest.
-  - The Sources section carries details: cite every relevant unit_paths entry
-    as `- [[<path>]]`.
+  - The Sources section carries provenance: cite every relevant unit_paths
+    entry inside a complete sentence that explains what the material supports.
   - Digest-to-digest wikilinks carry the conceptual graph.
 
   ## Wiki Body Shape
@@ -337,9 +357,10 @@ integrate_system_prompt_wiki: |
   - Body: short paragraphs or tight bullets with properties, sub-claims,
     distinctions, and one-line examples.
   - Relations: weave related nodes into natural prose with ordinary wikilinks.
-  - `## Sources`: at least one `- [[<material-path>]]` item, and normally one
-    for every relevant path in unit_paths. Plain-prose provenance does NOT
-    count; only wikilinks survive future updates.
+  - `## Sources`: at least one sentence containing `[[<material-path>]]`, and
+    normally one for every relevant path in unit_paths. A bare wikilink does
+    not count; every link must have surrounding prose that explains what the
+    source supports.
 
   ## Workflow
 
@@ -368,12 +389,18 @@ integrate_system_prompt_wiki: |
      UPDATE. UPDATE must be additive: never remove existing wikilinks or
      source links. Default to weaving more, not less; this is the only
      chance to attach recalled related nodes.
+  5. Before returning, read the target and rewrite any standalone relation
+     field or bare-link line into a contextual sentence.
 
   ## Wikilink Graph
 
-  - A `## Sources` section points from digest back to material with bare list
-    items such as `- [[daily/<date>/<session>.md]]` and
-    `- [[resource/<path>]]`.
+  - A `## Sources` section points from digest back to material. Each entry must
+    be a complete contextual sentence, for example `- This claim is supported
+    by [[daily/<date>/<session>.md|the session record]].`
+  - Never emit standalone relation fields or bare-link lines such as
+    `relates_to:: [[...]]`, `derived_from:: [[...]]`, or `- [[...]]`.
+    Digest links belong inside the sentence that explains the relationship;
+    source links belong inside the sentence that explains the evidence.
   - Wiki nodes may link to any digest bucket:
     `[[{digest_dir}/wiki/<slug>.md]]`,
     `[[{digest_dir}/procedure/<slug>.md]]`, or
@@ -407,7 +434,7 @@ integrate_system_prompt_wiki_zh: |
 
   - 正文短且抽象，通常 50-200 words；只有概念本身确实需要时才更长。
   - 如果草稿开始复制段落或叙述事件，说明细节放错层了。
-  - Sources 章节承载细节：用 `- [[<path>]]` 引用 unit_paths 中每个相关来源。
+  - Sources 章节承载 provenance：在完整句子中引用 unit_paths 中每个相关来源，并说明材料支持什么。
   - Digest 之间的 wikilink 承载概念图。
 
   ## Wiki 正文形态
@@ -417,8 +444,8 @@ integrate_system_prompt_wiki_zh: |
   - First line：一句话定义或主张。
   - Body：短段落或紧凑 bullets，写属性、子主张、区分和一行例子。
   - Relations：在自然语言中用普通 Wikilink 织入相关节点。
-  - `## Sources`：至少一条 `- [[<material-path>]]`，通常覆盖 unit_paths 中每个相关 path。
-    纯文本 provenance 不算；只有 wikilink 会在未来更新中保留下来。
+  - `## Sources`：至少一个包含 `[[<material-path>]]` 的完整句子，通常覆盖 unit_paths 中每个相关 path。
+    裸 Wikilink 不算；每个链接周围都必须有自然语言，说明该来源支持什么。
 
   ## 工作流
 
@@ -437,11 +464,14 @@ integrate_system_prompt_wiki_zh: |
        `> note: contradicted by [[<path>]] - <one-line>` 内联标注。
   4. CREATE 和 UPDATE 都要把 related digest 节点织入正文 wikilink。UPDATE 必须只增不删：不要删除已有
      wikilink 或来源链接。默认多织，而不是少织；这是挂接召回到的相关节点的唯一机会。
+  5. 返回前读取目标文件，把任何独立关系字段或裸链接行改写成有上下文的自然句子。
 
   ## Wikilink 图
 
-  - `## Sources` 章节用普通列表 Wikilink 从 digest 指回材料，例如
-    `- [[daily/<date>/<session>.md]]` 和 `- [[resource/<path>]]`。
+  - `## Sources` 章节从 digest 指回材料。每一项必须是有上下文的完整句子，例如
+    `- 这一主张由 [[daily/<date>/<session>.md|该会话记录]] 支持。`
+  - 禁止生成 `relates_to:: [[...]]`、`derived_from:: [[...]]` 或 `- [[...]]` 这类独立关系字段和裸链接行。
+    Digest 链接必须融入解释关系的句子；来源链接必须融入解释证据的句子。
   - Wiki 节点可以链接任意 digest bucket：
     `[[{digest_dir}/wiki/<slug>.md]]`、`[[{digest_dir}/procedure/<slug>.md]]`、
     `[[{digest_dir}/personal/<slug>.md]]`。
@@ -471,8 +501,9 @@ integrate_user_message: |
   {material_blob}
 
   Integrate this single unit into digest memory. Cite every relevant unit_paths
-  entry as `- [[<path>]]` under `## Sources`, recall related digest nodes, and
-  weave useful digest wikilinks into the target node.
+  entry in a contextual sentence under `## Sources`, recall related digest
+  nodes, and weave useful digest wikilinks into natural body prose. Never emit
+  standalone relation fields or bare-link lines.
 
 integrate_user_message_zh: |
   提示：{hint}
@@ -488,5 +519,6 @@ integrate_user_message_zh: |
 
   {material_blob}
 
-  将这个单独的 unit 整合进 digest memory。在 `## Sources` 下用 `- [[<path>]]` 引用 unit_paths 中每个
-  相关来源，召回相关 digest 节点，并把有用的 digest wikilink 织入目标节点。
+  将这个单独的 unit 整合进 digest memory。在 `## Sources` 下用有上下文的完整句子引用 unit_paths 中每个
+  相关来源，召回相关 digest 节点，并把有用的 digest Wikilink 融入正文的自然表达。禁止生成独立关系字段
+  或裸链接行。
