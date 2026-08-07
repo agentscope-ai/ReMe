@@ -250,6 +250,49 @@ def test_list_can_sort_by_most_recent_modification():
         assert [path.name for path in files] == ["newer.md", "older.md"]
 
 
+def test_list_mtime_sort_skips_files_deleted_during_scan(tmp_path):
+    """A disappearing file does not fail the entire sorted listing."""
+    existing = _seed_md(tmp_path, "existing.md", "content")
+
+    class DisappearingEntry:
+        """File-like entry removed before its metadata can be read."""
+
+        suffix = ".md"
+
+        @staticmethod
+        def is_file():
+            """Match the pre-fix scan that first observed a regular file."""
+            return True
+
+        @staticmethod
+        def stat():
+            """Simulate deletion between directory enumeration and metadata lookup."""
+            raise FileNotFoundError("deleted during scan")
+
+        @staticmethod
+        def as_posix():
+            """Return a deterministic path for sorting diagnostics."""
+            return "disappearing.md"
+
+    class Directory:
+        """Directory-like source containing one stable and one vanished entry."""
+
+        @staticmethod
+        def iterdir():
+            """Yield the test entries in filesystem enumeration order."""
+            return iter((existing, DisappearingEntry()))
+
+    files = crud_list.ListStep._walk_files(
+        Directory(),
+        recursive=False,
+        limit=10,
+        sort_by="mtime",
+        extensions=frozenset({"md"}),
+    )
+
+    assert files == [existing]
+
+
 # -- download ------------------------------------------------------------
 #
 # DownloadStep lives in reme_cc (the local plugin overlay), not reme

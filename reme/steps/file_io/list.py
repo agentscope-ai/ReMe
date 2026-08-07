@@ -16,6 +16,7 @@ should iterate the result and call ``frontmatter_read`` per candidate.
 """
 
 from pathlib import Path
+from stat import S_ISREG
 from typing import Iterable
 
 from ._path import resolve_path
@@ -69,16 +70,26 @@ class ListStep(BaseStep):
         """Return up to ``limit`` regular files, scanning all entries only when sorting."""
         entries: Iterable[Path] = target_dir.rglob("*") if recursive else target_dir.iterdir()
         files: list[Path] = []
+        mtimes: dict[Path, int] = {}
         for entry in entries:
-            if not entry.is_file():  # skip dirs, sockets, broken links, etc.
+            if sort_by == "mtime":
+                try:
+                    entry_stat = entry.stat()
+                except OSError:
+                    continue
+                if not S_ISREG(entry_stat.st_mode):
+                    continue
+            elif not entry.is_file():  # skip dirs, sockets, broken links, etc.
                 continue
             if extensions and entry.suffix.lower().lstrip(".") not in extensions:
                 continue
             files.append(entry)
-            if sort_by != "mtime" and len(files) >= limit:
+            if sort_by == "mtime":
+                mtimes[entry] = entry_stat.st_mtime_ns
+            elif len(files) >= limit:
                 break
         if sort_by == "mtime":
-            files.sort(key=lambda entry: (-entry.stat().st_mtime, entry.as_posix()))
+            files.sort(key=lambda entry: (-mtimes[entry], entry.as_posix()))
         return files[:limit]
 
     @staticmethod
