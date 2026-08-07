@@ -64,8 +64,11 @@ class StatStep(BaseStep):
         }
         if target.is_file():
             payload["size"] = st.st_size
-            payload["mime"] = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-            if target.suffix == ".md":
+            is_md = target.suffix.lower() == ".md"
+            payload["mime"] = (
+                "text/markdown" if is_md else (mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+            )
+            if is_md:
                 try:
                     meta = dict(frontmatter.loads(target.read_text(encoding="utf-8")).metadata)
                 except Exception:
