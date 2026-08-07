@@ -132,7 +132,15 @@ def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         assert chunks[1].session_id == "session-new"
         assert chunks[2].metadata["answer"] == "hello"
         assert agent.reply_kwargs["resume"] == "session-old"
-        assert agent.reply_kwargs["job_tools"] == ["search", "list", "stat", "traverse"]
+        assert agent.reply_kwargs["job_tools"] == [
+            "search",
+            "list",
+            "read",
+            "read_image",
+            "frontmatter_read",
+            "stat",
+            "traverse",
+        ]
         assert agent.reply_kwargs["builtin_tools"] == []
         system_prompt = agent.reply_kwargs["system_prompt"]
         assert f"Current date: {datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()}" in system_prompt

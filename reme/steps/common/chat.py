@@ -16,7 +16,7 @@ class ChatStep(BaseStep):
 Use the available ReMe tools when workspace facts are needed. Cite workspace-relative file paths
 when referring to notes. Never invent file contents, and do not claim to have changed files because
 this chat intentionally provides read-only tools. Reply in the user's language."""
-    READ_ONLY_TOOLS = ["search", "list", "stat", "traverse"]
+    READ_ONLY_TOOLS = ["search", "list", "read", "read_image", "frontmatter_read", "stat", "traverse"]
 
     def _system_prompt(self) -> str:
         """Append request-time environment facts to the configured prompt."""
