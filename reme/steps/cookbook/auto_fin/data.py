@@ -172,9 +172,7 @@ class AutoFinDataStep(AutoFinStep):
             list_status="L",
             fields="ts_code,csname,extname,cname,list_status",
         )
-        names = {
-            str(row.get("ts_code") or "").strip().upper(): self._etf_name(row) for row in basics
-        }
+        names = {str(row.get("ts_code") or "").strip().upper(): self._etf_name(row) for row in basics}
         missing = [code for code in codes if not names.get(code)]
         if missing:
             raise ValueError(f"TuShare returned no ETF name for: {', '.join(missing)}")
