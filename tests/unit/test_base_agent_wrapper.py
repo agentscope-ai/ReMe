@@ -1,6 +1,7 @@
 """Tests for shared agent wrapper behavior."""
 
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +14,7 @@ from reme.components.agent_wrapper import (
     handle_session_command,
 )
 from reme.components.agent_wrapper.as_agent_wrapper import WorkspaceBackend
+from reme.components.agent_wrapper import as_agent_wrapper
 from reme.components.agent_wrapper import base_agent_wrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
@@ -163,3 +165,37 @@ async def test_agentscope_bash_uses_managed_proxy_without_changing_subprocess_en
 
     await wrapper.close()
     await proxy.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply_kwargs", "expected"),
+    [
+        ({}, []),
+        ({"use_builtin_tools": True}, "all"),
+        ({"builtin_tools": ["read"]}, ["read"]),
+    ],
+)
+async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_kwargs, expected):
+    """AgentScope loads no built-in tools unless a caller explicitly opts in."""
+    wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
+    wrapper.as_llm = SimpleNamespace(model=object())
+    observed = {}
+
+    def builtin_tools(names, *, sequential_tool_calls=False):
+        observed["names"] = names
+        observed["sequential_tool_calls"] = sequential_tool_calls
+        return []
+
+    class FakeAgent:
+        """Minimal constructor double for AgentScope Agent."""
+
+        def __init__(self, **kwargs):
+            self.state = kwargs["state"]
+
+    monkeypatch.setattr(wrapper, "_builtin_tools", builtin_tools)
+    monkeypatch.setattr(as_agent_wrapper, "Agent", FakeAgent)
+
+    await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
+
+    assert observed == {"names": expected, "sequential_tool_calls": True}
