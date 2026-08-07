@@ -26,9 +26,12 @@ class AutoFinHistoryStep(AutoFinStep):
         rows = self._read_jsonl_sync(path)
         return sorted(rows, key=lambda row: str(row.get("trade_date") or ""))
 
-    def _read_news(self, path: Path) -> list[dict[str, str]]:
+    @staticmethod
+    def _read_news(
+        path: Path,
+        cache: dict[str, list[dict[str, str]]],
+    ) -> list[dict[str, str]]:
         """Parse a news file once per run; the same file recurs across events/ETFs."""
-        cache = self.__dict__.setdefault("_news_cache", {})
         key = str(path)
         if key not in cache:
             cache[key] = AutoFinDataStep.read_news(path)
@@ -82,7 +85,13 @@ class AutoFinHistoryStep(AutoFinStep):
                 result[f"d{horizon}"] = close * factor / entry_price - 1
         return result
 
-    async def _candidates(self, event: dict[str, str], start: date, end: date) -> list[dict[str, str]]:
+    async def _candidates(
+        self,
+        event: dict[str, str],
+        start: date,
+        end: date,
+        news_cache: dict[str, list[dict[str, str]]],
+    ) -> list[dict[str, str]]:
         query = " ".join(filter(None, [event.get("title"), event.get("content"), event.get("reason")]))[:2000]
         response = await self.run_job(
             "memory_search",
@@ -102,7 +111,7 @@ class AutoFinHistoryStep(AutoFinStep):
         candidates = []
         for relative, news_ids in ids_by_path.items():
             path = self.workspace_path / relative
-            for row in self._read_news(path):
+            for row in self._read_news(path, news_cache):
                 if row["news_id"] in news_ids and row["news_id"] != event["news_id"]:
                     candidates.append(row)
         unique = {row["news_id"]: row for row in candidates}
@@ -135,6 +144,7 @@ class AutoFinHistoryStep(AutoFinStep):
         limit = int(self._value("historical_news_limit", 5))
         analyses = []
         call_index = 0
+        news_cache: dict[str, list[dict[str, str]]] = {}
         for etf in self._required("auto_fin_etfs"):
             market_rows = self._market_rows(etf["etf_code"])
             events = []
@@ -143,7 +153,12 @@ class AutoFinHistoryStep(AutoFinStep):
                     **news_by_id[reference["news_id"]],
                     "reason": reference["reason"],
                 }
-                candidates = await self._candidates(current, search_start, run_date - timedelta(days=1))
+                candidates = await self._candidates(
+                    current,
+                    search_start,
+                    run_date - timedelta(days=1),
+                    news_cache,
+                )
                 call_index += 1
                 output, _ = await self._reply(
                     "history_user",

@@ -1,7 +1,5 @@
 """Typed contracts for the daily-paper cookbook workflow."""
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
@@ -68,43 +66,3 @@ class AnalyzedPaper(DailyPaperMarkdownOutput):
     reasoning: str
     note_path: str
     pdf_path: str
-
-
-# Retained for callers that imported the previous public workflow schemas. The
-# streamlined daily-paper steps no longer use these compatibility contracts.
-class SelectedPaper(BaseModel):
-    """Legacy selected-paper contract."""
-
-    arxiv_id: str
-    rank: int
-    reason: str
-    memory_relevance: Literal["high", "medium", "low"]
-
-
-class PaperSelection(BaseModel):
-    """Legacy multi-field paper-selection contract."""
-
-    selection_reasoning: str
-    selected: list[SelectedPaper]
-    alternates: list[str] = Field(default_factory=list)
-
-
-class PaperSelectionOutput(BaseModel):
-    """Legacy single-paper agent output contract."""
-
-    arxiv_id: str
-    selection_reasoning: str = ""
-
-
-class PaperNoteOutput(BaseModel):
-    """Legacy detailed-note output contract."""
-
-    description: str
-    body: str
-
-
-class DailyBriefOutput(BaseModel):
-    """Legacy daily-brief output contract."""
-
-    description: str
-    body: str

@@ -182,8 +182,9 @@ The optional mirror can be configured, for example, as:
 export TUSHARE_MIRROR_URL="http://112.124.63.173:4000/tushare"
 ```
 
-`auto_fin_1200_cron` runs every day at 12:00 in `Asia/Shanghai`. The cron fires on weekends and holidays, but the Data
-step then skips the remaining workflow when Tushare reports that the date is not an SSE trading day.
+`auto_fin_0930_cron`, `auto_fin_1130_cron`, and `auto_fin_1800_cron` run every day at 09:30, 11:30, and 18:00 in
+`Asia/Shanghai`. The crons fire on weekends and holidays, but the Data step then skips the remaining workflow when
+Tushare reports that the date is not an SSE trading day. Same-day reruns refine the existing report.
 
 To send a completed report, configure `DINGTALK_APP_KEY`, `DINGTALK_APP_SECRET`, `DINGTALK_ROBOT_CODE`, and the
 comma-separated `DINGTALK_CONVERSATION_IDS`. With no conversation IDs, delivery is a no-op.

@@ -170,8 +170,9 @@ reme_workspace/
 export TUSHARE_MIRROR_URL="http://112.124.63.173:4000/tushare"
 ```
 
-`auto_fin_1200_cron` 按 `Asia/Shanghai` 时区每天 12:00 触发。Cron 在周末和节假日仍会启动，但如果 Tushare
-返回当天不是上交所交易日，Data Step 会跳过后续工作流。
+`auto_fin_0930_cron`、`auto_fin_1130_cron` 和 `auto_fin_1800_cron` 按 `Asia/Shanghai` 时区每天 09:30、11:30 和
+18:00 触发。Cron 在周末和节假日仍会启动，但如果 Tushare 返回当天不是上交所交易日，Data Step 会跳过后续工作流；
+同一天的后续运行会在已有报告基础上继续完善。
 
 要发送完成的报告，需要配置 `DINGTALK_APP_KEY`、`DINGTALK_APP_SECRET`、`DINGTALK_ROBOT_CODE` 和逗号分隔的
 `DINGTALK_CONVERSATION_IDS`。没有会话 ID 时发送步骤无副作用。

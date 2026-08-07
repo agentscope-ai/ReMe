@@ -165,9 +165,13 @@ HF_MIRROR_URL=https://hf-mirror.com
 
 # 未设置时使用 https://arxiv.org
 ARXIV_MIRROR_URL=https://export.arxiv.org
+
+# 也支持带路径前缀的中转地址
+# HF_MIRROR_URL=http://relay-host:18080/hf
+# ARXIV_MIRROR_URL=http://relay-host:18080/arxiv
 ```
 
-`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。配置值末尾的 `/` 会被去掉；不配置就直接访问官方站点，不会执行备用地址回退。
+`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。两种 base URL 都会保留路径前缀，末尾 `/` 可有可无；不配置就直接访问官方站点，不会执行备用地址回退。
 
 ## 运行方式
 

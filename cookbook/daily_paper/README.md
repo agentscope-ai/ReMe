@@ -177,11 +177,15 @@ HF_MIRROR_URL=https://hf-mirror.com
 
 # Defaults to https://arxiv.org when unset
 ARXIV_MIRROR_URL=https://export.arxiv.org
+
+# Path-prefixed relay URLs are also supported
+# HF_MIRROR_URL=http://relay-host:18080/hf
+# ARXIV_MIRROR_URL=http://relay-host:18080/arxiv
 ```
 
 `HF_MIRROR_URL` must implement the `/papers/...`, `/api/daily_papers`, and `/api/papers/...` routes used by the current
-client. `ARXIV_MIRROR_URL` must implement `/pdf/<arxiv-id>`. Trailing slashes are removed. When a variable is unset,
-the official service is used directly; there is no fallback chain.
+client. `ARXIV_MIRROR_URL` must implement `/pdf/<arxiv-id>`. A path prefix in either base URL is preserved, and a
+trailing slash is optional. When a variable is unset, the official service is used directly; there is no fallback chain.
 
 ## Running the workflow
 

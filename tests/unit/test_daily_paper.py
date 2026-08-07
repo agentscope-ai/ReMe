@@ -119,6 +119,32 @@ async def test_hf_client_uses_configured_mirror(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_hf_client_preserves_mirror_path_prefix(monkeypatch):
+    """Relative requests retain a path-prefixed HF_MIRROR_URL."""
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=[])
+
+    transport = httpx.MockTransport(handler)
+    async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        hf_utils.httpx,
+        "AsyncClient",
+        lambda **kwargs: async_client(transport=transport, **kwargs),
+    )
+    monkeypatch.setenv("HF_MIRROR_URL", "http://relay.example:18080/hf/")
+
+    async with hf_utils.HuggingFacePapersClient() as client:
+        assert await client.fetch_daily_ids("2026-07-22") == set()
+
+    assert [str(request.url) for request in requests] == [
+        "http://relay.example:18080/hf/api/daily_papers?date=2026-07-22&limit=100",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_hf_client_logs_retry_after_http_error(monkeypatch):
     """Transient HTTP failures report the attempt before retrying."""
     attempts = 0

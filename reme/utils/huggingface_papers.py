@@ -113,7 +113,10 @@ class HuggingFacePapersClient:
                     f"[HuggingFacePapersClient] request start path={path} params={params} "
                     f"attempt={attempt + 1}/{self.max_retries}",
                 )
-                response = await self._require_client().get(path, params=params)
+                # Keep an optional path prefix in HF_MIRROR_URL. httpx treats a
+                # leading slash as host-relative and would otherwise discard a
+                # prefix such as ``/hf`` from the configured base URL.
+                response = await self._require_client().get(path.lstrip("/"), params=params)
                 response.raise_for_status()
                 self.logger.debug(
                     f"[HuggingFacePapersClient] request done path={path} status={response.status_code} "
