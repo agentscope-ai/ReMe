@@ -16,7 +16,7 @@ from typing import Any, Callable, Literal, Protocol
 import uuid
 
 from .candidate import ImageCandidate, SourceCandidate
-from .models import ActionRecord, JobResult
+from .models import ActionRecord, EvaluationQuery, JobRequest, JobResult
 
 CASE_ROOT = "/workspace/case"
 CANDIDATE_ROOT = "/workspace/candidate"
@@ -140,15 +140,12 @@ def _archive_workspace(source: str | Path) -> bytes:
     elif source_path.is_file():
         with tarfile.open(source_path, mode="r:*") as archive:
             members = archive.getmembers()
-            normalized_paths = [
-                path for member in members if (path := _workspace_member_path(member.name)) is not None
-            ]
+            normalized_paths = [path for member in members if (path := _workspace_member_path(member.name)) is not None]
             # ``export()`` archives the whole case, while ``export_workspace``
             # archives only the workspace contents. Accept both forms so an
             # existing case artifact can seed independent query sandboxes.
-            case_export = (
-                PurePosixPath("manifest.json") in normalized_paths
-                and any(path.parts and path.parts[0] == "reme_workspace" for path in normalized_paths)
+            case_export = PurePosixPath("manifest.json") in normalized_paths and any(
+                path.parts and path.parts[0] == "reme_workspace" for path in normalized_paths
             )
             seen: set[PurePosixPath] = set()
             for member in members:
@@ -343,6 +340,8 @@ class DockerReMeSandbox:
                 self.runtime_workspace,
                 self.logs_dir,
                 self.results_dir,
+                f"{CASE_ROOT}/build_log",
+                f"{CASE_ROOT}/queries",
                 HARNESS_ROOT,
             ],
         )
@@ -445,10 +444,84 @@ class DockerReMeSandbox:
             raise SandboxCommandError(f"job {job!r} did not produce {response_path}") from exc
         return JobResult.from_dict(payload)
 
+    async def _run_worker_request(self, mode: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Run one structured worker request and return its JSON response."""
+        assert self.backend is not None, "sandbox is not initialized"
+        request_id = uuid.uuid4().hex
+        request_path = f"{CASE_ROOT}/inbox/{request_id}.json"
+        response_path = f"{self.results_dir}/{request_id}.json"
+        request = {
+            "mode": mode,
+            "config": self.config,
+            "case_id": self.case_id,
+            "case_root": CASE_ROOT,
+            "workspace_dir": self.runtime_workspace,
+            **payload,
+        }
+        await self.backend.write_file(request_path, json.dumps(request, ensure_ascii=False).encode("utf-8"))
+        await self._exec(
+            f"worker:{mode}",
+            [self.python, f"{HARNESS_ROOT}/worker.py", "--request", request_path, "--response", response_path],
+            cwd=CASE_ROOT,
+        )
+        try:
+            result = json.loads((await self.backend.read_file(response_path)).decode("utf-8"))
+        except FileNotFoundError as exc:
+            raise SandboxCommandError(f"worker mode {mode!r} did not produce {response_path}") from exc
+        if not isinstance(result, dict):
+            raise SandboxCommandError(f"worker mode {mode!r} returned a non-object response")
+        return result
+
     async def run_job(self, job: str, arguments: dict[str, Any] | None = None) -> JobResult:
         """Run one ReMe job without overlapping another operation."""
         async with self._operation_lock:
             return await self._run_job(job, arguments)
+
+    async def run_build(self, jobs: list[JobRequest | dict[str, Any]]) -> dict[str, Any]:
+        """Run all construction jobs in one Application and capture ``build.log``."""
+        serialized: list[dict[str, Any]] = []
+        for specification in jobs:
+            value = asdict(specification) if isinstance(specification, JobRequest) else dict(specification)
+            if not isinstance(value.get("job"), str) or not value["job"]:
+                raise ValueError("every build job requires a non-empty job name")
+            if not isinstance(value.get("arguments", {}), dict):
+                raise ValueError("build job arguments must be an object")
+            serialized.append(value)
+        if not serialized:
+            raise ValueError("run_build requires at least one job")
+        async with self._operation_lock:
+            return await self._run_worker_request("build", {"jobs": serialized})
+
+    @staticmethod
+    def _validate_query_artifact_id(query_id: str) -> None:
+        """Keep verbatim query-directory names inside the artifact root."""
+        if not query_id or len(query_id.encode("utf-8")) > 255:
+            raise ValueError("query_id must be non-empty and no longer than 255 UTF-8 bytes")
+        if query_id in {".", ".."} or "/" in query_id or "\\" in query_id or "\x00" in query_id:
+            raise ValueError(f"query_id is not a safe directory name: {query_id!r}")
+        if query_id == "summary.json":
+            raise ValueError("query_id conflicts with the queries summary: 'summary.json'")
+
+    async def run_queries(self, queries: list[EvaluationQuery | dict[str, Any]]) -> dict[str, Any]:
+        """Answer and judge multiple queries in one Application with isolated logs."""
+        serialized: list[dict[str, Any]] = []
+        query_ids: list[str] = []
+        for query in queries:
+            value = asdict(query) if isinstance(query, EvaluationQuery) else dict(query)
+            query_id = value.get("query_id")
+            if not isinstance(query_id, str):
+                raise ValueError("every evaluation query requires a string query_id")
+            self._validate_query_artifact_id(query_id)
+            if not isinstance(value.get("question"), str):
+                raise ValueError(f"query {query_id!r} requires a string question")
+            query_ids.append(query_id)
+            serialized.append(value)
+        if not serialized:
+            raise ValueError("run_queries requires at least one query")
+        if len(query_ids) != len(set(query_ids)):
+            raise ValueError("query IDs must be unique")
+        async with self._operation_lock:
+            return await self._run_worker_request("queries", {"queries": serialized})
 
     async def ingest_session(
         self,
@@ -615,6 +688,33 @@ class DockerReMeSandbox:
             target = Path(destination).expanduser().resolve()
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(await self.backend.read_file(WORKSPACE_EXPORT_ARCHIVE))
+            return target
+
+    async def export_evaluation(self, destination: str | Path) -> Path:
+        """Download the workspace, build log, and per-query evaluation artifacts."""
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            for required in (f"{CASE_ROOT}/build_log/build.log", f"{CASE_ROOT}/queries/summary.json"):
+                try:
+                    await self.backend.read_file(required)
+                except FileNotFoundError as exc:
+                    raise SandboxCommandError(f"evaluation export is missing required artifact: {required}") from exc
+            await self._exec_checked(
+                "export_evaluation",
+                [
+                    "tar",
+                    "-czf",
+                    EXPORT_ARCHIVE,
+                    "-C",
+                    CASE_ROOT,
+                    "reme_workspace",
+                    "build_log",
+                    "queries",
+                ],
+            )
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await self.backend.read_file(EXPORT_ARCHIVE))
             return target
 
     async def upload_workspace(self, source: str | Path, *, clear: bool = True) -> None:

@@ -51,7 +51,13 @@ def _enable_loguru() -> bool:
     return os.getenv("REME_DISABLE_LOGURU", "").lower() != "true"
 
 
-def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bool):
+def _init_loguru(
+    log_dir: str,
+    level: str,
+    log_to_console: bool,
+    log_to_file: bool,
+    log_filepath: str | None = None,
+):
     from loguru import logger
 
     logger.remove()
@@ -66,26 +72,35 @@ def _init_loguru(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
 
     if log_to_file:
         try:
-            os.makedirs(log_dir, exist_ok=True)
-            current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            log_filepath = os.path.join(log_dir, f"{current_ts}_{os.getpid()}.log")
-
-            logger.add(
-                log_filepath,
-                level=level,
-                rotation="00:00",
-                retention="7 days",
-                compression="zip",
-                encoding="utf-8",
-                format=_LOGURU_FORMAT,
-            )
+            if log_filepath is None:
+                os.makedirs(log_dir, exist_ok=True)
+                current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                log_filepath = os.path.join(log_dir, f"{current_ts}_{os.getpid()}.log")
+                logger.add(
+                    log_filepath,
+                    level=level,
+                    rotation="00:00",
+                    retention="7 days",
+                    compression="zip",
+                    encoding="utf-8",
+                    format=_LOGURU_FORMAT,
+                )
+            else:
+                os.makedirs(os.path.dirname(os.path.abspath(log_filepath)), exist_ok=True)
+                logger.add(log_filepath, level=level, encoding="utf-8", format=_LOGURU_FORMAT)
         except Exception as e:
             logger.error(f"Error configuring file logging: {e}")
 
     return logger
 
 
-def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bool):
+def _init_stdlib(
+    log_dir: str,
+    level: str,
+    log_to_console: bool,
+    log_to_file: bool,
+    log_filepath: str | None = None,
+):
     logger = logging.getLogger("reme")
     logger.propagate = False
 
@@ -94,7 +109,7 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
         handler.close()
 
     qwenpaw_logger = logging.getLogger(_QWENPAW_LOGGER_NAME)
-    if qwenpaw_logger.handlers:
+    if qwenpaw_logger.handlers and log_filepath is None:
         # QwenPaw owns the screen and file handlers. Forwarding keeps ReMe's
         # logger object stable for modules that cache it at import time, while
         # allowing future QwenPaw handlers (for example qwenpaw.log) to take
@@ -115,18 +130,21 @@ def _init_stdlib(log_dir: str, level: str, log_to_console: bool, log_to_file: bo
 
     if log_to_file:
         try:
-            os.makedirs(log_dir, exist_ok=True)
-            # Keep stdlib file naming aligned with QwenPaw logging.
-            current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            log_filepath = os.path.join(log_dir, f"{current_ts}.log")
-
-            file_handler = TimedRotatingFileHandler(
-                log_filepath,
-                when="midnight",
-                backupCount=7,
-                encoding="utf-8",
-                delay=True,
-            )
+            if log_filepath is None:
+                os.makedirs(log_dir, exist_ok=True)
+                # Keep stdlib file naming aligned with QwenPaw logging.
+                current_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                log_filepath = os.path.join(log_dir, f"{current_ts}.log")
+                file_handler = TimedRotatingFileHandler(
+                    log_filepath,
+                    when="midnight",
+                    backupCount=7,
+                    encoding="utf-8",
+                    delay=True,
+                )
+            else:
+                os.makedirs(os.path.dirname(os.path.abspath(log_filepath)), exist_ok=True)
+                file_handler = logging.FileHandler(log_filepath, encoding="utf-8", delay=True)
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
@@ -142,6 +160,7 @@ def get_logger(
     log_to_console: bool = True,
     log_to_file: bool = True,
     force_init: bool = False,
+    log_filepath: str | None = None,
 ):
     """Return the global logger, initializing sinks on first call (or when force_init)."""
     global _logger
@@ -156,7 +175,7 @@ def get_logger(
             return _logger
 
         if _enable_loguru():
-            _logger = _init_loguru(log_dir, level, log_to_console, log_to_file)
+            _logger = _init_loguru(log_dir, level, log_to_console, log_to_file, log_filepath)
         else:
-            _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file)
+            _logger = _init_stdlib(log_dir, level, log_to_console, log_to_file, log_filepath)
         return _logger

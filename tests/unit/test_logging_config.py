@@ -85,6 +85,24 @@ def test_stdlib_file_creation_is_delayed_until_first_record(monkeypatch, tmp_pat
             handler.close()
 
 
+@pytest.mark.parametrize("use_loguru", [True, False])
+def test_explicit_log_filepath_uses_exact_non_rotating_file(monkeypatch, tmp_path, use_loguru):
+    """Sandbox phase logging can switch one shared logger to an exact artifact path."""
+    monkeypatch.setenv("REME_DISABLE_LOGURU", "false" if use_loguru else "true")
+    path = tmp_path / "queries" / "query:1" / "answer.log"
+
+    logger = logger_utils.get_logger(
+        log_to_console=False,
+        log_to_file=True,
+        force_init=True,
+        log_filepath=str(path),
+    )
+    logger.info("query-only")
+    logger_utils.get_logger(log_to_console=False, log_to_file=False, force_init=True)
+
+    assert path.read_text(encoding="utf-8").endswith("query-only\n")
+
+
 def test_stdlib_forwards_screen_and_file_logs_to_qwenpaw(monkeypatch, tmp_path):
     """Embedded stdlib logging should reuse QwenPaw's active sinks."""
     monkeypatch.chdir(tmp_path)

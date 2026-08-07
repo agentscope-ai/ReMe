@@ -95,7 +95,7 @@ search set 被转换为统一 JSON 格式复制到 workspace，并设置为只�
 
 `bundle_builder.py` 从完整 ReMe 仓库构建 benchmark 所需的最小代码仓库，包括 application、schema、registry、必要组件、auto-memory、search、answer、judge、配置和 packaging 文件。DingTalk、cookbook 等无关代码不进入 bundle。
 
-Bundle 不能依赖人工随意删除文件，而应由 domain spec 中的文件清单确定性生成。生成后执行 import、组件注册、安装和固定 smoke case 检查，并验证精简版本与完整 ReMe baseline 行为一致。随后在 workspace 中初始化 Git，创建不可变 baseline commit。
+Bundle 不能依赖人工随意删除文件，而应由 domain spec 中的文件清单确定性生成。生成后执行 import、组件注册、安装和固定 smoke case 检查，并验证精简版本与完整 ReMe baseline 行为一致。随后在 workspace 中初始化 Git，在 `main` 分支创建 message 为 `Initial version` 的不可变 baseline commit。
 
 ### 5.1 Bundle Target
 

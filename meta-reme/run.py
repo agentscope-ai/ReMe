@@ -10,7 +10,9 @@ from typing import Any, Iterable
 
 import yaml
 
+from bundle_builder import build_bundle
 from data_preparation import prepare_dataset
+from git_manager import initialize_repository
 from models import (
     BudgetSpec,
     DatasetSpec,
@@ -26,6 +28,7 @@ DEFAULT_SOURCES = {
     "beam": PROJECT_ROOT / "benchmark/beam/dataset/BEAM",
     "longmemeval": PROJECT_ROOT / "benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json",
 }
+INITIAL_CODE_DIR = Path("code/repo/reme")
 
 
 def _domain_spec(dataset: str, source: Path, source_fingerprint: str) -> DomainSpec:
@@ -48,7 +51,7 @@ def prepare_workspace(
     dataset_variant: str | None = None,
     dataset_source: Path | None = None,
 ) -> Workspace:
-    """Create/open a workspace and install only the selected training cases."""
+    """Create/open a workspace and install its training data and initial code bundle."""
 
     meta_workspace = Path(meta_workspace).resolve()
     source = Path(dataset_source or DEFAULT_SOURCES.get(dataset, "")).resolve()
@@ -71,7 +74,23 @@ def prepare_workspace(
         with workspace.acquire_lock():
             if not workspace.path("datasets/search/manifest.json").exists():
                 workspace.install_search_dataset(normalized)
+            _prepare_initial_code(workspace, spec.bundle_target)
     return workspace
+
+
+def _prepare_initial_code(workspace: Workspace, bundle_target: str) -> Path:
+    """Build the benchmark bundle once without overwriting an existing repository."""
+
+    bundle = workspace.path(INITIAL_CODE_DIR)
+    repository_parent = bundle.parent
+    if bundle.is_dir() and (bundle / "pyproject.toml").is_file():
+        initialize_repository(bundle)
+        return bundle
+    if any(repository_parent.iterdir()):
+        raise RuntimeError(f"Initial code directory is not empty or complete: {repository_parent}")
+    bundle = build_bundle(bundle_target, repository_parent, source_repo=PROJECT_ROOT)
+    initialize_repository(bundle)
+    return bundle
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:
@@ -118,7 +137,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Prepare the configured workspace and print a short dataset summary."""
+    """Prepare the configured workspace, including its training data and initial code."""
 
     args = parse_args()
     workspace = prepare_workspace(**load_config(args.config))

@@ -38,7 +38,11 @@ def _write_runtime_layout(case_root: Path, app_config: Any) -> None:
 
     resolved_paths: dict[str, str | None] = {}
     for field in _WORKSPACE_PATH_FIELDS:
-        configured = str(getattr(app_config, field)).strip()
+        configured = (
+            str(Path(app_config.session_dir) / "dialog")
+            if field == "dialog_dir"
+            else str(getattr(app_config, field)).strip()
+        )
         if not configured:
             resolved_paths[field] = None
             continue
@@ -65,12 +69,8 @@ def _write_runtime_layout(case_root: Path, app_config: Any) -> None:
     )
 
 
-async def _run(request: dict[str, Any]) -> dict[str, Any]:
-    """Construct an Application, run one job, and close it deterministically."""
-    job = request["job"]
-    job_args = request.get("arguments") or {}
-    config = request.get("config") or "lme.yaml"
-    workspace_dir = request["workspace_dir"]
+def _prepare_runtime(request: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    """Resolve one request's config after confining process-local output."""
     case_root = Path(request["case_root"])
     case_tmp = case_root / "tmp"
     case_tmp.mkdir(parents=True, exist_ok=True)
@@ -80,45 +80,257 @@ async def _run(request: dict[str, Any]) -> dict[str, Any]:
     # Import after setting TMPDIR so ReMe and its subprocesses cannot leave
     # case-specific temporary files outside the disposable case root.
     from reme.config import resolve_app_config
-    from reme.enumeration import ComponentEnum
-    from reme.reme import ReMe
     from reme.schema import ApplicationConfig
-    from reme.utils.evaluation_interface import track_agent_token_usage
 
     app_config = resolve_app_config(
-        config=config,
-        workspace_dir=workspace_dir,
+        config=request.get("config") or "lme.yaml",
+        workspace_dir=request["workspace_dir"],
         log_to_console=False,
         log_to_file=True,
     )
     app_config["environment"] = dict(os.environ)
     resolved_config = ApplicationConfig.model_validate(app_config)
     _write_runtime_layout(case_root, resolved_config)
+    return case_root, app_config
+
+
+async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Run one job and return its serializable result with invocation token deltas."""
+    from reme.enumeration import ComponentEnum
+    from reme.utils.evaluation_interface import track_agent_token_usage
+
+    agent_names = list(app.context.components.get(ComponentEnum.AGENT_WRAPPER, {}))
+    token_usage: dict[str, dict[str, int | None]] = {}
+    try:
+        with track_agent_token_usage(agent_names, app.context) as token_usage:
+            response = await app.run_job(job, **arguments)
+    except Exception as exc:  # Preserve usage accumulated before a job failure.
+        return {
+            "success": False,
+            "answer": "",
+            "metadata": {},
+            "token_usage": token_usage,
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+    return {
+        "success": bool(response.success),
+        "answer": response.answer,
+        "metadata": response.metadata,
+        "token_usage": token_usage,
+        "error": None if response.success else str(response.answer),
+    }
+
+
+def _atomic_write_json(path: Path, value: Any) -> None:
+    """Publish one JSON artifact without exposing a partially written file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _validate_query_id(query_id: Any) -> str:
+    """Validate an ID used verbatim as a directory name in the artifact."""
+    if not isinstance(query_id, str) or not query_id or len(query_id.encode("utf-8")) > 255:
+        raise ValueError("query_id must be a non-empty string no longer than 255 UTF-8 bytes")
+    if query_id in {".", ".."} or "/" in query_id or "\\" in query_id or "\x00" in query_id:
+        raise ValueError(f"query_id is not a safe directory name: {query_id!r}")
+    if query_id == "summary.json":
+        raise ValueError("query_id conflicts with the queries summary: 'summary.json'")
+    return query_id
+
+
+def _path_value(value: Any, dotted_path: str) -> Any:
+    """Read a dotted path from a nested result mapping."""
+    current = value
+    for part in dotted_path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            raise ValueError(f"score path is missing from judge result: {dotted_path!r}")
+        current = current[part]
+    return current
+
+
+def _query_score(judge_result: dict[str, Any], query: dict[str, Any]) -> float:
+    """Normalize a configured judge result into one floating-point score."""
+    raw_score = _path_value(judge_result, str(query.get("score_path") or "answer"))
+    mapping = query.get("score_mapping")
+    if mapping is not None:
+        if not isinstance(mapping, dict):
+            raise ValueError("score_mapping must be an object or null")
+        key = str(raw_score).strip().lower()
+        normalized_mapping = {str(name).strip().lower(): score for name, score in mapping.items()}
+        if key not in normalized_mapping:
+            raise ValueError(f"judge score {raw_score!r} is not present in score_mapping")
+        raw_score = normalized_mapping[key]
+    score = float(raw_score)
+    if not 0.0 <= score <= 1.0:
+        raise ValueError(f"query score must be between 0 and 1, got {score}")
+    return score
+
+
+def _clear_query_state(app: Any) -> None:
+    """Drop request-scoped metadata that must not leak into the next query."""
+    app.context.metadata.pop("tool_contexts", None)
+
+
+async def _run(request: dict[str, Any]) -> dict[str, Any]:
+    """Construct an Application, run one job, and close it deterministically."""
+    job = request["job"]
+    job_args = request.get("arguments") or {}
+    _, app_config = _prepare_runtime(request)
+    from reme.reme import ReMe
+
     app = ReMe(**app_config)
     try:
         await app.start()
-        agent_names = list(app.context.components.get(ComponentEnum.AGENT_WRAPPER, {}))
-        try:
-            with track_agent_token_usage(agent_names, app.context) as token_usage:
-                response = await app.run_job(job, **job_args)
-        except Exception as exc:  # Preserve usage accumulated before a job failure.
-            return {
-                "success": False,
-                "answer": "",
-                "metadata": {},
-                "token_usage": token_usage,
-                "error": f"{type(exc).__name__}: {exc}",
-                "traceback": traceback.format_exc(),
-            }
-        return {
-            "success": bool(response.success),
-            "answer": response.answer,
-            "metadata": response.metadata,
-            "token_usage": token_usage,
-            "error": None if response.success else str(response.answer),
-        }
+        return await _run_job_on_app(app, job, job_args)
     finally:
         await app.close()
+
+
+async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
+    """Execute all construction jobs in one Application and one build log."""
+    case_root, app_config = _prepare_runtime(request)
+    from reme.reme import ReMe
+    from reme.utils import get_logger
+
+    jobs = request.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("build request requires a non-empty jobs list")
+    build_log = case_root / "build_log" / "build.log"
+    if build_log.exists():
+        raise FileExistsError(f"build artifact already exists: {build_log}")
+
+    app = ReMe(**app_config)
+    logger = get_logger(log_to_console=False, log_to_file=True, force_init=True, log_filepath=str(build_log))
+    logger.info("[sandbox] build phase started")
+    results: list[dict[str, Any]] = []
+    try:
+        await app.start()
+        for index, specification in enumerate(jobs):
+            if not isinstance(specification, dict) or not isinstance(specification.get("job"), str):
+                raise ValueError(f"invalid build job at index {index}")
+            arguments = specification.get("arguments") or {}
+            if not isinstance(arguments, dict):
+                raise ValueError(f"build job arguments must be an object at index {index}")
+            result = await _run_job_on_app(app, specification["job"], arguments)
+            results.append({"job": specification["job"], "result": result})
+            if not result["success"]:
+                break
+    finally:
+        logger.info("[sandbox] build phase finished")
+        await app.close()
+        get_logger(log_to_console=False, log_to_file=False, force_init=True)
+    return {
+        "success": len(results) == len(jobs) and all(item["result"]["success"] for item in results),
+        "jobs": results,
+    }
+
+
+async def _run_queries(request: dict[str, Any]) -> dict[str, Any]:
+    """Execute answer-and-judge pairs in one Application with isolated logs."""
+    case_root, app_config = _prepare_runtime(request)
+    from reme.reme import ReMe
+    from reme.utils import get_logger
+
+    queries = request.get("queries")
+    if not isinstance(queries, list) or not queries:
+        raise ValueError("query request requires a non-empty queries list")
+    query_ids = [_validate_query_id(query.get("query_id") if isinstance(query, dict) else None) for query in queries]
+    if len(query_ids) != len(set(query_ids)):
+        raise ValueError("query IDs must be unique")
+    queries_root = case_root / "queries"
+    if (queries_root / "summary.json").exists() or any((queries_root / query_id).exists() for query_id in query_ids):
+        raise FileExistsError("query artifacts already exist for this case")
+    queries_root.mkdir(parents=True, exist_ok=True)
+
+    app = ReMe(**app_config)
+    results: list[dict[str, Any]] = []
+    try:
+        await app.start()
+        for query, query_id in zip(queries, query_ids):
+            query_dir = queries_root / query_id
+            query_dir.mkdir(parents=False, exist_ok=False)
+            log_path = query_dir / "answer.log"
+            logger = get_logger(log_to_console=False, log_to_file=True, force_init=True, log_filepath=str(log_path))
+            logger.info(f"[sandbox] query started query_id={query_id!r}")
+            answer_result: dict[str, Any] | None = None
+            judge_result: dict[str, Any] | None = None
+            score: float | None = None
+            error: str | None = None
+            try:
+                question = query.get("question")
+                if not isinstance(question, str):
+                    raise ValueError(f"query {query_id!r} requires a string question")
+                answer_arguments = dict(query.get("answer_arguments") or {})
+                answer_arguments.setdefault("query", question)
+                answer_result = await _run_job_on_app(
+                    app,
+                    str(query.get("answer_job") or "agentic_answer"),
+                    answer_arguments,
+                )
+                if not answer_result["success"]:
+                    error = answer_result.get("error") or "answer job failed"
+                else:
+                    judge_arguments = dict(query.get("judge_arguments") or {})
+                    judge_answer_argument = str(query.get("judge_answer_argument") or "agent_answer")
+                    judge_arguments[judge_answer_argument] = answer_result["answer"]
+                    judge_result = await _run_job_on_app(
+                        app,
+                        str(query.get("judge_job") or "answer_judge"),
+                        judge_arguments,
+                    )
+                    if not judge_result["success"]:
+                        error = judge_result.get("error") or "judge job failed"
+                    else:
+                        score = _query_score(judge_result, query)
+            except Exception as exc:  # Keep later queries runnable and preserve this query's log.
+                error = f"{type(exc).__name__}: {exc}"
+                traceback_text = traceback.format_exc()
+            else:
+                traceback_text = None
+            finally:
+                logger.info(f"[sandbox] query finished query_id={query_id!r}")
+                _clear_query_state(app)
+                get_logger(log_to_console=False, log_to_file=False, force_init=True)
+
+            result = {
+                "query_id": query_id,
+                "question": query.get("question"),
+                "golden_answer": query.get("golden_answer"),
+                "answer": answer_result.get("answer") if answer_result is not None else None,
+                "score": score,
+                "answer_result": answer_result,
+                "judge_result": judge_result,
+                "error": error,
+            }
+            if traceback_text is not None:
+                result["traceback"] = traceback_text
+            _atomic_write_json(query_dir / "result.json", result)
+            results.append(result)
+    finally:
+        get_logger(log_to_console=False, log_to_file=False, force_init=True)
+        await app.close()
+
+    scores = [result["score"] for result in results if result["score"] is not None]
+    summary = {
+        "schema_version": 1,
+        "case_id": request.get("case_id"),
+        "query_count": len(results),
+        "scored_count": len(scores),
+        "mean_score": sum(scores) / len(scores) if scores else None,
+        "queries": [
+            {
+                "query_id": result["query_id"],
+                "score": result["score"],
+                **({"error": result["error"]} if result["error"] is not None else {}),
+            }
+            for result in results
+        ],
+    }
+    _atomic_write_json(queries_root / "summary.json", summary)
+    return {"success": all(result["error"] is None for result in results), "summary": summary, "queries": results}
 
 
 def main() -> int:
@@ -133,7 +345,16 @@ def main() -> int:
     response_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         request = json.loads(request_path.read_text(encoding="utf-8"))
-        result = asyncio.run(_run(request))
+        mode = request.get("mode", "job")
+        if mode == "job":
+            operation = _run(request)
+        elif mode == "build":
+            operation = _run_build(request)
+        elif mode == "queries":
+            operation = _run_queries(request)
+        else:
+            raise ValueError(f"unknown sandbox worker mode: {mode!r}")
+        result = asyncio.run(operation)
         exit_code = 0 if result["success"] else 1
     except Exception as exc:  # The host needs an artifact even for broken candidates.
         result = {

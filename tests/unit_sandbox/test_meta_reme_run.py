@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 import yaml
@@ -19,6 +20,16 @@ run = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(run)
 
 from data_preparation import beam  # noqa: E402  pylint: disable=wrong-import-position
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 def _lme_item(case_id: str) -> dict:
@@ -58,6 +69,12 @@ def test_prepare_workspace_stores_only_selected_longmemeval_cases(tmp_path: Path
     stored_text = "".join(path.read_text(encoding="utf-8") for path in case_files)
     assert "held-out" not in stored_text
     assert not case_files[0].stat().st_mode & 0o222
+    assert workspace.path("code/repo/reme/pyproject.toml").is_file()
+    assert workspace.path("code/repo/reme/reme/config/lme.yaml").is_file()
+    code_repository = workspace.path("code/repo/reme")
+    assert _git(code_repository, "branch", "--show-current") == "main"
+    assert _git(code_repository, "log", "-1", "--pretty=%s") == "Initial version"
+    assert _git(code_repository, "status", "--short") == ""
 
     assert (
         run.prepare_workspace(
@@ -80,6 +97,22 @@ def test_prepare_workspace_initializes_an_existing_empty_directory(tmp_path: Pat
 
     assert workspace.path(".meta-reme-workspace.json").is_file()
     assert workspace.path("datasets/search/manifest.json").is_file()
+    assert workspace.path("code/repo/reme/reme/steps/benchmark/lme").is_dir()
+
+
+def test_prepare_workspace_does_not_overwrite_existing_initial_code(tmp_path: Path) -> None:
+    source = tmp_path / "longmemeval.json"
+    source.write_text(json.dumps([_lme_item("train")]), encoding="utf-8")
+    workspace = run.prepare_workspace(tmp_path / "meta-workspace", "longmemeval", dataset_source=source)
+    initial_head = _git(workspace.path("code/repo/reme"), "rev-parse", "HEAD")
+    marker = workspace.path("code/repo/reme/user-change.txt")
+    marker.write_text("keep me", encoding="utf-8")
+
+    reopened = run.prepare_workspace(workspace.root, "longmemeval", dataset_source=source)
+
+    assert reopened.root == workspace.root
+    assert _git(workspace.path("code/repo/reme"), "rev-parse", "HEAD") == initial_head
+    assert marker.read_text(encoding="utf-8") == "keep me"
 
 
 def test_load_beam_cases_respects_variant_and_selection(tmp_path: Path) -> None:

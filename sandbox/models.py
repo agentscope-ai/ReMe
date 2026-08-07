@@ -43,3 +43,27 @@ class ActionRecord:
     stderr: str
     started_at: str
     finished_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class JobRequest:
+    """One job executed as part of a shared build Application lifecycle."""
+
+    job: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationQuery:
+    """One answer-and-judge request executed in a shared query Application."""
+
+    query_id: str
+    question: str
+    golden_answer: Any
+    answer_arguments: dict[str, Any] = field(default_factory=dict)
+    judge_arguments: dict[str, Any] = field(default_factory=dict)
+    answer_job: str = "agentic_answer"
+    judge_job: str = "answer_judge"
+    judge_answer_argument: str = "agent_answer"
+    score_path: str = "answer"
+    score_mapping: dict[str, float] | None = field(default_factory=lambda: {"yes": 1.0, "no": 0.0})

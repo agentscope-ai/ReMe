@@ -13,7 +13,14 @@ import pytest
 from reme.enumeration import ComponentEnum
 from reme.schema import ApplicationConfig
 from reme.utils import global_counter_add
-from sandbox import DockerReMeSandboxFactory, ImageCandidate, SourceCandidate, SourceSnapshot
+from sandbox import (
+    DockerReMeSandboxFactory,
+    EvaluationQuery,
+    ImageCandidate,
+    JobRequest,
+    SourceCandidate,
+    SourceSnapshot,
+)
 from sandbox.direct_docker_workspace import DirectDockerWorkspace
 from sandbox import worker
 
@@ -64,7 +71,9 @@ class FakeBackend:
             stdout = b'{"reme": "/workspace/candidate/reme/__init__.py", "agentscope": "2.0.4.post1"}\n'
             return FakeExecResult(stdout=stdout)
         if "/workspace/harness/worker.py" in command:
+            request_path = command[command.index("--request") + 1]
             response_path = command[command.index("--response") + 1]
+            request = json.loads(self.files[request_path])
             self.files["/workspace/case/runtime-layout.json"] = json.dumps(
                 {
                     "workspace_root": "reme_workspace",
@@ -80,8 +89,23 @@ class FakeBackend:
                     "analysis_excludes": ["reme_workspace/metadata", "reme_workspace/resource"],
                 },
             ).encode()
-            self.files[response_path] = json.dumps(
-                {
+            if request.get("mode") == "build":
+                self.files["/workspace/case/build_log/build.log"] = b"build"
+                response = {
+                    "success": True,
+                    "jobs": [{"job": item["job"], "result": {"success": True}} for item in request["jobs"]],
+                }
+            elif request.get("mode") == "queries":
+                self.files["/workspace/case/queries/summary.json"] = b'{"queries": []}'
+                response = {
+                    "success": True,
+                    "summary": {
+                        "queries": [{"query_id": item["query_id"], "score": 1.0} for item in request["queries"]],
+                    },
+                    "queries": [],
+                }
+            else:
+                response = {
                     "success": True,
                     "answer": "yes",
                     "metadata": {"job": "ok"},
@@ -89,8 +113,8 @@ class FakeBackend:
                         "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
                     },
                     "error": None,
-                },
-            ).encode()
+                }
+            self.files[response_path] = json.dumps(response).encode()
         if command[:2] == ["tar", "-czf"]:
             self.files[command[2]] = b"case-archive"
         return FakeExecResult()
@@ -228,6 +252,85 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
     assert "--exclude=reme_workspace/metadata" in export_command
     assert "--exclude=reme_workspace/resource" in export_command
     assert "--exclude=reme_workspace/session" not in export_command
+
+
+@pytest.mark.asyncio
+async def test_build_and_queries_use_batch_worker_requests(tmp_path):
+    """Build and query batches each use one worker process and preserve verbatim query IDs."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    build = await case.run_build(
+        [
+            JobRequest("auto_memory", {"session_id": "session-1"}),
+            JobRequest("index_update"),
+        ],
+    )
+    queries = await case.run_queries(
+        [
+            EvaluationQuery(
+                query_id="information_extraction:1",
+                question="What happened?",
+                golden_answer="An event",
+                judge_arguments={"query": "What happened?", "golden_answer": "An event"},
+            ),
+            EvaluationQuery(
+                query_id="information_extraction:2",
+                question="When?",
+                golden_answer="Yesterday",
+                judge_arguments={"query": "When?", "golden_answer": "Yesterday"},
+            ),
+        ],
+    )
+
+    assert build["success"] is True
+    assert [item["query_id"] for item in queries["summary"]["queries"]] == [
+        "information_extraction:1",
+        "information_extraction:2",
+    ]
+    worker_commands = [
+        command for command, _, _ in workspace.backend.commands if "/workspace/harness/worker.py" in command
+    ]
+    assert len(worker_commands) == 2
+
+    exported = await case.export_evaluation(tmp_path / "evaluation.tar.gz")
+    assert exported.read_bytes() == b"case-archive"
+    export_command = workspace.backend.commands[-1][0]
+    assert export_command == [
+        "tar",
+        "-czf",
+        "/tmp/reme-case-export.tar.gz",
+        "-C",
+        "/workspace/case",
+        "reme_workspace",
+        "build_log",
+        "queries",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_query_artifact_ids_reject_path_components():
+    """Verbatim query directory names cannot escape the queries root."""
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+
+    with pytest.raises(ValueError, match="safe directory"):
+        await case.run_queries(
+            [EvaluationQuery(query_id="../escape", question="q", golden_answer="a")],
+        )
+
+    with pytest.raises(ValueError, match="conflicts"):
+        await case.run_queries(
+            [EvaluationQuery(query_id="summary.json", question="q", golden_answer="a")],
+        )
 
 
 @pytest.mark.asyncio
@@ -639,6 +742,96 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         ("run_job", "agentic_answer", {"query": "hello"}),
         "close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_reuses_one_application_per_phase_and_isolates_query_logs(monkeypatch, tmp_path):
+    """Construction and all queries use two Applications while every query gets only its own log."""
+    application_ids = []
+
+    class FakeReMe:
+        """Minimal multi-job Application whose log messages expose phase leakage."""
+
+        def __init__(self, **_config):
+            self.application_id = len(application_ids) + 1
+            application_ids.append(self.application_id)
+            self.context = SimpleNamespace(metadata={}, components={})
+
+        async def start(self):
+            """Start without external resources."""
+
+        async def run_job(self, name, **arguments):
+            """Log a unique marker and return deterministic answer/judge results."""
+            from reme.utils import get_logger
+
+            marker = arguments.get("query", arguments.get("session_id", "judge"))
+            get_logger().info(f"job={name} marker={marker}")
+            answer = "yes" if name == "answer_judge" else f"answer:{marker}"
+            return SimpleNamespace(success=True, answer=answer, metadata={"job": name})
+
+        async def close(self):
+            """Close without external resources."""
+
+    monkeypatch.setattr("reme.config.resolve_app_config", lambda **kwargs: kwargs)
+    monkeypatch.setattr("reme.reme.ReMe", FakeReMe)
+    common = {
+        "config": "lme.yaml",
+        "case_id": "case-1",
+        "case_root": str(tmp_path),
+        "workspace_dir": str(tmp_path / "workspace"),
+    }
+
+    build = await worker._run_build(  # pylint: disable=protected-access
+        {
+            **common,
+            "jobs": [
+                {"job": "auto_memory", "arguments": {"session_id": "construction-only"}},
+                {"job": "index_update", "arguments": {}},
+            ],
+        },
+    )
+    queries = await worker._run_queries(  # pylint: disable=protected-access
+        {
+            **common,
+            "queries": [
+                {
+                    "query_id": "query:1",
+                    "question": "first-only",
+                    "golden_answer": "a",
+                    "judge_arguments": {},
+                    "score_mapping": {"yes": 1.0, "no": 0.0},
+                },
+                {
+                    "query_id": "query:2",
+                    "question": "second-only",
+                    "golden_answer": "b",
+                    "judge_arguments": {},
+                    "score_mapping": {"yes": 1.0, "no": 0.0},
+                },
+            ],
+        },
+    )
+
+    assert build["success"] is True
+    assert queries["success"] is True
+    assert application_ids == [1, 2]
+    build_log = (tmp_path / "build_log/build.log").read_text(encoding="utf-8")
+    first_log = (tmp_path / "queries/query:1/answer.log").read_text(encoding="utf-8")
+    second_log = (tmp_path / "queries/query:2/answer.log").read_text(encoding="utf-8")
+    assert "construction-only" in build_log
+    assert "first-only" not in build_log
+    assert "first-only" in first_log
+    assert "second-only" not in first_log
+    assert "construction-only" not in first_log
+    assert "second-only" in second_log
+    assert "first-only" not in second_log
+
+    summary = json.loads((tmp_path / "queries/summary.json").read_text(encoding="utf-8"))
+    assert summary["queries"] == [
+        {"query_id": "query:1", "score": 1.0},
+        {"query_id": "query:2", "score": 1.0},
+    ]
+    assert all("directory" not in item for item in summary["queries"])
 
 
 @pytest.mark.asyncio
