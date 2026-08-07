@@ -49,6 +49,7 @@ this chat intentionally provides read-only tools. Reply in the user's language."
         wrapper_kwargs = {
             "system_prompt": self._system_prompt(),
             "job_tools": self.READ_ONLY_TOOLS,
+            "builtin_tools": [],
         }
         if session_id := self.context.get("session_id"):
             wrapper_kwargs["resume"] = str(session_id)
