@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import traceback
 from typing import Any, Callable, Iterator
 from uuid import uuid4
 
@@ -23,6 +25,7 @@ from workspace import Workspace
 from sandbox import DockerReMeSandboxFactory, SourceCandidate, SourceSnapshot
 
 from .adapters import build_jobs, evaluation_queries
+from .scheduler import QueryCasePlan, QueryLease, QueryScheduler
 
 SANDBOX_ENV_NAMES = (
     "LLM_API_KEY",
@@ -150,6 +153,12 @@ async def _execute_validation(
             "commit_sha": commit_sha,
             "case_ids": [case.case_id for case in cases],
             "concurrency": concurrency,
+            "container_reuse": True,
+            "scheduling": {
+                "construction_barrier": True,
+                "query_unit": "single_query_lease",
+                "workspace_affinity": "case_id",
+            },
             "dataset": domain.dataset.name.value,
             "fingerprints": fingerprints,
             "started_at": utc_now().isoformat(),
@@ -175,60 +184,178 @@ async def _run_cases(
     cases: list[CaseSpec],
     concurrency: int,
 ) -> list[dict[str, Any]]:
-    semaphore = asyncio.Semaphore(concurrency)
+    """Run strict construction and query phases with reusable worker sandboxes."""
 
-    async def run(case: CaseSpec) -> dict[str, Any]:
-        async with semaphore:
-            return await _run_case_with_retries(workspace, run_root, factory, domain, case)
+    queue: asyncio.Queue[tuple[int, CaseSpec]] = asyncio.Queue()
+    for index, case in enumerate(cases):
+        queue.put_nowait((index, case))
+    results: list[dict[str, Any] | None] = [None] * len(cases)
+    plans: list[QueryCasePlan] = []
+    workers = [_WorkerState(worker_id=index) for index in range(concurrency)]
 
-    return list(await asyncio.gather(*(run(case) for case in cases)))
+    async def run_construction_worker(worker: _WorkerState) -> None:
+        while True:
+            try:
+                index, case = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            result, plan = await _construct_case_with_retries(
+                workspace,
+                run_root,
+                factory,
+                domain,
+                index,
+                case,
+                worker,
+            )
+            if result is not None:
+                results[index] = result
+            if plan is not None:
+                plans.append(plan)
+
+    try:
+        construction_outcomes = await asyncio.gather(
+            *(run_construction_worker(worker) for worker in workers),
+            return_exceptions=True,
+        )
+        _raise_worker_failure(construction_outcomes)
+
+        scheduler = QueryScheduler(plans, max_retries=domain.sandbox.max_retries)
+        query_outcomes = await asyncio.gather(
+            *(_run_query_worker(workspace, factory, domain, scheduler, worker) for worker in workers),
+            return_exceptions=True,
+        )
+        _raise_worker_failure(query_outcomes)
+
+        for plan in plans:
+            context = plan.context
+            assert isinstance(context, _ConstructedCase)
+            results[plan.case_index] = _finalize_constructed_case(workspace, plan, context)
+    finally:
+        await asyncio.gather(
+            *(_best_effort_close(worker.sandbox_case) for worker in workers if worker.sandbox_case is not None),
+        )
+
+    if any(result is None for result in results):
+        raise RuntimeError("validation worker exited without publishing every case result")
+    return [result for result in results if result is not None]
 
 
-async def _run_case_with_retries(
+@dataclass
+class _WorkerState:
+    """Host-side state retained by one reusable sandbox worker."""
+
+    worker_id: int
+    sandbox_case: Any | None = None
+    loaded_case_id: str | None = None
+
+
+@dataclass(frozen=True)
+class _ConstructedCase:
+    """Artifacts needed to run and finalize one successfully built case."""
+
+    case_spec: CaseSpec
+    attempt_number: int
+    attempt_root: Path
+    build: dict[str, Any]
+    memory_workspace: Path
+    memory_sha256: str
+
+
+def _raise_worker_failure(outcomes: list[Any]) -> None:
+    failure = next((outcome for outcome in outcomes if isinstance(outcome, BaseException)), None)
+    if failure is not None:
+        raise failure
+
+
+async def _construct_case_with_retries(
     workspace: Workspace,
     run_root: Path,
     factory: DockerReMeSandboxFactory,
     domain: DomainSpec,
+    case_index: int,
     case: CaseSpec,
-) -> dict[str, Any]:
+    worker: _WorkerState,
+) -> tuple[dict[str, Any] | None, QueryCasePlan | None]:
     last_result: dict[str, Any] | None = None
     for attempt_number in range(1, domain.sandbox.max_retries + 2):
-        result = await _run_case(workspace, run_root, factory, domain, case, attempt_number)
+        result, context = await _construct_case(
+            workspace,
+            run_root,
+            factory,
+            domain,
+            case,
+            attempt_number,
+            worker,
+        )
+        if context is not None:
+            try:
+                queries = tuple(evaluation_queries(domain.dataset.name, case))
+            except Exception as exc:
+                result = {
+                    "case_id": case.case_id,
+                    "attempt": context.attempt_number,
+                    "status": "infra_error",
+                    "stage": "schedule_queries",
+                    "completed_stages": ["prepare", "construct_memory"],
+                    "build": context.build,
+                    "queries": [],
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": traceback.format_exc(),
+                    "container_id": getattr(worker.sandbox_case, "container_id", None),
+                    "artifact_sha256": {"memory_workspace": context.memory_sha256},
+                }
+                workspace.atomic_write_json(context.attempt_root.relative_to(workspace.root) / "failure.json", result)
+                return _publish_case_result(workspace, context.attempt_root, result), None
+            return None, QueryCasePlan(
+                case_index=case_index,
+                case_id=case.case_id,
+                queries=queries,
+                context=context,
+            )
+        assert result is not None
         last_result = result
         if result["status"] != "infra_error":
-            return result
+            return result, None
+        await _retire_worker_sandbox(worker)
     assert last_result is not None
-    return last_result
+    return last_result, None
 
 
-async def _run_case(
+async def _construct_case(
     workspace: Workspace,
     run_root: Path,
     factory: DockerReMeSandboxFactory,
     domain: DomainSpec,
     case_spec: CaseSpec,
     attempt_number: int,
-) -> dict[str, Any]:
+    worker: _WorkerState,
+) -> tuple[dict[str, Any] | None, _ConstructedCase | None]:
     case_root = workspace.entity_path((run_root / "cases").relative_to(workspace.root), case_spec.case_id)
     attempt_root = workspace.entity_path(case_root.relative_to(workspace.root), f"attempt-{attempt_number}")
     attempt_root.mkdir(parents=True, exist_ok=False)
-    sandbox_case = None
     completed_stages: list[str] = []
+    build: dict[str, Any] | None = None
     try:
-        sandbox_case = await factory.create_case(case_spec.case_id)
+        if worker.sandbox_case is None:
+            worker.sandbox_case = await factory.create_case(case_spec.case_id)
+        else:
+            await worker.sandbox_case.reset_case(case_spec.case_id)
+        worker.loaded_case_id = None
         completed_stages.append("prepare")
-        build = await sandbox_case.run_build(build_jobs(domain.dataset.name, case_spec))
+        build = await worker.sandbox_case.run_build(build_jobs(domain.dataset.name, case_spec))
         completed_stages.append("construct_memory")
         memory_root = attempt_root / "memory_construction"
         memory_root.mkdir(parents=False, exist_ok=False)
         workspace.atomic_write_json(memory_root.relative_to(workspace.root) / "result.json", build)
-        memory_workspace = await sandbox_case.export_workspace(memory_root / "reme_workspace.tar.gz")
+        memory_workspace = await worker.sandbox_case.export_workspace(memory_root / "reme_workspace.tar.gz")
         _extract_artifacts(
             memory_workspace,
             memory_root / "reme_workspace",
             domain.sandbox.max_artifact_bytes,
         )
-        await sandbox_case.export_build_log(memory_root / "build.log")
+        await worker.sandbox_case.export_build_log(memory_root / "build.log")
+        memory_sha256 = _sha256_file(memory_workspace)
         if not build.get("success"):
             result = {
                 "case_id": case_spec.case_id,
@@ -239,66 +366,224 @@ async def _run_case(
                 "queries": [],
                 "error": "memory construction failed",
                 "artifact_sha256": {
-                    "memory_workspace": _sha256_file(memory_workspace),
+                    "memory_workspace": memory_sha256,
                 },
             }
-            await _best_effort_export(sandbox_case, attempt_root / "full.tar.gz")
-            return _publish_case_result(workspace, attempt_root, result)
+            await _best_effort_export(worker.sandbox_case, attempt_root / "full.tar.gz")
+            return _publish_case_result(workspace, attempt_root, result), None
 
-        queries = await sandbox_case.run_queries(evaluation_queries(domain.dataset.name, case_spec))
-        completed_stages.append("test")
-        queries_root = attempt_root / "queries"
-        queries_root.mkdir(parents=False, exist_ok=False)
-        workspace.atomic_write_json(queries_root.relative_to(workspace.root) / "result.json", queries)
-        queries_archive = queries_root / ".artifacts.tar.gz"
-        try:
-            await sandbox_case.export_queries(queries_archive)
-            _extract_artifacts(
-                queries_archive,
-                queries_root,
-                domain.sandbox.max_artifact_bytes,
-                strip_prefix=PurePosixPath("queries"),
-                excluded_paths={PurePosixPath("summary.json")},
-            )
-        finally:
-            queries_archive.unlink(missing_ok=True)
-        completed_stages.append("export")
-        result = {
-            "case_id": case_spec.case_id,
-            "attempt": attempt_number,
-            "status": "completed",
-            "completed_stages": completed_stages,
-            "build": build,
-            "queries": queries.get("queries", []),
-            "query_summary": queries.get("summary", {}),
-            "error": None,
-            "artifact_sha256": {
-                "memory_workspace": _sha256_file(memory_workspace),
-            },
-        }
-        return _publish_case_result(workspace, attempt_root, result)
+        worker.loaded_case_id = case_spec.case_id
+        return None, _ConstructedCase(
+            case_spec=case_spec,
+            attempt_number=attempt_number,
+            attempt_root=attempt_root,
+            build=build,
+            memory_workspace=memory_workspace,
+            memory_sha256=memory_sha256,
+        )
     except Exception as exc:  # A failed container/worker must not cancel sibling cases.
-        if sandbox_case is not None:
-            await _best_effort_export(sandbox_case, attempt_root / "full.tar.gz")
+        if worker.sandbox_case is not None:
+            await _best_effort_export(worker.sandbox_case, attempt_root / "full.tar.gz")
         result = {
             "case_id": case_spec.case_id,
             "attempt": attempt_number,
             "status": "infra_error",
+            "stage": "construction",
             "completed_stages": completed_stages,
-            "build": None,
+            "build": build,
             "queries": [],
             "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+            "container_id": getattr(worker.sandbox_case, "container_id", None),
         }
         workspace.atomic_write_json(attempt_root.relative_to(workspace.root) / "failure.json", result)
-        return _publish_case_result(workspace, attempt_root, result)
+        return _publish_case_result(workspace, attempt_root, result), None
+
+
+async def _run_query_worker(
+    workspace: Workspace,
+    factory: DockerReMeSandboxFactory,
+    domain: DomainSpec,
+    scheduler: QueryScheduler,
+    worker: _WorkerState,
+) -> None:
+    while True:
+        lease = await scheduler.claim(worker.worker_id, worker.loaded_case_id)
+        if lease is None:
+            return
+        context = lease.plan.context
+        assert isinstance(context, _ConstructedCase)
+        query_id = str(getattr(lease.query, "query_id", ""))
+        try:
+            await _load_query_workspace(factory, worker, lease.plan, context)
+            result = await worker.sandbox_case.run_query(lease.query)
+            await _export_query_artifacts(workspace, domain, worker.sandbox_case, context, query_id, lease)
+            await scheduler.complete(lease, result)
+        except Exception as exc:  # Retry only infrastructure failures around the structured query operation.
+            failure = {
+                "query_id": query_id,
+                "question": getattr(lease.query, "question", None),
+                "golden_answer": getattr(lease.query, "golden_answer", None),
+                "answer": None,
+                "score": None,
+                "answer_result": None,
+                "judge_result": None,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(),
+                "infrastructure_error": True,
+                "attempt": lease.attempt,
+                "lease_token": lease.token,
+                "worker_id": worker.worker_id,
+                "container_id": getattr(worker.sandbox_case, "container_id", None),
+            }
+            query_attempt_root = _write_query_failure(workspace, context, query_id, lease.attempt, failure)
+            if worker.sandbox_case is not None:
+                await _best_effort_export(worker.sandbox_case, query_attempt_root / "full.tar.gz")
+            await scheduler.fail(lease, failure)
+            await _retire_worker_sandbox(worker)
+
+
+async def _load_query_workspace(
+    factory: DockerReMeSandboxFactory,
+    worker: _WorkerState,
+    plan: QueryCasePlan,
+    context: _ConstructedCase,
+) -> None:
+    if worker.sandbox_case is not None and worker.loaded_case_id == plan.case_id:
+        return
+    if worker.sandbox_case is None:
+        worker.sandbox_case = await factory.create_case(plan.case_id)
+    else:
+        await worker.sandbox_case.reset_case(plan.case_id)
+    worker.loaded_case_id = None
+    await worker.sandbox_case.upload_workspace(context.memory_workspace)
+    worker.loaded_case_id = plan.case_id
+
+
+async def _export_query_artifacts(
+    workspace: Workspace,
+    domain: DomainSpec,
+    sandbox_case: Any,
+    context: _ConstructedCase,
+    query_id: str,
+    lease: QueryLease,
+) -> None:
+    queries_root = context.attempt_root / "queries"
+    queries_root.mkdir(parents=True, exist_ok=True)
+    archive = queries_root / f".{query_id}.{lease.token}.tar.gz"
+    try:
+        await sandbox_case.export_query(query_id, archive)
+        with tempfile.TemporaryDirectory(prefix=".query-export-", dir=queries_root) as temporary:
+            temporary_root = Path(temporary)
+            _extract_artifacts(
+                archive,
+                temporary_root,
+                domain.sandbox.max_artifact_bytes,
+                strip_prefix=PurePosixPath("queries"),
+            )
+            source = workspace.entity_path(temporary_root.relative_to(workspace.root), query_id)
+            target = workspace.entity_path(queries_root.relative_to(workspace.root), query_id)
+            if not source.is_dir():
+                raise ValidationError(f"query archive is missing artifact directory: {query_id!r}")
+            if target.exists():
+                raise ValidationError(f"query artifact directory already exists: {query_id!r}")
+            source.replace(target)
     finally:
-        if sandbox_case is not None:
-            await sandbox_case.close()
+        archive.unlink(missing_ok=True)
+
+
+def _query_attempt_root(
+    workspace: Workspace,
+    context: _ConstructedCase,
+    query_id: str,
+    attempt: int,
+) -> Path:
+    attempts_root = context.attempt_root / "queries" / ".attempts"
+    query_root = workspace.entity_path(attempts_root.relative_to(workspace.root), query_id)
+    attempt_root = workspace.entity_path(query_root.relative_to(workspace.root), f"attempt-{attempt}")
+    attempt_root.mkdir(parents=True, exist_ok=True)
+    return attempt_root
+
+
+def _write_query_failure(
+    workspace: Workspace,
+    context: _ConstructedCase,
+    query_id: str,
+    attempt: int,
+    failure: dict[str, Any],
+) -> Path:
+    attempt_root = _query_attempt_root(workspace, context, query_id, attempt)
+    workspace.atomic_write_json(attempt_root.relative_to(workspace.root) / "failure.json", failure)
+    return attempt_root
+
+
+def _finalize_constructed_case(
+    workspace: Workspace,
+    plan: QueryCasePlan,
+    context: _ConstructedCase,
+) -> dict[str, Any]:
+    if any(result is None for result in plan.results):
+        raise RuntimeError(f"case {plan.case_id!r} has unpublished query results")
+    query_results = [result for result in plan.results if result is not None]
+    scores = [float(result["score"]) for result in query_results if result.get("score") is not None]
+    query_summary = {
+        "schema_version": 1,
+        "case_id": plan.case_id,
+        "query_count": len(query_results),
+        "scored_count": len(scores),
+        "mean_score": sum(scores) / len(scores) if scores else None,
+        "queries": [
+            {
+                "query_id": result.get("query_id"),
+                "score": result.get("score"),
+                **({"error": result["error"]} if result.get("error") is not None else {}),
+            }
+            for result in query_results
+        ],
+    }
+    query_payload = {
+        "success": all(result.get("error") is None for result in query_results),
+        "summary": query_summary,
+        "queries": query_results,
+    }
+    queries_root = context.attempt_root / "queries"
+    queries_root.mkdir(parents=True, exist_ok=True)
+    workspace.atomic_write_json(queries_root.relative_to(workspace.root) / "result.json", query_payload)
+
+    has_infra_error = any(result.get("infrastructure_error") for result in query_results)
+    result = {
+        "case_id": plan.case_id,
+        "attempt": context.attempt_number,
+        "status": "infra_error" if has_infra_error else "completed",
+        "completed_stages": ["prepare", "construct_memory", "test", *([] if has_infra_error else ["export"])],
+        "build": context.build,
+        "queries": query_results,
+        "query_summary": query_summary,
+        "error": "one or more query infrastructure attempts were exhausted" if has_infra_error else None,
+        "artifact_sha256": {"memory_workspace": context.memory_sha256},
+    }
+    if has_infra_error:
+        workspace.atomic_write_json(context.attempt_root.relative_to(workspace.root) / "failure.json", result)
+    return _publish_case_result(workspace, context.attempt_root, result)
+
+
+async def _retire_worker_sandbox(worker: _WorkerState) -> None:
+    if worker.sandbox_case is not None:
+        await _best_effort_close(worker.sandbox_case)
+    worker.sandbox_case = None
+    worker.loaded_case_id = None
 
 
 async def _best_effort_export(sandbox_case: Any, destination: Path) -> None:
     try:
         await sandbox_case.export_full(destination)
+    except Exception:
+        return
+
+
+async def _best_effort_close(sandbox_case: Any) -> None:
+    try:
+        await sandbox_case.close()
     except Exception:
         return
 

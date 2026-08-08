@@ -54,9 +54,27 @@ as `reme_workspace/` for direct inspection. Query artifacts use a temporary
 archive only for transfer and safe extraction; the archive and its redundant
 `summary.json` are deleted immediately afterward.
 
-Each case uses a fresh sandbox. The concurrency limit covers the complete case
-lifecycle: sandbox creation, memory construction, queries, artifact export, and
-shutdown.
+Validation uses a strict two-phase schedule. Reusable workers first construct
+all case memories. A successful construction is exported as the case's
+immutable query snapshot; a candidate construction failure is recorded and its
+queries are skipped. Only after every construction attempt reaches a terminal
+state do workers begin answering queries.
+
+Query cases have a preferred owner, while individual queries use fenced leases
+so idle workers can steal remaining work. A worker first continues the exact
+`case_id` already loaded in its container, then prefers its owned case, an
+unowned case, and finally the case with the largest remaining query tail. Case
+IDs are unique within one validation and containers do not cross validation
+runs, so the exported snapshot hash remains an audit field rather than part of
+the cache identity. This keeps workspace uploads uncommon without making a long
+case an indivisible scheduling unit. Results are stored in the original case
+and query slots, so completion order does not change summaries. Infrastructure
+failures retire the affected container and retry only the failed stage;
+structured construction or answer/judge failures remain candidate results.
+
+Containers are named by the factory rather than by their current case and call
+`reset_case()` before switching snapshots, retaining only the installed
+candidate and harness. All containers are shut down after validation finishes.
 
 The same workflow is available as a project API. Use the synchronous entry point
 from regular code:

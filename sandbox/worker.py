@@ -228,8 +228,13 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _run_queries(request: dict[str, Any]) -> dict[str, Any]:
-    """Execute answer-and-judge pairs in one Application with isolated logs."""
+async def _run_queries(request: dict[str, Any], *, write_summary: bool = True) -> dict[str, Any]:
+    """Execute answer-and-judge pairs in one Application with isolated logs.
+
+    ``write_summary=False`` is the append-only primitive used by the validation
+    scheduler. It runs exactly one independently leased query without sealing
+    the case-level artifact directory with ``summary.json``.
+    """
     case_root, app_config = _prepare_runtime(request)
     from reme.reme import ReMe
     from reme.utils import get_logger
@@ -237,6 +242,8 @@ async def _run_queries(request: dict[str, Any]) -> dict[str, Any]:
     queries = request.get("queries")
     if not isinstance(queries, list) or not queries:
         raise ValueError("query request requires a non-empty queries list")
+    if not write_summary and len(queries) != 1:
+        raise ValueError("single-query request requires exactly one query")
     query_ids = [_validate_query_id(query.get("query_id") if isinstance(query, dict) else None) for query in queries]
     if len(query_ids) != len(set(query_ids)):
         raise ValueError("query IDs must be unique")
@@ -329,7 +336,8 @@ async def _run_queries(request: dict[str, Any]) -> dict[str, Any]:
             for result in results
         ],
     }
-    _atomic_write_json(queries_root / "summary.json", summary)
+    if write_summary:
+        _atomic_write_json(queries_root / "summary.json", summary)
     return {"success": all(result["error"] is None for result in results), "summary": summary, "queries": results}
 
 
@@ -352,6 +360,8 @@ def main() -> int:
             operation = _run_build(request)
         elif mode == "queries":
             operation = _run_queries(request)
+        elif mode == "query":
+            operation = _run_queries(request, write_summary=False)
         else:
             raise ValueError(f"unknown sandbox worker mode: {mode!r}")
         result = asyncio.run(operation)

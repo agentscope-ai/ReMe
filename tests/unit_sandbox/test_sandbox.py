@@ -104,6 +104,23 @@ class FakeBackend:
                     },
                     "queries": [],
                 }
+            elif request.get("mode") == "query":
+                item = request["queries"][0]
+                query_root = f"/workspace/case/queries/{item['query_id']}"
+                result = {
+                    "query_id": item["query_id"],
+                    "question": item["question"],
+                    "golden_answer": item.get("golden_answer"),
+                    "answer": item.get("golden_answer"),
+                    "score": 1.0,
+                    "error": None,
+                }
+                self.files[f"{query_root}/result.json"] = json.dumps(result).encode()
+                response = {
+                    "success": True,
+                    "summary": {"queries": [{"query_id": item["query_id"], "score": 1.0}]},
+                    "queries": [result],
+                }
             else:
                 response = {
                     "success": True,
@@ -211,6 +228,13 @@ async def test_one_source_candidate_is_reused_in_independent_case_workspaces(tmp
     first, second = await factory.create_cases(["case-1", "case-2"], concurrency=2)
 
     assert first.workspace is not second.workspace
+    assert first.container_id != second.container_id
+    assert first.container_id.startswith("reme-benchmark-")
+    assert second.container_id.startswith("reme-benchmark-")
+    assert workspaces[0].case_id == first.container_id
+    assert workspaces[1].case_id == second.container_id
+    assert "case-1" not in first.container_id
+    assert "case-2" not in second.container_id
     assert workspaces[0].image == workspaces[1].image == "base:test"
     assert workspaces[0].backend.files["/workspace/candidate.tar.gz"] is candidate.snapshot.archive
     assert workspaces[1].backend.files["/workspace/candidate.tar.gz"] is candidate.snapshot.archive
@@ -243,7 +267,9 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
     }
     assert "/workspace/candidate.tar.gz" not in workspaces[0].backend.files
     assert exported.read_bytes() == b"case-archive"
-    assert json.loads(workspaces[0].backend.files["/workspace/case/manifest.json"])["candidate_mode"] == "image"
+    manifest = json.loads(workspaces[0].backend.files["/workspace/case/manifest.json"])
+    assert manifest["candidate_mode"] == "image"
+    assert manifest["container_id"] == case.container_id
     export_command = next(command for command, _, _ in workspaces[0].backend.commands if command[:2] == ["tar", "-czf"])
     assert "logs" in export_command
     assert "results" in export_command
@@ -335,6 +361,35 @@ async def test_build_and_queries_use_batch_worker_requests(tmp_path):
         "reme_workspace",
         "build_log",
         "queries",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_single_query_api_appends_and_exports_one_lease(tmp_path):
+    """The lease primitive does not require or create a case-level summary."""
+
+    workspace = FakeWorkspace("case-1", "candidate:test", {})
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("candidate:test"),
+        workspace_builder=lambda *_args: workspace,
+    )
+    case = await factory.create_case("case-1")
+    query = EvaluationQuery(query_id="query:1", question="What?", golden_answer="This")
+
+    result = await case.run_query(query)
+    exported = await case.export_query(query.query_id, tmp_path / "query.tar.gz")
+
+    assert result["query_id"] == "query:1"
+    assert result["score"] == 1.0
+    assert "/workspace/case/queries/summary.json" not in workspace.backend.files
+    assert exported.read_bytes() == b"case-archive"
+    assert workspace.backend.commands[-1][0] == [
+        "tar",
+        "-czf",
+        "/tmp/reme-case-export.tar.gz",
+        "-C",
+        "/workspace/case",
+        "queries/query:1",
     ]
 
 

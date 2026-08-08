@@ -193,7 +193,7 @@ def _archive_workspace(source: str | Path) -> bytes:
     return raw.getvalue()
 
 
-def _default_workspace_builder(case_id: str, image: str, env: dict[str, str]) -> Workspace:
+def _default_workspace_builder(workspace_id: str, image: str, env: dict[str, str]) -> Workspace:
     """Create the exact AgentScope 2.0.4.post1 Docker backend lazily."""
     import agentscope
 
@@ -202,7 +202,7 @@ def _default_workspace_builder(case_id: str, image: str, env: dict[str, str]) ->
     if agentscope.__version__ != "2.0.4.post1":
         raise RuntimeError(f"sandbox host requires agentscope 2.0.4.post1, got {agentscope.__version__}")
     return DirectDockerWorkspace(
-        workspace_id=f"reme-benchmark-{case_id}",
+        workspace_id=workspace_id,
         base_image=image,
         env=env,
     )
@@ -232,14 +232,23 @@ class DockerReMeSandboxFactory:
         self.config = config
         self.command_timeout = command_timeout
         self._workspace_builder = workspace_builder or _default_workspace_builder
+        self._workspace_prefix = f"reme-benchmark-{uuid.uuid4().hex[:12]}"
+        self._workspace_sequence = 0
+
+    def _next_workspace_id(self) -> str:
+        """Allocate a factory-scoped container identity independent of case IDs."""
+        self._workspace_sequence += 1
+        return f"{self._workspace_prefix}-{self._workspace_sequence:04d}"
 
     async def create_case(self, case_id: str) -> "DockerReMeSandbox":
         """Start and prepare a new container for one benchmark case."""
         _validate_case_id(case_id)
         image = self.candidate.base_image if isinstance(self.candidate, SourceCandidate) else self.candidate.image
-        workspace = self._workspace_builder(case_id, image, self.env)
+        container_id = self._next_workspace_id()
+        workspace = self._workspace_builder(container_id, image, self.env)
         case = DockerReMeSandbox(
             case_id=case_id,
+            container_id=container_id,
             candidate=self.candidate,
             workspace=workspace,
             config=self.config,
@@ -282,6 +291,7 @@ class DockerReMeSandbox:
         self,
         *,
         case_id: str,
+        container_id: str,
         candidate: SourceCandidate | ImageCandidate,
         workspace: Workspace,
         config: str,
@@ -289,6 +299,7 @@ class DockerReMeSandbox:
         environment_names: list[str],
     ) -> None:
         self.case_id = case_id
+        self.container_id = container_id
         self.candidate = candidate
         self.workspace = workspace
         self.config = config
@@ -504,6 +515,31 @@ class DockerReMeSandbox:
 
     async def run_queries(self, queries: list[EvaluationQuery | dict[str, Any]]) -> dict[str, Any]:
         """Answer and judge multiple queries in one Application with isolated logs."""
+        serialized, query_ids = self._serialize_queries(queries)
+        if not serialized:
+            raise ValueError("run_queries requires at least one query")
+        if len(query_ids) != len(set(query_ids)):
+            raise ValueError("query IDs must be unique")
+        async with self._operation_lock:
+            return await self._run_worker_request("queries", {"queries": serialized})
+
+    async def run_query(self, query: EvaluationQuery | dict[str, Any]) -> dict[str, Any]:
+        """Answer and judge one append-only query for a host-side lease."""
+
+        serialized, _ = self._serialize_queries([query])
+        async with self._operation_lock:
+            response = await self._run_worker_request("query", {"queries": serialized})
+        results = response.get("queries")
+        if not isinstance(results, list) or len(results) != 1 or not isinstance(results[0], dict):
+            raise SandboxCommandError("single-query worker returned an invalid result")
+        return results[0]
+
+    def _serialize_queries(
+        self,
+        queries: list[EvaluationQuery | dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Validate and serialize query payloads shared by batch and lease APIs."""
+
         serialized: list[dict[str, Any]] = []
         query_ids: list[str] = []
         for query in queries:
@@ -516,12 +552,7 @@ class DockerReMeSandbox:
                 raise ValueError(f"query {query_id!r} requires a string question")
             query_ids.append(query_id)
             serialized.append(value)
-        if not serialized:
-            raise ValueError("run_queries requires at least one query")
-        if len(query_ids) != len(set(query_ids)):
-            raise ValueError("query IDs must be unique")
-        async with self._operation_lock:
-            return await self._run_worker_request("queries", {"queries": serialized})
+        return serialized, query_ids
 
     async def ingest_session(
         self,
@@ -750,6 +781,27 @@ class DockerReMeSandbox:
             target.write_bytes(await self.backend.read_file(EXPORT_ARCHIVE))
             return target
 
+    async def export_query(self, query_id: str, destination: str | Path) -> Path:
+        """Download one leased query's logs and result without a case summary."""
+
+        self._validate_query_artifact_id(query_id)
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            query_root = f"{CASE_ROOT}/queries/{query_id}"
+            required = f"{query_root}/result.json"
+            try:
+                await self.backend.read_file(required)
+            except FileNotFoundError as exc:
+                raise SandboxCommandError(f"query export is missing required artifact: {required}") from exc
+            await self._exec_checked(
+                "export_query",
+                ["tar", "-czf", EXPORT_ARCHIVE, "-C", CASE_ROOT, f"queries/{query_id}"],
+            )
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await self.backend.read_file(EXPORT_ARCHIVE))
+            return target
+
     async def export_evaluation(self, destination: str | Path) -> Path:
         """Download the workspace, build log, and per-query evaluation artifacts."""
         async with self._operation_lock:
@@ -870,6 +922,7 @@ class DockerReMeSandbox:
         )
         manifest = {
             "case_id": self.case_id,
+            "container_id": self.container_id,
             "candidate_id": candidate_id,
             "candidate_mode": "source" if isinstance(self.candidate, SourceCandidate) else "image",
             "config": self.config,
