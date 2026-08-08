@@ -57,37 +57,50 @@ meta-reme/
 
 ## 4. Workspace 设计
 
-一次搜索的全部状态保存在用户指定 workspace：
+一次搜索的全部状态保存在用户指定 workspace。下图是 canonical 结构；标为“搜索编排发布”的文件由尚未接入当前 preparation/validation 路径的搜索循环生成，其余目录由 `Workspace.create()` 或 validation 按需创建：
 
 ```text
 workspace/
+  .meta-reme-workspace.json
+  .meta-reme.lock                 # 仅持锁期间存在
   domain_spec.yaml
-  run.json
-  events.jsonl
-  leaderboard.json
+  run.json                        # 搜索编排发布
+  events.jsonl                    # 搜索编排发布
+  leaderboard.json               # 搜索编排发布
   code/
     repo/
+      reme/                       # Git 仓库；初始 branch/code ID 为 init
     worktrees/
-  datasets/
-    search/
-      manifest.json
-      cases/
-  harnesses/
-    registry.jsonl
-    <commit_sha>/
-      manifest.json
-      summary.md
+  dataset/
+    manifest.json
+    cases/
   weaknesses/
   proposals/
   evaluations/
-    <commit_sha>/
-      search.json
-      debug/
-      cases/
+    <code_id>/
+      <validation_id>/
+        manifest.json
+        summary.json
+        cases/
+          <case_id>/
+            attempt-<n>/
+              case_result.json
+              memory_construction/
+                result.json
+                reme_workspace.tar.gz
+                reme_workspace/
+                build.log
+              queries/
+                result.json
+                <query_id>/
+                  answer.log
+                  result.json
   logs/
 ```
 
 search set 被转换为统一 JSON 格式复制到 workspace，并设置为只读。Test set 不复制到该目录，也不向 agent 暴露；只有最佳 harness 冻结后，外部 evaluator 才加载 test set。
+
+`meta-reme/run.py` 完成 dataset 安装和初始 bundle 创建后，立即使用 `init` branch 对已安装的全部 case 执行第一次 validation。结果固定写入 `evaluations/init/initial/`，并发数由配置中的 `validation.concurrency` 控制；该 summary 已存在时不重复执行。
 
 `run.json` 保存运行状态、baseline、当前轮次、预算和最佳候选。`events.jsonl` 采用 append-only 方式记录 proposal、commit、debug、validation、失败和 selection 等事件，使搜索可以在进程中断后恢复。
 
@@ -95,7 +108,7 @@ search set 被转换为统一 JSON 格式复制到 workspace，并设置为只�
 
 `bundle_builder.py` 从完整 ReMe 仓库构建 benchmark 所需的最小代码仓库，包括 application、schema、registry、必要组件、auto-memory、search、answer、judge、配置和 packaging 文件。DingTalk、cookbook 等无关代码不进入 bundle。
 
-Bundle 不能依赖人工随意删除文件，而应由 domain spec 中的文件清单确定性生成。生成后执行 import、组件注册、安装和固定 smoke case 检查，并验证精简版本与完整 ReMe baseline 行为一致。随后在 workspace 中初始化 Git，在 `main` 分支创建 message 为 `Initial version` 的不可变 baseline commit。
+Bundle 不能依赖人工随意删除文件，而应由 domain spec 中的文件清单确定性生成。生成后执行 import、组件注册、安装和固定 smoke case 检查，并验证精简版本与完整 ReMe baseline 行为一致。随后在 workspace 中初始化 Git，在 code ID 为 `init` 的同名分支创建 message 为 `Initial version` 的不可变 baseline commit。
 
 ### 5.1 Bundle Target
 
@@ -145,7 +158,8 @@ build_bundle(
 
 ## 6. Harness 与 Git 管理
 
-Branch 表示一条可继续演化的 proposal 线，commit SHA 表示一个不可变 harness。Agent 可以：
+Branch 表示一条可继续演化的 proposal 线，branch name 就是 code ID；commit SHA 表示该 code ID 在某次 validation
+开始时冻结的不可变 harness。用于结果目录的 code ID 必须是无 `/` 的路径安全 branch name。Agent 可以：
 
 - 从任意历史 commit fork；
 - 在独立 Git worktree 中修改；
@@ -186,23 +200,23 @@ Agent 可以自主选择完整 case、指定 session、session prefix 或少量 
 
 除 debug 外，validation 还支持显式传入 case ID 列表，并可为每个 case 指定 query ID 子集。该能力用于在全量评测代价过高时先执行 targeted screening，例如优先验证 weakness report 中的失败 query 和少量回归 case。筛选范围必须在运行前固化为 `ValidationSpec`，记录选择理由及其 fingerprint；不得在看到本次得分后追加或替换 query 来美化结果。
 
-现有 sandbox 需要补充失败导出能力：即使在安装、初始化或 ingest 阶段失败，也应 best-effort 导出 `failure.json`、stdout、stderr、Python traceback、action log、已完成阶段和宿主异常。每次运行结束后，宿主下载原始压缩包，并安全解压到：
+Sandbox 在 memory construction 结束、query 开始前，先导出 construction 结果、`build.log` 和当时完整、可直接通过 `upload_workspace()` 回灌的 `reme_workspace.tar.gz`；query 阶段结束后再单独导出 query summary、逐 query 日志和结构化结果。两个阶段不得合并成一个仅在所有 query 结束后生成的归档。失败时应 best-effort 导出 `failure.json`、stdout、stderr、Python traceback、action log、已完成阶段和宿主异常。每次运行的宿主目录为：
 
 ```text
-evaluations/<commit>/<mode>/cases/<case>/attempt-<n>/
+evaluations/<code_id>/<validation_id>/cases/<case>/attempt-<n>/
 ```
 
-解压过程需要拒绝绝对路径、`../`、symlink、设备文件和异常大的压缩包，同时保存 tar 包和 SHA256，确保 artifacts 可验证、可复查。
+其中 `memory_construction/` 保存结构化结果、build 日志和可复用的 workspace 压缩包；`queries/` 保存结构化结果及安全解压后的逐 query artifacts。Query 传输使用的临时压缩包必须在解压后删除。解压过程需要拒绝绝对路径、`../`、symlink、设备文件和异常大的压缩包；`reme_workspace.tar.gz` 保存 SHA256，确保可验证、可复用。
 
 ## 10. Validation 与结果记录
 
 Validation 分为 targeted screening 和 full validation。两者都必须从 frozen commit 创建全新 SourceCandidate，并使用同一套 sandbox、失败分类和结果 schema。不同 harness、case 之间使用独立 runtime workspace；同一 case 本次选中的多个 query 应从相同的 post-ingestion memory snapshot 启动，避免 query 顺序造成状态污染。
 
-`ValidationSpec` 明确记录目标 commit、mode、选中的 case/query、选择理由和 dataset/code/config/model/image fingerprint。未指定 case 表示覆盖全部 case，某个 case 未指定 query 子集表示覆盖该 case 的全部 query。系统在执行前根据 dataset manifest 展开并固化选择结果；空集合、未知 ID、重复 ID，以及不属于所选 case 的 query 均应直接报错。
+`ValidationSpec` 明确记录目标 code ID、validation 开始时解析出的 commit、mode、选中的 case/query、选择理由和 dataset/code/config/model/image fingerprint。未指定 case 表示覆盖全部 case，某个 case 未指定 query 子集表示覆盖该 case 的全部 query。系统在执行前根据 dataset manifest 展开并固化选择结果；空集合、未知 ID、重复 ID，以及不属于所选 case 的 query 均应直接报错。
 
 部分 validation 的聚合结果必须同时记录已选数量、数据集总数量、覆盖率和 `is_full=false`。其平均分只描述本次固定子集，不得与其他选择范围的分数直接比较，也不得进入正式 leaderboard 或用于选择 winner。编排器可以依据预先配置的筛选规则决定淘汰候选或将其升级为 full validation；只有覆盖完整 search set 且没有 `infra_error` 的结果才具有正式可比性。Baseline 至少执行一次 full validation，最终 winner 仍需进行第 11 节规定的 clean replay。
 
-每次 targeted screening 的聚合结果写入 `evaluations/<commit>/screening/<validation_id>.json`；完整 search validation 仍发布为 harness 级 `evaluations/<commit>/search.json`。两类结果均保存：
+每次 validation 均写入 `evaluations/<code_id>/<validation_id>/`；manifest 记录本次运行的输入与 fingerprint，summary 保存该次固定选择范围的聚合结果。需要提供 code 级快捷索引或 leaderboard 时，只能从已完成且可比较的 summary 确定性生成，不得作为另一份事实来源。所有结果均保存 code ID 和执行时冻结的 commit SHA：
 
 - commit、parents、changed paths 和 scope 结果；
 - dataset、代码、配置、模型和镜像 fingerprint；
@@ -252,7 +266,7 @@ Targeted screening 是可选的成本控制阶段。未通过筛选的 candidate
 
 完成的 case 结果发布到第 9 节约定的 attempt 目录，并包含 `case_result.json` 和 `complete.json`。`complete.json` 最后写入，记录结果文件及 artifacts 的 SHA256、dataset/code/config/model/image fingerprint、case ID、attempt ID、所选 query 集合的 fingerprint 和完成状态。仅当完成标志可解析、hash 正确、状态为成功或确定性的候选失败，且所有 fingerprint 与当前 validation 完全一致时，结果才可复用；部分 query 的结果不能冒充该 case 的全量结果。目录或某个 `search.json` 文件的存在本身不能作为完成依据。基础设施故障耗尽重试后仍保留为 `infra_error`，但不把 validation 错误地标记为可聚合完成。
 
-`ValidationSpec` 选中的全部 case/query 达到可聚合状态后，编排器确定性地生成对应聚合结果；targeted screening 写入其 validation ID 对应的结果文件，只有 full validation 才生成 harness 级 `evaluations/<commit>/search.json`。随后记录 `validation_completed` 事件。若聚合阶段中断，可从具有相同选择 fingerprint 的 case 结果重新生成，不重复执行已验证的选择范围。
+`ValidationSpec` 选中的全部 case/query 达到可聚合状态后，编排器在对应 validation 目录确定性地生成 summary，随后记录 `validation_completed` 事件。若聚合阶段中断，可从具有相同选择 fingerprint 的 case 结果重新生成，不重复执行已验证的选择范围。
 
 ### 12.3 搜索、Proposal 与 Git 续跑
 

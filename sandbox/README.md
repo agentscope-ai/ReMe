@@ -197,6 +197,11 @@ assert evaluation["success"]
 await case.export_evaluation("artifacts/case-1.tar.gz")
 ```
 
+Call `export_memory_construction()` immediately after `run_build()` to capture
+`reme_workspace/` and `build_log/` before queries run. After `run_queries()`,
+call `export_queries()` to capture only `queries/`. `export_evaluation()` remains
+available when a combined archive is intentionally needed.
+
 `export_evaluation()` produces exactly three top-level directories:
 
 ```text
@@ -268,8 +273,9 @@ construction history can be inspected offline without a remote or push. A
 and initializes a fresh repository for the next case.
 
 For an ephemeral Docker workspace, download every artifact that must survive
-before `close()`: use `export()`, `export_full()`, `export_evaluation()`, or
-`export_workspace()` according to the required contract.
+before `close()`: use `export()`, `export_full()`,
+`export_build_log()`, `export_memory_construction()`, `export_queries()`,
+`export_evaluation()`, or `export_workspace()` according to the required contract.
 
 ## Reuse one built memory for parallel queries
 

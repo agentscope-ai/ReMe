@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
-INITIAL_BRANCH = "main"
+INITIAL_BRANCH = "init"
 INITIAL_COMMIT_MESSAGE = "Initial version"
 GIT_AUTHOR_NAME = "Meta-ReMe"
 GIT_AUTHOR_EMAIL = "meta-reme@localhost"

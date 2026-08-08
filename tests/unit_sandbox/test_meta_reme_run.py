@@ -60,8 +60,8 @@ def test_prepare_workspace_stores_only_selected_longmemeval_cases(tmp_path: Path
         dataset_source=source,
     )
 
-    manifest = json.loads(workspace.path("datasets/search/manifest.json").read_text(encoding="utf-8"))
-    case_files = list(workspace.path("datasets/search/cases").glob("*.json"))
+    manifest = json.loads(workspace.path("dataset/manifest.json").read_text(encoding="utf-8"))
+    case_files = list(workspace.path("dataset/cases").glob("*.json"))
     stored_case = json.loads(case_files[0].read_text(encoding="utf-8"))
     assert manifest["case_count"] == 1
     assert manifest["query_count"] == 1
@@ -72,7 +72,7 @@ def test_prepare_workspace_stores_only_selected_longmemeval_cases(tmp_path: Path
     assert workspace.path("code/repo/reme/pyproject.toml").is_file()
     assert workspace.path("code/repo/reme/reme/config/lme.yaml").is_file()
     code_repository = workspace.path("code/repo/reme")
-    assert _git(code_repository, "branch", "--show-current") == "main"
+    assert _git(code_repository, "branch", "--show-current") == "init"
     assert _git(code_repository, "log", "-1", "--pretty=%s") == "Initial version"
     assert _git(code_repository, "status", "--short") == ""
 
@@ -96,7 +96,7 @@ def test_prepare_workspace_initializes_an_existing_empty_directory(tmp_path: Pat
     workspace = run.prepare_workspace(workspace_root, "longmemeval", dataset_source=source)
 
     assert workspace.path(".meta-reme-workspace.json").is_file()
-    assert workspace.path("datasets/search/manifest.json").is_file()
+    assert workspace.path("dataset/manifest.json").is_file()
     assert workspace.path("code/repo/reme/reme/steps/benchmark/lme").is_dir()
 
 
@@ -159,6 +159,7 @@ def test_load_config_reads_all_preparation_arguments(tmp_path: Path) -> None:
                     "variant": "100K",
                     "train_case_ids": [1, "2"],
                 },
+                "validation": {"concurrency": 5},
             },
         ),
         encoding="utf-8",
@@ -170,3 +171,43 @@ def test_load_config_reads_all_preparation_arguments(tmp_path: Path) -> None:
     assert config["dataset_source"] == run.PROJECT_ROOT / "benchmark/beam/dataset/BEAM"
     assert config["dataset_variant"] == "100K"
     assert config["train_case_ids"] == ["1", "2"]
+    assert config["validation_concurrency"] == 5
+
+
+def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path) -> None:
+    source = tmp_path / "longmemeval.json"
+    source.write_text(json.dumps([_lme_item("case-2"), _lme_item("case-1")]), encoding="utf-8")
+    workspace_root = tmp_path / "meta-workspace"
+    config_path = tmp_path / "config_meta_reme.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "meta_workspace": str(workspace_root),
+                "dataset": {
+                    "name": "longmemeval",
+                    "source": str(source),
+                    "train_case_ids": [],
+                },
+                "validation": {"concurrency": 5},
+            },
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    def fake_validation(workspace, case_ids, code_id, concurrency, *, validation_id):
+        calls.append((Path(workspace), case_ids, code_id, concurrency, validation_id))
+        output = Path(workspace) / f"evaluations/{code_id}/{validation_id}"
+        output.mkdir(parents=True)
+        (output / "summary.json").write_text("{}\n", encoding="utf-8")
+        return output
+
+    workspace, validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
+
+    assert validation == workspace.path("evaluations/init/initial")
+    assert calls == [(workspace.root, ["case-2", "case-1"], "init", 5, "initial")]
+
+    _, repeated_validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
+
+    assert repeated_validation == validation
+    assert len(calls) == 1

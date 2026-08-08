@@ -104,7 +104,8 @@ def test_workspace_create_open_and_domain_fingerprint(tmp_path: Path) -> None:
     workspace = workspace_module.Workspace.create(root, spec)
 
     assert workspace.path("code/repo").is_dir()
-    assert workspace.path("datasets/search/cases").is_dir()
+    assert workspace.path("dataset/cases").is_dir()
+    assert not workspace.path("harnesses").exists()
     assert workspace_module.Workspace.open(root, spec).manifest == workspace.manifest
 
     changed = spec.model_copy(update={"scorer": "different"})
@@ -114,12 +115,25 @@ def test_workspace_create_open_and_domain_fingerprint(tmp_path: Path) -> None:
         workspace_module.Workspace.create(root, spec)
 
 
+def test_workspace_reports_legacy_dataset_layout(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    workspace = workspace_module.Workspace.create(root, domain_spec())
+    workspace.path("datasets").mkdir()
+    workspace.path("dataset").rename(workspace.path("datasets/search"))
+
+    with pytest.raises(workspace_module.WorkspaceFormatError, match="move that directory to dataset"):
+        workspace_module.Workspace.open(root, domain_spec())
+
+
 def test_workspace_rejects_escaping_paths_and_ids(tmp_path: Path) -> None:
     workspace = workspace_module.Workspace.create(tmp_path / "workspace", domain_spec())
     with pytest.raises(workspace_module.WorkspaceError):
         workspace.path("../outside")
     with pytest.raises(workspace_module.WorkspaceError):
         workspace.entity_path("evaluations", "../case")
+
+    attempt = workspace.case_attempt_dir("init", "validation-1", "case-1", "attempt-1", create=True)
+    assert attempt == workspace.path("evaluations/init/validation-1/cases/case-1/attempt-1")
 
 
 def test_atomic_write_replaces_content_and_leaves_no_temporary_file(tmp_path: Path) -> None:
@@ -131,19 +145,19 @@ def test_atomic_write_replaces_content_and_leaves_no_temporary_file(tmp_path: Pa
     assert not list(destination.parent.glob(".run.json.*"))
 
 
-def test_install_search_dataset_replaces_empty_skeleton_and_is_read_only(tmp_path: Path) -> None:
+def test_install_dataset_replaces_empty_skeleton_and_is_read_only(tmp_path: Path) -> None:
     workspace = workspace_module.Workspace.create(tmp_path / "workspace", domain_spec())
     source = tmp_path / "normalized"
     (source / "cases").mkdir(parents=True)
     (source / "manifest.json").write_text("{}\n", encoding="utf-8")
     (source / "cases/case-1.json").write_text("{}\n", encoding="utf-8")
 
-    installed = workspace.install_search_dataset(source)
+    installed = workspace.install_dataset(source)
 
     assert (installed / "cases/case-1.json").is_file()
     assert not (installed / "manifest.json").stat().st_mode & 0o222
     with pytest.raises(workspace_module.WorkspaceError, match="already been installed"):
-        workspace.install_search_dataset(source)
+        workspace.install_dataset(source)
 
 
 def test_workspace_lock_rejects_live_owner_and_releases(tmp_path: Path) -> None:

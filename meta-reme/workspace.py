@@ -23,8 +23,7 @@ WORKSPACE_LOCK = ".meta-reme.lock"
 _DIRECTORIES = (
     "code/repo",
     "code/worktrees",
-    "datasets/search/cases",
-    "harnesses",
+    "dataset/cases",
     "weaknesses",
     "proposals",
     "evaluations",
@@ -95,6 +94,11 @@ class Workspace:
             manifest = WorkspaceManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValidationError) as exc:
             raise WorkspaceFormatError(f"Invalid workspace manifest: {manifest_path}") from exc
+        legacy_dataset = root / "datasets/search"
+        if legacy_dataset.is_dir() and not (root / "dataset").exists():
+            raise WorkspaceFormatError(
+                "Legacy dataset layout detected at datasets/search; move that directory to dataset before opening",
+            )
         for relative in _DIRECTORIES:
             if not (root / relative).is_dir():
                 raise WorkspaceFormatError(f"Workspace directory is missing: {relative}")
@@ -118,7 +122,7 @@ class Workspace:
         return resolved
 
     def entity_path(self, base: str | Path, identifier: str) -> Path:
-        """Resolve a path for an externally supplied case/commit/attempt ID."""
+        """Resolve a path for an externally supplied code/case/attempt ID."""
 
         if not identifier or identifier in {".", ".."} or Path(identifier).name != identifier:
             raise WorkspaceError(f"Unsafe workspace identifier: {identifier!r}")
@@ -128,8 +132,8 @@ class Workspace:
 
     def case_attempt_dir(
         self,
-        commit_sha: str,
-        mode: str,
+        code_id: str,
+        validation_id: str,
         case_id: str,
         attempt_id: str,
         *,
@@ -137,8 +141,8 @@ class Workspace:
     ) -> Path:
         """Return the canonical attempt directory described by the design."""
 
-        current = self.entity_path("evaluations", commit_sha)
-        for identifier in (mode, "cases", case_id, attempt_id):
+        current = self.entity_path("evaluations", code_id)
+        for identifier in (validation_id, "cases", case_id, attempt_id):
             current = self.entity_path(current.relative_to(self.root), identifier)
         if create:
             current.mkdir(parents=True, exist_ok=False)
@@ -183,19 +187,19 @@ class Workspace:
         lock.acquire()
         return lock
 
-    def install_search_dataset(self, source: Path) -> Path:
-        """Copy a normalized search dataset into an empty workspace and make it read-only."""
+    def install_dataset(self, source: Path) -> Path:
+        """Copy a normalized dataset into the workspace and make it read-only."""
 
         source = Path(source).resolve()
-        destination = self.path("datasets/search")
+        destination = self.path("dataset")
         if not source.is_dir():
             raise WorkspaceError(f"Normalized search dataset is not a directory: {source}")
         if any(path.is_file() or path.is_symlink() for path in destination.rglob("*")):
-            raise WorkspaceError(f"Search dataset has already been installed: {destination}")
+            raise WorkspaceError(f"Dataset has already been installed: {destination}")
         for path in source.rglob("*"):
             if path.is_symlink():
                 raise WorkspaceError(f"Dataset may not contain symbolic links: {path.relative_to(source)}")
-        temporary = self.path("datasets/.search-installing")
+        temporary = self.path(".dataset-installing")
         if temporary.exists():
             raise WorkspaceError(f"Incomplete dataset installation requires inspection: {temporary}")
         shutil.copytree(source, temporary, symlinks=True)

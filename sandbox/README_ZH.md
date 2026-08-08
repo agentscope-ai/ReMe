@@ -189,6 +189,11 @@ assert evaluation["success"]
 await case.export_evaluation("artifacts/case-1.tar.gz")
 ```
 
+如需分别保存两个阶段，应在 `run_build()` 后立即调用
+`export_memory_construction()`，冻结 query 执行前的 `reme_workspace/` 和
+`build_log/`；在 `run_queries()` 后调用 `export_queries()`，只导出
+`queries/`。仅在明确需要合并归档时使用 `export_evaluation()`。
+
 `export_evaluation()` 生成且只生成三个顶层目录：
 
 ```text
@@ -256,7 +261,8 @@ daily memory 的构建历史。`reset_case()` 会连同旧运行时 workspace �
 仓库，并为下一个 case 初始化新的仓库。
 
 对于临时 Docker workspace，必须在 `close()` 前下载所有需要保留的产物。根据所需
-契约选择 `export()`、`export_full()`、`export_evaluation()` 或
+契约选择 `export()`、`export_full()`、`export_build_log()`、
+`export_memory_construction()`、`export_queries()`、`export_evaluation()` 或
 `export_workspace()`。
 
 ## 复用一次构建的 Memory，并行执行 Query

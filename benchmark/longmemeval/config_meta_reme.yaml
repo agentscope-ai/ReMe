@@ -5,3 +5,6 @@ dataset:
   name: "longmemeval"
   source: "benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json"
   train_case_ids: []  # empty = all cases; or a list of question IDs
+
+validation:
+  concurrency: 5

@@ -297,6 +297,32 @@ async def test_build_and_queries_use_batch_worker_requests(tmp_path):
     ]
     assert len(worker_commands) == 2
 
+    construction = await case.export_memory_construction(tmp_path / "memory-construction.tar.gz")
+    assert construction.read_bytes() == b"case-archive"
+    assert workspace.backend.commands[-1][0] == [
+        "tar",
+        "-czf",
+        "/tmp/reme-case-export.tar.gz",
+        "-C",
+        "/workspace/case",
+        "reme_workspace",
+        "build_log",
+    ]
+
+    build_log = await case.export_build_log(tmp_path / "build.log")
+    assert build_log.read_bytes() == b"build"
+
+    query_artifacts = await case.export_queries(tmp_path / "queries.tar.gz")
+    assert query_artifacts.read_bytes() == b"case-archive"
+    assert workspace.backend.commands[-1][0] == [
+        "tar",
+        "-czf",
+        "/tmp/reme-case-export.tar.gz",
+        "-C",
+        "/workspace/case",
+        "queries",
+    ]
+
     exported = await case.export_evaluation(tmp_path / "evaluation.tar.gz")
     assert exported.read_bytes() == b"case-archive"
     export_command = workspace.backend.commands[-1][0]

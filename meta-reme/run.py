@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import tempfile
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import yaml
 
@@ -21,6 +21,7 @@ from models import (
     SandboxSpec,
     ScopeSpec,
 )
+from validation import run_validation
 from workspace import Workspace
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -29,6 +30,9 @@ DEFAULT_SOURCES = {
     "longmemeval": PROJECT_ROOT / "benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json",
 }
 INITIAL_CODE_DIR = Path("code/repo/reme")
+INITIAL_CODE_ID = "init"
+INITIAL_VALIDATION_ID = "initial"
+ValidationRunner = Callable[..., Path]
 
 
 def _domain_spec(dataset: str, source: Path, source_fingerprint: str) -> DomainSpec:
@@ -38,7 +42,7 @@ def _domain_spec(dataset: str, source: Path, source_fingerprint: str) -> DomainS
         benchmark_runner=f"benchmark.{'beam' if dataset == 'beam' else 'longmemeval'}.run",
         scorer="mean_query_score",
         scope=ScopeSpec(),
-        sandbox=SandboxSpec(image="reme:latest", timeout_seconds=3600),
+        sandbox=SandboxSpec(image="reme-sandbox-base:agentscope-2.0.4-post1", timeout_seconds=3600),
         proposer=ProposerSpec(model="not-configured"),
         budget=BudgetSpec(max_proposals=1),
     )
@@ -72,8 +76,8 @@ def prepare_workspace(
             else Workspace.open(meta_workspace, spec)
         )
         with workspace.acquire_lock():
-            if not workspace.path("datasets/search/manifest.json").exists():
-                workspace.install_search_dataset(normalized)
+            if not workspace.path("dataset/manifest.json").exists():
+                workspace.install_dataset(normalized)
             _prepare_initial_code(workspace, spec.bundle_target)
     return workspace
 
@@ -91,6 +95,60 @@ def _prepare_initial_code(workspace: Workspace, bundle_target: str) -> Path:
     bundle = build_bundle(bundle_target, repository_parent, source_repo=PROJECT_ROOT)
     initialize_repository(bundle)
     return bundle
+
+
+def run_initial_validation(
+    workspace: Workspace,
+    concurrency: int,
+    *,
+    validation_runner: ValidationRunner = run_validation,
+) -> Path:
+    """Validate the initial code branch once against every installed case."""
+
+    if concurrency < 1:
+        raise ValueError("validation.concurrency must be at least 1")
+    output = workspace.path(f"evaluations/{INITIAL_CODE_ID}/{INITIAL_VALIDATION_ID}")
+    if (output / "summary.json").is_file():
+        return output
+    case_ids = []
+    for case_path in sorted(workspace.path("dataset/cases").glob("*.json")):
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        case_id = case.get("case_id")
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"Prepared case has no valid case_id: {case_path}")
+        case_ids.append(case_id)
+    if not case_ids:
+        raise ValueError("Prepared dataset has no cases to validate")
+    return validation_runner(
+        workspace.root,
+        case_ids,
+        INITIAL_CODE_ID,
+        concurrency,
+        validation_id=INITIAL_VALIDATION_ID,
+    )
+
+
+def prepare_and_validate_workspace(
+    config_path: Path,
+    *,
+    validation_runner: ValidationRunner = run_validation,
+) -> tuple[Workspace, Path]:
+    """Prepare the configured workspace and run its first full validation."""
+
+    config = load_config(config_path)
+    workspace = prepare_workspace(
+        meta_workspace=config["meta_workspace"],
+        dataset=config["dataset"],
+        train_case_ids=config["train_case_ids"],
+        dataset_variant=config["dataset_variant"],
+        dataset_source=config["dataset_source"],
+    )
+    validation = run_initial_validation(
+        workspace,
+        config["validation_concurrency"],
+        validation_runner=validation_runner,
+    )
+    return workspace, validation
 
 
 def _mapping(value: Any, label: str) -> dict[str, Any]:
@@ -119,12 +177,22 @@ def load_config(config_path: Path) -> dict[str, Any]:
         raise ValueError("dataset.train_case_ids must be a list of strings or integers")
     source_value = dataset_config.get("source")
     source = DEFAULT_SOURCES[dataset] if source_value is None else _project_path(source_value, "dataset.source")
+    validation_config = raw.get("validation", {})
+    validation_config = _mapping(validation_config, "validation")
+    validation_concurrency = validation_config.get("concurrency", 1)
+    if (
+        not isinstance(validation_concurrency, int)
+        or isinstance(validation_concurrency, bool)
+        or validation_concurrency < 1
+    ):
+        raise ValueError("validation.concurrency must be a positive integer")
     return {
         "meta_workspace": _project_path(raw.get("meta_workspace"), "meta_workspace"),
         "dataset": dataset,
         "train_case_ids": [str(case_id) for case_id in case_ids],
         "dataset_variant": dataset_config.get("variant"),
         "dataset_source": source,
+        "validation_concurrency": validation_concurrency,
     }
 
 
@@ -137,14 +205,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Prepare the configured workspace, including its training data and initial code."""
+    """Prepare the configured workspace and validate all data with its initial code."""
 
     args = parse_args()
-    workspace = prepare_workspace(**load_config(args.config))
-    manifest = json.loads(workspace.path("datasets/search/manifest.json").read_text(encoding="utf-8"))
+    workspace, validation = prepare_and_validate_workspace(args.config)
+    manifest = json.loads(workspace.path("dataset/manifest.json").read_text(encoding="utf-8"))
     print(
         f"Meta-ReMe workspace ready: {workspace.root} "
-        f"({manifest['case_count']} training cases, {manifest['query_count']} queries)",
+        f"({manifest['case_count']} training cases, {manifest['query_count']} queries); "
+        f"initial validation: {validation}",
     )
 
 

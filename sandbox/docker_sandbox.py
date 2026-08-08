@@ -690,6 +690,66 @@ class DockerReMeSandbox:
             target.write_bytes(await self.backend.read_file(WORKSPACE_EXPORT_ARCHIVE))
             return target
 
+    async def export_build_log(self, destination: str | Path) -> Path:
+        """Download the memory-construction log without wrapping it in an archive."""
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            source = f"{CASE_ROOT}/build_log/build.log"
+            try:
+                content = await self.backend.read_file(source)
+            except FileNotFoundError as exc:
+                raise SandboxCommandError(f"build log export is missing required artifact: {source}") from exc
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            return target
+
+    async def export_memory_construction(self, destination: str | Path) -> Path:
+        """Download the post-construction workspace and its build log."""
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            required = f"{CASE_ROOT}/build_log/build.log"
+            try:
+                await self.backend.read_file(required)
+            except FileNotFoundError as exc:
+                raise SandboxCommandError(
+                    f"memory construction export is missing required artifact: {required}",
+                ) from exc
+            await self._exec_checked(
+                "export_memory_construction",
+                [
+                    "tar",
+                    "-czf",
+                    EXPORT_ARCHIVE,
+                    "-C",
+                    CASE_ROOT,
+                    "reme_workspace",
+                    "build_log",
+                ],
+            )
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await self.backend.read_file(EXPORT_ARCHIVE))
+            return target
+
+    async def export_queries(self, destination: str | Path) -> Path:
+        """Download per-query logs, results, and their aggregate summary."""
+        async with self._operation_lock:
+            assert self.backend is not None, "sandbox is not initialized"
+            required = f"{CASE_ROOT}/queries/summary.json"
+            try:
+                await self.backend.read_file(required)
+            except FileNotFoundError as exc:
+                raise SandboxCommandError(f"query export is missing required artifact: {required}") from exc
+            await self._exec_checked(
+                "export_queries",
+                ["tar", "-czf", EXPORT_ARCHIVE, "-C", CASE_ROOT, "queries"],
+            )
+            target = Path(destination).expanduser().resolve()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(await self.backend.read_file(EXPORT_ARCHIVE))
+            return target
+
     async def export_evaluation(self, destination: str | Path) -> Path:
         """Download the workspace, build log, and per-query evaluation artifacts."""
         async with self._operation_lock:
