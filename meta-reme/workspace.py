@@ -122,7 +122,7 @@ class Workspace:
         return resolved
 
     def entity_path(self, base: str | Path, identifier: str) -> Path:
-        """Resolve a path for an externally supplied code/case/attempt ID."""
+        """Resolve a path for an externally supplied entity ID."""
 
         if not identifier or identifier in {".", ".."} or Path(identifier).name != identifier:
             raise WorkspaceError(f"Unsafe workspace identifier: {identifier!r}")
@@ -130,19 +130,18 @@ class Workspace:
             raise WorkspaceError(f"Unsafe workspace identifier: {identifier!r}")
         return self.path(Path(base) / identifier)
 
-    def case_attempt_dir(
+    def validation_case_dir(
         self,
         code_id: str,
         validation_id: str,
         case_id: str,
-        attempt_id: str,
         *,
         create: bool = False,
     ) -> Path:
-        """Return the canonical attempt directory described by the design."""
+        """Return the canonical validation result directory for one case."""
 
         current = self.entity_path("evaluations", code_id)
-        for identifier in (validation_id, "cases", case_id, attempt_id):
+        for identifier in (validation_id, "cases", case_id):
             current = self.entity_path(current.relative_to(self.root), identifier)
         if create:
             current.mkdir(parents=True, exist_ok=False)

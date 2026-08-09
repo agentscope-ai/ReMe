@@ -143,7 +143,11 @@ class SandboxSpec(ContractModel):
     image: str = Field(min_length=1)
     timeout_seconds: float = Field(gt=0)
     concurrency: int = Field(default=1, ge=1)
-    max_retries: int = Field(default=2, ge=0)
+    max_retries: int = Field(
+        default=0,
+        ge=0,
+        description="Deprecated compatibility field; validation operations are not retried.",
+    )
     max_artifact_bytes: int = Field(default=1_073_741_824, gt=0)
 
 

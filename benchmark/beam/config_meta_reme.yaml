@@ -6,3 +6,7 @@ dataset:
   source: "benchmark/beam/dataset/BEAM"
   variant: "1M"  # 100K | 500K | 1M | 10M
   train_case_ids: []  # empty = all cases; or ["1", "2", "3"]
+
+validation:
+  concurrency: 1
+  fail_fast: false  # true stops all cases after the first construction or query error

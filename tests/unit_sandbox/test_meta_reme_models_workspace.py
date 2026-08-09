@@ -132,8 +132,8 @@ def test_workspace_rejects_escaping_paths_and_ids(tmp_path: Path) -> None:
     with pytest.raises(workspace_module.WorkspaceError):
         workspace.entity_path("evaluations", "../case")
 
-    attempt = workspace.case_attempt_dir("init", "validation-1", "case-1", "attempt-1", create=True)
-    assert attempt == workspace.path("evaluations/init/validation-1/cases/case-1/attempt-1")
+    case_result = workspace.validation_case_dir("init", "validation-1", "case-1", create=True)
+    assert case_result == workspace.path("evaluations/init/validation-1/cases/case-1")
 
 
 def test_atomic_write_replaces_content_and_leaves_no_temporary_file(tmp_path: Path) -> None:

@@ -1,4 +1,13 @@
-"""CLI entry point for validating prepared Meta-ReMe cases."""
+"""CLI entry point for validating an already prepared Meta-ReMe workspace.
+
+Unlike the top-level ``meta-reme/run.py`` workflow, this module does not
+prepare a dataset or create the initial candidate repository. It only parses
+explicit workspace, case, and code-branch arguments, then delegates execution
+to ``validation.evaluator.run_validation``.
+
+``validation/__main__.py`` forwards ``python -m validation`` here; it is an
+alternate invocation form, not another validation implementation.
+"""
 
 # Import roots must be installed before importing the hyphenated meta-reme tree.
 # pylint: disable=wrong-import-position
@@ -33,6 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--code-id", required=True, help="Path-safe local Git branch name identifying the code")
     parser.add_argument("--concurrency", type=int, required=True, help="Maximum concurrent case sandboxes")
     parser.add_argument("--validation-id", help="Optional non-overwriting validation run ID")
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop and cancel all remaining cases after the first construction or query error",
+    )
     return parser.parse_args()
 
 
@@ -47,6 +61,7 @@ def main() -> None:
             args.code_id,
             args.concurrency,
             validation_id=args.validation_id,
+            fail_fast=args.fail_fast,
         )
     except Exception as exc:
         raise SystemExit(f"validation failed: {exc}") from exc

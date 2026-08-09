@@ -3,8 +3,10 @@
 Running `meta-reme/run.py` prepares the configured dataset and initial bundle,
 then automatically validates the `init` branch against every installed case.
 The first result is stored under `evaluations/init/initial/`; a completed result
-is reused on later invocations. Configure the full-case concurrency with
-`validation.concurrency` in `config_meta_reme.yaml`.
+is reused on later invocations. Configure concurrency with
+`validation.concurrency` in `config_meta_reme.yaml`. Set
+`validation.fail_fast: true` to abort the run on its first case or query error;
+the default keeps other cases running.
 
 Validate prepared workspace cases against an immutable code revision:
 
@@ -14,7 +16,8 @@ python meta-reme/validation/run.py \
   --case-id case-1 \
   --case-id case-2 \
   --code-id <branch-name> \
-  --concurrency 2
+  --concurrency 2 \
+  --fail-fast
 ```
 
 `--case-id` may be repeated. The code ID is the name of a local Git branch; commit
@@ -28,12 +31,20 @@ Results are written without overwriting earlier runs:
 <workspace>/evaluations/<code-id>/<validation-id>/
 ```
 
-Each case attempt stores the two execution phases independently. Memory
-construction is exported before queries begin, so its workspace is an exact
+`--fail-fast` is optional. When enabled, a construction failure, query
+answer/judge error, or query infrastructure error is persisted before sibling
+workers are cancelled and their containers are closed. The run raises an error
+and writes a run-level `failure.json`; it does not publish a completed
+`summary.json`. Without this flag, errors remain isolated to their cases.
+
+Each case stores the two execution phases independently. Validation executes
+each construction and query only once; retry policy belongs to the sandbox
+implementation. Memory construction is exported before queries begin, so its
+workspace is an exact
 post-construction snapshot rather than the workspace left after evaluation:
 
 ```text
-cases/<case-id>/attempt-<n>/
+cases/<case-id>/
   case_result.json
   memory_construction/
     result.json
@@ -57,7 +68,7 @@ archive only for transfer and safe extraction; the archive and its redundant
 Validation uses a strict two-phase schedule. Reusable workers first construct
 all case memories. A successful construction is exported as the case's
 immutable query snapshot; a candidate construction failure is recorded and its
-queries are skipped. Only after every construction attempt reaches a terminal
+queries are skipped. Only after every construction reaches a terminal
 state do workers begin answering queries.
 
 Query cases have a preferred owner, while individual queries use fenced leases
@@ -69,8 +80,10 @@ runs, so the exported snapshot hash remains an audit field rather than part of
 the cache identity. This keeps workspace uploads uncommon without making a long
 case an indivisible scheduling unit. Results are stored in the original case
 and query slots, so completion order does not change summaries. Infrastructure
-failures retire the affected container and retry only the failed stage;
-structured construction or answer/judge failures remain candidate results.
+failures are persisted as terminal validation results. The affected container
+is retired so it cannot contaminate later independent work, but the failed
+construction or query is not requeued. Structured construction or answer/judge
+failures likewise remain candidate results.
 
 Containers are named by the factory rather than by their current case and call
 `reset_case()` before switching snapshots, retaining only the installed
@@ -82,7 +95,7 @@ from regular code:
 ```python
 from validation import run_validation
 
-result_dir = run_validation(workspace, case_ids, code_id, concurrency=2)
+result_dir = run_validation(workspace, case_ids, code_id, concurrency=2, fail_fast=True)
 ```
 
 Applications that already run an event loop should use the native async entry

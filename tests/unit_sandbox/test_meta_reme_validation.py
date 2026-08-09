@@ -265,26 +265,26 @@ def test_validation_uses_immutable_commit_and_bounds_full_case_lifecycle(tmp_pat
     assert summary["status"] == "completed"
     assert summary["mean_query_score"] == 1.0
     assert summary["case_count"] == 3
-    attempt = output / "cases/case-1/attempt-1"
-    assert (attempt / "memory_construction/result.json").is_file()
-    assert (attempt / "memory_construction/build.log").is_file()
-    memory_workspace = attempt / "memory_construction/reme_workspace.tar.gz"
+    case_output = output / "cases/case-1"
+    assert (case_output / "memory_construction/result.json").is_file()
+    assert (case_output / "memory_construction/build.log").is_file()
+    memory_workspace = case_output / "memory_construction/reme_workspace.tar.gz"
     assert memory_workspace.is_file()
     with tarfile.open(memory_workspace, mode="r:gz") as archive:
         assert archive.getnames() == ["memory.json"]
-    assert (attempt / "memory_construction/reme_workspace/memory.json").is_file()
-    case_result = json.loads((attempt / "case_result.json").read_text(encoding="utf-8"))
+    assert (case_output / "memory_construction/reme_workspace/memory.json").is_file()
+    case_result = json.loads((case_output / "case_result.json").read_text(encoding="utf-8"))
     assert case_result["artifact_sha256"] == {
         "memory_workspace": evaluator._sha256_file(memory_workspace),  # pylint: disable=protected-access
     }
-    assert (attempt / "queries/result.json").is_file()
-    assert (attempt / "queries/query-case-1/answer.log").is_file()
-    assert (attempt / "queries/query-case-1/result.json").is_file()
-    assert not (attempt / "queries/summary.json").exists()
-    assert not (attempt / "queries/artifacts").exists()
-    assert {path.name for path in (attempt / "queries").iterdir()} == {"result.json", "query-case-1"}
-    assert not list((attempt / "queries").glob("*.tar.gz"))
-    assert not list((attempt / "queries").glob(".*.tar.gz"))
+    assert (case_output / "queries/result.json").is_file()
+    assert (case_output / "queries/query-case-1/answer.log").is_file()
+    assert (case_output / "queries/query-case-1/result.json").is_file()
+    assert not (case_output / "queries/summary.json").exists()
+    assert not (case_output / "queries/artifacts").exists()
+    assert {path.name for path in (case_output / "queries").iterdir()} == {"result.json", "query-case-1"}
+    assert not list((case_output / "queries").glob("*.tar.gz"))
+    assert not list((case_output / "queries").glob(".*.tar.gz"))
 
 
 def test_validation_builds_every_memory_before_stealing_ordered_queries(tmp_path: Path) -> None:
@@ -324,8 +324,8 @@ def test_validation_builds_every_memory_before_stealing_ordered_queries(tmp_path
     ]
 
 
-def test_validation_replaces_an_infra_error_container_before_retrying(tmp_path: Path) -> None:
-    """A suspect pool member is destroyed; its replacement remains reusable."""
+def test_validation_records_construction_infra_error_without_retrying(tmp_path: Path) -> None:
+    """A failed construction is terminal while later cases continue on a fresh container."""
 
     class RetryCase(_FakeCase):
         """Fail the first build to emulate a broken container."""
@@ -370,12 +370,12 @@ def test_validation_replaces_an_infra_error_container_before_retrying(tmp_path: 
 
     factory = created[0]
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    assert factory.created == ["case-1", "case-1"]
-    assert factory.resets == [("case-1", "case-2"), ("case-2", "case-1")]
+    assert factory.created == ["case-1", "case-2"]
+    assert factory.resets == []
     assert factory.active == 0
-    assert [result["status"] for result in summary["cases"]] == ["completed", "completed"]
-    assert (output / "cases/case-1/attempt-1/failure.json").is_file()
-    assert (output / "cases/case-1/attempt-2/case_result.json").is_file()
+    assert [result["status"] for result in summary["cases"]] == ["infra_error", "completed"]
+    assert (output / "cases/case-1/failure.json").is_file()
+    assert not list((output / "cases/case-1").glob("attempt-*"))
 
 
 def test_validation_discards_a_container_when_reset_fails(tmp_path: Path) -> None:
@@ -467,11 +467,11 @@ def test_construction_candidate_failure_skips_case_queries(tmp_path: Path) -> No
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     assert summary["cases"][0]["status"] == "candidate_failure"
     assert not any(event.startswith("run_query:") for _, event in created[0].events)
-    assert not (output / "cases/case-1/attempt-1/queries").exists()
+    assert not (output / "cases/case-1/queries").exists()
 
 
-def test_query_infrastructure_failure_is_saved_and_retried_independently(tmp_path: Path) -> None:
-    """A failed lease retires its container without rebuilding case memory."""
+def test_query_infrastructure_failure_is_saved_without_retrying(tmp_path: Path) -> None:
+    """A failed query is terminal and its container is retired."""
 
     class FlakyQueryCase(_FakeCase):
         """Raise one infrastructure exception from the query primitive."""
@@ -515,16 +515,16 @@ def test_query_infrastructure_failure_is_saved_and_retried_independently(tmp_pat
     )
 
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-    failure = output / "cases/case-1/attempt-1/queries/.attempts/query-case-1/attempt-1/failure.json"
-    assert summary["cases"][0]["status"] == "completed"
-    assert summary["cases"][0]["queries"][0]["score"] == 1.0
-    assert created[0].created == ["case-1", "case-1"]
+    failure = output / "cases/case-1/queries/query-case-1/failure.json"
+    assert summary["cases"][0]["status"] == "infra_error"
+    assert summary["cases"][0]["queries"][0]["score"] is None
+    assert created[0].created == ["case-1"]
     assert failure.is_file()
     assert json.loads(failure.read_text(encoding="utf-8"))["infrastructure_error"] is True
 
 
-def test_exhausted_query_failure_is_a_terminal_ordered_case_result(tmp_path: Path) -> None:
-    """An exhausted lease cannot strand waiting workers or disappear from aggregation."""
+def test_query_failure_is_a_terminal_ordered_case_result(tmp_path: Path) -> None:
+    """A failed lease cannot strand waiting workers or disappear from aggregation."""
 
     class BrokenQueryCase(_FakeCase):
         """Always lose the query worker response."""
@@ -559,7 +559,131 @@ def test_exhausted_query_failure_is_a_terminal_ordered_case_result(tmp_path: Pat
     assert case_result["status"] == "infra_error"
     assert [query["query_id"] for query in case_result["queries"]] == ["query-case-1"]
     assert case_result["queries"][0]["infrastructure_error"] is True
-    assert (output / "cases/case-1/attempt-1/failure.json").is_file()
+    assert (output / "cases/case-1/failure.json").is_file()
+    assert (output / "cases/case-1/queries/query-case-1/failure.json").is_file()
+
+
+def test_fail_fast_construction_error_cancels_sibling_cases(tmp_path: Path) -> None:
+    """The first terminal construction error cancels in-progress siblings."""
+
+    class FailFastBuildCase(_FakeCase):
+        """Fail one build after allowing its sibling to start."""
+
+        async def run_build(self, jobs):
+            if self.case_id == "case-fail":
+                await asyncio.sleep(0.02)
+                return {"success": False, "jobs": []}
+            self.factory.sibling_started = True
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                self.factory.sibling_cancelled = True
+                raise
+            return await super().run_build(jobs)
+
+    class FailFastBuildFactory(_FakeFactory):
+        """Track cancellation of the non-failing construction sandbox."""
+
+        def __init__(self, candidate, **kwargs):
+            super().__init__(candidate, **kwargs)
+            self.sibling_started = False
+            self.sibling_cancelled = False
+
+        async def create_case(self, case_id):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.created.append(case_id)
+            return FailFastBuildCase(self, case_id)
+
+    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-fail", "case-slow"])
+    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    created = []
+
+    def build_factory(*args, **kwargs):
+        factory = FailFastBuildFactory(*args, **kwargs)
+        created.append(factory)
+        return factory
+
+    with pytest.raises(evaluator.ValidationFailFastError, match="case-fail"):
+        evaluator.run_validation(
+            workspace.root,
+            ["case-fail", "case-slow"],
+            "candidate-1",
+            2,
+            validation_id="fail-fast-build",
+            fail_fast=True,
+            factory_builder=build_factory,
+            environment={},
+        )
+
+    output = workspace.path("evaluations/candidate-1/fail-fast-build")
+    failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
+    assert created[0].sibling_started is True
+    assert created[0].sibling_cancelled is True
+    assert created[0].active == 0
+    assert failure["status"] == "aborted"
+    assert failure["fail_fast"] is True
+    assert not (output / "summary.json").exists()
+
+
+def test_fail_fast_query_error_does_not_run_later_queries(tmp_path: Path) -> None:
+    """A structured answer/judge error stops later leases without reclassifying it as infrastructure."""
+
+    class FailedQueryCase(_FakeCase):
+        """Return one normal structured query failure."""
+
+        async def run_query(self, query):
+            self.factory.events.append((self.case_id, f"run_query:{query.query_id}"))
+            return {
+                "query_id": query.query_id,
+                "question": query.question,
+                "golden_answer": query.golden_answer,
+                "answer": None,
+                "score": None,
+                "answer_result": {"success": False},
+                "judge_result": None,
+                "error": "answer job failed",
+            }
+
+    class FailedQueryFactory(_FakeFactory):
+        """Create cases whose first query returns a structured error."""
+
+        async def create_case(self, case_id):
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self.created.append(case_id)
+            return FailedQueryCase(self, case_id)
+
+    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
+    workspace.atomic_write_json("dataset/cases/000000.json", _case("case-1", query_count=2))
+    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    created = []
+
+    def build_factory(*args, **kwargs):
+        factory = FailedQueryFactory(*args, **kwargs)
+        created.append(factory)
+        return factory
+
+    with pytest.raises(evaluator.ValidationFailFastError, match="answer job failed"):
+        evaluator.run_validation(
+            workspace.root,
+            ["case-1"],
+            "candidate-1",
+            1,
+            validation_id="fail-fast-query",
+            fail_fast=True,
+            factory_builder=build_factory,
+            environment={},
+        )
+
+    output = workspace.path("evaluations/candidate-1/fail-fast-query")
+    assert [event for _, event in created[0].events if event.startswith("run_query:")] == [
+        "run_query:query-case-1-0",
+    ]
+    assert (output / "cases/case-1/queries/query-case-1-0/result.json").is_file()
+    assert not (output / "cases/case-1/queries/query-case-1-1").exists()
+    assert (output / "failure.json").is_file()
+    assert not (output / "summary.json").exists()
 
 
 @pytest.mark.asyncio
@@ -635,10 +759,10 @@ def test_adapters_build_dataset_specific_requests() -> None:
 
 
 @pytest.mark.asyncio
-async def test_query_scheduler_prefers_loaded_memory_and_fences_retries() -> None:
+async def test_query_scheduler_prefers_loaded_memory_and_terminally_records_failures() -> None:
     first = scheduler_module.QueryCasePlan(0, "case-1", ("q1", "q2"))
     second = scheduler_module.QueryCasePlan(1, "case-2", ("q3",))
-    scheduler = scheduler_module.QueryScheduler([first, second], max_retries=1)
+    scheduler = scheduler_module.QueryScheduler([first, second])
 
     owner = await scheduler.claim(0, first.case_id)
     thief = await scheduler.claim(1, first.case_id)
@@ -647,14 +771,10 @@ async def test_query_scheduler_prefers_loaded_memory_and_fences_retries() -> Non
     assert thief.plan is first
     assert thief.selection == "affinity_steal"
 
-    assert await scheduler.fail(owner, {"query_id": "q1", "error": "infra"}) is True
-    retry = await scheduler.claim(0, first.case_id)
-    assert retry.query_index == owner.query_index
-    assert retry.attempt == 2
+    await scheduler.fail(owner, {"query_id": "q1", "error": "infra"})
     with pytest.raises(RuntimeError, match="stale"):
         await scheduler.complete(owner, {"query_id": "q1"})
 
-    await scheduler.complete(retry, {"query_id": "q1", "score": 1.0})
     await scheduler.complete(thief, {"query_id": "q2", "score": 1.0})
     remaining = await scheduler.claim(1, first.case_id)
     assert remaining.plan is second

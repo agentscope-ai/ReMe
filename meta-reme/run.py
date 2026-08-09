@@ -1,4 +1,14 @@
-"""Initialize a Meta-ReMe workspace from a benchmark YAML configuration."""
+"""Prepare a Meta-ReMe workspace and run its initial validation.
+
+This is the end-to-end Meta-ReMe entry point: it reads the benchmark YAML,
+installs the selected dataset cases, builds the initial candidate repository,
+and then calls :func:`validation.run_validation` for the ``init`` branch.
+
+It is distinct from ``meta-reme/validation/run.py``, whose CLI only validates
+an already prepared workspace and does not install data or create candidate
+code. The validation scheduling implementation itself lives in
+``validation/evaluator.py``.
+"""
 
 from __future__ import annotations
 
@@ -101,6 +111,7 @@ def run_initial_validation(
     workspace: Workspace,
     concurrency: int,
     *,
+    fail_fast: bool = False,
     validation_runner: ValidationRunner = run_validation,
 ) -> Path:
     """Validate the initial code branch once against every installed case."""
@@ -125,6 +136,7 @@ def run_initial_validation(
         INITIAL_CODE_ID,
         concurrency,
         validation_id=INITIAL_VALIDATION_ID,
+        fail_fast=fail_fast,
     )
 
 
@@ -146,6 +158,7 @@ def prepare_and_validate_workspace(
     validation = run_initial_validation(
         workspace,
         config["validation_concurrency"],
+        fail_fast=config["validation_fail_fast"],
         validation_runner=validation_runner,
     )
     return workspace, validation
@@ -186,6 +199,9 @@ def load_config(config_path: Path) -> dict[str, Any]:
         or validation_concurrency < 1
     ):
         raise ValueError("validation.concurrency must be a positive integer")
+    validation_fail_fast = validation_config.get("fail_fast", False)
+    if not isinstance(validation_fail_fast, bool):
+        raise ValueError("validation.fail_fast must be a boolean")
     return {
         "meta_workspace": _project_path(raw.get("meta_workspace"), "meta_workspace"),
         "dataset": dataset,
@@ -193,6 +209,7 @@ def load_config(config_path: Path) -> dict[str, Any]:
         "dataset_variant": dataset_config.get("variant"),
         "dataset_source": source,
         "validation_concurrency": validation_concurrency,
+        "validation_fail_fast": validation_fail_fast,
     }
 
 

@@ -159,7 +159,7 @@ def test_load_config_reads_all_preparation_arguments(tmp_path: Path) -> None:
                     "variant": "100K",
                     "train_case_ids": [1, "2"],
                 },
-                "validation": {"concurrency": 5},
+                "validation": {"concurrency": 5, "fail_fast": True},
             },
         ),
         encoding="utf-8",
@@ -172,6 +172,7 @@ def test_load_config_reads_all_preparation_arguments(tmp_path: Path) -> None:
     assert config["dataset_variant"] == "100K"
     assert config["train_case_ids"] == ["1", "2"]
     assert config["validation_concurrency"] == 5
+    assert config["validation_fail_fast"] is True
 
 
 def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path) -> None:
@@ -188,15 +189,15 @@ def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path)
                     "source": str(source),
                     "train_case_ids": [],
                 },
-                "validation": {"concurrency": 5},
+                "validation": {"concurrency": 5, "fail_fast": True},
             },
         ),
         encoding="utf-8",
     )
     calls = []
 
-    def fake_validation(workspace, case_ids, code_id, concurrency, *, validation_id):
-        calls.append((Path(workspace), case_ids, code_id, concurrency, validation_id))
+    def fake_validation(workspace, case_ids, code_id, concurrency, *, validation_id, fail_fast):
+        calls.append((Path(workspace), case_ids, code_id, concurrency, validation_id, fail_fast))
         output = Path(workspace) / f"evaluations/{code_id}/{validation_id}"
         output.mkdir(parents=True)
         (output / "summary.json").write_text("{}\n", encoding="utf-8")
@@ -205,7 +206,7 @@ def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path)
     workspace, validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
 
     assert validation == workspace.path("evaluations/init/initial")
-    assert calls == [(workspace.root, ["case-2", "case-1"], "init", 5, "initial")]
+    assert calls == [(workspace.root, ["case-2", "case-1"], "init", 5, "initial", True)]
 
     _, repeated_validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
 

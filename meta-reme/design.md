@@ -83,18 +83,17 @@ workspace/
         summary.json
         cases/
           <case_id>/
-            attempt-<n>/
-              case_result.json
-              memory_construction/
+            case_result.json
+            memory_construction/
+              result.json
+              reme_workspace.tar.gz
+              reme_workspace/
+              build.log
+            queries/
+              result.json
+              <query_id>/
+                answer.log
                 result.json
-                reme_workspace.tar.gz
-                reme_workspace/
-                build.log
-              queries/
-                result.json
-                <query_id>/
-                  answer.log
-                  result.json
   logs/
 ```
 
@@ -203,7 +202,7 @@ Agent 可以自主选择完整 case、指定 session、session prefix 或少量 
 Sandbox 在 memory construction 结束、query 开始前，先导出 construction 结果、`build.log` 和当时完整、可直接通过 `upload_workspace()` 回灌的 `reme_workspace.tar.gz`；query 阶段结束后再单独导出 query summary、逐 query 日志和结构化结果。两个阶段不得合并成一个仅在所有 query 结束后生成的归档。失败时应 best-effort 导出 `failure.json`、stdout、stderr、Python traceback、action log、已完成阶段和宿主异常。每次运行的宿主目录为：
 
 ```text
-evaluations/<code_id>/<validation_id>/cases/<case>/attempt-<n>/
+evaluations/<code_id>/<validation_id>/cases/<case>/
 ```
 
 其中 `memory_construction/` 保存结构化结果、build 日志和可复用的 workspace 压缩包；`queries/` 保存结构化结果及安全解压后的逐 query artifacts。Query 传输使用的临时压缩包必须在解压后删除。解压过程需要拒绝绝对路径、`../`、symlink、设备文件和异常大的压缩包；`reme_workspace.tar.gz` 保存 SHA256，确保可验证、可复用。

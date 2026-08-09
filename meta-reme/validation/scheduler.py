@@ -19,15 +19,12 @@ class QueryCasePlan:
     context: Any = None
     owner_worker_id: int | None = None
     results: list[dict[str, Any] | None] = field(init=False)
-    infrastructure_failures: list[dict[str, Any]] = field(default_factory=list)
     _pending: deque[int] = field(init=False, repr=False)
-    _attempts: list[int] = field(init=False, repr=False)
     _leases: dict[int, str] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.results = [None] * len(self.queries)
         self._pending = deque(range(len(self.queries)))
-        self._attempts = [0] * len(self.queries)
 
     @property
     def remaining_count(self) -> int:
@@ -38,13 +35,12 @@ class QueryCasePlan:
 
 @dataclass(frozen=True)
 class QueryLease:
-    """A fenced claim for one query execution attempt."""
+    """A fenced claim for one query execution."""
 
     token: str
     worker_id: int
     plan: QueryCasePlan
     query_index: int
-    attempt: int
     selection: str
 
     @property
@@ -62,14 +58,11 @@ class QueryScheduler:
     remaining individual queries, which is what makes work stealing possible.
     """
 
-    def __init__(self, plans: list[QueryCasePlan], *, max_retries: int) -> None:
-        if max_retries < 0:
-            raise ValueError("max_retries must not be negative")
+    def __init__(self, plans: list[QueryCasePlan]) -> None:
         indexes = [plan.case_index for plan in plans]
         if len(indexes) != len(set(indexes)):
             raise ValueError("query case indexes must be unique")
         self.plans = sorted(plans, key=lambda plan: plan.case_index)
-        self.max_retries = max_retries
         self._condition = asyncio.Condition()
 
     async def claim(self, worker_id: int, loaded_case_id: str | None) -> QueryLease | None:
@@ -80,7 +73,6 @@ class QueryScheduler:
                 plan, selection = self._select_plan(worker_id, loaded_case_id)
                 if plan is not None:
                     query_index = plan._pending.popleft()  # pylint: disable=protected-access
-                    plan._attempts[query_index] += 1  # pylint: disable=protected-access
                     token = uuid4().hex
                     plan._leases[query_index] = token  # pylint: disable=protected-access
                     if plan.owner_worker_id is None:
@@ -90,7 +82,6 @@ class QueryScheduler:
                         worker_id=worker_id,
                         plan=plan,
                         query_index=query_index,
-                        attempt=plan._attempts[query_index],  # pylint: disable=protected-access
                         selection=selection,
                     )
                 if self._is_complete():
@@ -105,24 +96,13 @@ class QueryScheduler:
             lease.plan.results[lease.query_index] = result
             self._condition.notify_all()
 
-    async def fail(self, lease: QueryLease, failure: dict[str, Any]) -> bool:
-        """Record an infrastructure failure and requeue when retries remain.
-
-        Returns ``True`` when the query was requeued and ``False`` when the
-        supplied failure became its terminal result.
-        """
+    async def fail(self, lease: QueryLease, failure: dict[str, Any]) -> None:
+        """Publish an infrastructure failure as the query's terminal result."""
 
         async with self._condition:
             self._consume_lease(lease)
-            lease.plan.infrastructure_failures.append(failure)
-            if lease.attempt <= self.max_retries:
-                lease.plan._pending.appendleft(lease.query_index)  # pylint: disable=protected-access
-                requeued = True
-            else:
-                lease.plan.results[lease.query_index] = failure
-                requeued = False
+            lease.plan.results[lease.query_index] = failure
             self._condition.notify_all()
-            return requeued
 
     def _select_plan(
         self,
