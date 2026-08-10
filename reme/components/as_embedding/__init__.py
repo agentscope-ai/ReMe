@@ -1,5 +1,6 @@
 """AgentScope embedding model wrappers."""
 
+import hashlib
 from typing import Any
 
 from agentscope.credential import (
@@ -37,6 +38,46 @@ class BaseAsEmbedding(BaseComponent):
         if dimensions is None:
             raise RuntimeError("Embedding dimensions are required before provider initialization.")
         return int(dimensions)
+
+    @property
+    def vector_space(self) -> tuple[str, ...]:
+        """Return the fields that make vectors from two embedding setups incompatible.
+
+        The wrapper identifies the provider consistently before and after lazy model
+        construction.  Model details come from the live provider when one has been
+        injected at runtime, otherwise they come from the configured kwargs.
+        """
+        if self.model is not None:
+            return (
+                self.backend or self.credential_cls.__name__,
+                str(getattr(self.model, "model", self.kwargs.get("model") or "")),
+                str(self.dimensions),
+                self._endpoint(getattr(self.model, "credential", self.kwargs.get("credential"))),
+            )
+        return (
+            self.backend or self.credential_cls.__name__,
+            str(self.kwargs.get("model") or ""),
+            str(self.dimensions),
+            self._endpoint(self.kwargs.get("credential")),
+        )
+
+    @property
+    def vector_space_id(self) -> str:
+        """Return a short digest of :attr:`vector_space` for naming persisted vectors.
+
+        Cache consumers use this digest to avoid reusing vectors produced by a
+        different embedding setup.
+        """
+        return hashlib.sha256("\x1f".join(self.vector_space).encode()).hexdigest()[:12]
+
+    @staticmethod
+    def _endpoint(credential: Any) -> str:
+        """Read the provider endpoint from a credential object or a raw kwargs dict."""
+        for field in ("base_url", "host"):
+            value = credential.get(field) if isinstance(credential, dict) else getattr(credential, field, None)
+            if value:
+                return str(value).rstrip("/")
+        return ""
 
     async def __call__(self, inputs: list[Any], **kwargs) -> list[list[float]]:
         self._ensure_model()

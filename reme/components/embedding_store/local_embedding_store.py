@@ -35,7 +35,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         self.enable_cache = enable_cache
         self.cache_version = cache_version
         self._cache: OrderedDict[str, np.ndarray] = OrderedDict()
-        self._key_suffix: bytes = b""
+        self._cache_space: str = ""
+        self._cache_space_lock = asyncio.Lock()
 
     @property
     def dimensions(self) -> int:
@@ -44,12 +45,24 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         return self.as_embedding.dimensions
 
     @property
+    def vector_space_id(self) -> str:
+        """Return the digest of the vector space the bound provider currently produces."""
+        assert self.as_embedding is not None, "embedding component not bound"
+        return self.as_embedding.vector_space_id
+
+    @property
     def cache_path(self) -> Path:
-        """Return the path to the disk cache file."""
-        return self.component_metadata_path / f"{self.name}_{self.cache_version}.npz"
+        """Return the disk cache file for the current vector space.
+
+        Each vector space owns its own file, so switching the embedding model cannot
+        read or overwrite vectors that belong to a different model.
+        """
+        return self._cache_path(self.vector_space_id)
+
+    def _cache_path(self, vector_space_id: str) -> Path:
+        return self.component_metadata_path / f"{self.name}_{self.cache_version}_{vector_space_id}.npz"
 
     async def _start(self) -> None:
-        self._key_suffix = f"|{self.dimensions}".encode()
         await self.load()
 
     async def _close(self) -> None:
@@ -76,6 +89,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     # -- Public API --
 
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
+        await self._sync_cache_space()
         texts = [self._truncate(t) for t in input_text]
         results, misses = self._partition_by_cache(texts)
         if misses:
@@ -97,12 +111,14 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         return results, misses
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
+        vector_space_id = self._cache_space
         size = self.max_batch_size
         for start in range(0, len(misses), size):
             batch = misses[start : start + size]
             for idx, key, emb in await self._compute_batch(batch, **kwargs):
                 results[idx] = emb
-                self._cache_put(key, emb)
+                if vector_space_id == self.vector_space_id:
+                    self._cache_put(key, emb)
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
         texts = [text for _, text, _ in batch]
@@ -165,8 +181,25 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     # -- Cache --
 
+    async def _sync_cache_space(self) -> None:
+        """Persist the previous space and restore the newly active space."""
+        space = self.vector_space_id
+        if space == self._cache_space:
+            return
+        async with self._cache_space_lock:
+            space = self.vector_space_id
+            if space == self._cache_space:
+                return
+            previous = self._cache_space
+            if previous and self.enable_cache and self._cache:
+                await asyncio.to_thread(self._dump_sync, previous)
+            self._cache.clear()
+            self._cache_space = space
+            if self.enable_cache and self._cache_path(space).exists():
+                await asyncio.to_thread(self._load_sync, space)
+
     def _cache_key(self, text: str) -> str:
-        return hashlib.sha256(text.encode() + self._key_suffix).hexdigest()
+        return hashlib.sha256(text.encode()).hexdigest()
 
     def _cache_get(self, key: str) -> np.ndarray | None:
         if not self.enable_cache or key not in self._cache:
@@ -190,13 +223,15 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def load(self) -> None:
         self._cache.clear()
-        if not self.enable_cache or not self.cache_path.exists():
+        self._cache_space = self.vector_space_id
+        if not self.enable_cache or not self._cache_path(self._cache_space).exists():
             return
-        await asyncio.to_thread(self._load_sync)
+        await asyncio.to_thread(self._load_sync, self._cache_space)
 
-    def _load_sync(self) -> None:
+    def _load_sync(self, vector_space_id: str) -> None:
+        path = self._cache_path(vector_space_id)
         try:
-            with np.load(self.cache_path) as data:
+            with np.load(path) as data:
                 for key, emb in zip(data["keys"], data["embeddings"]):
                     if len(emb) != self.dimensions:
                         continue
@@ -205,21 +240,23 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                     self._cache[str(key)] = emb.astype(np.float16)
         except Exception:
             self.logger.exception("Failed to load embedding cache, removing")
-            self.cache_path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
             return
-        self.logger.info(f"Loaded {len(self._cache)} embeddings from {self.cache_path}")
+        self.logger.info(f"Loaded {len(self._cache)} embeddings from {path}")
 
     async def dump(self) -> None:
+        await self._sync_cache_space()
         if not self.enable_cache or not self._cache:
             return
-        await asyncio.to_thread(self._dump_sync)
+        await asyncio.to_thread(self._dump_sync, self._cache_space)
 
-    def _dump_sync(self) -> None:
-        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+    def _dump_sync(self, vector_space_id: str) -> None:
+        path = self._cache_path(vector_space_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
         keys = np.array(list(self._cache.keys()), dtype=str)
         embeddings = np.stack(list(self._cache.values()))
         try:
-            np.savez(self.cache_path, keys=keys, embeddings=embeddings)
-            self.logger.info(f"Saved {len(self._cache)} embeddings to {self.cache_path}")
+            np.savez(path, keys=keys, embeddings=embeddings)
+            self.logger.info(f"Saved {len(self._cache)} embeddings to {path}")
         except Exception:
             self.logger.exception("Failed to save embedding cache")
