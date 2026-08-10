@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from reme.components.as_embedding import DashScopeAsEmbedding, OpenAIAsEmbedding
+from reme.components.as_embedding import DashScopeAsEmbedding, OllamaAsEmbedding, OpenAIAsEmbedding
 from reme.components.embedding_store.base_embedding_store import BaseEmbeddingStore
 from reme.components.embedding_store.local_embedding_store import LocalEmbeddingStore
 from reme.schema import EmbNode
@@ -322,6 +322,47 @@ def test_openai_vector_space_id_uses_sdk_default_endpoint(monkeypatch):
         assert embedding.vector_space_id == before
     finally:
         run(embedding.model.client.close())
+
+
+def test_ollama_vector_space_id_uses_sdk_resolved_endpoint(monkeypatch):
+    """OLLAMA_HOST must separate caches and stay stable after lazy construction."""
+    ids = []
+    for endpoint in ("http://provider-a.example:11434", "http://provider-b.example:11434"):
+        monkeypatch.setenv("OLLAMA_HOST", endpoint)
+        embedding = OllamaAsEmbedding(
+            name="t_space_ollama_env",
+            backend="ollama",
+            model="nomic-embed-text",
+            dimensions=768,
+            credential={},
+        )
+        before = embedding.vector_space_id
+
+        embedding._ensure_model()
+
+        assert embedding.model.host is None
+        assert embedding.vector_space_id == before
+        ids.append(before)
+
+    assert ids[0] != ids[1]
+
+
+def test_ollama_vector_space_id_uses_sdk_default_endpoint(monkeypatch):
+    """The Ollama SDK default URL must remain stable after lazy construction."""
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    embedding = OllamaAsEmbedding(
+        name="t_space_ollama_default",
+        backend="ollama",
+        model="nomic-embed-text",
+        dimensions=768,
+        credential={},
+    )
+    before = embedding.vector_space_id
+
+    embedding._ensure_model()
+
+    assert embedding.vector_space[-1] == "http://127.0.0.1:11434"
+    assert embedding.vector_space_id == before
 
 
 def test_cache_is_saved_and_restored_per_vector_space(monkeypatch, tmp_path):

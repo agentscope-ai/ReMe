@@ -25,6 +25,9 @@ class BaseAsEmbedding(BaseComponent):
 
     component_type = ComponentEnum.AS_EMBEDDING
     credential_cls: type[CredentialBase]
+    endpoint_fields = ("base_url", "host")
+    endpoint_env: str | None = None
+    default_endpoint = ""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -81,24 +84,36 @@ class BaseAsEmbedding(BaseComponent):
         return ""
 
     def _configured_endpoint(self) -> str:
-        """Resolve endpoint defaults without constructing the provider eagerly."""
+        """Resolve the provider endpoint without constructing it eagerly."""
         credential = self.kwargs.get("credential")
-        if not isinstance(credential, dict):
-            return self._endpoint(credential)
-        fields = getattr(self.credential_cls, "model_fields", {})
-        for name in ("base_url", "host"):
-            value = credential.get(name)
-            field = fields.get(name)
-            if name not in credential and field is not None and not field.is_required():
-                value = field.get_default(call_default_factory=True)
-            if value:
-                return str(value).rstrip("/")
-        return ""
+        if isinstance(credential, dict):
+            fields = getattr(self.credential_cls, "model_fields", {})
+            for name in self.endpoint_fields:
+                if name in credential:
+                    value = credential[name]
+                    if value is not None:
+                        return str(value).rstrip("/")
+                    continue
+                field = fields.get(name)
+                if field is not None and not field.is_required():
+                    value = field.get_default(call_default_factory=True)
+                    if value:
+                        return str(value).rstrip("/")
+        else:
+            endpoint = self._endpoint(credential)
+            if endpoint:
+                return endpoint
+        if self.endpoint_env:
+            endpoint = os.environ.get(self.endpoint_env)
+            if endpoint:
+                return endpoint.rstrip("/")
+        return self.default_endpoint
 
     def _model_endpoint(self) -> str:
         """Return the endpoint used by the constructed provider."""
         assert self.model is not None
-        return self._endpoint(getattr(self.model, "credential", self.kwargs.get("credential")))
+        endpoint = self._endpoint(getattr(self.model, "credential", self.kwargs.get("credential")))
+        return endpoint or self._configured_endpoint()
 
     async def __call__(self, inputs: list[Any], **kwargs) -> list[list[float]]:
         self._ensure_model()
@@ -140,15 +155,9 @@ class OpenAIAsEmbedding(BaseAsEmbedding):
     """OpenAI embedding model wrapper."""
 
     credential_cls = OpenAICredential
-    _default_base_url = "https://api.openai.com/v1"
-
-    def _configured_endpoint(self) -> str:
-        """Resolve the endpoint with the same precedence as the OpenAI SDK."""
-        credential = self.kwargs.get("credential")
-        base_url = credential.get("base_url") if isinstance(credential, dict) else None
-        if base_url is None:
-            base_url = os.environ.get("OPENAI_BASE_URL") or self._default_base_url
-        return str(base_url).rstrip("/")
+    endpoint_fields = ("base_url",)
+    endpoint_env = "OPENAI_BASE_URL"
+    default_endpoint = "https://api.openai.com/v1"
 
     def _model_endpoint(self) -> str:
         """Read the endpoint the OpenAI client actually resolved."""
@@ -184,6 +193,9 @@ class OllamaAsEmbedding(BaseAsEmbedding):
     """Ollama embedding model wrapper."""
 
     credential_cls = OllamaCredential
+    endpoint_fields = ("host",)
+    endpoint_env = "OLLAMA_HOST"
+    default_endpoint = "http://127.0.0.1:11434"
 
 
 __all__ = [
