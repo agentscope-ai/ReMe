@@ -2,128 +2,79 @@
 
 [中文](README_ZH.md)
 
-Auto Fin is a local-first, file-native topic-news research workflow. It reads a free local CLS telegraph JSONL file,
-interprets current news around user-supplied topics, and lets the final agent search and read earlier ReMe news and
-analysis notes. The resulting report links back to current and historical evidence through validated,
-workspace-relative wikilinks.
+Auto Fin fetches the latest 24 hours of CLS telegraph news, selects items related to configured topics, searches ReMe
+for useful historical context, and writes one Chinese Markdown report with validated wikilinks. Current news and topic
+selection stay in runtime memory; only the final report becomes durable memory.
 
 > Auto Fin has no reliable market-price feed. It does not calculate returns, targets, or entry points and is not
 > investment advice.
 
 ## Quick start
 
-Prepare a local CLS telegraph JSONL file first. Each line must be a JSON object containing `id`, `ctime` (a Unix
-timestamp), `title`, and `content`:
-
-```json
-{"id": 2448247, "ctime": 1786323600, "title": "Example", "content": "News text"}
-```
-
-Keep the feed outside version control. Auto Fin only reads this file and does not fetch news from the network.
-
-Then run topic research:
-
 ```bash
 python -m pip install -e ".[core]"
 export LLM_API_KEY="your-api-key"
-reme start config=daily_cookbook job=auto_fin topics="gold,robotics,semiconductors"
+reme start config=daily_cookbook job=auto_fin
 ```
 
-The default input is `datasets/cls_news_last_7_days.jsonl`. Override it with the `news_file` parameter or environment:
+The default topics are `黄金,机器人,半导体`. Override them per run:
 
 ```bash
-export AUTO_FIN_NEWS_FILE=/data/cls_news.jsonl
+reme start config=daily_cookbook job=auto_fin topics="黄金,AI,存储芯片"
 ```
+
+An empty value also uses the defaults.
 
 ## Pipeline
 
 ```text
-free CLS JSONL
-      ↓
-daily/YYYY-MM-DD/auto_fin_news.md
-      ↓
-update the ReMe index
-      ↓
-research agent (memory_search + read)
-      ↓
-write contextual wikilinks in prose; validate paths in code
-      ↓
+CLS public telegraph endpoint (rolling 24 hours)
+        ↓
+normalize and deduplicate in RuntimeContext
+        ↓
+topic Agent selects real news IDs in bounded batches
+        ↓
+research Agent uses memory_search + read on historical memory
+        ↓
+validate historical wikilinks in code
+        ↓
 daily/YYYY-MM-DD/auto_fin.md
 ```
 
-`auto_fin_data_step` only reads local files. It splits JSONL into daily Markdown in `Asia/Shanghai`; today's note stops
-at the decision time. The default lookback is seven calendar days. Existing prior-day notes are reused and today's note
-is refreshed.
+`auto_fin_data_step` signs and paginates the same endpoint used by the CLS website. It starts at the decision time and
+stops only after covering the exact preceding 24 hours. Requests are rate-limited and retried; malformed records and
+records outside the window are discarded.
 
-`auto_fin_merge_step` is the only model-facing business step. It receives current news, topics, the latest prior-day
-report, and any existing same-day report. It exposes only two ReMe job tools:
+`auto_fin_topic_step` receives batches of current news and returns only related `news_id` values. Code rejects unknown
+or duplicate IDs. If nothing is relevant, the job succeeds as a skip without writing or sending a report.
 
-- `memory_search` recalls earlier news and `auto_fin.md` reports;
-- `read` opens likely matches as complete Markdown.
+`auto_fin_merge_step` receives only selected current news. It exposes `memory_search` and `read`, instructs the Agent to
+search no later than yesterday, and keeps current CLS IDs, times, and titles as plain evidence. Only historical
+workspace Markdown may appear as wikilinks. Code rejects missing, absolute, escaping, backslash, and self-referential
+targets, degrading invalid links to their readable aliases.
 
-The agent searches by topic and important event, internally classifies results as similar, related, or unrelated, and
-only cites documents it actually read and used. Same-day reruns refine today's report. Historical reports remain
-immutable records of earlier judgments.
-
-## Structured output
-
-The final agent returns one Markdown-shaped contract with three required fields:
-
-```json
-{
-  "title": "Gold and Semiconductor News Review",
-  "description": "Tracks safe-haven demand and memory-chip supply changes.",
-  "body": "## Current assessment\n\n..."
-}
-```
-
-There is no duplicate `sources` or citation-reason list. Code normalizes Markdown heading markers in the title, writes
-the final file, appends the fixed disclaimer, and refreshes the index. The validated structured result is retained at
-`resource/YYYY-MM-DD/auto_fin_merge_output.json`.
-
-## Wikilink contract
-
-The final structured output contains only `title`, `description`, and `body`. Historical wikilinks appear once, directly
-inside the relevant prose in `body`; there is no duplicate `sources` output. Code keeps only existing workspace-relative
-Markdown targets, rejects absolute, escaping, backslash, and self-referential paths, and preserves valid links in place.
-
-Invalid links degrade to their readable alias without deleting the surrounding analysis. Links must follow Dream
-Integrate's convention and appear in a sentence that explains the relationship. If the body does not cite today's news
-file, code appends a deterministic `## 来源` link. The day index is refreshed after writing the report.
+Same-day reruns use the existing report as context and replace it with the revised result. The final write is atomic and
+refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent output is written.
 
 ## Parameters
 
 | Parameter | Default | Purpose |
 |---|---:|---|
-| `date` | `""` | Empty uses today in Shanghai; an explicit date must equal today |
-| `now` | `""` | ISO 8601 simulated current time for testing or replay |
-| `topics` | `""` | Comma-separated research topics; empty means unrestricted |
-| `news_file` | `""` | Local CLS JSONL override; empty uses step configuration or the environment |
+| `date` | `""` | Empty uses today in Shanghai; an explicit value must equal today |
+| `now` | `""` | Optional ISO 8601 decision time for testing or replay |
+| `topics` | `"黄金,机器人,半导体"` | Comma-separated topics; empty also uses these defaults |
 
-The runtime `news_file` parameter wins over step configuration. The built-in configuration reads
-`AUTO_FIN_NEWS_FILE`, falling back to `datasets/cls_news_last_7_days.jsonl`. `topics` constrains semantic relevance;
-a keyword mention without a real topic relationship should be ignored by the agent.
+The built-in schedules run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
 
-The built-in schedules remain 09:30, 11:30, and 18:00. Without a trading-calendar dependency, weekend and holiday news
-can also produce reports.
-
-## Outputs
+## Output
 
 ```text
-reme_workspace/
-├── daily/YYYY-MM-DD/
-│   ├── auto_fin_news.md
-│   └── auto_fin.md
-└── resource/YYYY-MM-DD/
-    └── auto_fin_merge_output.json
+reme_workspace/daily/YYYY-MM-DD/auto_fin.md
 ```
 
-The JSONL and daily Markdown are source material; `auto_fin.md` is a reviewable research judgment; indexes and graph
-state remain rebuildable from those files.
-
-A missing or malformed JSONL file, failed agent call, or invalid model structure stops the job explicitly. A missing or
-unsafe historical wikilink does not fail report generation; it degrades to readable plain text. Code always ensures that
-the current-news source link is present.
+The report includes a title, description, current CLS evidence, historical analysis, contextual wikilinks, and a fixed
+non-investment disclaimer. Network errors and invalid Agent output fail explicitly; no relevant current news is a
+successful skip.
 
 ## Validation
 
@@ -131,4 +82,4 @@ the current-news source link is present.
 pytest tests/unit/test_auto_fin.py -v
 ```
 
-Unit tests use local JSONL and a mock agent and do not contact news, model, or other external services.
+Unit tests mock the CLS and Agent boundaries and do not contact external services.

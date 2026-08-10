@@ -57,7 +57,7 @@ docs/_build/
 site/
 
 evaluation/
-datasets/*
+datasets/
 
 # Claude Code skills (local only)
 .claude/skills/

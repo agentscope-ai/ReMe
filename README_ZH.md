@@ -56,7 +56,7 @@ Agent 能够可靠召回。
   [经验驱动增强方法](benchmark/toolmemory/README_ZH.md)已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
 - [2026.07] - 新增可选 Cookbook 工作流：[每日论文](cookbook/daily_paper/README_ZH.md)用于论文发现与解析，
-  [Auto Fin](cookbook/auto-fin/README_ZH.md)用于按主题研究财联社新闻，通过本地记忆搜索回顾历史材料并构建 wikilink。
+  [Auto Fin](cookbook/auto-fin/README_ZH.md)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建 wikilink。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   已被 Findings of ACL 2026 接收。
@@ -168,7 +168,7 @@ cookbook 会继续在表格中按行追加。
 | Cookbook                                      | 能力                                                                  |
 |-----------------------------------------------|-----------------------------------------------------------------------|
 | [每日论文](cookbook/daily_paper/README_ZH.md) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。 |
-| [Auto Fin](cookbook/auto-fin/README_ZH.md)    | 按主题研究财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
+| [Auto Fin](cookbook/auto-fin/README_ZH.md)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
 
 ## 📁 记忆系统
 

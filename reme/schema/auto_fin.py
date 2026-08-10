@@ -23,3 +23,9 @@ class AutoFinReportOutput(AutoFinAgentModel):
     title: str
     description: str
     body: str
+
+
+class AutoFinTopicOutput(AutoFinAgentModel):
+    """CLS news identifiers that are semantically related to configured topics."""
+
+    news_ids: list[str]

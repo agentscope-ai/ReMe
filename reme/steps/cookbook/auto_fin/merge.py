@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +12,6 @@ from ....components import R
 from ....schema import AutoFinReportOutput
 from ...file_io import refresh_day_index
 from ._base import AutoFinStep, _write
-from .data import AutoFinDataStep
 
 _TOOLS = ["memory_search", "read"]
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
@@ -24,19 +23,6 @@ class AutoFinMergeStep(AutoFinStep):
 
     def _report_path(self, run_date: date) -> Path:
         return self.workspace_path / str(self.config_value("daily_dir")) / str(run_date) / "auto_fin.md"
-
-    def _previous_report(self, run_date: date) -> str:
-        """Return the most recent report from a *prior* day (yesterday's, typically)."""
-        daily = self.workspace_path / str(self.config_value("daily_dir"))
-        candidates = []
-        for path in daily.glob("*/auto_fin.md"):
-            try:
-                day = date.fromisoformat(path.parent.name)
-            except ValueError:
-                continue
-            if day < run_date:
-                candidates.append((day, path))
-        return max(candidates)[1].read_text(encoding="utf-8") if candidates else "无历史推荐。"
 
     def _current_report(self, run_date: date) -> str:
         """Return today's existing report so intra-day reruns refine it, not replace it."""
@@ -94,36 +80,25 @@ class AutoFinMergeStep(AutoFinStep):
             and not any(character in path for character in "[]|"),
         )
 
-    @staticmethod
-    def _ensure_current_source(body: str, current_path: str, source_paths: list[str]) -> tuple[str, list[str]]:
-        if current_path in source_paths:
-            return body, source_paths
-        alias = Path(current_path).stem.replace("_", " ")
-        source = f"## 来源\n\n- 今日材料来自 [[{current_path}|{alias}]]。"
-        return f"{body.rstrip()}\n\n{source}", [current_path, *source_paths]
-
     async def execute(self):
         assert self.context is not None
+        if self.context.get("auto_fin_skipped"):
+            return self.context.response
         run_date = date.fromisoformat(str(self._required("auto_fin_date")))
-        current_path = str(self._required("auto_fin_news_path"))
-        news = AutoFinDataStep.read_news(self.workspace_path / current_path)
-        output, output_path = await self._reply(
+        output = await self._reply(
             "merge_user",
-            "auto_fin_merge",
             AutoFinReportOutput,
             job_tools=_TOOLS,
             decision_at=str(self._required("auto_fin_decision_at")),
+            window_start=str(self._required("auto_fin_window_start")),
+            historical_end=(run_date - timedelta(days=1)).isoformat(),
             topics=json.dumps(self._required("auto_fin_topics"), ensure_ascii=False),
-            news=json.dumps(news, ensure_ascii=False),
-            current_news_path=current_path,
-            previous_report=self._previous_report(run_date),
+            news=json.dumps(self._required("auto_fin_selected_news"), ensure_ascii=False),
             current_report=self._current_report(run_date),
         )
         output = self._normalize(output)
         body, source_paths = self._validate_wikilinks(output.body, run_date)
-        body, source_paths = self._ensure_current_source(body, current_path, source_paths)
         output = output.model_copy(update={"body": body})
-        self._write_output(output_path, output)
         markdown = f"# {output.title}\n\n> {output.description}\n\n{output.body}\n\n"
         markdown += "> 未接入可靠行情数据；本文只提供新闻研究和回顾线索，不提供收益、目标价或买卖建议。\n"
         report = self._report_path(run_date)
@@ -138,6 +113,11 @@ class AutoFinMergeStep(AutoFinStep):
         self.context["auto_fin_digest_path"] = relative
         self.context.response.answer = output.body
         self.context.response.metadata.update(
-            {"markdown_path": relative, "digest_path": relative, "source_paths": source_paths},
+            {
+                "markdown_path": relative,
+                "digest_path": relative,
+                "source_paths": source_paths,
+                "selected_news_count": len(self._required("auto_fin_selected_news")),
+            },
         )
         return self.context.response

@@ -318,9 +318,7 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Research topic-filtered CLS news and link it to related ReMe memory."
-    news_file: &auto_fin_news_file ${AUTO_FIN_NEWS_FILE:-datasets/cls_news_last_7_days.jsonl}
-    news_lookback_days: 7
+    description: "Fetch and research the latest 24 hours of topic-related CLS news."
     parameters:
       type: object
       properties:
@@ -334,17 +332,11 @@ jobs:
           default: ""
         topics:
           type: string
-          description: "Comma-separated topics used to focus current-news research; empty means no topic restriction."
-          default: ""
-        news_file:
-          type: string
-          description: "Local CLS telegraph JSONL input file."
-          default: ""
+          description: "Comma-separated topics used to filter current CLS news."
+          default: "黄金,机器人,半导体"
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
-        news_file: *auto_fin_news_file
-        news_lookback_days: 7
-      - backend: update_index_step
+      - backend: auto_fin_topic_step
       - backend: auto_fin_merge_step
       - backend: dingtalk_markdown_send_step
         input_mapping:

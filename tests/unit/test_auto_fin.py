@@ -1,96 +1,120 @@
-"""Focused tests for the topic-news Auto Fin workflow."""
+"""Focused tests for the rolling CLS Auto Fin workflow."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
-import json
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
-from reme.schema import AutoFinReportOutput
+from reme.schema import AutoFinReportOutput, AutoFinTopicOutput
 from reme.steps.cookbook.auto_fin._base import _plain_text, _write
 from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
 from reme.steps.cookbook.auto_fin.merge import AutoFinMergeStep
+from reme.steps.cookbook.auto_fin.topic import AutoFinTopicStep
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
-def _cls_row(news_id: int, timestamp: int, title: str, content: str) -> dict:
-    return {"id": news_id, "ctime": timestamp, "title": title, "content": content}
-
-
-def _write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+def _row(news_id: int, value: datetime, title: str = "新闻", content: str = "正文") -> dict:
+    return {"id": news_id, "ctime": int(value.timestamp()), "title": title, "content": content}
 
 
 def test_atomic_write_preserves_existing_file_on_failure(tmp_path: Path, monkeypatch):
-    path = tmp_path / "result.json"
+    path = tmp_path / "result.md"
     path.write_text("existing", encoding="utf-8")
-
     monkeypatch.setattr(
         "reme.steps.cookbook.auto_fin._base.os.replace",
         lambda *_args: (_ for _ in ()).throw(OSError()),
     )
+
     with pytest.raises(OSError):
         _write(path, "replacement")
+
     assert path.read_text(encoding="utf-8") == "existing"
     assert not list(tmp_path.glob(".*.tmp"))
-
-
-def test_news_markdown_round_trip_and_topics(tmp_path: Path):
-    rows = [
-        {
-            "news_id": "2448247",
-            "event_time": "2026-08-10T07:00:00",
-            "title": "黄金上涨",
-            "content": "避险需求增强",
-        },
-    ]
-    path = tmp_path / "news.md"
-    path.write_text(AutoFinDataStep._render_news(date(2026, 8, 10), rows), encoding="utf-8")
-
-    assert AutoFinDataStep.read_news(path) == rows
-    assert AutoFinDataStep._topics("黄金，机器人, 黄金") == ["黄金", "机器人"]
     assert _plain_text("<p>甲&amp;乙</p><style>隐藏</style><p>丙</p>") == "甲&乙 丙"
 
 
 @pytest.mark.asyncio
-async def test_data_step_reads_free_local_cls_jsonl(tmp_path: Path):
-    source = tmp_path / "cls.jsonl"
-    timestamp = int(datetime(2026, 8, 10, 9).timestamp())
-    _write_jsonl(source, [_cls_row(2448247, timestamp, "黄金上涨", "避险需求增强")])
-    context = RuntimeContext(
-        date="2026-08-10",
-        now="2026-08-10T09:30:00+08:00",
-        news_file=str(source),
-        news_lookback_days=1,
-        topics="黄金,机器人",
-    )
+async def test_data_step_fetches_exact_24_hours_with_default_topics(tmp_path: Path, monkeypatch):
+    end = datetime(2026, 8, 10, 9, 30, tzinfo=SHANGHAI)
 
+    async def page(_self, _client, _last_time):
+        return [
+            _row(1, end, "黄金上涨"),
+            _row(2, end.replace(day=9), "窗口边界"),
+            _row(3, end.replace(day=9, minute=29), "窗口之外"),
+            _row(1, end, "重复"),
+        ]
+
+    monkeypatch.setattr(AutoFinDataStep, "_request_page", page)
+    context = RuntimeContext(date="2026-08-10", now=end.isoformat(), topics="")
     response = await AutoFinDataStep(
         app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+        request_interval=0,
     )(context)
 
-    news_path = tmp_path / "daily" / "2026-08-10" / "auto_fin_news.md"
-    assert "黄金上涨" in news_path.read_text(encoding="utf-8")
-    assert context["auto_fin_topics"] == ["黄金", "机器人"]
-    assert context["auto_fin_news_path"] == "daily/2026-08-10/auto_fin_news.md"
-    assert response.metadata["topics"] == ["黄金", "机器人"]
+    assert [row["news_id"] for row in context["auto_fin_news"]] == ["2", "1"]
+    assert context["auto_fin_topics"] == ["黄金", "机器人", "半导体"]
+    assert context["auto_fin_window_start"] == "2026-08-09T09:30:00+08:00"
+    assert response.metadata["fetched_news_count"] == 2
+    assert not list(tmp_path.rglob("*.md"))
+
+
+class _TopicAgent(BaseAgentWrapper):
+    def __init__(self, news_ids: list[str], **kwargs):
+        super().__init__(**kwargs)
+        self.news_ids = news_ids
+        self.calls = []
+
+    async def reply(self, inputs, **kwargs):
+        self.calls.append((str(inputs), kwargs))
+        return {"structured_output": AutoFinTopicOutput(news_ids=self.news_ids)}
 
 
 @pytest.mark.asyncio
-async def test_data_step_explains_how_to_create_missing_source(tmp_path: Path):
+async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _TopicAgent(["2", "missing", "2"], app_context=app_context)
     context = RuntimeContext(
-        date="2026-08-10",
-        now="2026-08-10T09:30:00+08:00",
-        news_file=str(tmp_path / "missing.jsonl"),
+        auto_fin_news=[
+            {"news_id": "1", "event_time": "2026-08-10T08:00:00+08:00", "title": "甲", "content": "甲"},
+            {"news_id": "2", "event_time": "2026-08-10T09:00:00+08:00", "title": "乙", "content": "乙"},
+        ],
+        auto_fin_topics=["黄金"],
     )
-    step = AutoFinDataStep(app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"))
 
-    with pytest.raises(FileNotFoundError, match="Provide a local CLS JSONL file"):
-        await step(context)
+    response = await AutoFinTopicStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    assert [row["news_id"] for row in context["auto_fin_selected_news"]] == ["2"]
+    assert agent.calls[0][1] == {"output_schema": AutoFinTopicOutput}
+    assert response.metadata["relevant_news_count"] == 1
+    assert not list(tmp_path.rglob("*.*"))
+
+
+@pytest.mark.asyncio
+async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    context = RuntimeContext(
+        auto_fin_news=[
+            {"news_id": "1", "event_time": "2026-08-10T08:00:00+08:00", "title": "甲", "content": "甲"},
+        ],
+        auto_fin_topics=["黄金"],
+    )
+
+    response = await AutoFinTopicStep(
+        app_context=app_context,
+        agent_wrapper=_TopicAgent([], app_context=app_context),
+    )(context)
+
+    assert context["auto_fin_skipped"] is True
+    assert response.metadata["skipped"] is True
+    assert not list(tmp_path.rglob("*.md"))
 
 
 class _ResearchAgent(BaseAgentWrapper):
@@ -100,71 +124,66 @@ class _ResearchAgent(BaseAgentWrapper):
 
     async def reply(self, inputs, **kwargs):
         self.calls.append((str(inputs), kwargs))
-        schema = kwargs["output_schema"]
         return {
-            "structured_output": schema.model_validate(
-                {
-                    "title": "# 主题新闻观察",
-                    "description": "关注黄金政策变化。",
-                    "body": (
-                        "## 今日判断\n\n"
-                        "本次事件与 [[daily/2026-08-01/auto_fin.md|历史黄金观察]] 背景相似。\n\n"
-                        "无效引用 [[daily/missing.md|缺失文章]] 和 [[../../outside.md|越界文章]] 应降级。"
-                    ),
-                },
+            "structured_output": AutoFinReportOutput(
+                title="# 主题新闻观察",
+                description="关注黄金政策变化。",
+                body=(
+                    "## 今日判断\n\n"
+                    "CLS 1（09:00，黄金上涨）与 "
+                    "[[daily/2026-08-01/auto_fin.md|历史黄金观察]] 背景相似。\n\n"
+                    "无效引用 [[daily/missing.md|缺失文章]] 和 [[../../outside.md|越界文章]] 应降级。"
+                ),
             ),
         }
 
 
 @pytest.mark.asyncio
-async def test_research_agent_gets_search_tools_and_code_builds_valid_wikilinks(tmp_path: Path):
-    current = tmp_path / "daily" / "2026-08-10" / "auto_fin_news.md"
-    current.parent.mkdir(parents=True)
-    current.write_text(
-        AutoFinDataStep._render_news(
-            date(2026, 8, 10),
-            [{"news_id": "1", "event_time": "2026-08-10T09:00:00", "title": "黄金", "content": "上涨"}],
-        ),
-        encoding="utf-8",
-    )
+async def test_merge_writes_only_final_report_and_validates_historical_links(tmp_path: Path):
     historical = tmp_path / "daily" / "2026-08-01" / "auto_fin.md"
     historical.parent.mkdir(parents=True)
     historical.write_text("# 历史黄金观察\n", encoding="utf-8")
-    agent = _ResearchAgent(app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"))
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _ResearchAgent(app_context=app_context)
     context = RuntimeContext(
         auto_fin_date="2026-08-10",
-        auto_fin_decision_at="2026-08-10T09:30:00",
+        auto_fin_decision_at="2026-08-10T09:30:00+08:00",
+        auto_fin_window_start="2026-08-09T09:30:00+08:00",
         auto_fin_topics=["黄金"],
-        auto_fin_news_path="daily/2026-08-10/auto_fin_news.md",
+        auto_fin_selected_news=[
+            {
+                "news_id": "1",
+                "event_time": "2026-08-10T09:00:00+08:00",
+                "title": "黄金上涨",
+                "content": "避险需求增强",
+            },
+        ],
     )
 
-    response = await AutoFinMergeStep(app_context=agent.app_context, agent_wrapper=agent)(context)
+    response = await AutoFinMergeStep(app_context=app_context, agent_wrapper=agent)(context)
 
     prompt, kwargs = agent.calls[0]
-    assert "黄金" in prompt
+    assert "end_date 设为 2026-08-09" in prompt
     assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["memory_search", "read"]}
     report = (tmp_path / "daily" / "2026-08-10" / "auto_fin.md").read_text(encoding="utf-8")
-    assert "[[daily/2026-08-10/auto_fin_news.md|auto fin news]]" in report
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in report
     assert "缺失文章" in report and "越界文章" in report
     assert "missing.md" not in report and "outside.md" not in report
-    assert response.metadata["source_paths"] == [
-        "daily/2026-08-10/auto_fin_news.md",
-        "daily/2026-08-01/auto_fin.md",
-    ]
+    assert not (tmp_path / "daily" / "2026-08-10" / "auto_fin_news.md").exists()
+    assert not (tmp_path / "resource").exists()
+    assert response.metadata["source_paths"] == ["daily/2026-08-01/auto_fin.md"]
 
 
-def test_config_uses_local_news_topics_and_two_read_only_agent_tools():
+def test_config_has_default_topics_and_no_intermediate_index_step():
     from reme.config.config_parser import _load_config
 
     config = _load_config("daily_cookbook")
     job = config["jobs"]["auto_fin"]
-    assert "etf_codes" not in job
-    assert job["news_lookback_days"] == 7
-    assert job["parameters"]["properties"]["topics"]["default"] == ""
+    assert job["parameters"]["properties"]["topics"]["default"] == "黄金,机器人,半导体"
+    assert "news_file" not in job["parameters"]["properties"]
     assert [step["backend"] for step in job["steps"]] == [
         "auto_fin_data_step",
-        "update_index_step",
+        "auto_fin_topic_step",
         "auto_fin_merge_step",
         "dingtalk_markdown_send_step",
     ]
@@ -177,8 +196,11 @@ def test_config_uses_local_news_topics_and_two_read_only_agent_tools():
         assert config["jobs"][name]["steps"] == job["steps"]
 
 
-def test_report_schema_has_only_required_markdown_fields():
-    schema = AutoFinReportOutput.model_json_schema()
+def test_agent_schemas_are_small_and_required():
+    topic = AutoFinTopicOutput.model_json_schema()
+    report = AutoFinReportOutput.model_json_schema()
 
-    assert schema["required"] == ["title", "description", "body"]
-    assert set(schema["properties"]) == {"title", "description", "body"}
+    assert topic["required"] == ["news_ids"]
+    assert set(topic["properties"]) == {"news_ids"}
+    assert report["required"] == ["title", "description", "body"]
+    assert set(report["properties"]) == {"title", "description", "body"}

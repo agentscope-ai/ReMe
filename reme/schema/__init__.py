@@ -1,7 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
-from .auto_fin import AutoFinReportOutput
+from .auto_fin import AutoFinReportOutput, AutoFinTopicOutput
 from .daily_paper import (
     AnalyzedPaper,
     DailyPaperMarkdownOutput,
@@ -33,6 +33,7 @@ from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 __all__ = [
     "ApplicationConfig",
     "AutoFinReportOutput",
+    "AutoFinTopicOutput",
     "ComponentConfig",
     "AnalyzedPaper",
     "DailyPaperMarkdownOutput",

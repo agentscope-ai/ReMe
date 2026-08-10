@@ -1,170 +1,145 @@
-"""Prepare free, local CLS news data for Auto Fin."""
+"""Fetch the latest 24 hours of CLS telegraph news into runtime context."""
 
 from __future__ import annotations
 
-import os
-from datetime import date, datetime, time, timedelta
-from pathlib import Path
+import asyncio
+from datetime import date, datetime, timedelta
+import hashlib
 from typing import Any
+from zoneinfo import ZoneInfo
+
+import httpx
 
 from ....components import R
-from ._base import SHANGHAI_TIMEZONE, AutoFinStep, _news_id, _plain_text, _write
+from ._base import AutoFinStep, _plain_text
 
-NEWS_FILENAME = "auto_fin_news.md"
-DEFAULT_NEWS_FILE = Path("datasets/cls_news_last_7_days.jsonl")
+API_URL = "https://www.cls.cn/v1/roll/get_roll_list"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Referer": "https://www.cls.cn/telegraph",
+}
+SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
+DEFAULT_TOPICS = ("黄金", "机器人", "半导体")
+WINDOW = timedelta(hours=24)
 
 
 @R.register("auto_fin_data_step")
 class AutoFinDataStep(AutoFinStep):
-    """Convert a locally downloaded CLS JSONL feed into indexed daily notes."""
+    """Fetch and normalize one rolling day of CLS news without writing files."""
 
     def _schedule(self) -> tuple[date, datetime]:
-        value = str(self._value("now", "")).strip()
-        now = datetime.fromisoformat(value) if value else datetime.now(SHANGHAI_TIMEZONE)
-        if now.tzinfo is not None:
-            now = now.astimezone(SHANGHAI_TIMEZONE).replace(tzinfo=None)
-        requested = str(self._value("date", "")).strip()
-        run_date = date.fromisoformat(requested) if requested else now.date()
+        raw_now = str(self._value("now", "")).strip()
+        now = datetime.fromisoformat(raw_now) if raw_now else datetime.now(SHANGHAI_TIMEZONE)
+        now = now.replace(tzinfo=SHANGHAI_TIMEZONE) if now.tzinfo is None else now.astimezone(SHANGHAI_TIMEZONE)
+        raw_date = str(self._value("date", "")).strip()
+        run_date = date.fromisoformat(raw_date) if raw_date else now.date()
         if run_date != now.date():
             raise ValueError("Auto Fin only supports the current date")
         return run_date, now
 
-    def _news_path(self, day: date) -> Path:
-        return self.workspace_path / str(self.config_value("daily_dir")) / day.isoformat() / NEWS_FILENAME
-
-    def _source_path(self) -> Path:
-        assert self.context is not None
-        raw = str(
-            self.context.get("news_file") or self.kwargs.get("news_file") or os.getenv("AUTO_FIN_NEWS_FILE", ""),
-        ).strip()
-        path = Path(raw) if raw else DEFAULT_NEWS_FILE
-        return path if path.is_absolute() else Path.cwd() / path
-
-    def _load_source(self) -> list[dict[str, Any]]:
-        path = self._source_path()
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"Auto Fin CLS news file not found: {path}. "
-                "Provide a local CLS JSONL file or set AUTO_FIN_NEWS_FILE.",
-            )
-        return self._read_jsonl_sync(path)
-
     @staticmethod
-    def _source_published_at(row: dict[str, Any]) -> datetime | None:
-        try:
-            return datetime.fromtimestamp(int(row["ctime"]), SHANGHAI_TIMEZONE).replace(tzinfo=None)
-        except (KeyError, TypeError, ValueError, OSError):
-            return AutoFinStep._published_at(row)
+    def _signed_params(last_time: int) -> dict[str, str | int]:
+        params: dict[str, str | int] = {
+            "refresh_type": 1,
+            "rn": 50,
+            "last_time": last_time,
+            "app": "CailianpressWeb",
+            "os": "web",
+            "sv": "8.7.9",
+        }
+        raw = "&".join(f"{key}={params[key]}" for key in sorted(params, key=str.upper))
+        params["sign"] = hashlib.md5(hashlib.sha1(raw.encode()).hexdigest().encode()).hexdigest()
+        return params
 
-    def _write_news(self, day: date, decision_at: datetime, source_rows: list[dict[str, Any]]) -> str:
-        start = datetime.combine(day, time.min)
-        end = decision_at if day == decision_at.date() else start + timedelta(days=1)
-        records: dict[str, dict[str, str]] = {}
-        for row in source_rows:
-            published_at = self._source_published_at(row)
-            if published_at is None:
-                continue
-            if not start <= published_at <= end or (day != decision_at.date() and published_at == end):
-                continue
-            content = str(row.get("content") or row.get("brief") or "")
-            normalized = {"src": "财联社", "content": content}
-            news_id = str(row.get("id") or "").strip() or _news_id(normalized, published_at)
-            records.setdefault(
-                news_id,
-                {
-                    "news_id": news_id,
-                    "event_time": published_at.isoformat(),
-                    "title": _plain_text(str(row.get("title") or row.get("brief") or content)),
-                    "content": _plain_text(content),
-                },
-            )
-        ordered = sorted(records.values(), key=lambda row: (row["event_time"], row["news_id"]))
-        path = self._news_path(day)
-        change = "modified" if path.exists() else "added"
-        _write(path, self._render_news(day, ordered))
-        return change
-
-    @staticmethod
-    def _render_news(day: date, rows: list[dict[str, str]]) -> str:
-        blocks = [f"# 财联社新闻 {day.isoformat()}\n"]
-        for row in rows:
-            blocks.append(
-                "\n".join(
-                    [
-                        f"## {row['title'] or '无标题'}",
-                        "",
-                        f"- news_id: `{row['news_id']}`",
-                        f"- 时间: {row['event_time']}",
-                        "- 来源: 财联社",
-                        "",
-                        row["content"] or row["title"],
-                        "",
-                    ],
-                ),
-            )
-        return "\n".join(blocks).rstrip() + "\n"
-
-    @staticmethod
-    def read_news(path: Path) -> list[dict[str, str]]:
-        """Parse an Auto Fin news Markdown file written by `_render_news`."""
-        text = path.read_text(encoding="utf-8")
-        rows = []
-        for block in text.split("\n## ")[1:]:
-            lines = block.splitlines()
-            if len(lines) < 5:
-                continue
-            news_line = next((line for line in lines if line.startswith("- news_id: `")), "")
-            time_line = next((line for line in lines if line.startswith("- 时间: ")), "")
-            news_id = news_line.removeprefix("- news_id: `").removesuffix("`").strip()
-            event_time = time_line.removeprefix("- 时间: ").strip()
-            content_start = next(
-                (index + 1 for index, line in enumerate(lines) if line == "- 来源: 财联社"),
-                len(lines),
-            )
-            content = "\n".join(lines[content_start:]).strip()
-            if news_id and event_time:
-                rows.append(
-                    {
-                        "news_id": news_id,
-                        "event_time": event_time,
-                        "title": lines[0].strip(),
-                        "content": content,
-                    },
-                )
+    async def _request_page(self, client: httpx.AsyncClient, last_time: int) -> list[dict[str, Any]]:
+        response = await client.get(API_URL, params=self._signed_params(last_time))
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("errno") != 0:
+            raise RuntimeError(f"CLS API error {payload.get('errno')}: {payload.get('msg', '')}")
+        rows = (payload.get("data") or {}).get("roll_data") or []
+        if not isinstance(rows, list):
+            raise RuntimeError("CLS API returned invalid roll_data")
         return rows
 
-    async def execute(self):
-        assert self.context is not None
-        run_date, decision_at = self._schedule()
-        lookback = int(self._value("news_lookback_days", 7))
-        if lookback < 1:
-            raise ValueError("news_lookback_days must be positive")
-        news_start = run_date - timedelta(days=lookback - 1)
-        source_rows = self._load_source()
-        changes = []
-        for day in self._days(news_start, run_date):
-            path = self._news_path(day)
-            if day != run_date and path.is_file():
-                continue
-            change = self._write_news(day, decision_at, source_rows)
-            changes.append({"change": change, "path": str(path)})
-        topics = self._topics(self._value("topics", ""))
-        self.context.update(
-            {
-                "changes": changes,
-                "auto_fin_date": run_date.isoformat(),
-                "auto_fin_decision_at": decision_at.isoformat(),
-                "auto_fin_news_start": news_start.isoformat(),
-                "auto_fin_topics": topics,
-                "auto_fin_news_path": self._news_path(run_date).relative_to(self.workspace_path).as_posix(),
-            },
-        )
-        self.context.response.metadata.update(
-            {"date": run_date.isoformat(), "news_downloaded": len(changes), "topics": topics},
-        )
-        return self.context.response
+    async def _fetch_recent(self, decision_at: datetime) -> list[dict[str, str]]:
+        cutoff = decision_at - WINDOW
+        cursor = int(decision_at.timestamp())
+        interval = max(0.0, float(self._value("request_interval", 10)))
+        max_retries = max(1, int(self._value("max_retries", 3)))
+        records: dict[str, dict[str, str]] = {}
+        async with httpx.AsyncClient(headers=HEADERS, timeout=httpx.Timeout(20, connect=5)) as client:
+            while True:
+                for attempt in range(max_retries):
+                    try:
+                        rows = await self._request_page(client, cursor)
+                        break
+                    except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                        if attempt + 1 == max_retries:
+                            raise RuntimeError(f"CLS request failed after {max_retries} attempts: {exc}") from exc
+                        await asyncio.sleep(2**attempt)
+                    finally:
+                        if interval:
+                            await asyncio.sleep(interval)
+                if not rows:
+                    raise RuntimeError("CLS API returned no news before the 24-hour window was covered")
+                timestamps = [int(row["ctime"]) for row in rows if str(row.get("ctime", "")).isdigit()]
+                if not timestamps:
+                    raise RuntimeError("CLS API page contained no valid timestamps")
+                oldest = min(timestamps)
+                if oldest >= cursor:
+                    raise RuntimeError("CLS pagination did not move backward")
+                for row in rows:
+                    normalized = self._normalize(row, cutoff, decision_at)
+                    if normalized is not None:
+                        records.setdefault(normalized["news_id"], normalized)
+                if oldest <= int(cutoff.timestamp()):
+                    break
+                cursor = oldest
+        return sorted(records.values(), key=lambda row: (row["event_time"], row["news_id"]))
+
+    @staticmethod
+    def _normalize(row: dict[str, Any], start: datetime, end: datetime) -> dict[str, str] | None:
+        try:
+            news_id = str(int(row["id"]))
+            published_at = datetime.fromtimestamp(int(row["ctime"]), SHANGHAI_TIMEZONE)
+        except (KeyError, TypeError, ValueError, OSError):
+            return None
+        if not start <= published_at <= end:
+            return None
+        content = _plain_text(str(row.get("content") or row.get("brief") or ""))
+        title = _plain_text(str(row.get("title") or row.get("brief") or content))
+        if not title and not content:
+            return None
+        return {
+            "news_id": news_id,
+            "event_time": published_at.isoformat(),
+            "title": title,
+            "content": content,
+        }
 
     @staticmethod
     def _topics(value: Any) -> list[str]:
         values = value if isinstance(value, list) else str(value or "").replace("，", ",").split(",")
-        return list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
+        topics = list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))
+        return topics or list(DEFAULT_TOPICS)
+
+    async def execute(self):
+        assert self.context is not None
+        run_date, decision_at = self._schedule()
+        news = await self._fetch_recent(decision_at)
+        topics = self._topics(self._value("topics"))
+        self.context.update(
+            {
+                "auto_fin_date": run_date.isoformat(),
+                "auto_fin_decision_at": decision_at.isoformat(),
+                "auto_fin_window_start": (decision_at - WINDOW).isoformat(),
+                "auto_fin_topics": topics,
+                "auto_fin_news": news,
+            },
+        )
+        self.context.response.metadata.update(
+            {"date": run_date.isoformat(), "fetched_news_count": len(news), "topics": topics},
+        )
+        return self.context.response
