@@ -170,10 +170,11 @@ Step-level settings on the `daily_paper` job:
 ## Mirrors
 
 The data clients use httpx's default environment handling, so `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` take effect
-when present. Mirror environment variables independently replace each service's base URL:
+when present. The two data sources reach a mirror differently: Hugging Face is gated on the `use_hf_mirror` job
+parameter, while arXiv is driven by its environment variable alone.
 
 ```dotenv
-# Preferred when use_hf_mirror=true; defaults to https://hf-mirror.com when unset
+# Read only when use_hf_mirror=true; that switch falls back to https://hf-mirror.com when this is unset
 HF_MIRROR_URL=https://hf-mirror.com
 
 # Defaults to https://arxiv.org when unset
@@ -186,8 +187,11 @@ ARXIV_MIRROR_URL=https://export.arxiv.org
 
 `HF_MIRROR_URL` must implement the `/papers/...`, `/api/daily_papers`, and `/api/papers/...` routes used by the current
 client. `ARXIV_MIRROR_URL` must implement `/pdf/<arxiv-id>`. A path prefix in either base URL is preserved, and a
-trailing slash is optional. With `use_hf_mirror=false`, Hugging Face data comes directly from the official service;
-when enabled, the configured mirror is used.
+trailing slash is optional. There is no fallback chain: whichever base URL a client selects is the only one it tries.
+
+> **Behavior change:** `HF_MIRROR_URL` used to redirect Hugging Face traffic on its own. It is now read only when the
+> job runs with `use_hf_mirror=true`; otherwise the official service is used and the client logs a warning that the
+> variable was ignored. Pass `use_hf_mirror=true` to keep an existing mirror-only setup working.
 
 ## Running the workflow
 

@@ -85,7 +85,7 @@ def test_hf_payload_and_html_normalization():
 
 @pytest.mark.asyncio
 async def test_hf_client_uses_configured_mirror(monkeypatch):
-    """The owned HTTP client uses HF_MIRROR_URL as its source."""
+    """The owned HTTP client uses HF_MIRROR_URL once the mirror is enabled."""
     events: list[str] = []
     client_kwargs: dict = {}
     logger = MagicMock()
@@ -106,6 +106,7 @@ async def test_hf_client_uses_configured_mirror(monkeypatch):
     client = hf_utils.HuggingFacePapersClient(
         timeout=12.0,
         logger=logger,
+        use_mirror=True,
     )
     assert client.client is None
     async with client:
@@ -119,7 +120,7 @@ async def test_hf_client_uses_configured_mirror(monkeypatch):
 
 
 def test_hf_client_mirror_switch_controls_source(monkeypatch):
-    """The explicit switch overrides legacy environment-only selection."""
+    """The switch alone decides the source, even with HF_MIRROR_URL configured."""
     monkeypatch.setenv("HF_MIRROR_URL", "https://relay.example/hf")
 
     official = hf_utils.HuggingFacePapersClient(use_mirror=False)
@@ -136,6 +137,31 @@ def test_hf_client_uses_default_mirror_when_enabled(monkeypatch):
     client = hf_utils.HuggingFacePapersClient(use_mirror=True)
 
     assert client.base_url == "https://hf-mirror.com"
+
+
+@pytest.mark.asyncio
+async def test_hf_client_warns_when_mirror_url_is_ignored(monkeypatch):
+    """A mirror-only setup learns why traffic still reaches the official site."""
+    logger = MagicMock()
+
+    class FakeAsyncClient:
+        """Stand in for the owned client without touching the network."""
+
+        def __init__(self, **kwargs):
+            pass
+
+        async def aclose(self):
+            """Match the owned-client cleanup contract."""
+
+    monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setenv("HF_MIRROR_URL", "https://relay.example/hf")
+
+    async with hf_utils.HuggingFacePapersClient(logger=logger) as client:
+        assert client.base_url == "https://huggingface.co"
+
+    warning = logger.warning.call_args.args[0]
+    assert "ignoring HF_MIRROR_URL=https://relay.example/hf" in warning
+    assert "use_hf_mirror=true" in warning
 
 
 @pytest.mark.asyncio
@@ -156,7 +182,7 @@ async def test_hf_client_preserves_mirror_path_prefix(monkeypatch):
     )
     monkeypatch.setenv("HF_MIRROR_URL", "http://relay.example:18080/hf/")
 
-    async with hf_utils.HuggingFacePapersClient() as client:
+    async with hf_utils.HuggingFacePapersClient(use_mirror=True) as client:
         assert await client.fetch_daily_ids("2026-07-22") == set()
 
     assert [str(request.url) for request in requests] == [
