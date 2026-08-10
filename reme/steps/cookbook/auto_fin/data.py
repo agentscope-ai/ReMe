@@ -1,24 +1,22 @@
-"""Prepare local news and ETF market data for Auto Fin."""
+"""Prepare free, local CLS news data for Auto Fin."""
 
 from __future__ import annotations
 
-import asyncio
-import json
+import os
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
 from ....components import R
-from ._base import SHANGHAI_TIMEZONE, AutoFinStep, _news_id, _plain_text, _write, _write_jsonl
+from ._base import SHANGHAI_TIMEZONE, AutoFinStep, _news_id, _plain_text, _write
 
 NEWS_FILENAME = "auto_fin_news.md"
-MAJOR_NEWS_PAGE_LIMIT = 400  # major_news caps a single response; split the window when hit.
-FUND_PAGE_LIMIT = 2000  # fund_daily / fund_adj cap a single response; page backwards past it.
+DEFAULT_NEWS_FILE = Path("datasets/cls_news_last_7_days.jsonl")
 
 
 @R.register("auto_fin_data_step")
 class AutoFinDataStep(AutoFinStep):
-    """Skip closed markets, then overwrite today's news and all configured ETF data."""
+    """Convert a locally downloaded CLS JSONL feed into indexed daily notes."""
 
     def _schedule(self) -> tuple[date, datetime]:
         value = str(self._value("now", "")).strip()
@@ -31,53 +29,53 @@ class AutoFinDataStep(AutoFinStep):
             raise ValueError("Auto Fin only supports the current date")
         return run_date, now
 
-    async def _is_trade_day(self, day: date) -> bool:
-        rows = await self._fetch(
-            "trade_cal",
-            exchange="SSE",
-            start_date=day.strftime("%Y%m%d"),
-            end_date=day.strftime("%Y%m%d"),
-            fields="cal_date,is_open",
-        )
-        return any(
-            str(row.get("cal_date")) == day.strftime("%Y%m%d") and int(row.get("is_open", 0)) == 1 for row in rows
-        )
-
     def _news_path(self, day: date) -> Path:
         return self.workspace_path / str(self.config_value("daily_dir")) / day.isoformat() / NEWS_FILENAME
 
-    async def _fetch_news(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
-        rows = await self._fetch(
-            "major_news",
-            src="财联社",
-            start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
-            end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
-            fields="title,pub_time,src,content",
-        )
-        if len(rows) < MAJOR_NEWS_PAGE_LIMIT or end - start <= timedelta(minutes=1):
-            return rows
-        middle = start + (end - start) / 2
-        left, right = await asyncio.gather(self._fetch_news(start, middle), self._fetch_news(middle, end))
-        return left + right
+    def _source_path(self) -> Path:
+        assert self.context is not None
+        raw = str(
+            self.context.get("news_file") or self.kwargs.get("news_file") or os.getenv("AUTO_FIN_NEWS_FILE", ""),
+        ).strip()
+        path = Path(raw) if raw else DEFAULT_NEWS_FILE
+        return path if path.is_absolute() else Path.cwd() / path
 
-    async def _write_news(self, day: date, decision_at: datetime) -> str:
+    def _load_source(self) -> list[dict[str, Any]]:
+        path = self._source_path()
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Auto Fin CLS news file not found: {path}. "
+                "Provide a local CLS JSONL file or set AUTO_FIN_NEWS_FILE.",
+            )
+        return self._read_jsonl_sync(path)
+
+    @staticmethod
+    def _source_published_at(row: dict[str, Any]) -> datetime | None:
+        try:
+            return datetime.fromtimestamp(int(row["ctime"]), SHANGHAI_TIMEZONE).replace(tzinfo=None)
+        except (KeyError, TypeError, ValueError, OSError):
+            return AutoFinStep._published_at(row)
+
+    def _write_news(self, day: date, decision_at: datetime, source_rows: list[dict[str, Any]]) -> str:
         start = datetime.combine(day, time.min)
         end = decision_at if day == decision_at.date() else start + timedelta(days=1)
         records: dict[str, dict[str, str]] = {}
-        for row in await self._fetch_news(start, end):
-            published_at = self._published_at(row)
-            if published_at is None or str(row.get("src") or "") != "财联社":
+        for row in source_rows:
+            published_at = self._source_published_at(row)
+            if published_at is None:
                 continue
             if not start <= published_at <= end or (day != decision_at.date() and published_at == end):
                 continue
-            news_id = _news_id(row, published_at)
+            content = str(row.get("content") or row.get("brief") or "")
+            normalized = {"src": "财联社", "content": content}
+            news_id = str(row.get("id") or "").strip() or _news_id(normalized, published_at)
             records.setdefault(
                 news_id,
                 {
                     "news_id": news_id,
                     "event_time": published_at.isoformat(),
-                    "title": _plain_text(str(row.get("title") or "")),
-                    "content": _plain_text(str(row.get("content") or "")),
+                    "title": _plain_text(str(row.get("title") or row.get("brief") or content)),
+                    "content": _plain_text(content),
                 },
             )
         ordered = sorted(records.values(), key=lambda row: (row["event_time"], row["news_id"]))
@@ -135,100 +133,38 @@ class AutoFinDataStep(AutoFinStep):
                 )
         return rows
 
-    async def _fetch_all(self, endpoint: str, code: str, end: date) -> list[dict[str, Any]]:
-        """Page backwards because TuShare fund endpoints cap one response."""
-        rows_by_date: dict[str, dict[str, Any]] = {}
-        end_date = end
-        while True:
-            page = await self._fetch(
-                endpoint,
-                ts_code=code,
-                start_date="19900101",
-                end_date=end_date.strftime("%Y%m%d"),
-            )
-            for row in page:
-                if trade_date := str(row.get("trade_date") or ""):
-                    rows_by_date[trade_date] = row
-            if len(page) < FUND_PAGE_LIMIT:
-                break
-            dates = [
-                datetime.strptime(str(row["trade_date"]), "%Y%m%d").date() for row in page if row.get("trade_date")
-            ]
-            if not dates or min(dates) <= date(1990, 1, 1):
-                break
-            next_end = min(dates) - timedelta(days=1)
-            if next_end >= end_date:
-                raise RuntimeError(f"TuShare pagination did not advance for {endpoint} {code}")
-            end_date = next_end
-        return [rows_by_date[key] for key in sorted(rows_by_date)]
-
-    @staticmethod
-    def _etf_name(row: dict[str, Any]) -> str:
-        return str(row.get("csname") or row.get("extname") or row.get("cname") or "").strip()
-
-    async def _cache_etfs(self, codes: list[str], run_date: date) -> dict[str, str]:
-        basics = await self._fetch(
-            "etf_basic",
-            list_status="L",
-            fields="ts_code,csname,extname,cname,list_status",
-        )
-        names = {str(row.get("ts_code") or "").strip().upper(): self._etf_name(row) for row in basics}
-        missing = [code for code in codes if not names.get(code)]
-        if missing:
-            raise ValueError(f"TuShare returned no ETF name for: {', '.join(missing)}")
-
-        fin_dir = self.workspace_path / str(self.config_value("resource_dir")) / "fin"
-        mapping = [{"etf_code": code, "etf_name": names[code]} for code in codes]
-        _write(
-            fin_dir / "etfs.json",
-            json.dumps(mapping, ensure_ascii=False, indent=2) + "\n",
-        )
-        for code in codes:
-            daily, factors = await asyncio.gather(
-                self._fetch_all("fund_daily", code, run_date),
-                self._fetch_all("fund_adj", code, run_date),
-            )
-            factor_by_date = {str(row.get("trade_date")): row.get("adj_factor") for row in factors}
-            merged = [{**row, "adj_factor": factor_by_date.get(str(row.get("trade_date")))} for row in daily]
-            _write_jsonl(fin_dir / f"{code}.jsonl", merged)
-        return {code: names[code] for code in codes}
-
     async def execute(self):
         assert self.context is not None
         run_date, decision_at = self._schedule()
-        if not await self._is_trade_day(run_date):
-            reason = f"{run_date.isoformat()} 不是交易日，Auto Fin 已跳过。"
-            self.context["auto_fin_skipped"] = True
-            self.context["auto_fin_skip_reason"] = reason
-            self.context.response.answer = reason
-            self.context.response.metadata.update({"date": run_date.isoformat(), "skipped": True})
-            return self.context.response
-
-        lookback = int(self._value("news_lookback_days", 60))
+        lookback = int(self._value("news_lookback_days", 7))
         if lookback < 1:
             raise ValueError("news_lookback_days must be positive")
         news_start = run_date - timedelta(days=lookback - 1)
+        source_rows = self._load_source()
         changes = []
         for day in self._days(news_start, run_date):
             path = self._news_path(day)
             if day != run_date and path.is_file():
                 continue
-            change = await self._write_news(day, decision_at)
+            change = self._write_news(day, decision_at, source_rows)
             changes.append({"change": change, "path": str(path)})
-
-        codes = self._value("etf_codes")
-        if not codes:
-            raise ValueError("auto_fin_data_step requires a non-empty etf_codes")
-        codes = [str(code).strip().upper() for code in codes]
-        names = await self._cache_etfs(codes, run_date)
+        topics = self._topics(self._value("topics", ""))
         self.context.update(
             {
                 "changes": changes,
                 "auto_fin_date": run_date.isoformat(),
                 "auto_fin_decision_at": decision_at.isoformat(),
                 "auto_fin_news_start": news_start.isoformat(),
-                "auto_fin_etf_names": names,
+                "auto_fin_topics": topics,
+                "auto_fin_news_path": self._news_path(run_date).relative_to(self.workspace_path).as_posix(),
             },
         )
-        self.context.response.metadata.update({"date": run_date.isoformat(), "news_downloaded": len(changes)})
+        self.context.response.metadata.update(
+            {"date": run_date.isoformat(), "news_downloaded": len(changes), "topics": topics},
+        )
         return self.context.response
+
+    @staticmethod
+    def _topics(value: Any) -> list[str]:
+        values = value if isinstance(value, list) else str(value or "").replace("，", ",").split(",")
+        return list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))

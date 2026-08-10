@@ -69,7 +69,7 @@ class DreamTopicsStep(BaseStep):
 
             rel_path = self._rel_path(state.daily_dir, target_day)
             abs_path = self._abs_path(workspace, state.daily_dir, target_day)
-            same_day = load_yaml_topics(abs_path)
+            same_day = load_yaml_topics(abs_path, strict=True)
             recent = [
                 topic
                 for previous_day in previous_dates(target_day, diversity_days)
@@ -85,6 +85,7 @@ class DreamTopicsStep(BaseStep):
                 recent,
                 topic_count,
                 diversity_days,
+                state,
             )
             self.logger.info(f"[{self.name}] selected topics={len(topics)} used_llm={_used_llm}")
             payload = {
@@ -118,6 +119,7 @@ class DreamTopicsStep(BaseStep):
         recent: list[dict],
         count: int,
         days: int,
+        state,
     ):
         if not candidates:
             return self._dedupe([], same_day, recent, count), False
@@ -128,23 +130,37 @@ class DreamTopicsStep(BaseStep):
             f"[{self.name}] topics agent start candidates={len(candidates)} "
             f"same_day={len(same_day)} recent={len(recent)}",
         )
-        result = await self.agent_wrapper.reply(
-            self.prompt_format(
-                "topics_user_message",
-                date=day,
-                topic_count=count,
-                diversity_days=days,
-                candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
-                same_day_json=json.dumps(same_day, ensure_ascii=False, indent=2),
-                recent_topics_json=json.dumps(recent, ensure_ascii=False, indent=2),
-            ),
-            system_prompt=self.prompt_format("topics_system_prompt"),
+        message = self.prompt_format(
+            "topics_user_message",
+            date=day,
+            topic_count=count,
+            diversity_days=days,
+            candidates_json=json.dumps(candidates, ensure_ascii=False, indent=2),
+            same_day_json=json.dumps(same_day, ensure_ascii=False, indent=2),
+            recent_topics_json=json.dumps(recent, ensure_ascii=False, indent=2),
         )
-        self.logger.info(f"[{self.name}] topics agent done has_result={bool(result.get('result'))}")
-        raw_result = agent_reply_result_text(result)
-        meta = parse_structured_reply(raw_result)
-        selected = [self._clean_topic(t) for t in meta.get("topics") or []]
+        try:
+            result = await self.agent_wrapper.reply(
+                message,
+                system_prompt=self.prompt_format("topics_system_prompt"),
+            )
+            self.logger.info(f"[{self.name}] topics agent done has_result={bool(result.get('result'))}")
+            raw_result = agent_reply_result_text(result)
+            meta = parse_structured_reply(raw_result)
+        except Exception as e:  # noqa: BLE001
+            warning = f"topic selection agent unavailable; used deterministic fallback ({type(e).__name__})"
+            state.warnings.append(warning)
+            self.logger.warning(f"[{self.name}] {warning}: {e}")
+            return self._dedupe(candidates, same_day, recent, count), False
+        allowed_paths = {
+            str(path).strip() for candidate in candidates for path in candidate.get("paths") or [] if str(path).strip()
+        }
+        selected = [self._clean_topic(t, allowed_paths) for t in meta.get("topics") or []]
         if not any(selected):
+            if not isinstance(meta.get("topics"), list):
+                warning = "topic selection skipped unusable agent receipt; used deterministic fallback"
+                state.warnings.append(warning)
+                self.logger.warning(f"[{self.name}] {warning}")
             self.logger.info(f"[{self.name}] topics agent produced no usable topics; fallback to candidates")
             selected = candidates
         return self._dedupe(selected, same_day, recent, count), True
@@ -158,15 +174,26 @@ class DreamTopicsStep(BaseStep):
         return workspace / daily_dir / day / "interests.yaml"
 
     @staticmethod
-    def _clean_topic(raw) -> dict:
+    def _clean_topic(raw, allowed_paths: set[str] | None = None) -> dict:
         if not isinstance(raw, dict):
             return {}
-        title, reason = str(raw.get("title") or "").strip(), str(raw.get("reason") or "").strip()
+        title, reason = (
+            str(raw.get("title") or "").strip(),
+            str(raw.get("reason") or "").strip(),
+        )
         if not title or not reason:
             return {}
         keywords, paths = raw.get("keywords") or [], raw.get("paths") or []
         cleaned_keywords = [str(k).strip() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
-        cleaned_paths = [str(p).strip() for p in paths if str(p).strip()] if isinstance(paths, list) else []
+        cleaned_paths = (
+            [
+                str(p).strip()
+                for p in paths
+                if str(p).strip() and (allowed_paths is None or str(p).strip() in allowed_paths)
+            ]
+            if isinstance(paths, list)
+            else []
+        )
         return {
             "title": title,
             "reason": reason,

@@ -777,7 +777,11 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "优先选择 fused_score 更高的论文" in cc_wrapper.calls[0]["inputs"]
     assert "memory_keyword_score" not in cc_wrapper.calls[0]["inputs"]
     assert "Agent 长期记忆" not in cc_wrapper.calls[0]["inputs"]
-    assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:])
+    assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:-1])
+    assert cc_wrapper.calls[-1]["kwargs"] == {
+        "output_schema": DailyPaperMarkdownOutput,
+        "job_tools": ["search", "read"],
+    }
     assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
         PaperPickList,
         DailyPaperMarkdownOutput,
@@ -794,6 +798,9 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
+    assert "先调用 search 检索以前的文章" in digest_prompt
+    assert "end_date=2026-07-20" in digest_prompt
+    assert "Wikilink" in digest_prompt
 
     rerun = RuntimeContext(date="2026-07-21")
     await DailyPaperCollectStep(app_context=app_context)(rerun)

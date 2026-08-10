@@ -81,6 +81,7 @@ class DreamState(BaseModel):
     topics: list[dict] = Field(default_factory=list)
     extract_summary: str = ""
     integrate_results: list[dict] = Field(default_factory=list)
+    skipped_units: list[dict] = Field(default_factory=list)
     nodes_created: list[str] = Field(default_factory=list)
     nodes_updated: list[str] = Field(default_factory=list)
     failed_units: list[dict] = Field(default_factory=list)
@@ -90,5 +91,6 @@ class DreamState(BaseModel):
     topics_written: int = 0
     topic_error: str = ""
     checkpoint_paths: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     summary: str = ""

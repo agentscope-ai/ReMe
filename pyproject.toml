@@ -55,7 +55,6 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "tushare>=1.4.29",
 ]
 dev = [
     "pre-commit>=4.6.1",

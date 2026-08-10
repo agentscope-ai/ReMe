@@ -46,6 +46,7 @@ temp*/
 # ReMe runtime data
 .reme/
 reme_workspace/
+reme_workspace_auto_fin_real_test*/
 vault/
 *.db
 *.sqlite
@@ -56,7 +57,7 @@ docs/_build/
 site/
 
 evaluation/
-datasets/
+datasets/*
 
 # Claude Code skills (local only)
 .claude/skills/

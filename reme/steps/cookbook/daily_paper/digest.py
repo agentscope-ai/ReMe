@@ -1,5 +1,6 @@
 """Build the final daily-paper brief from detailed notes."""
 
+import datetime as dt
 import json
 from types import SimpleNamespace
 
@@ -16,6 +17,8 @@ from ._common import (
     utc_now_iso,
     write_markdown,
 )
+
+_TOOLS = ("search", "read")
 
 
 @R.register("daily_paper_digest_step")
@@ -38,13 +41,16 @@ class DailyPaperDigestStep(DailyPaperStep):
 
         documents = [{"title": item.title, "desc": item.desc, "body": item.body} for item in analyses]
         wikilinks = [f"[[{item.note_path}]]" for item in analyses]
+        previous_day = (dt.date.fromisoformat(self._run_day()) - dt.timedelta(days=1)).isoformat()
         self.logger.info(f"[{self.name}] agent start notes={len(analyses)}")
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "digest_user",
                 documents=json.dumps(documents, ensure_ascii=False, indent=2),
+                previous_day=previous_day,
             ),
             output_schema=DailyPaperMarkdownOutput,
+            job_tools=list(_TOOLS),
         )
         self.logger.info(f"[{self.name}] agent done notes={len(analyses)}")
         output = structured_output(result, DailyPaperMarkdownOutput)

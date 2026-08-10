@@ -318,25 +318,9 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Analyze configured ETFs from current news and comparable historical events."
-    etf_codes: &auto_fin_etf_codes
-      - 518880.SH
-      # - 159516.SZ
-      # - 512800.SH
-      # - 512890.SH
-      # - 159992.SZ
-      - 159530.SZ
-      # - 159869.SZ
-      # - 512690.SH
-      # - 159755.SZ
-      # - 159611.SZ
-      # - 159652.SZ
-      - 512760.SH
-      # - 159732.SZ
-    news_lookback_days: 60
-    current_news_limit_per_etf: 10
-    historical_news_limit: 5
-    historical_search_limit: 10
+    description: "Research topic-filtered CLS news and link it to related ReMe memory."
+    news_file: &auto_fin_news_file ${AUTO_FIN_NEWS_FILE:-datasets/cls_news_last_7_days.jsonl}
+    news_lookback_days: 7
     parameters:
       type: object
       properties:
@@ -348,21 +332,19 @@ jobs:
           type: string
           description: "Optional simulated current time in ISO 8601 format; empty means the real current time."
           default: ""
-        historical_search_limit:
-          type: integer
-          description: "Maximum historical-news candidates retrieved for each current event."
-          default: 10
-          minimum: 1
+        topics:
+          type: string
+          description: "Comma-separated topics used to focus current-news research; empty means no topic restriction."
+          default: ""
+        news_file:
+          type: string
+          description: "Local CLS telegraph JSONL input file."
+          default: ""
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
-        etf_codes: *auto_fin_etf_codes
-        news_lookback_days: 60
+        news_file: *auto_fin_news_file
+        news_lookback_days: 7
       - backend: update_index_step
-      - backend: auto_fin_topic_step
-        current_news_limit_per_etf: 10
-      - backend: auto_fin_history_step
-        historical_news_limit: 5
-        historical_search_limit: 10
       - backend: auto_fin_merge_step
       - backend: dingtalk_markdown_send_step
         input_mapping:
@@ -374,9 +356,8 @@ jobs:
         title: ReMe Auto Fin
         timeout: 15
 
-  # Three intraday runs (Asia/Shanghai). Non-trading days are skipped inside
-  # auto_fin_data_step, so a daily trigger is fine. Each rerun refines the same
-  # day's report on top of the earlier run rather than replacing it wholesale.
+  # Three intraday runs (Asia/Shanghai). News remains useful outside market
+  # sessions. Each rerun refines the same day's report.
   auto_fin_0930_cron:
     backend: cron
     cron: "30 9 * * *"

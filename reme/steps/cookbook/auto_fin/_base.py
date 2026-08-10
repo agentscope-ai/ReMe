@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from html.parser import HTMLParser
 import json
-import math
 import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -17,7 +15,6 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 
-from ....utils.tushare import create_tushare_api
 from ...base_step import BaseStep
 
 AGENT_INPUT_LOG_LIMIT = 2000
@@ -75,38 +72,6 @@ def _write(path: Path, text: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _write_jsonl(path: Path, records: list[dict[str, Any]]) -> None:
-    _write(
-        path,
-        "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in records),
-    )
-
-
-def _clean(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, bool)):
-        return value
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    if isinstance(value, (date, datetime)):
-        return value.isoformat()
-    if isinstance(value, dict):
-        return {str(key): _clean(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_clean(item) for item in value]
-    return _clean(value.item()) if hasattr(value, "item") else str(value)
-
-
-def _records(value: Any) -> list[dict[str, Any]]:
-    if value is None:
-        return []
-    if hasattr(value, "to_dict"):
-        try:
-            value = value.to_dict(orient="records")
-        except TypeError:
-            value = value.to_dicts()
-    return [_clean(item) for item in value]
-
-
 class AutoFinStep(BaseStep):
     """Shared Auto Fin helpers."""
 
@@ -125,6 +90,7 @@ class AutoFinStep(BaseStep):
         prompt_name: str,
         resource_name: str,
         model: type[BaseModel],
+        job_tools: list[str] | None = None,
         **values: str,
     ) -> tuple[BaseModel, Path]:
         """Send a complete prompt directly and persist its structured reply."""
@@ -143,7 +109,10 @@ class AutoFinStep(BaseStep):
             f"[{self.name}] agent input prompt={prompt_name} schema={model.__name__} "
             f"query_chars={len(prompt)} truncated={str(input_truncated).lower()} query={input_preview}",
         )
-        result = await self.agent_wrapper.reply(prompt, output_schema=model)
+        reply_kwargs: dict[str, Any] = {"output_schema": model}
+        if job_tools:
+            reply_kwargs["job_tools"] = job_tools
+        result = await self.agent_wrapper.reply(prompt, **reply_kwargs)
         if not isinstance(result, dict):
             raise TypeError("Auto Fin Agent reply must be a dictionary")
         value = result.get("structured_output")
@@ -177,38 +146,6 @@ class AutoFinStep(BaseStep):
         text = json.dumps(value, ensure_ascii=False, default=str)
         return AutoFinStep._text_preview(text, limit)[0]
 
-    async def _fetch(self, endpoint: str, **kwargs) -> list[dict[str, Any]]:
-        provider = self._value("tushare_provider")
-        details = " ".join(
-            f"{key}={kwargs[key]}" for key in ("exchange", "src", "start_date", "end_date") if key in kwargs
-        )
-        provider_name = "injected" if provider is not None else "sdk"
-        started_at = perf_counter()
-        self.logger.debug(
-            f"[{self.name}] tushare fetch start endpoint={endpoint} provider={provider_name} {details}",
-        )
-        try:
-            if provider is not None:
-                value = provider(endpoint, **kwargs)
-                rows = _records(await value if asyncio.iscoroutine(value) else value)
-            else:
-                token = os.getenv("TUSHARE_TOKEN", "").strip()
-                if not token:
-                    raise RuntimeError("TUSHARE_TOKEN is required for Auto Fin")
-                api = create_tushare_api(token)
-                rows = _records(await asyncio.to_thread(getattr(api, endpoint), **kwargs))
-        except Exception:
-            self.logger.exception(
-                f"[{self.name}] tushare fetch failed endpoint={endpoint} elapsed={perf_counter() - started_at:.2f}s "
-                f"{details}",
-            )
-            raise
-        self.logger.debug(
-            f"[{self.name}] tushare fetch done endpoint={endpoint} records={len(rows)} "
-            f"elapsed={perf_counter() - started_at:.2f}s {details}",
-        )
-        return rows
-
     @staticmethod
     def _days(start: date, end: date) -> list[date]:
         return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
@@ -220,10 +157,6 @@ class AutoFinStep(BaseStep):
         if not all(isinstance(row, dict) for row in rows):
             raise ValueError(f"JSONL records must be objects: {path}")
         return rows
-
-    @classmethod
-    async def _read_jsonl(cls, path: Path) -> list[dict[str, Any]]:
-        return await asyncio.to_thread(cls._read_jsonl_sync, path)
 
     @staticmethod
     def _published_at(row: dict[str, Any]) -> datetime | None:
