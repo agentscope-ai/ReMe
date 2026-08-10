@@ -1,4 +1,4 @@
-# pibench — ReMe × π-Bench 主动式个人助理评测套件
+# π-Bench 评测说明
 
 将 **ReMe agent（带持久记忆）** 接入 **π-Bench**（Proactive Personal Assistant
 Benchmark）的胶水层评测套件。只含对接所需的最小代码与配置；π-Bench 框架
