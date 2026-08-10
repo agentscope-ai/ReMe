@@ -138,6 +138,7 @@ reme_workspace/
 |---|---:|---|
 | `date` | `""` | 运行日期；空值使用应用时区当天，非空值必须为 `YYYY-MM-DD` |
 | `force` | `false` | 已有当日简报时仍重新生成 |
+| `use_hf_mirror` | `false` | 是否使用 Hugging Face 镜像站；优先读取 `HF_MIRROR_URL`，未配置时使用 `https://hf-mirror.com` |
 | `topics` | `""` | 精选论文时优先考虑的主题 |
 | `weekly_weight` | `0.7` | RRF 中周榜权重 |
 | `history_days` | `30` | 历史推荐排重窗口 |
@@ -157,10 +158,13 @@ reme_workspace/
 
 ## 镜像站
 
-数据客户端使用 httpx 默认的环境处理，因此存在 `HTTP_PROXY`、`HTTPS_PROXY` 或 `NO_PROXY` 时会自动生效。镜像环境变量独立替换对应数据源的 base URL：
+数据客户端使用 httpx 默认的环境处理，因此存在 `HTTP_PROXY`、`HTTPS_PROXY` 或 `NO_PROXY` 时会自动生效。两个数据源启用镜像的方式不同：Hugging Face 由 `use_hf_mirror` 任务参数控制，arXiv 仅由环境变量驱动。
 
 ```dotenv
-# 未设置时使用 https://huggingface.co
+# 为内置 daily_paper_cron 定时任务启用镜像站
+DAILY_PAPER_USE_HF_MIRROR=true
+
+# 仅在手动任务或定时任务启用镜像时读取；未配置时使用 https://hf-mirror.com
 HF_MIRROR_URL=https://hf-mirror.com
 
 # 未设置时使用 https://arxiv.org
@@ -171,7 +175,9 @@ ARXIV_MIRROR_URL=https://export.arxiv.org
 # ARXIV_MIRROR_URL=http://relay-host:18080/arxiv
 ```
 
-`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。两种 base URL 都会保留路径前缀，末尾 `/` 可有可无；不配置就直接访问官方站点，不会执行备用地址回退。
+`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。两种 base URL 都会保留路径前缀，末尾 `/` 可有可无。不存在备用地址回退：客户端选定哪个 base URL，就只访问该地址。
+
+> **行为变更：** 以往只要设置 `HF_MIRROR_URL` 就会改变 Hugging Face 的访问地址；现在该变量仅在任务启用镜像时才会读取，否则直接访问官方站点，并输出一条“已忽略该变量”的告警日志。手动调用需传入 `use_hf_mirror=true`，`daily_paper_cron` 定时任务需设置 `DAILY_PAPER_USE_HF_MIRROR=true`，才能继续走镜像。
 
 ## 运行方式
 
@@ -198,7 +204,7 @@ reme start config=daily_cookbook job=daily_paper date=2026-08-06 force=true
 reme start config=daily_cookbook
 ```
 
-内置服务监听 `127.0.0.1:8001`，`daily_paper_cron` 按 `Asia/Shanghai` 时区每天 08:00 运行。可通过 `DAILY_PAPER_HOST`、`DAILY_PAPER_PORT` 或启动参数覆盖监听地址和端口。
+内置服务监听 `127.0.0.1:8001`，`daily_paper_cron` 按 `Asia/Shanghai` 时区每天 08:00 运行。设置 `DAILY_PAPER_USE_HF_MIRROR=true` 可让该定时任务使用 Hugging Face 镜像站。可通过 `DAILY_PAPER_HOST`、`DAILY_PAPER_PORT` 或启动参数覆盖监听地址和端口。
 
 ```bash
 curl -s http://127.0.0.1:8001/daily_paper \

@@ -13,6 +13,7 @@ from .arxiv import ARXIV_ID_PATTERN
 from .logger_utils import get_logger
 
 HF_BASE_URL = "https://huggingface.co"
+HF_MIRROR_BASE_URL = "https://hf-mirror.com"
 _PAPER_LINK_PATTERN = re.compile(
     r"href=[\"'](?:https://huggingface\.co)?/papers/(\d{4}\.\d{4,5})(?:[^\"']*)?[\"']",
     re.IGNORECASE,
@@ -73,9 +74,15 @@ class HuggingFacePapersClient:
         max_retries: int = 3,
         detail_concurrency: int = 5,
         logger: Any | None = None,
+        use_mirror: bool = False,
     ) -> None:
         self.logger = logger or get_logger()
-        self.base_url = os.getenv("HF_MIRROR_URL", "").strip().rstrip("/") or HF_BASE_URL
+        configured_mirror = os.getenv("HF_MIRROR_URL", "").strip().rstrip("/")
+        self.base_url = (configured_mirror or HF_MIRROR_BASE_URL) if use_mirror else HF_BASE_URL
+        # HF_MIRROR_URL alone no longer redirects traffic; warn so a stale
+        # mirror-only setup is visible instead of silently hitting the official site.
+        self._ignored_mirror_configured = bool(configured_mirror) and not use_mirror
+        self._source = "mirror" if use_mirror else "official"
         self._owns_client = client is None
         self._timeout = timeout
         self.client = client
@@ -84,13 +91,18 @@ class HuggingFacePapersClient:
 
     async def __aenter__(self) -> "HuggingFacePapersClient":
         if self.client is None:
+            if self._ignored_mirror_configured:
+                self.logger.warning(
+                    "[HuggingFacePapersClient] ignoring configured HF_MIRROR_URL "
+                    "because the mirror is disabled; pass use_hf_mirror=true to use it",
+                )
             self.client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=self._timeout,
                 follow_redirects=True,
                 headers={"User-Agent": "ReMe daily-paper cookbook"},
             )
-            self.logger.info(f"[HuggingFacePapersClient] base_url={self.base_url}")
+            self.logger.info(f"[HuggingFacePapersClient] source={self._source}")
         else:
             self.logger.debug("[HuggingFacePapersClient] network mode=injected_client")
         return self

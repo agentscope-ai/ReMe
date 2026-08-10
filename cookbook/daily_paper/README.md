@@ -149,6 +149,7 @@ Public job parameters:
 |---|---:|---|
 | `date` | `""` | Run date; empty uses today in the app timezone, otherwise requires `YYYY-MM-DD` |
 | `force` | `false` | Regenerate even when the day's brief exists |
+| `use_hf_mirror` | `false` | Use the Hugging Face mirror from `HF_MIRROR_URL`, or `https://hf-mirror.com` when unset |
 | `topics` | `""` | Topics to prioritize during selection |
 | `weekly_weight` | `0.7` | Weekly contribution to RRF |
 | `history_days` | `30` | Prior recommendation exclusion window |
@@ -169,10 +170,14 @@ Step-level settings on the `daily_paper` job:
 ## Mirrors
 
 The data clients use httpx's default environment handling, so `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` take effect
-when present. Mirror environment variables independently replace each service's base URL:
+when present. The two data sources reach a mirror differently: Hugging Face is gated on the `use_hf_mirror` job
+parameter, while arXiv is driven by its environment variable alone.
 
 ```dotenv
-# Defaults to https://huggingface.co when unset
+# Enable the mirror for the built-in daily_paper_cron job
+DAILY_PAPER_USE_HF_MIRROR=true
+
+# Read only when the manual or scheduled job enables the mirror; defaults to https://hf-mirror.com when unset
 HF_MIRROR_URL=https://hf-mirror.com
 
 # Defaults to https://arxiv.org when unset
@@ -185,7 +190,12 @@ ARXIV_MIRROR_URL=https://export.arxiv.org
 
 `HF_MIRROR_URL` must implement the `/papers/...`, `/api/daily_papers`, and `/api/papers/...` routes used by the current
 client. `ARXIV_MIRROR_URL` must implement `/pdf/<arxiv-id>`. A path prefix in either base URL is preserved, and a
-trailing slash is optional. When a variable is unset, the official service is used directly; there is no fallback chain.
+trailing slash is optional. There is no fallback chain: whichever base URL a client selects is the only one it tries.
+
+> **Behavior change:** `HF_MIRROR_URL` used to redirect Hugging Face traffic on its own. It is now read only when the
+> job runs with `use_hf_mirror=true`; otherwise the official service is used and the client logs a warning that the
+> variable was ignored. Pass `use_hf_mirror=true` for manual requests, or set
+> `DAILY_PAPER_USE_HF_MIRROR=true` for `daily_paper_cron`, to keep an existing mirror-only setup working.
 
 ## Running the workflow
 
@@ -213,7 +223,8 @@ reme start config=daily_cookbook
 ```
 
 The built-in service listens on `127.0.0.1:8001`. `daily_paper_cron` runs every day at 08:00 in the
-`Asia/Shanghai` timezone. Override the bind address with `DAILY_PAPER_HOST`, `DAILY_PAPER_PORT`, or startup arguments.
+`Asia/Shanghai` timezone. Set `DAILY_PAPER_USE_HF_MIRROR=true` to make that scheduled job use the Hugging Face mirror.
+Override the bind address with `DAILY_PAPER_HOST`, `DAILY_PAPER_PORT`, or startup arguments.
 
 ```bash
 curl -s http://127.0.0.1:8001/daily_paper \
