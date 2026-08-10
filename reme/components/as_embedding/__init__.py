@@ -1,6 +1,7 @@
 """AgentScope embedding model wrappers."""
 
 import hashlib
+import os
 from typing import Any
 
 from agentscope.credential import (
@@ -52,13 +53,13 @@ class BaseAsEmbedding(BaseComponent):
                 self.backend or self.credential_cls.__name__,
                 str(getattr(self.model, "model", self.kwargs.get("model") or "")),
                 str(self.dimensions),
-                self._endpoint(getattr(self.model, "credential", self.kwargs.get("credential"))),
+                self._model_endpoint(),
             )
         return (
             self.backend or self.credential_cls.__name__,
             str(self.kwargs.get("model") or ""),
             str(self.dimensions),
-            self._endpoint(self.kwargs.get("credential")),
+            self._configured_endpoint(),
         )
 
     @property
@@ -78,6 +79,15 @@ class BaseAsEmbedding(BaseComponent):
             if value:
                 return str(value).rstrip("/")
         return ""
+
+    def _configured_endpoint(self) -> str:
+        """Return the endpoint configured before lazy provider construction."""
+        return self._endpoint(self.kwargs.get("credential"))
+
+    def _model_endpoint(self) -> str:
+        """Return the endpoint used by the constructed provider."""
+        assert self.model is not None
+        return self._endpoint(getattr(self.model, "credential", self.kwargs.get("credential")))
 
     async def __call__(self, inputs: list[Any], **kwargs) -> list[list[float]]:
         self._ensure_model()
@@ -119,6 +129,22 @@ class OpenAIAsEmbedding(BaseAsEmbedding):
     """OpenAI embedding model wrapper."""
 
     credential_cls = OpenAICredential
+    _default_base_url = "https://api.openai.com/v1"
+
+    def _configured_endpoint(self) -> str:
+        """Resolve the endpoint with the same precedence as the OpenAI SDK."""
+        credential = self.kwargs.get("credential")
+        base_url = credential.get("base_url") if isinstance(credential, dict) else None
+        if base_url is None:
+            base_url = os.environ.get("OPENAI_BASE_URL") or self._default_base_url
+        return str(base_url).rstrip("/")
+
+    def _model_endpoint(self) -> str:
+        """Read the endpoint the OpenAI client actually resolved."""
+        assert self.model is not None
+        client = getattr(self.model, "client", None)
+        base_url = getattr(client, "base_url", None)
+        return str(base_url).rstrip("/") if base_url is not None else super()._model_endpoint()
 
 
 @R.register("dashscope")

@@ -36,7 +36,12 @@ class BadHealthAsEmbedding:
 class FakeProviderModel:
     """Stand-in for a constructed AgentScope embedding model object."""
 
-    def __init__(self, model: str, dimensions: int = 2, base_url: str = ""):
+    def __init__(
+        self,
+        model: str,
+        dimensions: int = 2,
+        base_url: str = "https://api.openai.com/v1",
+    ):
         self.model = model
         self.dimensions = dimensions
         self.credential = SimpleNamespace(base_url=base_url)
@@ -253,6 +258,55 @@ def test_vector_space_id_is_stable_across_lazy_provider_construction():
     embedding.model = FakeProviderModel("v3", base_url="https://example.com/v1")
 
     assert embedding.vector_space_id == before
+
+
+def test_openai_vector_space_id_uses_sdk_resolved_endpoint(monkeypatch):
+    """OPENAI_BASE_URL must separate caches and stay stable after lazy construction."""
+    clients = []
+    ids = []
+    try:
+        for endpoint in ("https://provider-a.example/v1", "https://provider-b.example/v1"):
+            monkeypatch.setenv("OPENAI_BASE_URL", endpoint)
+            embedding = OpenAIAsEmbedding(
+                name="t_space_openai_env",
+                backend="openai",
+                model="text-embedding-3-small",
+                dimensions=1536,
+                credential={"api_key": "test"},
+            )
+            before = embedding.vector_space_id
+
+            embedding._ensure_model()
+            clients.append(embedding.model.client)
+
+            assert str(embedding.model.client.base_url).rstrip("/") == endpoint
+            assert embedding.vector_space_id == before
+            ids.append(before)
+
+        assert ids[0] != ids[1]
+    finally:
+        for client in clients:
+            run(client.close())
+
+
+def test_openai_vector_space_id_uses_sdk_default_endpoint(monkeypatch):
+    """The SDK default URL must not change the namespace on first construction."""
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    embedding = OpenAIAsEmbedding(
+        name="t_space_openai_default",
+        backend="openai",
+        model="text-embedding-3-small",
+        dimensions=1536,
+        credential={"api_key": "test"},
+    )
+    before = embedding.vector_space_id
+
+    embedding._ensure_model()
+    try:
+        assert str(embedding.model.client.base_url).rstrip("/") == "https://api.openai.com/v1"
+        assert embedding.vector_space_id == before
+    finally:
+        run(embedding.model.client.close())
 
 
 def test_cache_is_saved_and_restored_per_vector_space(monkeypatch, tmp_path):
