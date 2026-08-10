@@ -12,10 +12,6 @@
 
 > **ReMe 是一个面向 AI Agent 的、local-first 的自进化个人知识库。它让对话与资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆，并从中提炼值得继续关注的线索。**
 
-项目地址：[https://github.com/agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe)
-
-项目文档：[https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)
-
 <p align="center">
   <img src="../figure/reme-blog/reme-blog-cover-benchmark.png" alt="ReMe 自进化个人知识库与公开基准结果" width="100%">
 </p>
@@ -306,6 +302,3 @@ ReMe 已经开源，我们也欢迎社区一起把这套自进化记忆系统做
 - 完善文档、测试，或通过 Issue 分享你对个人 AI 记忆的需求与想法。
 
 无论是一段代码、一份使用案例、一次问题反馈，还是一个新的记忆工作流，都可能帮助 ReMe 更接近真正可读、可控、可持续进化的个人知识库。
-
-
-贡献指南：[https://docs.agentscope.io/reme/latest/en/contribution](https://docs.agentscope.io/reme/latest/en/contribution)
