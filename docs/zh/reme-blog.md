@@ -264,6 +264,8 @@ LongMemEval cleaned-s 包含单会话事实、偏好、多会话推理、知识�
 
 BEAM 覆盖矛盾消解、事件排序、信息抽取、知识更新、多会话推理、偏好遵循、摘要和时间推理等十类任务。ReMe 在 100K 设置下的 20 cases / 400 题上取得 66.1%，在 1M 设置下的 35 cases / 700 题上取得 65.0%。完整设置见 [BEAM 评测说明](../../benchmark/beam/README_ZH.md)。
 
+此外，ReMe 还使用 $\pi$-Bench 验证了基于多会话推理提升 Agent 主动性的潜力。$\pi$-Bench 中的 PROC 分数旨在评估 Agent 在隐藏意图直接完成、针对性澄清引导、跨会话偏好恢复、跨会话规范复用、跨任务依赖推断以及欠规格请求推进等方面的主动性能力。ReMe Agent 在 5 种用户角色（User Persona）上平均取得 0.580 的 PROC 分数，超出相同测试模型配置的 NanoBot 2.4%。完整设置见 [$\pi$-Bench 评测说明](../../benchmark/pibench/README.md)。
+
 ## ReMe 能帮谁？
 
 ### 直接使用 Agent 的人
