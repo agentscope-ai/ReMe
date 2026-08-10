@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -19,7 +18,7 @@ HEADERS = {
     "Accept": "application/json, text/plain, */*",
     "Referer": "https://www.cls.cn/telegraph",
 }
-SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
+SHANGHAI_TIMEZONE = timezone(timedelta(hours=8), "Asia/Shanghai")
 DEFAULT_TOPICS = ("黄金", "机器人", "半导体")
 WINDOW = timedelta(hours=24)
 

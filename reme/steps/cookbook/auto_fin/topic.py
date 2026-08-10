@@ -21,8 +21,7 @@ class AutoFinTopicStep(AutoFinStep):
         selected: set[str] = set()
         for start in range(0, len(news), batch_size):
             batch = [
-                {**row, "content": str(row.get("content") or "")[:1000]}
-                for row in news[start : start + batch_size]
+                {**row, "content": str(row.get("content") or "")[:1000]} for row in news[start : start + batch_size]
             ]
             output = await self._reply(
                 "topic_user",
