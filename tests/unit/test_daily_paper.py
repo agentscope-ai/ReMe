@@ -118,6 +118,26 @@ async def test_hf_client_uses_configured_mirror(monkeypatch):
     assert info_messages == ["[HuggingFacePapersClient] base_url=https://hf-mirror.com"]
 
 
+def test_hf_client_mirror_switch_controls_source(monkeypatch):
+    """The explicit switch overrides legacy environment-only selection."""
+    monkeypatch.setenv("HF_MIRROR_URL", "https://relay.example/hf")
+
+    official = hf_utils.HuggingFacePapersClient(use_mirror=False)
+    configured_mirror = hf_utils.HuggingFacePapersClient(use_mirror=True)
+
+    assert official.base_url == "https://huggingface.co"
+    assert configured_mirror.base_url == "https://relay.example/hf"
+
+
+def test_hf_client_uses_default_mirror_when_enabled(monkeypatch):
+    """The mirror switch is useful without requiring another setting."""
+    monkeypatch.delenv("HF_MIRROR_URL", raising=False)
+
+    client = hf_utils.HuggingFacePapersClient(use_mirror=True)
+
+    assert client.base_url == "https://hf-mirror.com"
+
+
 @pytest.mark.asyncio
 async def test_hf_client_preserves_mirror_path_prefix(monkeypatch):
     """Relative requests retain a path-prefixed HF_MIRROR_URL."""
@@ -450,6 +470,17 @@ def test_daily_paper_topics_parameter_defaults_to_empty():
         "type": "string",
         "description": "Optional topics to prioritize when selecting papers.",
         "default": "",
+    }
+
+
+def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
+    """The public job schema exposes an explicit Hugging Face mirror switch."""
+    use_hf_mirror = _load_config("daily_cookbook")["jobs"]["daily_paper"]["parameters"]["properties"]["use_hf_mirror"]
+
+    assert use_hf_mirror == {
+        "type": "boolean",
+        "description": "Use the Hugging Face mirror configured by HF_MIRROR_URL, or hf-mirror.com when unset.",
+        "default": False,
     }
 
 

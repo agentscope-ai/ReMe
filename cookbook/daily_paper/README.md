@@ -149,6 +149,7 @@ Public job parameters:
 |---|---:|---|
 | `date` | `""` | Run date; empty uses today in the app timezone, otherwise requires `YYYY-MM-DD` |
 | `force` | `false` | Regenerate even when the day's brief exists |
+| `use_hf_mirror` | `false` | Use the Hugging Face mirror from `HF_MIRROR_URL`, or `https://hf-mirror.com` when unset |
 | `topics` | `""` | Topics to prioritize during selection |
 | `weekly_weight` | `0.7` | Weekly contribution to RRF |
 | `history_days` | `30` | Prior recommendation exclusion window |
@@ -172,7 +173,7 @@ The data clients use httpx's default environment handling, so `HTTP_PROXY`, `HTT
 when present. Mirror environment variables independently replace each service's base URL:
 
 ```dotenv
-# Defaults to https://huggingface.co when unset
+# Preferred when use_hf_mirror=true; defaults to https://hf-mirror.com when unset
 HF_MIRROR_URL=https://hf-mirror.com
 
 # Defaults to https://arxiv.org when unset
@@ -185,7 +186,8 @@ ARXIV_MIRROR_URL=https://export.arxiv.org
 
 `HF_MIRROR_URL` must implement the `/papers/...`, `/api/daily_papers`, and `/api/papers/...` routes used by the current
 client. `ARXIV_MIRROR_URL` must implement `/pdf/<arxiv-id>`. A path prefix in either base URL is preserved, and a
-trailing slash is optional. When a variable is unset, the official service is used directly; there is no fallback chain.
+trailing slash is optional. With `use_hf_mirror=false`, Hugging Face data comes directly from the official service;
+when enabled, the configured mirror is used.
 
 ## Running the workflow
 

@@ -13,6 +13,7 @@ from .arxiv import ARXIV_ID_PATTERN
 from .logger_utils import get_logger
 
 HF_BASE_URL = "https://huggingface.co"
+HF_MIRROR_BASE_URL = "https://hf-mirror.com"
 _PAPER_LINK_PATTERN = re.compile(
     r"href=[\"'](?:https://huggingface\.co)?/papers/(\d{4}\.\d{4,5})(?:[^\"']*)?[\"']",
     re.IGNORECASE,
@@ -73,9 +74,17 @@ class HuggingFacePapersClient:
         max_retries: int = 3,
         detail_concurrency: int = 5,
         logger: Any | None = None,
+        use_mirror: bool | None = None,
     ) -> None:
         self.logger = logger or get_logger()
-        self.base_url = os.getenv("HF_MIRROR_URL", "").strip().rstrip("/") or HF_BASE_URL
+        configured_mirror = os.getenv("HF_MIRROR_URL", "").strip().rstrip("/")
+        if use_mirror is None:
+            # Preserve the environment-driven behavior for direct client users.
+            self.base_url = configured_mirror or HF_BASE_URL
+        elif use_mirror:
+            self.base_url = configured_mirror or HF_MIRROR_BASE_URL
+        else:
+            self.base_url = HF_BASE_URL
         self._owns_client = client is None
         self._timeout = timeout
         self.client = client

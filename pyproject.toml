@@ -38,6 +38,7 @@ dependencies = [
     "uvicorn>=0.41.0",
     "watchfiles>=1.1.1",
     "zstandard>=0.23.0",
+    "pypdf>=6.14.2",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +54,6 @@ core = [
     "rjieba>=0.2.1",
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
-    "pypdf>=5.0.0",
     "polars>=1.43.0",
     "tushare>=1.4.29",
 ]

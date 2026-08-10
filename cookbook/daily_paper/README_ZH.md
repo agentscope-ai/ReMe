@@ -138,6 +138,7 @@ reme_workspace/
 |---|---:|---|
 | `date` | `""` | 运行日期；空值使用应用时区当天，非空值必须为 `YYYY-MM-DD` |
 | `force` | `false` | 已有当日简报时仍重新生成 |
+| `use_hf_mirror` | `false` | 是否使用 Hugging Face 镜像站；优先读取 `HF_MIRROR_URL`，未配置时使用 `https://hf-mirror.com` |
 | `topics` | `""` | 精选论文时优先考虑的主题 |
 | `weekly_weight` | `0.7` | RRF 中周榜权重 |
 | `history_days` | `30` | 历史推荐排重窗口 |
@@ -160,7 +161,7 @@ reme_workspace/
 数据客户端使用 httpx 默认的环境处理，因此存在 `HTTP_PROXY`、`HTTPS_PROXY` 或 `NO_PROXY` 时会自动生效。镜像环境变量独立替换对应数据源的 base URL：
 
 ```dotenv
-# 未设置时使用 https://huggingface.co
+# use_hf_mirror=true 时优先使用此地址；未设置时使用 https://hf-mirror.com
 HF_MIRROR_URL=https://hf-mirror.com
 
 # 未设置时使用 https://arxiv.org
@@ -171,7 +172,7 @@ ARXIV_MIRROR_URL=https://export.arxiv.org
 # ARXIV_MIRROR_URL=http://relay-host:18080/arxiv
 ```
 
-`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。两种 base URL 都会保留路径前缀，末尾 `/` 可有可无；不配置就直接访问官方站点，不会执行备用地址回退。
+`HF_MIRROR_URL` 必须提供当前代码使用的 `/papers/...`、`/api/daily_papers` 和 `/api/papers/...` 路径。`ARXIV_MIRROR_URL` 必须支持 `/pdf/<arxiv-id>`。两种 base URL 都会保留路径前缀，末尾 `/` 可有可无。`use_hf_mirror=false` 时 Hugging Face 数据直接从官方站点获取；开启后使用配置的镜像地址。
 
 ## 运行方式
 
