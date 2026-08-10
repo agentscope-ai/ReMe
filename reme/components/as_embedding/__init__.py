@@ -58,7 +58,7 @@ class BaseAsEmbedding(BaseComponent):
             self.backend or self.credential_cls.__name__,
             str(self.kwargs.get("model") or ""),
             str(self.dimensions),
-            self._endpoint(self.kwargs.get("credential")),
+            self._configured_endpoint(),
         )
 
     @property
@@ -75,6 +75,21 @@ class BaseAsEmbedding(BaseComponent):
         """Read the provider endpoint from a credential object or a raw kwargs dict."""
         for field in ("base_url", "host"):
             value = credential.get(field) if isinstance(credential, dict) else getattr(credential, field, None)
+            if value:
+                return str(value).rstrip("/")
+        return ""
+
+    def _configured_endpoint(self) -> str:
+        """Resolve endpoint defaults without constructing the provider eagerly."""
+        credential = self.kwargs.get("credential")
+        if not isinstance(credential, dict):
+            return self._endpoint(credential)
+        fields = getattr(self.credential_cls, "model_fields", {})
+        for name in ("base_url", "host"):
+            value = credential.get(name)
+            field = fields.get(name)
+            if name not in credential and field is not None and not field.is_required():
+                value = field.get_default(call_default_factory=True)
             if value:
                 return str(value).rstrip("/")
         return ""
