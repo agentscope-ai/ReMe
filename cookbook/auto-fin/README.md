@@ -63,6 +63,9 @@ refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent 
 | `date` | `""` | Empty uses today in Shanghai; an explicit value must equal today |
 | `now` | `""` | Optional ISO 8601 decision time for testing or replay |
 | `topics` | `"黄金,机器人,半导体"` | Comma-separated topics; empty also uses these defaults |
+| `window_hours` | `24` | Rolling number of hours of CLS telegraph news to fetch; must be positive |
+| `request_interval` | `10` | Minimum delay in seconds after every CLS request attempt; may be zero |
+| `max_retries` | `3` | Maximum attempts for each CLS page request; must be at least one |
 
 The built-in schedules run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
 

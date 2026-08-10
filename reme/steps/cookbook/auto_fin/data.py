@@ -62,8 +62,14 @@ class AutoFinDataStep(AutoFinStep):
             raise RuntimeError("CLS API returned invalid roll_data")
         return rows
 
-    async def _fetch_recent(self, decision_at: datetime) -> list[dict[str, str]]:
-        cutoff = decision_at - WINDOW
+    def _window(self) -> timedelta:
+        hours = float(self._value("window_hours", WINDOW.total_seconds() / 3600))
+        if hours <= 0:
+            raise ValueError("Auto Fin window_hours must be greater than zero")
+        return timedelta(hours=hours)
+
+    async def _fetch_recent(self, decision_at: datetime, window: timedelta) -> list[dict[str, str]]:
+        cutoff = decision_at - window
         cursor = int(decision_at.timestamp())
         interval = max(0.0, float(self._value("request_interval", 10)))
         max_retries = max(1, int(self._value("max_retries", 3)))
@@ -127,18 +133,25 @@ class AutoFinDataStep(AutoFinStep):
     async def execute(self):
         assert self.context is not None
         run_date, decision_at = self._schedule()
-        news = await self._fetch_recent(decision_at)
+        window = self._window()
+        news = await self._fetch_recent(decision_at, window)
         topics = self._topics(self._value("topics"))
         self.context.update(
             {
                 "auto_fin_date": run_date.isoformat(),
                 "auto_fin_decision_at": decision_at.isoformat(),
-                "auto_fin_window_start": (decision_at - WINDOW).isoformat(),
+                "auto_fin_window_start": (decision_at - window).isoformat(),
+                "auto_fin_window_hours": window.total_seconds() / 3600,
                 "auto_fin_topics": topics,
                 "auto_fin_news": news,
             },
         )
         self.context.response.metadata.update(
-            {"date": run_date.isoformat(), "fetched_news_count": len(news), "topics": topics},
+            {
+                "date": run_date.isoformat(),
+                "fetched_news_count": len(news),
+                "window_hours": window.total_seconds() / 3600,
+                "topics": topics,
+            },
         )
         return self.context.response

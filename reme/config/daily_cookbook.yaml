@@ -334,6 +334,21 @@ jobs:
           type: string
           description: "Comma-separated topics used to filter current CLS news."
           default: "黄金,机器人,半导体"
+        window_hours:
+          type: number
+          exclusiveMinimum: 0
+          description: "Rolling number of hours of CLS news to fetch."
+          default: 24
+        request_interval:
+          type: number
+          minimum: 0
+          description: "Minimum delay in seconds after each CLS request attempt."
+          default: 10
+        max_retries:
+          type: integer
+          minimum: 1
+          description: "Maximum attempts for each CLS page request."
+          default: 3
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
       - backend: auto_fin_topic_step

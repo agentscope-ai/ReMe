@@ -66,6 +66,29 @@ async def test_data_step_fetches_exact_24_hours_with_default_topics(tmp_path: Pa
     assert not list(tmp_path.rglob("*.md"))
 
 
+@pytest.mark.asyncio
+async def test_data_step_uses_configurable_window_hours(tmp_path: Path, monkeypatch):
+    end = datetime(2026, 8, 10, 9, 30, tzinfo=SHANGHAI)
+
+    async def page(_self, _client, _last_time):
+        return [
+            _row(1, end, "窗口内"),
+            _row(2, end.replace(day=9, hour=21, minute=30), "窗口边界"),
+            _row(3, end.replace(day=9, hour=21, minute=29), "窗口之外"),
+        ]
+
+    monkeypatch.setattr(AutoFinDataStep, "_request_page", page)
+    context = RuntimeContext(date="2026-08-10", now=end.isoformat(), topics="黄金", window_hours=12)
+    await AutoFinDataStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+        request_interval=0,
+    )(context)
+
+    assert [row["news_id"] for row in context["auto_fin_news"]] == ["2", "1"]
+    assert context["auto_fin_window_start"] == "2026-08-09T21:30:00+08:00"
+    assert context["auto_fin_window_hours"] == 12
+
+
 class _TopicAgent(BaseAgentWrapper):
     def __init__(self, news_ids: list[str], **kwargs):
         super().__init__(**kwargs)
@@ -180,6 +203,9 @@ def test_config_has_default_topics_and_no_intermediate_index_step():
     config = _load_config("daily_cookbook")
     job = config["jobs"]["auto_fin"]
     assert job["parameters"]["properties"]["topics"]["default"] == "黄金,机器人,半导体"
+    assert job["parameters"]["properties"]["window_hours"]["default"] == 24
+    assert job["parameters"]["properties"]["request_interval"]["default"] == 10
+    assert job["parameters"]["properties"]["max_retries"]["default"] == 3
     assert "news_file" not in job["parameters"]["properties"]
     assert [step["backend"] for step in job["steps"]] == [
         "auto_fin_data_step",
