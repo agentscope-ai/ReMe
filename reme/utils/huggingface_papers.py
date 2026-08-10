@@ -81,7 +81,8 @@ class HuggingFacePapersClient:
         self.base_url = (configured_mirror or HF_MIRROR_BASE_URL) if use_mirror else HF_BASE_URL
         # HF_MIRROR_URL alone no longer redirects traffic; warn so a stale
         # mirror-only setup is visible instead of silently hitting the official site.
-        self._ignored_mirror_url = "" if use_mirror else configured_mirror
+        self._ignored_mirror_configured = bool(configured_mirror) and not use_mirror
+        self._source = "mirror" if use_mirror else "official"
         self._owns_client = client is None
         self._timeout = timeout
         self.client = client
@@ -90,9 +91,9 @@ class HuggingFacePapersClient:
 
     async def __aenter__(self) -> "HuggingFacePapersClient":
         if self.client is None:
-            if self._ignored_mirror_url:
+            if self._ignored_mirror_configured:
                 self.logger.warning(
-                    f"[HuggingFacePapersClient] ignoring HF_MIRROR_URL={self._ignored_mirror_url} "
+                    "[HuggingFacePapersClient] ignoring configured HF_MIRROR_URL "
                     "because the mirror is disabled; pass use_hf_mirror=true to use it",
                 )
             self.client = httpx.AsyncClient(
@@ -101,7 +102,7 @@ class HuggingFacePapersClient:
                 follow_redirects=True,
                 headers={"User-Agent": "ReMe daily-paper cookbook"},
             )
-            self.logger.info(f"[HuggingFacePapersClient] base_url={self.base_url}")
+            self.logger.info(f"[HuggingFacePapersClient] source={self._source}")
         else:
             self.logger.debug("[HuggingFacePapersClient] network mode=injected_client")
         return self

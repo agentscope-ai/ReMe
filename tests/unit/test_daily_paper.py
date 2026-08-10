@@ -116,7 +116,7 @@ async def test_hf_client_uses_configured_mirror(monkeypatch):
 
     assert events == ["client-close"]
     info_messages = [call.args[0] for call in logger.info.call_args_list]
-    assert info_messages == ["[HuggingFacePapersClient] base_url=https://hf-mirror.com"]
+    assert info_messages == ["[HuggingFacePapersClient] source=mirror"]
 
 
 def test_hf_client_mirror_switch_controls_source(monkeypatch):
@@ -154,14 +154,18 @@ async def test_hf_client_warns_when_mirror_url_is_ignored(monkeypatch):
             """Match the owned-client cleanup contract."""
 
     monkeypatch.setattr(hf_utils.httpx, "AsyncClient", FakeAsyncClient)
-    monkeypatch.setenv("HF_MIRROR_URL", "https://relay.example/hf")
+    secret_mirror_url = "https://user:password@relay.example/hf?token=secret"
+    monkeypatch.setenv("HF_MIRROR_URL", secret_mirror_url)
 
     async with hf_utils.HuggingFacePapersClient(logger=logger) as client:
         assert client.base_url == "https://huggingface.co"
 
     warning = logger.warning.call_args.args[0]
-    assert "ignoring HF_MIRROR_URL=https://relay.example/hf" in warning
+    assert "ignoring configured HF_MIRROR_URL" in warning
     assert "use_hf_mirror=true" in warning
+    assert secret_mirror_url not in warning
+    assert "password" not in warning
+    assert "secret" not in warning
 
 
 @pytest.mark.asyncio
@@ -508,6 +512,15 @@ def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
         "description": "Use the Hugging Face mirror configured by HF_MIRROR_URL, or hf-mirror.com when unset.",
         "default": False,
     }
+
+
+def test_daily_paper_cron_hf_mirror_uses_explicit_environment_switch(monkeypatch):
+    """The scheduled workflow can opt in to the Hugging Face mirror."""
+    monkeypatch.delenv("DAILY_PAPER_USE_HF_MIRROR", raising=False)
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
+
+    monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "true")
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is True
 
 
 def test_paper_pick_list_uses_an_object_root_for_tool_output():

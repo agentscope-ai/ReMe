@@ -451,6 +451,7 @@ jobs:
   daily_paper_cron:
     backend: cron
     cron: "0 8 * * *"
+    use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-false}
     candidate_limit: *candidate_limit
     rrf_k: *rrf_k
     weekly_weight: *weekly_weight
