@@ -199,3 +199,69 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
     await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
 
     assert observed == {"names": expected, "sequential_tool_calls": True}
+
+
+@pytest.mark.asyncio
+async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_path, monkeypatch):
+    """AgentScope selects the compatible tool choice for structured output."""
+    observed = {}
+
+    class FakeModel:
+        """Record structured-output arguments."""
+
+        async def generate_structured_output(self, **kwargs):
+            """Return a successful structured response."""
+            observed.update(kwargs)
+            return SimpleNamespace(content={"ok": True}, usage=None)
+
+    class FakeMessage:
+        """Minimal AgentScope reply message."""
+
+        usage = None
+
+        @staticmethod
+        def model_dump():
+            """Return serialized message content."""
+            return {"content": "answer"}
+
+        @staticmethod
+        def get_text_content():
+            """Return plain text content."""
+            return "answer"
+
+    class FakeAgent:
+        """Minimal AgentScope agent."""
+
+        state = SimpleNamespace(session_id="session-1", context=["context"])
+
+        @staticmethod
+        async def observe(_inputs):
+            """Accept an input message."""
+            return None
+
+        @staticmethod
+        async def reply():
+            """Return the fake reply message."""
+            return FakeMessage()
+
+    wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
+    wrapper.as_llm = SimpleNamespace(model=FakeModel())
+
+    async def build_agent(inputs, **_kwargs):
+        """Return the fake AgentScope agent."""
+        return FakeAgent(), inputs
+
+    async def dump_state(_state):
+        """Skip session persistence."""
+        return None
+
+    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
+    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+
+    result = await wrapper.reply("hello", output_schema={"type": "object"})
+
+    assert observed == {
+        "messages": ["context"],
+        "structured_model": {"type": "object"},
+    }
+    assert result["structured_output"] == {"ok": True}
