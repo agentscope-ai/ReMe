@@ -17,6 +17,8 @@ class AutoFinTopicStep(AutoFinStep):
         assert self.context is not None
         news = list(self._required("auto_fin_news"))
         topics = list(self._required("auto_fin_topics"))
+        window_hours = float(self._value("auto_fin_window_hours", 24))
+        formatted_hours = f"{window_hours:g}"
         batch_size = max(1, int(self._value("topic_batch_size", 50)))
         selected: set[str] = set()
         for start in range(0, len(news), batch_size):
@@ -28,13 +30,14 @@ class AutoFinTopicStep(AutoFinStep):
                 AutoFinTopicOutput,
                 topics=json.dumps(topics, ensure_ascii=False),
                 news=json.dumps(batch, ensure_ascii=False),
+                window_hours=formatted_hours,
             )
             selected.update(output.news_ids)
         relevant = [row for row in news if row["news_id"] in selected]
         self.context["auto_fin_selected_news"] = relevant
         self.context.response.metadata["relevant_news_count"] = len(relevant)
         if not relevant:
-            reason = f"最近24小时没有与 {', '.join(topics)} 相关的财联社新闻。"
+            reason = f"最近{formatted_hours}小时没有与 {', '.join(topics)} 相关的财联社新闻。"
             self.context["auto_fin_skipped"] = True
             self.context.response.answer = reason
             self.context.response.metadata.update({"skipped": True, "skip_reason": reason})

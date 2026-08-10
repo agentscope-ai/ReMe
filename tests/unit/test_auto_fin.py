@@ -123,20 +123,24 @@ async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Path):
     app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _TopicAgent([], app_context=app_context)
     context = RuntimeContext(
         auto_fin_news=[
             {"news_id": "1", "event_time": "2026-08-10T08:00:00+08:00", "title": "甲", "content": "甲"},
         ],
         auto_fin_topics=["黄金"],
+        auto_fin_window_hours=12,
     )
 
     response = await AutoFinTopicStep(
         app_context=app_context,
-        agent_wrapper=_TopicAgent([], app_context=app_context),
+        agent_wrapper=agent,
     )(context)
 
     assert context["auto_fin_skipped"] is True
     assert response.metadata["skipped"] is True
+    assert response.answer == "最近12小时没有与 黄金 相关的财联社新闻。"
+    assert "最近12小时" in agent.calls[0][0]
     assert not list(tmp_path.rglob("*.md"))
 
 
