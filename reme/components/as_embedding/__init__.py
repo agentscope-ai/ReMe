@@ -81,8 +81,19 @@ class BaseAsEmbedding(BaseComponent):
         return ""
 
     def _configured_endpoint(self) -> str:
-        """Return the endpoint configured before lazy provider construction."""
-        return self._endpoint(self.kwargs.get("credential"))
+        """Resolve endpoint defaults without constructing the provider eagerly."""
+        credential = self.kwargs.get("credential")
+        if not isinstance(credential, dict):
+            return self._endpoint(credential)
+        fields = getattr(self.credential_cls, "model_fields", {})
+        for name in ("base_url", "host"):
+            value = credential.get(name)
+            field = fields.get(name)
+            if name not in credential and field is not None and not field.is_required():
+                value = field.get_default(call_default_factory=True)
+            if value:
+                return str(value).rstrip("/")
+        return ""
 
     def _model_endpoint(self) -> str:
         """Return the endpoint used by the constructed provider."""

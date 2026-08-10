@@ -117,7 +117,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
             batch = misses[start : start + size]
             for idx, key, emb in await self._compute_batch(batch, **kwargs):
                 results[idx] = emb
-                if vector_space_id == self.vector_space_id:
+                if vector_space_id == self.vector_space_id == self._cache_space:
                     self._cache_put(key, emb)
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
@@ -187,16 +187,25 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         if space == self._cache_space:
             return
         async with self._cache_space_lock:
-            space = self.vector_space_id
-            if space == self._cache_space:
+            while True:
+                space = self.vector_space_id
+                if space == self._cache_space:
+                    return
+                previous = self._cache_space
+                snapshot = list(self._cache.items())
+                if previous and self.enable_cache and snapshot:
+                    await asyncio.to_thread(self._dump_sync, previous, snapshot)
+                if space != self.vector_space_id:
+                    continue
+                dimensions = self.dimensions
+                cache: OrderedDict[str, np.ndarray] = OrderedDict()
+                if self.enable_cache and self._cache_path(space).exists():
+                    cache = await asyncio.to_thread(self._load_sync, space, dimensions)
+                if space != self.vector_space_id:
+                    continue
+                self._cache = cache
+                self._cache_space = space
                 return
-            previous = self._cache_space
-            if previous and self.enable_cache and self._cache:
-                await asyncio.to_thread(self._dump_sync, previous)
-            self._cache.clear()
-            self._cache_space = space
-            if self.enable_cache and self._cache_path(space).exists():
-                await asyncio.to_thread(self._load_sync, space)
 
     def _cache_key(self, text: str) -> str:
         return hashlib.sha256(text.encode()).hexdigest()
@@ -223,40 +232,41 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def load(self) -> None:
         self._cache.clear()
-        self._cache_space = self.vector_space_id
-        if not self.enable_cache or not self._cache_path(self._cache_space).exists():
-            return
-        await asyncio.to_thread(self._load_sync, self._cache_space)
+        self._cache_space = ""
+        await self._sync_cache_space()
 
-    def _load_sync(self, vector_space_id: str) -> None:
+    def _load_sync(self, vector_space_id: str, dimensions: int) -> OrderedDict[str, np.ndarray]:
         path = self._cache_path(vector_space_id)
+        cache: OrderedDict[str, np.ndarray] = OrderedDict()
         try:
             with np.load(path) as data:
                 for key, emb in zip(data["keys"], data["embeddings"]):
-                    if len(emb) != self.dimensions:
+                    if len(emb) != dimensions:
                         continue
-                    if len(self._cache) >= self.max_cache_size:
+                    if len(cache) >= self.max_cache_size:
                         break
-                    self._cache[str(key)] = emb.astype(np.float16)
+                    cache[str(key)] = emb.astype(np.float16)
         except Exception:
             self.logger.exception("Failed to load embedding cache, removing")
             path.unlink(missing_ok=True)
-            return
-        self.logger.info(f"Loaded {len(self._cache)} embeddings from {path}")
+            return cache
+        self.logger.info(f"Loaded {len(cache)} embeddings from {path}")
+        return cache
 
     async def dump(self) -> None:
         await self._sync_cache_space()
-        if not self.enable_cache or not self._cache:
+        snapshot = list(self._cache.items())
+        if not self.enable_cache or not snapshot:
             return
-        await asyncio.to_thread(self._dump_sync, self._cache_space)
+        await asyncio.to_thread(self._dump_sync, self._cache_space, snapshot)
 
-    def _dump_sync(self, vector_space_id: str) -> None:
+    def _dump_sync(self, vector_space_id: str, cache: list[tuple[str, np.ndarray]]) -> None:
         path = self._cache_path(vector_space_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        keys = np.array(list(self._cache.keys()), dtype=str)
-        embeddings = np.stack(list(self._cache.values()))
+        keys = np.array([key for key, _ in cache], dtype=str)
+        embeddings = np.stack([embedding for _, embedding in cache])
         try:
             np.savez(path, keys=keys, embeddings=embeddings)
-            self.logger.info(f"Saved {len(self._cache)} embeddings to {path}")
+            self.logger.info(f"Saved {len(cache)} embeddings to {path}")
         except Exception:
             self.logger.exception("Failed to save embedding cache")

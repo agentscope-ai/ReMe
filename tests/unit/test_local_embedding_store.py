@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from reme.components.as_embedding import OpenAIAsEmbedding
+from reme.components.as_embedding import DashScopeAsEmbedding, OpenAIAsEmbedding
 from reme.components.embedding_store.base_embedding_store import BaseEmbeddingStore
 from reme.components.embedding_store.local_embedding_store import LocalEmbeddingStore
 from reme.schema import EmbNode
@@ -260,6 +260,21 @@ def test_vector_space_id_is_stable_across_lazy_provider_construction():
     assert embedding.vector_space_id == before
 
 
+def test_vector_space_id_resolves_default_endpoint_before_lazy_construction():
+    """Credential defaults must not change the cache namespace on the first request."""
+    embedding = DashScopeAsEmbedding(
+        name="t_space_default_endpoint",
+        model="text-embedding-v3",
+        dimensions=1024,
+        credential={"api_key": "test"},
+    )
+    before = embedding.vector_space_id
+
+    embedding._ensure_model()
+
+    assert embedding.vector_space_id == before
+
+
 def test_openai_vector_space_id_uses_sdk_resolved_endpoint(monkeypatch):
     """OPENAI_BASE_URL must separate caches and stay stable after lazy construction."""
     clients = []
@@ -339,6 +354,66 @@ def test_cache_is_saved_and_restored_per_vector_space(monkeypatch, tmp_path):
         await store._sync_cache_space()
 
         np.testing.assert_array_equal(store._cache_get(key), np.array([1.0, 0.0], dtype=np.float16))
+
+    run(go())
+
+
+def test_cache_space_is_rechecked_after_async_load(monkeypatch, tmp_path):
+    """A provider switch during disk I/O must not publish the stale namespace."""
+
+    async def go():
+        monkeypatch.setattr(
+            LocalEmbeddingStore,
+            "component_metadata_path",
+            property(lambda _self: tmp_path),
+        )
+        embedding = OpenAIAsEmbedding(name="t_space_load_race", backend="openai", model="v3", dimensions=2)
+        store = LocalEmbeddingStore(name="t_local_load_race")
+        store.as_embedding = embedding
+        await store.load()
+
+        embedding.model = FakeProviderModel("v4")
+        v4_space = embedding.vector_space_id
+        np.savez(
+            store._cache_path(v4_space),
+            keys=np.array([store._cache_key("hello")]),
+            embeddings=np.array([[4.0, 0.0]], dtype=np.float16),
+        )
+        original_to_thread = asyncio.to_thread
+
+        async def switch_during_load(func, *args):
+            if getattr(func, "__name__", "") == "_load_sync":
+                embedding.model = FakeProviderModel("v3")
+            return await original_to_thread(func, *args)
+
+        monkeypatch.setattr(asyncio, "to_thread", switch_during_load)
+        await store._sync_cache_space()
+
+        assert store._cache_space == embedding.vector_space_id
+        assert not store._cache
+
+    run(go())
+
+
+def test_completed_request_only_writes_to_its_active_cache_space():
+    """A v3 request must not populate v4 after the provider switches back to v3."""
+
+    async def go():
+        embedding = OpenAIAsEmbedding(name="t_space_write_race", backend="openai", model="v3", dimensions=2)
+        store = LocalEmbeddingStore(name="t_local_write_race")
+        store.as_embedding = embedding
+        store._cache_space = embedding.vector_space_id
+
+        async def compute_after_round_trip(_batch, **_kwargs):
+            embedding.model = FakeProviderModel("v4")
+            store._cache_space = embedding.vector_space_id
+            embedding.model = FakeProviderModel("v3")
+            return [(0, "key", np.array([3.0, 0.0], dtype=np.float16))]
+
+        store._compute_batch = compute_after_round_trip
+        await store._fill_misses([(0, "text", "key")], [None])
+
+        assert "key" not in store._cache
 
     run(go())
 
