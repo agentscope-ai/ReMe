@@ -119,6 +119,7 @@ class DailyPaperCollectStep(DailyPaperStep):
         async with HuggingFacePapersClient(
             timeout=float(self._value("hf_timeout", 600.0)),
             max_retries=int(self._value("hf_max_retries", 3)),
+            use_mirror=bool(self._value("use_hf_mirror", False)),
         ) as client:
             weekly, monthly, yesterday_ids = await asyncio.gather(
                 client.fetch_scope("week", week),

@@ -416,6 +416,10 @@ jobs:
           type: boolean
           description: "Regenerate even when that day's final brief already exists."
           default: false
+        use_hf_mirror:
+          type: boolean
+          description: "Use the Hugging Face mirror configured by HF_MIRROR_URL, or hf-mirror.com when unset."
+          default: false
         topics:
           type: string
           description: "Optional topics to prioritize when selecting papers."
@@ -447,6 +451,7 @@ jobs:
   daily_paper_cron:
     backend: cron
     cron: "0 8 * * *"
+    use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-false}
     candidate_limit: *candidate_limit
     rrf_k: *rrf_k
     weekly_weight: *weekly_weight
