@@ -17,7 +17,7 @@ from pathlib import Path
 import frontmatter
 
 from ._file_io import get_path_lock
-from ._path import _check_path_permission, gate_md, resolve_path
+from ._path import _check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -44,6 +44,7 @@ class FrontmatterUpdateStep(BaseStep):
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
         else:
+            original_target = target
             target, is_md = gate_md(target)
             if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
                 payload = {"path": path, "error": "no permission to update this file"}
@@ -51,7 +52,7 @@ class FrontmatterUpdateStep(BaseStep):
                 lock = await get_path_lock(target)
                 async with lock:
                     if not target.is_file():
-                        payload = {"path": path, "error": "not found"}
+                        payload = {"path": path, "error": f"{display_path(workspace_dir, target)} not found"}
                     elif not is_md:
                         payload = {"path": path, "error": "not markdown"}
                     elif not metadata:
@@ -61,6 +62,8 @@ class FrontmatterUpdateStep(BaseStep):
                         post.metadata.update(metadata)
                         target.write_text(frontmatter.dumps(post), encoding="utf-8")
                         payload = {"path": path, "updated": metadata}
+            if target != original_target:
+                payload["resolved_path"] = display_path(workspace_dir, target)
 
         if "error" in payload:
             self.context.response.success = False

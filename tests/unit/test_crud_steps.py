@@ -150,6 +150,107 @@ def test_stat_directory_fallback():
     asyncio.run(run())
 
 
+def test_stat_directory_wins_over_same_name_index():
+    """stat prefers an existing directory over its same-name ``.md`` index.
+
+    The daily layout keeps ``<daily_dir>/<date>/`` and its
+    ``<daily_dir>/<date>.md`` index side by side; probing the bare date
+    must report the directory, while the explicit ``.md`` still hits the file.
+    """
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store(
+                {
+                    "daily/2026-08-10/note.md": "---\nname: n\n---\nbody",
+                    "daily/2026-08-10.md": "---\nname: index\n---\nindex body",
+                },
+            )
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="daily/2026-08-10")
+            payload = _metadata(step)
+            assert payload["exists"] is True
+            assert payload["type"] == "dir"
+            assert payload["absolute_path"].endswith("2026-08-10")
+            assert "resolved_path" not in payload
+
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="daily/2026-08-10.md")
+            payload = _metadata(step)
+            assert payload["exists"] is True
+            assert payload["type"] == "file"
+            assert payload["frontmatter"] == {"name": "index"}
+            await store.close()
+        print("✓ test_stat_directory_wins_over_same_name_index passed")
+
+    asyncio.run(run())
+
+
+def test_stat_shadowed_extensionless_reports_resolved_path():
+    """When both ``LICENSE`` and ``LICENSE.md`` exist, ``stat path=LICENSE``
+    resolves to the ``.md`` but discloses the substitution via ``resolved_path``.
+    """
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
+            (Path(tmp) / "LICENSE.md").write_text("y" * 12, encoding="utf-8")
+            store = await _make_store()
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="LICENSE")
+            payload = _metadata(step)
+            assert payload["exists"] is True
+            assert payload["type"] == "file"
+            assert payload["path"] == "LICENSE"
+            assert payload["size"] == 12
+            assert payload["mime"] == "text/markdown"
+            assert payload["absolute_path"].endswith("LICENSE.md")
+            assert payload["resolved_path"] == "LICENSE.md"
+            await store.close()
+        print("✓ test_stat_shadowed_extensionless_reports_resolved_path passed")
+
+    asyncio.run(run())
+
+
+def test_stat_extensionless_file_without_md_sibling():
+    """An extension-less file with no ``.md`` sibling is reported as-is."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
+            store = await _make_store()
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="LICENSE")
+            payload = _metadata(step)
+            assert payload["exists"] is True
+            assert payload["type"] == "file"
+            assert payload["size"] == 15
+            assert payload["absolute_path"].endswith("LICENSE")
+            assert "resolved_path" not in payload
+            await store.close()
+        print("✓ test_stat_extensionless_file_without_md_sibling passed")
+
+    asyncio.run(run())
+
+
+def test_stat_missing_reports_probed_md_path():
+    """stat on a missing suffix-less path reports the probed ``.md`` candidate."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store()
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="digest/missing")
+            payload = _metadata(step)
+            assert payload["exists"] is False
+            assert payload["resolved_path"] == "digest/missing.md"
+            assert "digest/missing.md" in str(step.context.response.answer)
+            await store.close()
+        print("✓ test_stat_missing_reports_probed_md_path passed")
+
+    asyncio.run(run())
+
+
 # -- list ----------------------------------------------------------------
 
 
@@ -1254,6 +1355,10 @@ if __name__ == "__main__":
     # stat / list / move / delete
     test_stat_indexed_file()
     test_stat_directory_fallback()
+    test_stat_directory_wins_over_same_name_index()
+    test_stat_shadowed_extensionless_reports_resolved_path()
+    test_stat_extensionless_file_without_md_sibling()
+    test_stat_missing_reports_probed_md_path()
     test_list_lists_files()
     test_list_respects_limit_and_non_recursive()
     test_move_relocates_within_workspace()

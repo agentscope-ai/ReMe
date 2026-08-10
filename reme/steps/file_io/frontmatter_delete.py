@@ -14,7 +14,7 @@ from pathlib import Path
 import frontmatter
 
 from ._file_io import get_path_lock
-from ._path import resolve_path
+from ._path import display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -37,11 +37,13 @@ class FrontmatterDeleteStep(BaseStep):
         if err or target is None:
             payload: dict = {"path": path, "error": err or "invalid path"}
         else:
+            original_target = target
+            target, is_md = gate_md(target)
             lock = await get_path_lock(target)
             async with lock:
                 if not target.is_file():
-                    payload = {"path": path, "error": "not found"}
-                elif target.suffix != ".md":
+                    payload = {"path": path, "error": f"{display_path(workspace_dir, target)} not found"}
+                elif not is_md:
                     payload = {"path": path, "error": "not markdown"}
                 elif not keys:
                     payload = {"path": path, "error": "keys is empty"}
@@ -63,6 +65,8 @@ class FrontmatterDeleteStep(BaseStep):
                         "missing": missing,
                         "frontmatter": dict(post.metadata),
                     }
+            if target != original_target:
+                payload["resolved_path"] = display_path(workspace_dir, target)
 
         if "error" in payload:
             self.context.response.success = False

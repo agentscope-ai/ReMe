@@ -24,7 +24,7 @@ from pathlib import Path
 
 import frontmatter
 
-from ._path import gate_md, resolve_path
+from ._path import display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -46,16 +46,24 @@ class StatStep(BaseStep):
             self.context.response.metadata.update({"path": path, "exists": False, "error": err or "invalid path"})
             self.logger.info(f"[{self.name}] path={path} error={err!r}")
             return
-        # Auto-append .md for suffix-less paths (consistent with edit).
-        # If the .md path doesn't exist but the original does (e.g., a directory), use original.
+        # Auto-append .md for suffix-less paths (consistent with edit). An
+        # existing directory wins top priority: the daily layout keeps
+        # <daily_dir>/<date>/ and its <daily_dir>/<date>.md index side by
+        # side, and directory probing is a supported use of this step.
+        # Otherwise fall back to the original when the .md candidate is
+        # missing but the original exists (e.g., an extension-less file).
         original_target = target
         target, _is_md = gate_md(target)
-        if not target.exists() and original_target != target and original_target.exists():
+        if original_target.is_dir() or (not target.exists() and original_target.exists()):
             target = original_target
         if not target.exists():
+            probed = display_path(workspace_dir, target)
             self.context.response.success = False
-            self.context.response.answer = f"stat: {path} not found"
-            self.context.response.metadata.update({"path": path, "exists": False})
+            self.context.response.answer = f"stat: {probed} not found"
+            not_found: dict = {"path": path, "exists": False}
+            if target != original_target:
+                not_found["resolved_path"] = probed
+            self.context.response.metadata.update(not_found)
             self.logger.info(f"[{self.name}] path={path} exists=False")
             return
 
@@ -68,6 +76,8 @@ class StatStep(BaseStep):
             "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
             "ctime": datetime.fromtimestamp(st.st_ctime).isoformat(),
         }
+        if target != original_target:
+            payload["resolved_path"] = display_path(workspace_dir, target)
         if target.is_file():
             payload["size"] = st.st_size
             payload["mime"] = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
