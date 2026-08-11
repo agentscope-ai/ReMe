@@ -22,9 +22,9 @@ reme start config=daily_cookbook job=daily_paper
 - endpoint：无内置 `LLM_BASE_URL`；请设置服务商要求的 OpenAI 兼容 endpoint
 - 环境变量：`LLM_API_KEY`、`LLM_MODEL_NAME`、`LLM_BASE_URL`
 
-Auto Fin 和 Daily Paper 共用这一个 `default` LLM，以及唯一的无工具 `default` AgentScope wrapper。
-只有交互式 `dingtalk_wait` Step 会在调用时覆盖默认值，启用 AgentScope `bash` 和明确的 ReMe Job allowlist；Daily
-Paper 的模型调用仍然无工具。
+Auto Fin 和 Daily Paper 共用这一个 `default` LLM 和 `default` AgentScope wrapper。Daily Paper 的 Select 和 Analyze
+调用不带工具；Daily Paper Digest 与 Auto Fin Merge 使用只读的 ReMe Job 工具 `memory_search` 和 `read`。交互式
+`dingtalk_wait` Step 则会在调用时单独覆盖 wrapper，启用 AgentScope `bash` 和明确的 ReMe Job allowlist。
 
 默认 workspace 是启动目录下的 `reme_workspace/`，可通过 `DAILY_PAPER_WORKSPACE_DIR` 覆盖。
 

@@ -24,9 +24,10 @@ The built-in LLM component defaults to:
 - endpoint: no built-in `LLM_BASE_URL`; set the OpenAI-compatible endpoint required by your provider
 - environment variables: `LLM_API_KEY`, `LLM_MODEL_NAME`, and `LLM_BASE_URL`
 
-Auto Fin and Daily Paper share this single `default` LLM and the single tool-free `default` AgentScope wrapper.
-Only the interactive `dingtalk_wait` step overrides the wrapper per call with AgentScope `bash` and an explicit ReMe
-job allowlist; Daily Paper calls remain tool-free.
+Auto Fin and Daily Paper share this single `default` LLM and the `default` AgentScope wrapper. Daily Paper Select and
+Analyze call the wrapper without tools, while Daily Paper Digest and Auto Fin Merge receive the read-only
+`memory_search` and `read` ReMe job tools. The interactive `dingtalk_wait` step separately overrides the wrapper per
+call with AgentScope `bash` and an explicit ReMe job allowlist.
 
 The default workspace is `reme_workspace/` beneath the process working directory. Override it with
 `DAILY_PAPER_WORKSPACE_DIR`.
