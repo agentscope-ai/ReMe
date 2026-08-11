@@ -196,6 +196,8 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
 
     prompt, kwargs = agent.calls[0]
     assert "end_date 设为 2026-08-09" in prompt
+    assert "调用 `memory_search`" in prompt
+    assert "调用 `read`" in prompt
     assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["memory_search", "read"]}
     report = (tmp_path / "daily" / "2026-08-10" / "auto_fin.md").read_text(encoding="utf-8")
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in report

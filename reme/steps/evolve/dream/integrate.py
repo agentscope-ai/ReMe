@@ -9,23 +9,9 @@ from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
 from ....schema import IntegrateOutcome
-from .utils import (
-    llm_available,
-    pack_paths,
-    parse_structured_reply,
-    state_from_context,
-    store_state,
-    workspace_dir,
-)
+from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
 
-_TOOLS = (
-    "node_search",
-    "read",
-    "frontmatter_read",
-    "write",
-    "edit",
-    "frontmatter_update",
-)
+_TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
 
 def _snapshot_digest(workspace: Path, digest_dir: str, bucket: str) -> dict[str, tuple[int, int]]:
@@ -41,10 +27,7 @@ def _snapshot_digest(workspace: Path, digest_dir: str, bucket: str) -> dict[str,
             stat = path.stat()
         except OSError:
             continue
-        snapshot[path.relative_to(workspace).as_posix()] = (
-            stat.st_mtime_ns,
-            stat.st_size,
-        )
+        snapshot[path.relative_to(workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
     return snapshot
 
 
@@ -79,9 +62,7 @@ class DreamIntegrateStep(BaseStep):
 
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
-        self.logger.info(
-            f"[{self.name}] start units={len(state.units)} workspace={workspace} digest_dir={digest_dir}",
-        )
+        self.logger.info(f"[{self.name}] start units={len(state.units)} workspace={workspace} digest_dir={digest_dir}")
         for bucket in DreamBucketEnum:
             (workspace / digest_dir / bucket.value).mkdir(parents=True, exist_ok=True)
         self.logger.info(f"[{self.name}] digest dirs ready buckets={len(list(DreamBucketEnum))}")
@@ -117,72 +98,88 @@ class DreamIntegrateStep(BaseStep):
             f"[{self.name}] unit {index}/{len(state.units)} start "
             f"name={unit.get('name', '')!r} bucket={bucket} paths={len(paths)}",
         )
-        before = _snapshot_digest(workspace, digest_dir, bucket)
-        try:
-            result = await self.agent_wrapper.reply(
-                self.prompt_format(
-                    "integrate_user_message",
-                    hint=state.hint or "(none)",
-                    unit_name=unit.get("name", ""),
-                    unit_bucket=bucket,
-                    unit_summary=unit.get("summary", ""),
-                    unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
-                    material_blob=pack_paths(workspace, paths),
-                ),
-                system_prompt=self.prompt_format(
-                    f"integrate_system_prompt_{bucket}",
-                    workspace_dir=str(workspace),
-                    digest_dir=digest_dir,
-                    bucket=bucket,
-                ),
-                job_tools=list(_TOOLS),
-            )
-        except Exception as e:  # noqa: BLE001
-            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
-            if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
-                self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
+        for attempt in range(2):
+            before = _snapshot_digest(workspace, digest_dir, bucket)
+            try:
+                result = await self.agent_wrapper.reply(
+                    self.prompt_format(
+                        "integrate_user_message",
+                        hint=state.hint or "(none)",
+                        unit_name=unit.get("name", ""),
+                        unit_bucket=bucket,
+                        unit_summary=unit.get("summary", ""),
+                        unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
+                        material_blob=pack_paths(workspace, paths),
+                    ),
+                    system_prompt=self.prompt_format(
+                        f"integrate_system_prompt_{bucket}",
+                        workspace_dir=str(workspace),
+                        digest_dir=digest_dir,
+                        bucket=bucket,
+                    ),
+                    job_tools=list(_TOOLS),
+                )
+            except Exception as e:  # noqa: BLE001
+                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
+                if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
+                    self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
+                    self.logger.warning(
+                        f"[{self.name}] unit {index}/{len(state.units)} recovered from file change "
+                        f"after agent error target_path={changed[0]} error={type(e).__name__}: {e}",
+                    )
+                    return
+                if attempt == 0:
+                    self.logger.warning(
+                        f"[{self.name}] unit {index}/{len(state.units)} attempt 1 had no recoverable file change; "
+                        f"retrying once: {type(e).__name__}: {e}",
+                    )
+                    continue
+                self._record_failure(state, unit, paths, e)
+                self.logger.error(f"[{self.name}] unit {index}/{len(state.units)} failed: {type(e).__name__}: {e}")
+                return
+
+            try:
+                raw_result = agent_reply_result_text(result)
+                outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
+                if not self._valid_target(workspace, digest_dir, bucket, outcome.target_path):
+                    raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
+            except Exception as e:  # noqa: BLE001
+                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
+                if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
+                    self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
+                    self.logger.warning(
+                        f"[{self.name}] unit {index}/{len(state.units)} accepted file change with invalid receipt "
+                        f"target_path={changed[0]} error={type(e).__name__}: {e}",
+                    )
+                    return
+                if attempt == 0:
+                    self.logger.warning(
+                        f"[{self.name}] unit {index}/{len(state.units)} attempt 1 returned an invalid receipt; "
+                        "retrying once",
+                    )
+                    continue
+                # After the bounded retry, checkpoint the source so malformed input cannot loop forever.
+                self._record_skipped(state, unit, bucket, paths, e)
                 self.logger.warning(
-                    f"[{self.name}] unit {index}/{len(state.units)} recovered from file change "
-                    f"after agent error target_path={changed[0]} error={type(e).__name__}: {e}",
+                    f"[{self.name}] unit {index}/{len(state.units)} skipped invalid receipt after retry: "
+                    f"{type(e).__name__}: {e}",
                 )
                 return
-            self._record_failure(state, unit, paths, e)
-            self.logger.error(f"[{self.name}] unit {index}/{len(state.units)} failed: {type(e).__name__}: {e}")
-            return
 
-        try:
-            raw_result = agent_reply_result_text(result)
-            outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
-            if not self._valid_target(workspace, digest_dir, bucket, outcome.target_path):
-                raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
-        except Exception as e:  # noqa: BLE001
-            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
-            if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
-                self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
-                self.logger.warning(
-                    f"[{self.name}] unit {index}/{len(state.units)} accepted file change with invalid receipt "
-                    f"target_path={changed[0]} error={type(e).__name__}: {e}",
-                )
-                return
-            self._record_skipped(state, unit, bucket, paths, e)
-            self.logger.warning(
-                f"[{self.name}] unit {index}/{len(state.units)} skipped invalid receipt: {type(e).__name__}: {e}",
+            self._append_result(
+                state,
+                unit,
+                bucket,
+                paths,
+                action=outcome.action,
+                target_path=outcome.target_path,
+                note=outcome.note,
+            )
+            self.logger.info(
+                f"[{self.name}] unit {index}/{len(state.units)} done "
+                f"action={outcome.action} target_path={outcome.target_path}",
             )
             return
-
-        self._append_result(
-            state,
-            unit,
-            bucket,
-            paths,
-            action=outcome.action,
-            target_path=outcome.target_path,
-            note=outcome.note,
-        )
-        self.logger.info(
-            f"[{self.name}] unit {index}/{len(state.units)} done "
-            f"action={outcome.action} target_path={outcome.target_path}",
-        )
 
     def _finish(self, state, success: bool, answer: str):
         assert self.context is not None
@@ -207,11 +204,7 @@ class DreamIntegrateStep(BaseStep):
 
     @staticmethod
     def _unit_key(unit: dict, bucket: str, paths: list[str]) -> tuple[str, str, tuple[str, ...]]:
-        return (
-            str(unit.get("name") or unit.get("unit") or "").strip(),
-            bucket,
-            tuple(dict.fromkeys(paths)),
-        )
+        return (str(unit.get("name") or unit.get("unit") or "").strip(), bucket, tuple(dict.fromkeys(paths)))
 
     @classmethod
     def _append_result(
@@ -227,12 +220,7 @@ class DreamIntegrateStep(BaseStep):
     ) -> None:
         key = cls._unit_key(unit, bucket, paths)
         exists = any(
-            cls._unit_key(
-                result,
-                str(result.get("bucket") or ""),
-                [str(p) for p in result.get("paths") or []],
-            )
-            == key
+            cls._unit_key(result, str(result.get("bucket") or ""), [str(p) for p in result.get("paths") or []]) == key
             for result in state.integrate_results
         )
         if not exists:
@@ -279,12 +267,7 @@ class DreamIntegrateStep(BaseStep):
         message = f"unit {unit.get('name', '')!r} skipped: unusable agent receipt ({type(error).__name__})"
         key = cls._unit_key(unit, bucket, paths)
         if not any(
-            cls._unit_key(
-                item,
-                str(item.get("bucket") or ""),
-                [str(p) for p in item.get("paths") or []],
-            )
-            == key
+            cls._unit_key(item, str(item.get("bucket") or ""), [str(p) for p in item.get("paths") or []]) == key
             for item in state.skipped_units
         ):
             state.skipped_units.append({**unit, "bucket": bucket, "paths": paths, "reason": message})

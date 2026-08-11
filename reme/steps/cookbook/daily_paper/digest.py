@@ -18,6 +18,7 @@ from ._common import (
     write_markdown,
 )
 
+
 @R.register("daily_paper_digest_step")
 class DailyPaperDigestStep(DailyPaperStep):
     """Use an agent to read the detailed notes and create the final brief."""

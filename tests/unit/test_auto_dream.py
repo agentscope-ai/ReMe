@@ -1,5 +1,7 @@
 """Unit tests for the refactored dream package."""
 
+# pylint: disable=protected-access
+
 import asyncio
 import tempfile
 from pathlib import Path
@@ -18,12 +20,7 @@ from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.integrate import DreamIntegrateStep
 from reme.steps.evolve.dream.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
-from reme.steps.evolve.dream.utils import (
-    load_yaml_topics,
-    parse_structured_reply,
-    recent_dates,
-    scan_day_files,
-)
+from reme.steps.evolve.dream.utils import load_yaml_topics, parse_structured_reply, recent_dates, scan_day_files
 
 
 def _touch(path: Path, text: str = "x") -> Path:
@@ -93,13 +90,31 @@ class _ReplyAgent(BaseAgentWrapper):
         self.result = result or {"result": "{}"}
         self.on_reply = on_reply
         self.error = error
+        self.calls = 0
 
     async def reply(self, _message, **_kwargs):
+        self.calls += 1
         if self.on_reply:
             self.on_reply()
         if self.error:
             raise self.error
         return self.result
+
+
+class _SequenceAgent(BaseAgentWrapper):
+    """Return a fixed sequence of replies or exceptions."""
+
+    def __init__(self, *outcomes):
+        super().__init__()
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    async def reply(self, _message, **_kwargs):
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 def test_scan_day_files_includes_nested_md_and_excludes_interests():
@@ -143,11 +158,7 @@ def test_dream_extract_matches_posix_catalog_paths(tmp_path):
 
         with patch("reme.steps.evolve.dream.extract.refresh_day_index", return_value={}):
             response = await step(
-                RuntimeContext(
-                    date="2026-05-28",
-                    file_catalog=catalog,
-                    file_store=_FileStore(tmp_path),
-                ),
+                RuntimeContext(date="2026-05-28", file_catalog=catalog, file_store=_FileStore(tmp_path)),
             )
 
         dream = response.metadata["dream"]
@@ -201,12 +212,7 @@ def test_extract_clean_output_respects_max_units():
     state = DreamState(changed_paths=["daily/a.md"])
     meta = {
         "units": [
-            {
-                "name": f"unit-{i}",
-                "bucket": "wiki",
-                "summary": f"summary {i}",
-                "paths": ["daily/a.md"],
-            }
+            {"name": f"unit-{i}", "bucket": "wiki", "summary": f"summary {i}", "paths": ["daily/a.md"]}
             for i in range(7)
         ],
     }
@@ -243,8 +249,36 @@ def test_extract_unusable_receipt_is_a_warning_not_a_failure(tmp_path):
         assert dream["units"] == []
         assert dream["failed_paths"] == []
         assert dream["warnings"] == [
-            "dream extract skipped unusable agent receipt; expected units and topics lists",
+            "dream extract skipped unusable agent receipt after retry; expected units and topics lists",
         ]
+        assert step.agent_wrapper.calls == 2
+
+    asyncio.run(run())
+
+
+def test_extract_retries_one_unusable_receipt(tmp_path):
+    """A transient malformed extraction receipt gets one bounded retry."""
+
+    async def run():
+        _touch(tmp_path / "daily" / "2026-05-28" / "session.md")
+        agent = _SequenceAgent({"result": "{}"}, {"result": '{"units": [], "topics": []}'})
+        step = DreamExtractStep(
+            scan_days=1,
+            app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+            agent_wrapper=agent,
+        )
+
+        with (
+            patch("reme.steps.evolve.dream.extract.refresh_day_index", return_value={}),
+            patch("reme.steps.evolve.dream.extract.llm_available", return_value=True),
+        ):
+            response = await step(
+                RuntimeContext(date="2026-05-28", file_catalog=_Catalog(), file_store=_FileStore(tmp_path)),
+            )
+
+        assert response.success is True
+        assert response.metadata["dream"]["warnings"] == []
+        assert agent.calls == 2
 
     asyncio.run(run())
 
@@ -253,12 +287,7 @@ def test_integrate_invalid_receipt_without_file_change_is_skipped(tmp_path):
     """An unusable integration receipt is a skipped unit, not a failed unit."""
 
     async def run():
-        unit = {
-            "name": "unit",
-            "bucket": "wiki",
-            "summary": "summary",
-            "paths": ["daily/a.md"],
-        }
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
         state = DreamState(units=[unit])
         step = DreamIntegrateStep()
         step.agent_wrapper = _ReplyAgent()
@@ -270,6 +299,34 @@ def test_integrate_invalid_receipt_without_file_change_is_skipped(tmp_path):
         assert state.failed_units == []
         assert not state.failed_paths
         assert len(state.warnings) == 1
+        assert step.agent_wrapper.calls == 2
+
+    asyncio.run(run())
+
+
+def test_integrate_retries_one_invalid_receipt(tmp_path):
+    """A transient invalid integration receipt gets one bounded retry."""
+
+    async def run():
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
+        state = DreamState(units=[unit])
+        target = _touch(tmp_path / "digest" / "wiki" / "unit.md", "integrated")
+        agent = _SequenceAgent(
+            {"result": "{}"},
+            {
+                "result": (
+                    '{"action": "REFINE", "target_path": "digest/wiki/unit.md", ' '"note": "updated after retry"}'
+                ),
+            },
+        )
+        step = DreamIntegrateStep(agent_wrapper=agent)
+
+        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+
+        assert target.is_file()
+        assert state.integrate_results[0]["target_path"] == "digest/wiki/unit.md"
+        assert state.skipped_units == []
+        assert agent.calls == 2
 
     asyncio.run(run())
 
@@ -278,12 +335,7 @@ def test_integrate_invalid_receipt_recovers_one_changed_digest_file(tmp_path):
     """The file-native side effect wins when the agent's final receipt is malformed."""
 
     async def run():
-        unit = {
-            "name": "unit",
-            "bucket": "wiki",
-            "summary": "summary",
-            "paths": ["daily/a.md"],
-        }
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
         state = DreamState(units=[unit])
         target = tmp_path / "digest" / "wiki" / "unit.md"
 
@@ -310,12 +362,7 @@ def test_integrate_does_not_recover_a_change_from_another_bucket(tmp_path):
     """A malformed receipt cannot attribute a write outside the unit's bucket."""
 
     async def run():
-        unit = {
-            "name": "unit",
-            "bucket": "wiki",
-            "summary": "summary",
-            "paths": ["daily/a.md"],
-        }
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
         state = DreamState(units=[unit])
         target = tmp_path / "digest" / "procedure" / "unit.md"
 
@@ -352,11 +399,7 @@ def test_extract_without_llm_marks_changed_paths_failed(tmp_path):
         step = DreamExtractStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
         response = await step(
-            RuntimeContext(
-                date="2026-05-28",
-                file_catalog=_Catalog(),
-                file_store=_FileStore(tmp_path),
-            ),
+            RuntimeContext(date="2026-05-28", file_catalog=_Catalog(), file_store=_FileStore(tmp_path)),
         )
 
         dream = response.metadata["dream"]
@@ -396,9 +439,7 @@ def test_topics_step_writes_only_target_date_interests():
                 ],
             )
             step = DreamTopicsStep()
-            resp = await step(
-                RuntimeContext(dream=state.model_dump(), file_store=_FileStore(workspace)),
-            )
+            resp = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(workspace)))
 
             target = workspace / "daily" / "2026-05-28" / "interests.yaml"
             dream = resp.metadata["dream"]
@@ -491,10 +532,7 @@ def test_topics_does_not_overwrite_invalid_existing_topic_entry(tmp_path):
 
 def test_strict_topic_loading_rejects_lossy_fields(tmp_path):
     """Strict mode rejects values and fields that clean_topic would silently lose."""
-    target = _touch(
-        tmp_path / "interests.yaml",
-        "topics:\n  - title: Topic\n    reason: Reason\n    custom: keep me\n",
-    )
+    target = _touch(tmp_path / "interests.yaml", "topics:\n  - title: Topic\n    reason: Reason\n    custom: keep me\n")
 
     try:
         load_yaml_topics(target, strict=True)
@@ -533,9 +571,7 @@ def test_proactive_answer_includes_topics_and_requested_content(tmp_path):
         _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", content)
         step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
-        response = await step(
-            RuntimeContext(date="2026-05-28", include_content=True, file_store=_FileStore(tmp_path)),
-        )
+        response = await step(RuntimeContext(date="2026-05-28", include_content=True, file_store=_FileStore(tmp_path)))
 
         assert response.success is True
         assert response.answer == {
@@ -561,19 +597,10 @@ def test_proactive_answer_omits_unrequested_content(tmp_path):
     """Raw YAML is absent from the primary answer when include_content is false."""
 
     async def run():
-        _touch(
-            tmp_path / "daily" / "2026-05-28" / "interests.yaml",
-            "topics:\n  - title: Topic\n    reason: Reason\n",
-        )
+        _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", "topics:\n  - title: Topic\n    reason: Reason\n")
         step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
-        response = await step(
-            RuntimeContext(
-                date="2026-05-28",
-                include_content=False,
-                file_store=_FileStore(tmp_path),
-            ),
-        )
+        response = await step(RuntimeContext(date="2026-05-28", include_content=False, file_store=_FileStore(tmp_path)))
 
         assert response.success is True
         assert "content" not in response.answer
@@ -595,10 +622,7 @@ def test_proactive_keeps_skipped_and_error_answers_explicit(tmp_path):
         assert skipped.metadata["skipped"] is True
 
         _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", "topics: []\n")
-        with patch(
-            "reme.steps.evolve.dream.proactive.load_yaml_topics",
-            side_effect=ValueError("bad topics"),
-        ):
+        with patch("reme.steps.evolve.dream.proactive.load_yaml_topics", side_effect=ValueError("bad topics")):
             failed = await step(RuntimeContext(date="2026-05-28", file_store=_FileStore(tmp_path)))
 
         assert failed.success is False
@@ -623,10 +647,7 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
                 dates=["2026-05-26", "2026-05-27", "2026-05-28"],
                 workspace=str(workspace),
                 daily_dir="daily",
-                changed_paths=[
-                    ok.relative_to(workspace).as_posix(),
-                    failed.relative_to(workspace).as_posix(),
-                ],
+                changed_paths=[ok.relative_to(workspace).as_posix(), failed.relative_to(workspace).as_posix()],
                 failed_paths=[failed.relative_to(workspace).as_posix()],
                 interests_paths=[interests.relative_to(workspace).as_posix()],
                 integrate_results=[
@@ -683,14 +704,17 @@ def test_finish_does_not_readd_a_failed_day_index(tmp_path):
 
 
 def test_finish_keeps_skipped_agent_output_successful(tmp_path):
-    """Best-effort agent skips remain visible warnings without failing Auto-Dream."""
+    """Best-effort agent skips remain successful and checkpointed after their bounded retry."""
 
     async def run():
+        rel_path = "daily/2026-05-28/source.md"
+        _touch(tmp_path / rel_path)
         state = DreamState(
             date="2026-05-28",
             dates=["2026-05-28"],
             workspace=str(tmp_path),
             daily_dir="daily",
+            changed_paths=[rel_path],
             skipped_units=[{"name": "unit", "reason": "unusable receipt"}],
             warnings=["unit 'unit' skipped: unusable agent receipt"],
         )
@@ -701,5 +725,6 @@ def test_finish_keeps_skipped_agent_output_successful(tmp_path):
         assert response.success is True
         assert response.answer.startswith("AutoDream completed with warnings\n\n")
         assert "- Integrated: 0 ok, 1 skipped, 0 failed" in response.answer
+        assert response.metadata["dream"]["checkpoint_paths"] == [rel_path]
 
     asyncio.run(run())

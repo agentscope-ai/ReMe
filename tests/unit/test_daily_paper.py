@@ -800,7 +800,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
-    assert "先调用 search 检索以前的文章" in digest_prompt
+    assert "先调用 `memory_search` 检索以前的文章" in digest_prompt
     assert "end_date=2026-07-20" in digest_prompt
     assert "Wikilink" in digest_prompt
 
