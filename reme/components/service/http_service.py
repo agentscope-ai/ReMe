@@ -107,9 +107,9 @@ class HttpService(BaseService):
             if full_path in {"docs", "redoc", "openapi.json"}:
                 raise HTTPException(status_code=404, detail="Not Found")
 
-            if full_path and ".." not in full_path and not Path(full_path).is_absolute():
-                static_file = static_dir / full_path
-                if static_file.is_file():
+            if full_path and not Path(full_path).is_absolute():
+                static_file = (static_dir / full_path).resolve()
+                if static_file.is_relative_to(static_dir) and static_file.is_file():
                     return FileResponse(static_file)
 
             return FileResponse(index_file, headers=no_cache_headers)

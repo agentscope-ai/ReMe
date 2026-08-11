@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       "process.env.NEXT_PUBLIC_REME_API_URL": JSON.stringify(
-        env.VITE_REME_API_URL ?? "",
+        env.VITE_REME_API_URL || "/",
       ),
       "process.env.NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS": JSON.stringify(
         env.VITE_REME_WORKSPACE_EXTENSIONS ?? "",

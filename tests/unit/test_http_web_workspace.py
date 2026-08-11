@@ -3,6 +3,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from reme.components.service.http_service import HttpService
@@ -68,6 +69,25 @@ def test_http_service_can_disable_workspace(tmp_path: Path) -> None:
 
     with TestClient(service.service) as client:
         assert client.get("/").status_code == 404
+
+
+def test_http_service_does_not_serve_symlinks_outside_static_dir(tmp_path: Path) -> None:
+    """Do not expose files reached through symlinks outside the static build."""
+    static_dir = _static_build(tmp_path)
+    secret_file = tmp_path / "secret.txt"
+    secret_file.write_text("private", encoding="utf-8")
+    try:
+        (static_dir / "escape.txt").symlink_to(secret_file)
+    except OSError as error:
+        pytest.skip(f"Symbolic links are unavailable: {error}")
+
+    app = _FakeApplication()
+    service = HttpService(web_static_dir=str(static_dir))
+    service.build_service(app)  # type: ignore[arg-type]
+    service.finalize_service(app)  # type: ignore[arg-type]
+
+    with TestClient(service.service) as client:
+        assert client.get("/escape.txt").text == "<main>ReMe workspace</main>"
 
 
 def test_static_dir_configuration_precedes_environment(monkeypatch, tmp_path: Path) -> None:

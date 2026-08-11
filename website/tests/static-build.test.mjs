@@ -12,6 +12,15 @@ test("static build contains the ReMe workspace entry and assets", async () => {
   const assets = await readdir(
     new URL("../dist-static/assets/", import.meta.url),
   );
+  const javascript = (
+    await Promise.all(
+      assets
+        .filter((name) => name.endsWith(".js"))
+        .map((name) =>
+          readFile(new URL(`../dist-static/assets/${name}`, import.meta.url)),
+        ),
+    )
+  ).join("\n");
 
   assert.match(html, /<title>ReMe Workspace<\/title>/i);
   assert.match(html, /<div id="root"><\/div>/i);
@@ -24,4 +33,5 @@ test("static build contains the ReMe workspace entry and assets", async () => {
     assets.some((name) => name.endsWith(".css")),
     output,
   );
+  assert.doesNotMatch(javascript, /http:\/\/127\.0\.0\.1:2333/);
 });
