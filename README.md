@@ -240,16 +240,17 @@ another row in this table.
 
 > Memory as File, File as Memory.
 
-ReMe treats **memory as files**, progressively processing raw conversations and external resources from `session/` and
-`resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under `digest/`. The default
-workspace is `.reme/` under the current directory; `workspace_dir=...` selects a different user-owned location.
+ReMe treats **memory as files**, progressively processing filtered conversation source records and external resources
+from `session/` and `resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under
+`digest/`. The default workspace is `.reme/` under the current directory; `workspace_dir=...` selects a different
+user-owned location.
 
 ### Directory Structure
 
 ```text
 <workspace_dir>/
 ├── metadata/       # Rebuildable indexes, graphs, catalogs, and caches
-├── session/        # Raw conversations and agent sessions
+├── session/        # Conversation source records and agent sessions
 │   ├── dialog/
 │   │   └── <session_id>.jsonl  # Source messages saved by auto_memory
 │   └── claude_code/
@@ -282,8 +283,8 @@ workspace is `.reme/` under the current directory; `workspace_dir=...` selects a
 
 ## 🧭 Memory Design Philosophy
 
-> Capture raw dialogs and resources, refine them into long-term preferences, reusable experience, and valuable
-> knowledge,
+> Capture conversation source records and resources, refine them into long-term preferences, reusable experience, and
+> valuable knowledge,
 > while keeping the result editable by humans and agents.
 
 ### Automatic Memory Flow
@@ -295,7 +296,7 @@ caches under `metadata/` can be rebuilt from them.
 
 | Capability                                  | Entry point                                     | What it does                                                                                                                                                   | Output                                                        |
 |---------------------------------------------|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
-| [`auto_memory`](docs/en/auto_memory.md)     | Agent hook or `reme auto_memory`                | Distills useful conversation facts while preserving the raw session.                                                                                           | `session/dialog/*.jsonl`, `daily/<date>/<generated-name>.md`  |
+| [`auto_memory`](docs/en/auto_memory.md)     | Agent hook or `reme auto_memory`                | Distills useful conversation facts while preserving a filtered conversation source record.                                                                     | `session/dialog/*.jsonl`, `daily/<date>/<generated-name>.md`  |
 | [`auto_resource`](docs/en/auto_resource.md) | Resource watcher or `reme auto_resource`        | Turns files under `resource/` into source-linked, content-named daily cards.                                                                                   | `daily/<date>/<resource-card>.md`                             |
 | [`auto_index`](docs/en/memory_search.md)    | Background watcher or `reme reindex`            | Live-indexes Markdown in `daily/` and `digest/`; a full rebuild also scans `resource/` and JSONL.                                                              | Searchable chunks, BM25, wikilink graph, and optional vectors |
 | [`auto_dream`](docs/en/auto_dream.md)       | `dream_cron` or `reme auto_dream`               | By default, extracts up to five reusable units from changed files in the latest two-day window, then creates, corroborates, refines, or corrects digest nodes. | `digest/**`, `daily/<date>/interests.yaml`                    |

@@ -5,9 +5,10 @@ description: Set up and use ReMe as a file-native long-term memory system throug
 
 # ReMe Memory
 
-Use ReMe as the persistent memory layer for this Agent. ReMe stores conversation transcripts, daily notes, resources,
-and long-term digest memories in a user-owned local workspace. `auto_memory` omits recalled tool results and base64 data
-when it persists a transcript so retrieved or binary content does not become conversation source material.
+Use ReMe as the persistent memory layer for this Agent. ReMe stores filtered conversation source records, daily notes,
+resources, and long-term digest memories in a user-owned local workspace. `auto_memory` omits recalled tool results and
+base64 data when it persists a source record so retrieved or binary content does not become conversation source
+material.
 
 ## Bootstrap ReMe
 

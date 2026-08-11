@@ -5,35 +5,7 @@
         daily memory layer and then used by dream and search.
     </desc>
     <defs>
-        <style>
-            .bg { fill: #fffdf8; }
-            .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .step-num { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #ffffff; }
-            .step-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .step-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #5e6a7c; }
-            .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #4f5c6f; }
-            .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round;
-            stroke-linejoin: round; }
-            .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round;
-            stroke-linejoin: round; stroke-dasharray: 6 5; }
-            .badge { fill: #44546a; }
-            .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round;
-            marker-end: url(#arrow); }
-            .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round;
-            stroke-linejoin: round; marker-end: url(#arrow-soft); }
-            .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }
-        </style>
+        <style>.bg { fill: #fffdf8; } .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .step-num { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; } .step-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .step-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; } .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4f5c6f; } .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round; stroke-linejoin: round; } .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; } .badge { fill: #44546a; } .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); } .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); } .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }</style>
         <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
         </marker>
@@ -45,9 +17,7 @@
 
     <rect class="bg" x="0" y="0" width="1200" height="640"/>
     <text class="title" x="600" y="54" text-anchor="middle">Auto Memory &amp; Auto Resource</text>
-    <text class="subtitle" x="600" y="80" text-anchor="middle">Two ingestion paths create daily cards, then share one
-        daily index and downstream memory flow.
-    </text>
+    <text class="subtitle" x="600" y="80" text-anchor="middle">Two ingestion paths create daily cards, then share one daily index and downstream memory flow.</text>
 
     <rect class="panel" x="84" y="132" width="300" height="300"/>
     <circle class="badge" cx="118" cy="170" r="15"/>
@@ -56,10 +26,10 @@
     <text class="step-subtitle" x="112" y="206">memory + resource</text>
     <rect class="chip" x="112" y="234" width="244" height="54"/>
     <text class="chip-title" x="234" y="255" text-anchor="middle">Auto Memory</text>
-    <text class="chip-text" x="234" y="273" text-anchor="middle">conversation -> topic-named daily card</text>
+    <text class="chip-text" x="234" y="273" text-anchor="middle">conversation -> topic-named card</text>
     <rect class="chip" x="112" y="312" width="244" height="54"/>
     <text class="chip-title" x="234" y="333" text-anchor="middle">Auto Resource</text>
-    <text class="chip-text" x="234" y="351" text-anchor="middle">dated/root file -> topic-named card</text>
+    <text class="chip-text" x="234" y="351" text-anchor="middle">source file -> topic-named card</text>
     <rect class="chip" x="112" y="388" width="244" height="28"/>
     <text class="chip-text" x="234" y="407" text-anchor="middle">original sources remain verifiable</text>
 
@@ -102,7 +72,7 @@
     <text class="chip-text" x="498" y="554">resource/[&lt;date&gt;/]&lt;resource_file&gt;</text>
     <line class="line" x1="796" y1="518" x2="796" y2="566"/>
     <text class="chip-title" x="838" y="532">Daily output</text>
-    <text class="chip-text" x="838" y="554">daily/&lt;date&gt;/&lt;generated_name&gt;.md</text>
+    <text class="chip-text" x="838" y="554">daily/&lt;date&gt;/&lt;name&gt;.md</text>
 
     <path class="soft-arrow" d="M966 432 C966 474 600 474 600 432"/>
     <text class="note" x="782" y="478" text-anchor="middle">downstream flows read the same daily memory layer</text>

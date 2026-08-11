@@ -5,35 +5,7 @@
         progressive link expansion.
     </desc>
     <defs>
-        <style>
-            .bg { fill: #fffdf8; }
-            .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .step-num { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #ffffff; }
-            .step-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .step-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #5e6a7c; }
-            .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #4f5c6f; }
-            .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round;
-            stroke-linejoin: round; }
-            .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round;
-            stroke-linejoin: round; stroke-dasharray: 6 5; }
-            .badge { fill: #44546a; }
-            .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round;
-            marker-end: url(#arrow); }
-            .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round;
-            stroke-linejoin: round; marker-end: url(#arrow-soft); }
-            .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }
-        </style>
+        <style>.bg { fill: #fffdf8; } .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .step-num { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; } .step-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .step-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; } .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4f5c6f; } .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round; stroke-linejoin: round; } .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; } .badge { fill: #44546a; } .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); } .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); } .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }</style>
         <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
         </marker>
@@ -45,9 +17,7 @@
 
     <rect class="bg" x="0" y="0" width="1200" height="640"/>
     <text class="title" x="600" y="54" text-anchor="middle">Auto Index and Memory Search</text>
-    <text class="subtitle" x="600" y="80" text-anchor="middle">Keep workspace indexes fresh, recall relevant chunks,
-        then expand nearby wikilink context.
-    </text>
+    <text class="subtitle" x="600" y="80" text-anchor="middle">Keep workspace indexes fresh, recall relevant chunks, then expand nearby wikilink context.</text>
 
     <rect class="panel" x="64" y="150" width="232" height="260"/>
     <circle class="badge" cx="100" cy="188" r="15"/>
@@ -106,12 +76,11 @@
     <text class="chip-text" x="190" y="536">reindex adds resource + JSONL.</text>
     <line class="line" x1="410" y1="500" x2="410" y2="544"/>
     <text class="chip-title" x="454" y="514">BM25 is enabled by default</text>
-    <text class="chip-text" x="454" y="536">Recall candidates cap at 200; embeddings are opt-in.</text>
+    <text class="chip-text" x="454" y="536">Recall cap: 200; embeddings opt-in.</text>
     <line class="line" x1="720" y1="500" x2="720" y2="544"/>
     <text class="chip-title" x="764" y="514">Results stay compact first</text>
     <text class="chip-text" x="764" y="536">Use read or traverse for deeper expansion.</text>
 
     <path class="soft-arrow" d="M1026 410 C1026 456 748 452 748 410"/>
-    <text class="note" x="888" y="454" text-anchor="middle">link expansion is contextual, not a full-workspace dump
-    </text>
+    <text class="note" x="888" y="454" text-anchor="middle">link expansion is contextual, not a full-workspace dump</text>
 </svg>

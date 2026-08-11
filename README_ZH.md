@@ -27,7 +27,7 @@
 > [0.2.x](https://github.com/agentscope-ai/ReMe/tree/v0.2.0.6) ·
 > [MemoryScope](https://github.com/agentscope-ai/ReMe/tree/memoryscope_branch)
 
-🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。它可以与 QwenPaw、OpenClaw、 Hermes 和 Claude
+🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。它可以与 QwenPaw、OpenClaw、Hermes 和 Claude
 Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制权留给用户。
 
 ## ✨ 核心创新
@@ -207,7 +207,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 |------|----------|
 | [快速开始](docs/zh/quick_start.md) | 安装 ReMe、启动服务、使用 Studio，并执行首次文件和记忆操作。 |
 | [Memory as File](docs/zh/memory_as_file.md) | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
-| [Auto Memory](docs/zh/auto_memory.md) | 保留原始对话，并提炼可复用的 daily 记忆卡片。 |
+| [Auto Memory](docs/zh/auto_memory.md) | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。 |
 | [Auto Resource](docs/zh/auto_resource.md) | 导入支持的文本资料，转换为可追溯来源的 daily 卡片。 |
 | [Auto Dream](docs/zh/auto_dream.md) 与 [Auto Link](docs/zh/auto_link.md) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。 |
 | [记忆检索](docs/zh/memory_search.md) | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。 |
@@ -219,7 +219,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ## 🧑‍🍳 Cookbooks
 
-Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的 独立配置即可启用。后续新增的
+Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的独立配置即可启用。后续新增的
 cookbook 会继续在表格中按行追加。
 
 | Cookbook                                      | 能力                                                                           |
@@ -231,15 +231,15 @@ cookbook 会继续在表格中按行追加。
 
 > Memory as File, File as Memory.
 
-ReMe 将 **记忆视为文件**，让原始对话和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
-中可长期复用的知识节点。 默认 workspace 是当前目录下的 `.reme/`；可通过 `workspace_dir=...` 选择其他由用户控制的位置。
+ReMe 将 **记忆视为文件**，让过滤后的对话来源记录和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
+中可长期复用的知识节点。默认 workspace 是当前目录下的 `.reme/`；可通过 `workspace_dir=...` 选择其他由用户控制的位置。
 
 ### 目录结构
 
 ```text
 <workspace_dir>/
 ├── metadata/       # 可重建的索引、图谱、catalog 和缓存
-├── session/        # 原始对话和 Agent session
+├── session/        # 对话来源记录和 Agent session
 │   ├── dialog/
 │   │   └── <session_id>.jsonl  # auto_memory 保存的来源消息
 │   └── claude_code/
@@ -272,7 +272,7 @@ ReMe 将 **记忆视为文件**，让原始对话和外部资料从 `session/`�
 
 ## 🧭 记忆设计理念
 
-> 捕获原始对话和资料，将其整理为长期偏好、可复用经验和有价值的知识，并让结果始终能被用户和 Agent 直接编辑。
+> 捕获过滤后的对话来源记录和资料，将其整理为长期偏好、可复用经验和有价值的知识，并让结果始终能被用户和 Agent 直接编辑。
 
 ### 自动记忆流程
 
@@ -282,7 +282,7 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。对话和�
 
 | 能力                                        | 入口                                      | 作用                                                                                         | 输出                                                         |
 |---------------------------------------------|-------------------------------------------|----------------------------------------------------------------------------------------------|--------------------------------------------------------------|
-| [`auto_memory`](docs/zh/auto_memory.md)     | Agent hook 或 `reme auto_memory`          | 提炼有长期价值的对话事实，同时保留原始 session。                                             | `session/dialog/*.jsonl`、`daily/<date>/<generated-name>.md` |
+| [`auto_memory`](docs/zh/auto_memory.md)     | Agent hook 或 `reme auto_memory`          | 提炼有长期价值的对话事实，同时保留过滤后的对话来源记录。                               | `session/dialog/*.jsonl`、`daily/<date>/<generated-name>.md` |
 | [`auto_resource`](docs/zh/auto_resource.md) | 资源监听或 `reme auto_resource`           | 将 `resource/` 下的文件转为带来源链接、按内容命名的 daily 卡片。                             | `daily/<date>/<resource-card>.md`                            |
 | [`auto_index`](docs/zh/memory_search.md)    | 后台监听或 `reme reindex`                 | 实时索引 `daily/` 和 `digest/` 中的 Markdown；全量重建还会扫描 `resource/` 和 JSONL。        | 可检索的 chunks、BM25、wikilink 图谱和可选向量               |
 | [`auto_dream`](docs/zh/auto_dream.md)       | `dream_cron` 或 `reme auto_dream`         | 默认从最近两天内变化的文件中最多提取 5 个可复用 unit，再创建、印证、补充或修正 digest 节点。 | `digest/**`、`daily/<date>/interests.yaml`                   |

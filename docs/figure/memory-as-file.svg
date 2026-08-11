@@ -5,37 +5,7 @@
         operable memory graph, flowing from raw input to daily notes, digest nodes, and metadata indexes.
     </desc>
     <defs>
-        <style>
-            .bg { fill: #fffdf8; }
-            .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .section-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI,
-            sans-serif; fill: #1f2430; }
-            .section-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI,
-            sans-serif; fill: #556276; }
-            .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #5e6a7c; }
-            .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #4f5c6f; }
-            .label { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #ffffff; }
-            .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round;
-            stroke-linejoin: round; }
-            .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round;
-            stroke-linejoin: round; stroke-dasharray: 6 5; }
-            .badge { fill: #44546a; }
-            .soft { fill: #eef7ff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round;
-            stroke-linejoin: round; }
-            .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round;
-            marker-end: url(#arrow); }
-            .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round;
-            stroke-linejoin: round; marker-end: url(#arrow-soft); }
-            .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }
-        </style>
+        <style>.bg { fill: #fffdf8; } .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .section-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; fill: #1f2430; } .section-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; fill: #556276; } .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; } .note { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #4f5c6f; } .label { font: 700 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #ffffff; } .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; rx: 18; ry: 18; stroke-linecap: round; stroke-linejoin: round; } .chip { fill: #f8fbff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; } .badge { fill: #44546a; } .soft { fill: #eef7ff; stroke: #1f2430; stroke-width: 1.6; rx: 11; ry: 11; stroke-linecap: round; stroke-linejoin: round; } .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); } .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; stroke-dasharray: 6 6; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); } .line { stroke: #a3adbd; stroke-width: 1.25; stroke-linecap: round; }</style>
         <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
         </marker>
@@ -47,15 +17,13 @@
 
     <rect class="bg" x="0" y="0" width="1200" height="670"/>
     <text class="title" x="600" y="54" text-anchor="middle">Memory as File</text>
-    <text class="subtitle" x="600" y="80" text-anchor="middle">Workspace files are the readable memory surface and the
-        operable graph/index substrate.
-    </text>
+    <text class="subtitle" x="600" y="80" text-anchor="middle">Workspace files are the readable memory surface and the operable graph/index substrate.</text>
 
     <rect class="panel" x="72" y="124" width="280" height="168"/>
     <rect class="badge" x="102" y="150" width="94" height="24" rx="12" ry="12"/>
     <text class="label" x="149" y="167" text-anchor="middle">Human</text>
     <text class="section-title" x="102" y="202">Read and edit files</text>
-    <text class="section-subtitle" x="102" y="226">Markdown, YAML, JSONL, resources</text>
+    <text class="section-subtitle" x="102" y="226" style="font-size:11px">Markdown · YAML · JSONL · resources</text>
     <rect class="chip" x="102" y="248" width="220" height="28"/>
     <text class="chip-text" x="212" y="267" text-anchor="middle">open, revise, move, delete</text>
 
@@ -78,9 +46,7 @@
     <path class="arrow" d="M352 208 H460"/>
     <path class="arrow" d="M740 208 H848"/>
     <path class="soft-arrow" d="M848 250 C740 326 460 326 352 250"/>
-    <text class="note" x="600" y="336" text-anchor="middle">people and agents see the same file tree, so edits and
-        evidence links stay inspectable
-    </text>
+    <text class="note" x="600" y="336" text-anchor="middle">people and agents see the same file tree, so edits and evidence links stay inspectable</text>
 
     <rect class="panel" x="54" y="398" width="224" height="144"/>
     <circle class="badge" cx="88" cy="432" r="15"/>
@@ -127,5 +93,5 @@
     <line class="line" x1="548" y1="606" x2="548" y2="628"/>
     <text class="chip-text" x="600" y="622">derived_from evidence edges</text>
     <line class="line" x1="814" y1="606" x2="814" y2="628"/>
-    <text class="chip-text" x="862" y="622">search expands structure and links</text>
+    <text class="chip-text" x="862" y="622">search expands linked context</text>
 </svg>

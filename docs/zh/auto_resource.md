@@ -1,6 +1,6 @@
 # Auto Resource `Beta`
 
-Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先进入 `resource/`（推荐按日期放置）， 再被解读成 daily
+Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先进入 `resource/`（推荐按日期放置），再被解读成 daily
 资源卡片；卡片文件名由 LLM 生成的 frontmatter `name` 决定，并通过 `source_resource`
 追溯原始文件。
 
@@ -86,7 +86,7 @@ daily/
 
 解读后的 daily note 负责“好读”，原始资源负责“可信”。
 
-Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的原路径。这样，文本资料会进入 daily 记忆流， 原始文件也始终保留在它来时的位置。
+Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的原路径。这样，文本资料会进入 daily 记忆流，原始文件也始终保留在它来时的位置。
 
 ## 后续流向
 

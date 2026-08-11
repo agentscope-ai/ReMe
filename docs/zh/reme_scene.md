@@ -50,11 +50,11 @@ session/
 daily/
 ├── 2026-05-18.md
 └── 2026-05-18/
-    ├── cobalt-supply-risk.md
-    ├── glencore-output-update.md
-    ├── drc-cobalt-policy.md
-    ├── high-nickel-cathode-trend.md
-    └── interests.yaml          # auto_dream 后生成
+    ├── cobalt-supply-risk.md
+    ├── glencore-output-update.md
+    ├── drc-cobalt-policy.md
+    ├── high-nickel-cathode-trend.md
+    └── interests.yaml          # auto_dream 后生成
 ```
 
 对应链路：

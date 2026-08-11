@@ -1,6 +1,6 @@
 # Memory as File
 
-ReMe 的核心思想是： **Memory as File, File as Memory**。
+ReMe 的核心思想是：**Memory as File, File as Memory**。
 
 <p align="center">
   <img src="../figure/memory-as-file.svg" alt="ReMe Memory as File 文件化记忆模型" width="92%">
@@ -62,7 +62,7 @@ ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resourc
 整合到 `digest/`。
 
 对应的自动流程分别是 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md)
-和 [Auto Dream](./auto_dream.md)。 检索这些文件时使用 [Memory Search](./memory_search.md)。
+和 [Auto Dream](./auto_dream.md)。检索这些文件时使用 [Memory Search](./memory_search.md)。
 
 ```text
 <workspace_dir>/
@@ -194,8 +194,8 @@ ReMe 的 wikilink 是 **字面路径语义**：
 
 `[label](../wiki/example.md)` 这类普通 Markdown 链接不会建立 `FileLink`，move 或 retarget 操作也不会改写它们。
 
-`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器 不会校验行号锚点，因此
-`#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定 范围时需要分别传入从 1 开始、首尾均包含的
+`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器不会校验行号锚点，因此
+`#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定范围时需要分别传入从 1 开始、首尾均包含的
 `start_line` 和 `end_line`，例如
 `read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。
 
@@ -219,7 +219,7 @@ FileLink
 
 旧文档中的 `related:: [[path]]`、`- related:: [[path]]` 或
 `[related:: [[path]]]` 仍然可以读取。ReMe 会忽略外围文本，把内部 `[[path]]`
-作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`， 用源文件重建不含旧关系字段的派生图索引。
+作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`，用源文件重建不含旧关系字段的派生图索引。
 
 ### 来源和关系
 
@@ -254,7 +254,7 @@ Sources 章节说明“这条长期记忆从哪里来”：
 | 删除文件   | 删除前检查入链；ReMe 的 delete 会返回仍然指向目标的来源文件，方便清理悬空引用。     |
 | 修改元数据 | 用 frontmatter 表达短字段；正文发生实质变化时同步更新 `description`。               |
 
-一个实用规则是： **可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 Sources 条目和已有
+一个实用规则是：**可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 Sources 条目和已有
 digest-to-digest Wikilink，是长期记忆可追溯和可扩展的基础。
 
 ## 路径语义

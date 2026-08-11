@@ -5,37 +5,7 @@
         explicit relationship graph for agents.
     </desc>
     <defs>
-        <style>
-            .bg { fill: #ffffff; }
-            .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-            .panel-blue { fill: #eef7ff; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin:
-            round; }
-            .panel-green { fill: #f0fbf5; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin:
-            round; }
-            .panel-yellow { fill: #fff7e5; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin:
-            round; }
-            .label { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .small { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #556276; }
-            .tiny { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #5e6a7c; }
-            .chip { fill: #ffffff; stroke: #1f2430; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
-            stroke-dasharray: 6 5; }
-            .chip-text { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
-            sans-serif; fill: #1f2430; }
-            .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round;
-            marker-end: url(#arrow); }
-            .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; fill: none; stroke-dasharray: 6 6; stroke-linecap: round;
-            stroke-linejoin: round; marker-end: url(#arrow-soft); }
-            .node { fill: #ffffff; stroke: #1f2430; stroke-width: 1.6; }
-            .link { stroke: #a3adbd; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-            .file-line { stroke: #7f8b9d; stroke-width: 1.45; stroke-linecap: round; }
-        </style>
+        <style>.bg { fill: #ffffff; } .title { font: 700 30px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .panel { fill: #ffffff; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; } .panel-blue { fill: #eef7ff; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; } .panel-green { fill: #f0fbf5; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; } .panel-yellow { fill: #fff7e5; stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; } .label { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .small { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #556276; } .tiny { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #5e6a7c; } .chip { fill: #ffffff; stroke: #1f2430; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 5; } .chip-text { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; } .arrow { stroke: #7f8b9d; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); } .soft-arrow { stroke: #a3adbd; stroke-width: 1.25; fill: none; stroke-dasharray: 6 6; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow-soft); } .node { fill: #ffffff; stroke: #1f2430; stroke-width: 1.6; } .link { stroke: #a3adbd; stroke-width: 1.45; fill: none; stroke-linecap: round; stroke-linejoin: round; } .file-line { stroke: #7f8b9d; stroke-width: 1.45; stroke-linecap: round; }</style>
         <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="2" orient="auto" markerUnits="strokeWidth">
             <path d="M0,0 L0,4 L5,2 z" fill="#7f8b9d"/>
         </marker>
@@ -47,9 +17,7 @@
 
     <rect class="bg" x="0" y="0" width="1200" height="520"/>
     <text class="title" x="600" y="54" text-anchor="middle">ReMe Design Philosophy</text>
-    <text class="subtitle" x="600" y="80" text-anchor="middle">File-native memory, progressive abstraction, and explicit
-        links for reusable agent context.
-    </text>
+    <text class="subtitle" x="600" y="80" text-anchor="middle">File-native memory, progressive abstraction, and explicit links for reusable agent context.</text>
 
     <rect class="panel-blue" x="64" y="134" width="304" height="220" rx="14"/>
     <text class="label" x="216" y="170" text-anchor="middle">Foundation: Memory as File</text>
@@ -79,8 +47,8 @@
         <path class="arrow" d="M68 21 H89"/>
         <path class="arrow" d="M163 21 H184"/>
     </g>
-    <text class="tiny" x="600" y="310" text-anchor="middle">session/ + resource/ -> daily/ -> digest/</text>
-    <text class="tiny" x="600" y="332" text-anchor="middle">Continuous consolidation, not one-shot summary.</text>
+    <text class="tiny" x="600" y="310" text-anchor="middle">session/resource -> daily -> digest</text>
+    <text class="tiny" x="600" y="332" text-anchor="middle">Continuous consolidation; not one-shot.</text>
 
     <rect class="panel-green" x="832" y="134" width="304" height="220" rx="14"/>
     <text class="label" x="984" y="170" text-anchor="middle">Innovation: Link Graph</text>
@@ -100,16 +68,14 @@
         <text class="tiny" x="130" y="89" text-anchor="middle">Risk</text>
         <text class="tiny" x="152" y="31" text-anchor="middle">Dep</text>
     </g>
-    <text class="tiny" x="984" y="318" text-anchor="middle">Beyond similarity: source, cause, dependency, risk.</text>
+    <text class="tiny" x="984" y="318" text-anchor="middle">Source · cause · dependency · risk</text>
     <text class="tiny" x="984" y="338" text-anchor="middle">Wikilinks guide expansion across nodes.</text>
 
     <path class="arrow" d="M368 244 H448"/>
     <path class="arrow" d="M752 244 H832"/>
 
     <rect class="panel" x="220" y="414" width="760" height="56" rx="14"/>
-    <text class="small" x="600" y="438" text-anchor="middle">One shared file tree acts as both memory store and
-        operating surface.
-    </text>
+    <text class="small" x="600" y="438" text-anchor="middle">One shared file tree acts as both memory store and operating surface.</text>
     <text class="chip-text" x="600" y="460" text-anchor="middle">capture -> refine -> link -> retrieve -> expand</text>
     <path class="soft-arrow" d="M216 354 C216 392 428 392 454 414"/>
     <path class="soft-arrow" d="M600 354 V414"/>

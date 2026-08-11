@@ -5,24 +5,14 @@
         integrates it into a user-owned personal knowledge base.
     </desc>
     <defs>
-        <style>
-            .bg{fill:#fffdf8}.title{font:800 30px Arial,sans-serif;fill:#1f2430}.sub{font:14px
-            Arial,sans-serif;fill:#667085}.panel{fill:#fff;stroke:#1f2430;stroke-width:2}.head{font:700 18px
-            Arial,sans-serif;fill:#1f2430}.text{font:13px Arial,sans-serif;fill:#5e6a7c}.small{font:12px
-            Arial,sans-serif;fill:#667085}.label{font:700 13px Arial,sans-serif;fill:#1f2430}.path{font:700 13px
-            Arial,sans-serif;fill:#e66f11}.chip{fill:#f8fbff;stroke:#1f2430;stroke-width:1.3;stroke-dasharray:6
-            5}.orange{fill:#fff3e7}.blue{fill:#eef7ff}.green{fill:#eef9f4}.arrow{fill:none;stroke:#8793a3;stroke-width:2.5;marker-end:url(#a)}
-        </style>
+        <style>.bg{fill:#fffdf8}.title{font:800 30px Arial,sans-serif;fill:#1f2430}.sub{font:14px Arial,sans-serif;fill:#667085}.panel{fill:#fff;stroke:#1f2430;stroke-width:2}.head{font:700 18px Arial,sans-serif;fill:#1f2430}.text{font:13px Arial,sans-serif;fill:#5e6a7c}.small{font:12px Arial,sans-serif;fill:#667085}.label{font:700 13px Arial,sans-serif;fill:#1f2430}.path{font:700 13px Arial,sans-serif;fill:#e66f11}.chip{fill:#f8fbff;stroke:#1f2430;stroke-width:1.3;stroke-dasharray:6 5}.orange{fill:#fff3e7}.blue{fill:#eef7ff}.green{fill:#eef9f4}.arrow{fill:none;stroke:#8793a3;stroke-width:2.5;marker-end:url(#a)}</style>
         <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
             <path d="M0 0v9l9-4.5z" fill="#8793a3"/>
         </marker>
     </defs>
 
     <rect class="bg" width="1200" height="640"/>
-    <text class="title" x="600" y="50" text-anchor="middle">Auto Resource</text>
-    <text class="sub" x="600" y="77" text-anchor="middle">Bring external information into a traceable, user-owned
-        knowledge base
-    </text>
+    <text text-anchor="middle"><tspan class="title" x="600" y="50">Auto Resource</tspan><tspan class="sub" x="600" y="77">Bring external information into a traceable, user-owned knowledge base</tspan></text>
     <text x="1080" y="51" style="font:800 25px Arial,sans-serif;fill:#19bfc3">Re</text>
     <text x="1111" y="51" style="font:800 25px Arial,sans-serif;fill:#3274d9">Me</text>
 
@@ -31,7 +21,7 @@
     <path d="M80 149h21l7 7v19H80z" fill="#fff"/>
     <path d="M101 149v8h8" fill="none" stroke="#ff963d" stroke-width="2"/>
     <text class="head" x="128" y="155">External Information</text>
-    <text class="text" x="128" y="179">Keep originals as the source of truth</text>
+    <text class="text" x="128" y="179" style="font-size:13px">Originals remain verifiable</text>
 
     <rect class="chip orange" x="76" y="214" width="244" height="68" rx="11"/>
     <text class="label" x="198" y="240" text-anchor="middle">Documents · notes · web archives</text>
@@ -41,7 +31,7 @@
     <text class="small" x="198" y="351" text-anchor="middle">csv · yaml · html</text>
     <rect class="chip" x="76" y="390" width="244" height="68" rx="11"/>
     <text class="label" x="198" y="416" text-anchor="middle">Create · update · delete</text>
-    <text class="small" x="198" y="439" text-anchor="middle">Changes remain visible and recoverable</text>
+    <text class="small" x="198" y="439" text-anchor="middle" style="font-size:12px">Changes stay visible and recoverable</text>
     <text class="path" x="198" y="505" text-anchor="middle">resource/</text>
     <text class="text" x="198" y="532" text-anchor="middle">Original files remain user-owned</text>
 
@@ -58,10 +48,10 @@
     <text class="small" x="468" y="263">Read text, sections, fields, and metadata</text>
     <rect class="chip orange" x="442" y="302" width="316" height="68" rx="11"/>
     <text class="label" x="468" y="328">2 Interpret reusable information</text>
-    <text class="small" x="468" y="351">Extract themes, key facts, and actionable details</text>
+    <text class="small" x="468" y="351" style="font-size:12px">Extract themes, facts, and actionable details</text>
     <rect class="chip green" x="442" y="390" width="316" height="68" rx="11"/>
     <text class="label" x="468" y="416">3 Attach traceable provenance</text>
-    <text class="small" x="468" y="439">Link every memory back with source_resource</text>
+    <text class="small" x="468" y="439" style="font-size:12px">Link each memory with source_resource</text>
     <text class="path" x="600" y="505" text-anchor="middle">daily/</text>
     <text class="text" x="600" y="532" text-anchor="middle">Write readable resource memory</text>
 
@@ -72,21 +62,19 @@
     <path d="M883 171c7-19 18-26 27-27-1 12-6 25-27 27z" fill="#fff"/>
     <path d="M896 151v23" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
     <text class="head" x="932" y="155">Knowledge Base</text>
-    <text class="text" x="932" y="179">One memory system for every source</text>
+    <text class="text" x="932" y="179" style="font-size:13px">One memory system per source</text>
 
     <rect class="chip blue" x="880" y="214" width="244" height="68" rx="11"/>
     <text class="label" x="1002" y="240" text-anchor="middle">daily/</text>
-    <text class="small" x="1002" y="263" text-anchor="middle">Readable, traceable resource memory</text>
+    <text class="small" x="1002" y="263" text-anchor="middle" style="font-size:12px">Readable, traceable resource memory</text>
     <rect class="chip green" x="880" y="302" width="244" height="68" rx="11"/>
     <text class="label" x="1002" y="328" text-anchor="middle">digest/</text>
-    <text class="small" x="1002" y="351" text-anchor="middle">Long-term knowledge via Auto Dream</text>
+    <text class="small" x="1002" y="351" text-anchor="middle" style="font-size:12px">Long-term memory via Auto Dream</text>
     <rect class="chip" x="880" y="390" width="244" height="68" rx="11"/>
     <text class="label" x="1002" y="416" text-anchor="middle">metadata/</text>
-    <text class="small" x="1002" y="439" text-anchor="middle">Rebuildable index and knowledge graph</text>
+    <text class="small" x="1002" y="439" text-anchor="middle" style="font-size:12px">Rebuildable index and link graph</text>
     <text class="path" x="1002" y="505" text-anchor="middle">Search · link · reuse</text>
     <text class="text" x="1002" y="532" text-anchor="middle">External knowledge returns to future tasks</text>
 
-    <text class="small" x="600" y="610" text-anchor="middle">User files stay authoritative · derived indexes remain
-        rebuildable
-    </text>
+    <text class="small" x="600" y="610" text-anchor="middle">User files stay authoritative · derived indexes remain rebuildable</text>
 </svg>

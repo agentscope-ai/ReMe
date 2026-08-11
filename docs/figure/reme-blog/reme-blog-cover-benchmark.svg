@@ -13,13 +13,7 @@
         <filter id="shadow" x="-20%" y="-30%" width="140%" height="180%">
             <feDropShadow dx="0" dy="-8" stdDeviation="16" flood-color="#000" flood-opacity="0.16"/>
         </filter>
-        <style>
-            .sans{font-family:Arial,sans-serif}
-            .eyebrow{font-size:17px;font-weight:750;letter-spacing:2px;fill:#ffad61}
-            .metric{font-size:49px;font-weight:900;letter-spacing:-1.5px;fill:#fff}
-            .label{font-size:17px;font-weight:720;fill:#fff}
-            .small{font-size:14px;font-weight:520;fill:#d0d5dd}
-        </style>
+        <style>.sans{font-family:Arial,sans-serif} .eyebrow{font-size:17px;font-weight:750;letter-spacing:2px;fill:#ffad61} .metric{font-size:49px;font-weight:900;letter-spacing:-1.5px;fill:#fff} .label{font-size:17px;font-weight:720;fill:#fff} .small{font-size:14px;font-weight:520;fill:#d0d5dd}</style>
     </defs>
     <image xlink:href="reme-blog-cover.png" x="0" y="0" width="1680" height="973" preserveAspectRatio="xMidYMid slice"/>
     <rect x="0" y="711" width="1680" height="262" fill="url(#glass)" filter="url(#shadow)"/>
@@ -45,8 +39,6 @@
         <text class="label" x="1323" y="875">BEAM 1M</text>
         <text class="small" x="1323" y="903">35 cases · 700 questions</text>
 
-        <text x="1596" y="950" text-anchor="end" style="font-size:12px;font-weight:520;fill:#98a2b3">Scores from
-            different benchmarks are not compared directly
-        </text>
+        <text x="1596" y="950" text-anchor="end" style="font-size:12px;font-weight:520;fill:#98a2b3">Scores from different benchmarks are not compared directly</text>
     </g>
 </svg>

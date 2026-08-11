@@ -54,11 +54,11 @@ session/
 daily/
 ├── 2026-05-18.md
 └── 2026-05-18/
-    ├── cobalt-supply-risk.md
-    ├── glencore-output-update.md
-    ├── drc-cobalt-policy.md
-    ├── high-nickel-cathode-trend.md
-    └── interests.yaml          # generated after auto_dream
+    ├── cobalt-supply-risk.md
+    ├── glencore-output-update.md
+    ├── drc-cobalt-policy.md
+    ├── high-nickel-cathode-trend.md
+    └── interests.yaml          # generated after auto_dream
 ```
 
 The corresponding flow is:

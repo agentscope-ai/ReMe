@@ -36,23 +36,7 @@
         <filter id="nodeShadow" x="-15%" y="-30%" width="130%" height="170%">
             <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#1c2b3a" flood-opacity="0.12"/>
         </filter>
-        <style>
-            .bg { fill: url(#paper); }
-            .grain { fill: none; stroke: #d9ded8; stroke-width: 1; opacity: 0.38; }
-            text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
-            .title { font-size: 30px; font-weight: 800; fill: #172033; }
-            .subtitle { font-size: 14px; fill: #667489; }
-            .layer-title { font-size: 18px; font-weight: 800; fill: #263548; }
-            .layer-note { font-size: 13px; fill: rgba(38,53,72,0.72); }
-            .section-label { font-size: 11px; font-weight: 800; fill: #647187; letter-spacing: 1.8px; }
-            .node-title { font-size: 14px; font-weight: 700; fill: #1d2838; }
-            .node-text { font-size: 12px; fill: #667489; }
-            .micro { font-size: 11px; fill: #728096; }
-            .plate { filter: url(#softShadow); }
-            .plate-bg { fill: #ffffff; stroke: rgba(52, 65, 84, 0.12); stroke-width: 1; }
-            .side { opacity: 0.18; }
-            .node { fill: #ffffff; stroke: rgba(90, 105, 128, 0.22); stroke-width: 1; filter: url(#nodeShadow); }
-        </style>
+        <style>.bg { fill: url(#paper); } .grain { fill: none; stroke: #d9ded8; stroke-width: 1; opacity: 0.38; } text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; } .title { font-size: 30px; font-weight: 800; fill: #172033; } .subtitle { font-size: 14px; fill: #667489; } .layer-title { font-size: 18px; font-weight: 800; fill: #263548; } .layer-note { font-size: 13px; fill: rgba(38,53,72,0.72); } .section-label { font-size: 11px; font-weight: 800; fill: #647187; letter-spacing: 1.8px; } .node-title { font-size: 14px; font-weight: 700; fill: #1d2838; } .node-text { font-size: 12px; fill: #667489; } .micro { font-size: 11px; fill: #728096; } .plate { filter: url(#softShadow); } .plate-bg { fill: #ffffff; stroke: rgba(52, 65, 84, 0.12); stroke-width: 1; } .side { opacity: 0.18; } .node { fill: #ffffff; stroke: rgba(90, 105, 128, 0.22); stroke-width: 1; filter: url(#nodeShadow); }</style>
     </defs>
 
     <rect class="bg" width="1200" height="920"/>
@@ -60,9 +44,7 @@
     <path class="grain" d="M64 768 C218 720 374 790 514 742 C660 692 812 740 966 706 C1066 684 1118 708 1146 732"/>
 
     <text class="title" x="600" y="56" text-anchor="middle">ReMe Framework Structure</text>
-    <text class="subtitle" x="600" y="83" text-anchor="middle">File-backed memory, searchable knowledge kernel,
-        composable jobs, app wiring, and public service surfaces.
-    </text>
+    <text class="subtitle" x="600" y="83" text-anchor="middle">File-backed memory, searchable knowledge kernel, composable jobs, app wiring, and public service surfaces.</text>
 
     <g class="plate" transform="translate(0,0)">
         <path class="side" d="M126 196 L1074 196 L1042 226 L158 226 Z" fill="#83cbbb"/>
@@ -162,10 +144,6 @@
 
     <text class="section-label" x="92" y="118">EXTERNAL SURFACES</text>
     <text class="section-label" x="92" y="734">PERSISTENT MEMORY BASE</text>
-    <text class="micro" x="600" y="878" text-anchor="middle">Structure reads bottom-up during boot and top-down during
-        use.
-    </text>
-    <text class="micro" x="600" y="896" text-anchor="middle">Workspace files feed the kernel; workflows compose
-        operations; application wiring exposes stable service entry points.
-    </text>
+    <text class="micro" x="600" y="878" text-anchor="middle">Structure reads bottom-up during boot and top-down during use.</text>
+    <text class="micro" x="600" y="896" text-anchor="middle">Workspace files feed the kernel; workflows compose operations; application wiring exposes stable service entry points.</text>
 </svg>

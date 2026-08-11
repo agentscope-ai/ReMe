@@ -6,20 +6,7 @@
       <stop offset="0%" stop-color="#3568B8"/>
       <stop offset="100%" stop-color="#2A9D8F"/>
     </linearGradient>
-    <style>
-      .bg { fill: #fffdf8; }
-      .title { font: 800 30px Arial, sans-serif; fill: #1f2430; }
-      .sub { font: 14px Arial, sans-serif; fill: #667085; }
-      .panel { fill: #fff; stroke: #365A73; stroke-width: 2; }
-      .top { fill: url(#headerGradient); }
-      .white { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #fff; }
-      .mono { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #283342; }
-      .folder { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #1767b1; }
-      .head { font: 700 17px Arial, sans-serif; fill: #1f2430; }
-      .text { font: 13px Arial, sans-serif; fill: #5e6a7c; }
-      .link { fill: none; stroke: #ff963d; stroke-width: 2.5; }
-      .dot { fill: #ff963d; }
-    </style>
+    <style>.bg { fill: #fffdf8; } .title { font: 800 30px Arial, sans-serif; fill: #1f2430; } .sub { font: 14px Arial, sans-serif; fill: #667085; } .panel { fill: #fff; stroke: #365A73; stroke-width: 2; } .top { fill: url(#headerGradient); } .white { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #fff; } .mono { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #283342; } .folder { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #1767b1; } .head { font: 700 17px Arial, sans-serif; fill: #1f2430; } .text { font: 13px Arial, sans-serif; fill: #5e6a7c; } .link { fill: none; stroke: #ff963d; stroke-width: 2.5; } .dot { fill: #ff963d; }</style>
   </defs>
 
   <rect class="bg" width="1200" height="640"/>

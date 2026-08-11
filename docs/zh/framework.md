@@ -2,7 +2,7 @@
 
 ## 1. 总览
 
-ReMe 的运行时可以理解为： **配置驱动的 Application 把组件和 Job 装配起来，Service 把可服务的 Job 暴露给 CLI、HTTP 或
+ReMe 的运行时可以理解为：**配置驱动的 Application 把组件和 Job 装配起来，Service 把可服务的 Job 暴露给 CLI、HTTP 或
 MCP，Job 再按顺序执行 Step**。
 
 <p align="center">
@@ -137,7 +137,7 @@ reme search query="memory" backend=mcp
 `BaseService.run_app()` 的顺序：
 
 可通过可选的 `service.jobs` 列表将 HTTP 或 MCP 仅暴露给指定 Job。未配置时，所有 `enable_serve: true` 的 Job
-仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。 配置该列表后，缺失、禁用、不受支持或无效的已选
+仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。配置该列表后，缺失、禁用、不受支持或无效的已选
 Job 会导致服务启动失败。
 
 ```mermaid
