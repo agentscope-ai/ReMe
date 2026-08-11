@@ -41,6 +41,7 @@ import {
   filterPathsBySource,
   parseWorkspaceExtensions,
   sourceDirectory,
+  WORKSPACE_FILE_LIMIT,
 } from "../workspace-files";
 
 const extensions = parseWorkspaceExtensions(
@@ -193,6 +194,7 @@ export default function FilesNavigator({
   const { t } = useI18n();
   const [config, setConfig] = useState<AppConfig>();
   const [paths, setPaths] = useState<string[]>([]);
+  const [limited, setLimited] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
@@ -205,10 +207,11 @@ export default function FilesNavigator({
       if (loading || !mounted) return;
       loading = true;
       try {
-        const [nextConfig, nextPaths] = await loadWorkspace();
+        const [nextConfig, listing] = await loadWorkspace();
         if (!mounted) return;
         setConfig(nextConfig);
-        setPaths(nextPaths);
+        setPaths(listing.paths);
+        setLimited(listing.limited);
         setStatus("ready");
       } catch {
         if (mounted) setStatus("error");
@@ -319,6 +322,14 @@ export default function FilesNavigator({
           )}
           {status === "ready" && !tree.length && (
             <div className="side-state">{t("emptyWorkspace")}</div>
+          )}
+          {status === "ready" && limited && (
+            <div className="side-state warning" role="status">
+              <CircleAlert size={15} />
+              {t("workspaceFileLimit", {
+                limit: WORKSPACE_FILE_LIMIT.toLocaleString(),
+              })}
+            </div>
           )}
           {tree.map((node) => (
             <DirectoryNode

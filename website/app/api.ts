@@ -7,6 +7,11 @@ import type {
 } from "./types";
 import { decodeSseEvent } from "./chat-stream";
 import { translate, useLanguageStore, type TranslationKey } from "./i18n";
+import {
+  WORKSPACE_FILE_LIMIT,
+  workspaceFileListing,
+  type WorkspaceFileListing,
+} from "./workspace-files";
 
 export const REME_API_URL = (
   process.env.NEXT_PUBLIC_REME_API_URL || "http://127.0.0.1:2333"
@@ -67,17 +72,15 @@ export async function getGraphSnapshot(): Promise<GraphSnapshot> {
 
 export async function listWorkspaceFiles(
   extensions: string[],
-): Promise<string[]> {
+): Promise<WorkspaceFileListing> {
   const response = await callReMe<string>("list", {
     path: "",
     recursive: true,
-    limit: 5000,
+    limit: WORKSPACE_FILE_LIMIT,
     sort_by: "mtime",
     extensions,
   });
-  return Array.isArray(response.metadata.items)
-    ? (response.metadata.items as string[])
-    : [];
+  return workspaceFileListing(response.metadata.items);
 }
 
 export async function readWorkspaceFile(

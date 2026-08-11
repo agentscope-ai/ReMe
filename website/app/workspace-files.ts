@@ -2,6 +2,23 @@ import type { TreeNode } from "./types";
 
 const defaults = ["md", "txt"];
 
+export const WORKSPACE_FILE_LIMIT = 5000;
+
+export interface WorkspaceFileListing {
+  paths: string[];
+  limited: boolean;
+}
+
+export function workspaceFileListing(
+  items: unknown,
+  limit = WORKSPACE_FILE_LIMIT,
+): WorkspaceFileListing {
+  const paths = Array.isArray(items)
+    ? items.filter((item): item is string => typeof item === "string")
+    : [];
+  return { paths, limited: paths.length >= limit };
+}
+
 export type WorkspaceDirectoryConfig = {
   daily_dir: string;
   digest_dir: string;

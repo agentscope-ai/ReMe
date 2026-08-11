@@ -41,6 +41,7 @@ import {
   WORKSPACE_FILE_DRAG_TYPE,
 } from "./workspace-drag";
 import SettingsCenter from "./settings-center";
+import { hasUnsavedChanges, unsavedTabsClosedBy } from "./tab-close";
 
 const TabbedEditor = dynamic(() => import("./files-workspace/TabbedEditor"), {
   ssr: false,
@@ -136,12 +137,20 @@ function Tabs() {
       window.removeEventListener("scroll", closeOnViewportChange, true);
     };
   }, [contextMenu]);
+  const confirmDiscard = (tabId: string, closeOthers: boolean) => {
+    const unsaved = unsavedTabsClosedBy(tabs, tabId, closeOthers);
+    return (
+      !unsaved.length ||
+      window.confirm(
+        t("discardUnsavedConfirm", { count: String(unsaved.length) }),
+      )
+    );
+  };
   return (
     <>
       <div className="tabs" role="tablist">
         {tabs.map((tab) => {
-          const dirty =
-            tab.type === "markdown" && tab.content !== tab.savedContent;
+          const dirty = hasUnsavedChanges(tab);
           return (
             <button
               key={tab.id}
@@ -202,7 +211,8 @@ function Tabs() {
           <button
             role="menuitem"
             onClick={() => {
-              closeTab(contextMenu.tabId);
+              if (!confirmDiscard(contextMenu.tabId, false)) return;
+              closeTab(contextMenu.tabId, true);
               setContextMenu(undefined);
             }}
           >
@@ -212,7 +222,8 @@ function Tabs() {
             role="menuitem"
             disabled={tabs.length <= 1}
             onClick={() => {
-              closeOtherTabs(contextMenu.tabId);
+              if (!confirmDiscard(contextMenu.tabId, true)) return;
+              closeOtherTabs(contextMenu.tabId, true);
               setContextMenu(undefined);
             }}
           >

@@ -538,6 +538,14 @@ textarea:focus-visible {
   color: var(--muted);
   font-size: 12px;
 }
+.side-state.warning {
+  margin: 7px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, #b7791f 35%, var(--line));
+  border-radius: 7px;
+  color: color-mix(in srgb, #b7791f 82%, var(--ink));
+  background: color-mix(in srgb, #f6c453 12%, var(--surface));
+}
 .workspace-path {
   height: 50px;
   padding: 0 14px;

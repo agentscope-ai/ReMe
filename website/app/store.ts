@@ -18,6 +18,7 @@ import {
   type PersistedWorkspaceState,
 } from "./workspace-persistence";
 import { markMarkdownContentSaved } from "./markdown-save";
+import { unsavedTabsClosedBy } from "./tab-close";
 
 interface WorkspaceState {
   tabs: WorkspaceTab[];
@@ -25,8 +26,8 @@ interface WorkspaceState {
   openMarkdown: (path: string) => string;
   openAgent: () => string;
   openGraph: (root: MemoryGraphRoot) => string;
-  closeTab: (id: string) => void;
-  closeOtherTabs: (id: string) => void;
+  closeTab: (id: string, discardUnsaved?: boolean) => void;
+  closeOtherTabs: (id: string, discardUnsaved?: boolean) => void;
   setActiveTab: (id: string) => void;
   hydrateMarkdown: (id: string, content: string, mtime?: string) => void;
   failMarkdown: (id: string, error: string) => void;
@@ -110,8 +111,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
         return id;
       },
-      closeTab: (id) =>
+      closeTab: (id, discardUnsaved = false) =>
         set((state) => {
+          if (
+            !discardUnsaved &&
+            unsavedTabsClosedBy(state.tabs, id, false).length
+          )
+            return state;
           const index = state.tabs.findIndex((tab) => tab.id === id);
           const tabs = state.tabs.filter((tab) => tab.id !== id);
           const activeTabId =
@@ -120,8 +126,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               : state.activeTabId;
           return { tabs, activeTabId };
         }),
-      closeOtherTabs: (id) =>
+      closeOtherTabs: (id, discardUnsaved = false) =>
         set((state) => {
+          if (
+            !discardUnsaved &&
+            unsavedTabsClosedBy(state.tabs, id, true).length
+          )
+            return state;
           const tab = state.tabs.find((item) => item.id === id);
           return tab ? { tabs: [tab], activeTabId: id } : state;
         }),
