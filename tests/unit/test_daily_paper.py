@@ -739,9 +739,11 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     await DailyPaperAnalyzeStep(app_context=app_context, agent_wrapper=cc_wrapper)(
         context,
     )
-    await DailyPaperDigestStep(app_context=app_context, agent_wrapper=cc_wrapper)(
-        context,
-    )
+    await DailyPaperDigestStep(
+        app_context=app_context,
+        agent_wrapper=cc_wrapper,
+        job_tools=["memory_search", "read"],
+    )(context)
 
     assert _FakeHfClient.requested_daily == ["2026-07-20"]
     assert context.response.metadata["selected_arxiv_ids"] == [
@@ -780,7 +782,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:-1])
     assert cc_wrapper.calls[-1]["kwargs"] == {
         "output_schema": DailyPaperMarkdownOutput,
-        "job_tools": ["search", "read"],
+        "job_tools": ["memory_search", "read"],
     }
     assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
         PaperPickList,

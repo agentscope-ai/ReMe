@@ -18,9 +18,6 @@ from ._common import (
     write_markdown,
 )
 
-_TOOLS = ("search", "read")
-
-
 @R.register("daily_paper_digest_step")
 class DailyPaperDigestStep(DailyPaperStep):
     """Use an agent to read the detailed notes and create the final brief."""
@@ -50,7 +47,7 @@ class DailyPaperDigestStep(DailyPaperStep):
                 previous_day=previous_day,
             ),
             output_schema=DailyPaperMarkdownOutput,
-            job_tools=list(_TOOLS),
+            job_tools=list(self.kwargs.get("job_tools") or []),
         )
         self.logger.info(f"[{self.name}] agent done notes={len(analyses)}")
         output = structured_output(result, DailyPaperMarkdownOutput)

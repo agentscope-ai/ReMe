@@ -188,7 +188,11 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
         ],
     )
 
-    response = await AutoFinMergeStep(app_context=app_context, agent_wrapper=agent)(context)
+    response = await AutoFinMergeStep(
+        app_context=app_context,
+        agent_wrapper=agent,
+        job_tools=["memory_search", "read"],
+    )(context)
 
     prompt, kwargs = agent.calls[0]
     assert "end_date 设为 2026-08-09" in prompt
@@ -247,6 +251,7 @@ def test_config_has_default_topics_and_no_intermediate_index_step():
         "auto_fin_merge_step",
         "dingtalk_markdown_send_step",
     ]
+    assert job["steps"][2]["job_tools"] == ["memory_search", "read"]
     for name, schedule in {
         "auto_fin_0930_cron": "30 9 * * *",
         "auto_fin_1130_cron": "30 11 * * *",

@@ -13,7 +13,6 @@ from ....schema import AutoFinReportOutput
 from ...file_io import refresh_day_index
 from ._base import AutoFinStep, _write
 
-_TOOLS = ["memory_search", "read"]
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
 _HYBRID_WIKILINK_RE = re.compile(
     r"(?P<wikilink>\[\[(?P<inner>[^\[\]\n]+)\]\])\((?P<destination>[^()\n]+)\)",
@@ -111,7 +110,7 @@ class AutoFinMergeStep(AutoFinStep):
         output = await self._reply(
             "merge_user",
             AutoFinReportOutput,
-            job_tools=_TOOLS,
+            job_tools=list(self.kwargs.get("job_tools") or []),
             decision_at=str(self._required("auto_fin_decision_at")),
             window_start=str(self._required("auto_fin_window_start")),
             historical_end=(run_date - timedelta(days=1)).isoformat(),
