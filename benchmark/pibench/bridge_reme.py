@@ -13,6 +13,11 @@ Flow:
 5. On session end (reset), save conversation as ReMe daily memory (non-blocking)
 6. On every incoming user message, trigger a ReMe memory search and inject
    the relevant memories retrieved from previous sessions
+7. After every agent reply, capture the turn's tool calls (tool name,
+   arguments, result) from the persisted AgentScope session state and append
+   them to outputs/<model_id>/<user_id>/<task_id>/history/<ts>-tools.jsonl;
+   fix_trace_logs.py merges these into the per-turn traces as tool_steps so
+   π-Bench tools_evaluation scripts can score tool behavior.
 
 Key design decisions:
 - Memory saves are non-blocking (fire-and-forget asyncio tasks) so reset
@@ -39,8 +44,10 @@ Usage:
 import argparse
 import asyncio
 import fcntl
+import json
 import logging
 import os
+import re
 import signal
 import sys
 from datetime import datetime
@@ -182,6 +189,8 @@ class ReMeBridge:
         reme_port: int = 18765,
         search_limit: int = 3,
         search_min_score: float = 2.0,
+        outputs_dir: str = "",
+        model_id: str = "reme",
     ):
         self.test_server_url = test_server_url.rstrip("/")
         self.appworld_mcp_url = appworld_mcp_url
@@ -201,10 +210,27 @@ class ReMeBridge:
         self.reme_port = reme_port
         self.search_limit = search_limit
         self.search_min_score = search_min_score
+        # Runner outputs root; the tool-trace sidecar files are written next
+        # to the runner's *-messages.jsonl history files.
+        if outputs_dir:
+            self.outputs_dir = Path(outputs_dir).resolve()
+        else:
+            self.outputs_dir = (self.data_root.parent / "outputs").resolve()
+        self.model_id = model_id
         # Task generation counter: rotated on every reset so the search dedup
         # context (tool_context_id) is scoped to a single task.
         self.task_seq = 0
         self._workspace_lock_fd: Optional[int] = None
+
+        # Tool-trace capture state (per bridge lifetime):
+        # - turn counter per chat (each user message = one π-Bench turn)
+        # - already-seen session content block ids (tool_call / tool_result)
+        # - tool_call blocks waiting for their tool_result block
+        # - sidecar file timestamp per chat (fixed at first capture)
+        self._turn_by_chat: Dict[str, int] = {}
+        self._seen_tool_block_ids: set = set()
+        self._pending_tool_calls: Dict[str, Dict] = {}
+        self._tools_file_ts: Dict[str, str] = {}
 
         self.client: Optional[httpx.AsyncClient] = None
         self.running = False
@@ -403,6 +429,45 @@ class ReMeBridge:
             ),
         )
 
+    def _build_agent_toolkit(self, mcp_client, job_tool_names: List[str]):
+        """Build the agent toolkit so AppWorld MCP tools are really registered.
+
+        agent_wrapper.reply() accepts a prebuilt ``toolkit`` kwarg but does
+        not wire a bare ``mcps`` kwarg into the agent, so the toolkit is
+        assembled here: ReMe job tools (search / auto_memory / daily_write)
+        plus the AppWorld MCP client. Returns None when the wrapper lacks
+        the required hooks; the caller then falls back to plain kwargs.
+        """
+        try:
+            from agentscope.tool import Toolkit
+        except ImportError as exc:
+            logger.warning("Cannot import agentscope Toolkit: %s", exc)
+            return None
+
+        make_tool = getattr(type(self.agent_wrapper), "_make_tool", None)
+        if make_tool is None:
+            logger.warning(
+                "agent_wrapper %s cannot wrap jobs as tools; falling back to kwargs (MCP tools may be unavailable)",
+                type(self.agent_wrapper).__name__,
+            )
+            return None
+
+        tools = []
+        for name in job_tool_names:
+            job = self.app.context.jobs.get(name) if self.app is not None else None
+            if job is None:
+                continue
+            try:
+                tools.append(make_tool(job, None, None))
+            except Exception as exc:
+                logger.warning("Failed to wrap job '%s' as agent tool: %s", name, exc)
+
+        try:
+            return Toolkit(tools=tools, mcps=[mcp_client])
+        except Exception as exc:
+            logger.warning("Failed to build agent toolkit: %s", exc)
+            return None
+
     # ─── Memory Operations ──────────────────────────────────────────
 
     async def _wait_for_pending_memory_saves(self):
@@ -507,6 +572,123 @@ class ReMeBridge:
         # Clean up completed tasks from the tracking list
         self._pending_memory_tasks = [t for t in self._pending_memory_tasks if not t.done()]
 
+    # ─── Tool Trace Capture ─────────────────────────────────────────
+
+    MCP_TOOL_NAME_RE = re.compile(r"^mcp__(?P<client>[A-Za-z0-9_-]+?)__(?P<tool>.+)$")
+
+    @classmethod
+    def _normalize_tool_name(cls, name: str) -> str:
+        """Map AgentScope MCP tool names to the π-Bench / nanobot convention.
+
+        AgentScope registers MCP tools as ``mcp__<client>__<tool>`` while
+        π-Bench task objectives and tools_evaluation scripts expect
+        ``mcp_<client>_<tool>`` (lower-case client, single underscores).
+        """
+        match = cls.MCP_TOOL_NAME_RE.match(name)
+        if match:
+            return f"mcp_{match.group('client').lower()}_{match.group('tool')}"
+        return name
+
+    @staticmethod
+    def _tool_result_text(output: Any) -> str:
+        """Flatten an AgentScope tool-result payload into plain text."""
+        if isinstance(output, str):
+            return output
+        if isinstance(output, list):
+            parts = [
+                str(item.get("text") or "") for item in output if isinstance(item, dict) and item.get("type") == "text"
+            ]
+            return "\n".join(parts)
+        return ""
+
+    def _tools_file_for(self, chat_id: str) -> Path:
+        """Return (and lazily name) the tool-trace sidecar file of a task."""
+        task_dir = self.outputs_dir / self.model_id / self.user_id / chat_id / "history"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        if chat_id not in self._tools_file_ts:
+            self._tools_file_ts[chat_id] = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return task_dir / f"{self._tools_file_ts[chat_id]}-tools.jsonl"
+
+    def _capture_tool_calls(self, chat_id: str, session_id: str) -> None:
+        """Record the current turn's tool calls from the AgentScope session.
+
+        After every reply, the agent wrapper dumps the full session context to
+        ``<workspace>/mem_session/agentscope/<session_id>.jsonl``. This method
+        scans that dump for tool_call / tool_result content blocks that were
+        not seen before and appends the completed pairs to the per-task
+        sidecar file consumed by fix_trace_logs.py.
+        """
+        if not session_id:
+            return
+        mem_session_dir = "mem_session"
+        app_config = getattr(getattr(self.app, "context", None), "app_config", None)
+        if app_config is not None and getattr(app_config, "mem_session_dir", None):
+            mem_session_dir = app_config.mem_session_dir
+        state_path = self.workspace_dir / mem_session_dir / "agentscope" / f"{session_id}.jsonl"
+        if not state_path.is_file():
+            return
+        try:
+            lines = state_path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            logger.warning("Cannot read agent session state %s: %s", state_path, exc)
+            return
+
+        turn = self._turn_by_chat.get(chat_id, 0)
+        records: List[Dict] = []
+        for line in lines[1:]:  # line 1 is the state header, not a message
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                block_id = str(block.get("id") or "")
+                block_type = block.get("type")
+                if block_type not in ("tool_call", "tool_result"):
+                    continue
+                # A tool_result block reuses its tool_call's id, so dedup
+                # must be keyed on (type, id), not id alone.
+                seen_key = (block_type, block_id)
+                if not block_id or seen_key in self._seen_tool_block_ids:
+                    continue
+                if block_type == "tool_call":
+                    self._seen_tool_block_ids.add(seen_key)
+                    arguments = block.get("input") or ""
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            arguments = {"raw_input": arguments}
+                    self._pending_tool_calls[block_id] = {
+                        "turn": turn,
+                        "name": self._normalize_tool_name(str(block.get("name") or "")),
+                        "arguments": arguments,
+                    }
+                elif block_type == "tool_result":
+                    self._seen_tool_block_ids.add(seen_key)
+                    call = self._pending_tool_calls.pop(block_id, None)
+                    if call is None:
+                        continue
+                    call["result"] = self._tool_result_text(block.get("output"))
+                    records.append(call)
+
+        if records:
+            tools_path = self._tools_file_for(chat_id)
+            with open(tools_path, "a", encoding="utf-8") as f:
+                for record in records:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            logger.info(
+                "Tool trace: chat=%s turn=%d captured=%d -> %s",
+                chat_id,
+                turn,
+                len(records),
+                tools_path.name,
+            )
+
     # ─── Message Processing ─────────────────────────────────────────
 
     async def process_message(self, _sender_id: str, chat_id: str, content: str) -> Optional[str]:
@@ -523,6 +705,10 @@ class ReMeBridge:
                 "timestamp": datetime.now().isoformat(),
             },
         )
+
+        # Each user message is one π-Bench turn; tool records captured after
+        # the reply below are tagged with this turn number.
+        self._turn_by_chat[chat_id] = self._turn_by_chat.get(chat_id, 0) + 1
 
         # Build system prompt with user profile
         system_prompt = build_system_prompt(self.user_profile_text)
@@ -571,11 +757,17 @@ class ReMeBridge:
             # Call ReMe agent with MCP tools and memory tools
             reply_kwargs = {
                 "system_prompt": system_prompt,
-                "mcps": [mcp_client],
                 "permission_mode": "bypass",
             }
-            if job_tools:
-                reply_kwargs["job_tools"] = job_tools
+            toolkit = self._build_agent_toolkit(mcp_client, job_tools)
+            if toolkit is not None:
+                # Prebuilt toolkit: registers AppWorld MCP tools AND job tools.
+                reply_kwargs["toolkit"] = toolkit
+            else:
+                # Fallback path (kept for wrappers without toolkit support).
+                reply_kwargs["mcps"] = [mcp_client]
+                if job_tools:
+                    reply_kwargs["job_tools"] = job_tools
 
             # Resume existing session for multi-turn continuity within same task
             if self.agent_session_id:
@@ -588,6 +780,9 @@ class ReMeBridge:
 
             if session_id:
                 self.agent_session_id = session_id
+
+            # Capture the turn's tool calls for π-Bench tools_evaluation.
+            self._capture_tool_calls(chat_id, session_id or self.agent_session_id or "")
 
             # Track the assistant reply
             self.session_messages[chat_id].append(
@@ -792,6 +987,18 @@ async def main():
         default=2.0,
         help="Min BM25 score for injected memory chunks.",
     )
+    parser.add_argument(
+        "--outputs-dir",
+        default="",
+        help="Runner outputs root for tool-trace sidecar files "
+        "(default: <data-root>/../outputs, matching the runner layout).",
+    )
+    parser.add_argument(
+        "--model-id",
+        default="reme",
+        help="model_id used under outputs/<model_id>/...; must match "
+        "config/models/reme.yaml so traces align with the runner.",
+    )
 
     args = parser.parse_args()
 
@@ -809,6 +1016,8 @@ async def main():
         reme_port=args.reme_port,
         search_limit=args.search_limit,
         search_min_score=args.search_min_score,
+        outputs_dir=args.outputs_dir,
+        model_id=args.model_id,
     )
 
     await bridge.run()

@@ -71,6 +71,7 @@ fi
 
 # ─── Run personas in batches of PARALLEL ──────────────────────────────
 STATUS_LIST=()
+ANY_FAILED=0
 OVERALL_START=$(date +%s)
 TOTAL=${#PERSONAS[@]}
 
@@ -95,6 +96,7 @@ for ((i = 0; i < TOTAL; i += PARALLEL)); do
             STATUS_LIST+=("${persona}: OK")
         else
             rc=$?
+            ANY_FAILED=1
             STATUS_LIST+=("${persona}: FAILED rc=${rc}")
             echo "[run_all] ${persona} FAILED (rc=${rc}); see logs/suite_${persona}.log"
         fi
@@ -108,3 +110,10 @@ for line in "${STATUS_LIST[@]}"; do
     echo "  ${line}" | tee -a "${SUMMARY_LOG}"
 done
 echo "Summary: ${SUMMARY_LOG}"
+
+if [ "${ANY_FAILED}" -ne 0 ]; then
+    FAILED_COUNT=$(printf '%s\n' "${STATUS_LIST[@]}" | grep -c "FAILED")
+    echo "[run_all] ${FAILED_COUNT} persona(s) FAILED; suite run is marked as failed." | tee -a "${SUMMARY_LOG}"
+    exit 1
+fi
+exit 0

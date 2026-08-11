@@ -45,9 +45,24 @@ if [ ! -e "${SUITE_DIR}/data" ]; then
     exit 1
 fi
 
+# ─── Pre-flight: files the runner needs before any service starts ─────
+MODEL_CONFIG="${SUITE_DIR}/config/models/reme.yaml"
+HISTORY_CONFIG="${SUITE_DIR}/config/bench/evaluation/trace_history.yaml"
+if [ ! -f "${MODEL_CONFIG}" ]; then
+    echo "Model config not found: ${MODEL_CONFIG} (see README directory layout)."
+    exit 1
+fi
+if [ ! -f "${HISTORY_CONFIG}" ]; then
+    echo "Trace history config not found: ${HISTORY_CONFIG}"
+    echo "pi-bench requires config/bench/evaluation/trace_history.yaml; see README."
+    exit 1
+fi
+
 APPWORLD_DIR="${PIBENCH_DIR}/third_party/appworld"
 PI_PYTHON="${PIBENCH_DIR}/.venv/bin/python"
 APPWORLD_BIN="${PIBENCH_DIR}/.venv/bin/appworld"
+# resume.py runs on the ReMe venv so it can reuse ReMe's daily-index rebuild.
+REME_PYTHON="${REME_DIR}/.venv/bin/python"
 
 PERSONA="${1:-}"
 if [ -z "$PERSONA" ]; then
@@ -115,7 +130,7 @@ fi
 TASK_ARGS=()
 RUN_PHASE_NEEDED=true
 if [ "$MODE" = "resume" ]; then
-    REMAINING_JSON="$("${PI_PYTHON}" "${SUITE_DIR}/resume.py" remaining "${PERSONA}" --json)"
+    REMAINING_JSON="$("${REME_PYTHON}" "${SUITE_DIR}/resume.py" remaining "${PERSONA}" --json)"
     if [ -z "$REMAINING_JSON" ]; then
         echo "Failed to compute remaining tasks"; exit 1
     fi
@@ -123,14 +138,14 @@ if [ "$MODE" = "resume" ]; then
     REMAINING_TASKS=()
     while IFS= read -r tid_line; do
         [ -n "$tid_line" ] && REMAINING_TASKS+=("$tid_line")
-    done < <("${PI_PYTHON}" "${SUITE_DIR}/resume.py" remaining "${PERSONA}" 2>/dev/null)
+    done < <("${REME_PYTHON}" "${SUITE_DIR}/resume.py" remaining "${PERSONA}" 2>/dev/null)
     if [ ${#REMAINING_TASKS[@]} -eq 0 ]; then
         RUN_PHASE_NEEDED=false
         echo "[resume] all tasks already completed; skipping run phase"
     else
         # Remove residual memory of interrupted (to-be-re-run) tasks so
         # re-runs don't get their own partial answers injected.
-        "${PI_PYTHON}" "${SUITE_DIR}/resume.py" cleanup "${PERSONA}"
+        "${REME_PYTHON}" "${SUITE_DIR}/resume.py" cleanup "${PERSONA}"
         for tid in "${REMAINING_TASKS[@]}"; do
             TASK_ARGS+=(--task-id "$tid")
         done
@@ -241,7 +256,8 @@ if [ "$RUN_PHASE_NEEDED" = true ]; then
     cd "${SUITE_DIR}"
     BENCH_TEST_SERVER_URL="${TEST_URL}" PYTHONPATH="${PIBENCH_DIR}" \
         "${PI_PYTHON}" -m src.main \
-        --model-config "${SUITE_DIR}/config/models/reme.yaml" \
+        --model-config "${MODEL_CONFIG}" \
+        --history-config-path "${HISTORY_CONFIG}" \
         --mode run --user-id "${PERSONA}" \
         --workspace-dir "${NANOBOT_WORKSPACE_DIR}" \
         ${TASK_ARGS[@]+"${TASK_ARGS[@]}"} \
@@ -268,7 +284,8 @@ echo "Runner: eval phase"
 cd "${SUITE_DIR}"
 BENCH_TEST_SERVER_URL="${TEST_URL}" PYTHONPATH="${PIBENCH_DIR}" \
     "${PI_PYTHON}" -m src.main \
-    --model-config "${SUITE_DIR}/config/models/reme.yaml" \
+    --model-config "${MODEL_CONFIG}" \
+    --history-config-path "${HISTORY_CONFIG}" \
     --mode eval --user-id "${PERSONA}" \
     --workspace-dir "${NANOBOT_WORKSPACE_DIR}" \
     2>&1 | tee "${LOG_DIR}/runner_eval_${PERSONA}.log"
