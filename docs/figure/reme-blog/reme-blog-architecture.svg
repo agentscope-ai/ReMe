@@ -6,11 +6,10 @@
     </desc>
     <defs>
         <style>
-            .bg{fill:#fffdf8}.title{font:800 30px Arial,"PingFang SC",sans-serif;fill:#1f2430}.sub{font:14px
-            Arial,"PingFang
-            SC",sans-serif;fill:#667085}.panel{fill:#fff;stroke:#1f2430;stroke-width:2;rx:18}.chip{fill:#f8fbff;stroke:#1f2430;stroke-width:1.4;stroke-dasharray:6
-            5;rx:10}.head{font:700 18px Arial,"PingFang SC",sans-serif;fill:#1f2430}.step{font:700 14px Arial,"PingFang
-            SC",sans-serif;fill:#1f2430}.text{font:13px Arial,"PingFang SC",sans-serif;fill:#5e6a7c}.mono{font:700 13px
+            .bg{fill:#fffdf8}.title{font:800 30px Arial,PingFang SC,sans-serif;fill:#1f2430}.sub{font:14px
+            Arial,PingFang SC,sans-serif;fill:#667085}.panel{fill:#fff;stroke:#1f2430;stroke-width:2;rx:18}.chip{fill:#f8fbff;stroke:#1f2430;stroke-width:1.4;stroke-dasharray:6
+            5;rx:10}.head{font:700 18px Arial,PingFang SC,sans-serif;fill:#1f2430}.step{font:700 14px Arial,PingFang
+            SC,sans-serif;fill:#1f2430}.text{font:13px Arial,PingFang SC,sans-serif;fill:#5e6a7c}.mono{font:700 13px
             ui-monospace,SFMono-Regular,Menlo,monospace;fill:#1f2430}.badge{fill:#ff963d}.num{font:700 12px
             Arial,sans-serif;fill:#fff}.arrow{fill:none;stroke:#7f8b9d;stroke-width:2;marker-end:url(#a)}.loop{fill:none;stroke:#ff963d;stroke-width:2;stroke-dasharray:7
             6;marker-end:url(#o)}

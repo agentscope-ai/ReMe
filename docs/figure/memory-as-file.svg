@@ -11,10 +11,10 @@
             sans-serif; fill: #1f2430; }
             .subtitle { font: 14px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
             sans-serif; fill: #556276; }
-            .section-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe
-            UI", sans-serif; fill: #1f2430; }
-            .section-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe
-            UI", sans-serif; fill: #556276; }
+            .section-title { font: 700 18px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI,
+            sans-serif; fill: #1f2430; }
+            .section-subtitle { font: 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, Segoe UI,
+            sans-serif; fill: #556276; }
             .chip-title { font: 700 13px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
             sans-serif; fill: #1f2430; }
             .chip-text { font: 12px "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI",
