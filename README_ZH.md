@@ -333,7 +333,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
 @software{ReMe2026,
   title = {Remember me, Refine me: Memory Management Kit for Agents},
   author = {ReMe Team},
-  url = {https://reme.agentscope.io},
+  url = {https://docs.agentscope.io/reme},
   year = {2026}
 }
 ```

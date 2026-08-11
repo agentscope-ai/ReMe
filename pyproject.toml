@@ -68,7 +68,7 @@ full = [
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/ReMe"
-Documentation = "https://reme.agentscope.io/"
+Documentation = "https://docs.agentscope.io/reme"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]

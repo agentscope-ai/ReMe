@@ -349,7 +349,7 @@ Thanks to everyone who has contributed to ReMe:
 @software{ReMe2026,
   title = {Remember me, Refine me: Memory Management Kit for Agents},
   author = {ReMe Team},
-  url = {https://reme.agentscope.io},
+  url = {https://docs.agentscope.io/reme},
   year = {2026}
 }
 ```

@@ -6,7 +6,7 @@
     "name": "EconML team of Alibaba Tongyi Lab",
     "email": "jinli.yl@alibaba-inc.com"
   },
-  "homepage": "https://reme.agentscope.io/",
+  "homepage": "https://docs.agentscope.io/reme",
   "repository": "https://github.com/agentscope-ai/ReMe",
   "license": "Apache-2.0",
   "keywords": ["memory", "reme", "mcp", "long-term-memory", "agent"]

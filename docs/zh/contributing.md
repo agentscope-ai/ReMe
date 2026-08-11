@@ -199,7 +199,7 @@ docs/
 
 - Bugs 和功能请求：[GitHub Issues](https://github.com/agentscope-ai/ReMe/issues)
 - 项目主页：[GitHub Repository](https://github.com/agentscope-ai/ReMe)
-- 文档站点：[https://reme.agentscope.io/](https://reme.agentscope.io/)
+- 文档站点：[https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)
 
 ---
 

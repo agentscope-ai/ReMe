@@ -213,7 +213,7 @@ Documentation should:
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues)
 - Project home: [GitHub Repository](https://github.com/agentscope-ai/ReMe)
-- Documentation site: [https://reme.agentscope.io/](https://reme.agentscope.io/)
+- Documentation site: [https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)
 
 ---
 
