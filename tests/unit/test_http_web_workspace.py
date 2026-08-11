@@ -16,9 +16,11 @@ class _FakeApplication:
         self.closed = False
 
     async def start(self) -> None:
+        """Record that the application lifespan started."""
         self.started = True
 
     async def close(self) -> None:
+        """Record that the application lifespan closed."""
         self.closed = True
 
 
@@ -33,6 +35,7 @@ def _static_build(tmp_path: Path) -> Path:
 
 
 def test_http_service_serves_workspace_without_shadowing_jobs(tmp_path: Path) -> None:
+    """Serve workspace files and preserve explicitly registered job routes."""
     static_dir = _static_build(tmp_path)
     app = _FakeApplication()
     service = HttpService(web_static_dir=str(static_dir))
@@ -57,6 +60,7 @@ def test_http_service_serves_workspace_without_shadowing_jobs(tmp_path: Path) ->
 
 
 def test_http_service_can_disable_workspace(tmp_path: Path) -> None:
+    """Leave the root route unregistered when workspace serving is disabled."""
     app = _FakeApplication()
     service = HttpService(web_enabled=False, web_static_dir=str(_static_build(tmp_path)))
     service.build_service(app)  # type: ignore[arg-type]
@@ -67,6 +71,7 @@ def test_http_service_can_disable_workspace(tmp_path: Path) -> None:
 
 
 def test_static_dir_configuration_precedes_environment(monkeypatch, tmp_path: Path) -> None:
+    """Prefer an explicit static directory over the environment setting."""
     configured = _static_build(tmp_path / "configured")
     environment = _static_build(tmp_path / "environment")
     monkeypatch.setenv(REME_WEB_STATIC_DIR, str(environment))
