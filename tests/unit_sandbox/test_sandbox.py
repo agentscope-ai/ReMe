@@ -129,6 +129,7 @@ class FakeBackend:
                     "token_usage": {
                         "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
                     },
+                    "job_call_counts": {"answer_judge": 1},
                     "error": None,
                 }
             self.files[response_path] = json.dumps(response).encode()
@@ -265,6 +266,7 @@ async def test_image_candidate_skips_source_upload_and_runs_jobs(tmp_path):
     assert result.token_usage == {
         "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
     }
+    assert result.job_call_counts == {"answer_judge": 1}
     assert "/workspace/candidate.tar.gz" not in workspaces[0].backend.files
     assert exported.read_bytes() == b"case-archive"
     manifest = json.loads(workspaces[0].backend.files["/workspace/case/manifest.json"])
@@ -771,6 +773,7 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
             self.context = SimpleNamespace(
                 metadata={},
                 components={ComponentEnum.AGENT_WRAPPER: {"bench": SimpleNamespace()}},
+                jobs={"agentic_answer": SimpleNamespace(), "search": SimpleNamespace()},
             )
 
         async def start(self):
@@ -783,6 +786,8 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "input_tokens"], 12)
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "output_tokens"], 3)
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "total_tokens"], 15)
+            global_counter_add(self.context.metadata, ["__job_counter", "agentic_answer"], 1)
+            global_counter_add(self.context.metadata, ["__job_counter", "search"], 3)
             return SimpleNamespace(success=True, answer="answer", metadata={"direct": True})
 
         async def close(self):
@@ -808,6 +813,7 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         "token_usage": {
             "bench": {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
         },
+        "job_call_counts": {"agentic_answer": 1, "search": 3},
         "error": None,
     }
     assert worker.os.environ["TMPDIR"] == str(tmp_path / "tmp")
@@ -836,7 +842,16 @@ async def test_worker_reuses_one_application_per_phase_and_isolates_query_logs(m
         def __init__(self, **_config):
             self.application_id = len(application_ids) + 1
             application_ids.append(self.application_id)
-            self.context = SimpleNamespace(metadata={}, components={})
+            self.context = SimpleNamespace(
+                metadata={},
+                components={},
+                jobs={
+                    "auto_memory": SimpleNamespace(),
+                    "index_update": SimpleNamespace(),
+                    "agentic_answer": SimpleNamespace(),
+                    "answer_judge": SimpleNamespace(),
+                },
+            )
 
         async def start(self):
             """Start without external resources."""
@@ -926,6 +941,7 @@ async def test_worker_returns_usage_accumulated_before_job_failure(monkeypatch, 
             self.context = SimpleNamespace(
                 metadata={},
                 components={ComponentEnum.AGENT_WRAPPER: {"bench": SimpleNamespace()}},
+                jobs={"agentic_answer": SimpleNamespace()},
             )
 
         async def start(self):
@@ -936,6 +952,7 @@ async def test_worker_returns_usage_accumulated_before_job_failure(monkeypatch, 
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "input_tokens"], 8)
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "output_tokens"], 2)
             global_counter_add(self.context.metadata, ["__token_counter", "bench", "total_tokens"], 10)
+            global_counter_add(self.context.metadata, ["__job_counter", "agentic_answer"], 1)
             raise RuntimeError("step failed")
 
         async def close(self):
@@ -958,3 +975,4 @@ async def test_worker_returns_usage_accumulated_before_job_failure(monkeypatch, 
     assert result["token_usage"] == {
         "bench": {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10},
     }
+    assert result["job_call_counts"] == {"agentic_answer": 1}

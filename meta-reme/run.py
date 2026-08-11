@@ -31,6 +31,7 @@ from models import (
     SandboxSpec,
     ScopeSpec,
 )
+from runtime import TOOL_RUNTIME
 from validation import run_validation
 from workspace import Workspace
 
@@ -155,6 +156,7 @@ def prepare_and_validate_workspace(
         dataset_variant=config["dataset_variant"],
         dataset_source=config["dataset_source"],
     )
+    TOOL_RUNTIME.configure(workspace.root, config["validation_concurrency"])
     validation = run_initial_validation(
         workspace,
         config["validation_concurrency"],

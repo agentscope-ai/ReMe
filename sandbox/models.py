@@ -12,7 +12,8 @@ class JobResult:
 
     ``token_usage`` contains the input/output/total token delta for each
     configured agent wrapper during this invocation. Missing provider usage is
-    represented by ``None`` at the metric level.
+    represented by ``None`` at the metric level. ``job_call_counts`` contains
+    non-zero ReMe job invocation deltas, including nested job tools.
     """
 
     success: bool
@@ -20,6 +21,7 @@ class JobResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     token_usage: dict[str, dict[str, int | None]] = field(default_factory=dict)
+    job_call_counts: dict[str, int] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "JobResult":
@@ -29,6 +31,7 @@ class JobResult:
             answer=value.get("answer", ""),
             metadata=value.get("metadata") if isinstance(value.get("metadata"), dict) else {},
             token_usage=value.get("token_usage") if isinstance(value.get("token_usage"), dict) else {},
+            job_call_counts=value.get("job_call_counts") if isinstance(value.get("job_call_counts"), dict) else {},
             error=value.get("error") if isinstance(value.get("error"), str) else None,
         )
 

@@ -95,14 +95,19 @@ def _prepare_runtime(request: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
 
 
 async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Run one job and return its serializable result with invocation token deltas."""
+    """Run one job and return token and ReMe job invocation deltas."""
     from reme.enumeration import ComponentEnum
-    from reme.utils.evaluation_interface import track_agent_token_usage
+    from reme.utils.evaluation_interface import track_agent_token_usage, track_job_counts
 
     agent_names = list(app.context.components.get(ComponentEnum.AGENT_WRAPPER, {}))
+    job_names = list(app.context.jobs)
     token_usage: dict[str, dict[str, int | None]] = {}
+    job_call_counts: dict[str, int] = {}
     try:
-        with track_agent_token_usage(agent_names, app.context) as token_usage:
+        with (
+            track_agent_token_usage(agent_names, app.context) as token_usage,
+            track_job_counts(job_names, app.context) as job_call_counts,
+        ):
             response = await app.run_job(job, **arguments)
     except Exception as exc:  # Preserve usage accumulated before a job failure.
         return {
@@ -110,6 +115,7 @@ async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict
             "answer": "",
             "metadata": {},
             "token_usage": token_usage,
+            "job_call_counts": {name: count for name, count in job_call_counts.items() if count},
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc(),
         }
@@ -118,6 +124,7 @@ async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict
         "answer": response.answer,
         "metadata": response.metadata,
         "token_usage": token_usage,
+        "job_call_counts": {name: count for name, count in job_call_counts.items() if count},
         "error": None if response.success else str(response.answer),
     }
 
@@ -372,6 +379,7 @@ def main() -> int:
             "answer": "",
             "metadata": {},
             "token_usage": {},
+            "job_call_counts": {},
             "error": f"{type(exc).__name__}: {exc}",
             "traceback": traceback.format_exc(),
         }

@@ -206,6 +206,8 @@ def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path)
     workspace, validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
 
     assert validation == workspace.path("evaluations/init/initial")
+    assert run.TOOL_RUNTIME.workspace == workspace.root
+    assert run.TOOL_RUNTIME.validation_concurrency == 5
     assert calls == [(workspace.root, ["case-2", "case-1"], "init", 5, "initial", True)]
 
     _, repeated_validation = run.prepare_and_validate_workspace(config_path, validation_runner=fake_validation)
