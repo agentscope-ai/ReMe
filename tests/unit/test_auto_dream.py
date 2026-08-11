@@ -156,6 +156,22 @@ def test_parse_structured_reply_handles_fenced_yaml_and_scalar_fallback():
     assert data["note"].startswith("Extended node")
 
 
+def test_integrate_prompts_require_wikilinks_in_contextual_prose():
+    """Every digest bucket rejects standalone relation fields and bare links."""
+    prompt_path = Path(__file__).parents[2] / "reme" / "steps" / "evolve" / "dream" / "integrate.yaml"
+    prompts = yaml.safe_load(prompt_path.read_text(encoding="utf-8"))
+
+    for bucket in ("procedure", "personal", "wiki"):
+        english = prompts[f"integrate_system_prompt_{bucket}"]
+        chinese = prompts[f"integrate_system_prompt_{bucket}_zh"]
+        assert "Never emit standalone relation fields or bare-link lines" in english
+        assert "Digest links belong inside the sentence" in english
+        assert "Before returning, read the target" in english
+        assert "禁止生成 `relates_to:: [[...]]`" in chinese
+        assert "Digest 链接必须融入解释关系的句子" in chinese
+        assert "返回前读取目标文件" in chinese
+
+
 def test_extract_clean_output_respects_max_units():
     """Extract cleaning caps valid units at max_units."""
     state = DreamState(changed_paths=["daily/a.md"])

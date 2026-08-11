@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { getReMeVersion, readWorkspaceFile, streamChat } from "./api";
-import { formatStreamPayloads } from "./chat-stream";
+import { chatStreamError, formatStreamPayloads } from "./chat-stream";
 import FilesNavigator from "./files-workspace/FilesNavigator";
 import MemoryGraphView from "./files-workspace/MemoryGraphView";
 import { clampNavigatorWidth } from "./files-workspace/panel-resize";
@@ -41,6 +41,7 @@ import {
   WORKSPACE_FILE_DRAG_TYPE,
 } from "./workspace-drag";
 import SettingsCenter from "./settings-center";
+import { hasUnsavedChanges, unsavedTabsClosedBy } from "./tab-close";
 
 const TabbedEditor = dynamic(() => import("./files-workspace/TabbedEditor"), {
   ssr: false,
@@ -136,12 +137,20 @@ function Tabs() {
       window.removeEventListener("scroll", closeOnViewportChange, true);
     };
   }, [contextMenu]);
+  const confirmDiscard = (tabId: string, closeOthers: boolean) => {
+    const unsaved = unsavedTabsClosedBy(tabs, tabId, closeOthers);
+    return (
+      !unsaved.length ||
+      window.confirm(
+        t("discardUnsavedConfirm", { count: String(unsaved.length) }),
+      )
+    );
+  };
   return (
     <>
       <div className="tabs" role="tablist">
         {tabs.map((tab) => {
-          const dirty =
-            tab.type === "markdown" && tab.content !== tab.savedContent;
+          const dirty = hasUnsavedChanges(tab);
           return (
             <button
               key={tab.id}
@@ -202,7 +211,8 @@ function Tabs() {
           <button
             role="menuitem"
             onClick={() => {
-              closeTab(contextMenu.tabId);
+              if (!confirmDiscard(contextMenu.tabId, false)) return;
+              closeTab(contextMenu.tabId, true);
               setContextMenu(undefined);
             }}
           >
@@ -212,7 +222,8 @@ function Tabs() {
             role="menuitem"
             disabled={tabs.length <= 1}
             onClick={() => {
-              closeOtherTabs(contextMenu.tabId);
+              if (!confirmDiscard(contextMenu.tabId, true)) return;
+              closeOtherTabs(contextMenu.tabId, true);
               setContextMenu(undefined);
             }}
           >
@@ -373,23 +384,18 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
       blocks: [],
     };
     addChatTurn(tab.id, user, assistant);
-    controller.current = new AbortController();
-    try {
-      await streamChat(
-        query,
-        tab.sessionId,
-        controller.current.signal,
-        (chunk) => applyChatChunk(tab.id, assistant.id, chunk),
-      );
-      finishChat(tab.id, assistant.id);
-    } catch (error) {
-      if (!controller.current.signal.aborted)
-        finishChat(
-          tab.id,
-          assistant.id,
-          error instanceof Error ? error.message : t("chatFailed"),
-        );
-    }
+    const requestController = new AbortController();
+    controller.current = requestController;
+    const error = await chatStreamError(
+      () =>
+        streamChat(query, tab.sessionId, requestController.signal, (chunk) =>
+          applyChatChunk(tab.id, assistant.id, chunk),
+        ),
+      requestController.signal,
+      t("chatFailed"),
+    );
+    finishChat(tab.id, assistant.id, error);
+    if (controller.current === requestController) controller.current = null;
   };
 
   return (
@@ -638,7 +644,7 @@ function Workspace() {
           </span>
         </button>
         <strong>
-          ReMe
+          ReMe Studio
           {version && (
             <>
               <span className="app-version-divider" aria-hidden="true" />
@@ -717,7 +723,7 @@ function Workspace() {
             {!active && (
               <div className="welcome">
                 <div className="agent-logo">R</div>
-                <h1>ReMe Workspace</h1>
+                <h1>ReMe Studio</h1>
                 <p>{t("welcomeDescription")}</p>
                 <button onClick={openAgent}>
                   <Sparkles size={16} />

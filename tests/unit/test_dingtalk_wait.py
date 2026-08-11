@@ -130,7 +130,11 @@ async def test_final_reply_resumes_session_and_clear_only_removes_combined_key(
     await step._handle_message(message, key, sessions, handler)
 
     assert sessions == {key: "session-1"}
-    assert wrapper.reply_calls == [("hello", {}), ("hello", {"resume": "session-1"})]
+    tool_kwargs = {"builtin_tools": False, "job_tools": []}
+    assert wrapper.reply_calls == [
+        ("hello", tool_kwargs),
+        ("hello", {"resume": "session-1", **tool_kwargs}),
+    ]
     assert handler.markdown_replies == [("ReMe Agent", "回答"), ("ReMe Agent", "回答")]
 
     await step._handle_message(_message(text="/compact"), key, sessions, handler)
@@ -174,6 +178,31 @@ async def test_final_reply_rejects_empty_agent_reply_and_dingtalk_send_failure(
         await step._handle_message(message, key, {}, handler)
 
 
+@pytest.mark.asyncio
+async def test_final_reply_injects_only_configured_tools(tmp_path):
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = _AgentWrapper(app_context=app_context)
+    step = DingTalkWaitStep(
+        app_context=app_context,
+        agent_wrapper=wrapper,
+        builtin_tools=["bash"],
+        job_tools=["read", "write", "edit"],
+    )
+
+    message = _message()
+    await step._handle_message(message, _session_key(message), {}, _Handler())
+
+    assert wrapper.reply_calls == [
+        (
+            "hello",
+            {
+                "builtin_tools": ["bash"],
+                "job_tools": ["read", "write", "edit"],
+            },
+        ),
+    ]
+
+
 def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
     for name in ("DINGTALK_APP_KEY", "DINGTALK_APP_SECRET", "DINGTALK_ROBOT_CODE"):
         monkeypatch.delenv(name, raising=False)
@@ -183,25 +212,29 @@ def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
     assert job["steps"] == [
         {
             "backend": "dingtalk_wait_step",
-            "agent_wrapper": "dingtalk_wait",
             "app_key": "",
             "app_secret": "",
             "robot_code": "",
             "worker_count": 4,
+            "builtin_tools": ["bash"],
+            "job_tools": [
+                "memory_search",
+                "read",
+                "write",
+                "edit",
+                "daily_list",
+                "daily_write",
+                "frontmatter_read",
+                "frontmatter_update",
+            ],
         },
     ]
-    dingtalk_wait = config["components"]["agent_wrapper"]["dingtalk_wait"]
-    assert dingtalk_wait["skills"] == ["tushare-data"]
-    assert dingtalk_wait["job_tools"] == ["memory_search"]
-    assert dingtalk_wait["system_prompt"] == {
-        "type": "preset",
-        "preset": "claude_code",
-        "append": (
-            "Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, "
-            "are at daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at "
-            "daily/YYYY-MM-DD/daily-paper-brief.md. Use memory_search to retrieve relevant long-term notes "
-            "across dates."
-        ),
+    assert config["components"]["agent_wrapper"] == {
+        "default": {
+            "backend": "agentscope",
+            "as_llm": "default",
+            "builtin_tools": False,
+        },
     }
     assert R.get(ComponentEnum.STEP, "dingtalk_wait_step") is DingTalkWaitStep
 

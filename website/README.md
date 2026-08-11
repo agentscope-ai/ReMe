@@ -1,7 +1,7 @@
-# ReMe Workspace
+# ReMe Studio
 
-Local web workspace for browsing ReMe files, editing and previewing Markdown,
-and streaming conversations with the ReMe Agent.
+Local web studio for browsing ReMe files, editing and previewing Markdown,
+exploring memory graphs, and streaming conversations with the ReMe Agent.
 
 ## Development
 

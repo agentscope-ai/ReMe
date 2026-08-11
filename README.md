@@ -51,7 +51,7 @@ memory, then continuously indexes, links, and consolidates that memory for futur
   [QwenPaw](https://github.com/agentscope-ai/QwenPaw), [OpenClaw](https://github.com/openclaw/openclaw), and
   [Hermes](https://github.com/nousresearch/hermes-agent) a user-editable long-term memory layer.
 - **Coding agents**: Preserve coding style, project background, repository decisions, and workflow experience across
-  sessions when integrating with coding agents such as [Claude Code](plugins/reme).
+  sessions when integrating with coding agents such as [Claude Code](plugins/claude_code/reme).
 - **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown knowledge
   base that both users and agents can maintain.
 - **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
@@ -262,14 +262,16 @@ through search, wikilinks, or proactive topics.
 
 ## 🤝 Agent-friendly Integration
 
-ReMe runs as a local memory service and offers multiple integration paths: CLI, HTTP API, MCP server, and SDK. Different
-agents can choose the path that fits their runtime while sharing the same local memory workspace.
+ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the
+host process through its Python API. Agents can choose the path that fits their runtime and share a local memory workspace
+when appropriate.
 
-| Agents                                               | Recommended path                                                            | What works out of the box                                                                     |
-|------------------------------------------------------|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| **QwenPaw**                                          | Embed ReMe via the Python SDK.                                              | Reuse the app's own lifecycle and model config while keeping memory local and file-based.     |
-| **Claude Code**                                      | Start ReMe as an MCP service and install [plugins/reme](plugins/reme).      | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically. |
-| **Other CLI-capable agents (OpenClaw/Hermes/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md). | Search/read/write memory and call `auto_memory`, `auto_dream`, and `proactive` via the CLI.   |
+| Agents                                      | Recommended path                                                                                 | Available after integration                                                                                 |
+|---------------------------------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
+| **QwenPaw**                                 | Embed ReMe in-process through its Python API.                                                    | Reuse the host application's lifecycle and model config while keeping memory local and file-based.         |
+| **Claude Code**                             | Start the streamable HTTP MCP service and install [plugins/claude_code/reme](plugins/claude_code/reme). | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.              |
+| **Hermes**                                  | Start the HTTP service and install [plugins/hermes_agent](plugins/hermes_agent).                  | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.             |
+| **Other CLI-capable agents (OpenClaw/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md).                     | Search, read, and write memory via the CLI; automatic recording requires explicit host lifecycle hooks.    |
 
 <p align="center"><b>Integration demos</b></p>
 

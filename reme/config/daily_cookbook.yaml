@@ -57,18 +57,12 @@ jobs:
           default: 7
     steps:
       - backend: dream_extract_step
-        as_llm: memory
-        agent_wrapper: memory
         file_catalog: dream
         topic_session_id: interests
         scan_days: 2
         max_units: 5
       - backend: dream_integrate_step
-        as_llm: memory
-        agent_wrapper: memory
       - backend: dream_topics_step
-        as_llm: memory
-        agent_wrapper: memory
         topic_count: 3
         topic_diversity_days: 7
       - backend: dream_finish_step
@@ -99,7 +93,6 @@ jobs:
       required: [messages]
     steps:
       - backend: auto_memory_step
-        agent_wrapper: memory
 
   reindex:
     backend: base
@@ -325,7 +318,25 @@ jobs:
 
   auto_fin:
     backend: base
-    description: "Maintain configured daily news history, analyze current topics and historical ETF reactions, then deliver the report."
+    description: "Analyze configured ETFs from current news and comparable historical events."
+    etf_codes: &auto_fin_etf_codes
+      - 518880.SH
+      # - 159516.SZ
+      # - 512800.SH
+      # - 512890.SH
+      # - 159992.SZ
+      - 159530.SZ
+      # - 159869.SZ
+      # - 512690.SH
+      # - 159755.SZ
+      # - 159611.SZ
+      # - 159652.SZ
+      - 512760.SH
+      # - 159732.SZ
+    news_lookback_days: 60
+    current_news_limit_per_etf: 10
+    historical_news_limit: 5
+    historical_search_limit: 10
     parameters:
       type: object
       properties:
@@ -333,22 +344,26 @@ jobs:
           type: string
           description: "Current date in YYYY-MM-DD; empty means today in Asia/Shanghai."
           default: ""
-        force:
-          type: boolean
-          description: "Refresh all configured news days; today's news is always refreshed."
-          default: false
+        now:
+          type: string
+          description: "Optional simulated current time in ISO 8601 format; empty means the real current time."
+          default: ""
+        historical_search_limit:
+          type: integer
+          description: "Maximum historical-news candidates retrieved for each current event."
+          default: 10
+          minimum: 1
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
-        outbound_proxy: default
-        lookback_days: 360
-        progress_interval: 30
+        etf_codes: *auto_fin_etf_codes
+        news_lookback_days: 60
+      - backend: update_index_step
       - backend: auto_fin_topic_step
-        agent_wrapper: auto_fin
+        current_news_limit_per_etf: 10
       - backend: auto_fin_history_step
-        agent_wrapper: auto_fin
-        dispatch_steps: [auto_fin_history_search_step, auto_fin_market_step]
+        historical_news_limit: 5
+        historical_search_limit: 10
       - backend: auto_fin_merge_step
-        agent_wrapper: auto_fin
       - backend: dingtalk_markdown_send_step
         input_mapping:
           auto_fin_digest_path: markdown_path
@@ -359,14 +374,17 @@ jobs:
         title: ReMe Auto Fin
         timeout: 15
 
+  # Three intraday runs (Asia/Shanghai). Non-trading days are skipped inside
+  # auto_fin_data_step, so a daily trigger is fine. Each rerun refines the same
+  # day's report on top of the earlier run rather than replacing it wholesale.
   auto_fin_0930_cron:
     backend: cron
     cron: "30 9 * * *"
     steps: *auto_fin_steps
 
-  auto_fin_1145_cron:
+  auto_fin_1130_cron:
     backend: cron
-    cron: "45 11 * * *"
+    cron: "30 11 * * *"
     steps: *auto_fin_steps
 
   auto_fin_1800_cron:
@@ -378,17 +396,15 @@ jobs:
     backend: base
     description: "Build detailed readings and a five-minute brief from Hugging Face weekly/monthly papers."
     candidate_limit: &candidate_limit 20
-    memory_reserve: &memory_reserve 5
-    top_k: &top_k 3
     rrf_k: &rrf_k 60
     weekly_weight: &weekly_weight 0.7
     history_days: &history_days 30
-    hf_timeout: &hf_timeout 30
+    hf_timeout: &hf_timeout 600
     hf_max_retries: &hf_max_retries 3
-    pdf_timeout: &pdf_timeout 90
+    pdf_timeout: &pdf_timeout 600
     max_pdf_bytes: &max_pdf_bytes 52428800
-    max_pdf_pages: &max_pdf_pages 80
-    max_pdf_chars: &max_pdf_chars 240000
+    max_pdf_pages: &max_pdf_pages 20
+    max_pdf_chars: &max_pdf_chars 300000
     parameters:
       type: object
       properties:
@@ -400,10 +416,14 @@ jobs:
           type: boolean
           description: "Regenerate even when that day's final brief already exists."
           default: false
-        top_k:
-          type: integer
-          description: "Number of papers selected by Claude Code."
-          default: 3
+        use_hf_mirror:
+          type: boolean
+          description: "Use the Hugging Face mirror configured by HF_MIRROR_URL, or hf-mirror.com when unset."
+          default: false
+        topics:
+          type: string
+          description: "Optional topics to prioritize when selecting papers."
+          default: ""
         weekly_weight:
           type: number
           description: "Weekly contribution in reciprocal-rank fusion."
@@ -414,15 +434,10 @@ jobs:
           default: 30
     steps: &daily_paper_steps
       - backend: daily_paper_collect_step
-        outbound_proxy: default
       - backend: daily_paper_rank_step
       - backend: daily_paper_select_step
-        agent_wrapper: daily_paper
       - backend: daily_paper_analyze_step
-        agent_wrapper: daily_paper
-        outbound_proxy: default
       - backend: daily_paper_digest_step
-        agent_wrapper: daily_paper
       - backend: dingtalk_markdown_send_step
         input_mapping:
           daily_paper_digest_path: markdown_path
@@ -436,9 +451,8 @@ jobs:
   daily_paper_cron:
     backend: cron
     cron: "0 8 * * *"
+    use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-false}
     candidate_limit: *candidate_limit
-    memory_reserve: *memory_reserve
-    top_k: *top_k
     rrf_k: *rrf_k
     weekly_weight: *weekly_weight
     history_days: *history_days
@@ -456,87 +470,45 @@ jobs:
     close_timeout: 10
     steps:
       - backend: dingtalk_wait_step
-        agent_wrapper: dingtalk_wait
         app_key: ${DINGTALK_APP_KEY:-}
         app_secret: ${DINGTALK_APP_SECRET:-}
         robot_code: ${DINGTALK_ROBOT_CODE:-}
         worker_count: 4
+        builtin_tools: [bash]
+        job_tools:
+          - memory_search
+          - read
+          - write
+          - edit
+          - daily_list
+          - daily_write
+          - frontmatter_read
+          - frontmatter_update
 
 components:
-  outbound_proxy: {}
-#    default:
-#      backend: ssh_http
-#      host: ${REME_PROXY_IP:-}
-#      account: ${REME_PROXY_ACCOUNT:-}
-#      connect_timeout: 10
-#      monitor_interval: 1
-#      restart_initial_delay: 1
-#      restart_max_delay: 30
-
   tokenizer:
     default:
       backend: regex
 
   as_llm:
-    memory:
-      backend: anthropic
-      model: ${LLM_MODEL_NAME:-qwen3.7-max}
+    default:
+      backend: openai
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
       stream: true
       context_size: 200000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}
-        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+        base_url: ${LLM_BASE_URL:-}
       parameters:
         max_tokens: 65536
         thinking_enable: false
 
   agent_wrapper:
-    auto_fin:
-      backend: ${AUTO_FIN_AGENT_BACKEND:-claude_code}
-      project_path: ${AUTO_FIN_PROJECT_PATH:-..}
-      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
-      api_key: ${CLAUDE_CODE_API_KEY:-}
-      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-      skills: [tushare-data]
-      job_tools: [memory_search]
-      permission_mode: bypassPermissions
-    daily_paper:
-      backend: claude_code
-      project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
-      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
-      api_key: ${CLAUDE_CODE_API_KEY:-}
-      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-      permission_mode: bypassPermissions
-    dingtalk_wait:
-      backend: claude_code
-      project_path: ${DAILY_PAPER_PROJECT_PATH:-..}
-      model: ${CLAUDE_CODE_MODEL_NAME:-qwen3.7-max}
-      api_key: ${CLAUDE_CODE_API_KEY:-}
-      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
-      skills: [tushare-data]
-      job_tools: [memory_search]
-      system_prompt:
-        type: preset
-        preset: claude_code
-        append: >-
-          Daily-paper Markdown is stored under the ReMe workspace. Detailed notes, including historical notes, are at
-          daily/YYYY-MM-DD/paper-<arxiv-id>.md; daily briefs are at daily/YYYY-MM-DD/daily-paper-brief.md. Use
-          memory_search to retrieve relevant long-term notes across dates.
-      permission_mode: bypassPermissions
-    memory:
+    default:
       backend: agentscope
-      as_llm: memory
+      as_llm: default
       builtin_tools: false
-      permission_mode: bypass
-      react_config:
-        max_iters: 30
-      context_config:
-        trigger_ratio: 0.8
-        reserve_ratio: 0.1
-        tool_result_limit: 50000
-      model_config:
-        max_retries: 1
 
 #  as_embedding:
 #    default:

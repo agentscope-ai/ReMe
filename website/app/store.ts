@@ -17,6 +17,8 @@ import {
   prepareWorkspaceSnapshot,
   type PersistedWorkspaceState,
 } from "./workspace-persistence";
+import { markMarkdownContentSaved } from "./markdown-save";
+import { unsavedTabsClosedBy } from "./tab-close";
 
 interface WorkspaceState {
   tabs: WorkspaceTab[];
@@ -24,13 +26,13 @@ interface WorkspaceState {
   openMarkdown: (path: string) => string;
   openAgent: () => string;
   openGraph: (root: MemoryGraphRoot) => string;
-  closeTab: (id: string) => void;
-  closeOtherTabs: (id: string) => void;
+  closeTab: (id: string, discardUnsaved?: boolean) => void;
+  closeOtherTabs: (id: string, discardUnsaved?: boolean) => void;
   setActiveTab: (id: string) => void;
   hydrateMarkdown: (id: string, content: string, mtime?: string) => void;
   failMarkdown: (id: string, error: string) => void;
   updateMarkdown: (id: string, content: string) => void;
-  markSaved: (id: string, mtime?: string) => void;
+  markSaved: (id: string, content: string, mtime?: string) => void;
   addChatTurn: (
     tabId: string,
     user: ChatMessage,
@@ -51,6 +53,8 @@ interface WorkspaceState {
 }
 
 const fileTitle = (path: string) => path.split("/").pop() || path;
+// Preserve the original key so existing tabs, chats, and unsaved drafts survive the Studio rename.
+const WORKSPACE_STORAGE_KEY = "reme-workspace";
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
@@ -109,8 +113,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
         return id;
       },
-      closeTab: (id) =>
+      closeTab: (id, discardUnsaved = false) =>
         set((state) => {
+          if (
+            !discardUnsaved &&
+            unsavedTabsClosedBy(state.tabs, id, false).length
+          )
+            return state;
           const index = state.tabs.findIndex((tab) => tab.id === id);
           const tabs = state.tabs.filter((tab) => tab.id !== id);
           const activeTabId =
@@ -119,8 +128,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               : state.activeTabId;
           return { tabs, activeTabId };
         }),
-      closeOtherTabs: (id) =>
+      closeOtherTabs: (id, discardUnsaved = false) =>
         set((state) => {
+          if (
+            !discardUnsaved &&
+            unsavedTabsClosedBy(state.tabs, id, true).length
+          )
+            return state;
           const tab = state.tabs.find((item) => item.id === id);
           return tab ? { tabs: [tab], activeTabId: id } : state;
         }),
@@ -156,11 +170,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               : tab,
           ),
         })),
-      markSaved: (id, mtime) =>
+      markSaved: (id, content, mtime) =>
         set((state) => ({
           tabs: state.tabs.map((tab) =>
             tab.id === id && tab.type === "markdown"
-              ? { ...tab, savedContent: tab.content, mtime: mtime || tab.mtime }
+              ? markMarkdownContentSaved(tab, content, mtime)
               : tab,
           ),
         })),
@@ -228,7 +242,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
     }),
     {
-      name: "reme-workspace",
+      name: WORKSPACE_STORAGE_KEY,
       version: 1,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,

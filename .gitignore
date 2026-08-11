@@ -60,6 +60,10 @@ docs/_build/
 site/
 
 evaluation/
+# The pi-Bench suite ships its own trace-history render config, which must
+# stay in git even though it lives under an evaluation/ directory.
+!benchmark/pibench/config/bench/evaluation/
+!benchmark/pibench/config/bench/evaluation/**
 datasets/
 
 # Claude Code skills (local only)

@@ -4,6 +4,7 @@ import {
   filterPathsBySource,
   filterWorkspacePaths,
   parseWorkspaceExtensions,
+  workspaceFileListing,
 } from "../app/workspace-files.ts";
 
 test("workspace filter hides dot paths and keeps configured file types", () => {
@@ -41,4 +42,15 @@ test("workspace sources expose journal and knowledge files without an archive so
   assert.deepEqual(filterPathsBySource(paths, "digest", config), [
     "digest/wiki/topic.md",
   ]);
+});
+
+test("workspace listing reports when the service result reaches its limit", () => {
+  assert.deepEqual(workspaceFileListing(["a.md", "b.md"], 2), {
+    paths: ["a.md", "b.md"],
+    limited: true,
+  });
+  assert.deepEqual(workspaceFileListing(["a.md"], 2), {
+    paths: ["a.md"],
+    limited: false,
+  });
 });

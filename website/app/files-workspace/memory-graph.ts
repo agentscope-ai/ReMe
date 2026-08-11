@@ -37,7 +37,6 @@ export function shortNodeLabel(node: GraphSnapshotNode): string {
 export function graphBelowRoot(
   snapshot: GraphSnapshot,
   root: MemoryGraphRoot,
-  dailyDirectory = "daily",
 ): GraphSnapshot {
   const rootId = `virtual:${root}`;
   if (!snapshot.nodes.some((node) => node.id === rootId))
@@ -57,16 +56,6 @@ export function graphBelowRoot(
       if (reachable.has(target)) return;
       reachable.add(target);
       queue.push(target);
-    });
-  }
-  const dailyRoot = dailyDirectory
-    .replace(/\\/g, "/")
-    .replace(/^\/+|\/+$/g, "");
-  if (dailyRoot) {
-    snapshot.nodes.forEach((node) => {
-      const path = node.path.replace(/\\/g, "/").replace(/^\/+/, "");
-      if (!node.virtual && path.startsWith(`${dailyRoot}/`))
-        reachable.add(node.id);
     });
   }
   return {

@@ -1,26 +1,41 @@
 """Download and analyze selected daily-paper PDFs."""
 
 import asyncio
-import datetime as dt
 import json
 from pathlib import Path
 
 from ....components import R
-from ....schema import PaperInfo, PaperNoteOutput, PaperSelection, SelectedPaper
+from ....schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick
 from ....utils.arxiv import ArxivPdfClient
-from ._common import DailyPaperStep, strip_frontmatter, structured_output, write_markdown
+from ._common import (
+    PAPER_COUNT,
+    DailyPaperStep,
+    iter_note_metadata,
+    normalize_chinese_title,
+    resolve_unique_note_path,
+    strip_frontmatter,
+    structured_output,
+    utc_now_iso,
+    write_markdown,
+)
 
 
 @R.register("daily_paper_analyze_step")
 class DailyPaperAnalyzeStep(DailyPaperStep):
-    """Download each selected PDF and use Claude Code for detailed reading."""
+    """Download and analyze the three papers selected for the daily brief."""
 
     @staticmethod
-    def _extract_pdf_text_sync(path: Path, max_pages: int, max_chars: int) -> tuple[str, int, bool]:
+    def _extract_pdf_text_sync(
+        path: Path,
+        max_pages: int,
+        max_chars: int,
+    ) -> tuple[str, int, bool]:
         try:
             from pypdf import PdfReader
         except ImportError as exc:  # pragma: no cover - dependency error has an explicit message
-            raise RuntimeError("pypdf is required for the daily-paper workflow") from exc
+            raise RuntimeError(
+                "pypdf is required for the daily-paper workflow",
+            ) from exc
 
         reader = PdfReader(str(path))
         chunks: list[str] = []
@@ -41,33 +56,43 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             raise ValueError(f"No extractable text found in PDF: {path.name}")
         return content, len(reader.pages), truncated
 
+    @staticmethod
+    def _find_existing_note(day_dir: Path, arxiv_id: str) -> Path | None:
+        """Find a prior generated note independently of its title filename."""
+        for path, metadata in iter_note_metadata(day_dir):
+            if metadata.get("arxiv_id") == arxiv_id and (
+                metadata.get("kind") == "daily-paper-analysis" or path.name == f"paper-{arxiv_id}.md"
+            ):
+                return path
+        return None
+
     async def _analyze_one(
         self,
         downloader: ArxivPdfClient,
         paper: PaperInfo,
-        selected: SelectedPaper,
-    ) -> tuple[str, str]:
+        selected: PaperPick,
+        used_titles: set[str],
+    ) -> AnalyzedPaper:
         if self.agent_wrapper is None:
-            raise RuntimeError("Claude Code agent_wrapper is required for paper analysis")
+            raise RuntimeError("An agent_wrapper is required for paper analysis")
         day = self._run_day()
         daily_dir, resource_dir = (
             str(self.config_value("daily_dir")).strip("/"),
             str(self.config_value("resource_dir")).strip("/"),
         )
-        pdf_rel, note_rel = (
-            f"{resource_dir}/papers/{paper.arxiv_id}.pdf",
-            f"{daily_dir}/{day}/paper-{paper.arxiv_id}.md",
-        )
-        pdf_path, note_path = self.workspace_path / pdf_rel, self.workspace_path / note_rel
+        pdf_rel = f"{resource_dir}/papers/{paper.arxiv_id}.pdf"
+        pdf_path = self.workspace_path / pdf_rel
         self.logger.info(f"[{self.name}] paper start arxiv_id={paper.arxiv_id}")
 
         await downloader.download(paper.arxiv_id, pdf_path)
-        self.logger.info(f"[{self.name}] pdf ready arxiv_id={paper.arxiv_id} path={pdf_rel}")
+        self.logger.info(
+            f"[{self.name}] pdf ready arxiv_id={paper.arxiv_id} path={pdf_rel}",
+        )
         pdf_text, page_count, truncated = await asyncio.to_thread(
             self._extract_pdf_text_sync,
             pdf_path,
-            int(self._value("max_pdf_pages", 80)),
-            int(self._value("max_pdf_chars", 240_000)),
+            int(self._value("max_pdf_pages", 20)),
+            int(self._value("max_pdf_chars", 300_000)),
         )
         self.logger.info(
             f"[{self.name}] pdf extracted arxiv_id={paper.arxiv_id} pages={page_count} "
@@ -78,27 +103,42 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             self.prompt_format(
                 "analyze_user",
                 paper_info=json.dumps(paper.model_dump(), ensure_ascii=False, indent=2),
-                selection_reason=selected.reason,
-                memory_relevance=selected.memory_relevance,
+                selection_reason=selected.reasoning,
                 page_count=page_count,
                 truncated=str(truncated).lower(),
                 pdf_text=pdf_text,
             ),
-            output_schema=PaperNoteOutput,
+            output_schema=DailyPaperMarkdownOutput,
         )
         self.logger.info(f"[{self.name}] agent done arxiv_id={paper.arxiv_id}")
-        output = structured_output(result, PaperNoteOutput)
+        output = structured_output(result, DailyPaperMarkdownOutput)
+        title = normalize_chinese_title(output.title, f"论文解读-{paper.arxiv_id}")
+        day_dir = self.workspace_path / daily_dir / day
+        existing_note = self._find_existing_note(day_dir, paper.arxiv_id)
+        suffix = f"（{paper.arxiv_id}）"
+        title, note_path = resolve_unique_note_path(
+            day_dir,
+            title,
+            taken=used_titles,
+            taken_suffix=suffix,
+            disk_suffix=suffix,
+            existing=existing_note,
+        )
+        used_titles.add(title)
+        note_rel = note_path.relative_to(self.workspace_path).as_posix()
         body = strip_frontmatter(output.body)
-        if not output.description.strip() or not body:
-            raise ValueError(f"Claude Code returned an empty paper note for {paper.arxiv_id}")
+        if not output.desc.strip() or not body:
+            raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
         await write_markdown(
             note_path,
             body,
             {
-                "name": f"paper-{paper.arxiv_id}",
-                "description": output.description.strip(),
+                "name": title,
+                "title": title,
+                "description": output.desc.strip(),
+                "kind": "daily-paper-analysis",
                 "arxiv_id": paper.arxiv_id,
-                "title": paper.title,
+                "source_title": paper.title,
                 "authors": paper.authors,
                 "hf_url": paper.hf_url,
                 "arxiv_url": paper.arxiv_url,
@@ -108,40 +148,55 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
                 "monthly_rank": paper.monthly_rank,
                 "weekly_rank": paper.weekly_rank,
                 "fused_score": round(paper.fused_score, 8),
-                "selection_reason": selected.reason,
-                "memory_relevance": selected.memory_relevance,
-                "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "selection_reasoning": selected.reasoning,
+                "generated_at": utc_now_iso(),
                 "pdf_pages": page_count,
                 "pdf_text_truncated": truncated,
             },
         )
-        self.logger.info(f"[{self.name}] paper done arxiv_id={paper.arxiv_id} note_path={note_rel}")
-        return note_rel, pdf_rel
+        if existing_note is not None and existing_note != note_path:
+            existing_note.unlink()
+        self.logger.info(
+            f"[{self.name}] paper done arxiv_id={paper.arxiv_id} note_path={note_rel}",
+        )
+        return AnalyzedPaper(
+            arxiv_id=paper.arxiv_id,
+            reasoning=selected.reasoning,
+            title=title,
+            desc=output.desc.strip(),
+            body=body,
+            note_path=note_rel,
+            pdf_path=pdf_rel,
+        )
 
     async def execute(self):
         assert self.context is not None
         if self._skip():
             self.logger.info(f"[{self.name}] skip existing digest")
             return self.context.response
-        selection: PaperSelection | None = self._state("selection")
-        papers: list[PaperInfo] = self._state("selected_papers") or []
-        if selection is None or len(selection.selected) != len(papers):
+        selected: list[PaperPick] = self._state("selected") or []
+        candidates: list[PaperInfo] = self._state("candidates") or []
+        candidate_map = {paper.arxiv_id: paper for paper in candidates}
+        if len(selected) != PAPER_COUNT or any(item.arxiv_id not in candidate_map for item in selected):
             raise RuntimeError("Paper selection state is missing before analysis")
-        self.logger.info(f"[{self.name}] start papers={len(papers)}")
+        self.logger.info(f"[{self.name}] start papers={len(selected)}")
 
-        note_paths, pdf_paths = [], []
-        proxy_url = self.outbound_proxy.http_url if self.outbound_proxy is not None else None
+        analyses: list[AnalyzedPaper] = []
+        used_titles: set[str] = set()
         async with ArxivPdfClient(
-            proxy_url=proxy_url,
-            timeout=float(self._value("pdf_timeout", 90.0)),
+            timeout=float(self._value("pdf_timeout", 600.0)),
             max_bytes=int(self._value("max_pdf_bytes", 50 * 1024 * 1024)),
         ) as downloader:
-            for paper, selected in zip(papers, selection.selected):
-                note_path, pdf_path = await self._analyze_one(downloader, paper, selected)
-                note_paths.append(note_path)
-                pdf_paths.append(pdf_path)
-        self._set_state("note_paths", note_paths)
-        self._set_state("pdf_paths", pdf_paths)
-        self.context.response.answer = f"Claude Code wrote {len(note_paths)} detailed paper notes"
-        self.logger.info(f"[{self.name}] finish notes={len(note_paths)} pdfs={len(pdf_paths)}")
+            for item in selected:
+                analyses.append(
+                    await self._analyze_one(
+                        downloader,
+                        candidate_map[item.arxiv_id],
+                        item,
+                        used_titles,
+                    ),
+                )
+        self._set_state("analyses", analyses)
+        self.context.response.answer = f"Agent wrote {len(analyses)} detailed paper notes"
+        self.logger.info(f"[{self.name}] finish notes={len(analyses)}")
         return self.context.response

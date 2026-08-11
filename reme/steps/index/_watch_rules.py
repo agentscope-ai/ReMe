@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._source_format import normalize_posix_path
+
 if TYPE_CHECKING:
     from ...schema import ApplicationConfig
     from ...components.runtime_context import RuntimeContext
@@ -27,8 +29,19 @@ def build_watch_rules(
     """Build watch rules from application config fields and suffix whitelist."""
     rules: list[WatchRule] = []
     for dir_field in watch_dirs:
-        dir_name = getattr(app_config, dir_field, dir_field)
-        rules.append(WatchRule(path=workspace_path / dir_name, suffixes=list(watch_suffixes)))
+        literal_path = Path(dir_field)
+        if literal_path.is_absolute():
+            rule_path = literal_path
+        else:
+            config_field, separator, child_path = dir_field.partition("/")
+            dir_value = getattr(app_config, config_field, config_field)
+            if hasattr(app_config, config_field) and dir_value in (None, ""):
+                dir_value = getattr(type(app_config)(), config_field)
+            if separator:
+                dir_value = normalize_posix_path(f"{dir_value}/{child_path}")
+            dir_name = Path(dir_value)
+            rule_path = dir_name if dir_name.is_absolute() else workspace_path / dir_name
+        rules.append(WatchRule(path=rule_path, suffixes=list(watch_suffixes)))
     return rules
 
 

@@ -22,25 +22,25 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase,
-    title: "ReMe Workspace",
+    title: "ReMe Studio",
     description:
       "Browse, edit, and discuss your local-first ReMe memory workspace.",
     icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
     openGraph: {
-      title: "ReMe Workspace",
+      title: "ReMe Studio",
       description: "本地优先的 Agent 记忆工作区",
       images: [
         {
           url: "/og.png",
           width: 1731,
           height: 909,
-          alt: "ReMe Workspace file explorer",
+          alt: "ReMe Studio memory workspace",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "ReMe Workspace",
+      title: "ReMe Studio",
       description: "本地优先的 Agent 记忆工作区",
       images: ["/og.png"],
     },

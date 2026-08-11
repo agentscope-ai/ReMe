@@ -1,6 +1,7 @@
 """Client and response normalization for Hugging Face Papers."""
 
 import asyncio
+import os
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -12,6 +13,7 @@ from .arxiv import ARXIV_ID_PATTERN
 from .logger_utils import get_logger
 
 HF_BASE_URL = "https://huggingface.co"
+HF_MIRROR_BASE_URL = "https://hf-mirror.com"
 _PAPER_LINK_PATTERN = re.compile(
     r"href=[\"'](?:https://huggingface\.co)?/papers/(\d{4}\.\d{4,5})(?:[^\"']*)?[\"']",
     re.IGNORECASE,
@@ -67,17 +69,20 @@ class HuggingFacePapersClient:
     def __init__(
         self,
         *,
-        proxy_url: str | None = None,
         client: httpx.AsyncClient | None = None,
-        timeout: float = 30.0,
+        timeout: float = 600.0,
         max_retries: int = 3,
         detail_concurrency: int = 5,
         logger: Any | None = None,
+        use_mirror: bool = False,
     ) -> None:
-        if client is not None and proxy_url is not None:
-            raise ValueError("client and proxy_url cannot be provided together")
         self.logger = logger or get_logger()
-        self.proxy_url = proxy_url
+        configured_mirror = os.getenv("HF_MIRROR_URL", "").strip().rstrip("/")
+        self.base_url = (configured_mirror or HF_MIRROR_BASE_URL) if use_mirror else HF_BASE_URL
+        # HF_MIRROR_URL alone no longer redirects traffic; warn so a stale
+        # mirror-only setup is visible instead of silently hitting the official site.
+        self._ignored_mirror_configured = bool(configured_mirror) and not use_mirror
+        self._source = "mirror" if use_mirror else "official"
         self._owns_client = client is None
         self._timeout = timeout
         self.client = client
@@ -86,16 +91,18 @@ class HuggingFacePapersClient:
 
     async def __aenter__(self) -> "HuggingFacePapersClient":
         if self.client is None:
+            if self._ignored_mirror_configured:
+                self.logger.warning(
+                    "[HuggingFacePapersClient] ignoring configured HF_MIRROR_URL "
+                    "because the mirror is disabled; pass use_hf_mirror=true to use it",
+                )
             self.client = httpx.AsyncClient(
-                base_url=HF_BASE_URL,
-                proxy=self.proxy_url,
-                trust_env=False,
+                base_url=self.base_url,
                 timeout=self._timeout,
                 follow_redirects=True,
                 headers={"User-Agent": "ReMe daily-paper cookbook"},
             )
-            mode = "outbound_proxy" if self.proxy_url else "direct"
-            self.logger.info(f"[HuggingFacePapersClient] network mode={mode}")
+            self.logger.info(f"[HuggingFacePapersClient] source={self._source}")
         else:
             self.logger.debug("[HuggingFacePapersClient] network mode=injected_client")
         return self
@@ -118,7 +125,10 @@ class HuggingFacePapersClient:
                     f"[HuggingFacePapersClient] request start path={path} params={params} "
                     f"attempt={attempt + 1}/{self.max_retries}",
                 )
-                response = await self._require_client().get(path, params=params)
+                # Keep an optional path prefix in HF_MIRROR_URL. httpx treats a
+                # leading slash as host-relative and would otherwise discard a
+                # prefix such as ``/hf`` from the configured base URL.
+                response = await self._require_client().get(path.lstrip("/"), params=params)
                 response.raise_for_status()
                 self.logger.debug(
                     f"[HuggingFacePapersClient] request done path={path} status={response.status_code} "

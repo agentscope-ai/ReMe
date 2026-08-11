@@ -41,8 +41,13 @@ const messages = {
     save: "保存",
     saving: "保存中",
     saved: "已保存",
+    saveFailed: "保存失败：{error}",
+    unknownError: "未知错误",
     closeCurrentTab: "关闭当前文件",
     closeOtherTabs: "关闭其他文件",
+    discardUnsavedConfirm: "将丢弃 {count} 个文件中未保存的修改，确定关闭吗？",
+    workspaceFileLimit:
+      "仅显示最近的 {limit} 个文件，工作区中可能还有其他文件。",
     openingFile: "正在打开 {path}",
     chatFailed: "对话失败",
     chatTitle: "和你的记忆对话",
@@ -145,8 +150,14 @@ const messages = {
     save: "Save",
     saving: "Saving",
     saved: "Saved",
+    saveFailed: "Save failed: {error}",
+    unknownError: "Unknown error",
     closeCurrentTab: "Close current file",
     closeOtherTabs: "Close other files",
+    discardUnsavedConfirm:
+      "Discard unsaved changes in {count} file(s) and close?",
+    workspaceFileLimit:
+      "Showing the {limit} most recent files. More files may exist in this workspace.",
     openingFile: "Opening {path}",
     chatFailed: "Chat failed",
     chatTitle: "Chat with your memory",
