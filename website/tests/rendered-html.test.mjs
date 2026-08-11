@@ -15,13 +15,13 @@ async function render() {
   );
 }
 
-test("server-renders the ReMe workspace shell", async () => {
+test("server-renders the ReMe Studio shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>ReMe Workspace<\/title>/i);
+  assert.match(html, /<title>ReMe Studio<\/title>/i);
   assert.match(html, /新建 Agent 对话/);
   assert.match(html, /文件保留在你的本地工作区/);
   assert.doesNotMatch(

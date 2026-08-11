@@ -53,6 +53,8 @@ interface WorkspaceState {
 }
 
 const fileTitle = (path: string) => path.split("/").pop() || path;
+// Preserve the original key so existing tabs, chats, and unsaved drafts survive the Studio rename.
+const WORKSPACE_STORAGE_KEY = "reme-workspace";
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
@@ -240,7 +242,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
     }),
     {
-      name: "reme-workspace",
+      name: WORKSPACE_STORAGE_KEY,
       version: 1,
       storage: createJSONStorage(() => localStorage),
       skipHydration: true,

@@ -644,7 +644,7 @@ function Workspace() {
           </span>
         </button>
         <strong>
-          ReMe
+          ReMe Studio
           {version && (
             <>
               <span className="app-version-divider" aria-hidden="true" />
@@ -723,7 +723,7 @@ function Workspace() {
             {!active && (
               <div className="welcome">
                 <div className="agent-logo">R</div>
-                <h1>ReMe Workspace</h1>
+                <h1>ReMe Studio</h1>
                 <p>{t("welcomeDescription")}</p>
                 <button onClick={openAgent}>
                   <Sparkles size={16} />
