@@ -153,7 +153,7 @@ reme_workspace/
 | `hf_max_retries` | `3` | Hugging Face 最大尝试次数 |
 | `pdf_timeout` | `600` 秒 | arXiv PDF 下载超时 |
 | `max_pdf_bytes` | `52428800` | PDF 上限，50 MiB |
-| `max_pdf_pages` | `20` | 最多提取页数 |
+| `max_pdf_pages` | `35` | 最多提取页数 |
 | `max_pdf_chars` | `300000` | 最多送入 Agent 的 PDF 字符数 |
 
 ## 镜像站

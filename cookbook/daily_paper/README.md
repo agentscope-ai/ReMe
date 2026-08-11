@@ -164,7 +164,7 @@ Step-level settings on the `daily_paper` job:
 | `hf_max_retries` | `3` | Maximum Hugging Face attempts |
 | `pdf_timeout` | `600` seconds | arXiv PDF download timeout |
 | `max_pdf_bytes` | `52428800` | PDF limit, 50 MiB |
-| `max_pdf_pages` | `20` | Maximum extracted pages |
+| `max_pdf_pages` | `35` | Maximum extracted pages |
 | `max_pdf_chars` | `300000` | Maximum extracted PDF characters sent to the agent |
 
 ## Mirrors

@@ -392,7 +392,7 @@ jobs:
     hf_max_retries: &hf_max_retries 3
     pdf_timeout: &pdf_timeout 600
     max_pdf_bytes: &max_pdf_bytes 52428800
-    max_pdf_pages: &max_pdf_pages 20
+    max_pdf_pages: &max_pdf_pages 35
     max_pdf_chars: &max_pdf_chars 300000
     parameters:
       type: object

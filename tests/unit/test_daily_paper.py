@@ -538,7 +538,7 @@ def test_daily_paper_selects_three_papers_and_bounds_pdf_context():
 
     assert "top_k" not in job
     assert "top_k" not in job["parameters"]["properties"]
-    assert job["max_pdf_pages"] == 20
+    assert job["max_pdf_pages"] == 35
     assert job["max_pdf_chars"] == 300_000
 
 
@@ -760,7 +760,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert note.metadata["source_pdf"] == "[[external-assets/papers/2607.10001.pdf]]"
     assert (tmp_path / "external-assets" / "papers" / "2607.10001.pdf").is_file()
     assert note.metadata["title"] == "记忆代理研究"
-    assert extraction_limits == [(20, 300_000)] * 3
+    assert extraction_limits == [(35, 300_000)] * 3
     assert "[[daily/2026-07-21/记忆代理研究.md]]" in digest_path.read_text(
         encoding="utf-8",
     )
