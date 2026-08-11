@@ -53,6 +53,8 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 ## 📰 新闻
 
+- [2026.08] - 发布 [ReMe 博客](docs/zh/reme-blog.md)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
+  主动发现与评测结果。
 - [2026.08] - 新增 [ReMe Studio](website/README_ZH.md)：用于浏览、编辑和搜索记忆文件，与只读 ReMe Agent
   对话，查看 digest wikilink 图，并管理本地服务。
 - [2026.08] - 基于 ReMe 的智能体工具使用

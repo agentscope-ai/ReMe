@@ -61,6 +61,8 @@ keeping the files under the user's control.
 
 ## 📰 News
 
+- [2026.08] - Published the [ReMe blog](docs/en/reme-blog.md), an end-to-end introduction to its local-first memory
+  architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - Introduced [ReMe Studio](website/README.md), a local web workspace for browsing, editing, and searching
   memory files, chatting with the read-only ReMe Agent, inspecting the digest wikilink graph, and managing the local service.
 - [2026.08] - [Experience-driven enhancement method](benchmark/toolmemory/README.md) of agent tool-use execution built
