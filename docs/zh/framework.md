@@ -2,8 +2,8 @@
 
 ## 1. 总览
 
-ReMe 的运行时可以理解为：**配置驱动的 Application 把组件和 Job 装配起来，Service 把可服务的 Job 暴露给 CLI、HTTP 或 MCP，Job
-再按顺序执行 Step**。
+ReMe 的运行时可以理解为： **配置驱动的 Application 把组件和 Job 装配起来，Service 把可服务的 Job 暴露给 CLI、HTTP 或
+MCP，Job 再按顺序执行 Step**。
 
 <p align="center">
   <img src="../figure/framework-structure.svg" alt="ReMe 代码框架结构：CLI、Service、Application、Job、Step 与 Component" width="92%">
@@ -33,16 +33,16 @@ flowchart LR
 
 核心分层：
 
-| 层           | 主要目录                       | 职责                                                           |
-|-------------|----------------------------|--------------------------------------------------------------|
-| CLI         | `reme/reme.py`             | 解析命令；`start` 启动服务；其他 action 通过 client 调用服务                   |
-| Service     | `reme/components/service/` | 把 Job 注册成 HTTP endpoint 或 MCP tool                           |
-| Application | `reme/application.py`      | 读取配置后的对象装配、依赖拓扑启动、关闭、Job 调用                                  |
-| Job         | `reme/components/job/`     | 编排一组 Step；决定同步、流式、后台、定时运行方式                                  |
-| Step        | `reme/steps/`              | 业务原子操作，例如读写文件、检索、索引、自进化                                      |
+| 层          | 主要目录                   | 职责                                                                      |
+|-------------|----------------------------|---------------------------------------------------------------------------|
+| CLI         | `reme/reme.py`             | 解析命令；`start` 启动服务；其他 action 通过 client 调用服务              |
+| Service     | `reme/components/service/` | 把 Job 注册成 HTTP endpoint 或 MCP tool                                   |
+| Application | `reme/application.py`      | 读取配置后的对象装配、依赖拓扑启动、关闭、Job 调用                        |
+| Job         | `reme/components/job/`     | 编排一组 Step；决定同步、流式、后台、定时运行方式                         |
+| Step        | `reme/steps/`              | 业务原子操作，例如读写文件、检索、索引、自进化                            |
 | Component   | `reme/components/`         | 可复用基础设施，例如 file_store、file_graph、keyword_index、agent_wrapper |
 | Schema      | `reme/schema/`             | `Request`、`Response`、`FileChunk`、`FileNode`、配置模型等数据结构        |
-| Config      | `reme/config/`             | 默认 YAML 配置和命令行覆盖解析                                           |
+| Config      | `reme/config/`             | 默认 YAML 配置和命令行覆盖解析                                            |
 
 ## 2. 目录结构
 
@@ -63,18 +63,19 @@ reme/
     file_store/              # 文件索引协调层
     file_graph/              # wikilink 图谱
     keyword_index/           # BM25 等关键词索引
-    file_chunker/            # Markdown / 默认文本分块
+    file_chunker/            # Markdown / JSON / JSONL / 通用文本分块
     file_catalog/            # 变更 checkpoint
     as_llm/, as_embedding/   # 模型封装
-    agent_wrapper/           # AgentScope / Claude Code wrapper
+    agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
-    common/                  # version、help、health_check、demo
+    common/                  # version、help、health_check、status、chat
+    benchmark/               # LongMemEval / BEAM 评测步骤
+    cookbook/                # 可选研究工作流步骤
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory、auto_resource、auto_dream、proactive
-    transfer/                # upload/download/ingest
-    channel/                 # MCP channel 工具
+    transfer/                # upload/download
 ```
 
 默认 workspace 目录由 `ApplicationConfig` 定义：
@@ -82,7 +83,8 @@ reme/
 ```text
 <workspace_dir>/
   metadata/     # file_store、file_graph、keyword_index、file_catalog 等持久状态
-  session/      # Agent session 与原始对话
+  session/      # 记忆工作流使用的对话来源记录
+  mem_session/  # Agent wrapper 生成的 session 和配置
   resource/          # 外部资源
   daily/             # 浅加工记忆
   digest/            # 长期 digest 记忆
@@ -122,21 +124,21 @@ reme search query="memory" backend=mcp
 
 配置解析支持：
 
-| 能力           | 源码                      | 说明                                          |
-|--------------|-------------------------|---------------------------------------------|
-| 默认配置         | `resolve_app_config()`  | 未指定 `config` 时加载 `reme/config/default.yaml` |
-| 指定配置         | `config=<name-or-path>` | 可传内置配置名或 YAML/JSON 文件路径                     |
-| dot notation | `parse_dot_notation()`  | 例如 `service.port=8181`                      |
-| 环境变量         | `_expand_env_vars()`    | 支持 `${VAR}` 和 `${VAR:-default}`             |
-| 值转换          | `_convert_value()`      | bool、int、float、JSON list/dict/null 会自动转换    |
+| 能力         | 源码                    | 说明                                              |
+|--------------|-------------------------|---------------------------------------------------|
+| 默认配置     | `resolve_app_config()`  | 未指定 `config` 时加载 `reme/config/default.yaml` |
+| 指定配置     | `config=<name-or-path>` | 可传内置配置名或 YAML/JSON 文件路径               |
+| dot notation | `parse_dot_notation()`  | 例如 `service.port=8181`                          |
+| 环境变量     | `_expand_env_vars()`    | 支持 `${VAR}` 和 `${VAR:-default}`                |
+| 值转换       | `_convert_value()`      | bool、int、float、JSON list/dict/null 会自动转换  |
 
 ### 3.2 Service
 
 `BaseService.run_app()` 的顺序：
 
 可通过可选的 `service.jobs` 列表将 HTTP 或 MCP 仅暴露给指定 Job。未配置时，所有 `enable_serve: true` 的 Job
-仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。
-配置该列表后，缺失、禁用、不受支持或无效的已选 Job 会导致服务启动失败。
+仍可被暴露；配置为空列表时不暴露任何 Job。该白名单不会覆盖 `enable_serve: false`。 配置该列表后，缺失、禁用、不受支持或无效的已选
+Job 会导致服务启动失败。
 
 ```mermaid
 flowchart LR
@@ -152,19 +154,23 @@ flowchart LR
 
 HTTP service 行为：
 
-| Job 类型                               | HTTP 暴露方式                                 |
-|--------------------------------------|-------------------------------------------|
+| Job 类型                               | HTTP 暴露方式                                |
+|----------------------------------------|----------------------------------------------|
 | 非 `StreamJob` 且 `enable_serve: true` | `POST /<job.name>`，返回 `Response` JSON     |
-| `StreamJob`                          | `POST /<job.name>`，返回 `text/event-stream` |
-| `enable_serve: false`                | 不注册 endpoint                              |
+| `StreamJob`                            | `POST /<job.name>`，返回 `text/event-stream` |
+| `enable_serve: false`                  | 不注册 endpoint                              |
+
+HTTP service 还可以在所有 Job endpoint 注册完成后挂载 ReMe Studio 单页应用。默认 `service.web_enabled=true`；构建产物按
+`service.web_static_dir`、`REME_WEB_STATIC_DIR`、包内 `reme/web` 和源码树 `website/dist-static` 等候选位置解析。找不到
+`index.html` 时只跳过前端，Job API 仍然可用。Studio 的 `GET` fallback 不会覆盖已有的 `POST /<job.name>`。
 
 MCP service 行为：
 
-| Job 类型                               | MCP 暴露方式                        |
-|--------------------------------------|---------------------------------|
-| 非 `StreamJob` 且 `enable_serve: true` | 注册为 MCP tool                    |
-| `StreamJob`                          | 当前跳过，不注册                        |
-| `BackgroundJob`                      | 构造时强制 `enable_serve=False`，不会暴露 |
+| Job 类型                               | MCP 暴露方式                              |
+|----------------------------------------|-------------------------------------------|
+| 非 `StreamJob` 且 `enable_serve: true` | 注册为 MCP tool                           |
+| `StreamJob`                            | 当前跳过，不注册                          |
+| `BackgroundJob`                        | 构造时强制 `enable_serve=False`，不会暴露 |
 
 MCP 服务可通过 `injected_job_kwargs` 注入由服务端管理的参数，调用方不能覆盖这些参数。设置
 `tool_error_on_failure: true` 后，不成功的 ReMe `Response` 会作为 MCP tool error 返回。
@@ -192,7 +198,7 @@ class VersionStep(BaseStep):
 
 其中 `component_type` 来自类属性，例如：
 
-| 类型        | 类属性                                                       |
+| 类型      | 类属性                                                    |
 |-----------|-----------------------------------------------------------|
 | Step      | `BaseStep.component_type = ComponentEnum.STEP`            |
 | Job       | `BaseJob.component_type = ComponentEnum.JOB`              |
@@ -204,7 +210,8 @@ class VersionStep(BaseStep):
 ### 4.2 模块导入触发注册
 
 注册发生在模块 import 时。`reme/components/__init__.py` 会 import 各组件包，`reme/steps/__init__.py` 会 import
-`channel/common/evolve/file_io/index/transfer`。这些包的 `__init__.py` 再 import 具体模块，从而执行 `@R.register(...)`。
+`benchmark/common/cookbook/evolve/file_io/index/transfer`。这些包的 `__init__.py` 再 import 具体模块，从而执行
+`@R.register(...)`。
 
 新增 Step 文件后，必须保证它所在包的 `__init__.py` 会 import 该模块，否则注册表里找不到这个 backend。
 
@@ -225,13 +232,13 @@ flowchart LR
 
 `BaseComponent.bind(name, BaseClass, optional=True)` 的规则：
 
-| 场景                     | 行为                                         |
-|------------------------|--------------------------------------------|
-| `name` 为空              | 返回 `None`，跳过依赖                             |
-| `app_context` 存在       | 从 `app_context.components[ctype][name]` 查找 |
+| 场景                        | 行为                                          |
+|-----------------------------|-----------------------------------------------|
+| `name` 为空                 | 返回 `None`，跳过依赖                         |
+| `app_context` 存在          | 从 `app_context.components[ctype][name]` 查找 |
 | 依赖缺失且 `optional=True`  | 解析为 `None`                                 |
-| 依赖缺失且 `optional=False` | 启动时报错                                      |
-| standalone 模式          | 可用 `default_factory` 创建自有组件                |
+| 依赖缺失且 `optional=False` | 启动时报错                                    |
+| standalone 模式             | 可用 `default_factory` 创建自有组件           |
 
 ### 4.4 Step.Ref
 
@@ -315,23 +322,23 @@ flowchart LR
 
 关键源码行为：
 
-| 源码               | 行为                                              |
-|------------------|-------------------------------------------------|
+| 源码             | 行为                                                   |
+|------------------|--------------------------------------------------------|
 | `_start()`       | 把 YAML 中每个 step config 解析成 `(step_cls, params)` |
-| `_build_steps()` | 每次调用都创建新的 Step 实例，避免跨请求共享状态                     |
-| `__call__()`     | 创建 `RuntimeContext`，按顺序执行 step                  |
-| 异常处理             | 捕获异常，`response.success=False`，`answer=str(e)`   |
+| `_build_steps()` | 每次调用都创建新的 Step 实例，避免跨请求共享状态       |
+| `__call__()`     | 创建 `RuntimeContext`，按顺序执行 step                 |
+| 异常处理         | 捕获异常，`response.success=False`，`answer=str(e)`    |
 
 ### 6.2 StreamJob
 
 `StreamJob` 继承 `BaseJob`，但返回流式 chunk：
 
 | 行为      | 说明                                                      |
-|---------|---------------------------------------------------------|
-| context | 带 `stream_queue`                                        |
+|-----------|-----------------------------------------------------------|
+| context   | 带 `stream_queue`                                         |
 | Step 输出 | 调用 `context.add_stream_string(text, ChunkEnum.CONTENT)` |
 | 异常      | 写入 `ChunkEnum.ERROR`                                    |
-| 结束      | 总是发送 `DONE` chunk                                       |
+| 结束      | 总是发送 `DONE` chunk                                     |
 
 ### 6.3 BackgroundJob
 
@@ -376,7 +383,9 @@ jobs:
 ```mermaid
 flowchart LR
     Jobs["default.yaml jobs"] --> BG["background<br/>index_update_loop<br/>resource_watch_loop<br/>digest_watch_loop"]
-    Jobs --> Base["base<br/>version / help / health_check<br/>search / node_search / traverse / reindex<br/>read / write / edit / delete / move / list / stat<br/>daily_list / daily_reindex / daily_write<br/>auto_memory / auto_resource / auto_dream / proactive"]
+    Jobs --> Cron["cron<br/>dream_cron<br/>optimize_index_cron"]
+    Jobs --> Stream["stream<br/>chat"]
+    Jobs --> Base["base<br/>version / help / health_check / status / app_config<br/>search / node_search / traverse / graph_snapshot / reindex<br/>read / load / read_image / write / save / edit / delete / move / list / stat / frontmatter_*<br/>daily_list / daily_reindex / daily_write<br/>auto_memory / auto_memory_cc / auto_resource / auto_dream / proactive"]
 ```
 
 ## 7. Step 模型
@@ -400,12 +409,12 @@ flowchart LR
 
 `RuntimeContext` 是一次 Job 调用内所有 Step 共享的上下文：
 
-| 字段             | 说明                                          |
-|----------------|---------------------------------------------|
+| 字段           | 说明                                             |
+|----------------|--------------------------------------------------|
 | `response`     | 最终返回的 `Response(answer, success, metadata)` |
-| `data`         | 自由字典，保存输入参数和中间结果                            |
-| `stream_queue` | 流式 Job 的输出队列                                |
-| `stop_event`   | 后台 Job 的停止信号                                |
+| `data`         | 自由字典，保存输入参数和中间结果                 |
+| `stream_queue` | 流式 Job 的输出队列                              |
+| `stop_event`   | 后台 Job 的停止信号                              |
 
 Step 里常见写法：
 
@@ -468,21 +477,22 @@ flowchart LR
 
 `reme/config/default.yaml` 当前默认组件：
 
-| ComponentEnum     | 名称                              | backend                        | 说明                                                   |
-|-------------------|---------------------------------|--------------------------------|------------------------------------------------------|
-| `service`         | 单例                              | `http`                         | 默认 HTTP 服务                                           |
-| `tokenizer`       | `default`                       | `regex`                        | BM25 分词器                                             |
-| `as_embedding`    | `default`                       | `${EMBEDDING_BACKEND:-openai}` | embedding 模型封装                                       |
-| `embedding_store` | `default`                       | `local`                        | embedding 存储，依赖 `as_embedding: default`              |
-| `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`       | LLM 模型封装                                             |
-| `agent_wrapper`   | `default`                       | `agentscope`                   | AgentScope wrapper                                   |
-| `agent_wrapper`   | `claude_code`                   | `claude_code`                  | Claude Code wrapper                                  |
-| `file_graph`      | `default`                       | `local`                        | wikilink 图谱                                          |
-| `file_catalog`    | `default/resource/digest/dream` | `local`                        | 文件变更 checkpoint                                      |
-| `file_chunker`    | `markdown`                      | `markdown`                     | Markdown AST 分块                                      |
-| `file_chunker`    | `default`                       | `default`                      | 默认文本分块，当前支持 `jsonl`                                  |
-| `keyword_index`   | `default`                       | `bm25`                         | BM25 关键词索引                                           |
-| `file_store`      | `default`                       | `local`                        | 组合 file_graph、keyword_index；默认 `embedding_store: ""` |
+| ComponentEnum     | 名称                            | backend                     | 说明                                                       |
+|-------------------|---------------------------------|-----------------------------|------------------------------------------------------------|
+| `service`         | 单例                            | `http`                      | 默认 HTTP 服务                                             |
+| `tokenizer`       | `default`                       | `regex`                     | BM25 分词器                                                |
+| `as_embedding`    | `default`                       | 默认未配置；示例为 `openai` | 取消配置注释后提供 embedding 模型封装                      |
+| `embedding_store` | `default`                       | 默认未配置；示例为 `local`  | 取消配置注释后依赖 `as_embedding: default`                 |
+| `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`    | LLM 模型封装                                               |
+| `agent_wrapper`   | `default`                       | `agentscope`                | AgentScope wrapper                                         |
+| `agent_wrapper`   | `claude_code`                   | `claude_code`               | Claude Code wrapper                                        |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 分别使用 API key 与 OAuth 的 Codex wrapper                 |
+| `file_graph`      | `default`                       | `local`                     | wikilink 图谱                                              |
+| `file_catalog`    | `default/resource/digest/dream` | `local`                     | 文件变更 checkpoint                                        |
+| `file_chunker`    | `markdown`                      | `markdown`                  | Markdown AST 分块                                          |
+| `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`        | JSON、JSONL 与通用文本分块；默认通用分块支持 `txt`、`log`  |
+| `keyword_index`   | `default`                       | `bm25`                      | BM25 关键词索引                                            |
+| `file_store`      | `default`                       | `local`                     | 组合 file_graph、keyword_index；默认 `embedding_store: ""` |
 
 注意：`search` step 的配置含 `vector_weight`，但默认 `file_store.default.embedding_store` 为空，因此实际是否有向量检索取决于运行配置是否启用
 embedding store。
@@ -540,12 +550,12 @@ class MySearchStep(BaseStep):
 
 可直接用的常见属性：
 
-| 属性                   | 默认解析的组件                      |
-|----------------------|------------------------------|
-| `self.as_llm`        | `as_llm: default` 的 `.model` |
-| `self.agent_wrapper` | `agent_wrapper: default`，可选  |
-| `self.file_catalog`  | `file_catalog: default`，可选   |
-| `self.file_store`    | `file_store: default`        |
+| 属性                 | 默认解析的组件                 |
+|----------------------|--------------------------------|
+| `self.as_llm`        | `as_llm: default` 的 `.model`  |
+| `self.agent_wrapper` | `agent_wrapper: default`，可选 |
+| `self.file_catalog`  | `file_catalog: default`，可选  |
+| `self.file_store`    | `file_store: default`          |
 
 如果希望 Job 配置指定非 default 组件：
 
@@ -557,13 +567,13 @@ steps:
 
 ### 9.4 Step 设计建议
 
-| 建议                                         | 原因                                         |
-|--------------------------------------------|--------------------------------------------|
-| 从 `context` 读取输入，向 `context` 写中间结果         | 多 Step Job 依赖同一个上下文传递数据                    |
-| 最终结果写到 `context.response`                  | Service 和 client 只关心标准 `Response`          |
-| 不在 Step 实例上保存请求级状态                         | 每次 Job 调用会重建 Step，但保持无状态更容易测试              |
-| 需要中断的后台循环检查 `context.stop_event`           | `BackgroundJob.close()` 依赖 stop_event 优雅退出 |
-| 流式输出只在 StreamJob 中调用 `add_stream_string()` | 普通 Job 没有 stream queue                     |
+| 建议                                                | 原因                                             |
+|-----------------------------------------------------|--------------------------------------------------|
+| 从 `context` 读取输入，向 `context` 写中间结果      | 多 Step Job 依赖同一个上下文传递数据             |
+| 最终结果写到 `context.response`                     | Service 和 client 只关心标准 `Response`          |
+| 不在 Step 实例上保存请求级状态                      | 每次 Job 调用会重建 Step，但保持无状态更容易测试 |
+| 需要中断的后台循环检查 `context.stop_event`         | `BackgroundJob.close()` 依赖 stop_event 优雅退出 |
+| 流式输出只在 StreamJob 中调用 `add_stream_string()` | 普通 Job 没有 stream queue                       |
 
 ### 9.5 单测示例
 
@@ -721,12 +731,12 @@ jobs:
 
 后台 Job 的特点：
 
-| 特点           | 说明                                                 |
-|--------------|----------------------------------------------------|
-| 不对外暴露        | `BackgroundJob.__init__()` 强制 `enable_serve=False` |
-| 有 supervisor | 默认异常后指数退避重启                                        |
-| 有 stop_event | close 时通知循环退出                                      |
-| 适合监听/消费      | 文件监听、队列消费、周期性长循环                                   |
+| 特点          | 说明                                                 |
+|---------------|------------------------------------------------------|
+| 不对外暴露    | `BackgroundJob.__init__()` 强制 `enable_serve=False` |
+| 有 supervisor | 默认异常后指数退避重启                               |
+| 有 stop_event | close 时通知循环退出                                 |
+| 适合监听/消费 | 文件监听、队列消费、周期性长循环                     |
 
 ### 10.5 新增 Cron Job
 
@@ -752,14 +762,14 @@ jobs:
 
 大多数场景只需要新增 Step + YAML Job。只有这些情况才考虑新增 `reme/components/job/*.py`：
 
-| 需求             | 是否需要新 Job 类               |
-|----------------|---------------------------|
-| 新增一个业务命令       | 否，用 `backend: base`       |
-| 串联多个已有步骤       | 否，用 `steps:`              |
-| 要 SSE/流式输出     | 否，用 `backend: stream`     |
-| 要后台循环          | 否，用 `backend: background` |
-| 要 cron 定时      | 否，用 `backend: cron`       |
-| 要全新的调度/并发/事务语义 | 是，新增 Job backend          |
+| 需求                       | 是否需要新 Job 类            |
+|----------------------------|------------------------------|
+| 新增一个业务命令           | 否，用 `backend: base`       |
+| 串联多个已有步骤           | 否，用 `steps:`              |
+| 要 SSE/流式输出            | 否，用 `backend: stream`     |
+| 要后台循环                 | 否，用 `backend: background` |
+| 要 cron 定时               | 否，用 `backend: cron`       |
+| 要全新的调度/并发/事务语义 | 是，新增 Job backend         |
 
 新增 Job backend 的最小形态：
 

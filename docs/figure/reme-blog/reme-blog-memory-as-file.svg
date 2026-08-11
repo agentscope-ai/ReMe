@@ -37,9 +37,9 @@
   <text class="head" x="90" y="358">Lead with the problem and outcome.</text>
   <text class="text" x="90" y="386">Use examples; explain technical details without jargon.</text>
   <text class="mono" x="90" y="434">Related:</text>
-  <text class="folder" x="170" y="434">[[technical-writing-workflow]]</text>
+  <text class="folder" x="170" y="434">[[digest/procedure/writing.md]]</text>
   <text class="mono" x="90" y="480">Source:</text>
-  <text class="folder" x="170" y="480">[[daily/2026-08-07]]</text>
+  <text class="folder" x="170" y="480">[[daily/2026-08-07/style.md]]</text>
 
   <path class="link" d="M594 426C635 426 640 350 680 350"/>
   <path class="link" d="M594 472C635 472 640 308 680 308"/>
@@ -50,7 +50,7 @@
   <path class="top" d="M698 116h430a18 18 0 0118 18v48H680v-48a18 18 0 0118-18z"/>
   <text class="white" x="714" y="158">workspace/</text>
   <text class="folder" x="716" y="224">├── session/</text>
-  <text class="text" x="900" y="224">Raw conversations</text>
+  <text class="text" x="900" y="224">Source conversations</text>
   <text class="folder" x="716" y="266">├── resource/</text>
   <text class="text" x="900" y="266">External resources</text>
   <text class="folder" x="716" y="308">├── daily/</text>

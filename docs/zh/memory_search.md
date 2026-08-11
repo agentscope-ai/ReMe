@@ -1,7 +1,8 @@
 # Memory Search
 
-Memory Search 是 ReMe 的记忆检索入口。它先把 `daily/`、`digest/`、`resource/` 里的文件持续构建成可搜索的 chunk 索引和
-wikilink 图谱；查询时先召回最相关的片段，再沿着片段所在文件的双向链接展开上下文。
+Memory Search 是 ReMe 的记忆检索入口。默认后台持续把 `daily/`、`digest/` 里的 Markdown 构建成可搜索的 chunk 索引和
+wikilink 图谱；查询时先召回最相关的片段，再沿着片段所在文件的双向链接展开上下文。`reme reindex` 的重建范围更宽，会额外扫描
+`resource/` 和 JSONL；这与实时 watcher 的默认范围不同。
 
 <p align="center">
   <img src="../figure/auto-index-and-memory-search.svg" alt="ReMe Auto Index and Memory Search 索引、召回、融合与链接展开流程" width="92%">
@@ -19,14 +20,14 @@ workspace files
 
 ## 它搜索什么
 
-默认配置里的 `index_update_loop` 监听三类记忆目录：
+默认配置里的 `index_update_loop` 监听两类记忆目录：
 
 - `daily_dir`：Auto Memory 生成的每日工作记忆和 session 记忆卡片。
 - `digest_dir`：长期沉淀后的 digest 节点。
-- `resource_dir`：外部资源或导入资料。
 
-默认后缀是 `md` 和 `jsonl`。其中 Markdown 用 `markdown` chunker，能解析 frontmatter、标题结构和 `[[wikilink]]`；`jsonl` 用
-`default` chunker，按字节大小做重叠切块。
+默认实时后缀只有 `md`。`resource_dir` 由独立的 `resource_watch_loop` 监听，并经 Auto Resource 转换成 daily 卡片后进入实时索引。
+如果手动运行 `reme reindex`，其配置会扫描 `daily_dir`、`digest_dir`、`resource_dir` 下的 `md` 和 `jsonl`；Markdown 用
+`markdown` chunker，JSONL 用 `jsonl` chunker。
 
 ## 索引怎么构建
 
@@ -37,8 +38,8 @@ workspace files
 ```yaml
 index_update_loop:
   backend: background
-  watch_dirs: [ daily_dir, digest_dir, resource_dir ]
-  watch_suffixes: [ md, jsonl ]
+  watch_dirs: [daily_dir, digest_dir]
+  watch_suffixes: [md]
   steps:
     - backend: init_changes_step
       monitor_type: file_store
@@ -67,7 +68,8 @@ Markdown chunker 会解析 YAML frontmatter、标题结构和 wikilink，产出 
 
 ### 索引优化
 
-BM25 和 FAISS HNSW 向量索引在删除节点时都采用墓碑（tombstone）标记而非物理移除，积累过多会拖慢搜索。为此内置了闲暇时间索引优化机制——`optimize_index_cron` 定时任务在低峰期压缩墓碑并重建索引：
+BM25 和 FAISS HNSW 向量索引在删除节点时都采用墓碑（tombstone）标记而非物理移除，积累过多会拖慢搜索。为此内置了闲暇时间索引优化机制——
+`optimize_index_cron` 定时任务在低峰期压缩墓碑并重建索引：
 
 ```yaml
 optimize_index_cron:
@@ -94,14 +96,15 @@ file_store:
 
 它组合三类能力：
 
-| 部件                      | 默认状态 | 作用                                   |
-|-------------------------|------|--------------------------------------|
-| `file_chunks`           | 启用   | 保存 `FileChunk` 文本、行号、分数、可选 embedding |
-| `keyword_index.default` | 启用   | BM25 倒排索引，chunk id 是 doc id          |
-| `file_graph.default`    | 启用   | 保存 `FileNode` 和 wikilink 边           |
-| `embedding_store`       | 默认关闭 | 开启后为 chunk 生成 embedding，并支持向量召回      |
+| 部件                    | 默认状态 | 作用                                              |
+|-------------------------|----------|---------------------------------------------------|
+| `file_chunks`           | 启用     | 保存 `FileChunk` 文本、行号、分数、可选 embedding |
+| `keyword_index.default` | 启用     | BM25 倒排索引，chunk id 是 doc id                 |
+| `file_graph.default`    | 启用     | 保存 `FileNode` 和 wikilink 边                    |
+| `embedding_store`       | 默认关闭 | 开启后为 chunk 生成 embedding，并支持向量召回     |
 
-所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。此时若将 `file_store` 的 `backend` 从 `local` 改为 `faiss`，向量检索会从线性扫描升级为 FAISS HNSW 索引，在大规模 chunk 场景下召回效率更高。
+所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。此时若将
+`file_store` 的 `backend` 从 `local` 改为 `faiss`，向量检索会从线性扫描升级为 FAISS HNSW 索引，在大规模 chunk 场景下召回效率更高。
 
 ## 怎么搜索
 
@@ -115,10 +118,12 @@ search:
     query: string
     limit: integer
     min_score: number
+    start_date: string
+    end_date: string
   steps:
     - backend: search_step
       vector_weight: 0.7
-      candidate_multiplier: 3.0
+      candidate_multiplier: 5.0
       expand_links: true
       max_links_per_direction: 10
 ```
@@ -129,11 +134,17 @@ search:
 reme search query="最近关于索引的讨论" limit=5
 ```
 
+`start_date` 和 `end_date` 可以按 `YYYY-MM-DD` 做包含边界的日期过滤：
+
+```bash
+reme search query="索引回归" start_date=2026-06-01 end_date=2026-06-20 limit=10
+```
+
 `search_step` 的执行顺序是：
 
 ```mermaid
 flowchart LR
-    A["query + limit"] --> B["candidates = limit * candidate_multiplier"]
+    A["query + limit"] --> B["candidates = min(200, limit * candidate_multiplier)"]
     B --> C["file_store.vector_search(...)"]
     B --> D["file_store.keyword_search(...)"]
     C --> E["RRF 融合"]
@@ -200,7 +211,7 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
 典型文本结构：
 
 ```text
-========== daily/2026-06-20/session-a.md:12-28 [score=0.0317 keyword=4.8120] ==========
+========== daily/2026-06-20/retrieval-regression.md:12-28 [score=0.0317 keyword=4.8120] ==========
 ...命中的记忆片段...
   outlinks (2):
     -> digest/indexing.md  name="Indexing"  description="..."

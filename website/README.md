@@ -1,17 +1,44 @@
 # ReMe Studio
 
-Local web studio for browsing ReMe files, editing and previewing Markdown,
-exploring memory graphs, and streaming conversations with the ReMe Agent.
+English | [简体中文](./README_ZH.md)
+
+ReMe Studio is the local web workspace for ReMe. It lets you browse and edit user-owned workspace files, explore memory
+links, and chat with the ReMe Agent without moving durable memory into a separate application database. Search indexes,
+graphs, and other derived metadata remain rebuildable from the source files.
+
+![ReMe Studio workspace](./public/og.png)
+
+## Features
+
+- **Workspace browsing**: browse the full workspace or focus on journal and knowledge files through dedicated views. The
+  navigator refreshes as files change on disk.
+- **Markdown editing and preview**: open multiple files in tabs, render Markdown front matter and GitHub Flavored
+  Markdown, edit with Monaco, save with optimistic modification-time checks, and download files locally.
+- **Memory graph**: inspect indexed wikilinks under the `wiki`, `personal`, and
+  `procedure` knowledge roots, follow inbound and outbound links, and open the corresponding Markdown source.
+- **Agent chat**: stream conversations with the read-only workspace Agent, see tool calls and token usage, and drag
+  workspace files into the conversation as references.
+- **Service management**: inspect service and component memory usage, review the effective redacted configuration and
+  version, and rebuild derived indexes without modifying source memory files.
+- **Personalization**: switch between English and Chinese, and use light, dark, or system appearance.
+
+## Requirements
+
+- Node.js 22.13 or newer.
+- Python 3.11 or newer with ReMe installed.
+- A running ReMe HTTP service. Agent chat additionally requires a working Agent and model configuration.
+
+See the [repository README](../README.md) for ReMe installation and backend configuration.
 
 ## Development
 
-Requirements: Node.js 22.13+ and a running ReMe HTTP service.
+Start ReMe from the repository root, then run the frontend in another terminal:
 
 ```bash
-# From the repository root, start ReMe in one terminal.
+# Terminal 1, from the repository root
 reme start
 
-# Start the web interface in another terminal.
+# Terminal 2
 cd website
 npm install
 npm run dev
@@ -26,8 +53,7 @@ NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
 
 ## ReMe-hosted static build
 
-ReMe can serve the same workspace from its FastAPI process. Build the static
-variant and restart ReMe:
+ReMe can serve Studio from the same FastAPI process as its HTTP API. Build the static variant and restart ReMe:
 
 ```bash
 cd website
@@ -37,27 +63,30 @@ cd ..
 reme start
 ```
 
-Open <http://127.0.0.1:2333>. The static build uses same-origin requests by
-default. For standalone static development, run `npm run dev:static` and set
+Open <http://127.0.0.1:2333>. The static build uses same-origin requests by default. For standalone static development,
+run `npm run dev:static` and set
 `VITE_REME_API_URL` to the running ReMe service URL when necessary.
 
 The regular `npm run build` command remains the vinext/Sites deployment build;
-`npm run build:static` creates `dist-static/` exclusively for FastAPI and Python
-package distribution.
+`npm run build:static` creates `dist-static/` exclusively for FastAPI and Python package distribution.
 
-The workspace hides dotfiles and dot-directories. It displays only Markdown and
-text files by default. Configure the allowed extensions as a comma-separated
-list in `.env.local`:
+## Configuration
+
+The workspace hides dotfiles and dot-directories. It displays only Markdown and text files by default. Configure the
+allowed extensions as a comma-separated list in `.env.local`:
 
 ```bash
 NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
 ```
 
-Useful checks:
+The memory graph requires an index built by ReMe. Rebuilding the index from the Studio settings regenerates derived data
+from workspace files and does not modify the source memory.
+
+## Checks
 
 ```bash
+npm run format:check
 npm run lint
-npx tsc --noEmit
 npm run build
 npm run build:static
 npm test

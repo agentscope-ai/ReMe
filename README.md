@@ -20,26 +20,28 @@
 </p>
 
 <p align="center">
-  <strong>An agent memory layer that turns conversations and resources into readable, editable, searchable Markdown memory.</strong><br>
+  <strong>A local-first, self-evolving personal knowledge base for AI agents.</strong><br>
 </p>
 
 > Previous versions: [0.3.x](https://github.com/agentscope-ai/ReMe/tree/reme_v3) ·
 > [0.2.x](https://github.com/agentscope-ai/ReMe/tree/v0.2.0.6) ·
 > [MemoryScope](https://github.com/agentscope-ai/ReMe/tree/memoryscope_branch)
 
-🧠 ReMe is a local-first memory layer for **AI agents**. It turns conversations and resources into file-based long-term
-memory, then continuously indexes, links, and consolidates that memory for future recall.
+🧠 ReMe turns conversations and resources into readable, editable, searchable, and interconnected Markdown memory. It
+works alongside agents such as QwenPaw, OpenClaw, Hermes, and Claude Code, continuously organizing what they learn while
+keeping the files under the user's control.
 
 ## ✨ Core Ideas
 
-- **Memory as File**: Markdown files with frontmatter and wikilinks serve as memory nodes that both users and agents can
-  read and write directly.
+- **Memory as File, File as Memory**: Markdown files with frontmatter and wikilinks serve as memory nodes that both
+  users and agents can inspect, edit, move, and back up directly.
 - **Self-evolving knowledge base**: Auto Memory, Auto Resource, and Auto Dream progressively transform conversations and
-  resources into long-term memories, while automatically building wikilink relationships.
+  resources into daily notes and long-term knowledge, while Auto Link writes relationships and sources back into the
+  files.
 - **Progressive hybrid search**: ReMe combines wikilinks, BM25, and embeddings for hybrid retrieval across keyword
-  matching, semantic recall, and relationship expansion.
+  matching, optional semantic recall, and relationship expansion without loading every neighboring file into context.
 - **Agent-friendly integration**: SKILL.md + CLI integration makes it easy for different agents to read, write,
-  maintain, and reuse memory.
+  maintain, and reuse the same local workspace. HTTP, MCP, and Python integrations are also available.
 
 <p align="center">
   <img src="docs/figure/design-philosophy.svg" alt="ReMe Design Philosophy" width="92%">
@@ -59,8 +61,10 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 
 ## 📰 News
 
-- [2026.08] - [Experience-driven enhancement method](benchmark/toolmemory/README.md) of agent tool-use
-  execution built on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
+- [2026.08] - Introduced [ReMe Studio](website/README.md), a local web workspace for browsing, editing, and searching
+  memory files, chatting with the read-only ReMe Agent, inspecting the digest wikilink graph, and managing the local service.
+- [2026.08] - [Experience-driven enhancement method](benchmark/toolmemory/README.md) of agent tool-use execution built
+  on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
 - [2026.07] - Introduced optional Cookbooks: [Daily Paper](cookbook/daily_paper/README.md) for paper discovery and
   analysis, and [Auto Fin](cookbook/auto-fin/README.md) for researching the latest 24 hours of topic-related CLS news
   with local-memory search and validated historical wikilinks.
@@ -128,14 +132,44 @@ reme start service.port=8181
 
 After startup, check the service status. If you use a custom port, replace `2333` in the URL below with that port.
 
-The HTTP service also serves the bundled ReMe Workspace at <http://127.0.0.1:2333/> when the web build is available.
-Set `service.web_enabled=false` to disable it, or use `service.web_static_dir` / `REME_WEB_STATIC_DIR` to provide a custom
-static build.
+When the web build is available, the HTTP service also serves **ReMe Studio** at <http://127.0.0.1:2333/>. Studio can
+browse, edit, and search the workspace, chat with the read-only workspace agent, and inspect the digest wikilink graph.
+Set `service.web_enabled=false` to disable it, or use `service.web_static_dir` / `REME_WEB_STATIC_DIR` to provide a
+custom static build. The Job API remains available when no web build is found.
 
 ```bash
 reme version
+reme health_check
+reme help
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
+
+### Use ReMe Studio
+
+Open <http://127.0.0.1:2333/> after starting the default HTTP service. Studio provides:
+
+- **Files, Daily, and Knowledge views** for navigating the whole workspace or focusing on `daily/` and `digest/`.
+- **Markdown tabs** with preview, split editing, optimistic save checks, and local download.
+- **Memory Graph** for exploring indexed `personal`, `procedure`, and `wiki` nodes and opening their Markdown sources.
+- **Read-only Agent chat** with streamed tool activity and usage; drag a workspace file into the composer to reference it.
+- **Settings** for service/component status, redacted effective configuration, version information, and safe index rebuilding.
+- English/Chinese language switching and light, dark, or system appearance.
+
+For frontend development, run ReMe and Studio in separate terminals:
+
+```bash
+# Terminal 1, repository root
+reme start
+
+# Terminal 2
+cd website
+npm install
+npm run dev
+```
+
+Then open <http://localhost:3000>. The development server uses `http://127.0.0.1:2333` by default; set
+`NEXT_PUBLIC_REME_API_URL` to connect to another ReMe HTTP service. Static-build and frontend configuration instructions are
+in the [ReMe Studio guide](website/README.md).
 
 ### 5-Minute Memory Demo
 
@@ -171,6 +205,24 @@ ReMe stores agent memory as readable Markdown.
 Related: [[digest/wiki/memory-as-file.md]]
 ```
 
+## 📚 Usage Guides
+
+These Markdown guides cover the main user workflows and the runtime contracts implemented by the current code.
+
+| Guide | What you will learn |
+|-------|---------------------|
+| [Quick Start](docs/en/quick_start.md) | Install ReMe, start the service, use Studio, and run the first file and memory operations. |
+| [Memory as File](docs/en/memory_as_file.md) | Understand workspace layers, frontmatter, wikilinks, chunks, and the file-as-source-of-truth model. |
+| [Auto Memory](docs/en/auto_memory.md) | Preserve source conversations and distill reusable daily memory cards. |
+| [Auto Resource](docs/en/auto_resource.md) | Import supported text resources and turn them into source-linked daily cards. |
+| [Auto Dream](docs/en/auto_dream.md) and [Auto Link](docs/en/auto_link.md) | Consolidate daily notes into evolving digest nodes and readable wikilink relationships. |
+| [Memory Search](docs/en/memory_search.md) | Use BM25, optional vectors, RRF fusion, line-range recall, and progressive link expansion. |
+| [Proactive](docs/en/proactive.md) | Read interest topics safely and integrate them into a host agent's decision flow. |
+| [Agent Integration Scenarios](docs/en/reme_scene.md) | Choose among CLI/SKILL.md, HTTP, MCP, and embedded Python integration. |
+| [Framework](docs/en/framework.md) | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries. |
+| [ReMe Studio](website/README.md) | Use, configure, develop, test, and build the web frontend. |
+| [ReMe Blog](docs/en/reme-blog.md) | Read the product story, design rationale, examples, and benchmark summary. |
+
 ## 🧑‍🍳 Cookbooks
 
 Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps. They are not enabled by the default
@@ -187,26 +239,31 @@ another row in this table.
 > Memory as File, File as Memory.
 
 ReMe treats **memory as files**, progressively processing raw conversations and external resources from `session/` and
-`resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under `digest/`.
+`resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under `digest/`. The default
+workspace is `.reme/` under the current directory; `workspace_dir=...` selects a different user-owned location.
 
 ### Directory Structure
 
 ```text
 <workspace_dir>/
-├── metadata/       # Persistent system state such as indexes, graphs, and catalogs
+├── metadata/       # Rebuildable indexes, graphs, catalogs, and caches
 ├── session/        # Raw conversations and agent sessions
 │   ├── dialog/
-│   │   └── <session_id>.jsonl
-│   ├── agentscope/
+│   │   └── <session_id>.jsonl  # Source messages saved by auto_memory
 │   └── claude_code/
+│       └── <session_id>.jsonl  # ReMe copy used by auto_memory_cc
+├── mem_session/    # Generated agent-wrapper sessions/config, not user memory
+│   ├── agentscope/
+│   ├── claude_config/
+│   └── codex/
 ├── resource/            # External raw materials
+│   ├── <resource>.<ext>  # Root-level files enter today's daily layer
 │   └── YYYY-MM-DD/
 │       └── <resource>.<ext>
 ├── daily/               # Lightly processed memory: daily facts, conversation summaries, resource readings
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
-│       ├── <session_event>.md
-│       ├── <resource_stem>.md
+│       ├── <generated_name>.md  # Topic-named conversation or resource card
 │       └── interests.yaml
 └── digest/              # Long-term memory: personal facts, procedural experience, knowledge nodes
     ├── personal/
@@ -231,15 +288,16 @@ ReMe treats **memory as files**, progressively processing raw conversations and 
 
 ReMe follows a capture → index → consolidate → recall loop. Conversations and resources first become daily memory cards;
 background jobs keep files searchable; `auto_dream` distills stable knowledge into `digest/`; agents recall memory
-through search, wikilinks, or proactive topics.
+through search, wikilinks, or proactive topics. The files are the durable source of truth—indexes, graphs, catalogs, and
+caches under `metadata/` can be rebuilt from them.
 
-| Capability                                  | Entry point                                     | What it does                                                                                    | Output                                                  |
-|---------------------------------------------|-------------------------------------------------|-------------------------------------------------------------------------------------------------|---------------------------------------------------------|
-| [`auto_memory`](docs/en/auto_memory.md)     | Agent hook or `reme auto_memory`                | Distills useful conversation facts while preserving the raw session.                            | `session/dialog/*.jsonl`, `daily/<date>/<session>.md`   |
-| [`auto_resource`](docs/en/auto_resource.md) | Resource watcher or `reme auto_resource`        | Turns files under `resource/<date>/` into source-linked daily cards.                            | `daily/<date>/<resource-card>.md`                       |
-| [`auto_index`](docs/en/memory_search.md)    | Background watcher or `reme reindex`            | Maintains chunks, the BM25 index, the wikilink graph, and the optional embedding index.         | Searchable `daily/`, `digest/`, and `resource/` content |
-| [`auto_dream`](docs/en/auto_dream.md)       | `dream_cron` or `reme auto_dream`               | Consolidates changed daily cards into long-term personal, procedure, and wiki memory.           | `digest/**`, `daily/<date>/interests.yaml`              |
-| [`proactive`](docs/en/proactive.md)         | `reme proactive` before an agent decides to act | Reads topics generated by `auto_dream`; the host agent decides whether and how to mention them. | Structured topics from `daily/<date>/interests.yaml`    |
+| Capability                                  | Entry point                                     | What it does                                                                                                                                                   | Output                                                        |
+|---------------------------------------------|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
+| [`auto_memory`](docs/en/auto_memory.md)     | Agent hook or `reme auto_memory`                | Distills useful conversation facts while preserving the raw session.                                                                                           | `session/dialog/*.jsonl`, `daily/<date>/<generated-name>.md`  |
+| [`auto_resource`](docs/en/auto_resource.md) | Resource watcher or `reme auto_resource`        | Turns files under `resource/` into source-linked, content-named daily cards.                                                                                   | `daily/<date>/<resource-card>.md`                             |
+| [`auto_index`](docs/en/memory_search.md)    | Background watcher or `reme reindex`            | Live-indexes Markdown in `daily/` and `digest/`; a full rebuild also scans `resource/` and JSONL.                                                              | Searchable chunks, BM25, wikilink graph, and optional vectors |
+| [`auto_dream`](docs/en/auto_dream.md)       | `dream_cron` or `reme auto_dream`               | By default, extracts up to five reusable units from changed files in the latest two-day window, then creates, corroborates, refines, or corrects digest nodes. | `digest/**`, `daily/<date>/interests.yaml`                    |
+| [`proactive`](docs/en/proactive.md)         | `reme proactive` before an agent decides to act | Reads topics generated by `auto_dream`; the host agent decides whether and how to mention them.                                                                | Structured topics from `daily/<date>/interests.yaml`          |
 
 <table>
   <tr>
@@ -260,18 +318,44 @@ through search, wikilinks, or proactive topics.
   </tr>
 </table>
 
+Search returns the best matching chunks with file paths and line ranges, then lists bounded incoming and outgoing
+wikilink neighbors by metadata. An agent can read a promising source or traverse the graph only when needed. With
+embeddings enabled, BM25 and vector rankings are fused with reciprocal rank fusion (RRF); otherwise the default remains
+BM25 plus wikilink expansion.
+
+> [!IMPORTANT]
+> `proactive` only reads and exposes interest topics produced by Auto Dream. It does not independently browse the web,
+> send notifications, or rewrite the knowledge base; the host agent decides whether and how to act on a topic.
+
+## 📊 Performance
+
+ReMe evaluates multi-session and long-context memory with agentic search-and-read workflows. The figures below are the
+published reference runs in this repository; model, prompt, dataset, and judging details are documented with each
+benchmark.
+
+| Benchmark                                                    | Setting      |              Sample size | Agentic score | Focus                                                              |
+|--------------------------------------------------------------|--------------|-------------------------:|--------------:|--------------------------------------------------------------------|
+| **[LongMemEval cleaned-s](benchmark/longmemeval/README.md)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
+| [BEAM](benchmark/beam/README.md)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
+| [BEAM](benchmark/beam/README.md)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
+
+ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
+[π-Bench evaluation](benchmark/pibench/README.md), 2.4% above NanoBot under the same test-model configuration. PROC
+measures proactive handling of hidden intent, clarification, cross-session preferences and conventions, task
+dependencies, and underspecified requests.
+
 ## 🤝 Agent-friendly Integration
 
 ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the
-host process through its Python API. Agents can choose the path that fits their runtime and share a local memory workspace
-when appropriate.
+host process through its Python API. The default HTTP service can serve ReMe Studio at the same address. Agents can
+choose the path that fits their runtime and share a local memory workspace when appropriate.
 
-| Agents                                      | Recommended path                                                                                 | Available after integration                                                                                 |
-|---------------------------------------------|--------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
-| **QwenPaw**                                 | Embed ReMe in-process through its Python API.                                                    | Reuse the host application's lifecycle and model config while keeping memory local and file-based.         |
-| **Claude Code**                             | Start the streamable HTTP MCP service and install [plugins/claude_code/reme](plugins/claude_code/reme). | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.              |
-| **Hermes**                                  | Start the HTTP service and install [plugins/hermes_agent](plugins/hermes_agent).                  | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.             |
-| **Other CLI-capable agents (OpenClaw/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md).                     | Search, read, and write memory via the CLI; automatic recording requires explicit host lifecycle hooks.    |
+| Agents                                        | Recommended path                                                                                        | Available after integration                                                                             |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| **QwenPaw**                                   | Embed ReMe in-process through its Python API.                                                           | Reuse the host application's lifecycle and model config while keeping memory local and file-based.      |
+| **Claude Code**                               | Start the streamable HTTP MCP service and install [plugins/claude_code/reme](plugins/claude_code/reme). | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.           |
+| **Hermes**                                    | Start the HTTP service and install [plugins/hermes_agent](plugins/hermes_agent).                        | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.          |
+| **Other CLI-capable agents (OpenClaw/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md).                             | Search, read, and write memory via the CLI; automatic recording requires explicit host lifecycle hooks. |
 
 <p align="center"><b>Integration demos</b></p>
 
@@ -314,6 +398,8 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 | `reme status`                             | Show stateful data-component memory estimates and process RSS.                         |
 | [`reme search`](docs/en/memory_search.md) | Retrieve memory with BM25 and wikilinks by default, plus vectors when enabled.         |
 | `reme read` / `reme write` / `reme edit`  | Inspect and maintain Markdown memory files.                                            |
+| `reme traverse` / `reme graph_snapshot`   | Explore wikilink neighborhoods or the category-rooted digest graph.                    |
+| `reme chat`                               | Stream a read-only, workspace-aware agent conversation. Requires LLM credentials.      |
 | `reme auto_memory`                        | Turn conversation messages into daily memory cards. Requires LLM credentials.          |
 | `reme auto_resource`                      | Interpret files under `resource/` into daily resource cards. Requires LLM credentials. |
 | `reme auto_dream` / `reme proactive`      | Consolidate daily memory into long-term digest and surface topics worth attention.     |

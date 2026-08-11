@@ -15,6 +15,8 @@ Hugging Face Papers and arXiv.
 ```bash
 python -m pip install -e ".[core]"
 export LLM_API_KEY="your-api-key"
+export LLM_MODEL_NAME="qwen3.7-plus"
+export LLM_BASE_URL="https://your-provider.example/v1"
 reme start config=daily_cookbook job=daily_paper
 ```
 
@@ -79,8 +81,8 @@ A missing rank contributes zero. Papers are ordered by fused score, upvotes, and
 ```
 
 All IDs must be unique and belong to the candidate pool, and every reason must be non-empty. A validation failure is
-returned to the agent for one retry. Only a non-empty `topics` value injects a personalized subject preference into
-the selection prompt; it does not change the fixed count of three papers.
+returned to the agent for one retry. Only a non-empty `topics` value injects a personalized subject preference into the
+selection prompt; it does not change the fixed count of three papers.
 
 ### 4. Analyze
 
@@ -99,9 +101,10 @@ the note records `pdf_text_truncated: true` in its frontmatter.
 
 ### 5. Digest
 
-`daily_paper_digest_step` uses the three in-memory analyses as the factual source for the Chinese brief. It also searches
-and, when needed, reads earlier daily notes to identify related coverage; those notes may only support contextual
-wikilinks, not add facts about the current papers. The agent returns `title`, `desc`, and `body`. The code then:
+`daily_paper_digest_step` uses the three in-memory analyses as the factual source for the Chinese brief. It also
+searches and, when needed, reads earlier daily notes to identify related coverage; those notes may only support
+contextual wikilinks, not add facts about the current papers. The agent returns `title`, `desc`, and `body`. The code
+then:
 
 - strips model-generated YAML frontmatter if present;
 - normalizes the Chinese title for use as a filename;
@@ -141,34 +144,36 @@ reme_workspace/
         └── <arxiv-id>.pdf
 ```
 
-Filenames come from the agent's Chinese titles. The implementation removes unsafe path characters and resolves title
-collisions. Markdown and PDF outputs are written through same-directory temporary files and atomic replacement.
+Each successful generation writes three analysis notes and one brief. A forced rerun can leave unrelated or previously
+selected analysis notes in the same day directory; ReMe does not delete them as cleanup. Filenames come from the agent's
+Chinese titles. The implementation removes unsafe path characters and resolves title collisions. Markdown and PDF
+outputs are written through same-directory temporary files and atomic replacement.
 
 ## Parameters and defaults
 
 Public job parameters:
 
-| Parameter | Default | Purpose |
-|---|---:|---|
-| `date` | `""` | Run date; empty uses today in the app timezone, otherwise requires `YYYY-MM-DD` |
-| `force` | `false` | Regenerate even when the day's brief exists |
+| Parameter       | Default | Purpose                                                                                 |
+|-----------------|--------:|-----------------------------------------------------------------------------------------|
+| `date`          |    `""` | Run date; empty uses today in the app timezone, otherwise requires `YYYY-MM-DD`         |
+| `force`         | `false` | Regenerate even when the day's brief exists                                             |
 | `use_hf_mirror` | `false` | Use the Hugging Face mirror from `HF_MIRROR_URL`, or `https://hf-mirror.com` when unset |
-| `topics` | `""` | Topics to prioritize during selection |
-| `weekly_weight` | `0.7` | Weekly contribution to RRF |
-| `history_days` | `30` | Prior recommendation exclusion window |
+| `topics`        |    `""` | Topics to prioritize during selection                                                   |
+| `weekly_weight` |   `0.7` | Weekly contribution to RRF                                                              |
+| `history_days`  |    `30` | Prior recommendation exclusion window                                                   |
 
 Step-level settings on the `daily_paper` job:
 
-| Setting | Default | Purpose |
-|---|---:|---|
-| `candidate_limit` | `20` | Maximum candidates sent to Select |
-| `rrf_k` | `60` | RRF constant |
-| `hf_timeout` | `600` seconds | Timeout for one Hugging Face request |
-| `hf_max_retries` | `3` | Maximum Hugging Face attempts |
-| `pdf_timeout` | `600` seconds | arXiv PDF download timeout |
-| `max_pdf_bytes` | `52428800` | PDF limit, 50 MiB |
-| `max_pdf_pages` | `35` | Maximum extracted pages |
-| `max_pdf_chars` | `300000` | Maximum extracted PDF characters sent to the agent |
+| Setting           |       Default | Purpose                                            |
+|-------------------|--------------:|----------------------------------------------------|
+| `candidate_limit` |          `20` | Maximum candidates sent to Select                  |
+| `rrf_k`           |          `60` | RRF constant                                       |
+| `hf_timeout`      | `600` seconds | Timeout for one Hugging Face request               |
+| `hf_max_retries`  |           `3` | Maximum Hugging Face attempts                      |
+| `pdf_timeout`     | `600` seconds | arXiv PDF download timeout                         |
+| `max_pdf_bytes`   |    `52428800` | PDF limit, 50 MiB                                  |
+| `max_pdf_pages`   |          `35` | Maximum extracted pages                            |
+| `max_pdf_chars`   |      `300000` | Maximum extracted PDF characters sent to the agent |
 
 ## Mirrors
 
@@ -183,7 +188,7 @@ DAILY_PAPER_USE_HF_MIRROR=true
 # Read only when the manual or scheduled job enables the mirror; defaults to https://hf-mirror.com when unset
 HF_MIRROR_URL=https://hf-mirror.com
 
-# Defaults to https://arxiv.org when unset
+# Optional override; the code defaults to https://arxiv.org when unset
 ARXIV_MIRROR_URL=https://export.arxiv.org
 
 # Path-prefixed relay URLs are also supported
@@ -237,11 +242,13 @@ curl -s http://127.0.0.1:8001/daily_paper \
 
 ## Failures and reruns
 
-- Hugging Face failures use exponential backoff up to `hf_max_retries` attempts.
+- Hugging Face HTTP failures use exponential backoff up to `hf_max_retries` attempts; invalid response payloads fail
+  immediately.
 - Fewer than three candidates, invalid agent selection, invalid/oversized/textless PDFs, or empty agent output stop the
   job.
 - Papers are analyzed sequentially; PDFs and notes completed before a failure remain on disk.
-- `force=true` regenerates notes and the brief while reusing valid PDFs.
+- `force=true` regenerates the selected notes and the brief while reusing valid PDFs; it does not remove other notes
+  already present in that day's directory.
 - The multi-file workflow is not transactional and has no global per-date execution lock.
 
 ## Tests

@@ -1,7 +1,7 @@
 # Auto Memory
 
-Auto Memory 是 ReMe 的对话记忆入口：每段对话先按 `session_id` 沉淀成一张 daily 记忆卡片，再由当天的 `YYYY-MM-DD.md`
-统一索引。它负责把“聊过”变成“记住”，并把原始对话留好出处。
+Auto Memory 是 ReMe 的对话记忆入口：在目标日期内，它用 `session_id` 定位或更新最多一张 daily 记忆卡片，文件名由 Agent
+根据内容生成简洁的主题或事件名，再由当天的 `YYYY-MM-DD.md` 统一索引。它负责把“聊过”变成“记住”，并保留可追溯的对话记录。
 
 <p align="center">
   <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
@@ -11,9 +11,9 @@ Auto Memory 是 ReMe 的对话记忆入口：每段对话先按 `session_id` 沉
 
 ```text
 Conversation
-  ├─ step 1: daily/YYYY-MM-DD/<session_id>.md        # 每段对话先成卡片
-  ├─ step 2: daily/YYYY-MM-DD.md                     # 当天索引再串起来
-  └─ source: session/dialog/<session_id>.jsonl  # 原始对话
+  ├─ step 1: daily/YYYY-MM-DD/<generated_name>.md # 每个 session 一张主题卡片
+  ├─ step 2: daily/YYYY-MM-DD.md                  # 当天索引再串起来
+  └─ source: session/dialog/<session_id>.jsonl    # 对话来源记录
 ```
 
 ## 它记录什么
@@ -37,27 +37,29 @@ workspace/
   daily/
     2026-06-20.md
     2026-06-20/
-      session-a.md
-      session-b.md
+      login-refactor-decision.md
+      retrieval-regression.md
 ```
 
-其中 `daily/2026-06-20/session-a.md`、`daily/2026-06-20/session-b.md` 是不同对话整理出的记忆卡片，
-`daily/2026-06-20.md` 是当天索引页。资源文件也会进入同一个 daily 记忆层，见 [Auto Resource](./auto_resource.md)。
+日期目录下的两个文件是不同对话整理出的主题卡片，`daily/2026-06-20.md` 是当天索引页。资源文件也会进入
+同一个 daily 记忆层，见 [Auto Resource](./auto_resource.md)。
 
-当调用时带上 `session_id`，Auto Memory 会按这个 id 单独记录这段对话：
+当调用时带上 `session_id`，Auto Memory 会通过 frontmatter 用它定位卡片，Agent 则通过 `name` 决定可读文件名：
 
-```text
-daily/2026-06-20/session-a.md
+```yaml
+name: login-refactor-decision
+session_id: session-a
+source_conversation: "[[session/dialog/session-a.jsonl]]"
 ```
 
-这样不同对话不会混在一起。一次需求讨论、一次问题排查、一次文档修改，都可以拥有自己的记忆卡片。以后想知道这一天发生了什么，先看
-`YYYY-MM-DD.md`；想看某段对话沉淀了什么，再进入对应的 `<session_id>.md`。
+这样既能分开不同对话，又不必把不透明的 ID 当文件名。更新时会按 `session_id` 或 `source_conversation` 找到旧卡片；如果 Agent
+提供了更好的 frontmatter `name`，系统可重命名并重定向入链。查看某天内容时从 `YYYY-MM-DD.md` 开始。
 
 ## 同时保存原始信息
 
-整理后的 daily note 负责“好读”，原始对话负责“可信”。
+整理后的 daily note 负责“好读”，过滤后的对话来源记录负责“可信”。
 
-Auto Memory 在生成记忆卡片的同时，也会保存原始会话：
+Auto Memory 在生成记忆卡片的同时，也会保存对话来源消息：
 
 ```text
 session/
@@ -66,11 +68,12 @@ session/
     session-b.jsonl
 ```
 
-daily note 会指向对应的原始对话。需要核对某条记忆时，可以顺着链接回到当时的完整上下文。
+daily note 会指向对应的对话记录。持久化时会排除 tool-result block 和 base64 data block，避免召回记忆或二进制负载在后续流程中被误当成
+用户提供的证据。
 
 ## 消息时间
 
-Auto Memory 会在 prompt 和原始会话 JSONL 中保留每条消息的 `created_at`。导入历史对话或 benchmark 数据时，建议为每条
+Auto Memory 会在 prompt 和对话来源 JSONL 中保留每条已保留消息的 `created_at`。导入历史对话或 benchmark 数据时，建议为每条
 message 提供真实发生时间，避免模型把事件时间误解为运行时间：
 
 ```bash
@@ -85,7 +88,7 @@ reme auto_memory \
 为了兼容常见数据集字段，`auto_memory` 也会在缺少 `created_at` 时读取 `time_created`、`timestamp`、`createdAt`、
 `timeCreated` 或 `created_time`。这些字段可以放在 message 顶层，也可以放在 `metadata` 中。
 
-当调用没有显式传入 `date` 时，Auto Memory 会使用消息中最早的有效 `created_at` 日期作为 daily note 日期；如果消息没有有效时间，
+当调用没有显式传入 `date` 时，Auto Memory 会使用消息中最晚的有效 `created_at` 日期作为 daily note 日期；如果消息没有有效时间，
 则回退到当前日期。历史导入也可以显式指定目标日期：
 
 ```bash

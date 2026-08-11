@@ -1,13 +1,13 @@
 # Memory as File
 
-ReMe 的核心思想是：**Memory as File, File as Memory**。
+ReMe 的核心思想是： **Memory as File, File as Memory**。
 
 <p align="center">
   <img src="../figure/memory-as-file.svg" alt="ReMe Memory as File 文件化记忆模型" width="92%">
 </p>
 
-**Memory as File**：长期记忆不是藏在黑盒数据库里，而是落在 workspace 目录中的 Markdown 文件、资源文件和索引快照里。用户和 Agent
-都可以直接读、写、移动、删除这些文件。
+**Memory as File**：长期记忆不是藏在黑盒数据库里，原始材料和可读记忆都落在 workspace 内由用户拥有的文件中。用户和 Agent
+可以直接读、写、移动、删除它们；`metadata/` 里的索引和快照是可重建的派生状态。
 
 **File as Memory**：每个文件不只是普通文本，也是一个可索引、可链接、可演化的记忆节点。ReMe 会从文件中解析 frontmatter、正文
 chunk、wikilink 边，并把它们组织成检索和图谱。
@@ -18,14 +18,14 @@ chunk、wikilink 边，并把它们组织成检索和图谱。
 
 ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了让长期记忆具备几个基本性质：
 
-| 目标       | 含义                                                                   |
-|----------|----------------------------------------------------------------------|
-| 可读       | 用户可以直接打开 workspace，像读普通笔记一样读 daily、digest 和原始材料。                         |
-| 可编辑      | 用户和 Agent 都能用文件操作修正、补充、移动或删除记忆，不必依赖专用数据库客户端。                    |
-| 可追溯      | digest 中的长期结论可以通过 Sources 章节回到 daily、resource 或 session 原文。 |
-| 可迁移      | workspace 是普通目录，Markdown、JSONL、YAML 和资源文件可以被备份、同步、版本管理或迁移到其他工具。          |
-| 可索引      | 文件虽然是普通文本，但 ReMe 会解析 frontmatter、chunk、wikilink，构建检索索引和文件图谱。         |
-| 可协作      | 人负责判断和修正，Agent 负责整理、链接和检索；二者看到和操作的是同一套文件。                       |
+| 目标   | 含义                                                                                               |
+|--------|----------------------------------------------------------------------------------------------------|
+| 可读   | 用户可以直接打开 workspace，像读普通笔记一样读 daily、digest 和原始材料。                          |
+| 可编辑 | 用户和 Agent 都能用文件操作修正、补充、移动或删除记忆，不必依赖专用数据库客户端。                  |
+| 可追溯 | digest 中的长期结论可以通过 Sources 章节回到 daily、resource 或 session 原文。                     |
+| 可迁移 | workspace 是普通目录，Markdown、JSONL、YAML 和资源文件可以被备份、同步、版本管理或迁移到其他工具。 |
+| 可索引 | 文件虽然是普通文本，但 ReMe 会解析 frontmatter、chunk、wikilink，构建检索索引和文件图谱。          |
+| 可协作 | 人负责判断和修正，Agent 负责整理、链接和检索；二者看到和操作的是同一套文件。                       |
 
 因此，ReMe 的记忆不是“数据库里的一条隐藏记录”，也不是“只给 LLM 看的 prompt 片段”。它首先是用户拥有的文件，其次才被系统索引成可召回的记忆。
 
@@ -34,7 +34,7 @@ ReMe 把记忆设计成文件，不只是为了“方便存储”，而是为了
 ReMe 的 workspace 把记忆分成四层：
 
 ```text
-raw input      -> session/ + resource/
+source records -> session/ + resource/
 working memory -> daily/
 long memory    -> digest/
 system state   -> metadata/
@@ -42,13 +42,14 @@ system state   -> metadata/
 
 这四层解决的是不同问题。
 
-`session/` 和 `resource/` 保存原始输入。它们强调“不要丢现场”：对话、Agent session、上传资料、网页或报告先原样留下，作为以后核对的证据。
+`session/` 和 `resource/` 保存来源记录。`resource/` 文件保持原路径和原内容；标准 Auto Memory 保留对话消息，但会有意排除
+tool-result 和 base64 data block，防止召回结果和二进制负载被误当成用户证据。Agent 运行时生成状态则放在 `mem_session/`。
 
 `daily/` 是浅加工层。它把当天发生的对话和资源整理成更适合阅读的 daily note：什么事情发生了、有哪些结论、留下了哪些后续任务、对应原文在哪里。
 daily 不追求最终抽象，它更像当天工作台。
 
-`digest/` 是深加工层。这里保存的是可以长期复用的记忆节点，例如用户偏好、项目背景、流程经验、概念知识、决策先例。digest
-不应该只是复制 daily，而应该把多次出现的事实、方法和关系合并成更稳定的表述。
+`digest/` 是深加工层。这里保存的是可以长期复用的记忆节点，例如用户偏好、项目背景、流程经验、概念知识、决策先例。digest 不应该只是复制
+daily，而应该把多次出现的事实、方法和关系合并成更稳定的表述。
 
 `metadata/` 是系统索引层。它保存 file catalog、chunk 索引、图谱快照等运行状态。用户通常不需要手写这里的内容；真正的人工编辑入口是
 `daily/`、`digest/` 和必要时的 `resource/`。
@@ -60,27 +61,29 @@ daily 不追求最终抽象，它更像当天工作台。
 ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resource/` 或 `session/`，再沉淀到 `daily/`，最后由 `auto_dream`
 整合到 `digest/`。
 
-对应的自动流程分别是 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md) 和 [Auto Dream](./auto_dream.md)。
-检索这些文件时使用 [Memory Search](./memory_search.md)。
+对应的自动流程分别是 [Auto Memory](./auto_memory.md)、[Auto Resource](./auto_resource.md)
+和 [Auto Dream](./auto_dream.md)。 检索这些文件时使用 [Memory Search](./memory_search.md)。
 
 ```text
 <workspace_dir>/
 ├── metadata/                    # 系统索引层；ReMe 索引、图谱、catalog 等持久状态，不作为人工编辑入口
-├── session/                     # 原始输入层；原始对话和 Agent session
+├── session/                     # 来源记录层；对话来源记录
 │   ├── dialog/
-│   │   └── <session_id>.jsonl        # auto_memory 保存的对话消息
-│   ├── agentscope/
-│   │   └── <session_id>.jsonl
+│   │   └── <session_id>.jsonl        # auto_memory 保存的来源消息
 │   └── claude_code/
-│       └── <session_id>.jsonl
-├── resource/                         # 原始输入层；外部原始材料
+│       └── <session_id>.jsonl        # auto_memory_cc 使用的 ReMe 副本
+├── mem_session/                 # Agent wrapper 生成的 session/配置，不是用户记忆
+│   ├── agentscope/
+│   ├── claude_config/
+│   └── codex/
+├── resource/                         # 来源记录层；外部原始材料
+│   ├── <resource>.<ext>               # 根目录文件使用今天日期
 │   └── YYYY-MM-DD/
-│       └── <resource>.<ext>
+│       └── <resource>.<ext>            # 按目录日期进入 daily
 ├── daily/                            # 浅加工层；按日期组织当天事实、对话摘要、资源解读
 │   ├── YYYY-MM-DD.md                 # 当天索引页
 │   └── YYYY-MM-DD/
-│       ├── <session_id>.md           # 对话加工后的 daily note
-│       ├── <resource_stem>.md        # 资源加工后的 daily note
+│       ├── <generated_name>.md       # 按主题命名的对话或资源卡片
 │       └── interests.yaml            # auto_dream 产出的主动兴趣主题
 └── digest/                           # 深加工层；可长期复用的个人事实、流程经验、知识节点
     ├── personal/
@@ -96,17 +99,18 @@ ReMe 用目录表达记忆组织和记忆分层。原始材料先进入 `resourc
 ```text
 对话
   -> session/dialog/<session_id>.jsonl
-  -> daily/YYYY-MM-DD/<session_id>.md
+  -> daily/YYYY-MM-DD/<generated_name>.md
   -> digest/personal | digest/procedure | digest/wiki
 
 外部资料
-  -> resource/YYYY-MM-DD/<resource>.<ext>
-  -> daily/YYYY-MM-DD/<resource_stem>.md
+  -> resource/[YYYY-MM-DD/]<resource>.<ext>
+  -> daily/YYYY-MM-DD/<generated_name>.md
   -> digest/wiki | digest/procedure
 ```
 
 前两步偏向记录和整理，最后一步偏向长期沉淀。`auto_memory` 和 `auto_resource` 负责从原始输入生成 daily，`auto_dream`
-负责从 daily 抽取并整合 digest。
+负责从 daily 抽取并整合 digest。daily 文件名来自经校验的 frontmatter `name`；`session_id`、`source_conversation`
+和 `source_resource` 负责稳定追溯与定位，不用来强制决定文件名。
 
 ## Markdown 格式
 
@@ -158,7 +162,7 @@ confidence: observed
 
 ## Sources
 
-- [[daily/2026-06-20/session-a.md]]
+该偏好记录于 [[daily/2026-06-20/文档说明风格.md]]，其中保留了用户多次提出的指导。
 ```
 
 这样做有三个好处：
@@ -180,7 +184,7 @@ Wikilink 用 `[[...]]` 表达文件之间的关系：
 [[notes/example.md#L9-L10,L15-L20]]
 ```
 
-ReMe 的 wikilink 是**字面路径语义**：
+ReMe 的 wikilink 是 **字面路径语义**：
 
 ```text
 [[X]]  -> target_path = "X"
@@ -190,9 +194,9 @@ ReMe 的 wikilink 是**字面路径语义**：
 
 `[label](../wiki/example.md)` 这类普通 Markdown 链接不会建立 `FileLink`，move 或 retarget 操作也不会改写它们。
 
-`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器
-不会校验行号锚点，因此 `#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定
-范围时需要分别传入从 1 开始、首尾均包含的 `start_line` 和 `end_line`，例如
+`#L9`、`#L9-L10` 和 `#L9-L10,L15-L20` 这类锚点会作为普通 `target_anchor` 字符串保存在图谱中。图谱解析器 不会校验行号锚点，因此
+`#L0`、`#L10-L9`、`#L9,` 也会被保存。`read` 不会解析追加在 `path` 后的锚点；读取指定 范围时需要分别传入从 1 开始、首尾均包含的
+`start_line` 和 `end_line`，例如
 `read(path="digest/wiki/光伏.md", start_line=9, end_line=10)`。
 
 Wikilink 的作用：
@@ -215,8 +219,7 @@ FileLink
 
 旧文档中的 `related:: [[path]]`、`- related:: [[path]]` 或
 `[related:: [[path]]]` 仍然可以读取。ReMe 会忽略外围文本，把内部 `[[path]]`
-作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`，
-用源文件重建不含旧关系字段的派生图索引。
+作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`， 用源文件重建不含旧关系字段的派生图索引。
 
 ### 来源和关系
 
@@ -227,8 +230,8 @@ Sources 章节说明“这条长期记忆从哪里来”：
 ```markdown
 ## Sources
 
-- [[daily/2026-06-20/session-a.md]]
-- [[resource/2026-06-20/report.pdf]]
+该偏好观察自 [[daily/2026-06-20/文档说明风格.md]]，支撑它的报告证据保留在
+[[resource/2026-06-20/report.pdf]] 中。
 ```
 
 概念关系链接说明“这个节点和哪些长期记忆有关”，并自然织入正文：
@@ -243,15 +246,15 @@ Sources 章节说明“这条长期记忆从哪里来”：
 
 因为记忆就是文件，用户可以直接在编辑器里改 workspace；Agent 也可以通过 ReMe 的文件工具读写同一批文件。两者遵守同一套约定：
 
-| 操作     | 建议                                                                 |
-|--------|--------------------------------------------------------------------|
-| 新增记忆   | 写入合适目录，Markdown 使用 frontmatter，并尽量写完整 workspace-relative wikilink。       |
-| 修改正文   | 保留已有来源和关键 wikilink；如果是修正旧结论，在正文里说明新材料如何改变旧判断。                 |
-| 移动文件   | 使用 ReMe 的 move 工具时会默认改写入边中的旧路径；手工移动后建议重新检查入链。                  |
-| 删除文件   | 删除前检查入链；ReMe 的 delete 会返回仍然指向目标的来源文件，方便清理悬空引用。                 |
-| 修改元数据  | 用 frontmatter 表达短字段；正文发生实质变化时同步更新 `description`。                  |
+| 操作       | 建议                                                                                |
+|------------|-------------------------------------------------------------------------------------|
+| 新增记忆   | 写入合适目录，Markdown 使用 frontmatter，并尽量写完整 workspace-relative wikilink。 |
+| 修改正文   | 保留已有来源和关键 wikilink；如果是修正旧结论，在正文里说明新材料如何改变旧判断。   |
+| 移动文件   | 使用 ReMe 的 move 工具时会默认改写入边中的旧路径；手工移动后建议重新检查入链。      |
+| 删除文件   | 删除前检查入链；ReMe 的 delete 会返回仍然指向目标的来源文件，方便清理悬空引用。     |
+| 修改元数据 | 用 frontmatter 表达短字段；正文发生实质变化时同步更新 `description`。               |
 
-一个实用规则是：**可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 Sources 条目和已有
+一个实用规则是： **可以让 Agent 重写表达，但不要让它丢掉证据边**。尤其是 digest 节点中的 Sources 条目和已有
 digest-to-digest Wikilink，是长期记忆可追溯和可扩展的基础。
 
 ## 路径语义
@@ -260,7 +263,7 @@ digest-to-digest Wikilink，是长期记忆可追溯和可扩展的基础。
 
 ```text
 digest/wiki/光伏.md
-daily/2026-06-20/session-a.md
+daily/2026-06-20/文档说明风格.md
 resource/2026-06-20/report.pdf
 ```
 

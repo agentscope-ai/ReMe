@@ -71,7 +71,7 @@ When writing an article, refer to [[digest/procedure/Technical content writing p
 
 ## Sources
 
-- [[daily/2026-08-07/content-discussion.md]]
+This preference was observed in [[daily/2026-08-07/content-discussion.md]], which records the user's writing guidance.
 ```
 
 Months later, even if you have forgotten the conversation, the agent can still read the preference, find the related process, and follow `Sources` back to the original context.
@@ -90,13 +90,16 @@ For example, you might say in a conversation:
 
 > “Let's not refactor the login module this week. We can do it after the customer demo. Upgrading dependencies directly caused compatibility issues last time, so let's add regression tests first.”
 
-This short passage contains project status, a time constraint, a lesson from a previous failure, and a next action. Auto Memory extracts these details from the conversation stream and writes them into a daily memory card, while preserving the original conversation in `session/dialog/`.
+This short passage contains project status, a time constraint, a lesson from a previous failure, and a next action. Auto Memory extracts these details from the conversation stream and writes them into a daily memory card, while retaining a source conversation record in `session/dialog/`.
 
 ```text
-session/dialog/project-a.jsonl       Original conversation, preserving what happened
-daily/2026-08-07/project-a.md        Memory card, optimized for reading
-daily/2026-08-07.md                  Daily index, providing an overview
+session/dialog/project-a.jsonl                 Source conversation record
+daily/2026-08-07/login-refactor-decision.md    Content-named memory card
+daily/2026-08-07.md                            Daily index, providing an overview
 ```
+
+`session_id` remains in the card's frontmatter for stable lookup and provenance; the filename comes from the Agent-generated
+topic/event `name`, so it does not have to match the session ID.
 
 The next time the login module comes up, the agent does not need to search through the entire chat history. It can immediately see why the refactor was postponed, what went wrong before, and what should happen next.
 
@@ -136,7 +139,9 @@ Suppose conversations and external materials give you three pieces of informatio
 - A project document later confirmed that insufficient Node.js memory was the root cause;
 - A third note added that the issue occurs more often in large TypeScript projects.
 
-Auto Dream scans all changed daily files, merges evidence that points to the same abstraction, keeps only reusable memory units, and writes them into three categories of long-term memory:
+By default, Auto Dream looks at the two most recent days ending at the target date and sends only daily files changed since
+the previous run to extraction. It merges cross-file evidence for the same abstraction and keeps only the strongest reusable
+memories within a default cap of five units, then writes them into three categories of long-term memory:
 
 - `Personal`: preferences, conventions, and constraints specific to a user, team, or project;
 - `Procedure`: repeatable processes, methods, and troubleshooting guides;
@@ -159,7 +164,8 @@ follow the “add regression tests first” convention in [[digest/personal/Team
 
 ## Sources
 
-- [[daily/2026-08-07/build-debug.md|Build troubleshooting record]] provides the root cause and applicable scenarios.
+The root cause and applicable scenarios were documented in
+[[daily/2026-08-07/build-debug.md|Build troubleshooting record]].
 ```
 
 Knowledge evolves and links are created in the same workflow. Relationships are not invisible edges hidden in a graph database; they are readable, editable content in the files themselves. The files can rebuild the graph—the graph never takes control of the files.
@@ -170,7 +176,10 @@ Knowledge evolves and links are created in the same workflow. Relationships are 
   <img src="../figure/reme-blog/reme-blog-memory-index.svg" alt="ReMe Memory Index build process" width="100%">
 </p>
 
-Markdown is easy for people to read, but if files are merely piled into directories, agents still struggle to find them quickly. ReMe continuously watches `daily/`, `digest/`, and `resource/`, synchronizing additions, changes, and deletions to a rebuildable index.
+Markdown is easy for people to read, but if files are merely piled into directories, agents still struggle to find them
+quickly. The default live index watches Markdown under `daily/` and `digest/`. A separate resource workflow watches
+`resource/` and turns those files into daily cards that enter the same index. For a full rebuild from existing files,
+`reme reindex` also scans `resource/` and JSONL.
 
 A Markdown file is parsed into:
 
@@ -299,7 +308,10 @@ That is what ReMe sets out to do: **make memory not only persistent, but continu
 
 ## Integrate ReMe with the Agents You Already Use
 
-ReMe can run as a local memory service accessed through its CLI, HTTP API, or MCP Server, or it can be embedded in a host process through its Python API. Different agents can choose the integration that best fits their runtime environment and share the same local memory workspace when needed.
+ReMe can run as a local memory service accessed through its CLI, HTTP API, or MCP Server, or it can be embedded in a host
+process through its Python API. The default HTTP service can also serve ReMe Studio at the same address for browsing,
+editing, and searching the workspace and inspecting the digest wikilink graph. Different agents can choose the integration
+that best fits their runtime environment and share the same local memory workspace when needed.
 
 | Agent | Recommended integration | Capabilities after integration |
 |-------|-------------------------|--------------------------------|
