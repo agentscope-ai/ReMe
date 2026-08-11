@@ -314,9 +314,9 @@ class AsAgentWrapper(BaseAgentWrapper):
         skills = self._resolve_skills(kwargs.get("skills"))
         tool_context_id = kwargs.get("tool_context_id")
         sequential_tool_calls = bool(kwargs.get("sequential_tool_calls", True))
-        builtin_tools = kwargs.get("builtin_tools", "all")
-        if "builtin_tools" not in kwargs and not bool(kwargs.get("use_builtin_tools", True)):
-            builtin_tools = []
+        builtin_tools = kwargs.get("builtin_tools", [])
+        if "builtin_tools" not in kwargs and bool(kwargs.get("use_builtin_tools", False)):
+            builtin_tools = "all"
         tools: list[ToolBase] = []
         tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
         tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)

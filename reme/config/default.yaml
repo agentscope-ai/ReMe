@@ -503,6 +503,16 @@ jobs:
           type: boolean
           description: "recurse"
           default: false
+        sort_by:
+          type: string
+          enum:
+            - mtime
+          description: "optional ordering; mtime returns most recently modified files first"
+        extensions:
+          type: array
+          items:
+            type: string
+          description: "optional extension allowlist applied before sorting and limiting"
         limit:
           type: integer
           description: "max results"

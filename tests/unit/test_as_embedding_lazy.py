@@ -51,14 +51,22 @@ def test_provider_is_constructed_once_on_first_call():
 
     async def go():
         FakeModel.constructions = 0
-        embedding = LazyAsEmbedding(dimensions=3, credential={"token": "test"}, parameters={"mode": "test"})
+        embedding = LazyAsEmbedding(
+            backend="fake",
+            model="fake-model",
+            dimensions=3,
+            credential={"token": "test"},
+            parameters={"mode": "test"},
+        )
 
         await embedding.start()
         assert embedding.model is None
         assert embedding.dimensions == 3
         assert FakeModel.constructions == 0
+        vector_space_id = embedding.vector_space_id
 
         assert await embedding(["first"]) == [[0.0, 0.0, 0.0]]
+        assert embedding.vector_space_id == vector_space_id
         assert await embedding(["second"]) == [[0.0, 0.0, 0.0]]
         assert FakeModel.constructions == 1
 

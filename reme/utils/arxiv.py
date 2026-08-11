@@ -12,6 +12,7 @@ import httpx
 from .logger_utils import get_logger
 
 ARXIV_ID_PATTERN = re.compile(r"^\d{4}\.\d{4,5}$")
+ARXIV_BASE_URL = "https://arxiv.org"
 
 
 class ArxivPdfClient:
@@ -20,15 +21,12 @@ class ArxivPdfClient:
     def __init__(
         self,
         *,
-        proxy_url: str | None = None,
         client: httpx.AsyncClient | None = None,
-        timeout: float = 90.0,
+        timeout: float = 600.0,
         max_bytes: int = 50 * 1024 * 1024,
         logger: Any | None = None,
     ) -> None:
-        if client is not None and proxy_url is not None:
-            raise ValueError("client and proxy_url cannot be provided together")
-        self.proxy_url = proxy_url
+        self.base_url = os.getenv("ARXIV_MIRROR_URL", "").strip().rstrip("/") or ARXIV_BASE_URL
         self.client = client
         self._owns_client = client is None
         self.timeout, self.max_bytes = timeout, max_bytes
@@ -37,14 +35,11 @@ class ArxivPdfClient:
     async def __aenter__(self) -> "ArxivPdfClient":
         if self.client is None:
             self.client = httpx.AsyncClient(
-                proxy=self.proxy_url,
-                trust_env=False,
                 timeout=self.timeout,
                 follow_redirects=True,
                 headers={"User-Agent": "ReMe arXiv client"},
             )
-            mode = "outbound_proxy" if self.proxy_url else "direct"
-            self.logger.info(f"[ArxivPdfClient] network mode={mode}")
+            self.logger.info(f"[ArxivPdfClient] base_url={self.base_url}")
         else:
             self.logger.debug("[ArxivPdfClient] network mode=injected_client")
         return self
@@ -79,7 +74,7 @@ class ArxivPdfClient:
             f"[ArxivPdfClient] download start arxiv_id={arxiv_id} path={target} timeout={self.timeout:g}s",
         )
         try:
-            async with client.stream("GET", f"https://arxiv.org/pdf/{arxiv_id}") as response:
+            async with client.stream("GET", f"{self.base_url}/pdf/{arxiv_id}") as response:
                 response.raise_for_status()
                 content_length = int(response.headers.get("content-length") or 0)
                 if content_length and content_length > self.max_bytes:

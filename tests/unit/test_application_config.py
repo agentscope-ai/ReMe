@@ -17,6 +17,15 @@ from reme.steps.index._source_format import is_session_path, render_chunk_body
 from reme.steps.index._watch_rules import build_watch_rules
 
 
+def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
+    """Home-relative workspace config is normalized before components consume it."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    config = ApplicationConfig(workspace_dir="~/.copaw/workspaces/default")
+
+    assert config.workspace_dir == str(tmp_path / ".copaw/workspaces/default")
+
+
 def test_dialog_dir_is_not_an_application_config_field():
     """The removed option is absent from schemas and ignored when supplied."""
     custom = ApplicationConfig(session_dir="sessions/", dialog_dir="somewhere/else")

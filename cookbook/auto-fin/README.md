@@ -2,323 +2,214 @@
 
 [中文](README_ZH.md)
 
-Auto Fin is a local-first, file-native ETF event-research workflow. It identifies market events in CLS news, selects
-related liquid ETFs, studies similar historical events and subsequent returns, and produces a Chinese research report.
+Auto Fin is a local-first, file-native ETF event-research workflow. It collects CLS news and market data through
+Tushare, identifies current news related to a configured ETF list, retrieves comparable events from local ReMe memory,
+calculates observed post-event returns, and writes a Chinese research report.
 
-> Auto Fin provides event research and holding-period references only. It is not investment advice, does not
-> connect to a broker, and does not place or simulate trades.
-
-## Capabilities
-
-- Download CLS news through Tushare and maintain up to 360 days of traceable local news records.
-- Rank ETF candidates by previous-trading-day turnover, then select representative ETFs related to current events.
-- Search ReMe memory and local news files for similar historical events, with strict source-path and news-ID checks.
-- Calculate adjusted D1–D10 historical returns in deterministic code instead of asking an Agent to invent numbers.
-- Let an Agent judge event similarity, then calculate weights, expected returns, and a reference holding period in code.
-- Save readable Markdown and structured JSON/JSONL artifacts, refresh the daily index, and optionally deliver the report
-  to DingTalk.
+> Auto Fin is for event research and holding-period reference only. It is not investment advice, does not connect to a
+> broker, and does not place or simulate trades.
 
 The workflow is assembled by
 [`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml). Its public schemas are in
-[`reme/schema/auto_fin.py`](../../reme/schema/auto_fin.py), and its steps are in
+[`reme/schema/auto_fin.py`](../../reme/schema/auto_fin.py), and its four steps are in
 [`reme/steps/cookbook/auto_fin/`](../../reme/steps/cookbook/auto_fin/).
 
 ## Quick start
 
-Auto Fin requires Python 3.11 or newer, the `core` dependencies, a Tushare token, and credentials for the configured
-Claude Code-compatible endpoint.
-
-From the repository root:
+Auto Fin requires Python 3.11 or newer, the `core` dependencies, a Tushare token, and an available AgentScope LLM.
 
 ```bash
 python -m pip install -e ".[core]"
 export TUSHARE_TOKEN="your-tushare-token"
-export CLAUDE_CODE_API_KEY="your-api-key"
+export LLM_API_KEY="your-api-key"
 reme start config=daily_cookbook job=auto_fin
 ```
 
-The built-in configuration uses `qwen3.7-max` through DashScope's Anthropic-compatible endpoint. Override these
-variables to use another compatible model or provider:
+The built-in LLM component defaults to `qwen3.7-plus`. `LLM_BASE_URL` has no built-in value, so set it when your
+provider requires a custom OpenAI-compatible endpoint. The model and endpoint can be overridden with
+`LLM_MODEL_NAME` and `LLM_BASE_URL`.
+
+The default workspace is `reme_workspace/` beneath the process working directory. Override it with
+`DAILY_PAPER_WORKSPACE_DIR`; Auto Fin and Daily Paper share this setting.
+
+Dates and times use `Asia/Shanghai`. An explicit `date` must be today's date:
 
 ```bash
-export CLAUDE_CODE_MODEL_NAME="your-model"
-export CLAUDE_CODE_BASE_URL="https://your-anthropic-compatible-endpoint"
+reme start config=daily_cookbook job=auto_fin date=2026-08-07
 ```
 
-The default workspace is `reme_workspace/`. This standalone cookbook shares its workspace setting with the daily-paper
-workflow:
+Auto Fin checks the SSE trading calendar first and skips the whole workflow on a closed market day.
 
-```bash
-export DAILY_PAPER_WORKSPACE_DIR="/absolute/path/to/reme-workspace"
-```
-
-To deliver the final Markdown report to DingTalk, set:
-
-```bash
-export DINGTALK_APP_KEY="your-app-key"
-export DINGTALK_APP_SECRET="your-app-secret"
-export DINGTALK_ROBOT_CODE="your-robot-code"
-export DINGTALK_CONVERSATION_IDS="conversation-id-1,conversation-id-2"
-```
-
-DingTalk delivery is skipped when the required values are empty.
-
-Dates and times use `Asia/Shanghai`. The optional `date` must be the current date:
-
-```bash
-reme start config=daily_cookbook job=auto_fin date=2026-07-25
-```
-
-To refresh every configured news day instead of reusing valid historical files:
-
-```bash
-reme start config=daily_cookbook job=auto_fin force=true
-```
-
-This may issue many Tushare requests. A normal run reuses valid historical news files and always refreshes today's file.
-
-### Optional SSH proxy
-
-The outbound proxy is disabled by default. To enable it, uncomment `components.outbound_proxy.default` in
-`daily_cookbook.yaml`, configure non-interactive SSH authentication, and set:
-
-```bash
-export REME_PROXY_IP="your-ssh-proxy-host"
-export REME_PROXY_ACCOUNT="your-ssh-account"
-```
-
-## How it works
-
-```mermaid
-flowchart LR
-    A[Resolve run date and cutoff] --> B[Maintain CLS news files]
-    B --> C[Resolve previous A-share trading day]
-    C --> D[Build current event window]
-    D --> E[Filter liquid ETF candidates]
-    E --> F[Agent selects related ETFs]
-    F --> G{For each ETF}
-    G --> H[Agent searches historical events]
-    H --> I[Code resolves original news]
-    I --> J[Code calculates adjusted D1-D10 returns]
-    J --> K[Agent judges similarity]
-    K --> L[Code calculates weighted forecast]
-    L --> G
-    G --> M[Agent writes the combined report]
-    M --> N[Write artifacts and refresh daily index]
-    N --> O[Optional DingTalk delivery]
-```
-
-The top-level job contains four Auto Fin steps:
-
-| Step                    | Responsibility                                              | Agent |
-|-------------------------|-------------------------------------------------------------|-------|
-| `auto_fin_data_step`    | Maintain news files and resolve the previous trading day    | No    |
-| `auto_fin_topic_step`   | Build inputs and select related ETFs and current events     | Yes   |
-| `auto_fin_history_step` | Orchestrate historical research and market analysis per ETF | Yes   |
-| `auto_fin_merge_step`   | Validate results and produce the final Markdown report      | Yes   |
-
-For each selected ETF, `auto_fin_history_step` dispatches:
-
-- `auto_fin_history_search_step`, which asks the Agent for historical news references and then resolves the original
-  records and calculates their returns in code.
-- `auto_fin_market_step`, which asks the Agent only for similarity judgments and then calculates weights and forecasts
-  in code.
-
-Agents handle semantic judgments; deterministic code handles source validation and financial calculations.
-
-## Data and time boundaries
-
-### News history
-
-`auto_fin_data_step` reads CLS news from Tushare's `major_news` endpoint:
-
-- The default lookback is 360 calendar days, including the run date.
-- A valid historical file is reused unless `force=true`.
-- Today's file is refreshed through the current `decision_at` on every run.
-- Large responses are fetched through recursively split time windows.
-- Records are ordered and deduplicated before being written with a stable `news_id`.
-
-The current event window is:
+## Pipeline
 
 ```text
-(previous A-share trading day at 15:00, decision_at]
+Tushare trade calendar
+        │
+        ├─ closed day ──► skip
+        ▼
+Collect CLS news + configured ETF history
+        ▼
+Update the ReMe index
+        ▼
+Select ETF/news relationships with an agent
+        ▼
+Search local memory for comparable historical news
+        ▼
+Select same/opposite events with an agent + calculate D1/D2/D3/D5 returns in code
+        ▼
+Generate report with an agent ──► refresh day index ──► DingTalk (optional)
 ```
 
-Each run rebuilds this complete window; midday and evening runs do not use only the increment since the previous run.
+| Step | Responsibility | Agent |
+|---|---|---|
+| `auto_fin_data_step` | Check the trading day, maintain news, and cache configured ETF market history | No |
+| `auto_fin_topic_step` | Select direct relationships between today's news and configured ETFs | Yes |
+| `auto_fin_history_step` | Retrieve comparable news, validate selections, and calculate observed returns | Yes |
+| `auto_fin_merge_step` | Combine prepared evidence and the previous report into the final Markdown | Yes |
 
-### ETF candidates
+All three model-facing steps use structured Pydantic output. Agents make semantic judgments; code owns identifier
+validation, source resolution, market calculations, and file writes.
 
-The candidate universe combines:
+## Data and selection boundaries
 
-- `etf_basic` for currently listed ETFs and their tracked indexes.
-- `fund_daily` for turnover on the previous A-share trading day.
+### News
 
-Code sorts candidates by turnover, removes duplicates by ETF name and index identity, and provides at most 150
-candidates to the Topic Agent. The Agent may return at most 20 ETFs and must copy every ETF code, name, and news ID from
-the generated candidate files.
+`auto_fin_data_step` calls Tushare `major_news` with `src="财联社"`. The default lookback is 60 calendar days including
+today. Existing files for earlier days are reused, while today's file is always overwritten with news from 00:00
+through the current decision time. Large responses are recursively split when a request returns at least 400 rows.
 
-Turnover is used only to narrow the research universe; it is not a trading signal.
+Each item is stored in `daily/YYYY-MM-DD/auto_fin_news.md` with a stable ID made from its publication timestamp and a
+short content hash. The current-event set used by the Topic step is today's complete file, not an increment since an
+earlier run.
 
-## Historical research and forecasting
+### Configured ETFs
 
-### Source resolution
+The built-in configuration currently enables:
 
-The History Agent searches by event type, entities, transmission mechanism, and expected direction. It first uses
-`memory_search` and may then scan:
+- `518880.SH`
+- `159530.SZ`
+- `512760.SH`
 
-```text
-daily/YYYY-MM-DD/auto_fin_news_data.jsonl
-```
+Other examples remain commented out in `daily_cookbook.yaml`. For each enabled code, the Data step resolves its name
+through `etf_basic`, then pages backward through `fund_daily` and `fund_adj` and rewrites its complete local JSONL
+history. A missing ETF name fails the run.
 
-Its output contains only a reason, `news_id`, and workspace-relative `source_path`. Code rejects:
+The Topic agent receives only the configured ETF code/name pairs and today's locally stored news. It may retain up to
+`current_news_limit_per_etf` valid, unique news references per ETF (10 by default). Unknown ETF codes, unknown news IDs,
+empty reasons, duplicates, and ETFs with no accepted event are removed by code.
 
-- Current-window news presented as historical evidence.
-- Absolute paths, `..` traversal, or paths outside the workspace.
-- Sources not named `auto_fin_news_data.jsonl`.
-- Missing files or IDs that do not resolve exactly once.
-- Records without a usable publication time, title, or body.
+## Historical comparison and returns
 
-Historical Markdown may guide retrieval, but the original news JSONL is the source of truth.
+For every accepted current ETF/news pair, `auto_fin_history_step` calls the configured `memory_search` job over the
+60-day news window, ending yesterday. `historical_search_limit` controls the maximum search results requested per
+current event. Only search hits whose path is named `auto_fin_news.md` contribute candidate IDs; the step rereads the
+source Markdown and resolves those IDs before calling the History agent.
 
-### Adjusted returns
+The History agent may select at most five candidates by default and labels each relationship `same` or `opposite`.
+Code discards unknown or duplicate IDs and empty reasons, then calculates adjusted cumulative returns for D1, D2, D3,
+and D5:
 
-For every resolved historical event, code reads `fund_daily` and `fund_adj` and calculates up to ten future closes:
+- For an event before 15:00 on a trading day, the adjusted same-day close is the entry; D1 is the next trading close.
+- For an event at or after 15:00, the adjusted next-trading-day open is the entry; D1 is that day's close.
+- If an entry or horizon cannot be calculated from valid positive prices and adjustment factors, that value is `null`.
 
-- Before 09:30 on a trading day: enter at that day's open.
-- From 09:30 until before 15:00: enter at that day's close.
-- At or after 15:00, or on a non-trading day: enter at the next trading day's open.
-- A daily close later than the current `decision_at` is excluded.
+The final agent receives the fixed ETF list, all current and historical evidence, `same`/`opposite` directions, computed
+returns, and the most recent earlier `auto_fin.md`. It decides whether the evidence supports a recommendation or an
+explicit wait-and-see conclusion; the code does not calculate a score, expected return, or mandatory holding period.
 
-```text
-adjusted_entry = raw_entry × entry_adjustment_factor
-adjusted_close = raw_close × close_adjustment_factor
-cumulative_return = adjusted_close / adjusted_entry - 1
-```
-
-Missing prices, factors, trading days, or horizons become explicit limitations. They are never filled with Agent-made
-values.
-
-### Similarity and forecast
-
-The Market Agent returns semantic similarity in `[-1, 1]`:
-
-- Positive values mean a similar mechanism and direction.
-- Negative values mean a comparable mechanism but opposite direction.
-- Zero means no useful relationship.
-
-Code clamps out-of-range values, ignores zero-similarity events, normalizes weights from absolute similarity, and
-reverses the historical return direction for negative matches. Each D1–D10 horizon is calculated from the samples
-available at that horizon. The suggested holding period is the positive-return horizon with the highest expected return,
-or empty when none is positive.
-
-The result also records limited samples, missing horizons, conflicting return directions, and other data limitations. It
-is a comparison with a small historical sample, not evidence of statistical significance.
-
-## Output layout
+## Outputs
 
 ```text
 reme_workspace/
 ├── daily/
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
-│       ├── auto_fin_news_data.jsonl
-│       ├── auto_fin_analysis.jsonl
+│       ├── auto_fin_news.md
 │       └── auto_fin.md
 └── resource/
+    ├── fin/
+    │   ├── etfs.json
+    │   ├── 518880.SH.jsonl
+    │   └── <other-configured-ETF>.jsonl
     └── YYYY-MM-DD/
-        ├── filtered_news.jsonl
-        ├── filtered_etf.jsonl
-        ├── auto_fin_topic_output.jsonl
-        ├── auto_fin_history_<index>_<ETF-code>_output.json
-        ├── auto_fin_market_<index>_<ETF-code>_output.json
-        ├── auto_fin_history_output.jsonl
+        ├── auto_fin_topic_output.json
+        ├── auto_fin_history_001_output.json
+        ├── ...
+        ├── auto_fin_analysis.jsonl
         └── auto_fin_merge_output.json
 ```
 
-Important artifacts:
+The daily news and report are user-owned Markdown. `resource/fin/` contains the market cache used for deterministic
+return calculations. Date-scoped JSON/JSONL files preserve structured agent replies and prepared analyses. Writes use
+same-directory temporary files and atomic replacement; the day index is refreshed after the report is written.
 
-- `auto_fin_news_data.jsonl` is the user-owned source used to resolve historical news.
-- `filtered_news.jsonl` and `filtered_etf.jsonl` are bounded inputs for the Topic Agent.
-- Per-ETF history files contain resolved source news and code-calculated return paths.
-- Per-ETF market files contain code-calculated matches, weights, and D1–D10 forecasts.
-- `auto_fin_analysis.jsonl` contains the final structured analysis for every selected ETF.
-- `auto_fin.md` is the readable report and DingTalk payload.
-- `daily/YYYY-MM-DD.md` is refreshed after report generation so the report is discoverable from the daily index.
+## Parameters and defaults
 
-News and reports remain ordinary user-owned files. Resource artifacts and search indexes can be rebuilt.
+Public job parameters:
 
-## Configuration
+| Parameter | Default | Purpose |
+|---|---:|---|
+| `date` | `""` | Empty uses today in `Asia/Shanghai`; a value must be strict `YYYY-MM-DD` and equal today |
+| `historical_search_limit` | `10` | Maximum `memory_search` results requested for each current event; minimum 1 |
 
-### Job parameters
+Relevant job settings in `daily_cookbook.yaml`:
 
-| Parameter |      Default | Meaning                                                 |
-|-----------|-------------:|---------------------------------------------------------|
-| `date`    | Current date | Strict `YYYY-MM-DD`; only the current date is supported |
-| `force`   |      `false` | Refresh all configured news days                        |
+| Setting | Default | Purpose |
+|---|---:|---|
+| `etf_codes` | three enabled codes above | Fixed ETF research universe |
+| `news_lookback_days` | `60` | Local news and historical-search window |
+| `current_news_limit_per_etf` | `10` | Maximum accepted current events per ETF |
+| `historical_news_limit` | `5` | Maximum comparable events retained per current event |
 
-### Environment variables
+There is no public `force` parameter. Earlier news files are reused, today's news and all configured ETF market files
+are refreshed, and same-day report/resource paths are overwritten on each successful run.
 
-| Variable                    | Required | Meaning                                                 |
-|-----------------------------|----------|---------------------------------------------------------|
-| `TUSHARE_TOKEN`             | Yes      | News, calendar, ETF daily data, and adjustment factors  |
-| `CLAUDE_CODE_API_KEY`       | Yes      | Auto Fin Agent credentials                              |
-| `CLAUDE_CODE_MODEL_NAME`    | No       | Defaults to `qwen3.7-max`                               |
-| `CLAUDE_CODE_BASE_URL`      | No       | Anthropic-compatible endpoint                           |
-| `AUTO_FIN_AGENT_BACKEND`    | No       | Defaults to `claude_code`                               |
-| `AUTO_FIN_PROJECT_PATH`     | No       | Agent project path; defaults to `..`                    |
-| `REME_PROXY_IP`             | No       | SSH proxy host; used only when `ssh_http` is enabled    |
-| `REME_PROXY_ACCOUNT`        | No       | SSH proxy account; used only when `ssh_http` is enabled |
-| `DAILY_PAPER_WORKSPACE_DIR` | No       | Standalone cookbook workspace                           |
-| `DINGTALK_*`                | No       | DingTalk application, robot, and conversation settings  |
+## Environment and scheduling
 
-Unit tests can inject `tushare_provider` through the runtime context and do not require real credentials.
+| Variable | Required | Purpose |
+|---|---|---|
+| `TUSHARE_TOKEN` | Yes | Trading calendar, CLS news, ETF metadata, prices, and adjustment factors |
+| `LLM_API_KEY` | Provider-dependent | Shared AgentScope LLM credentials; config defaults to an empty value |
+| `LLM_MODEL_NAME` | No | Defaults to `qwen3.7-plus` |
+| `LLM_BASE_URL` | Provider-dependent | OpenAI-compatible endpoint; no built-in default |
+| `TUSHARE_MIRROR_URL` | No | Replaces the Tushare SDK HTTP URL after trimming a trailing slash |
+| `DAILY_PAPER_WORKSPACE_DIR` | No | Shared standalone cookbook workspace |
+| `DINGTALK_*` | No | Optional DingTalk application, robot, and group settings |
 
-### Scheduled jobs
+The optional mirror can be configured, for example, as:
 
-`daily_cookbook.yaml` defines:
+```bash
+export TUSHARE_MIRROR_URL="http://112.124.63.173:4000/tushare"
+```
 
-| Job                  | Cron          | Asia/Shanghai  |
-|----------------------|---------------|----------------|
-| `auto_fin_0930_cron` | `30 9 * * *`  | Daily at 09:30 |
-| `auto_fin_1145_cron` | `45 11 * * *` | Daily at 11:45 |
-| `auto_fin_1800_cron` | `0 18 * * *`  | Daily at 18:00 |
+`auto_fin_0930_cron`, `auto_fin_1130_cron`, and `auto_fin_1800_cron` run every day at 09:30, 11:30, and 18:00 in
+`Asia/Shanghai`. The crons fire on weekends and holidays, but the Data step then skips the remaining workflow when
+Tushare reports that the date is not an SSE trading day. Same-day reruns refine the existing report.
 
-These cron expressions do not exclude weekends or market holidays. The workflow resolves the previous A-share trading
-day but does not currently skip a run merely because the run date is not a trading day.
+To send a completed report, configure `DINGTALK_APP_KEY`, `DINGTALK_APP_SECRET`, `DINGTALK_ROBOT_CODE`, and the
+comma-separated `DINGTALK_CONVERSATION_IDS`. With no conversation IDs, delivery is a no-op.
 
-## Agent and security boundaries
+## Agent and failure boundaries
 
-The Auto Fin wrapper loads the `tushare-data` skill, exposes the `memory_search` job tool, and defaults to
-`bypassPermissions`. Prompts constrain each Agent's role, while code revalidates schemas, ETF identities, source paths,
-news references, and calculated values.
+Auto Fin and Daily Paper share the tool-free `default` AgentScope wrapper. Built-in and configured job tools are not
+exposed to their model calls. Auto Fin itself invokes `memory_search` in deterministic step code; this is not an agent
+tool call. The separate interactive `dingtalk_wait` step has its own `bash` and ReMe job-tool allowlist.
 
-The standalone cookbook does not configure an embedding store by default, so `memory_search` normally uses BM25 recall.
-Vector and BM25 fusion becomes available only when an embedding store is configured.
+The standalone config has no embedding store enabled by default, so `memory_search` uses the available BM25 path;
+vector/BM25 fusion requires enabling the commented embedding components.
 
-`bypassPermissions` is not an operating-system sandbox. Review the configured project path, workspace, credentials, and
-network boundary before deployment.
+Invalid dates, missing credentials or services, invalid structured model output, unknown configured ETFs, missing
+market files, and failed memory search stop the job. A market holiday is a successful skip. The workflow has no global
+same-date execution lock or cross-file transaction, and repeated successful runs can resend DingTalk notifications.
 
-## Reruns and limitations
+## Tests
 
-- Valid historical news files are reused; today's news is always refreshed.
-- Outputs use stable per-day paths, so a later same-day run replaces the previous report and resource outputs.
-- Auto Fin intentionally has no “report exists, skip” shortcut because its scheduled runs analyze updated news.
-- Every successful run attempts DingTalk delivery when configured; notification deduplication is not implemented.
-- Missing historical market horizons degrade one sample and are recorded as limitations.
-- Invalid dates, missing required services, invalid Agent schemas, unknown ETFs or news IDs, unsafe paths, and
-  inconsistent cross-step ETF identities fail the job.
-
-The current implementation does not include stocks, US-market correlation, portfolio accounting, BUY/SELL/HOLD actions,
-T+1 execution rules, fees, slippage, broker integration, or real/simulated order execution.
-
-## Development
-
-Install development dependencies and run the focused suite:
+Focused unit tests mock model and market-data boundaries:
 
 ```bash
 python -m pip install -e ".[dev,core]"
-PYTHONPATH=. pytest tests/unit/test_auto_fin.py -v
+pytest tests/unit/test_auto_fin.py -v
 ```
 
-The unit suite mocks model and market-data boundaries. Tests requiring real Tushare, model, or DingTalk credentials
-should be run separately and only with explicit authorization.
+Tests requiring real Tushare, LLM, or DingTalk credentials should be run separately and only with explicit
+authorization.
