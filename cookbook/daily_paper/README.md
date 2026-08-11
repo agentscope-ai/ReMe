@@ -98,11 +98,13 @@ the note records `pdf_text_truncated: true` in its frontmatter.
 
 ### 5. Digest
 
-`daily_paper_digest_step` builds the Chinese brief directly from the three in-memory analyses; it does not reread or
-search other material. The agent returns `title`, `desc`, and `body`. The code then:
+`daily_paper_digest_step` uses the three in-memory analyses as the factual source for the Chinese brief. It also searches
+and, when needed, reads earlier daily notes to identify related coverage; those notes may only support contextual
+wikilinks, not add facts about the current papers. The agent returns `title`, `desc`, and `body`. The code then:
 
 - strips model-generated YAML frontmatter if present;
 - normalizes the Chinese title for use as a filename;
+- keeps model-generated wikilinks only when they point to existing `daily/` Markdown files dated before the run date;
 - deterministically appends wikilinks to all three source notes;
 - writes `daily/<date>/<Chinese-brief-title>.md`; and
 - rebuilds the `daily/<date>.md` day index.

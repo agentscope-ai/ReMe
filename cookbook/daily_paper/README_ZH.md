@@ -91,10 +91,12 @@ score = 1 / (rrf_k + monthly_rank)
 
 ### 5. Digest
 
-`daily_paper_digest_step` 直接使用内存中的三篇解读生成中文简报，不会重新读取或搜索其他资料。输出必须包含 `title`、`desc` 和 `body`。代码会：
+`daily_paper_digest_step` 以内存中的三篇解读作为本期事实来源生成中文简报，同时搜索并按需读取较早的 daily
+文章来识别相关报道；历史文章只能用于建立上下文 wikilink，不能用于补充本期论文事实。输出必须包含 `title`、`desc` 和 `body`。代码会：
 
 - 去掉模型可能生成的 YAML frontmatter；
 - 规范化中文标题并用作文件名；
+- 只保留指向真实存在、日期早于运行日期的 `daily/` Markdown 文件的模型生成 wikilink；
 - 确定性追加三篇源笔记的 wikilink；
 - 写入 `daily/<date>/<中文简报标题>.md`；
 - 重建 `daily/<date>.md` 当日索引。

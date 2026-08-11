@@ -358,8 +358,34 @@ def test_integrate_invalid_receipt_recovers_one_changed_digest_file(tmp_path):
     asyncio.run(run())
 
 
-def test_integrate_does_not_recover_a_change_from_another_bucket(tmp_path):
-    """A malformed receipt cannot attribute a write outside the unit's bucket."""
+def test_integrate_recovers_an_update_to_another_bucket(tmp_path):
+    """A malformed receipt can recover an update to an existing cross-bucket node."""
+
+    async def run():
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
+        state = DreamState(units=[unit])
+        target = tmp_path / "digest" / "procedure" / "unit.md"
+        _touch(target, "existing procedure")
+
+        def write_digest():
+            target.write_text("updated procedure", encoding="utf-8")
+
+        step = DreamIntegrateStep()
+        step.agent_wrapper = _ReplyAgent(on_reply=write_digest)
+
+        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+
+        assert state.skipped_units == []
+        assert state.integrate_results[0]["action"] == "UPDATED"
+        assert state.integrate_results[0]["target_path"] == "digest/procedure/unit.md"
+        assert state.nodes_updated == ["digest/procedure/unit.md"]
+        assert step.agent_wrapper.calls == 1
+
+    asyncio.run(run())
+
+
+def test_integrate_does_not_recover_a_create_in_another_bucket(tmp_path):
+    """A malformed receipt cannot recover a cross-bucket create."""
 
     async def run():
         unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
@@ -367,17 +393,41 @@ def test_integrate_does_not_recover_a_change_from_another_bucket(tmp_path):
         target = tmp_path / "digest" / "procedure" / "unit.md"
 
         def write_digest():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("integrated in the wrong bucket", encoding="utf-8")
+            _touch(target, "created procedure")
 
-        step = DreamIntegrateStep()
-        step.agent_wrapper = _ReplyAgent(on_reply=write_digest)
+        step = DreamIntegrateStep(agent_wrapper=_ReplyAgent(on_reply=write_digest))
 
         await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
 
         assert state.integrate_results == []
         assert len(state.skipped_units) == 1
         assert state.nodes_created == []
+
+    asyncio.run(run())
+
+
+def test_integrate_accepts_cross_bucket_update_receipt(tmp_path):
+    """An UPDATE receipt may target an existing node in any supported bucket."""
+
+    async def run():
+        unit = {"name": "unit", "bucket": "wiki", "summary": "summary", "paths": ["daily/a.md"]}
+        state = DreamState(units=[unit])
+        _touch(tmp_path / "digest" / "procedure" / "unit.md", "updated procedure")
+        agent = _ReplyAgent(
+            result={
+                "result": (
+                    '{"action": "REFINE", "target_path": "digest/procedure/unit.md", '
+                    '"note": "updated existing procedure"}'
+                ),
+            },
+        )
+        step = DreamIntegrateStep(agent_wrapper=agent)
+
+        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+
+        assert state.skipped_units == []
+        assert state.integrate_results[0]["action"] == "REFINE"
+        assert state.nodes_updated == ["digest/procedure/unit.md"]
 
     asyncio.run(run())
 

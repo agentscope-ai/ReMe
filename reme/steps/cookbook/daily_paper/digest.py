@@ -2,6 +2,8 @@
 
 import datetime as dt
 import json
+import re
+from pathlib import Path
 from types import SimpleNamespace
 
 from ....components import R
@@ -18,10 +20,49 @@ from ._common import (
     write_markdown,
 )
 
+_WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
+
 
 @R.register("daily_paper_digest_step")
 class DailyPaperDigestStep(DailyPaperStep):
     """Use an agent to read the detailed notes and create the final brief."""
+
+    def _valid_historical_wikilink(self, path: str, run_day: dt.date, digest: Path) -> bool:
+        """Return whether one path is a safe, existing note from an earlier day."""
+        parts = path.split("/")
+        if not path or path.startswith("/") or "\\" in path or not path.endswith(".md"):
+            return False
+        if any(part in {"", ".", ".."} for part in parts) or any(character in path for character in "[]|"):
+            return False
+        daily_dir = str(self.config_value("daily_dir")).strip("/")
+        if not path.startswith(f"{daily_dir}/"):
+            return False
+        relative_parts = path[len(daily_dir) + 1 :].split("/")
+        if len(relative_parts) < 2:
+            return False
+        try:
+            linked_day = dt.date.fromisoformat(relative_parts[0])
+            resolved = (self.workspace_path.resolve() / path).resolve()
+            resolved.relative_to(self.workspace_path.resolve())
+        except (ValueError, OSError):
+            return False
+        return linked_day < run_day and resolved.is_file() and resolved != digest
+
+    def _validate_historical_wikilinks(self, body: str, run_day: dt.date, digest_path: Path) -> str:
+        """Keep only real historical daily-note links emitted by the agent."""
+        digest = digest_path.resolve()
+
+        def replace(match: re.Match[str]) -> str:
+            inner = match.group(1).strip()
+            raw_target, separator, raw_alias = inner.partition("|")
+            target = raw_target.strip()
+            path = target.partition("#")[0].strip()
+            alias = (raw_alias.strip() if separator else "") or Path(path).stem.replace("_", " ")
+            if not self._valid_historical_wikilink(path, run_day, digest):
+                return alias
+            return match.group(0)
+
+        return _WIKILINK_RE.sub(replace, body)
 
     async def execute(self):
         assert self.context is not None
@@ -55,7 +96,6 @@ class DailyPaperDigestStep(DailyPaperStep):
         body = strip_frontmatter(output.body)
         if not output.desc.strip() or not body:
             raise ValueError("Agent returned an empty daily paper brief")
-        body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
 
         day = self._run_day()
         daily_dir = str(self.config_value("daily_dir")).strip("/")
@@ -71,6 +111,8 @@ class DailyPaperDigestStep(DailyPaperStep):
             existing=existing_path,
         )
         digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
+        body = self._validate_historical_wikilinks(body, dt.date.fromisoformat(day), digest_path)
+        body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
         selected_ids = [item.arxiv_id for item in analyses]
         await write_markdown(
             digest_path,

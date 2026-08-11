@@ -14,20 +14,21 @@ from .utils import llm_available, pack_paths, parse_structured_reply, state_from
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
 
-def _snapshot_digest(workspace: Path, digest_dir: str, bucket: str) -> dict[str, tuple[int, int]]:
-    """Capture one bucket's file metadata for best-effort side-effect recovery."""
-    root = workspace / digest_dir / bucket
-    if not root.is_dir():
-        return {}
+def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, tuple[int, int]]:
+    """Capture all supported digest buckets for best-effort side-effect recovery."""
     snapshot: dict[str, tuple[int, int]] = {}
-    for path in root.rglob("*"):
-        if not path.is_file():
+    for bucket in DreamBucketEnum:
+        root = workspace / digest_dir / bucket.value
+        if not root.is_dir():
             continue
-        try:
-            stat = path.stat()
-        except OSError:
-            continue
-        snapshot[path.relative_to(workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            snapshot[path.relative_to(workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
     return snapshot
 
 
@@ -98,8 +99,11 @@ class DreamIntegrateStep(BaseStep):
             f"[{self.name}] unit {index}/{len(state.units)} start "
             f"name={unit.get('name', '')!r} bucket={bucket} paths={len(paths)}",
         )
+        # Keep the original baseline across the retry so a file created by attempt one
+        # cannot be misclassified as a pre-existing cross-bucket UPDATE on attempt two.
+        unit_before = _snapshot_digest(workspace, digest_dir)
         for attempt in range(2):
-            before = _snapshot_digest(workspace, digest_dir, bucket)
+            before = _snapshot_digest(workspace, digest_dir)
             try:
                 result = await self.agent_wrapper.reply(
                     self.prompt_format(
@@ -120,9 +124,17 @@ class DreamIntegrateStep(BaseStep):
                     job_tools=list(_TOOLS),
                 )
             except Exception as e:  # noqa: BLE001
-                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
-                if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
-                    self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
+                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                created = len(changed) == 1 and changed[0] not in unit_before
+                if len(changed) == 1 and self._valid_target(
+                    workspace,
+                    digest_dir,
+                    bucket,
+                    changed[0],
+                    action="CREATE" if created else "UPDATED",
+                    existed_before=changed[0] in unit_before,
+                ):
+                    self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} recovered from file change "
                         f"after agent error target_path={changed[0]} error={type(e).__name__}: {e}",
@@ -141,12 +153,27 @@ class DreamIntegrateStep(BaseStep):
             try:
                 raw_result = agent_reply_result_text(result)
                 outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
-                if not self._valid_target(workspace, digest_dir, bucket, outcome.target_path):
+                if not self._valid_target(
+                    workspace,
+                    digest_dir,
+                    bucket,
+                    outcome.target_path,
+                    action=outcome.action,
+                    existed_before=outcome.target_path in unit_before,
+                ):
                     raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
             except Exception as e:  # noqa: BLE001
-                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
-                if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
-                    self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
+                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                created = len(changed) == 1 and changed[0] not in unit_before
+                if len(changed) == 1 and self._valid_target(
+                    workspace,
+                    digest_dir,
+                    bucket,
+                    changed[0],
+                    action="CREATE" if created else "UPDATED",
+                    existed_before=changed[0] in unit_before,
+                ):
+                    self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(
                         f"[{self.name}] unit {index}/{len(state.units)} accepted file change with invalid receipt "
                         f"target_path={changed[0]} error={type(e).__name__}: {e}",
@@ -194,13 +221,32 @@ class DreamIntegrateStep(BaseStep):
         return self.context.response
 
     @staticmethod
-    def _valid_target(workspace: Path, digest_dir: str, bucket: str, target_path: str) -> bool:
+    def _valid_target(
+        workspace: Path,
+        digest_dir: str,
+        bucket: str,
+        target_path: str,
+        *,
+        action: str,
+        existed_before: bool,
+    ) -> bool:
         target = str(target_path or "").strip().replace("\\", "/")
         parts = Path(target).parts
         if not parts or Path(target).is_absolute() or ".." in parts:
             return False
-        expected = f"{digest_dir.strip('/')}/{bucket}/"
-        return target.startswith(expected) and (workspace / target).is_file()
+        target_bucket = next(
+            (
+                candidate.value
+                for candidate in DreamBucketEnum
+                if target.startswith(f"{digest_dir.strip('/')}/{candidate.value}/")
+            ),
+            None,
+        )
+        if target_bucket is None or not (workspace / target).is_file():
+            return False
+        if action == "CREATE":
+            return target_bucket == bucket and not existed_before
+        return existed_before
 
     @staticmethod
     def _unit_key(unit: dict, bucket: str, paths: list[str]) -> tuple[str, str, tuple[str, ...]]:

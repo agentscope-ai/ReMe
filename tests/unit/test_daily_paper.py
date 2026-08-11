@@ -852,6 +852,66 @@ async def test_digest_force_migrates_old_fixed_filename_to_chinese_title(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_digest_validates_model_generated_historical_wikilinks(tmp_path: Path):
+    """Only existing daily Markdown from before the run date survives as a model-generated wikilink."""
+    valid = tmp_path / "daily" / "2026-07-20" / "历史论文.md"
+    valid.parent.mkdir(parents=True)
+    valid.write_text("historical", encoding="utf-8")
+    today = tmp_path / "daily" / "2026-07-21" / "当日文章.md"
+    today.parent.mkdir(parents=True)
+    today.write_text("today", encoding="utf-8")
+    digest_node = tmp_path / "digest" / "wiki" / "相关概念.md"
+    digest_node.parent.mkdir(parents=True)
+    digest_node.write_text("digest", encoding="utf-8")
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{index}",
+            reasoning=f"Reason {index}",
+            title=f"论文解读{index}",
+            desc=f"Description {index}",
+            body=f"Body {index}",
+            note_path=f"daily/2026-07-21/论文解读{index}.md",
+            pdf_path=f"resource/papers/2607.1000{index}.pdf",
+        )
+        for index in range(1, 4)
+    ]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+    )
+    agent = _QueuedAgentWrapper(
+        [
+            {
+                "title": "每日简报",
+                "desc": "Digest",
+                "body": (
+                    "保留 [[daily/2026-07-20/历史论文.md|历史论文]]；"
+                    "移除 [[daily/2026-07-19/缺失.md|缺失文章]]、"
+                    "[[daily/2026-07-21/当日文章.md|当日文章]]、"
+                    "[[daily/2026-07-21/每日简报.md|自引用]]、"
+                    "[[digest/wiki/相关概念.md|非 daily 节点]] 和 "
+                    "[[../outside.md|越界路径]]。"
+                ),
+            },
+        ],
+    )
+
+    await DailyPaperDigestStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        agent_wrapper=agent,
+    )(context)
+
+    rendered = (tmp_path / "daily" / "2026-07-21" / "每日简报.md").read_text(encoding="utf-8")
+    assert "[[daily/2026-07-20/历史论文.md|历史论文]]" in rendered
+    assert "缺失文章" in rendered and "daily/2026-07-19/缺失.md" not in rendered
+    assert "当日文章" in rendered and "[[daily/2026-07-21/当日文章.md" not in rendered
+    assert "自引用" in rendered and "[[daily/2026-07-21/每日简报.md" not in rendered
+    assert "非 daily 节点" in rendered and "[[digest/wiki/相关概念.md" not in rendered
+    assert "越界路径" in rendered and "../outside.md" not in rendered
+    assert "[[daily/2026-07-21/论文解读1.md]]" in rendered
+
+
+@pytest.mark.asyncio
 async def test_dingtalk_markdown_sends_groups_serially_in_configured_order(
     tmp_path: Path,
     monkeypatch,
