@@ -12,7 +12,7 @@ on:
 
 jobs:
   website:
-    name: Website format check
+    name: Website checks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -33,3 +33,9 @@ jobs:
 
       - name: Run format check
         run: npm run format:check
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test

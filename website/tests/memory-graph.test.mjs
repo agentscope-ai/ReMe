@@ -51,9 +51,25 @@ const snapshot = {
       virtual: false,
     },
     {
-      id: "daily/inbound.md",
-      path: "daily/inbound.md",
-      name: "Inbound",
+      id: "virtual:procedure",
+      path: "digest/procedure",
+      name: "procedure",
+      description: "",
+      indexed: false,
+      virtual: true,
+    },
+    {
+      id: "digest/procedure/c.md",
+      path: "digest/procedure/c.md",
+      name: "C",
+      description: "",
+      indexed: true,
+      virtual: false,
+    },
+    {
+      id: "daily/unrelated.md",
+      path: "daily/unrelated.md",
+      name: "Unrelated",
       description: "",
       indexed: true,
       virtual: false,
@@ -82,8 +98,13 @@ const snapshot = {
       target_anchor: null,
     },
     {
-      source: "daily/inbound.md",
-      target: "digest/wiki/a.md",
+      source: "virtual:procedure",
+      target: "digest/procedure/c.md",
+      target_anchor: null,
+    },
+    {
+      source: "digest/procedure/c.md",
+      target: "daily/unrelated.md",
       target_anchor: null,
     },
   ],
@@ -99,23 +120,16 @@ test("memory graph keeps only nodes reachable below the selected category", () =
       "digest/wiki/a.md",
       "digest/personal/b.md",
       "daily/note.md",
-      "daily/inbound.md",
     ],
   );
-  assert.equal(graph.edges.length, 5);
+  assert.equal(graph.edges.length, 4);
 });
 
-test("memory graph preserves daily nodes that only link into the selected category", () => {
+test("memory graph excludes daily nodes below another category", () => {
   const graph = graphBelowRoot(snapshot, "wiki");
 
-  assert.ok(graph.nodes.some((node) => node.id === "daily/inbound.md"));
-  assert.ok(
-    graph.edges.some(
-      (edge) =>
-        edge.source === "daily/inbound.md" &&
-        edge.target === "digest/wiki/a.md",
-    ),
-  );
+  assert.ok(!graph.nodes.some((node) => node.id === "daily/unrelated.md"));
+  assert.ok(!graph.nodes.some((node) => node.id === "digest/procedure/c.md"));
 });
 
 test("memory graph uses stable radial layers and curves reciprocal links", () => {

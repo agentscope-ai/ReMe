@@ -16,7 +16,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { getAppConfig, getGraphSnapshot, readWorkspaceFile } from "../api";
+import { getGraphSnapshot, readWorkspaceFile } from "../api";
 import { useI18n } from "../i18n";
 import { useWorkspaceStore } from "../store";
 import type { GraphSnapshot, MemoryGraphRoot } from "../types";
@@ -66,7 +66,6 @@ function pointerPosition(
 export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
   const { t } = useI18n();
   const [snapshot, setSnapshot] = useState<GraphSnapshot>();
-  const [dailyDirectory, setDailyDirectory] = useState("daily");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedId, setSelectedId] = useState("");
@@ -88,13 +87,9 @@ export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
       if (!mounted || fetching) return;
       fetching = true;
       try {
-        const [next, config] = await Promise.all([
-          getGraphSnapshot(),
-          getAppConfig(),
-        ]);
+        const next = await getGraphSnapshot();
         if (!mounted) return;
         setSnapshot(next);
-        setDailyDirectory(config.daily_dir);
         setError(false);
         setSelectedId((current) =>
           next.nodes.some((node) => node.id === current) ? current : "",
@@ -122,9 +117,8 @@ export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
   }, []);
 
   const graphSnapshot = useMemo(
-    () =>
-      snapshot ? graphBelowRoot(snapshot, root, dailyDirectory) : undefined,
-    [dailyDirectory, root, snapshot],
+    () => (snapshot ? graphBelowRoot(snapshot, root) : undefined),
+    [root, snapshot],
   );
   const baseGraph = useMemo(
     () => layoutGraph(graphSnapshot || { version: 1, nodes: [], edges: [] }),

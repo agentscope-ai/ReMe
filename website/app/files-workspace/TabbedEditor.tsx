@@ -20,6 +20,7 @@ export default function TabbedEditor({ tab }: { tab: FileTab }) {
   const { t } = useI18n();
   const [preview, setPreview] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const update = useWorkspaceStore((state) => state.updateMarkdown);
   const markSaved = useWorkspaceStore((state) => state.markSaved);
   const dirty = tab.content !== tab.savedContent;
@@ -27,14 +28,26 @@ export default function TabbedEditor({ tab }: { tab: FileTab }) {
 
   const save = useCallback(async () => {
     if (!dirty || saving) return;
+    const submittedContent = tab.content;
+    setSaveError("");
     setSaving(true);
     try {
-      const stat = await saveWorkspaceFile(tab.path, tab.content, tab.mtime);
-      markSaved(tab.id, stat.mtime);
+      const stat = await saveWorkspaceFile(
+        tab.path,
+        submittedContent,
+        tab.mtime,
+      );
+      markSaved(tab.id, submittedContent, stat.mtime);
+    } catch (error) {
+      setSaveError(
+        t("saveFailed", {
+          error: error instanceof Error ? error.message : t("unknownError"),
+        }),
+      );
     } finally {
       setSaving(false);
     }
-  }, [dirty, markSaved, saving, tab]);
+  }, [dirty, markSaved, saving, t, tab]);
 
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
@@ -71,6 +84,11 @@ export default function TabbedEditor({ tab }: { tab: FileTab }) {
     <div className={styles.wrap}>
       <div className={styles.toolbar}>
         <span className={styles.fileName}>{tab.path}</span>
+        {saveError && (
+          <span className={styles.saveError} role="alert" title={saveError}>
+            {saveError}
+          </span>
+        )}
         <div className={styles.documentActions}>
           <div className={styles.modeSwitch}>
             <button

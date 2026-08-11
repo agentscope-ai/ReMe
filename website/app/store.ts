@@ -17,6 +17,7 @@ import {
   prepareWorkspaceSnapshot,
   type PersistedWorkspaceState,
 } from "./workspace-persistence";
+import { markMarkdownContentSaved } from "./markdown-save";
 
 interface WorkspaceState {
   tabs: WorkspaceTab[];
@@ -30,7 +31,7 @@ interface WorkspaceState {
   hydrateMarkdown: (id: string, content: string, mtime?: string) => void;
   failMarkdown: (id: string, error: string) => void;
   updateMarkdown: (id: string, content: string) => void;
-  markSaved: (id: string, mtime?: string) => void;
+  markSaved: (id: string, content: string, mtime?: string) => void;
   addChatTurn: (
     tabId: string,
     user: ChatMessage,
@@ -156,11 +157,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               : tab,
           ),
         })),
-      markSaved: (id, mtime) =>
+      markSaved: (id, content, mtime) =>
         set((state) => ({
           tabs: state.tabs.map((tab) =>
             tab.id === id && tab.type === "markdown"
-              ? { ...tab, savedContent: tab.content, mtime: mtime || tab.mtime }
+              ? markMarkdownContentSaved(tab, content, mtime)
               : tab,
           ),
         })),

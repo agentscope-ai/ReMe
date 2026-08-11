@@ -22,6 +22,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.saveError {
+  max-width: min(45%, 420px);
+  overflow: hidden;
+  color: #b42318;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .documentActions {
   display: flex;
   align-items: center;
