@@ -142,7 +142,37 @@ def load_yaml_topics(path: Path, *, strict: bool = False) -> list[dict]:
         if strict:
             raise ValueError(f"Invalid interests YAML at {path}: topics must be a list")
         return []
-    return [cleaned for t in topics if isinstance(t, dict) and (cleaned := clean_topic(t))]
+    cleaned_topics = []
+    for index, topic in enumerate(topics):
+        if strict:
+            _validate_topic(topic, path, index)
+        if isinstance(topic, dict) and (cleaned := clean_topic(topic)):
+            cleaned_topics.append(cleaned)
+    return cleaned_topics
+
+
+def _validate_topic(topic: object, path: Path, index: int) -> None:
+    """Reject topic data that would otherwise be silently discarded or coerced."""
+    prefix = f"Invalid interests YAML at {path}: topics[{index}]"
+    if not isinstance(topic, dict):
+        raise ValueError(f"{prefix} must be an object")
+
+    allowed = {"title", "reason", "evidence", "keywords", "paths"}
+    if unknown := sorted(set(topic) - allowed):
+        raise ValueError(f"{prefix} has unknown field(s): {', '.join(str(key) for key in unknown)}")
+
+    for field in ("title", "reason"):
+        value = topic.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{prefix}.{field} must be a non-empty string")
+    if "evidence" in topic and not isinstance(topic["evidence"], str):
+        raise ValueError(f"{prefix}.evidence must be a string")
+    for field in ("keywords", "paths"):
+        if field not in topic:
+            continue
+        values = topic[field]
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ValueError(f"{prefix}.{field} must be a list of non-empty strings")
 
 
 def clean_topic(raw: dict) -> dict:

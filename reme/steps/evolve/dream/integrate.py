@@ -1,5 +1,6 @@
 """Dream unit integration step."""
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -27,9 +28,9 @@ _TOOLS = (
 )
 
 
-def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, tuple[int, int]]:
-    """Capture rebuildable file metadata for best-effort side-effect recovery."""
-    root = workspace / digest_dir
+def _snapshot_digest(workspace: Path, digest_dir: str, bucket: str) -> dict[str, tuple[int, int]]:
+    """Capture one bucket's file metadata for best-effort side-effect recovery."""
+    root = workspace / digest_dir / bucket
     if not root.is_dir():
         return {}
     snapshot: dict[str, tuple[int, int]] = {}
@@ -70,6 +71,12 @@ class DreamIntegrateStep(BaseStep):
             self.logger.warning(f"[{self.name}] skip no llm units={len(state.units)}")
             return self._finish(state, False, err)
 
+        async with self._integration_lock():
+            return await self._execute_locked(state)
+
+    async def _execute_locked(self, state):
+        """Integrate units while serializing digest writes for this Application."""
+
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
         self.logger.info(
@@ -87,6 +94,19 @@ class DreamIntegrateStep(BaseStep):
         )
         return self._finish(state, not state.failed_units, answer)
 
+    def _integration_lock(self) -> asyncio.Lock:
+        """Return the Application-wide lock used by AutoDream integration."""
+        if self.app_context is None:
+            raise RuntimeError("dream_integrate_step requires app_context")
+        key = "dream_integration_lock"
+        lock = self.app_context.metadata.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self.app_context.metadata[key] = lock
+        if not isinstance(lock, asyncio.Lock):
+            raise TypeError(f"app_context.metadata[{key!r}] must be an asyncio.Lock")
+        return lock
+
     async def _integrate_one(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
         try:
             bucket = DreamBucketEnum(str(unit.get("bucket") or "")).value
@@ -97,7 +117,7 @@ class DreamIntegrateStep(BaseStep):
             f"[{self.name}] unit {index}/{len(state.units)} start "
             f"name={unit.get('name', '')!r} bucket={bucket} paths={len(paths)}",
         )
-        before = _snapshot_digest(workspace, digest_dir)
+        before = _snapshot_digest(workspace, digest_dir, bucket)
         try:
             result = await self.agent_wrapper.reply(
                 self.prompt_format(
@@ -118,8 +138,8 @@ class DreamIntegrateStep(BaseStep):
                 job_tools=list(_TOOLS),
             )
         except Exception as e:  # noqa: BLE001
-            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
-            if len(changed) == 1:
+            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
+            if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
                 self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
                 self.logger.warning(
                     f"[{self.name}] unit {index}/{len(state.units)} recovered from file change "
@@ -136,8 +156,8 @@ class DreamIntegrateStep(BaseStep):
             if not self._valid_target(workspace, digest_dir, bucket, outcome.target_path):
                 raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
         except Exception as e:  # noqa: BLE001
-            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
-            if len(changed) == 1:
+            changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir, bucket))
+            if len(changed) == 1 and self._valid_target(workspace, digest_dir, bucket, changed[0]):
                 self._record_recovered(state, unit, bucket, paths, changed[0], changed[0] not in before, e)
                 self.logger.warning(
                     f"[{self.name}] unit {index}/{len(state.units)} accepted file change with invalid receipt "

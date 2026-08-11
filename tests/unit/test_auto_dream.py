@@ -19,6 +19,7 @@ from reme.steps.evolve.dream.integrate import DreamIntegrateStep
 from reme.steps.evolve.dream.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import (
+    load_yaml_topics,
     parse_structured_reply,
     recent_dates,
     scan_day_files,
@@ -305,6 +306,44 @@ def test_integrate_invalid_receipt_recovers_one_changed_digest_file(tmp_path):
     asyncio.run(run())
 
 
+def test_integrate_does_not_recover_a_change_from_another_bucket(tmp_path):
+    """A malformed receipt cannot attribute a write outside the unit's bucket."""
+
+    async def run():
+        unit = {
+            "name": "unit",
+            "bucket": "wiki",
+            "summary": "summary",
+            "paths": ["daily/a.md"],
+        }
+        state = DreamState(units=[unit])
+        target = tmp_path / "digest" / "procedure" / "unit.md"
+
+        def write_digest():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("integrated in the wrong bucket", encoding="utf-8")
+
+        step = DreamIntegrateStep()
+        step.agent_wrapper = _ReplyAgent(on_reply=write_digest)
+
+        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+
+        assert state.integrate_results == []
+        assert len(state.skipped_units) == 1
+        assert state.nodes_created == []
+
+    asyncio.run(run())
+
+
+def test_integrate_uses_one_application_wide_lock(tmp_path):
+    """Concurrent AutoDream jobs in one Application serialize integration."""
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    first = DreamIntegrateStep(app_context=app_context)
+    second = DreamIntegrateStep(app_context=app_context)
+
+    assert first._integration_lock() is second._integration_lock()  # pylint: disable=protected-access
+
+
 def test_extract_without_llm_marks_changed_paths_failed(tmp_path):
     """A missing LLM must not let finish checkpoint unprocessed source files."""
 
@@ -425,6 +464,59 @@ def test_topics_does_not_overwrite_invalid_existing_yaml(tmp_path):
         assert "Invalid interests YAML" in response.answer
 
     asyncio.run(run())
+
+
+def test_topics_does_not_overwrite_invalid_existing_topic_entry(tmp_path):
+    """Strict loading rejects entries that lenient loading would discard."""
+
+    async def run():
+        content = "topics:\n  - title: User topic\n    paths:\n      - daily/source.md\n"
+        target = _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", content)
+        state = DreamState(
+            date="2026-05-28",
+            workspace=str(tmp_path),
+            daily_dir="daily",
+            topics=[{"title": "New topic", "reason": "New reason", "paths": ["daily/source.md"]}],
+        )
+        step = DreamTopicsStep()
+
+        response = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(tmp_path)))
+
+        assert response.success is False
+        assert target.read_text(encoding="utf-8") == content
+        assert "topics[0].reason must be a non-empty string" in response.answer
+
+    asyncio.run(run())
+
+
+def test_strict_topic_loading_rejects_lossy_fields(tmp_path):
+    """Strict mode rejects values and fields that clean_topic would silently lose."""
+    target = _touch(
+        tmp_path / "interests.yaml",
+        "topics:\n  - title: Topic\n    reason: Reason\n    custom: keep me\n",
+    )
+
+    try:
+        load_yaml_topics(target, strict=True)
+    except ValueError as exc:
+        assert "unknown field(s): custom" in str(exc)
+    else:
+        raise AssertionError("strict topic loading accepted a lossy field")
+
+
+def test_strict_topic_loading_rejects_invalid_field_types(tmp_path):
+    """Strict mode rejects list fields that would otherwise be normalized away."""
+    target = _touch(
+        tmp_path / "interests.yaml",
+        "topics:\n  - title: Topic\n    reason: Reason\n    paths: daily/source.md\n",
+    )
+
+    try:
+        load_yaml_topics(target, strict=True)
+    except ValueError as exc:
+        assert "topics[0].paths must be a list of non-empty strings" in str(exc)
+    else:
+        raise AssertionError("strict topic loading accepted an invalid paths type")
 
 
 def test_proactive_answer_includes_topics_and_requested_content(tmp_path):
