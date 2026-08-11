@@ -116,8 +116,7 @@ class PromptHandler:
         flags = {k: v for k, v in kwargs.items() if isinstance(v, bool)}
         formats = {k: v for k, v in kwargs.items() if not isinstance(v, bool)}
 
-        if flags:
-            prompt = self._apply_flag_filter(prompt, flags)
+        prompt = self._apply_flag_filter(prompt, flags)
 
         return prompt.format(**formats).strip() if formats else prompt
 

@@ -39,6 +39,8 @@ class DingTalkWaitStep(BaseStep):
         app_secret: str = "",
         robot_code: str = "",
         worker_count: int = 4,
+        builtin_tools: list[str] | str | bool = False,
+        job_tools: list[str] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -46,6 +48,8 @@ class DingTalkWaitStep(BaseStep):
         self.app_secret = app_secret
         self.robot_code = robot_code
         self.worker_count = max(1, worker_count)
+        self.builtin_tools = builtin_tools
+        self.job_tools = list(job_tools or [])
 
     async def execute(self):
         assert self.context is not None
@@ -142,7 +146,12 @@ class DingTalkWaitStep(BaseStep):
         """Wait for the final Agent response and send one DingTalk Markdown reply."""
         started_at = time.monotonic()
         try:
-            result = await self.agent_wrapper.reply(text, **kwargs)
+            result = await self.agent_wrapper.reply(
+                text,
+                **kwargs,
+                builtin_tools=self.builtin_tools,
+                job_tools=self.job_tools,
+            )
             if not isinstance(result, dict):
                 raise TypeError("Agent reply must be a dictionary")
             if session_id := result.get("session_id"):

@@ -1,7 +1,5 @@
 """Typed contracts for the daily-paper cookbook workflow."""
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
 
 
@@ -40,32 +38,31 @@ class PaperInfo(BaseModel):
         return f"https://arxiv.org/pdf/{self.arxiv_id}"
 
 
-class SelectedPaper(BaseModel):
-    """One agent-selected paper."""
+class PaperPick(BaseModel):
+    """One minimal paper selection returned by the agent."""
 
     arxiv_id: str
-    rank: int
-    reason: str
-    memory_relevance: Literal["high", "medium", "low"]
+    reasoning: str
 
 
-class PaperSelection(BaseModel):
-    """Structured paper selection result."""
+class PaperPickList(BaseModel):
+    """The ordered papers selected for detailed analysis."""
 
-    selection_reasoning: str
-    selected: list[SelectedPaper]
-    alternates: list[str] = Field(default_factory=list)
+    papers: list[PaperPick]
 
 
-class PaperNoteOutput(BaseModel):
-    """Structured Claude Code output for one detailed paper note."""
+class DailyPaperMarkdownOutput(BaseModel):
+    """One Chinese Markdown document returned by a tool-free agent."""
 
-    description: str
+    title: str
+    desc: str
     body: str
 
 
-class DailyBriefOutput(BaseModel):
-    """Structured Claude Code output for the final five-minute brief."""
+class AnalyzedPaper(DailyPaperMarkdownOutput):
+    """A persisted paper analysis passed directly to the digest step."""
 
-    description: str
-    body: str
+    arxiv_id: str
+    reasoning: str
+    note_path: str
+    pdf_path: str

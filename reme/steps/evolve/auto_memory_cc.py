@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from .auto_memory import AutoMemoryStep
+from ..index import normalize_posix_path
 from ...components import R
 from ...components.agent_wrapper import CcFileSessionStore
 
@@ -73,7 +74,8 @@ class AutoMemoryCCStep(AutoMemoryStep):
         return
 
     def _session_link(self, session_id: str) -> str:
-        return f"[[{self._session_dir()}/{self._CC_STORE_SUBDIR}/{session_id}.jsonl]]"
+        path = normalize_posix_path(f"{self._session_dir()}/{self._CC_STORE_SUBDIR}/{session_id}.jsonl")
+        return f"[[{path}]]"
 
     # ----- session: Claude Code side <-> ReMe CC SessionStore ----------------
 

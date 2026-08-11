@@ -66,6 +66,17 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
+def display_path(workspace_path: Path, target: Path) -> str:
+    """Return ``target`` as a workspace-relative POSIX path for user-facing messages.
+
+    Falls back to the absolute string when ``target`` is not under ``workspace_path``.
+    """
+    try:
+        return target.relative_to(workspace_path).as_posix()
+    except ValueError:
+        return str(target)
+
+
 # pylint: disable=too-many-return-statements
 def resolve_path(
     workspace_path: Path,

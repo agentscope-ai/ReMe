@@ -213,15 +213,15 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
             await expand_links(self.file_store, unique_paths, max_links_per_direction) if expand_links_enabled else {}
         )
 
-        dialog_dir = self.config_value("dialog_dir")
+        session_dir = self.config_value("session_dir")
         entries = render_chunk_entries(
-            merge_session_chunk_intervals(fused, dialog_dir),
-            dialog_dir,
+            merge_session_chunk_intervals(fused, session_dir),
+            session_dir,
             score_fn=lambda c: self._format_scores(c.scores, hybrid),
             link_expansion=link_expansion,
         )
         if self._session_compress_enabled():
-            await self._compress_session_entries(entries, query, dialog_dir)
+            await self._compress_session_entries(entries, query, session_dir)
         self.context.response.answer = join_chunk_entries(entries)
         if not fused:
             self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
@@ -246,7 +246,7 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         value = (search_cfg.get("_compress") or {}).get("session")
         return value is True or str(value).strip().lower() == "true"
 
-    async def _compress_session_entries(self, entries: list[dict[str, str]], query: str, dialog_dir: str) -> None:
+    async def _compress_session_entries(self, entries: list[dict[str, str]], query: str, session_dir: str) -> None:
         """Compress session-transcript entry bodies in place via the ``compressor`` job.
 
         Only entries whose ``path`` points at a raw session transcript are
@@ -323,7 +323,7 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
                 return
             entry["body"] = f"compressed session chunk:\n{compressed}"
 
-        targets = [e for e in entries if is_session_path(e.get("path", ""), dialog_dir)]
+        targets = [e for e in entries if is_session_path(e.get("path", ""), session_dir)]
         if not targets:
             return
         self.logger.info(f"[{self.name}] compressing {len(targets)} session entries with {len(queries)} queries")

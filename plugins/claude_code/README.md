@@ -52,7 +52,7 @@ server means one set of background watchers / dream cron across all your Claude 
 ## Install the plugin
 
 ```
-/plugin marketplace add ./plugins
+/plugin marketplace add ./plugins/claude_code
 /plugin install reme@reme-marketplace
 ```
 
@@ -62,10 +62,10 @@ recall memory and report server health.
 
 ## Notes
 
-- The plugin's MCP server URL lives in `plugins/reme/.mcp.json`. Keep it in sync with how you start
+- The plugin's MCP server URL lives in `plugins/claude_code/reme/.mcp.json`. Keep it in sync with how you start
   ReMe (host/port). The Stop hook reads this same file to find the server (override with `REME_HOST`
   / `REME_PORT` env vars).
 - The Stop hook needs `python3` on `PATH` and resolves transcripts under `~/.claude/projects`
-  (override the base with `CLAUDE_CONFIG_DIR`). It logs to `plugins/reme/logs/auto_memory_hook.log`.
+  (override the base with `CLAUDE_CONFIG_DIR`). It logs to `plugins/claude_code/reme/logs/auto_memory_hook.log`.
 - The MCP tool-name prefix (`mcp__reme__…`) may include the server segment depending on your Claude
   Code version; the skill uses the `mcp__reme__*` wildcard so it works either way.
