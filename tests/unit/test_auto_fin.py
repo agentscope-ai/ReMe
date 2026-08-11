@@ -158,7 +158,8 @@ class _ResearchAgent(BaseAgentWrapper):
                 body=(
                     "## 今日判断\n\n"
                     "CLS 1（09:00，黄金上涨）与 "
-                    "[[daily/2026-08-01/auto_fin.md|历史黄金观察]] 背景相似。\n\n"
+                    "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]"
+                    "(daily/2026-08-01/auto_fin.md) 背景相似。\n\n"
                     "无效引用 [[daily/missing.md|缺失文章]] 和 [[../../outside.md|越界文章]] 应降级。"
                 ),
             ),
@@ -194,11 +195,40 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
     assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["memory_search", "read"]}
     report = (tmp_path / "daily" / "2026-08-10" / "auto_fin.md").read_text(encoding="utf-8")
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in report
+    assert "](daily/2026-08-01/auto_fin.md)" not in report
     assert "缺失文章" in report and "越界文章" in report
     assert "missing.md" not in report and "outside.md" not in report
     assert not (tmp_path / "daily" / "2026-08-10" / "auto_fin_news.md").exists()
     assert not (tmp_path / "resource").exists()
     assert response.metadata["source_paths"] == ["daily/2026-08-01/auto_fin.md"]
+
+
+def test_hybrid_wikilink_normalization_is_conservative_and_failure_safe(tmp_path: Path, monkeypatch):
+    import reme.steps.cookbook.auto_fin.merge as merge_module
+
+    step = AutoFinMergeStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
+    )
+    body = (
+        "[[digest/wiki/gold.md]](digest/wiki/gold.md) "
+        "[[digest/wiki/gold.md|黄金]](<digest/wiki/gold.md>) "
+        "[[digest/wiki/gold.md#L2|黄金]](digest/wiki/gold.md) "
+        "[[digest/wiki/gold.md]](digest/wiki/other.md)"
+    )
+    assert step._normalize_hybrid_wikilinks(body) == (
+        "[[digest/wiki/gold.md]] "
+        "[[digest/wiki/gold.md|黄金]] "
+        "[[digest/wiki/gold.md#L2|黄金]] "
+        "[[digest/wiki/gold.md]](digest/wiki/other.md)"
+    )
+
+    class _BrokenPattern:
+        @staticmethod
+        def sub(_replace, _body):
+            raise RuntimeError("normalization failed")
+
+    monkeypatch.setattr(merge_module, "_HYBRID_WIKILINK_RE", _BrokenPattern())
+    assert step._normalize_hybrid_wikilinks(body) == body
 
 
 def test_config_has_default_topics_and_no_intermediate_index_step():

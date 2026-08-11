@@ -15,6 +15,9 @@ from ._base import AutoFinStep, _write
 
 _TOOLS = ["memory_search", "read"]
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
+_HYBRID_WIKILINK_RE = re.compile(
+    r"(?P<wikilink>\[\[(?P<inner>[^\[\]\n]+)\]\])\((?P<destination>[^()\n]+)\)",
+)
 
 
 @R.register("auto_fin_merge_step")
@@ -30,6 +33,26 @@ class AutoFinMergeStep(AutoFinStep):
         if path.is_file():
             return path.read_text(encoding="utf-8")
         return "今日暂无更早时段的推荐，本次为当日首次生成。"
+
+    def _normalize_hybrid_wikilinks(self, body: str) -> str:
+        """Remove a redundant Markdown destination from an unambiguous wikilink hybrid."""
+
+        def replace(match: re.Match[str]) -> str:
+            inner = match.group("inner").strip()
+            raw_target = inner.partition("|")[0].strip()
+            target_path = raw_target.partition("#")[0].strip()
+            destination = match.group("destination").strip()
+            if destination.startswith("<") and destination.endswith(">"):
+                destination = destination[1:-1].strip()
+            if destination in {raw_target, target_path}:
+                return match.group("wikilink")
+            return match.group(0)
+
+        try:
+            return _HYBRID_WIKILINK_RE.sub(replace, body)
+        except Exception as exc:  # Defensive boundary: report generation must not depend on cosmetic normalization.
+            self.logger.warning(f"[{self.name}] failed to normalize hybrid wikilinks; keeping original body: {exc}")
+            return body
 
     @staticmethod
     def _normalize(output: AutoFinReportOutput) -> AutoFinReportOutput:
@@ -97,6 +120,7 @@ class AutoFinMergeStep(AutoFinStep):
             current_report=self._current_report(run_date),
         )
         output = self._normalize(output)
+        output = output.model_copy(update={"body": self._normalize_hybrid_wikilinks(output.body)})
         body, source_paths = self._validate_wikilinks(output.body, run_date)
         output = output.model_copy(update={"body": body})
         markdown = f"# {output.title}\n\n> {output.description}\n\n{output.body}\n\n"
