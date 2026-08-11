@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyStreamChunk, decodeSseEvent } from "../app/chat-stream.ts";
+import {
+  applyStreamChunk,
+  chatStreamError,
+  decodeSseEvent,
+} from "../app/chat-stream.ts";
 
 const initial = () => ({
   id: "assistant",
@@ -133,4 +137,29 @@ test("SSE terminal marker becomes an explicit done chunk", () => {
       done: false,
     },
   );
+});
+
+test("an aborted stream finishes without showing an error", async () => {
+  const controller = new AbortController();
+  controller.abort();
+
+  const error = await chatStreamError(
+    () => Promise.reject(new DOMException("Aborted", "AbortError")),
+    controller.signal,
+    "Chat failed",
+  );
+
+  assert.equal(error, undefined);
+});
+
+test("a failed stream returns its error message", async () => {
+  const controller = new AbortController();
+
+  const error = await chatStreamError(
+    () => Promise.reject(new Error("Connection lost")),
+    controller.signal,
+    "Chat failed",
+  );
+
+  assert.equal(error, "Connection lost");
 });

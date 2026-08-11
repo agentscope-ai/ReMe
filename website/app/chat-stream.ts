@@ -9,6 +9,20 @@ import type {
 
 const detailTypes = new Set(["think", "data", "approval", "usage"]);
 
+export async function chatStreamError(
+  operation: () => Promise<void>,
+  signal: AbortSignal,
+  fallback: string,
+): Promise<string | undefined> {
+  try {
+    await operation();
+    return undefined;
+  } catch (error) {
+    if (signal.aborted) return undefined;
+    return error instanceof Error ? error.message : fallback;
+  }
+}
+
 export function decodeSseEvent(raw: string): StreamChunk | null {
   const data = raw
     .split(/\r?\n/)

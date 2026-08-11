@@ -23,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { getReMeVersion, readWorkspaceFile, streamChat } from "./api";
-import { formatStreamPayloads } from "./chat-stream";
+import { chatStreamError, formatStreamPayloads } from "./chat-stream";
 import FilesNavigator from "./files-workspace/FilesNavigator";
 import MemoryGraphView from "./files-workspace/MemoryGraphView";
 import { clampNavigatorWidth } from "./files-workspace/panel-resize";
@@ -384,23 +384,18 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
       blocks: [],
     };
     addChatTurn(tab.id, user, assistant);
-    controller.current = new AbortController();
-    try {
-      await streamChat(
-        query,
-        tab.sessionId,
-        controller.current.signal,
-        (chunk) => applyChatChunk(tab.id, assistant.id, chunk),
-      );
-      finishChat(tab.id, assistant.id);
-    } catch (error) {
-      if (!controller.current.signal.aborted)
-        finishChat(
-          tab.id,
-          assistant.id,
-          error instanceof Error ? error.message : t("chatFailed"),
-        );
-    }
+    const requestController = new AbortController();
+    controller.current = requestController;
+    const error = await chatStreamError(
+      () =>
+        streamChat(query, tab.sessionId, requestController.signal, (chunk) =>
+          applyChatChunk(tab.id, assistant.id, chunk),
+        ),
+      requestController.signal,
+      t("chatFailed"),
+    );
+    finishChat(tab.id, assistant.id, error);
+    if (controller.current === requestController) controller.current = null;
   };
 
   return (
