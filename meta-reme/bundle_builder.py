@@ -203,10 +203,15 @@ __all__ = ["BaseTokenizer", "RegexTokenizer"]
         raise BundleBuildError("Could not prune auto-fin schema exports")
     auto_fin_names = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", auto_fin_import.group(1))
     content = content[: auto_fin_import.start()] + content[auto_fin_import.end() :]
-    daily_paper_import = re.search(r"from \.daily_paper import ([^\n]+)\n", content)
+    daily_paper_import = re.search(
+        r"from \.daily_paper import (?:(?:\((.*?)\)\n)|([^\n]+)\n)",
+        content,
+        flags=re.DOTALL,
+    )
     if daily_paper_import is None:
         raise BundleBuildError("Could not prune daily-paper schema exports")
-    daily_paper_names = [name.strip() for name in daily_paper_import.group(1).split(",")]
+    daily_paper_body = daily_paper_import.group(1) or daily_paper_import.group(2)
+    daily_paper_names = re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", daily_paper_body)
     content = content[: daily_paper_import.start()] + content[daily_paper_import.end() :]
     for exported_name in auto_fin_names + daily_paper_names:
         content = content.replace(f'    "{exported_name}",\n', "")
