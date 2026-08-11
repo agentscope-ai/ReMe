@@ -462,6 +462,18 @@ class ReMeBridge:
             except Exception as exc:
                 logger.warning("Failed to wrap job '%s' as agent tool: %s", name, exc)
 
+        # AgentScope builtin file tools (bash/read/write/edit/glob/grep).
+        # A prebuilt toolkit bypasses _build_agent's builtin-tools branch,
+        # and since ReMe commit e05b201d builtins are opt-in, they must be
+        # added here explicitly — the agent needs them to read task asset
+        # files (e.g. instrument_booking_brief.md) from its workspace.
+        builtin = getattr(self.agent_wrapper, "_builtin_tools", None)
+        if builtin is not None:
+            try:
+                tools.extend(builtin("all", sequential_tool_calls=True))
+            except Exception as exc:
+                logger.warning("Failed to add builtin tools: %s", exc)
+
         try:
             return Toolkit(tools=tools, mcps=[mcp_client])
         except Exception as exc:
