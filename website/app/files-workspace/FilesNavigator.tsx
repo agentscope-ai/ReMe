@@ -22,7 +22,7 @@ import {
   getAppConfig,
   listWorkspaceFiles,
   readWorkspaceFile,
-  REME_API_URL,
+  REME_API_ENDPOINT,
 } from "../api";
 import { useI18n } from "../i18n";
 import { useWorkspaceStore } from "../store";
@@ -54,9 +54,9 @@ const loadWorkspace = () =>
   Promise.all([getAppConfig(), listWorkspaceFiles([...extensions])]);
 const remeEndpoint = (() => {
   try {
-    return new URL(REME_API_URL).host;
+    return new URL(REME_API_ENDPOINT).host;
   } catch {
-    return REME_API_URL;
+    return REME_API_ENDPOINT;
   }
 })();
 
@@ -340,7 +340,7 @@ export default function FilesNavigator({
             />
           ))}
         </div>
-        <div className="workspace-path" title={REME_API_URL}>
+        <div className="workspace-path" title={REME_API_ENDPOINT}>
           <span
             className={`status-dot ${status === "error" ? "offline" : ""}`}
           />

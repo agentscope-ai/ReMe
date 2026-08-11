@@ -12,10 +12,15 @@ import {
   workspaceFileListing,
   type WorkspaceFileListing,
 } from "./workspace-files";
+import { displayReMeApiEndpoint, normalizeReMeApiUrl } from "./api-endpoint";
 
-export const REME_API_URL = (
-  process.env.NEXT_PUBLIC_REME_API_URL || "http://127.0.0.1:2333"
-).replace(/\/$/, "");
+export const REME_API_URL = normalizeReMeApiUrl(
+  process.env.NEXT_PUBLIC_REME_API_URL || "http://127.0.0.1:2333",
+);
+export const REME_API_ENDPOINT = displayReMeApiEndpoint(
+  REME_API_URL,
+  typeof window === "undefined" ? undefined : window.location.origin,
+);
 const message = (key: TranslationKey, status: number) =>
   translate(useLanguageStore.getState().language, key, {
     status: String(status),

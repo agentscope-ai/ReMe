@@ -54,6 +54,8 @@ def test_http_service_serves_workspace_without_shadowing_jobs(tmp_path: Path) ->
         assert client.get("/favicon.svg").text == "<svg></svg>"
         assert client.get("/assets/app.js").text == "console.log('reme')"
         assert client.post("/status").json() == {"success": True}
+        assert client.get("/status").status_code == 405
+        assert client.get("/status").headers["allow"] == "POST"
         assert client.get("/").headers["cache-control"] == "no-cache, no-store, must-revalidate"
 
     assert app.started is True

@@ -17,7 +17,7 @@ import {
   getReMeStatus,
   getReMeVersion,
   rebuildReMeIndex,
-  REME_API_URL,
+  REME_API_ENDPOINT,
 } from "./api";
 import { useI18n } from "./i18n";
 import type { AppConfig, ReMeResponse } from "./types";
@@ -357,7 +357,7 @@ export default function SettingsCenter({
                   </div>
                   <div>
                     <small>{t("apiEndpoint")}</small>
-                    <code>{REME_API_URL}</code>
+                    <code>{REME_API_ENDPOINT}</code>
                   </div>
                 </section>
               </div>

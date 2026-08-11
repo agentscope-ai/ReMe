@@ -101,11 +101,23 @@ class HttpService(BaseService):
             )
 
         no_cache_headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+        post_only_paths = {
+            route.path
+            for route in self.service.routes
+            if "POST" in (getattr(route, "methods", None) or set())
+            and "GET" not in (getattr(route, "methods", None) or set())
+        }
 
         @self.service.get("/{full_path:path}", include_in_schema=False)
         async def workspace_spa(full_path: str):
             if full_path in {"docs", "redoc", "openapi.json"}:
                 raise HTTPException(status_code=404, detail="Not Found")
+            if f"/{full_path}" in post_only_paths:
+                raise HTTPException(
+                    status_code=405,
+                    detail="Method Not Allowed",
+                    headers={"Allow": "POST"},
+                )
 
             if full_path and not Path(full_path).is_absolute():
                 static_file = (static_dir / full_path).resolve()
