@@ -81,7 +81,7 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             info_table.add_row("🔗", "URL:", f"http://{host}:{port}")
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
         case "mcp":
-            transport = extra.get("transport", "stdio")
+            transport = getattr(runtime_service, "transport", extra.get("transport", "sse"))
             info_table.add_row("🚌", "Transport:", transport)
             if transport != "stdio":
                 host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))

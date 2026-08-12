@@ -41,6 +41,27 @@ def test_logo_fallback_matches_service_defaults(monkeypatch) -> None:
     assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}" in output
 
 
+def test_logo_uses_runtime_mcp_transport_and_address(monkeypatch) -> None:
+    """Display the transport resolved by the instantiated MCP service."""
+    config = ApplicationConfig(service=ComponentConfig(backend="mcp"))
+    runtime_service = SimpleNamespace(transport="sse", host="0.0.0.0", port=8123)
+
+    output = _render_logo(monkeypatch, config, runtime_service)
+
+    assert "Transport: sse" in output
+    assert "http://0.0.0.0:8123/sse" in output
+
+
+def test_logo_mcp_fallback_matches_service_defaults(monkeypatch) -> None:
+    """Keep direct print_logo callers aligned with MCP service defaults."""
+    config = ApplicationConfig(service=ComponentConfig(backend="mcp"))
+
+    output = _render_logo(monkeypatch, config)
+
+    assert "Transport: sse" in output
+    assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/sse" in output
+
+
 def test_application_passes_instantiated_service_to_logo(monkeypatch, tmp_path) -> None:
     """Render the service address after backend defaults and overrides resolve."""
     captured = {}
