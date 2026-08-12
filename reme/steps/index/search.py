@@ -7,6 +7,7 @@ from typing import Final
 
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
 from ...components import R
 from ...schema import FileChunk
 from ...utils import expand_links, render_expansion_lines
@@ -261,7 +262,13 @@ class SearchStep(BaseStep):
             )
             answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
 
-        self.context.response.answer = "\n".join(answer_lines)
+        if not fused:
+            if dedup is not None and dedup.get("skipped_seen", 0) > 0:
+                self.context.response.answer = ALL_RETURNED_MESSAGE
+            else:
+                self.context.response.answer = NO_RESULTS_MESSAGE
+        else:
+            self.context.response.answer = "\n".join(answer_lines)
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
         ]

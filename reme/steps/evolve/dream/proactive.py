@@ -50,11 +50,17 @@ class ProactiveStep(BaseStep):
         elif result.skipped:
             self.context.response.answer = result.summary
         else:
-            self.context.response.answer = {
-                "summary": result.summary,
-                "topics": result.topics,
-                **({"content": result.content} if include_content else {}),
-            }
+            lines = [result.summary]
+            if result.topics:
+                lines.append("")
+                lines.append("Topics:")
+                for topic in result.topics:
+                    lines.append(f"  - {topic}")
+            if include_content and result.content:
+                lines.append("")
+                lines.append("Content:")
+                lines.append(result.content)
+            self.context.response.answer = "\n".join(lines)
         self.context.response.metadata.update(result.model_dump())
         self.logger.info(f"[{self.name}] finish success={success} answer={self.context.response.answer!r}")
         return self.context.response

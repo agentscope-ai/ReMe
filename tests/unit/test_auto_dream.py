@@ -624,20 +624,12 @@ def test_proactive_answer_includes_topics_and_requested_content(tmp_path):
         response = await step(RuntimeContext(date="2026-05-28", include_content=True, file_store=_FileStore(tmp_path)))
 
         assert response.success is True
-        assert response.answer == {
-            "summary": "Read 1 proactive topic(s) from daily/2026-05-28/interests.yaml",
-            "topics": [
-                {
-                    "title": "Retrieval quality",
-                    "reason": "Search behavior changed repeatedly.",
-                    "evidence": "daily/2026-05-28/session.md",
-                    "keywords": [],
-                    "paths": [],
-                },
-            ],
-            "content": content,
-        }
-        assert response.metadata["topics"] == response.answer["topics"]
+        assert isinstance(response.answer, str)
+        assert "Read 1 proactive topic(s) from daily/2026-05-28/interests.yaml" in response.answer
+        assert "Topics:" in response.answer
+        assert "Retrieval quality" in response.answer
+        assert "Content:" in response.answer
+        assert response.metadata["topics"][0]["title"] == "Retrieval quality"
         assert response.metadata["content"] == content
 
     asyncio.run(run())
@@ -653,8 +645,10 @@ def test_proactive_answer_omits_unrequested_content(tmp_path):
         response = await step(RuntimeContext(date="2026-05-28", include_content=False, file_store=_FileStore(tmp_path)))
 
         assert response.success is True
-        assert "content" not in response.answer
-        assert response.answer["topics"][0]["title"] == "Topic"
+        assert isinstance(response.answer, str)
+        assert "Content:" not in response.answer
+        assert "Topics:" in response.answer
+        assert "Topic" in response.answer
         assert response.metadata["content"] == ""
 
     asyncio.run(run())
