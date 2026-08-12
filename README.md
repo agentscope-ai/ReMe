@@ -273,6 +273,8 @@ when appropriate.
 | **Hermes**                                  | Start the HTTP service and install [plugins/hermes_agent](plugins/hermes_agent).                  | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.             |
 | **Other CLI-capable agents (OpenClaw/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md).                     | Search, read, and write memory via the CLI; automatic recording requires explicit host lifecycle hooks.    |
 
+For detailed MCP service configuration and tool reference, see the [MCP Service Guide](docs/en/mcp_service.md).
+
 <p align="center"><b>Integration demos</b></p>
 
 <table>
