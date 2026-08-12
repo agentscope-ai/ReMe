@@ -31,9 +31,9 @@ export async function generateMetadata(): Promise<Metadata> {
       description: "本地优先的 Agent 记忆工作区",
       images: [
         {
-          url: "/og.png",
-          width: 1731,
-          height: 909,
+          url: "/og.jpg",
+          width: 1200,
+          height: 626,
           alt: "ReMe Studio memory workspace",
         },
       ],
@@ -42,7 +42,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: "ReMe Studio",
       description: "本地优先的 Agent 记忆工作区",
-      images: ["/og.png"],
+      images: ["/og.jpg"],
     },
   };
 }

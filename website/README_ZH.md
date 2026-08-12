@@ -5,7 +5,7 @@
 ReMe Studio 是 ReMe 的本地 Web 工作区。你可以在这里浏览和编辑自己拥有的工作区文件、探索记忆之间的联系，并与 ReMe Agent
 对话，而无需将持久记忆迁移到独立的应用数据库中。搜索索引、图谱和其他派生元数据均可根据源文件重建。
 
-![ReMe Studio 工作区](./public/og.png)
+![ReMe Studio 工作区](./public/og.jpg)
 
 ## 功能
 
