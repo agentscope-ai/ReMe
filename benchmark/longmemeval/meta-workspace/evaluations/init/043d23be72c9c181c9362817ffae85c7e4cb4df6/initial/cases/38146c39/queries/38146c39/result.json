@@ -1,0 +1,36 @@
+{
+  "query_id": "38146c39",
+  "question": "I've been feeling like my chocolate chip cookies need something extra. Any advice?",
+  "golden_answer": "The user would prefer responses that build upon their previous experimentation with turbinado sugar, suggesting ingredients or techniques that complement its richer flavor. They might not prefer generic cookie-making advice or suggestions that don't take into account their existing use of turbinado sugar.",
+  "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+  "score": null,
+  "answer_result": {
+    "success": false,
+    "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+    "metadata": {},
+    "token_usage": {
+      "default": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "judge": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "bench": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      }
+    },
+    "job_call_counts": {
+      "agentic_answer": 1,
+      "search": 7
+    },
+    "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+  },
+  "judge_result": null,
+  "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+}

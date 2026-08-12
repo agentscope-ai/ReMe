@@ -1,0 +1,48 @@
+{
+  "artifact_sha256": {
+    "memory_workspace": "7cf4dc501599c2ec16ca15be0cb398d197d0f3d53634450d7fad8abf0ccb9449"
+  },
+  "build": {
+    "jobs": [
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 1
+          },
+          "metadata": {},
+          "success": false,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      }
+    ],
+    "success": false
+  },
+  "case_id": "7024f17c",
+  "completed_stages": [
+    "prepare",
+    "construct_memory"
+  ],
+  "error": "memory construction failed",
+  "queries": [],
+  "status": "candidate_failure"
+}

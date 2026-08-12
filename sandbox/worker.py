@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import subprocess
 import traceback
 from typing import Any
 
@@ -222,7 +223,13 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(arguments, dict):
                 raise ValueError(f"build job arguments must be an object at index {index}")
             result = await _run_job_on_app(app, specification["job"], arguments)
-            results.append({"job": specification["job"], "result": result})
+            item = {"job": specification["job"], "result": result}
+            checkpoint = specification.get("memory_checkpoint")
+            if checkpoint is not None and (not isinstance(checkpoint, str) or not checkpoint.strip()):
+                raise ValueError(f"invalid memory_checkpoint at index {index}")
+            if result["success"] and checkpoint is not None:
+                item["memory_checkpoint"] = _commit_memory_checkpoint(case_root, app_config, checkpoint)
+            results.append(item)
             if not result["success"]:
                 break
     finally:
@@ -232,6 +239,56 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
     return {
         "success": len(results) == len(jobs) and all(item["result"]["success"] for item in results),
         "jobs": results,
+    }
+
+
+def _commit_memory_checkpoint(case_root: Path, app_config: dict[str, Any], message: str) -> dict[str, str]:
+    """Commit one host-declared boundary containing only source daily memory."""
+
+    workspace_root = Path(app_config["workspace_dir"]).resolve()
+    daily_path = (workspace_root / app_config["daily_dir"]).resolve()
+    try:
+        relative_daily = daily_path.relative_to(workspace_root).as_posix()
+        workspace_root.relative_to(case_root.resolve())
+    except ValueError as exc:
+        raise ValueError("memory checkpoint path escapes the runtime workspace") from exc
+    if not relative_daily or relative_daily == ".":
+        raise ValueError("memory checkpoint daily_dir must not be the workspace root")
+
+    def git(*arguments: str, allowed_exit_codes: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=workspace_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode not in allowed_exit_codes:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"git {' '.join(arguments)} failed: {detail}")
+        return result
+
+    git("add", "-A", "--", relative_daily)
+    changed = git("diff", "--cached", "--quiet", "--", relative_daily, allowed_exit_codes=(0, 1)).returncode == 1
+    commit = [
+        "-c",
+        "user.name=ReMe Sandbox",
+        "-c",
+        "user.email=reme-sandbox@localhost",
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "--only",
+        "-m",
+        message,
+    ]
+    if changed:
+        commit.extend(["--", relative_daily])
+    git(*commit)
+    return {
+        "commit_sha": git("rev-parse", "HEAD").stdout.strip(),
+        "message": message,
+        "path": relative_daily,
     }
 
 

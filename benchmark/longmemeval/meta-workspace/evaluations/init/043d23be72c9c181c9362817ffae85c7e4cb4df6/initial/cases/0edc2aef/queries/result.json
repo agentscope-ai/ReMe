@@ -1,0 +1,91 @@
+{
+  "queries": [
+    {
+      "answer": "Information not found.",
+      "answer_result": {
+        "answer": "Information not found.",
+        "error": null,
+        "job_call_counts": {
+          "agentic_answer": 1,
+          "search": 5
+        },
+        "metadata": {
+          "query": "Can you suggest a hotel for my upcoming trip to Miami?",
+          "query_time": "2023-05-30T20:23:00",
+          "response": "Information not found.",
+          "sys_prompt": "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n- Your total time of tool calls should be at most 9 times\n\n## Search Strategy\n- You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.\n- Do not stop after the first relevant one unless you are confident that the information is sufficient.\n- You can use 'read' tool to read specific parts of a specific file.\n- After finding a preliminary answer, continue searching from multiple angles to check for potentially conflicting, supplementary, or updated information.\n## Draft Tool\n- Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.\n## Answer Rules\n- Answer based ONLY on retrieved context.\n- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n- Do NOT invent or assume information that isn't in the memories. Do NOT extrapolate or fabricate connections from related but non-direct evidence.\n- If information is not found or not sufficient after multiple searches, or if the maximum iteration count is reached without finding answer, reply: 'Information not found.'\nCurrent time context: 2023-05-30T20:23:00"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": 46414,
+            "output_tokens": 487,
+            "total_tokens": 46901
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      },
+      "error": null,
+      "golden_answer": "The user would prefer suggestions of hotels in Miami that offer great views, possibly of the ocean or the city skyline, and have unique features such as a rooftop pool or a hot tub on the balcony. They may not prefer suggestions of basic or budget hotels without these features.",
+      "judge_result": {
+        "answer": "no",
+        "error": null,
+        "job_call_counts": {
+          "answer_judge": 1
+        },
+        "metadata": {
+          "agent_answer": "Information not found.",
+          "answer_judgement": "no",
+          "golden_answer": "The user would prefer suggestions of hotels in Miami that offer great views, possibly of the ocean or the city skyline, and have unique features such as a rooftop pool or a hot tub on the balcony. They may not prefer suggestions of basic or budget hotels without these features.",
+          "query": "Can you suggest a hotel for my upcoming trip to Miami?",
+          "question_type": "single-session-preference",
+          "raw_answer_judgement": "no"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": 186,
+            "output_tokens": 157,
+            "total_tokens": 343
+          }
+        }
+      },
+      "query_id": "0edc2aef",
+      "question": "Can you suggest a hotel for my upcoming trip to Miami?",
+      "score": 0.0
+    }
+  ],
+  "success": true,
+  "summary": {
+    "case_id": "0edc2aef",
+    "mean_score": 0.0,
+    "queries": [
+      {
+        "query_id": "0edc2aef",
+        "score": 0.0
+      }
+    ],
+    "query_count": 1,
+    "schema_version": 1,
+    "scored_count": 1
+  }
+}

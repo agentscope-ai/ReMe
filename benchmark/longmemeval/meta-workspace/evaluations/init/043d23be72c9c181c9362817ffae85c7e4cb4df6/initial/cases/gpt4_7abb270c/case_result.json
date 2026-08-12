@@ -1,0 +1,49 @@
+{
+  "artifact_sha256": {
+    "memory_workspace": "08a837c52ee07ccb8d7d9a34d619c2b085125a05e4a0a3da86dbc3fe47e3c252"
+  },
+  "build": {
+    "jobs": [
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 1,
+            "daily_write": 1
+          },
+          "metadata": {},
+          "success": false,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      }
+    ],
+    "success": false
+  },
+  "case_id": "gpt4_7abb270c",
+  "completed_stages": [
+    "prepare",
+    "construct_memory"
+  ],
+  "error": "memory construction failed",
+  "queries": [],
+  "status": "candidate_failure"
+}

@@ -1,0 +1,263 @@
+{
+  "artifact_sha256": {
+    "memory_workspace": "8cd9bd561e84d62b28dca8ca9385ee7a6315af613eac3689e19aeb3ccbccf6fd"
+  },
+  "build": {
+    "jobs": [
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "Created note `/workspace/case/reme_workspace/daily/2023-07-21/schizophrenia-misconceptions-treatment-lifestyle.md` covering schizophrenia misconceptions, clinical treatment protocols, and recommended lifestyle modifications.",
+          "error": null,
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 2,
+            "daily_write": 1
+          },
+          "metadata": {
+            "created": true,
+            "date": "2023-07-21",
+            "index": {
+              "changed": false,
+              "created": false,
+              "date": "2023-07-21",
+              "notes": [
+                {
+                  "description": "A comprehensive overview of widely held misconceptions regarding schizophrenia (including violence myths, split-personality conflation, incurability assumptions, parental blame narratives, and independence limitations), followed by evidence-based clinical treatment frameworks (antipsychotic pharmaceuticals, adjunctive antidepressants, cognitive-behavioral therapy, social skills training, and structured caregiver coordination) and actionable lifestyle modification protocols for long-term symptom mitigation (rigorous sleep hygiene, nutritional optimization, complete substance abstinence, scheduled exercise routines, proactive stress management techniques, and deliberate social engagement strategies).",
+                  "name": "schizophrenia-misconceptions-treatment-lifestyle",
+                  "path": "daily/2023-07-21/schizophrenia-misconceptions-treatment-lifestyle.md",
+                  "session_id": "ultrachat_491631",
+                  "source_conversation": "[[session/dialog/ultrachat_491631.jsonl]]"
+                }
+              ],
+              "path": "daily/2023-07-21.md"
+            },
+            "modified": true,
+            "n_messages": 6,
+            "path": "daily/2023-07-21/schizophrenia-misconceptions-treatment-lifestyle.md",
+            "source_conversation": "[[session/dialog/ultrachat_491631.jsonl]]"
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 8249,
+              "output_tokens": 5197,
+              "total_tokens": 13446
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "index_update",
+        "result": {
+          "answer": [
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-07-21.md",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-07-21/schizophrenia-misconceptions-treatment-lifestyle.md",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/session/dialog/ultrachat_491631.jsonl",
+              "success": true
+            }
+          ],
+          "error": null,
+          "job_call_counts": {
+            "index_update": 1
+          },
+          "metadata": {
+            "counts": {
+              "added": 3,
+              "deleted": 0,
+              "modified": 0
+            }
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "The conversation has been processed and saved to the daily memory note at `/workspace/case/reme_workspace/daily/2023-07-21/academy-diversity-inclusion-initiatives.md`.",
+          "error": null,
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 2,
+            "daily_write": 1
+          },
+          "metadata": {
+            "created": true,
+            "date": "2023-07-21",
+            "index": {
+              "changed": false,
+              "created": false,
+              "date": "2023-07-21",
+              "notes": [
+                {
+                  "description": "Comprehensive breakdown of the Academy's diversity and inclusion campaigns (2016-2025), detailing membership growth statistics, the Aperture 2025 framework, the creation of the Office of Equity, Diversity, and Inclusion, and the Academy Dialogues forum. Includes critical analysis regarding systemic Hollywood marginalization, mandates for enforcing anti-discrimination accountability measures, and requirements for cross-stakeholder collaboration to effectuate structural industry reform.",
+                  "name": "academy-diversity-inclusion-initiatives",
+                  "path": "daily/2023-07-21/academy-diversity-inclusion-initiatives.md",
+                  "session_id": "ultrachat_254248",
+                  "source_conversation": "[[session/dialog/ultrachat_254248.jsonl]]"
+                },
+                {
+                  "description": "A comprehensive overview of widely held misconceptions regarding schizophrenia (including violence myths, split-personality conflation, incurability assumptions, parental blame narratives, and independence limitations), followed by evidence-based clinical treatment frameworks (antipsychotic pharmaceuticals, adjunctive antidepressants, cognitive-behavioral therapy, social skills training, and structured caregiver coordination) and actionable lifestyle modification protocols for long-term symptom mitigation (rigorous sleep hygiene, nutritional optimization, complete substance abstinence, scheduled exercise routines, proactive stress management techniques, and deliberate social engagement strategies).",
+                  "name": "schizophrenia-misconceptions-treatment-lifestyle",
+                  "path": "daily/2023-07-21/schizophrenia-misconceptions-treatment-lifestyle.md",
+                  "session_id": "ultrachat_491631",
+                  "source_conversation": "[[session/dialog/ultrachat_491631.jsonl]]"
+                }
+              ],
+              "path": "daily/2023-07-21.md"
+            },
+            "modified": true,
+            "n_messages": 8,
+            "path": "daily/2023-07-21/academy-diversity-inclusion-initiatives.md",
+            "source_conversation": "[[session/dialog/ultrachat_254248.jsonl]]"
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 8445,
+              "output_tokens": 3662,
+              "total_tokens": 12107
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "index_update",
+        "result": {
+          "answer": [
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/session/dialog/ultrachat_254248.jsonl",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-07-21/academy-diversity-inclusion-initiatives.md",
+              "success": true
+            },
+            {
+              "change": "modified",
+              "path": "/workspace/case/reme_workspace/daily/2023-07-21.md",
+              "success": true
+            }
+          ],
+          "error": null,
+          "job_call_counts": {
+            "index_update": 1
+          },
+          "metadata": {
+            "counts": {
+              "added": 2,
+              "deleted": 0,
+              "modified": 1
+            }
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 1
+          },
+          "metadata": {},
+          "success": false,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      }
+    ],
+    "success": false
+  },
+  "case_id": "81507db6",
+  "completed_stages": [
+    "prepare",
+    "construct_memory"
+  ],
+  "error": "memory construction failed",
+  "queries": [],
+  "status": "candidate_failure"
+}

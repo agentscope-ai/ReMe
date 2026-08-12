@@ -1,35 +1,40 @@
 # Meta-ReMe validation
 
 Running `meta-reme/run.py` prepares the configured dataset and initial bundle,
-then automatically validates the `init` branch against every installed case.
-The first result is stored under `evaluations/init/initial/`; a completed result
+then automatically validates the clean current commit on the `init` branch against every installed case.
+The first result is stored under `evaluations/init/<commit-prefix>/initial/`; a completed result
 is reused on later invocations. Configure concurrency with
 `validation.concurrency` in `config_meta_reme.yaml`. Set
 `validation.fail_fast: true` to abort the run on its first case or query error;
 the default keeps other cases running.
 
-Validate prepared workspace cases against an immutable code revision:
+Validate prepared workspace cases against the current committed code revision:
 
 ```bash
 python meta-reme/validation/run.py \
   --workspace /path/to/workspace \
   --case-id case-1 \
   --case-id case-2 \
-  --code-id <branch-name> \
   --concurrency 2 \
   --fail-fast
 ```
 
-`--case-id` may be repeated. The code ID is the name of a local Git branch; commit
-hashes and tags are not accepted. The branch is resolved to a full Git commit before
-execution, and the candidate snapshot is built from that commit rather than the
-current working tree. Code IDs must be path-safe branch names (for example,
-`candidate-001`, without `/`) because the same value keys the result directory.
+`--case-id` may be repeated. Validation always uses the branch currently checked out in
+`<workspace>/code/repo/reme`. Detached HEAD and branch names containing `/` are rejected.
+Before creating any results, validation requires Git status to be clean, including staged,
+unstaged, untracked, and submodule changes. It then resolves the full HEAD commit and builds
+an immutable candidate snapshot from that commit. This keeps the evaluated code stable even
+if the repository changes after validation begins.
 Results are written without overwriting earlier runs:
 
 ```text
-<workspace>/evaluations/<code-id>/<validation-id>/
+<workspace>/evaluations/<branch-name>/<commit-prefix>/<validation-id>/
 ```
+
+`<commit-prefix>` starts with the first seven characters of the full commit SHA.
+If that prefix is already used by a different commit on the same branch, it is
+extended one character at a time until it is unique. Result manifests always
+retain the full SHA.
 
 `--fail-fast` is optional. When enabled, a construction failure, query
 answer/judge error, or query infrastructure error is persisted before sibling
@@ -61,9 +66,14 @@ cases/<case-id>/
 `reme_workspace.tar.gz` is produced by the sandbox workspace export API and can
 be passed directly to `upload_workspace()` on a fresh sandbox case before
 running more queries. The same snapshot is safely extracted beside the archive
-as `reme_workspace/` for direct inspection. Query artifacts use a temporary
-archive only for transfer and safe extraction; the archive and its redundant
-`summary.json` are deleted immediately afterward.
+as `reme_workspace/` for direct inspection. After each session's successful
+`auto_memory` and `index_update` pair, validation creates a local Git checkpoint
+that commits only the configured `daily_dir`. The build result records the
+checkpoint commit SHA, session message, and tracked path. The exported `.git`
+directory therefore preserves the session-by-session evolution of source
+memory while excluding derived metadata and indexes. Query artifacts use a
+temporary archive only for transfer and safe extraction; the archive and its
+redundant `summary.json` are deleted immediately afterward.
 
 Validation uses a strict two-phase schedule. Reusable workers first construct
 all case memories. A successful construction is exported as the case's
@@ -95,7 +105,7 @@ from regular code:
 ```python
 from validation import run_validation
 
-result_dir = run_validation(workspace, case_ids, code_id, concurrency=2, fail_fast=True)
+result_dir = run_validation(workspace, case_ids, concurrency=2, fail_fast=True)
 ```
 
 Applications that already run an event loop should use the native async entry
@@ -104,5 +114,5 @@ point instead:
 ```python
 from validation import run_validation_async
 
-result_dir = await run_validation_async(workspace, case_ids, code_id, concurrency=2)
+result_dir = await run_validation_async(workspace, case_ids, concurrency=2)
 ```

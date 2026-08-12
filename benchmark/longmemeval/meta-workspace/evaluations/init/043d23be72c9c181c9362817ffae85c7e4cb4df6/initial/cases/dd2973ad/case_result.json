@@ -1,0 +1,152 @@
+{
+  "artifact_sha256": {
+    "memory_workspace": "2dc95814cdadffad980b0b1e5a772e17381c8717cd208dab2ca23807f39e181a"
+  },
+  "build": {
+    "jobs": [
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "Created the note \"deep-sea-fishing-procedures-and-health\" in 2023-05-20 to document deep-sea fishing vessel safety protocols, crew motion sickness mitigation strategies (including medications and natural remedies), and emergency medical response procedures.",
+          "error": null,
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 2,
+            "daily_write": 1
+          },
+          "metadata": {
+            "created": true,
+            "date": "2023-05-20",
+            "index": {
+              "changed": false,
+              "created": false,
+              "date": "2023-05-20",
+              "notes": [
+                {
+                  "description": "Operational protocols for deep-sea fishing boats to withstand rough seas, including vessel sizing, ballast systems, and navigation tech. Comprehensive guidelines for mitigating crew motion sickness involving pharmacological agents (Dramamine, Scopolamine), natural remedies (ginger, acupressure), and dietary/hydration management. Established medical response procedures for severe seasickness, emphasizing first aid kits, captain intervention, and emergency evacuation via coast guard contact.",
+                  "name": "deep-sea-fishing-procedures-and-health",
+                  "path": "daily/2023-05-20/deep-sea-fishing-procedures-and-health.md",
+                  "session_id": "ultrachat_404693",
+                  "source_conversation": "[[session/dialog/ultrachat_404693.jsonl]]"
+                }
+              ],
+              "path": "daily/2023-05-20.md"
+            },
+            "modified": true,
+            "n_messages": 6,
+            "path": "daily/2023-05-20/deep-sea-fishing-procedures-and-health.md",
+            "source_conversation": "[[session/dialog/ultrachat_404693.jsonl]]"
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 8043,
+              "output_tokens": 3211,
+              "total_tokens": 11254
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "index_update",
+        "result": {
+          "answer": [
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-05-20/deep-sea-fishing-procedures-and-health.md",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-05-20.md",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/session/dialog/ultrachat_404693.jsonl",
+              "success": true
+            }
+          ],
+          "error": null,
+          "job_call_counts": {
+            "index_update": 1
+          },
+          "metadata": {
+            "counts": {
+              "added": 3,
+              "deleted": 0,
+              "modified": 0
+            }
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 1
+          },
+          "metadata": {},
+          "success": false,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      }
+    ],
+    "success": false
+  },
+  "case_id": "dd2973ad",
+  "completed_stages": [
+    "prepare",
+    "construct_memory"
+  ],
+  "error": "memory construction failed",
+  "queries": [],
+  "status": "candidate_failure"
+}

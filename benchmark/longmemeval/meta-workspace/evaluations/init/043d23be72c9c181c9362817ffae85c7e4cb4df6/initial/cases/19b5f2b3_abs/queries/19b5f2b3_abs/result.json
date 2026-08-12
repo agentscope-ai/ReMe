@@ -1,0 +1,74 @@
+{
+  "query_id": "19b5f2b3_abs",
+  "question": "How long was I in Korea for?",
+  "golden_answer": "You did not mention this information. You mentioned staying in Japan, but not in Korea.",
+  "answer": "Information not found.",
+  "score": 1.0,
+  "answer_result": {
+    "success": true,
+    "answer": "Information not found.",
+    "metadata": {
+      "query": "How long was I in Korea for?",
+      "query_time": "2023-05-30T17:14:00",
+      "sys_prompt": "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n- Your total time of tool calls should be at most 9 times\n\n## Search Strategy\n- You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.\n- Do not stop after the first relevant one unless you are confident that the information is sufficient.\n- You can use 'read' tool to read specific parts of a specific file.\n- After finding a preliminary answer, continue searching from multiple angles to check for potentially conflicting, supplementary, or updated information.\n## Draft Tool\n- Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.\n## Answer Rules\n- Answer based ONLY on retrieved context.\n- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n- Do NOT invent or assume information that isn't in the memories. Do NOT extrapolate or fabricate connections from related but non-direct evidence.\n- If information is not found or not sufficient after multiple searches, or if the maximum iteration count is reached without finding answer, reply: 'Information not found.'\nCurrent time context: 2023-05-30T17:14:00",
+      "response": "Information not found."
+    },
+    "token_usage": {
+      "default": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "judge": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "bench": {
+        "input_tokens": 74505,
+        "output_tokens": 1114,
+        "total_tokens": 75619
+      }
+    },
+    "job_call_counts": {
+      "agentic_answer": 1,
+      "search": 6,
+      "read": 2
+    },
+    "error": null
+  },
+  "judge_result": {
+    "success": true,
+    "answer": "yes",
+    "metadata": {
+      "query": "How long was I in Korea for?",
+      "agent_answer": "Information not found.",
+      "golden_answer": "You did not mention this information. You mentioned staying in Japan, but not in Korea.",
+      "question_type": "single-session-user",
+      "answer_judgement": "yes",
+      "raw_answer_judgement": "yes"
+    },
+    "token_usage": {
+      "default": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "judge": {
+        "input_tokens": 151,
+        "output_tokens": 130,
+        "total_tokens": 281
+      },
+      "bench": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0
+      }
+    },
+    "job_call_counts": {
+      "answer_judge": 1
+    },
+    "error": null
+  },
+  "error": null
+}

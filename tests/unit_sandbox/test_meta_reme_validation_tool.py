@@ -7,7 +7,6 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 META_REME = Path(__file__).resolve().parents[2] / "meta-reme"
@@ -15,7 +14,7 @@ if str(META_REME) not in sys.path:
     sys.path.insert(0, str(META_REME))
 
 runtime = importlib.import_module("runtime")
-tool_module = importlib.import_module("as_tools.validation_tool")
+tool_module = importlib.import_module("as.tools.validation_tool")
 
 
 def _workspace(tmp_path: Path) -> Path:
@@ -24,9 +23,6 @@ def _workspace(tmp_path: Path) -> Path:
     cases.mkdir(parents=True)
     for index, case_id in enumerate(("case-b", "case-a")):
         (cases / f"{index}.json").write_text(json.dumps({"case_id": case_id}), encoding="utf-8")
-    repository = workspace / "code/repo/reme"
-    repository.mkdir(parents=True)
-    subprocess.run(["git", "init", "-b", "candidate"], cwd=repository, check=True, capture_output=True)
     return workspace
 
 
@@ -35,9 +31,9 @@ def test_validation_tool_uses_runtime_defaults_and_returns_summary(tmp_path: Pat
     runtime.TOOL_RUNTIME.configure(workspace, 3)
     calls = []
 
-    def fake_validation(root, case_ids, code_id, concurrency, *, validation_id, fail_fast):
-        calls.append((root, case_ids, code_id, concurrency, validation_id, fail_fast))
-        result_dir = Path(root) / "evaluations" / code_id / validation_id
+    def fake_validation(root, case_ids, concurrency, *, validation_id, fail_fast):
+        calls.append((root, case_ids, concurrency, validation_id, fail_fast))
+        result_dir = Path(root) / "evaluations/candidate/abc123" / validation_id
         result_dir.mkdir(parents=True)
         (result_dir / "summary.json").write_text(
             json.dumps(
@@ -56,7 +52,7 @@ def test_validation_tool_uses_runtime_defaults_and_returns_summary(tmp_path: Pat
 
     result = tool_module.validation_tool(fail_fast=True)
 
-    assert calls[0][0:4] == (workspace.resolve(), ["case-b", "case-a"], "candidate", 3)
+    assert calls[0][0:3] == (workspace.resolve(), ["case-b", "case-a"], 3)
     assert calls[0][-1] is True
     assert result == {
         "status": "completed",
@@ -65,8 +61,8 @@ def test_validation_tool_uses_runtime_defaults_and_returns_summary(tmp_path: Pat
         "successful_cases": 1,
         "failed_cases": 1,
         "mean_query_score": 0.75,
-        "result_dir": str(workspace / "evaluations/candidate" / calls[0][4]),
-        "details_path": str(workspace / "evaluations/candidate" / calls[0][4]),
+        "result_dir": str(workspace / "evaluations/candidate/abc123" / calls[0][3]),
+        "details_path": str(workspace / "evaluations/candidate/abc123" / calls[0][3]),
         "error": None,
     }
 
@@ -75,9 +71,9 @@ def test_validation_tool_summarizes_persisted_results_after_fail_fast(tmp_path: 
     workspace = _workspace(tmp_path)
     runtime.TOOL_RUNTIME.configure(workspace, 1)
 
-    def fake_validation(root, case_ids, code_id, concurrency, *, validation_id, fail_fast):
+    def fake_validation(root, case_ids, concurrency, *, validation_id, fail_fast):
         del case_ids, concurrency, fail_fast
-        case_root = Path(root) / "evaluations" / code_id / validation_id / "cases/case-a"
+        case_root = Path(root) / "evaluations/candidate/abc123" / validation_id / "cases/case-a"
         case_root.mkdir(parents=True)
         (case_root / "case_result.json").write_text(
             json.dumps({"status": "candidate_failure", "queries": []}),

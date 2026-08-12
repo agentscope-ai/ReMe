@@ -36,7 +36,7 @@ def build_jobs(dataset: DatasetName, case: CaseSpec) -> list[JobRequest]:
                         "date": _session_timestamp(session)[:10],
                     },
                 ),
-                JobRequest("index_update"),
+                JobRequest("index_update", memory_checkpoint=f"session: {session.session_id}"),
             ],
         )
     if not jobs:

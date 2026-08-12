@@ -287,6 +287,7 @@ class ValidationSelection(ContractModel):
 
 class ValidationSpec(ContractModel):
     validation_id: str = Field(default_factory=lambda: uuid4().hex)
+    branch_name: str = Field(min_length=1)
     commit_sha: str = Field(min_length=1)
     mode: EvaluationMode
     selection: ValidationSelection = Field(default_factory=ValidationSelection)
@@ -454,6 +455,7 @@ class AttemptCompletion(ContractModel):
 
 class ValidationResult(ContractModel):
     validation_id: str
+    branch_name: str = Field(min_length=1)
     commit_sha: str
     mode: EvaluationMode
     status: ValidationStatus

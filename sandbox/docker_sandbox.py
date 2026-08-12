@@ -497,6 +497,9 @@ class DockerReMeSandbox:
                 raise ValueError("every build job requires a non-empty job name")
             if not isinstance(value.get("arguments", {}), dict):
                 raise ValueError("build job arguments must be an object")
+            checkpoint = value.get("memory_checkpoint")
+            if checkpoint is not None and (not isinstance(checkpoint, str) or not checkpoint.strip()):
+                raise ValueError("build job memory_checkpoint must be a non-empty string or null")
             serialized.append(value)
         if not serialized:
             raise ValueError("run_build requires at least one job")

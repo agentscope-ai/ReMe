@@ -54,6 +54,7 @@ class JobRequest:
 
     job: str
     arguments: dict[str, Any] = field(default_factory=dict)
+    memory_checkpoint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

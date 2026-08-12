@@ -22,10 +22,8 @@ WORKSPACE_MANIFEST = ".meta-reme-workspace.json"
 WORKSPACE_LOCK = ".meta-reme.lock"
 _DIRECTORIES = (
     "code/repo",
-    "code/worktrees",
     "dataset/cases",
     "weaknesses",
-    "proposals",
     "evaluations",
     "logs",
 )
@@ -132,7 +130,8 @@ class Workspace:
 
     def validation_case_dir(
         self,
-        code_id: str,
+        branch_name: str,
+        commit_sha: str,
         validation_id: str,
         case_id: str,
         *,
@@ -140,12 +139,26 @@ class Workspace:
     ) -> Path:
         """Return the canonical validation result directory for one case."""
 
-        current = self.entity_path("evaluations", code_id)
+        current = self.validation_commit_dir(branch_name, commit_sha)
         for identifier in (validation_id, "cases", case_id):
             current = self.entity_path(current.relative_to(self.root), identifier)
         if create:
             current.mkdir(parents=True, exist_ok=False)
         return current
+
+    def validation_commit_dir(self, branch_name: str, commit_sha: str) -> Path:
+        """Return the shortest unambiguous directory for a validation commit."""
+
+        if len(commit_sha) < 7:
+            raise WorkspaceError(f"Commit SHA must have at least seven characters: {commit_sha!r}")
+        branch_root = self.entity_path("evaluations", branch_name)
+        for length in range(7, len(commit_sha) + 1):
+            candidate = self.entity_path(branch_root.relative_to(self.root), commit_sha[:length])
+            if not candidate.exists():
+                return candidate
+            if candidate.name == commit_sha or _commit_directory_matches(candidate, commit_sha):
+                return candidate
+        raise WorkspaceError(f"Cannot allocate a distinct validation directory for commit: {commit_sha}")
 
     def atomic_write_json(self, relative: str | Path, value: BaseModel | Any) -> Path:
         """Atomically publish JSON in the workspace."""
@@ -213,6 +226,21 @@ class Workspace:
                 shutil.rmtree(temporary, ignore_errors=True)
                 destination.mkdir(parents=True, exist_ok=True)
             raise
+
+
+def _commit_directory_matches(directory: Path, commit_sha: str) -> bool:
+    """Whether a prior validation in *directory* recorded this exact commit."""
+
+    if not directory.is_dir():
+        return False
+    for manifest_path in directory.glob("*/manifest.json"):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if manifest.get("commit_sha") == commit_sha:
+            return True
+    return False
 
 
 class WorkspaceLock(AbstractContextManager["WorkspaceLock"]):

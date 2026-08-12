@@ -1,0 +1,250 @@
+{
+  "jobs": [
+    {
+      "job": "auto_memory",
+      "result": {
+        "answer": "Created the daily memory note `wedding-planning-advice-and-logistics.md` for 2023-05-20, capturing detailed wedding planning strategies, decoration inspiration, venue evaluation metrics, and administrative frameworks alongside social updates regarding Michael and Emily's engagement announcement.",
+        "error": null,
+        "job_call_counts": {
+          "auto_memory": 1,
+          "daily_list": 2,
+          "daily_write": 1
+        },
+        "metadata": {
+          "created": true,
+          "date": "2023-05-20",
+          "index": {
+            "changed": false,
+            "created": false,
+            "date": "2023-05-20",
+            "notes": [
+              {
+                "description": "Comprehensive guide covering rustic and vintage outdoor ceremony decoration strategies, wedding planner selection methodologies including referral request scripts and interview criteria, comparative analysis of countryside bed and breakfast versus city art museum venues, and step-by-step frameworks for drafting preliminary guest lists and calculating initial budgets. Includes confirmation of Michael and Emily engagement announcement on 2023-05-20.",
+                "name": "wedding-planning-advice-and-logistics",
+                "path": "daily/2023-05-20/wedding-planning-advice-and-logistics.md",
+                "session_id": "3a0f3278_4",
+                "source_conversation": "[[session/dialog/3a0f3278_4.jsonl]]"
+              }
+            ],
+            "path": "daily/2023-05-20.md"
+          },
+          "modified": true,
+          "n_messages": 12,
+          "path": "daily/2023-05-20/wedding-planning-advice-and-logistics.md",
+          "source_conversation": "[[session/dialog/3a0f3278_4.jsonl]]"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 13862,
+            "output_tokens": 6553,
+            "total_tokens": 20415
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "index_update",
+      "result": {
+        "answer": [
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/daily/2023-05-20.md",
+            "success": true
+          },
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/session/dialog/3a0f3278_4.jsonl",
+            "success": true
+          },
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/daily/2023-05-20/wedding-planning-advice-and-logistics.md",
+            "success": true
+          }
+        ],
+        "error": null,
+        "job_call_counts": {
+          "index_update": 1
+        },
+        "metadata": {
+          "counts": {
+            "added": 3,
+            "deleted": 0,
+            "modified": 0
+          }
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "auto_memory",
+      "result": {
+        "answer": "Created daily memory note `air-conditioning-system-acceptance-agreement.md` for 2023-05-20 documenting the finalization of an AC acceptance contract.",
+        "error": null,
+        "job_call_counts": {
+          "auto_memory": 1,
+          "daily_list": 2,
+          "daily_write": 1
+        },
+        "metadata": {
+          "created": true,
+          "date": "2023-05-20",
+          "index": {
+            "changed": false,
+            "created": false,
+            "date": "2023-05-20",
+            "notes": [
+              {
+                "description": "Drafting and revision of an Air Conditioning System Acceptance Agreement between customer Shannon Bennett, supplier AirSmart Pty Ltd., and installer Vuka Air for premises at 10 Border St, Byron Bay NSW 2481. The final agreement (dated 16 February 2023) outlines terms for system acceptance, manufacturer warranty, full payment, liability limitation, owner maintenance obligations, governing law (State of New South Wales), and execution via counterparts. A proposed termination clause was specifically removed from the document.",
+                "name": "air-conditioning-system-acceptance-agreement",
+                "path": "daily/2023-05-20/air-conditioning-system-acceptance-agreement.md",
+                "session_id": "sharegpt_YdITaOl_21",
+                "source_conversation": "[[session/dialog/sharegpt_YdITaOl_21.jsonl]]"
+              },
+              {
+                "description": "Comprehensive guide covering rustic and vintage outdoor ceremony decoration strategies, wedding planner selection methodologies including referral request scripts and interview criteria, comparative analysis of countryside bed and breakfast versus city art museum venues, and step-by-step frameworks for drafting preliminary guest lists and calculating initial budgets. Includes confirmation of Michael and Emily engagement announcement on 2023-05-20.",
+                "name": "wedding-planning-advice-and-logistics",
+                "path": "daily/2023-05-20/wedding-planning-advice-and-logistics.md",
+                "session_id": "3a0f3278_4",
+                "source_conversation": "[[session/dialog/3a0f3278_4.jsonl]]"
+              }
+            ],
+            "path": "daily/2023-05-20.md"
+          },
+          "modified": true,
+          "n_messages": 7,
+          "path": "daily/2023-05-20/air-conditioning-system-acceptance-agreement.md",
+          "source_conversation": "[[session/dialog/sharegpt_YdITaOl_21.jsonl]]"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 10127,
+            "output_tokens": 2223,
+            "total_tokens": 12350
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "index_update",
+      "result": {
+        "answer": [
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/session/dialog/sharegpt_YdITaOl_21.jsonl",
+            "success": true
+          },
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/daily/2023-05-20/air-conditioning-system-acceptance-agreement.md",
+            "success": true
+          },
+          {
+            "change": "modified",
+            "path": "/workspace/case/reme_workspace/daily/2023-05-20.md",
+            "success": true
+          }
+        ],
+        "error": null,
+        "job_call_counts": {
+          "index_update": 1
+        },
+        "metadata": {
+          "counts": {
+            "added": 2,
+            "deleted": 0,
+            "modified": 1
+          }
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "auto_memory",
+      "result": {
+        "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "job_call_counts": {
+          "auto_memory": 1,
+          "daily_list": 1
+        },
+        "metadata": {},
+        "success": false,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    }
+  ],
+  "success": false
+}

@@ -70,6 +70,7 @@ def test_partial_validation_selection_is_not_comparable() -> None:
     )
     common = {
         "validation_id": "validation-1",
+        "branch_name": "candidate-1",
         "commit_sha": "commit",
         "mode": "screening",
         "status": "completed",
@@ -83,6 +84,7 @@ def test_partial_validation_selection_is_not_comparable() -> None:
     result = models.ValidationResult(**common)
     assert not result.comparable
     spec = models.ValidationSpec(
+        branch_name="candidate-1",
         commit_sha="commit",
         mode="screening",
         selection=selection,
@@ -104,7 +106,9 @@ def test_workspace_create_open_and_domain_fingerprint(tmp_path: Path) -> None:
     workspace = workspace_module.Workspace.create(root, spec)
 
     assert workspace.path("code/repo").is_dir()
+    assert not workspace.path("code/worktrees").exists()
     assert workspace.path("dataset/cases").is_dir()
+    assert not workspace.path("proposals").exists()
     assert not workspace.path("harnesses").exists()
     assert workspace_module.Workspace.open(root, spec).manifest == workspace.manifest
 
@@ -132,8 +136,21 @@ def test_workspace_rejects_escaping_paths_and_ids(tmp_path: Path) -> None:
     with pytest.raises(workspace_module.WorkspaceError):
         workspace.entity_path("evaluations", "../case")
 
-    case_result = workspace.validation_case_dir("init", "validation-1", "case-1", create=True)
-    assert case_result == workspace.path("evaluations/init/validation-1/cases/case-1")
+    commit = "abc1234def"
+    case_result = workspace.validation_case_dir("init", commit, "validation-1", "case-1", create=True)
+    assert case_result == workspace.path("evaluations/init/abc1234/validation-1/cases/case-1")
+
+
+def test_validation_commit_dir_extends_a_conflicting_prefix(tmp_path: Path) -> None:
+    workspace = workspace_module.Workspace.create(tmp_path / "workspace", domain_spec())
+    first_commit = "abcdef0123456789"
+    second_commit = "abcdef0fedcba987"
+    first_run = workspace.path("evaluations/init/abcdef0/first")
+    first_run.mkdir(parents=True)
+    (first_run / "manifest.json").write_text(json.dumps({"commit_sha": first_commit}), encoding="utf-8")
+
+    assert workspace.validation_commit_dir("init", first_commit) == workspace.path("evaluations/init/abcdef0")
+    assert workspace.validation_commit_dir("init", second_commit) == workspace.path("evaluations/init/abcdef0f")
 
 
 def test_atomic_write_replaces_content_and_leaves_no_temporary_file(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 
 Unlike the top-level ``meta-reme/run.py`` workflow, this module does not
 prepare a dataset or create the initial candidate repository. It only parses
-explicit workspace, case, and code-branch arguments, then delegates execution
+explicit workspace and case arguments, then delegates execution
 to ``validation.evaluator.run_validation``.
 
 ``validation/__main__.py`` forwards ``python -m validation`` here; it is an
@@ -39,7 +39,6 @@ def parse_args() -> argparse.Namespace:
         dest="case_ids",
         help="Prepared case ID; repeat this option to validate multiple cases",
     )
-    parser.add_argument("--code-id", required=True, help="Path-safe local Git branch name identifying the code")
     parser.add_argument("--concurrency", type=int, required=True, help="Maximum concurrent case sandboxes")
     parser.add_argument("--validation-id", help="Optional non-overwriting validation run ID")
     parser.add_argument(
@@ -58,7 +57,6 @@ def main() -> None:
         output = run_validation(
             args.workspace,
             args.case_ids,
-            args.code_id,
             args.concurrency,
             validation_id=args.validation_id,
             fail_fast=args.fail_fast,

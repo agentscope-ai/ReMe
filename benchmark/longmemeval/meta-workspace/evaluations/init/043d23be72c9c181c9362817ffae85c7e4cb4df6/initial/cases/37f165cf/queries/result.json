@@ -1,0 +1,55 @@
+{
+  "queries": [
+    {
+      "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "answer_result": {
+        "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "job_call_counts": {
+          "agentic_answer": 1,
+          "search": 13
+        },
+        "metadata": {},
+        "success": false,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      },
+      "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "golden_answer": "856",
+      "judge_result": null,
+      "query_id": "37f165cf",
+      "question": "What was the page count of the two novels I finished in January and March?",
+      "score": null
+    }
+  ],
+  "success": false,
+  "summary": {
+    "case_id": "37f165cf",
+    "mean_score": null,
+    "queries": [
+      {
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "query_id": "37f165cf",
+        "score": null
+      }
+    ],
+    "query_count": 1,
+    "schema_version": 1,
+    "scored_count": 0
+  }
+}

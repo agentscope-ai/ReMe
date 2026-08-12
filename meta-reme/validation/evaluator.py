@@ -54,7 +54,6 @@ class ValidationFailFastError(ValidationError):
 def run_validation(
     workspace_root: Path,
     case_ids: list[str],
-    code_id: str,
     concurrency: int,
     *,
     validation_id: str | None = None,
@@ -68,7 +67,6 @@ def run_validation(
         run_validation_async(
             workspace_root,
             case_ids,
-            code_id,
             concurrency,
             validation_id=validation_id,
             fail_fast=fail_fast,
@@ -81,7 +79,6 @@ def run_validation(
 async def run_validation_async(
     workspace_root: Path,
     case_ids: list[str],
-    code_id: str,
     concurrency: int,
     *,
     validation_id: str | None = None,
@@ -99,18 +96,16 @@ async def run_validation_async(
         raise ValidationError("at least one case_id is required")
     if len(case_ids) != len(set(case_ids)):
         raise ValidationError("case_ids must be unique")
-    _validate_code_id(code_id)
-
     root = Path(workspace_root).resolve()
     domain = _load_domain(root)
     workspace = Workspace.open(root, domain)
     cases = _load_cases(workspace, case_ids)
     repository = workspace.path("code/repo/reme")
     run_id = validation_id or uuid4().hex
-    run_root = _validation_root(workspace, code_id, run_id)
 
     with workspace.acquire_lock():
-        commit_sha = _resolve_branch_commit(repository, code_id)
+        branch_name, commit_sha = resolve_current_revision(repository)
+        run_root = _validation_root(workspace, branch_name, commit_sha, run_id)
         snapshot_context = _source_snapshot(repository, commit_sha)
         with snapshot_context as snapshot:
             return await _execute_validation(
@@ -118,7 +113,7 @@ async def run_validation_async(
                 run_root,
                 domain,
                 cases,
-                code_id,
+                branch_name,
                 commit_sha,
                 run_id,
                 concurrency,
@@ -134,7 +129,7 @@ async def _execute_validation(
     run_root: Path,
     domain: DomainSpec,
     cases: list[CaseSpec],
-    code_id: str,
+    branch_name: str,
     commit_sha: str,
     run_id: str,
     concurrency: int,
@@ -160,7 +155,7 @@ async def _execute_validation(
         {
             "schema_version": 1,
             "validation_id": run_id,
-            "code_id": code_id,
+            "branch_name": branch_name,
             "commit_sha": commit_sha,
             "case_ids": [case.case_id for case in cases],
             "concurrency": concurrency,
@@ -198,7 +193,7 @@ async def _execute_validation(
             },
         )
         raise
-    summary = _summarize(run_id, code_id, commit_sha, [case.case_id for case in cases], results, fingerprints)
+    summary = _summarize(run_id, branch_name, commit_sha, [case.case_id for case in cases], results, fingerprints)
     workspace.atomic_write_json(run_root.relative_to(workspace.root) / "summary.json", summary)
     return run_root
 
@@ -637,7 +632,7 @@ def _publish_case_result(workspace: Workspace, case_root: Path, result: dict[str
 
 def _summarize(
     validation_id: str,
-    code_id: str,
+    branch_name: str,
     commit_sha: str,
     requested_case_ids: list[str],
     results: list[dict[str, Any]],
@@ -650,7 +645,7 @@ def _summarize(
     return {
         "schema_version": 1,
         "validation_id": validation_id,
-        "code_id": code_id,
+        "branch_name": branch_name,
         "commit_sha": commit_sha,
         "status": "infra_error" if infra_errors else "completed",
         "case_ids": requested_case_ids,
@@ -687,39 +682,57 @@ def _load_cases(workspace: Workspace, requested_ids: list[str]) -> list[CaseSpec
     return [found[case_id] for case_id in requested_ids]
 
 
-def _resolve_branch_commit(repository: Path, code_id: str) -> str:
-    _validate_code_id(code_id)
-    branch_check = subprocess.run(
-        ["git", "check-ref-format", "--branch", code_id],
+def resolve_current_revision(repository: Path) -> tuple[str, str]:
+    """Return the clean current branch and immutable HEAD commit."""
+
+    branch_result = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
         cwd=repository,
         capture_output=True,
         text=True,
         check=False,
     )
-    if branch_check.returncode:
-        raise ValidationError(
-            f"invalid Git branch code_id {code_id!r}: {(branch_check.stderr or branch_check.stdout).strip()}",
-        )
-    result = subprocess.run(
-        ["git", "rev-parse", "--verify", "--end-of-options", f"refs/heads/{code_id}^{{commit}}"],
+    branch_name = branch_result.stdout.strip()
+    if branch_result.returncode or not branch_name:
+        raise ValidationError("validation requires a checked-out Git branch; detached HEAD is not supported")
+    _validate_branch_name(branch_name)
+
+    commit_result = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"],
         cwd=repository,
         capture_output=True,
         text=True,
         check=False,
     )
-    if result.returncode:
-        raise ValidationError(f"unknown local branch code_id {code_id!r}: {(result.stderr or result.stdout).strip()}")
-    return result.stdout.strip()
+    if commit_result.returncode:
+        detail = (commit_result.stderr or commit_result.stdout).strip()
+        raise ValidationError(f"cannot resolve the current code commit: {detail}")
+
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain=v2", "--untracked-files=all", "--ignore-submodules=none"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if status_result.returncode:
+        detail = (status_result.stderr or status_result.stdout).strip()
+        raise ValidationError(f"cannot inspect the current code workspace: {detail}")
+    dirty_entries = [line for line in status_result.stdout.splitlines() if line.strip()]
+    if dirty_entries:
+        details = "\n".join(dirty_entries)
+        raise ValidationError(f"current code workspace has uncommitted changes:\n{details}")
+    return branch_name, commit_result.stdout.strip()
 
 
-def _validate_code_id(code_id: str) -> None:
+def _validate_branch_name(branch_name: str) -> None:
     if (
-        not code_id
-        or code_id in {".", ".."}
-        or Path(code_id).name != code_id
-        or any(character in code_id for character in ("/", "\\", "\x00"))
+        not branch_name
+        or branch_name in {".", ".."}
+        or Path(branch_name).name != branch_name
+        or any(character in branch_name for character in ("/", "\\", "\x00"))
     ):
-        raise ValidationError(f"code_id must be a path-safe Git branch name: {code_id!r}")
+        raise ValidationError(f"current Git branch must be path-safe: {branch_name!r}")
 
 
 @contextmanager
@@ -821,13 +834,11 @@ def _validate_archive_size(archive_path: Path, max_bytes: int) -> None:
         raise ValidationError(f"artifact archive exceeds {max_bytes} bytes")
 
 
-def _validation_root(workspace: Workspace, code_id: str, validation_id: str) -> Path:
+def _validation_root(workspace: Workspace, branch_name: str, commit_sha: str, validation_id: str) -> Path:
     if not validation_id or validation_id in {".", ".."} or Path(validation_id).name != validation_id:
         raise ValidationError(f"unsafe validation_id: {validation_id!r}")
-    return workspace.entity_path(
-        workspace.entity_path("evaluations", code_id).relative_to(workspace.root),
-        validation_id,
-    )
+    commit_root = workspace.validation_commit_dir(branch_name, commit_sha)
+    return workspace.entity_path(commit_root.relative_to(workspace.root), validation_id)
 
 
 def _dataset_fingerprint(workspace: Workspace) -> str:

@@ -1,297 +1,203 @@
-# Meta-ReMe 实现方案设计
+# Meta-ReMe 设计与当前实现
 
-## 1. 建设目标
+## 1. 定位
 
-Meta-ReMe 是面向 ReMe auto-memory 机制的自动搜索系统。给定某个 benchmark 的 search set，系统通过“weakness mining → harness proposal → harness validation”循环产生多个候选 harness，以 search set 上所有 query 的平均 score 作为唯一优化目标，选出最佳候选，最终在隔离的 test set 上进行一次正式评测。
+Meta-ReMe 是 ReMe 的实验与评测底座，目标是让 agent 在可复现、可审计的边界内探索 memory 架构。它把 benchmark 的训练数据、可修改的 ReMe 代码、Git 版本和 sandbox 评测结果收拢到一个 workspace 中。
 
-Harness 定义为 auto-memory 相关代码、Prompt 和配置。ReMe 的检索、回答、Judge、基础组件及 benchmark 逻辑保持固定。每个 benchmark 对应独立 domain spec，因此 LongMemEval、BEAM 等数据集分别搜索自己的最优 harness。
+当前代码已经实现的主链路是：**准备训练集 → 构建最小 ReMe bundle → 创建初始 Git commit → 在隔离 sandbox 中验证 → 将结果和 artifacts 写入 workspace**。此外，已经提供了一个供 AgentScope 调用的同步 validation tool。
 
-## 2. 总体架构
+“weakness mining → proposal → 多候选搜索 → leaderboard → test set final evaluation”的完整自治搜索循环尚未接入。`models.py` 中为这部分定义了严格的数据契约，但这些模型不是当前 `run.py` 的运行行为。本文以现有可执行代码为准，并将未完成部分明确标注为后续设计。
 
-Meta-ReMe 放置于 `meta-reme/`，入口为：
+## 2. 已实现的系统边界
+
+### 2.1 入口与配置
+
+准备入口为：
 
 ```bash
-python meta-reme/run.py \
-  --config benchmark/longmemeval/config_meta_reme.yaml
+python meta-reme/run.py --config benchmark/longmemeval/config_meta_reme.yaml
 ```
 
-主要模块如下：
+当前 YAML 只消费以下字段：
 
-```text
-meta-reme/
-  run.py
-  models.py
-  config.py
-  workspace.py
-  git_manager.py
-  scope_guard.py
-  search_loop.py
-  agent.py
-  evaluator.py
-  result_store.py
-  bundle_builder.py
-  data_preparation/
-    basic.py
-    lme.py
-    beam.py
+```yaml
+meta_workspace: "benchmark/longmemeval/meta-workspace"
+dataset:
+  name: "longmemeval"       # 或 "beam"
+  source: "..."             # 可省略，使用项目内默认路径
+  variant: "1M"              # 仅 BEAM 使用
+  train_case_ids: []         # 空列表表示全部可用 case
+validation:
+  concurrency: 5
+  fail_fast: false
 ```
 
-`run.py` 负责初始化或恢复搜索；`search_loop.py` 负责外循环；`agent.py` 管理 weakness mining 和 proposal agent；`git_manager.py` 管理分支、提交和 worktree；`evaluator.py` 调用 sandbox；`result_store.py` 持久化结果；`scope_guard.py` 执行修改白名单检查。
+`run.py` 会验证配置、规范化并安装所选训练 case、创建或打开 workspace、构建对应 bundle，并对 `init` 分支的全部已安装 case 执行一次 initial validation。已存在 `summary.json` 的 initial validation 会被复用。
 
-## 3. Domain Spec
+`meta-reme/validation/run.py` 是独立的评测入口；它只评测已有 workspace，不会准备数据或创建 bundle：
 
-每个 benchmark 提供一个 `domain_spec.yaml`，内容包括：
+```bash
+python meta-reme/validation/run.py \
+  --workspace /path/to/workspace \
+  --case-id case-1 \
+  --case-id case-2 \
+  --concurrency 2 \
+  --fail-fast
+```
 
-- search set 的来源、格式和 fingerprint；
-- case、session、query 的转换方法；
-- benchmark runner 和评分器；
-- baseline bundle 的文件清单；
-- auto-memory 正式修改白名单；
-- debug 阶段允许使用的临时目录；
-- sandbox 镜像、超时、并发和重试策略；
-- validation 的默认抽样策略、允许指定的 case/query 以及升级为全量评测的条件；
-- proposer 模型、搜索预算和 top-K 数量；
-- 唯一目标 `mean_query_score`。
+### 2.2 支持的数据集与规范化
 
-平均分定义为所有 query score 的算术平均。候选造成的超时、空回答或运行错误记为 0；Docker、网络等基础设施故障按固定次数重试，仍失败则记为 `infra_error`，不直接参与候选比较。token、耗时和改动大小只作为诊断信息。
+当前支持 `longmemeval` 和 `beam`。原始数据会转换为公开 Pydantic contract：`CaseSpec`、`SessionSpec` 和 `QuerySpec`，并写为统一 JSON。数据集 manifest 记录 case/query 数和由规范化结果计算的 fingerprint。
 
-## 4. Workspace 设计
+- LongMemEval 的训练 case ID 是 question ID；case 会包含问题、golden answer、session 与问题时间。
+- BEAM 从指定的 `100K`、`500K`、`1M` 或 `10M` variant 中读取 case；每个 probing question 形成 query。
+- 安装后 `dataset/` 被设为只读；未选入的 case 不复制到 workspace。因此，当前实现把 `train_case_ids` 作为 workspace 内唯一可评测的数据范围，而不是在同一 workspace 中维护 search/test 两个集合。
 
-一次搜索的全部状态保存在用户指定 workspace。下图是 canonical 结构；标为“搜索编排发布”的文件由尚未接入当前 preparation/validation 路径的搜索循环生成，其余目录由 `Workspace.create()` 或 validation 按需创建：
+## 3. Workspace
+
+`Workspace.create()` 只接受空目录；workspace manifest 最后原子写入，作为创建完成标记。`Workspace.open()` 会校验目录结构与 `domain_spec.yaml` 的 fingerprint。对外部提供的路径、branch、case 和 validation ID 都执行路径安全检查。
 
 ```text
 workspace/
   .meta-reme-workspace.json
-  .meta-reme.lock                 # 仅持锁期间存在
+  .meta-reme.lock                 # 仅持锁时存在
   domain_spec.yaml
-  run.json                        # 搜索编排发布
-  events.jsonl                    # 搜索编排发布
-  leaderboard.json               # 搜索编排发布
   code/
     repo/
-      reme/                       # Git 仓库；初始 branch/code ID 为 init
-    worktrees/
+      reme/                       # 当前唯一的受管 Git 仓库
   dataset/
     manifest.json
     cases/
-  weaknesses/
-  proposals/
+      000000.json
+      ...
+  weaknesses/                     # 为搜索输出预留，当前不写入
   evaluations/
-    <code_id>/
-      <validation_id>/
-        manifest.json
-        summary.json
-        cases/
-          <case_id>/
-            case_result.json
-            memory_construction/
-              result.json
-              reme_workspace.tar.gz
-              reme_workspace/
-              build.log
-            queries/
-              result.json
-              <query_id>/
-                answer.log
-                result.json
-  logs/
+  logs/                           # 已创建，当前没有统一日志写入器
 ```
 
-search set 被转换为统一 JSON 格式复制到 workspace，并设置为只读。Test set 不复制到该目录，也不向 agent 暴露；只有最佳 harness 冻结后，外部 evaluator 才加载 test set。
+workspace 使用原子写入（临时文件、`fsync`、同目录 `rename`）发布 JSON 与文本。锁文件记录 PID、主机名和随机 token；仅能接管确认已经退出的本机进程留下的 stale lock。数据集安装拒绝符号链接，且不会覆盖已安装的数据。
 
-`meta-reme/run.py` 完成 dataset 安装和初始 bundle 创建后，立即使用 `init` branch 对已安装的全部 case 执行第一次 validation。结果固定写入 `evaluations/init/initial/`，并发数由配置中的 `validation.concurrency` 控制；该 summary 已存在时不重复执行。
+当前并不存在 `run.json`、`events.jsonl`、`leaderboard.json`、harness registry 或自动恢复/重放逻辑；这些不能作为现有行为依赖。
 
-`run.json` 保存运行状态、baseline、当前轮次、预算和最佳候选。`events.jsonl` 采用 append-only 方式记录 proposal、commit、debug、validation、失败和 selection 等事件，使搜索可以在进程中断后恢复。
+## 4. 可修改代码与版本边界
 
-## 5. Baseline Bundle
+### 4.1 Bundle
 
-`bundle_builder.py` 从完整 ReMe 仓库构建 benchmark 所需的最小代码仓库，包括 application、schema、registry、必要组件、auto-memory、search、answer、judge、配置和 packaging 文件。DingTalk、cookbook 等无关代码不进入 bundle。
+`bundle_builder.py` 根据 [`build_bundle.yaml`](build_bundle.yaml) 的 allowlist 从完整 ReMe 仓库构建最小代码包，而不是先复制整个仓库再删除文件。它会跳过缓存、`.pyc`/`.pyo` 和符号链接，改写被裁剪包的 initializer，并将 bundle 的 service backend 固定为 `cli`，移除 `read_image` 与 `version` job。
 
-Bundle 不能依赖人工随意删除文件，而应由 domain spec 中的文件清单确定性生成。生成后执行 import、组件注册、安装和固定 smoke case 检查，并验证精简版本与完整 ReMe baseline 行为一致。随后在 workspace 中初始化 Git，在 code ID 为 `init` 的同名分支创建 message 为 `Initial version` 的不可变 baseline commit。
+可用 target：
 
-### 5.1 Bundle Target
+| target | 包含的配置与 benchmark steps |
+| --- | --- |
+| `default` | `reme/config/default.yaml`；不含 benchmark steps |
+| `lme` | `reme/config/lme.yaml` 和 `reme/steps/benchmark/lme/` |
+| `beam` | `reme/config/beam.yaml` 和 `reme/steps/benchmark/beam/` |
 
-每个 bundle 由一个 target 名称标识，对应 ReMe 仓库中已有的配置文件和 benchmark 步骤：
-
-| target | 配置文件 | benchmark 步骤 | 用途 |
-| --- | --- | --- | --- |
-| `default` | `reme/config/default.yaml` | 无 benchmark 步骤 | 通用最小 ReMe，不含任何 benchmark 专用代码 |
-| `lme` | `reme/config/lme.yaml` | `reme/steps/benchmark/lme/` | LongMemEval 评测专用 |
-| `beam` | `reme/config/beam.yaml` | `reme/steps/benchmark/beam/` | BEAM 评测专用 |
-
-`default` bundle 只包含 ReMe 核心（application、schema、registry、auto-memory、search、answer 等通用组件），不引入 `reme/steps/benchmark/` 下的任何步骤；`lme` 和 `beam` bundle 在 `default` 基础上额外包含对应 benchmark 子包及其 auto-memory、agentic-answer、judge 步骤和配置。三类 bundle 共享核心代码，仅在 benchmark 专用部分不同。
-
-### 5.2 调用方式
-
-`bundle_builder.py` 支持两种调用方式：独立运行与模块导入。
-
-**独立运行**（`python meta-reme/bundle_builder.py`）：一次性构建全部三类 bundle，输出到脚本同目录下的 `bundles/` 文件夹，目录结构如下：
-
-```text
-meta-reme/
-  bundle_builder.py
-  bundles/
-    default/
-      reme/          # default bundle 生成的最小代码仓库
-    lme/
-      reme/          # lme bundle 生成的最小代码仓库
-    beam/
-      reme/          # beam bundle 生成的最小代码仓库
-```
-
-每个 target 子目录下统一为 `reme/` 文件夹，结构与完整 ReMe 仓库中的 `reme/` 保持一致，可直接作为独立代码仓库使用。独立运行主要用于本地预生成、调试和校验 bundle 内容，产物可被后续搜索流程直接引用，避免每次运行重复构建。
-
-**模块导入**（被 `run.py`、`search_loop.py` 等调用）：按指定 target 生成单个 bundle 到调用方指定的输出目录，供 workspace 初始化和 Git baseline commit 使用。接口签名如下：
+`lme` 与 `beam` 不包含 `auto_memory_cc`；三个 target 都要通过 import、step registration、禁止 backend 与禁止路径检查。构建接口为：
 
 ```python
-from meta_reme.bundle_builder import build_bundle
-
-build_bundle(
-    target: str,        # "default" | "lme" | "beam"
-    output_dir: Path,   # bundle 写入目录，其下会生成 reme/ 子目录
-    source_repo: Path,  # 完整 ReMe 仓库根目录，默认为项目根
-) -> Path               # 返回生成的 reme/ 目录路径
+build_bundle(target, output_dir, source_repo=PROJECT_ROOT) -> Path
 ```
 
-模块模式不写入 `bundles/`，而是完全由调用方控制输出位置，以便将 bundle 直接放置到 workspace 的 `code/repo/` 中并就地初始化 Git。无论哪种方式，构建逻辑均由 domain spec 中的文件清单驱动，保证产物确定且可复现。
+返回值为 `output_dir/reme`。直接运行 `python meta-reme/bundle_builder.py` 会分别构建 `default`、`lme`、`beam` 到 `meta-reme/bundles/<target>/reme`。
 
-## 6. Harness 与 Git 管理
+### 4.2 当前 Git 能力
 
-Branch 表示一条可继续演化的 proposal 线，branch name 就是 code ID；commit SHA 表示该 code ID 在某次 validation
-开始时冻结的不可变 harness。用于结果目录的 code ID 必须是无 `/` 的路径安全 branch name。Agent 可以：
+准备阶段会在 `code/repo/reme` 初始化 Git，初始分支固定为 `init`，初始提交信息为 `Initial version`。如果仓库已存在并且已有 HEAD，初始化函数只返回该 HEAD，不会覆盖用户的后续文件或 commit。
 
-- 从任意历史 commit fork；
-- 在独立 Git worktree 中修改；
-- merge 多个历史分支；
-- 多次 commit 和运行 debug case；
-- 自主决定何时冻结候选。
+评测前必须处在已 checkout 的非 detached branch，branch 名必须是路径安全的单段名称（不能含 `/`），并且 Git 工作区必须完全干净：staged、unstaged、untracked 和 submodule 变更都会使 validation 失败。评测器以 `git archive <HEAD>` 创建临时源码快照，再把该快照交给 sandbox；因此评测中工作区随后发生的变化不影响已开始的运行。
 
-禁止 force push、改写已登记 commit、删除受保护分支。每个正式候选通过 commit SHA、源码 snapshot SHA256 和配置 fingerprint 唯一标识。
+`git_manager.py` 当前只实现仓库初始化。它还没有封装 branch/worktree 创建、commit、merge、保护分支、scope diff 检查或候选冻结；agent 的代码修改和版本管理能力需要在此基础上继续实现并作为 AgentScope tools 暴露。
 
-Agent 具有较大的 Git 主动权，但所有操作通过 `git_manager.py` 执行，以防止覆盖历史结果。Merge 后必须重新比较 candidate 与 baseline 的完整文件树，而不是只检查最后一次 commit。
+## 5. Validation
 
-## 7. 修改权限
+### 5.1 执行模型
 
-系统区分 debug scope 和 harness scope。
-
-Debug 阶段允许 Agent 在 `meta_debug/` 或指定临时测试目录中增加诊断脚本、测试代码和辅助文件，也允许产生多个中间 commit。此类版本只能运行 debug evaluation，不能进入排行榜。
-
-正式冻结时，仅允许修改 domain spec 声明的 auto-memory Python、Prompt、配置节点和必要注册文件。配置文件采用语义级检查，例如只允许修改 `jobs.auto_memory`，不能因为整个 `lme.yaml` 被放行而修改 search、answer 或 judge。正式 candidate 必须删除 debug 文件，并从干净 commit 重新执行 scope、import 和 smoke 检查。
-
-## 8. Agent 工作方式
-
-首版可以将 weakness mining agent 与 proposal agent 合并为一个自治 agent，使其能够连续完成分析、选父节点、修改、debug 和提交。为了保证过程可审计，每轮仍需生成两个结构化文件：
-
-- `weaknesses/<round>.json`：问题模式、证据 query、可能原因、回归风险；
-- `proposals/<proposal>.json`：选择的 parent、merge 决策、修改假设、预期改善目标。
-
-Agent 可以读取最新 harness、当前 top-K、任意历史候选、代码 diff、search dataset、运行 artifacts 和总结文件。最佳候选仍由编排器根据平均分决定，不能由 agent 自行宣布。
-
-## 9. Sandbox 执行与 Debug
-
-所有代码运行必须进入 sandbox，包括正式 validation 和单 case debug。运行阶段包括：
+`validation.evaluator.run_validation()` 与异步版本 `run_validation_async()` 接收 workspace、显式 case ID 列表、并发数和可选 `validation_id`。case ID 必须存在、唯一且非空。结果目录不可覆盖：
 
 ```text
-prepare → install → ingest → index → answer → export
+evaluations/<branch-name>/<commit-prefix>/<validation-id>/
+  manifest.json
+  summary.json                    # fail_fast 中止时不生成
+  failure.json                    # fail_fast 的运行级失败信息
+  cases/
+    <case-id>/
+      case_result.json
+      failure.json                 # 有失败时
+      full.tar.gz                  # best-effort 故障导出，若可用
+      memory_construction/
+        result.json
+        build.log
+        reme_workspace.tar.gz
+        reme_workspace/
+      queries/
+        result.json
+        <query-id>/
+          answer.log
+          result.json
 ```
 
-Agent 可以自主选择完整 case、指定 session、session prefix 或少量 query 进行 debug。部分 session 结果只用于排查语法、配置、记忆写入和运行错误，不进入正式评分。
+每次 validation 使用 workspace lock，因此同一 workspace 不会同时运行两个 validation。manifest 记录 branch、commit、case IDs、并发、fail-fast 设置、调度策略、数据集和数据/代码/配置/模型/镜像 fingerprint。
 
-除 debug 外，validation 还支持显式传入 case ID 列表，并可为每个 case 指定 query ID 子集。该能力用于在全量评测代价过高时先执行 targeted screening，例如优先验证 weakness report 中的失败 query 和少量回归 case。筛选范围必须在运行前固化为 `ValidationSpec`，记录选择理由及其 fingerprint；不得在看到本次得分后追加或替换 query 来美化结果。
+执行分为严格的两阶段：
 
-Sandbox 在 memory construction 结束、query 开始前，先导出 construction 结果、`build.log` 和当时完整、可直接通过 `upload_workspace()` 回灌的 `reme_workspace.tar.gz`；query 阶段结束后再单独导出 query summary、逐 query 日志和结构化结果。两个阶段不得合并成一个仅在所有 query 结束后生成的归档。失败时应 best-effort 导出 `failure.json`、stdout、stderr、Python traceback、action log、已完成阶段和宿主异常。每次运行的宿主目录为：
+1. 所有 case 先按时间顺序执行 `auto_memory` 与 `index_update`，完成 memory construction。
+2. 每个成功 construction 的 workspace 在 query 前导出；所有 construction 到达终态后，才开始回答和 judge query。
 
-```text
-evaluations/<code_id>/<validation_id>/cases/<case>/
+成功 case 的 query 从同一个 post-construction workspace 快照开始。worker 优先复用已加载 case；空闲 worker 通过带 token 的单 query lease 窃取剩余 query，因此长 case 不会成为单个 worker 的瓶颈。容器在切换 case 时会 reset；发生 infrastructure error 的容器会被关闭，不再复用。
+
+LongMemEval 会过滤晚于 `question_date` 的 session；BEAM 与 LongMemEval 分别由 adapter 构造 answer/judge 参数及评分字段。
+
+### 5.2 失败、得分与 artifacts
+
+结构化 construction 失败为 `candidate_failure`，该 case 的 query 不执行。宿主、容器、导出或 query 执行异常为 `infra_error`；当前 validation 层不会重试，即使 `SandboxSpec.max_retries` 有值，该字段仅保留兼容性说明。默认模式下，一个 case 的失败不会中止其他 case；`fail_fast=true` 会持久化已观察到的失败、取消同级 worker、写入运行级 `failure.json` 并抛出异常。
+
+`summary.json` 将所有已返回 query 的数值 score 求算术平均；缺失 score 按 `0.0` 计。若没有 query，则平均分为 `null`。summary 会分别统计 `infra_error_count` 与 `candidate_failure_count`；任何 case 为 `infra_error` 时运行状态为 `infra_error`。因此现阶段 summary 是一次执行报告，而不是已实现的 leaderboard 可比性裁决。
+
+每个 session 的 `auto_memory` 与 `index_update` 成功后，validation 会为配置的 `daily_dir` 创建本地 Git checkpoint；build 结果记录 commit SHA、session message 和路径。construction 成功后会立即保存带完整 memory Git 历史的 `reme_workspace.tar.gz`、安全解压副本和 build log。逐 query artifact 通过临时 tar 传输并立即删除压缩包。代码与 artifact 解压拒绝绝对路径、`..`、符号链接、硬链接、设备文件、重复条目和超出 `sandbox.max_artifact_bytes` 的归档。
+
+### 5.3 AgentScope validation tool
+
+`as.tools.validation_tool` 提供同步 validation 接口：
+
+```python
+validation_tool(case_ids: list[str] | None = None, fail_fast: bool = False) -> dict
 ```
 
-其中 `memory_construction/` 保存结构化结果、build 日志和可复用的 workspace 压缩包；`queries/` 保存结构化结果及安全解压后的逐 query artifacts。Query 传输使用的临时压缩包必须在解压后删除。解压过程需要拒绝绝对路径、`../`、symlink、设备文件和异常大的压缩包；`reme_workspace.tar.gz` 保存 SHA256，确保可验证、可复用。
+未传 `case_ids`（或传空列表）时，它验证全部已安装 case；返回运行状态、请求/实际运行/成功/失败 case 数、平均分，以及完整 artifacts 的 `details_path`。tool 同步执行且标记为非并发安全。
 
-## 10. Validation 与结果记录
+直接调用 `validation_tool()` 时，它使用进程内的 `TOOL_RUNTIME` 获取 workspace 与并发数。`prepare_and_validate_workspace()` 会在当前进程调用 `TOOL_RUNTIME.configure()`；将 tool 接入长期运行的 agent host 时，host 必须先明确配置该 runtime。`create_validation_tool(workspace, concurrency)` 也可以生成显式绑定的实例，供 optimizer 等长期 agent 使用。单独启动一次命令行 `run.py` 后，不会为另一个进程保留该进程内状态。
 
-Validation 分为 targeted screening 和 full validation。两者都必须从 frozen commit 创建全新 SourceCandidate，并使用同一套 sandbox、失败分类和结果 schema。不同 harness、case 之间使用独立 runtime workspace；同一 case 本次选中的多个 query 应从相同的 post-ingestion memory snapshot 启动，避免 query 顺序造成状态污染。
+当前 tool 只接受 case 级选择；它不支持 query 级选择、debug mode、validation policy 或 agent 自己的模型/镜像覆盖。
 
-`ValidationSpec` 明确记录目标 code ID、validation 开始时解析出的 commit、mode、选中的 case/query、选择理由和 dataset/code/config/model/image fingerprint。未指定 case 表示覆盖全部 case，某个 case 未指定 query 子集表示覆盖该 case 的全部 query。系统在执行前根据 dataset manifest 展开并固化选择结果；空集合、未知 ID、重复 ID，以及不属于所选 case 的 query 均应直接报错。
+`as/agent/` 还提供两个由同名 YAML 加载 prompt 的 AgentScope agent：只读的
+`diagnostic_agent` 会关联 caller trajectory、全部 validation artifacts、sandbox
+memory 文件与候选 Git 历史，`optimizer_agent` 则组合文件/命令工具、validation
+tool 和 `diagnostic_subagent_tool` 执行代码—测试—诊断—分支优化循环。factory
+可以显式绑定 workspace；优化 agent 的文件写入工作目录限定为
+`code/repo/reme`，诊断 agent 使用只读 permission mode。它们是 agent 执行入口，
+不等同于下文尚未实现的持久化搜索编排器、预算结算或 leaderboard 裁决。
 
-部分 validation 的聚合结果必须同时记录已选数量、数据集总数量、覆盖率和 `is_full=false`。其平均分只描述本次固定子集，不得与其他选择范围的分数直接比较，也不得进入正式 leaderboard 或用于选择 winner。编排器可以依据预先配置的筛选规则决定淘汰候选或将其升级为 full validation；只有覆盖完整 search set 且没有 `infra_error` 的结果才具有正式可比性。Baseline 至少执行一次 full validation，最终 winner 仍需进行第 11 节规定的 clean replay。
+## 6. 已定义但尚未接入的搜索契约
 
-每次 validation 均写入 `evaluations/<code_id>/<validation_id>/`；manifest 记录本次运行的输入与 fingerprint，summary 保存该次固定选择范围的聚合结果。需要提供 code 级快捷索引或 leaderboard 时，只能从已完成且可比较的 summary 确定性生成，不得作为另一份事实来源。所有结果均保存 code ID 和执行时冻结的 commit SHA：
+`models.py` 已为下一阶段提供 strict Pydantic schema（未知字段会被拒绝）：
 
-- commit、parents、changed paths 和 scope 结果；
-- dataset、代码、配置、模型和镜像 fingerprint；
-- 总平均分、query 数、失败数和运行状态；
-- validation spec、选择理由、case/query 覆盖数量、覆盖率和是否具有正式可比性；
-- 每个 case/session 的处理结果；
-- 每个 query 的问题、golden answer、模型回答、score、Judge 结论、异常、token 和耗时；
-- artifacts 路径及 hash。
+- `DomainSpec`、`ScopeSpec`、`SandboxSpec`、`ValidationPolicySpec` 与 `BudgetSpec`：描述搜索边界、资源与预算；
+- `ValidationSelection`、`ValidationSpec`、`ValidationCoverage`、`ValidationResult`：描述 case/query 子集、coverage 和“仅 full search/replay 可比较”的规则；
+- `WeaknessReport`、`Proposal`、`HarnessManifest`、`ScopeCheckResult`：描述 agent 的分析、假设和冻结候选；
+- `RunState`、`SearchEvent`、`LeaderboardEntry`：描述持久化搜索状态与排行榜；
+- `AttemptCompletion`、`CaseResult`、`QueryResult`：描述可复用 attempt 与结构化结果。
 
-`summary.md` 由 LLM 根据结构化结果生成，说明该 harness 针对的问题、修改内容、相对 parent/baseline 的改善与退化、代表性 case 和后续建议。JSON 是事实来源，summary 仅用于快速阅读。
+这些 contract 反映目标方向，但当前评测器写入的是兼容的 JSON 字典而非上述完整 `ValidationSpec`/`ValidationResult`/`AttemptCompletion` 流程。特别是 query 级筛选、coverage、正式 comparable 标记、重试、attempt 复用和 completion marker 尚未落地。
 
-## 11. 搜索与最终测试
+## 7. 面向自治 memory 搜索的下一步
 
-系统首先评测 baseline，然后循环执行：
+要实现“向 agent 提供充足工具，持续探索更好 memory 架构”的目标，应以现有 workspace 和 validation 为基础，优先补齐以下闭环：
 
-```text
-读取历史与 top-K
-→ weakness mining
-→ fork/merge
-→ 修改和 sandbox debug
-→ 冻结 commit
-→ 白名单及接口检查
-→ 可选：指定 case/query 的 targeted screening
-→ 通过预设升级条件后执行完整 search validation
-→ 更新 registry、summary 和 leaderboard
-```
+1. **代码与 Git tools**：提供读取代码/结果、创建安全 branch 或 worktree、应用修改、查看 diff、运行检查、commit、列出与恢复候选的工具。所有写操作限制在 `code/repo/reme` 或受管 worktree，禁止改写已评测 commit。
+2. **候选冻结与 scope guard**：冻结前验证 clean Git 状态、bundle import/registration、允许修改路径和配置节点；把 commit SHA、源码 snapshot hash、配置 fingerprint、父 commit 与 scope 结果写入 `HarnessManifest`。
+3. **可控 validation**：将 `ValidationSelection` 接入 evaluator，支持固定的 case/query 子集与 selection fingerprint；screening 仅做淘汰，完整 search validation 才能进入 leaderboard。
+4. **搜索编排与可恢复状态**：实现 `run.json`/`events.jsonl` 的原子持久化和 event replay，写入 weakness/proposal 文件，按 `BudgetSpec` 结算预算，并由编排器而非 agent 决定 winner。
+5. **隔离 final test**：search 集只用于选择；winner 必须从冻结 commit clean replay 后，才由外部流程加载未暴露给 agent 的 test 集评测 baseline 与 winner。
 
-Targeted screening 是可选的成本控制阶段。未通过筛选的 candidate 记录结果和淘汰原因，但不消耗“完整 validation 数”预算；其实际 token、时间和费用仍计入对应总预算。筛选规则、样本范围和升级阈值必须在 domain spec 或 proposal 执行前确定，避免根据中间结果反复挑选有利样本。
-
-达到 proposal 数、完整 validation 数、token 或时间预算后，系统选择 search set 平均分最高的候选。完全同分时保留较早的 incumbent，不引入其他优化指标。
-
-最终 winner 必须从 commit SHA 重新构建，并在完整 search set 上进行 clean replay。只有 replay 成功后才加载 test set，分别评测 baseline 和 winner，生成最终报告。整个过程中 test 结果不反馈给 agent，从而保证 test set 只用于衡量泛化效果。
-
-## 12. 中断与恢复
-
-搜索可能持续数小时乃至数天，进程崩溃、机器重启或用户主动终止都不应破坏已完成的成果。恢复机制必须满足三个要求：持久化状态可校验、恢复操作幂等、同一 workspace 同时只有一个编排器写入。
-
-### 12.1 持久化与一致性边界
-
-`events.jsonl` 是搜索状态的事实来源，`run.json` 是由事件日志生成的加速快照。每条事件包含单调递增的 `seq`、唯一 `event_id`、时间戳和关联的 round、proposal、commit、validation、case、attempt 标识。写入事件后再原子替换 `run.json`；恢复时从快照记录的 `last_event_seq` 继续回放。若快照缺失、落后或校验失败，则完全从事件日志重建，不以快照覆盖较新的事件。
-
-`run.json`、case 结果、聚合结果和 registry 均采用“写临时文件 → flush/fsync → 同目录原子 rename”的方式发布。`events.jsonl` 尾部若存在崩溃造成的不完整 JSON 行，恢复时忽略该行并记录诊断信息；中间行损坏则停止恢复并明确报错，避免静默跳过历史。启动时通过 workspace lock 拒绝第二个并发编排器，lock 中记录 PID、主机和启动时间，并允许在确认所属进程已不存在后接管 stale lock。
-
-### 12.2 Case 原子性与结果复用
-
-每个 case 的完整 pipeline（`prepare → install → ingest → index → answer → export`）是最小恢复单元。中断时不尝试复用半写入的记忆、索引或回答；下一次 attempt 在全新的 runtime workspace 中从头执行。中断或基础设施失败的 attempt 目录及原始 artifacts 保留用于审计，不原地覆盖，也不作为有效结果参与聚合；可归因于候选本身的确定性失败仍按第 3 节记为 0 分。
-
-完成的 case 结果发布到第 9 节约定的 attempt 目录，并包含 `case_result.json` 和 `complete.json`。`complete.json` 最后写入，记录结果文件及 artifacts 的 SHA256、dataset/code/config/model/image fingerprint、case ID、attempt ID、所选 query 集合的 fingerprint 和完成状态。仅当完成标志可解析、hash 正确、状态为成功或确定性的候选失败，且所有 fingerprint 与当前 validation 完全一致时，结果才可复用；部分 query 的结果不能冒充该 case 的全量结果。目录或某个 `search.json` 文件的存在本身不能作为完成依据。基础设施故障耗尽重试后仍保留为 `infra_error`，但不把 validation 错误地标记为可聚合完成。
-
-`ValidationSpec` 选中的全部 case/query 达到可聚合状态后，编排器在对应 validation 目录确定性地生成 summary，随后记录 `validation_completed` 事件。若聚合阶段中断，可从具有相同选择 fingerprint 的 case 结果重新生成，不重复执行已验证的选择范围。
-
-### 12.3 搜索、Proposal 与 Git 续跑
-
-恢复以最后一个已提交的阶段事件为准，而不是无条件进入“下一轮”：
-
-- **搜索循环**：已记录 `round_completed` 的轮次不再执行；进行中的轮次从其最后一个完成阶段继续。只有尚未产生可恢复产物的 agent 调用才重新发起。
-- **Proposal**：已落盘的 weakness 和 proposal 文件必须具有唯一 ID、fingerprint 和对应的完成事件。仅有临时文件或缺少完成事件的 agent 输出视为未提交，可保留为诊断材料，但不进入搜索状态。
-- **Harness**：commit 只有通过 scope、import、smoke 检查并写入 registry 后才成为 frozen harness。存在 commit 但尚未登记时，恢复流程根据事件和检查结果决定继续冻结或放弃，不能仅凭分支名推断状态。
-- **Git 管理**：恢复时先核对 registry 中的 commit 和 snapshot hash，再清理可证明由本次运行创建且不再被引用的 worktree。未登记分支和 debug commit 默认保留或归档；不得自动删除用户分支、受保护分支或仍被事件、proposal、registry 引用的对象。
-- **Validation**：进行中的 validation 只调度缺少有效完成标志的 case/query 选择；恢复时必须使用原 `ValidationSpec`，不能重新抽样。部分 validation 完成后记录覆盖范围和筛选结论；只有 full validation 才更新正式 leaderboard。
-
-预算只由去重后的完成事件结算，`event_id` 重放不得重复计费。已发起但没有产生完成事件的模型调用或 sandbox attempt 仍记录实际可观测的 token、费用和耗时；若外部系统无法确认消耗，则记为 `unknown` 并按 domain spec 的保守策略处理。时间预算使用累计运行时，不包含进程停止期间的墙钟时间，除非 domain spec 明确配置绝对截止时间。
-
-### 12.4 恢复流程
-
-`run.py` 启动时执行以下恢复流程：
-
-```text
-1. 获取 workspace lock；若已有存活 owner，则拒绝启动
-2. 校验 events.jsonl，并以 run.json 的 last_event_seq 为起点回放；必要时从头重建快照
-3. 校验 registry 中的 commit、snapshot hash 和 frozen harness 状态
-4. 根据阶段事件定位进行中的 round、proposal 或 validation
-5. 校验 case 的 complete.json、fingerprint 和 artifacts hash，复用有效结果
-6. 为未完成 case 创建新的 attempt；从有效 case 结果重新执行缺失的聚合
-7. 清理无引用且可安全识别的临时 worktree，保留或归档其他 Git 状态
-8. 原子写入新快照并追加 resume_completed 事件，从最后一个未完成阶段继续
-```
-
-`resume_started` 和 `resume_completed` 事件记录恢复前后的状态摘要及本次采取的动作。上述流程可重复执行：再次中断不会重复登记 harness、重复结算预算或覆盖已有 attempt。无法验证的状态应停止并给出可操作的错误，不得通过猜测或静默删除数据来推进搜索。
+在这些能力完成前，Meta-ReMe 的正确使用方式是：由人或上层 agent 在受管 Git 仓库中创建干净 commit，再通过 validation tool 或 validation CLI 比较这些显式提交的结果；不要把尚未实现的搜索、scope 或恢复能力当作系统保障。

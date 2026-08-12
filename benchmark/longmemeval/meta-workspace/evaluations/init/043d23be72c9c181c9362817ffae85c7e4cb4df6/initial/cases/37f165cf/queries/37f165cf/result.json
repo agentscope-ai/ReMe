@@ -1,0 +1,36 @@
+{
+  "query_id": "37f165cf",
+  "question": "What was the page count of the two novels I finished in January and March?",
+  "golden_answer": "856",
+  "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+  "score": null,
+  "answer_result": {
+    "success": false,
+    "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+    "metadata": {},
+    "token_usage": {
+      "default": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "judge": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "bench": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      }
+    },
+    "job_call_counts": {
+      "agentic_answer": 1,
+      "search": 13
+    },
+    "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+  },
+  "judge_result": null,
+  "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+}

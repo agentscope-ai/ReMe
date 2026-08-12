@@ -1,0 +1,139 @@
+{
+  "jobs": [
+    {
+      "job": "auto_memory",
+      "result": {
+        "answer": "Created one memory note capturing plans for a farm open house, petting zoo logistics, farm-to-table sales strategies, recent fence repairs and goat vaccinations, egg recipe experiments, and criteria for selecting a new dairy cow breed.",
+        "error": null,
+        "job_call_counts": {
+          "auto_memory": 1,
+          "daily_list": 2,
+          "daily_write": 1
+        },
+        "metadata": {
+          "created": true,
+          "date": "2023-03-13",
+          "index": {
+            "changed": false,
+            "created": false,
+            "date": "2023-03-13",
+            "notes": [
+              {
+                "description": "Planning an upcoming farm open house event covering activity ideas, social media promotion, and logistical tips; detailing petting zoo containment strategies and farm-to-table sales setups; documenting recent farm maintenance including a repaired east-side pasture fence and a March 9, 2023 goat parasite vaccination; listing experimental egg-and-herb recipes inspired by fresh farm harvest; and outlining decision criteria and care protocols for acquiring a new dairy cow (evaluating Brown Swiss vs. Jersey breeds).",
+                "name": "farm-open-house-planning",
+                "path": "daily/2023-03-13/farm-open-house-planning.md",
+                "session_id": "b3070ec4_1",
+                "source_conversation": "[[session/dialog/b3070ec4_1.jsonl]]"
+              }
+            ],
+            "path": "daily/2023-03-13.md"
+          },
+          "modified": true,
+          "n_messages": 12,
+          "path": "daily/2023-03-13/farm-open-house-planning.md",
+          "source_conversation": "[[session/dialog/b3070ec4_1.jsonl]]"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 14480,
+            "output_tokens": 6012,
+            "total_tokens": 20492
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "index_update",
+      "result": {
+        "answer": [
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/session/dialog/b3070ec4_1.jsonl",
+            "success": true
+          },
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/daily/2023-03-13/farm-open-house-planning.md",
+            "success": true
+          },
+          {
+            "change": "added",
+            "path": "/workspace/case/reme_workspace/daily/2023-03-13.md",
+            "success": true
+          }
+        ],
+        "error": null,
+        "job_call_counts": {
+          "index_update": 1
+        },
+        "metadata": {
+          "counts": {
+            "added": 3,
+            "deleted": 0,
+            "modified": 0
+          }
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    },
+    {
+      "job": "auto_memory",
+      "result": {
+        "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "job_call_counts": {
+          "auto_memory": 1,
+          "daily_list": 1
+        },
+        "metadata": {},
+        "success": false,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      }
+    }
+  ],
+  "success": false
+}

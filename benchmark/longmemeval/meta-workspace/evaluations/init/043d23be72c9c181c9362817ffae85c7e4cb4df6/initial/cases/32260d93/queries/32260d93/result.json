@@ -1,0 +1,36 @@
+{
+  "query_id": "32260d93",
+  "question": "Can you recommend a show or movie for me to watch tonight?",
+  "golden_answer": "The user would prefer recommendations for stand-up comedy specials on Netflix, especially those that are known for their storytelling. They may not prefer recommendations for other genres or platforms.",
+  "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+  "score": null,
+  "answer_result": {
+    "success": false,
+    "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+    "metadata": {},
+    "token_usage": {
+      "default": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "judge": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      },
+      "bench": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null
+      }
+    },
+    "job_call_counts": {
+      "agentic_answer": 1,
+      "search": 4
+    },
+    "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+  },
+  "judge_result": null,
+  "error": "peer closed connection without sending complete message body (incomplete chunked read)"
+}

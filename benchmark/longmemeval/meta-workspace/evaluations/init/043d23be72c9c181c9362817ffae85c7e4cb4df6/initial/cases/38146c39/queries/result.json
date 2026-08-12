@@ -1,0 +1,55 @@
+{
+  "queries": [
+    {
+      "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "answer_result": {
+        "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "job_call_counts": {
+          "agentic_answer": 1,
+          "search": 7
+        },
+        "metadata": {},
+        "success": false,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      },
+      "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "golden_answer": "The user would prefer responses that build upon their previous experimentation with turbinado sugar, suggesting ingredients or techniques that complement its richer flavor. They might not prefer generic cookie-making advice or suggestions that don't take into account their existing use of turbinado sugar.",
+      "judge_result": null,
+      "query_id": "38146c39",
+      "question": "I've been feeling like my chocolate chip cookies need something extra. Any advice?",
+      "score": null
+    }
+  ],
+  "success": false,
+  "summary": {
+    "case_id": "38146c39",
+    "mean_score": null,
+    "queries": [
+      {
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "query_id": "38146c39",
+        "score": null
+      }
+    ],
+    "query_count": 1,
+    "schema_version": 1,
+    "scored_count": 0
+  }
+}

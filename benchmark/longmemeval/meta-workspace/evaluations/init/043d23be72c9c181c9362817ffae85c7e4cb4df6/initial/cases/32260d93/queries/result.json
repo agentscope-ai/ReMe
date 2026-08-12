@@ -1,0 +1,55 @@
+{
+  "queries": [
+    {
+      "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "answer_result": {
+        "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "job_call_counts": {
+          "agentic_answer": 1,
+          "search": 4
+        },
+        "metadata": {},
+        "success": false,
+        "token_usage": {
+          "bench": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      },
+      "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+      "golden_answer": "The user would prefer recommendations for stand-up comedy specials on Netflix, especially those that are known for their storytelling. They may not prefer recommendations for other genres or platforms.",
+      "judge_result": null,
+      "query_id": "32260d93",
+      "question": "Can you recommend a show or movie for me to watch tonight?",
+      "score": null
+    }
+  ],
+  "success": false,
+  "summary": {
+    "case_id": "32260d93",
+    "mean_score": null,
+    "queries": [
+      {
+        "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+        "query_id": "32260d93",
+        "score": null
+      }
+    ],
+    "query_count": 1,
+    "schema_version": 1,
+    "scored_count": 0
+  }
+}

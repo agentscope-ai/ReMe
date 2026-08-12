@@ -4,8 +4,70 @@ meta_workspace: "benchmark/longmemeval/meta-workspace"
 dataset:
   name: "longmemeval"
   source: "benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json"
-  train_case_ids: []  # empty = all cases; or a list of question IDs
+  train_case_ids:  # empty = all cases; or a list of question IDs
+    - "031748ae_abs"
+    - "09ba9854"
+    - "09d032c9"
+    - "0a995998"
+    - "0bb5a684"
+    - "0edc2aef"
+    - "19b5f2b3_abs"
+    - "2788b940"
+    - "2a1811e2"
+    - "32260d93"
+    - "35a27287"
+    - "37f165cf"
+    - "38146c39"
+    - "3a704032"
+    - "4d6b87c8"
+    - "57f827a0"
+    - "681a1674"
+    - "6b7dfb22"
+    - "6d550036"
+    - "7024f17c"
+    - "71017277"
+    - "75832dbd"
+    - "80ec1f4f_abs"
+    - "81507db6"
+    - "830ce83f"
+    - "852ce960"
+    - "88432d0a"
+    - "8c18457d"
+    - "95228167"
+    - "9a707b81"
+    - "9ee3ecd6"
+    - "a2f3aa27"
+    - "a89d7624"
+    - "c4a1ceb8"
+    - "d6233ab6"
+    - "d851d5ba"
+    - "dd2973ad"
+    - "e66b632c"
+    - "eace081b"
+    - "eeda8a6d_abs"
+    - "gpt4_0b2f1d21"
+    - "gpt4_2655b836"
+    - "gpt4_2ba83207"
+    - "gpt4_2f8be40d"
+    - "gpt4_59149c78"
+    - "gpt4_59c863d7"
+    - "gpt4_7abb270c"
+    - "gpt4_7f6b06db"
+    - "gpt4_85da3956"
+    - "gpt4_93159ced_abs"
+    - "gpt4_a56e767c"
+    - "gpt4_ab202e7f"
+    - "gpt4_c27434e8_abs"
 
 validation:
   concurrency: 5
   fail_fast: false  # true stops all cases after the first construction or query error
+
+search:
+  enabled: true
+  max_agent_iters: 80
+  max_code_iterations: 5
+  objective: >-
+    Search for a better ReMe implementation on the installed LongMemEval search
+    cases. Preserve every evaluated commit and compare candidates on identical
+    case coverage.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import subprocess
 import tarfile
 from types import SimpleNamespace
 
@@ -532,6 +533,48 @@ async def test_host_selects_when_to_commit_configured_daily_directory():
     assert "--only" in commit
     assert commit[-2:] == ["-m", "sessions: session-001, session-002"]
     assert all(path not in commit for path in ("metadata", "session", "resource", "."))
+
+
+def test_worker_memory_checkpoint_records_only_daily_source_files(tmp_path):
+    """Build checkpoints expose a session boundary without committing derived state."""
+
+    runtime_workspace = tmp_path / "reme_workspace"
+    daily = runtime_workspace / "daily"
+    metadata = runtime_workspace / "metadata"
+    daily.mkdir(parents=True)
+    metadata.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=runtime_workspace, check=True)
+    (daily / "memory.md").write_text("remember\n", encoding="utf-8")
+    (metadata / "index.json").write_text("{}\n", encoding="utf-8")
+
+    checkpoint = worker._commit_memory_checkpoint(  # pylint: disable=protected-access
+        tmp_path,
+        {"workspace_dir": str(runtime_workspace), "daily_dir": "daily"},
+        "session: one",
+    )
+
+    assert checkpoint["message"] == "session: one"
+    assert checkpoint["path"] == "daily"
+    assert (
+        subprocess.run(
+            ["git", "show", "--pretty=", "--name-only", checkpoint["commit_sha"]],
+            cwd=runtime_workspace,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        == "daily/memory.md"
+    )
+    assert (
+        subprocess.run(
+            ["git", "status", "--short"],
+            cwd=runtime_workspace,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        == "?? metadata/"
+    )
 
 
 @pytest.mark.asyncio

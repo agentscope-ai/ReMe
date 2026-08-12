@@ -126,6 +126,8 @@ class _FakeCase:
     async def run_build(self, jobs):
         self.factory.events.append((self.case_id, "run_build"))
         assert [job.job for job in jobs] == ["auto_memory", "index_update"]
+        assert jobs[0].memory_checkpoint is None
+        assert jobs[1].memory_checkpoint == f"session: session-{self.case_id}"
         await asyncio.sleep(0.01)
         return {"success": True, "jobs": []}
 
@@ -213,10 +215,9 @@ class _FakeCase:
         self.factory.active -= 1
 
 
-def test_validation_uses_immutable_commit_and_bounds_full_case_lifecycle(tmp_path: Path) -> None:
+def test_validation_uses_current_commit_and_bounds_full_case_lifecycle(tmp_path: Path) -> None:
     case_ids = ["case-1", "case-2", "case-3"]
-    workspace, repository, commit = _prepared_workspace(tmp_path, case_ids)
-    (repository / "reme/__init__.py").write_text("VERSION = 'dirty'\n", encoding="utf-8")
+    workspace, _, commit = _prepared_workspace(tmp_path, case_ids)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -224,18 +225,16 @@ def test_validation_uses_immutable_commit_and_bounds_full_case_lifecycle(tmp_pat
         created.append(factory)
         return factory
 
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
     output = evaluator.run_validation(
         workspace.root,
         case_ids,
-        "candidate-1",
         2,
         validation_id="validation-1",
         factory_builder=build_factory,
         environment={},
     )
 
-    assert output == workspace.path("evaluations/candidate-1/validation-1")
+    assert output == workspace.path(f"evaluations/init/{commit[:7]}/validation-1")
     assert created[0].max_active == 2
     assert len(created[0].created) == 2
     assert len(created[0].resets) == 2
@@ -244,9 +243,9 @@ def test_validation_uses_immutable_commit_and_bounds_full_case_lifecycle(tmp_pat
         assert archive.extractfile("reme/__init__.py").read() == b"VERSION = 'committed'\n"
     summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    assert summary["code_id"] == "candidate-1"
+    assert summary["branch_name"] == "init"
     assert summary["commit_sha"] == commit
-    assert manifest["code_id"] == "candidate-1"
+    assert manifest["branch_name"] == "init"
     assert manifest["commit_sha"] == commit
     assert manifest["container_reuse"] is True
     assert manifest["scheduling"] == {
@@ -290,9 +289,8 @@ def test_validation_uses_immutable_commit_and_bounds_full_case_lifecycle(tmp_pat
 def test_validation_builds_every_memory_before_stealing_ordered_queries(tmp_path: Path) -> None:
     """Idle workers fan out one case only after the strict construction barrier."""
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-many"])
+    workspace, _, _ = _prepared_workspace(tmp_path, ["case-many"])
     workspace.atomic_write_json("dataset/cases/000000.json", _case("case-many", query_count=6))
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -303,7 +301,6 @@ def test_validation_builds_every_memory_before_stealing_ordered_queries(tmp_path
     output = evaluator.run_validation(
         workspace.root,
         ["case-many"],
-        "candidate-1",
         3,
         validation_id="query-stealing",
         factory_builder=build_factory,
@@ -349,8 +346,7 @@ def test_validation_records_construction_infra_error_without_retrying(tmp_path: 
             self.created.append(case_id)
             return RetryCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1", "case-2"], max_retries=1)
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, _ = _prepared_workspace(tmp_path, ["case-1", "case-2"], max_retries=1)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -361,7 +357,6 @@ def test_validation_records_construction_infra_error_without_retrying(tmp_path: 
     output = evaluator.run_validation(
         workspace.root,
         ["case-1", "case-2"],
-        "candidate-1",
         1,
         validation_id="replace-infra-container",
         factory_builder=build_factory,
@@ -399,8 +394,7 @@ def test_validation_discards_a_container_when_reset_fails(tmp_path: Path) -> Non
             return ResetFailureCase(self, case_id)
 
     case_ids = ["case-1", "case-2", "case-3"]
-    workspace, repository, commit = _prepared_workspace(tmp_path, case_ids)
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, _ = _prepared_workspace(tmp_path, case_ids)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -411,7 +405,6 @@ def test_validation_discards_a_container_when_reset_fails(tmp_path: Path) -> Non
     output = evaluator.run_validation(
         workspace.root,
         case_ids,
-        "candidate-1",
         1,
         validation_id="replace-reset-failure",
         factory_builder=build_factory,
@@ -445,8 +438,7 @@ def test_construction_candidate_failure_skips_case_queries(tmp_path: Path) -> No
             self.created.append(case_id)
             return FailedBuildCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, _ = _prepared_workspace(tmp_path, ["case-1"])
     created = []
 
     def build_factory(*args, **kwargs):
@@ -457,7 +449,6 @@ def test_construction_candidate_failure_skips_case_queries(tmp_path: Path) -> No
     output = evaluator.run_validation(
         workspace.root,
         ["case-1"],
-        "candidate-1",
         2,
         validation_id="failed-construction",
         factory_builder=build_factory,
@@ -495,8 +486,7 @@ def test_query_infrastructure_failure_is_saved_without_retrying(tmp_path: Path) 
             self.created.append(case_id)
             return FlakyQueryCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"], max_retries=1)
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, _ = _prepared_workspace(tmp_path, ["case-1"], max_retries=1)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -507,7 +497,6 @@ def test_query_infrastructure_failure_is_saved_without_retrying(tmp_path: Path) 
     output = evaluator.run_validation(
         workspace.root,
         ["case-1"],
-        "candidate-1",
         1,
         validation_id="retry-query",
         factory_builder=build_factory,
@@ -541,12 +530,10 @@ def test_query_failure_is_a_terminal_ordered_case_result(tmp_path: Path) -> None
             self.created.append(case_id)
             return BrokenQueryCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, _ = _prepared_workspace(tmp_path, ["case-1"])
     output = evaluator.run_validation(
         workspace.root,
         ["case-1"],
-        "candidate-1",
         2,
         validation_id="exhaust-query",
         factory_builder=BrokenQueryFactory,
@@ -595,8 +582,7 @@ def test_fail_fast_construction_error_cancels_sibling_cases(tmp_path: Path) -> N
             self.created.append(case_id)
             return FailFastBuildCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-fail", "case-slow"])
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
+    workspace, _, commit = _prepared_workspace(tmp_path, ["case-fail", "case-slow"])
     created = []
 
     def build_factory(*args, **kwargs):
@@ -608,7 +594,6 @@ def test_fail_fast_construction_error_cancels_sibling_cases(tmp_path: Path) -> N
         evaluator.run_validation(
             workspace.root,
             ["case-fail", "case-slow"],
-            "candidate-1",
             2,
             validation_id="fail-fast-build",
             fail_fast=True,
@@ -616,7 +601,7 @@ def test_fail_fast_construction_error_cancels_sibling_cases(tmp_path: Path) -> N
             environment={},
         )
 
-    output = workspace.path("evaluations/candidate-1/fail-fast-build")
+    output = workspace.path(f"evaluations/init/{commit[:7]}/fail-fast-build")
     failure = json.loads((output / "failure.json").read_text(encoding="utf-8"))
     assert created[0].sibling_started is True
     assert created[0].sibling_cancelled is True
@@ -654,9 +639,8 @@ def test_fail_fast_query_error_does_not_run_later_queries(tmp_path: Path) -> Non
             self.created.append(case_id)
             return FailedQueryCase(self, case_id)
 
-    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
+    workspace, _, commit = _prepared_workspace(tmp_path, ["case-1"])
     workspace.atomic_write_json("dataset/cases/000000.json", _case("case-1", query_count=2))
-    subprocess.run(["git", "branch", "candidate-1", commit], cwd=repository, check=True)
     created = []
 
     def build_factory(*args, **kwargs):
@@ -668,7 +652,6 @@ def test_fail_fast_query_error_does_not_run_later_queries(tmp_path: Path) -> Non
         evaluator.run_validation(
             workspace.root,
             ["case-1"],
-            "candidate-1",
             1,
             validation_id="fail-fast-query",
             fail_fast=True,
@@ -676,7 +659,7 @@ def test_fail_fast_query_error_does_not_run_later_queries(tmp_path: Path) -> Non
             environment={},
         )
 
-    output = workspace.path("evaluations/candidate-1/fail-fast-query")
+    output = workspace.path(f"evaluations/init/{commit[:7]}/fail-fast-query")
     assert [event for _, event in created[0].events if event.startswith("run_query:")] == [
         "run_query:query-case-1-0",
     ]
@@ -688,46 +671,52 @@ def test_fail_fast_query_error_does_not_run_later_queries(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_validation_exposes_native_async_project_api(tmp_path: Path) -> None:
-    workspace, _, _ = _prepared_workspace(tmp_path, ["case-async"])
+    workspace, _, commit = _prepared_workspace(tmp_path, ["case-async"])
 
     output = await evaluator.run_validation_async(
         workspace.root,
         ["case-async"],
-        "init",
         1,
         validation_id="async-api",
         factory_builder=_FakeFactory,
         environment={},
     )
 
-    assert output == workspace.path("evaluations/init/async-api")
+    assert output == workspace.path(f"evaluations/init/{commit[:7]}/async-api")
     assert (output / "summary.json").is_file()
 
 
-def test_validation_rejects_commit_sha_as_code_id(tmp_path: Path) -> None:
-    workspace, _, commit = _prepared_workspace(tmp_path, ["case-1"])
+@pytest.mark.parametrize("dirty_kind", ["tracked", "staged", "untracked"])
+def test_validation_rejects_uncommitted_code(tmp_path: Path, dirty_kind: str) -> None:
+    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
+    if dirty_kind == "untracked":
+        (repository / "untracked.py").write_text("DIRTY = True\n", encoding="utf-8")
+    else:
+        (repository / "reme/__init__.py").write_text("VERSION = 'dirty'\n", encoding="utf-8")
+        if dirty_kind == "staged":
+            subprocess.run(["git", "add", "reme/__init__.py"], cwd=repository, check=True)
 
-    with pytest.raises(evaluator.ValidationError, match="unknown local branch code_id"):
+    with pytest.raises(evaluator.ValidationError, match="uncommitted changes"):
         evaluator.run_validation(
             workspace.root,
             ["case-1"],
-            commit,
             1,
-            validation_id="commit-is-not-code-id",
+            validation_id="dirty-code",
             factory_builder=_FakeFactory,
             environment={},
         )
+    assert not workspace.path(f"evaluations/init/{commit[:7]}/dirty-code").exists()
 
-    with pytest.raises(evaluator.ValidationError, match="path-safe Git branch name"):
-        evaluator.run_validation(
-            workspace.root,
-            ["case-1"],
-            "feature/candidate",
-            1,
-            validation_id="unsafe-code-id",
-            factory_builder=_FakeFactory,
-            environment={},
-        )
+
+def test_validation_rejects_detached_head_and_non_path_safe_branch(tmp_path: Path) -> None:
+    workspace, repository, commit = _prepared_workspace(tmp_path, ["case-1"])
+    subprocess.run(["git", "checkout", "--detach", commit], cwd=repository, check=True, capture_output=True)
+    with pytest.raises(evaluator.ValidationError, match="detached HEAD"):
+        evaluator.run_validation(workspace.root, ["case-1"], 1, factory_builder=_FakeFactory, environment={})
+
+    subprocess.run(["git", "switch", "-c", "feature/candidate"], cwd=repository, check=True, capture_output=True)
+    with pytest.raises(evaluator.ValidationError, match="path-safe"):
+        evaluator.run_validation(workspace.root, ["case-1"], 1, factory_builder=_FakeFactory, environment={})
 
 
 def test_adapters_build_dataset_specific_requests() -> None:

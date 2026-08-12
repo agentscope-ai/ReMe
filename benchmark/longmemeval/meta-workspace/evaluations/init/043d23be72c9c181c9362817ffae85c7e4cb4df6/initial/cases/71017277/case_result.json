@@ -1,0 +1,152 @@
+{
+  "artifact_sha256": {
+    "memory_workspace": "8031a71e273a9d2cda71335204cfcdd6a955ddb9e05233a033af306f65d5bfba"
+  },
+  "build": {
+    "jobs": [
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "I created the file `medical-info-diabetes-osteoporosis-men.md` for today (2023-02-02), extracting detailed information on Type 2 diabetes mellitus causes, treatments, and male osteoporosis etiology.",
+          "error": null,
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 2,
+            "daily_write": 1
+          },
+          "metadata": {
+            "created": true,
+            "date": "2023-02-02",
+            "index": {
+              "changed": false,
+              "created": false,
+              "date": "2023-02-02",
+              "notes": [
+                {
+                  "description": "Clinical overview capturing Type 2 Diabetes Mellitus pathophysiology, symptomatology, complication risks, dietary protocols, and five distinct pharmacological treatment classes (Metformin, Sulfonylureas, DPP-4 inhibitors, GLP-1 agonists, SGLT2 inhibitors), plus a detailed etiology analysis of male osteoporosis identifying age-related bone loss as the primary driver alongside hormonal, comorbid, pharmacological, and lifestyle triggers.",
+                  "name": "medical-info-diabetes-osteoporosis-men",
+                  "path": "daily/2023-02-02/medical-info-diabetes-osteoporosis-men.md",
+                  "session_id": "sharegpt_vAmtpXS_27",
+                  "source_conversation": "[[session/dialog/sharegpt_vAmtpXS_27.jsonl]]"
+                }
+              ],
+              "path": "daily/2023-02-02.md"
+            },
+            "modified": true,
+            "n_messages": 3,
+            "path": "daily/2023-02-02/medical-info-diabetes-osteoporosis-men.md",
+            "source_conversation": "[[session/dialog/sharegpt_vAmtpXS_27.jsonl]]"
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 8090,
+              "output_tokens": 3621,
+              "total_tokens": 11711
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "index_update",
+        "result": {
+          "answer": [
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-02-02.md",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/session/dialog/sharegpt_vAmtpXS_27.jsonl",
+              "success": true
+            },
+            {
+              "change": "added",
+              "path": "/workspace/case/reme_workspace/daily/2023-02-02/medical-info-diabetes-osteoporosis-men.md",
+              "success": true
+            }
+          ],
+          "error": null,
+          "job_call_counts": {
+            "index_update": 1
+          },
+          "metadata": {
+            "counts": {
+              "added": 3,
+              "deleted": 0,
+              "modified": 0
+            }
+          },
+          "success": true,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      },
+      {
+        "job": "auto_memory",
+        "result": {
+          "answer": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "error": "peer closed connection without sending complete message body (incomplete chunked read)",
+          "job_call_counts": {
+            "auto_memory": 1,
+            "daily_list": 1
+          },
+          "metadata": {},
+          "success": false,
+          "token_usage": {
+            "bench": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            },
+            "default": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            },
+            "judge": {
+              "input_tokens": null,
+              "output_tokens": null,
+              "total_tokens": null
+            }
+          }
+        }
+      }
+    ],
+    "success": false
+  },
+  "case_id": "71017277",
+  "completed_stages": [
+    "prepare",
+    "construct_memory"
+  ],
+  "error": "memory construction failed",
+  "queries": [],
+  "status": "candidate_failure"
+}

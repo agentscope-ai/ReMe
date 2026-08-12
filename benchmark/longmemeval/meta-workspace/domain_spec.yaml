@@ -1,0 +1,36 @@
+baseline_files: []
+benchmark_runner: benchmark.longmemeval.run
+budget:
+  deadline: null
+  max_proposals: 1
+  max_runtime_seconds: null
+  max_tokens: null
+  max_validations: null
+bundle_target: lme
+dataset:
+  fingerprint: 4fda32d157ef52eaf29d501d8b7580af054197dd3b886fb237060678bcbce067
+  name: longmemeval
+  source: /Users/xyf/projects/ReMe/benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json
+objective: mean_query_score
+proposer:
+  model: not-configured
+  top_k: 5
+sandbox:
+  concurrency: 1
+  image: reme-sandbox-base:agentscope-2.0.4-post1
+  max_artifact_bytes: 1073741824
+  max_retries: 0
+  timeout_seconds: 3600.0
+schema_version: 1
+scope:
+  config_paths: {}
+  debug_paths:
+  - meta_debug
+  harness_paths: []
+scorer: mean_query_score
+validation:
+  default_case_ids: null
+  default_query_ids: {}
+  promotion_min_mean_query_score: null
+  require_full_for_leaderboard: true
+  screening_enabled: true

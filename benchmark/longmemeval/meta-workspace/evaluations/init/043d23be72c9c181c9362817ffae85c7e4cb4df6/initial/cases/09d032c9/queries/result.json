@@ -1,0 +1,91 @@
+{
+  "queries": [
+    {
+      "answer": "Information not found.",
+      "answer_result": {
+        "answer": "Information not found.",
+        "error": null,
+        "job_call_counts": {
+          "agentic_answer": 1,
+          "search": 3
+        },
+        "metadata": {
+          "query": "I've been having trouble with the battery life on my phone lately. Any tips?",
+          "query_time": "2023-05-30T16:42:00",
+          "response": "Information not found.",
+          "sys_prompt": "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n- Your total time of tool calls should be at most 9 times\n\n## Search Strategy\n- You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.\n- Do not stop after the first relevant one unless you are confident that the information is sufficient.\n- You can use 'read' tool to read specific parts of a specific file.\n- After finding a preliminary answer, continue searching from multiple angles to check for potentially conflicting, supplementary, or updated information.\n## Draft Tool\n- Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.\n## Answer Rules\n- Answer based ONLY on retrieved context.\n- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n- Do NOT invent or assume information that isn't in the memories. Do NOT extrapolate or fabricate connections from related but non-direct evidence.\n- If information is not found or not sufficient after multiple searches, or if the maximum iteration count is reached without finding answer, reply: 'Information not found.'\nCurrent time context: 2023-05-30T16:42:00"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": 25395,
+            "output_tokens": 452,
+            "total_tokens": 25847
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          }
+        }
+      },
+      "error": null,
+      "golden_answer": "The user already owns a new portable power bank and a wireless charging pad. A personalized response should acknowledge these existing accessories and suggest using them for convenient top-ups, while also providing practical phone battery-life tips such as checking battery usage and battery health, enabling battery saver, reducing screen power consumption, and limiting unnecessary background activity. The advice should be concrete and well organized. There is no evidence that the user dislikes alternative solutions or wants recommendations for additional charging accessories.",
+      "judge_result": {
+        "answer": "no",
+        "error": null,
+        "job_call_counts": {
+          "answer_judge": 1
+        },
+        "metadata": {
+          "agent_answer": "Information not found.",
+          "answer_judgement": "no",
+          "golden_answer": "The user already owns a new portable power bank and a wireless charging pad. A personalized response should acknowledge these existing accessories and suggest using them for convenient top-ups, while also providing practical phone battery-life tips such as checking battery usage and battery health, enabling battery saver, reducing screen power consumption, and limiting unnecessary background activity. The advice should be concrete and well organized. There is no evidence that the user dislikes alternative solutions or wants recommendations for additional charging accessories.",
+          "query": "I've been having trouble with the battery life on my phone lately. Any tips?",
+          "question_type": "single-session-preference",
+          "raw_answer_judgement": "no"
+        },
+        "success": true,
+        "token_usage": {
+          "bench": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0
+          },
+          "default": {
+            "input_tokens": null,
+            "output_tokens": null,
+            "total_tokens": null
+          },
+          "judge": {
+            "input_tokens": 228,
+            "output_tokens": 161,
+            "total_tokens": 389
+          }
+        }
+      },
+      "query_id": "09d032c9",
+      "question": "I've been having trouble with the battery life on my phone lately. Any tips?",
+      "score": 0.0
+    }
+  ],
+  "success": true,
+  "summary": {
+    "case_id": "09d032c9",
+    "mean_score": 0.0,
+    "queries": [
+      {
+        "query_id": "09d032c9",
+        "score": 0.0
+      }
+    ],
+    "query_count": 1,
+    "schema_version": 1,
+    "scored_count": 1
+  }
+}
