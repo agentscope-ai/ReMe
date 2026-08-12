@@ -223,3 +223,84 @@ Typical text structure:
 
 `counts` reports how many vector and keyword candidates were recalled and how many results were ultimately returned. With
 embeddings disabled by default, `vector` is usually `0` and `hybrid` is `false`.
+
+## Search Filters (`search_filter`)
+
+All search-family jobs — the CLI `reme search`, the HTTP/MCP `search` tool, and the Python `SearchStep` — accept a
+structured `search_filter` argument that narrows candidates *before* scoring and ranking. Because filters run inside
+`LocalFileStore` against indexed frontmatter and path metadata, they are cheap and compose naturally with the semantic
+and keyword recall stages.
+
+```yaml
+# example: run semantic search but only within daily notes written on exactly 2026-06-20,
+# tagged with both user:alice and project:reme
+search_step:
+  search_filter:
+    prefix: daily/2026-06-20
+    tags: ["user:alice", "project:reme"]
+```
+
+### Available filters
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `path` | `str` | Matches a single exact workspace-relative path. Useful for re-scoring one file. |
+| `paths` | `list[str]` | Disjunction of exact paths — a chunk matches when its file path is in the list. |
+| `prefix` | `str` | Chunk path starts with the given value. Use `daily/`, `digest/`, or a subfolder. |
+| `date` | `str` (`YYYY-MM-DD`) | Strict date match against the chunk's `FileChunk.date` field, populated from enclosing daily-note paths or from a file-level `date` frontmatter entry. |
+| `metadata` | `dict[str, Any]` | Equality/subset match on file frontmatter. Each key in the dict must be present on the file frontmatter and contain the requested value (list-valued metadata uses **containment**: every listed value must appear in the file's actual list). |
+| `tags` | `list[str]` or comma-separated `str` | **Containment-style AND filter** on the file's frontmatter `tags` field. A file passes when every listed tag is present in its `tags` array; this is the preferred way to implement multi-user or multi-conversation scoping without maintaining separate workspaces. |
+
+### Multi-user / multi-profile scoping with `tags`
+
+When a single ReMe workspace is shared across several users, profiles, or conversations, attach stable frontmatter
+tags at write-time and then filter on `tags` at recall-time. A file that should only ever be visible to one user
+carries something like:
+
+```markdown
+---
+title: Daily note for Alice
+tags:
+  - user:alice
+  - conv:project-retro-abc
+created: 2026-06-20
+---
+
+...today's conversation summary...
+```
+
+Recall that scopes results to Alice's project conversation only:
+
+```bash
+reme search \
+  query="decisions about indexing priority" \
+  search_filter.tags.0=user:alice \
+  search_filter.tags.1=conv:project-retro-abc \
+  limit=5
+```
+
+Or, over the MCP or HTTP `search` tool body:
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "query": "decisions about indexing priority",
+    "limit": 5,
+    "search_filter": {
+      "tags": ["user:alice", "conv:project-retro-abc"]
+    }
+  }
+}
+```
+
+Semantics rules to keep in mind:
+
+- **AND containment.** `tags: ["user:alice", "project:reme"]` requires a file to carry **both** tags. Tag order does not matter.
+- **Both list and CSV inputs are accepted.** A CSV string `"user:alice,conv:abc"` is trimmed and split into a list before evaluation.
+- **Non-list tags are still supported.** A file written with a scalar `tags: user:alice` (not a list) matches `tags=["user:alice"]`.
+- **Files without any `tags` frontmatter match only when the `tags` filter is empty / omitted.** This is the default behavior so public digest files remain visible by default.
+
+Use this pattern in plugins (e.g. Claude Code, Codex, QwenPaw, Hermes Agent) whenever each profile should see only
+its own recall surface — it avoids the operational cost of one workspace per profile while keeping all durable files
+readable, diffable, and mergeable by humans.
