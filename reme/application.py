@@ -26,18 +26,17 @@ class Application(BaseComponent):
         self._started_components: list[BaseComponent] = []
 
         self._setup_workspace_directories()
-
-        if self.config.enable_logo:
-            print_logo(self.config)
         logger = get_logger(
             log_to_console=self.config.log_to_console,
             log_to_file=self.config.log_to_file,
             force_init=True,
         )
-        logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         super().__init__()
-
         self._init_service()
+
+        if self.config.enable_logo:
+            print_logo(self.config, self.context.service)
+        logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         self._init_components()
         self._init_jobs()
 
