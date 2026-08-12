@@ -55,13 +55,13 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 - [2026.08] - 发布 [ReMe 博客](docs/zh/reme-blog.md)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
-- [2026.08] - 新增 [ReMe Studio](website/README_ZH.md)：用于浏览、编辑和搜索记忆文件，与只读 ReMe Agent
+- [2026.08] - 新增 [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh)：用于浏览、编辑和搜索记忆文件，与只读 ReMe Agent
   对话，查看 digest wikilink 图，并管理本地服务。
 - [2026.08] - 基于 ReMe 的智能体工具使用
-  [经验驱动增强方法](benchmark/toolmemory/README_ZH.md)已发布，见
+  [经验驱动增强方法](https://reme.agentscope.io/?doc=toolmemory-zh)已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
-- [2026.07] - 新增可选 Cookbook 工作流：[每日论文](cookbook/daily_paper/README_ZH.md)用于论文发现与解析，
-  [Auto Fin](cookbook/auto-fin/README_ZH.md)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
+- [2026.07] - 新增可选 Cookbook 工作流：[每日论文](https://reme.agentscope.io/?doc=daily-paper-zh)用于论文发现与解析，
+  [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
   wikilink。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -163,7 +163,7 @@ npm run dev
 ```
 
 然后打开 <http://localhost:3000>。开发服务默认连接 `http://127.0.0.1:2333`；如需连接其他 ReMe HTTP
-服务，请设置 `NEXT_PUBLIC_REME_API_URL`。静态构建和前端配置说明见 [ReMe Studio 指南](website/README_ZH.md)。
+服务，请设置 `NEXT_PUBLIC_REME_API_URL`。静态构建和前端配置说明见 [ReMe Studio 指南](https://reme.agentscope.io/?doc=studio-zh)。
 
 ### 5 分钟记忆 Demo
 
@@ -214,7 +214,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 | [Proactive](docs/zh/proactive.md) | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。 |
 | [Agent 接入场景](docs/zh/reme_scene.md) | 在 CLI/SKILL.md、HTTP、MCP 和嵌入式 Python 集成之间选择。 |
 | [框架说明](docs/zh/framework.md) | 理解 Application、Job、Step、Component、service、配置和生命周期边界。 |
-| [ReMe Studio](website/README_ZH.md) | 使用、配置、开发、测试和构建 Web 前端。 |
+| [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh) | 使用、配置、开发、测试和构建 Web 前端。 |
 | [ReMe 博客](docs/zh/reme-blog.md) | 了解完整产品故事、设计动机、使用示例和评测摘要。 |
 
 ## 🧑‍🍳 Cookbooks
@@ -224,8 +224,8 @@ cookbook 会继续在表格中按行追加。
 
 | Cookbook                                      | 能力                                                                           |
 |-----------------------------------------------|--------------------------------------------------------------------------------|
-| [每日论文](cookbook/daily_paper/README_ZH.md) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
-| [Auto Fin](cookbook/auto-fin/README_ZH.md)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
+| [每日论文](https://reme.agentscope.io/?doc=daily-paper-zh) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
+| [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
 
 ## 📁 记忆系统
 
@@ -320,11 +320,11 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 | 基准                                                            | 设置        |            样本量 | Agentic 得分 | 主要检验内容                   |
 |-----------------------------------------------------------------|-------------|------------------:|-------------:|--------------------------------|
-| **[LongMemEval cleaned-s](benchmark/longmemeval/README_ZH.md)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
-| [BEAM](benchmark/beam/README_ZH.md)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
-| [BEAM](benchmark/beam/README_ZH.md)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/?doc=longmemeval-zh)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
+| [BEAM](https://reme.agentscope.io/?doc=beam-zh)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
+| [BEAM](https://reme.agentscope.io/?doc=beam-zh)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
 
-在仓库的 [π-Bench 评测](benchmark/pibench/README_ZH.md)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
+在仓库的 [π-Bench 评测](https://reme.agentscope.io/?doc=pibench-zh)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。
 
 ## 🤝 Agent-friendly Integration

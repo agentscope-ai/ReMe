@@ -63,12 +63,12 @@ keeping the files under the user's control.
 
 - [2026.08] - Published the [ReMe blog](docs/en/reme-blog.md), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
-- [2026.08] - Introduced [ReMe Studio](website/README.md), a local web workspace for browsing, editing, and searching
+- [2026.08] - Introduced [ReMe Studio](https://reme.agentscope.io/?doc=studio-en), a local web workspace for browsing, editing, and searching
   memory files, chatting with the read-only ReMe Agent, inspecting the digest wikilink graph, and managing the local service.
-- [2026.08] - [Experience-driven enhancement method](benchmark/toolmemory/README.md) of agent tool-use execution built
+- [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/?doc=toolmemory-en) of agent tool-use execution built
   on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
-- [2026.07] - Introduced optional Cookbooks: [Daily Paper](cookbook/daily_paper/README.md) for paper discovery and
-  analysis, and [Auto Fin](cookbook/auto-fin/README.md) for researching the latest 24 hours of topic-related CLS news
+- [2026.07] - Introduced optional Cookbooks: [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) for paper discovery and
+  analysis, and [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en) for researching the latest 24 hours of topic-related CLS news
   with local-memory search and validated historical wikilinks.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -171,7 +171,7 @@ npm run dev
 
 Then open <http://localhost:3000>. The development server uses `http://127.0.0.1:2333` by default; set
 `NEXT_PUBLIC_REME_API_URL` to connect to another ReMe HTTP service. Static-build and frontend configuration instructions are
-in the [ReMe Studio guide](website/README.md).
+in the [ReMe Studio guide](https://reme.agentscope.io/?doc=studio-en).
 
 ### 5-Minute Memory Demo
 
@@ -222,7 +222,7 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 | [Proactive](docs/en/proactive.md) | Read interest topics safely and integrate them into a host agent's decision flow. |
 | [Agent Integration Scenarios](docs/en/reme_scene.md) | Choose among CLI/SKILL.md, HTTP, MCP, and embedded Python integration. |
 | [Framework](docs/en/framework.md) | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries. |
-| [ReMe Studio](website/README.md) | Use, configure, develop, test, and build the web frontend. |
+| [ReMe Studio](https://reme.agentscope.io/?doc=studio-en) | Use, configure, develop, test, and build the web frontend. |
 | [ReMe Blog](docs/en/reme-blog.md) | Read the product story, design rationale, examples, and benchmark summary. |
 
 ## 🧑‍🍳 Cookbooks
@@ -233,8 +233,8 @@ another row in this table.
 
 | Cookbook                                      | Capability                                                                                                    |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
-| [Daily Paper](cookbook/daily_paper/README.md) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
-| [Auto Fin](cookbook/auto-fin/README.md)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |
+| [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
+| [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |
 
 ## 📁 Memory System
 
@@ -338,12 +338,12 @@ benchmark.
 
 | Benchmark                                                    | Setting      |              Sample size | Agentic score | Focus                                                              |
 |--------------------------------------------------------------|--------------|-------------------------:|--------------:|--------------------------------------------------------------------|
-| **[LongMemEval cleaned-s](benchmark/longmemeval/README.md)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
-| [BEAM](benchmark/beam/README.md)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
-| [BEAM](benchmark/beam/README.md)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/?doc=longmemeval-en)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
+| [BEAM](https://reme.agentscope.io/?doc=beam-en)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
+| [BEAM](https://reme.agentscope.io/?doc=beam-en)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
 
 ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
-[π-Bench evaluation](benchmark/pibench/README.md), 2.4% above NanoBot under the same test-model configuration. PROC
+[π-Bench evaluation](https://reme.agentscope.io/?doc=pibench-en), 2.4% above NanoBot under the same test-model configuration. PROC
 measures proactive handling of hidden intent, clarification, cross-session preferences and conventions, task
 dependencies, and underspecified requests.
 

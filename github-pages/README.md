@@ -50,6 +50,9 @@ The build script reads the canonical repository files directly. Do not edit gene
 - `README.md` and `README_ZH.md`: project introductions
 - `docs/en/` and `docs/zh/`: English and Chinese guides
 - `docs/figure/`: documentation images
+- `website/README.md` and `website/README_ZH.md`: ReMe Studio guide
+- `cookbook/*/README*.md`: research workflow guides
+- `benchmark/{beam,longmemeval,pibench,toolmemory}/README*.md`: benchmark guides and results
 - `skills/reme_memory/SKILL.md`: ReMe Memory skill guide
 - `AGENTS.md`: repository development guide
 

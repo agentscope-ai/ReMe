@@ -51,6 +51,79 @@ const localizedTitles = {
   contributing: { zh: "开源与贡献", en: "Open Source and Contributing" },
 };
 
+const productDocuments = [
+  {
+    slug: "studio",
+    source: "website",
+    titles: { zh: "ReMe 工作台", en: "ReMe Studio" },
+    descriptions: {
+      zh: "浏览、编辑和搜索本地记忆，并探索记忆图谱。",
+      en: "Browse, edit, search, and explore local memory from the web workspace.",
+    },
+    group: "workspace",
+  },
+  {
+    slug: "daily-paper",
+    source: "cookbook/daily_paper",
+    titles: { zh: "每日论文", en: "Daily Paper" },
+    descriptions: {
+      zh: "发现论文、解析 PDF，并生成阅读笔记与每日简报。",
+      en: "Discover papers, analyze PDFs, and produce reading notes and a daily brief.",
+    },
+    group: "cookbooks",
+  },
+  {
+    slug: "auto-fin",
+    source: "cookbook/auto-fin",
+    titles: { zh: "财经研究", en: "Auto Fin" },
+    descriptions: {
+      zh: "结合最新财联社新闻与本地历史记忆生成研究报告。",
+      en: "Research recent CLS news with historical context from local memory.",
+    },
+    group: "cookbooks",
+  },
+  {
+    slug: "beam",
+    source: "benchmark/beam",
+    titles: { zh: "BEAM", en: "BEAM" },
+    descriptions: {
+      zh: "评测大规模记忆检索能力。",
+      en: "Evaluate memory retrieval at scale.",
+    },
+    group: "benchmarks",
+  },
+  {
+    slug: "longmemeval",
+    source: "benchmark/longmemeval",
+    titles: { zh: "LongMemEval", en: "LongMemEval" },
+    descriptions: {
+      zh: "评测跨会话长期记忆问答能力。",
+      en: "Evaluate long-term, cross-session memory question answering.",
+    },
+    group: "benchmarks",
+  },
+  {
+    slug: "pibench",
+    source: "benchmark/pibench",
+    titles: { zh: "π-Bench", en: "π-Bench" },
+    descriptions: {
+      zh: "评测带持久记忆的个人智能体。",
+      en: "Evaluate personal agents with persistent memory.",
+    },
+    group: "benchmarks",
+  },
+  {
+    slug: "toolmemory",
+    source: "benchmark/toolmemory",
+    titles: { zh: "Tool Memory / ExpG", en: "Tool Memory / ExpG" },
+    descriptions: {
+      zh: "通过经验驱动的自适应指导增强 Agent 工具使用。",
+      en: "Improve agent tool use through experience-driven adaptive guidance.",
+    },
+    group: "benchmarks",
+  },
+];
+
 const sharedDocuments = [
   {
     id: "reme-memory-skill",
@@ -118,6 +191,19 @@ async function buildManifest() {
         language,
       });
     }
+
+    for (const product of productDocuments) {
+      const filename = language === "zh" ? "README_ZH.md" : "README.md";
+      documents.push({
+        id: `${product.slug}-${language}`,
+        path: `${product.source}/${filename}`,
+        sourcePath: `${product.source}/${filename}`,
+        title: product.titles[language],
+        description: product.descriptions[language],
+        group: product.group,
+        language,
+      });
+    }
   }
 
   return [...documents, ...sharedDocuments];
@@ -135,6 +221,14 @@ await cp(path.join(repoDir, "docs"), path.join(outputDir, "docs"), {
   recursive: true,
   filter: (source) => path.basename(source) !== ".DS_Store",
 });
+for (const product of productDocuments) {
+  await mkdir(path.join(outputDir, product.source), { recursive: true });
+  for (const filename of ["README.md", "README_ZH.md"]) {
+    await cp(path.join(repoDir, product.source, filename), path.join(outputDir, product.source, filename));
+  }
+}
+await mkdir(path.join(outputDir, "website", "public"), { recursive: true });
+await cp(path.join(repoDir, "website", "public", "og.png"), path.join(outputDir, "website", "public", "og.png"));
 await mkdir(path.join(outputDir, "skills", "reme_memory"), { recursive: true });
 await cp(
   path.join(repoDir, "skills", "reme_memory", "SKILL.md"),

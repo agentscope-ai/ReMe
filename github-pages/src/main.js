@@ -4,17 +4,17 @@ import "./styles.css";
 
 const baseUrl = import.meta.env.BASE_URL;
 const repositoryUrl = "https://github.com/agentscope-ai/ReMe";
-const officialDocsUrl = "https://reme.agentscope.io";
 
 const copy = {
   zh: {
     docs: "文档",
+    home: "首页",
     search: "搜索文档…",
     noResults: "没有找到匹配的文档",
     menu: "打开导航",
     toc: "本页目录",
     edit: "在 GitHub 查看源文件",
-    officialDocs: "官方文档",
+    quickStart: "快速开始",
     groups: {
       overview: "项目介绍",
       start: "开始使用",
@@ -22,17 +22,21 @@ const copy = {
       automation: "自动化能力",
       concepts: "架构与场景",
       integration: "Agent 集成",
+      workspace: "工作区",
+      cookbooks: "研究工作流",
+      benchmarks: "评测",
       development: "开发者规范",
     },
   },
   en: {
     docs: "Documentation",
+    home: "Home",
     search: "Search documentation…",
     noResults: "No matching documents",
     menu: "Open navigation",
     toc: "On this page",
     edit: "View source on GitHub",
-    officialDocs: "Official docs",
+    quickStart: "Quick start",
     groups: {
       overview: "Introduction",
       start: "Get started",
@@ -40,6 +44,9 @@ const copy = {
       automation: "Automation",
       concepts: "Architecture & scenarios",
       integration: "Agent integration",
+      workspace: "Workspace",
+      cookbooks: "Research workflows",
+      benchmarks: "Benchmarks",
       development: "Development",
     },
   },
@@ -50,6 +57,43 @@ const state = {
   documents: [],
   activeDocument: null,
   query: "",
+};
+
+const homeCopy = {
+  zh: {
+    eyebrow: "LOCAL-FIRST · FILE-NATIVE",
+    title: "让 Agent 真正记住，\n也让记忆始终属于你。",
+    description: "ReMe 将对话和资料沉淀为可读、可编辑、可检索、相互链接的 Markdown，并提供从工作区管理到主动研究的一整套工具。",
+    start: "快速开始",
+    project: "了解 ReMe",
+    explore: "按目标探索",
+    exploreDescription: "选择你现在想完成的事情。每个入口都直接连接到对应的完整文档。",
+    cards: [
+      { id: "studio-zh", icon: "◫", label: "管理记忆", title: "ReMe 工作台", description: "在本地 Web 工作区中浏览、编辑、搜索记忆，并探索 wikilink 图谱。", tone: "mint" },
+      { id: "daily-paper-zh", icon: "◌", label: "发现与分析", title: "每日论文", description: "从论文榜单筛选值得阅读的工作，解析 PDF，并生成笔记与五分钟简报。", tone: "blue" },
+      { id: "auto-fin-zh", icon: "↗", label: "主题研究", title: "财经研究", description: "连接最新财联社新闻和本地历史记忆，生成可追溯的研究报告。", tone: "amber" },
+    ],
+    benchmark: "验证记忆能力",
+    benchmarkDescription: "从检索规模、跨会话问答、个人智能体到工具经验，查看 ReMe 的四套评测与复现实验。",
+    benchmarkAction: "浏览全部评测",
+  },
+  en: {
+    eyebrow: "LOCAL-FIRST · FILE-NATIVE",
+    title: "Memory that works for agents.\nFiles that remain yours.",
+    description: "ReMe turns conversations and resources into readable, editable, searchable, interconnected Markdown—with tools spanning workspace management and proactive research.",
+    start: "Quick start",
+    project: "Meet ReMe",
+    explore: "Explore by goal",
+    exploreDescription: "Start with what you want to accomplish. Every entry opens the complete guide.",
+    cards: [
+      { id: "studio-en", icon: "◫", label: "Manage memory", title: "ReMe Studio", description: "Browse, edit, and search memory in a local web workspace, then explore its wikilink graph.", tone: "mint" },
+      { id: "daily-paper-en", icon: "◌", label: "Discover & analyze", title: "Daily Paper", description: "Select useful papers from rankings, analyze PDFs, and create notes plus a five-minute brief.", tone: "blue" },
+      { id: "auto-fin-en", icon: "↗", label: "Research topics", title: "Auto Fin", description: "Connect recent CLS news with historical local memory to produce traceable research reports.", tone: "amber" },
+    ],
+    benchmark: "Validate memory systems",
+    benchmarkDescription: "Explore four reproducible evaluations covering retrieval scale, cross-session QA, personal agents, and tool-use experience.",
+    benchmarkAction: "Browse all benchmarks",
+  },
 };
 
 const app = document.querySelector("#app");
@@ -67,7 +111,7 @@ app.innerHTML = `
         <button type="button" data-language="zh">中</button>
         <button type="button" data-language="en">EN</button>
       </div>
-      <a class="official-docs-link" href="${officialDocsUrl}" target="_blank" rel="noreferrer" data-copy="officialDocs"></a>
+      <a class="quick-start-link" href="?doc=zh-quick_start" data-doc="zh-quick_start" data-copy="quickStart"></a>
       <a class="github-link" href="${repositoryUrl}" target="_blank" rel="noreferrer">GitHub ↗</a>
       <button class="menu-button" type="button" aria-expanded="false" data-action="menu"></button>
     </nav>
@@ -94,6 +138,7 @@ app.innerHTML = `
 `;
 
 const sidebar = app.querySelector(".sidebar");
+const docsShell = app.querySelector(".docs-shell");
 const documentNav = app.querySelector(".document-nav");
 const article = app.querySelector(".article");
 const toc = app.querySelector(".toc");
@@ -172,7 +217,10 @@ function documentTitle(document) {
 function renderChrome() {
   const labels = copy[state.language];
   app.querySelector("[data-copy='docs']").textContent = labels.docs;
-  app.querySelector("[data-copy='officialDocs']").textContent = `${labels.officialDocs} ↗`;
+  const quickStartLink = app.querySelector("[data-copy='quickStart']");
+  quickStartLink.textContent = `${labels.quickStart} →`;
+  quickStartLink.href = `?doc=${state.language}-quick_start`;
+  quickStartLink.dataset.doc = `${state.language}-quick_start`;
   searchInput.placeholder = labels.search;
   menuButton.textContent = labels.menu;
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
@@ -190,11 +238,16 @@ function renderNavigation() {
   const groups = [...new Set(filtered.map((document) => document.group))];
 
   if (!filtered.length) {
-    documentNav.innerHTML = `<p class="empty-state">${labels.noResults}</p>`;
+    documentNav.innerHTML = `
+      <a href="${baseUrl}" data-home class="home-link ${state.activeDocument ? "" : "active"}">${labels.home}</a>
+      <p class="empty-state">${labels.noResults}</p>
+    `;
     return;
   }
 
-  documentNav.innerHTML = groups
+  documentNav.innerHTML = `
+    <a href="${baseUrl}" data-home class="home-link ${state.activeDocument ? "" : "active"}">${labels.home}</a>
+  ` + groups
     .map(
       (group) => `
         <section class="nav-group">
@@ -211,6 +264,52 @@ function renderNavigation() {
         </section>`,
     )
     .join("");
+}
+
+function renderHome(pushHistory = true) {
+  const labels = homeCopy[state.language];
+  state.activeDocument = null;
+  docsShell.classList.add("home-view");
+  article.dataset.group = "home";
+  renderNavigation();
+  article.innerHTML = `
+    <section class="home-hero">
+      <p class="home-eyebrow">${labels.eyebrow}</p>
+      <h1>${labels.title.replace("\n", "<br>")}</h1>
+      <p class="home-lead">${labels.description}</p>
+      <div class="home-actions">
+        <a href="?doc=${state.language}-quick_start" data-doc="${state.language}-quick_start" class="primary-action">${labels.start} →</a>
+        <a href="?doc=readme-${state.language}" data-doc="readme-${state.language}" class="secondary-action">${labels.project}</a>
+      </div>
+    </section>
+    <section class="home-explore">
+      <p class="section-kicker">01 / PRODUCT & WORKFLOWS</p>
+      <h2>${labels.explore}</h2>
+      <p class="section-lead">${labels.exploreDescription}</p>
+      <div class="feature-grid">
+        ${labels.cards.map((card) => `
+          <a href="?doc=${card.id}" data-doc="${card.id}" class="feature-card ${card.tone}">
+            <span class="feature-icon">${card.icon}</span>
+            <span class="feature-label">${card.label}</span>
+            <strong>${card.title}</strong>
+            <span class="feature-description">${card.description}</span>
+            <span class="feature-arrow">→</span>
+          </a>`).join("")}
+      </div>
+    </section>
+    <section class="benchmark-callout">
+      <div>
+        <p class="section-kicker">02 / BENCHMARKS</p>
+        <h2>${labels.benchmark}</h2>
+        <p>${labels.benchmarkDescription}</p>
+      </div>
+      <a href="?doc=beam-${state.language}" data-doc="beam-${state.language}">${labels.benchmarkAction} →</a>
+    </section>
+  `;
+  toc.innerHTML = "";
+  closeMenu();
+  if (pushHistory) history.pushState({ home: true }, "", baseUrl);
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 function renderToc() {
@@ -257,7 +356,13 @@ function rewriteRenderedUrls(document) {
 async function openDocument(id, pushHistory = true) {
   const fallbackId = state.language === "zh" ? "readme-zh" : "readme-en";
   const document = state.documents.find((item) => item.id === id) || state.documents.find((item) => item.id === fallbackId);
+  if (document.language !== "shared" && document.language !== state.language) {
+    state.language = document.language;
+    localStorage.setItem("reme-docs-language", state.language);
+    renderChrome();
+  }
   state.activeDocument = document;
+  docsShell.classList.remove("home-view");
   article.dataset.group = document.group;
   renderNavigation();
   article.innerHTML = `<div class="loading-line"></div>`;
@@ -301,6 +406,12 @@ function toggleMenu() {
 }
 
 app.addEventListener("click", (event) => {
+  const homeLink = event.target.closest("[data-home]");
+  if (homeLink) {
+    event.preventDefault();
+    renderHome();
+    return;
+  }
   const documentLink = event.target.closest("[data-doc]");
   if (documentLink) {
     event.preventDefault();
@@ -314,7 +425,7 @@ app.addEventListener("click", (event) => {
     state.query = "";
     searchInput.value = "";
     renderChrome();
-    openDocument(state.language === "zh" ? "readme-zh" : "readme-en");
+    renderHome();
   }
 });
 
@@ -332,9 +443,15 @@ document.addEventListener("keydown", (event) => {
 });
 
 backdrop.addEventListener("click", closeMenu);
-window.addEventListener("popstate", (event) => openDocument(event.state?.doc || new URLSearchParams(location.search).get("doc"), false));
+window.addEventListener("popstate", (event) => {
+  const id = event.state?.doc || new URLSearchParams(location.search).get("doc");
+  if (id) openDocument(id, false);
+  else renderHome(false);
+});
 
 const manifest = await fetch(`${baseUrl}content/manifest.json`).then((response) => response.json());
 state.documents = manifest.documents;
 renderChrome();
-await openDocument(new URLSearchParams(location.search).get("doc"), false);
+const initialDocument = new URLSearchParams(location.search).get("doc");
+if (initialDocument) await openDocument(initialDocument, false);
+else renderHome(false);
