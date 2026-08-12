@@ -75,7 +75,7 @@ const homeCopy = {
     ],
     benchmark: "验证记忆能力",
     benchmarkDescription: "从检索规模、跨会话问答、个人智能体到工具经验，查看 ReMe 的四套评测与复现实验。",
-    benchmarkAction: "浏览全部评测",
+    benchmarkAction: "从 BEAM 开始",
   },
   en: {
     eyebrow: "LOCAL-FIRST · FILE-NATIVE",
@@ -92,7 +92,7 @@ const homeCopy = {
     ],
     benchmark: "Validate memory systems",
     benchmarkDescription: "Explore four reproducible evaluations covering retrieval scale, cross-session QA, personal agents, and tool-use experience.",
-    benchmarkAction: "Browse all benchmarks",
+    benchmarkAction: "Start with BEAM",
   },
 };
 
@@ -278,8 +278,8 @@ function renderHome(pushHistory = true) {
       <h1>${labels.title.replace("\n", "<br>")}</h1>
       <p class="home-lead">${labels.description}</p>
       <div class="home-actions">
-        <a href="?doc=${state.language}-quick_start" data-doc="${state.language}-quick_start" class="primary-action">${labels.start} →</a>
-        <a href="?doc=readme-${state.language}" data-doc="readme-${state.language}" class="secondary-action">${labels.project}</a>
+        <a href="${baseUrl}?doc=${state.language}-quick_start" class="primary-action">${labels.start} →</a>
+        <a href="${baseUrl}?doc=readme-${state.language}" class="secondary-action">${labels.project}</a>
       </div>
     </section>
     <section class="home-explore">
@@ -288,7 +288,7 @@ function renderHome(pushHistory = true) {
       <p class="section-lead">${labels.exploreDescription}</p>
       <div class="feature-grid">
         ${labels.cards.map((card) => `
-          <a href="?doc=${card.id}" data-doc="${card.id}" class="feature-card ${card.tone}">
+          <a href="${baseUrl}?doc=${card.id}" class="feature-card ${card.tone}">
             <span class="feature-icon">${card.icon}</span>
             <span class="feature-label">${card.label}</span>
             <strong>${card.title}</strong>
@@ -303,7 +303,7 @@ function renderHome(pushHistory = true) {
         <h2>${labels.benchmark}</h2>
         <p>${labels.benchmarkDescription}</p>
       </div>
-      <a href="?doc=beam-${state.language}" data-doc="beam-${state.language}">${labels.benchmarkAction} →</a>
+      <a href="${baseUrl}?doc=beam-${state.language}">${labels.benchmarkAction} →</a>
     </section>
   `;
   toc.innerHTML = "";
