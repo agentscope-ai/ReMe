@@ -1259,3 +1259,89 @@ def test_search_v2_step_keeps_original_body_when_compression_raises():
         assert "dialog text two" not in resp.answer
 
     asyncio.run(run())
+
+
+def _chunk_with_tags(chunk_id: str, path: str, text: str, tags: list[str] | None) -> FileChunk:
+    chunk = _chunk(chunk_id, path, text, "keyword", 5.0)
+    if tags is not None:
+        chunk.metadata["tags"] = tags
+    return chunk
+
+
+def test_matches_search_filter_supports_containment_tag_filter():
+    """``tags`` uses containment semantics so frontmatter tags scope searches."""
+    # pylint: disable=protected-access
+    from reme.components.file_store.local_file_store import LocalFileStore
+
+    user_a = _chunk_with_tags("a", "daily/a.md", "alice's note", ["user:alice", "project:foo"])
+    user_b = _chunk_with_tags("b", "daily/b.md", "bob's note", ["user:bob", "project:foo"])
+    no_tags = _chunk_with_tags("n", "daily/n.md", "untagged", None)
+    scalar_tag = _chunk("s", "daily/s.md", "scalar tag", "keyword", 5.0)
+    scalar_tag.metadata["tags"] = "user:alice"
+
+    assert LocalFileStore._matches_search_filter(user_a, {"tags": "user:alice"}) is True
+    assert LocalFileStore._matches_search_filter(user_b, {"tags": "user:alice"}) is False
+    assert LocalFileStore._matches_search_filter(user_a, {"tags": ["user:alice", "project:foo"]}) is True
+    assert LocalFileStore._matches_search_filter(user_a, {"tags": ["user:alice", "project:bar"]}) is False
+    assert LocalFileStore._matches_search_filter(scalar_tag, {"tags": ["user:alice"]}) is True
+    assert LocalFileStore._matches_search_filter(scalar_tag, {"tags": ["user:alice", "project:foo"]}) is False
+    assert LocalFileStore._matches_search_filter(no_tags, {"tags": "user:alice"}) is False
+    assert LocalFileStore._matches_search_filter(user_a, None) is True
+    assert LocalFileStore._matches_search_filter(user_a, {}) is True
+
+
+def test_search_step_tags_context_promoted_into_search_filter_list_and_csv():
+    """``tags`` context is promoted to ``search_filter["tags"]``."""
+
+    async def run():
+        hit = _chunk_with_tags("hit", "daily/a.md", "text", ["user:alice"])
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+
+        await step(RuntimeContext(query="hello", limit=5, tags=["user:alice", "project:foo"]))
+        assert all(call[3]["tags"] == ["user:alice", "project:foo"] for call in store.calls)
+        store.calls.clear()
+
+        await step(RuntimeContext(query="hello", limit=5, tags="  user:alice , project:foo  "))
+        assert all(call[3]["tags"] == ["user:alice", "project:foo"] for call in store.calls)
+
+    asyncio.run(run())
+
+
+def test_search_step_tags_in_search_filter_takes_precedence_over_context():
+    """Explicit ``search_filter.tags`` wins over top-level ``tags``."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "text", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        ctx = RuntimeContext(
+            query="hello",
+            limit=5,
+            tags=["user:alice"],
+            search_filter={"tags": ["user:bob"]},
+        )
+
+        await step(ctx)
+
+        for _, _, _, search_filter in store.calls:
+            assert search_filter["tags"] == ["user:bob"]
+
+    asyncio.run(run())
+
+
+def test_search_v2_step_tags_context_promoted_into_search_filter():
+    """SearchV2Step promotes ``tags`` into the filter envelope."""
+
+    async def run():
+        hit = _chunk_with_tags("hit", "daily/a.md", "text", ["user:alice"])
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchV2Step(file_store=store, expand_links=False)
+
+        await step(RuntimeContext(query="hello", limit=5, tags=["user:alice"]))
+
+        assert len(store.calls) == 2
+        for _, _, _, search_filter in store.calls:
+            assert search_filter["tags"] == ["user:alice"]
+
+    asyncio.run(run())

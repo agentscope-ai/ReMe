@@ -140,6 +140,16 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
             if value and date_key not in search_filter:
                 search_filter[date_key] = value
 
+        # Promote top-level tags parameter for containment-style tag filtering.
+        # When ``include_frontmatter_in_metadata=true`` on the markdown chunker,
+        # frontmatter ``tags: [user:alice]`` propagates to chunk metadata and
+        # can be used for per-user scoping without per-user workspaces.
+        tags_value = self.context.get("tags")
+        if tags_value is not None and "tags" not in search_filter:
+            if isinstance(tags_value, str):
+                tags_value = [t.strip() for t in tags_value.split(",") if t.strip()]
+            search_filter["tags"] = list(tags_value) if not isinstance(tags_value, list) else tags_value
+
         # Validate and normalize date filters before they reach file_store.
         # _matches_search_filter does lexicographic string comparison against
         # path_date (always a canonical YYYY-MM-DD), so raw caller values like
