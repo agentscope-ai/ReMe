@@ -43,6 +43,12 @@ class FailCloseComponent(StubComponent):
         raise RuntimeError("close failed")
 
 
+class FailStartComponent(StubComponent):
+    async def _start(self):
+        await super()._start()
+        raise RuntimeError("start failed")
+
+
 # -- Dependency ---------------------------------------------------------------
 
 
@@ -172,6 +178,32 @@ def test_close_closes_owned_when_parent_close_fails():
         assert owned.is_started is False
         assert owned.close_count == 1
         assert parent.is_started is False
+
+    asyncio.run(run())
+
+
+def test_start_failure_rolls_back_parent_and_owned_components():
+    async def run():
+        owned = StubComponent(name="owned")
+        parent = FailStartComponent(name="parent")
+        parent.dep = BaseComponent.bind(
+            "sub",
+            StubComponent,
+            default_factory=lambda: owned,
+        )
+
+        with pytest.raises(RuntimeError, match="start failed"):
+            await parent.start()
+
+        assert parent.is_started is False
+        assert parent.close_count == 1
+        assert owned.is_started is False
+        assert owned.close_count == 1
+
+        # A caller may still defensively close after failed startup.
+        await parent.close()
+        assert parent.close_count == 1
+        assert owned.close_count == 1
 
     asyncio.run(run())
 

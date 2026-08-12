@@ -210,10 +210,28 @@ class BaseComponent(ComponentMixin, ABC):
             if self._is_started:
                 return
             await self._resolve_bindings()
-            for owned in self._owned:
-                await owned.start()
-            await self._start()
-            self._is_started = True
+            started_owned: list[BaseComponent] = []
+            parent_start_attempted = False
+            try:
+                for owned in self._owned:
+                    await owned.start()
+                    started_owned.append(owned)
+                parent_start_attempted = True
+                await self._start()
+                self._is_started = True
+            except BaseException:
+                if parent_start_attempted:
+                    try:
+                        await self._close()
+                    except BaseException as exc:
+                        self.logger.exception(f"Failed to roll back component {self.name}: {exc}")
+                for owned in reversed(started_owned):
+                    try:
+                        await owned.close()
+                    except BaseException as exc:
+                        self.logger.exception(f"Failed to roll back owned component {owned.name}: {exc}")
+                self._is_started = False
+                raise
 
     async def close(self) -> None:
         """Close the component once: run _close → close owned in reverse order."""
