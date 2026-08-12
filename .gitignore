@@ -77,3 +77,7 @@ daily/
 
 #meta-reme
 meta-reme/bundles/
+
+# Meta runtime data
+meta-workspace/
+meta-run.pid
