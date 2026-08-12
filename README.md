@@ -8,7 +8,7 @@
   <a href="https://pepy.tech/project/reme-ai/"><img src="https://img.shields.io/pypi/dm/reme-ai" alt="PyPI Downloads"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/commit-activity/m/agentscope-ai/ReMe?style=flat-square" alt="GitHub commit activity"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
-  <a href="https://docs.agentscope.io/reme"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="Documentation"></a>
+  <a href="https://reme.agentscope.io"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="Documentation"></a>
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
   <a href="./README_ZH.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
@@ -422,7 +422,7 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
 - **Pre-submit checks**: Before submitting a PR, try to run `pre-commit run --all-files` and `pytest`. If tests that
   depend on LLMs, embeddings, or external services cannot run, explain that in the PR.
 - **Get help**: Use [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues) for bugs and feature requests. Project
-  documentation is available at [https://docs.agentscope.io/reme](https://docs.agentscope.io/reme).
+  documentation is available at [https://reme.agentscope.io](https://reme.agentscope.io).
 
 ### Contributors
 
@@ -438,7 +438,7 @@ Thanks to everyone who has contributed to ReMe:
 @software{ReMe2026,
   title = {Remember me, Refine me: Memory Management Kit for Agents},
   author = {ReMe Team},
-  url = {https://docs.agentscope.io/reme},
+  url = {https://reme.agentscope.io},
   year = {2026}
 }
 ```

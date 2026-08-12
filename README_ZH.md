@@ -8,7 +8,7 @@
   <a href="https://pepy.tech/project/reme-ai/"><img src="https://img.shields.io/pypi/dm/reme-ai" alt="PyPI Downloads"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/commit-activity/m/agentscope-ai/ReMe?style=flat-square" alt="GitHub commit activity"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
-  <a href="https://docs.agentscope.io/reme"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="文档"></a>
+  <a href="https://reme.agentscope.io"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="文档"></a>
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
   <a href="./README_ZH.md"><img src="https://img.shields.io/badge/简体中文-点击查看-orange" alt="简体中文"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/stars/agentscope-ai/ReMe?style=social" alt="GitHub Stars"></a>
@@ -398,7 +398,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
 - **提交前检查**：提交 PR 前请尽量运行 `pre-commit run --all-files` 和 `pytest`；如有依赖 LLM、embedding 或外部服务的测试无法运行，请在
   PR 中说明。
 - **获取帮助**：如需反馈 Bug 或功能请求，请使用 [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues)；项目文档见
-  [https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)。
+  [https://reme.agentscope.io](https://reme.agentscope.io)。
 
 ### 贡献者
 
@@ -414,7 +414,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
 @software{ReMe2026,
   title = {Remember me, Refine me: Memory Management Kit for Agents},
   author = {ReMe Team},
-  url = {https://docs.agentscope.io/reme},
+  url = {https://reme.agentscope.io},
   year = {2026}
 }
 ```

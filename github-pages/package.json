@@ -1,0 +1,21 @@
+{
+  "name": "reme-github-pages",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "node scripts/generate-content.mjs && vite",
+    "build": "node scripts/generate-content.mjs && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.6",
+    "marked": "^16.2.1"
+  },
+  "devDependencies": {
+    "vite": "^7.1.1"
+  }
+}

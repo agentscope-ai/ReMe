@@ -14,7 +14,7 @@ That is exactly what ReMe sets out to do.
 
 GitHub: [https://github.com/agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe)
 
-Documentation: [https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)
+Documentation: [https://reme.agentscope.io](https://reme.agentscope.io)
 
 <p align="center">
   <img src="../figure/reme-blog/reme-blog-cover-benchmark.png" alt="ReMe self-evolving personal knowledge base and public benchmark results" width="100%">

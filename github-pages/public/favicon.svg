@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>ReMe Documentation</title>
+  <defs>
+    <linearGradient id="reme-gradient" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#19c9b0"/>
+      <stop offset="1" stop-color="#3156d9"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="19" fill="url(#reme-gradient)"/>
+  <text
+    x="32"
+    y="44"
+    fill="#ffffff"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="39"
+    font-weight="700"
+    text-anchor="middle"
+  >R</text>
+</svg>

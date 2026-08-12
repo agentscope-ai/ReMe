@@ -15,7 +15,7 @@ Markdown 记忆，并从中提炼值得继续关注的线索。**
 
 项目地址：[https://github.com/agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe)
 
-项目文档：[https://docs.agentscope.io/reme](https://docs.agentscope.io/reme)
+项目文档：[https://reme.agentscope.io](https://reme.agentscope.io)
 
 <p align="center">
   <img src="../figure/reme-blog/reme-blog-cover-benchmark.png" alt="ReMe 自进化个人知识库与公开基准结果" width="100%">
