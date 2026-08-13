@@ -812,7 +812,7 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
 
         def __init__(self, **config):
             """Record construction."""
-            events.append(("construct", config["workspace_dir"]))
+            events.append(("construct", config["workspace_dir"], config["daily_dir"]))
             self.context = SimpleNamespace(
                 metadata={},
                 components={ComponentEnum.AGENT_WRAPPER: {"bench": SimpleNamespace()}},
@@ -867,7 +867,7 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
         "workspace/resource",
     ]
     assert events == [
-        ("construct", str(tmp_path / "workspace")),
+        ("construct", str(tmp_path / "workspace"), "daily"),
         "start",
         ("run_job", "agentic_answer", {"query": "hello"}),
         "close",

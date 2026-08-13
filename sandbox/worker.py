@@ -92,7 +92,10 @@ def _prepare_runtime(request: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
     app_config["environment"] = dict(os.environ)
     resolved_config = ApplicationConfig.model_validate(app_config)
     _write_runtime_layout(case_root, resolved_config)
-    return case_root, app_config
+    # The build checkpoint reads workspace paths from this mapping. Return the
+    # validated model's dump so optional config fields (including ``daily_dir``)
+    # have the same defaults as the Application instance.
+    return case_root, resolved_config.model_dump()
 
 
 async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict[str, Any]:
