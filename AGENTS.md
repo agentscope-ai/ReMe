@@ -64,7 +64,7 @@ and concise documentation together.
 ReMe requires Python 3.11 or newer. Install the editable development environment with:
 
 ```bash
-pip install -e ".[dev,core]"
+pip install -e packages/reme_ai_studio -e ".[dev,core]"
 ```
 
 Before changing behavior, inspect the adjacent implementation, schema, built-in config, and focused tests. Follow

@@ -89,8 +89,14 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e ".[core]"
+pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
+
+The static build requires Node.js 22.13 or newer and makes Studio available from the source tree.
 
 ### Environment Variables
 

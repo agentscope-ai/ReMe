@@ -1,0 +1,53 @@
+name: GitHub Pages Check
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/github-pages-check.yml'
+      - 'AGENTS.md'
+      - 'README.md'
+      - 'README_ZH.md'
+      - 'docs/**'
+      - 'github-pages/**'
+      - 'skills/reme_memory/SKILL.md'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/github-pages-check.yml'
+      - 'AGENTS.md'
+      - 'README.md'
+      - 'README_ZH.md'
+      - 'docs/**'
+      - 'github-pages/**'
+      - 'skills/reme_memory/SKILL.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: github-pages
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.13'
+          cache: npm
+          cache-dependency-path: github-pages/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build documentation
+        run: npm run build

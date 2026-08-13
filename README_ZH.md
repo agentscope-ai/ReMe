@@ -82,8 +82,14 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e ".[core]"
+pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
+
+静态构建要求 Node.js 22.13 或更高版本，并让源码安装可以直接使用 Studio。
 
 ### 环境变量
 

@@ -81,10 +81,55 @@ def test_bump_version_rejects_inconsistent_sources_before_writing(
     version_file = tmp_path / "reme" / "__init__.py"
     original_version_text = version_file.read_text(encoding="utf-8")
 
-    with pytest.raises(ValueError, match="does not match 1.2.3"):
+    with pytest.raises(ValueError, match=r"project.version is '1.2.2'; expected '1.2.3'"):
         bump_version.bump_version("1.2.4", tmp_path)
 
     assert version_file.read_text(encoding="utf-8") == original_version_text
+
+
+@pytest.mark.parametrize("version", ["release", "1..2", "1.2.3_"])
+def test_bump_version_rejects_invalid_pep440_versions(tmp_path: Path, version: str) -> None:
+    """Reject invalid release versions before changing any source file."""
+    _write_version_fixture(tmp_path)
+    version_file = tmp_path / "reme" / "__init__.py"
+    original_version_text = version_file.read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid PEP 440 version"):
+        bump_version.bump_version(version, tmp_path)
+
+    assert version_file.read_text(encoding="utf-8") == original_version_text
+
+
+def test_check_versions_reports_release_tag_mismatch(tmp_path: Path) -> None:
+    """Explain which source must change when a release tag does not match."""
+    _write_version_fixture(tmp_path)
+
+    with pytest.raises(ValueError, match=r"package version is '1.2.3'; release expects '1.2.4'"):
+        bump_version.check_versions(tmp_path, "v1.2.4")
+
+
+def test_bump_version_rolls_back_when_a_write_fails(monkeypatch, tmp_path: Path) -> None:
+    """Restore earlier files when a later atomic replacement fails."""
+    # pylint: disable=protected-access
+    _write_version_fixture(tmp_path)
+    paths = bump_version._paths(tmp_path)
+    original = {path: path.read_text(encoding="utf-8") for path in paths}
+    write_atomic = bump_version._write_atomic
+    attempts = 0
+
+    def fail_second_write(path: Path, content: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            raise OSError("simulated write failure")
+        write_atomic(path, content)
+
+    monkeypatch.setattr(bump_version, "_write_atomic", fail_second_write)
+
+    with pytest.raises(RuntimeError, match="all changed files were restored"):
+        bump_version.bump_version("1.2.4", tmp_path)
+
+    assert {path: path.read_text(encoding="utf-8") for path in paths} == original
 
 
 def test_studio_readme_is_generated_from_website_docs() -> None:

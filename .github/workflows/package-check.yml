@@ -1,24 +1,41 @@
-name: Publish Python packages to PyPI
+name: Package Check
 
 on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/package-check.yml'
+      - '.github/workflows/python-publish.yml'
+      - 'packages/reme_ai_studio/**'
+      - 'pyproject.toml'
+      - 'reme/__init__.py'
+      - 'reme/utils/web_static.py'
+      - 'scripts/bump_version.py'
+      - 'scripts/package_studio.py'
+      - 'tests/unit/test_package_versions.py'
+      - 'website/**'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/package-check.yml'
+      - '.github/workflows/python-publish.yml'
+      - 'packages/reme_ai_studio/**'
+      - 'pyproject.toml'
+      - 'reme/__init__.py'
+      - 'reme/utils/web_static.py'
+      - 'scripts/bump_version.py'
+      - 'scripts/package_studio.py'
+      - 'tests/unit/test_package_versions.py'
+      - 'website/**'
   workflow_dispatch:
-    inputs:
-      version:
-        description: Release version
-        required: true
-        type: string
-  release:
-    types: [published]
 
-permissions:
-  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  distributions:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
-
     steps:
       - uses: actions/checkout@v6
 
@@ -37,10 +54,13 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install build packaging twine
+          python -m pip install build packaging pytest twine
 
-      - name: Validate release version
-        run: python scripts/bump_version.py --check --expected-version "${RELEASE_VERSION}"
+      - name: Validate release versions
+        run: python scripts/bump_version.py --check
+
+      - name: Run package tests
+        run: PYTHONPATH=. python -m pytest tests/unit/test_package_versions.py -q
 
       - name: Build Studio static workspace
         working-directory: website
@@ -48,7 +68,7 @@ jobs:
           npm ci
           npm run build:static
 
-      - name: Prepare and build distributions
+      - name: Build and check distributions
         run: |
           python scripts/package_studio.py
           mkdir -p dist/reme dist/studio
@@ -65,27 +85,11 @@ jobs:
           python -m zipfile -l "${STUDIO_WHEEL}" | grep 'reme_ai_studio/static/index.html'
           python -m zipfile -l "${STUDIO_WHEEL}" | grep 'dist-info/licenses/LICENSE'
           python -m tarfile -l "${STUDIO_SDIST}" | grep '/LICENSE'
-          python -m venv "${RUNNER_TEMP}/reme-release-smoke"
-          "${RUNNER_TEMP}/reme-release-smoke/bin/python" -m pip install \
+          python -m venv "${RUNNER_TEMP}/reme-package-smoke"
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install \
             --find-links "$(pwd)/dist/studio" "${REME_WHEEL}[core]"
           cd "${RUNNER_TEMP}"
-          "${RUNNER_TEMP}/reme-release-smoke/bin/python" -c \
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c \
             "import reme; from reme_ai_studio import static_dir; assert (static_dir() / 'index.html').is_file()"
-          "${RUNNER_TEMP}/reme-release-smoke/bin/python" -c \
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c \
             "from reme.utils import resolve_web_static_dir; assert (resolve_web_static_dir() / 'index.html').is_file()"
-
-      - name: Publish ReMe Studio
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist/studio
-          skip-existing: true
-
-      - name: Publish ReMe
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist/reme
-          skip-existing: true
