@@ -172,8 +172,8 @@ reme_workspace/
 Face 由 `use_hf_mirror` 任务参数控制，arXiv 仅由环境变量驱动。
 
 ```dotenv
-# 为内置 daily_paper_cron 定时任务启用镜像站
-DAILY_PAPER_USE_HF_MIRROR=true
+# 内置 daily_paper_cron 定时任务默认启用镜像站；设为 false 可改用官方服务
+DAILY_PAPER_USE_HF_MIRROR=false
 
 # 仅在手动任务或定时任务启用镜像时读取；未配置时使用 https://hf-mirror.com
 HF_MIRROR_URL=https://hf-mirror.com
@@ -192,7 +192,8 @@ URL，就只访问该地址。
 
 > **行为变更：** 以往只要设置 `HF_MIRROR_URL` 就会改变 Hugging Face
 > 的访问地址；现在该变量仅在任务启用镜像时才会读取，否则直接访问官方站点，并输出一条“已忽略该变量”的告警日志。手动调用需传入
-> `use_hf_mirror=true`，`daily_paper_cron` 定时任务需设置 `DAILY_PAPER_USE_HF_MIRROR=true`，才能继续走镜像。
+> `use_hf_mirror=true`。内置 `daily_paper_cron` 定时任务默认启用镜像；设置 `DAILY_PAPER_USE_HF_MIRROR=false`
+> 可让该定时任务改用官方服务。
 
 ## 运行方式
 
@@ -219,9 +220,9 @@ reme start config=daily_cookbook job=daily_paper date=2026-08-06 force=true
 reme start config=daily_cookbook
 ```
 
-内置服务监听 `127.0.0.1:8001`，`daily_paper_cron` 按 `Asia/Shanghai` 时区每天 08:00 运行。设置
-`DAILY_PAPER_USE_HF_MIRROR=true` 可让该定时任务使用 Hugging Face 镜像站。可通过 `DAILY_PAPER_HOST`、`DAILY_PAPER_PORT`
-或启动参数覆盖监听地址和端口。
+内置服务监听 `127.0.0.1:8001`，`daily_paper_cron` 按 `Asia/Shanghai` 时区每天 08:00 运行，默认优先关注
+`大模型长期记忆`，并使用 Hugging Face 镜像站。设置 `DAILY_PAPER_USE_HF_MIRROR=false` 可改用官方服务。可通过
+`DAILY_PAPER_HOST`、`DAILY_PAPER_PORT` 或启动参数覆盖监听地址和端口。
 
 ```bash
 curl -s http://127.0.0.1:8001/daily_paper \
