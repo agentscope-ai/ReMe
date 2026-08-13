@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e ".[dev,core]"
+          pip install -e packages/reme_ai_studio -e ".[dev,core]"
           pip install coverage
 
       - name: Run unit tests

@@ -161,8 +161,9 @@ HTTP service 行为：
 | `enable_serve: false`                  | 不注册 endpoint                              |
 
 HTTP service 还可以在所有 Job endpoint 注册完成后挂载 ReMe Studio 单页应用。默认 `service.web_enabled=true`；构建产物按
-`service.web_static_dir`、`REME_WEB_STATIC_DIR`、包内 `reme/web` 和源码树 `website/dist-static` 等候选位置解析。找不到
-`index.html` 时只跳过前端，Job API 仍然可用。Studio 的 `GET` fallback 不会覆盖已有的 `POST /<job.name>`。
+`service.web_static_dir`、`REME_WEB_STATIC_DIR`、由 `web` 或 `core` extra 安装的可选 `reme-ai-studio` 包，以及源码树
+`website/dist-static` 等候选位置解析。找不到 `index.html` 时只跳过前端，Job API 仍然可用。Studio 的 `GET` fallback 不会覆盖
+已有的 `POST /<job.name>`。
 
 MCP service 行为：
 

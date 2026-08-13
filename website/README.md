@@ -8,6 +8,17 @@ graphs, and other derived metadata remain rebuildable from the source files.
 
 ![ReMe Studio workspace](./public/og.jpg)
 
+## Installation
+
+Install Studio together with ReMe's optional integrations:
+
+```bash
+pip install "reme-ai[core]"
+```
+
+For Studio without the other optional integrations, use `pip install "reme-ai[web]"`. The base `reme-ai` package is
+headless and does not include the frontend assets.
+
 ## Features
 
 - **Workspace browsing**: browse the full workspace or focus on journal and knowledge files through dedicated views. The
@@ -24,9 +35,9 @@ graphs, and other derived metadata remain rebuildable from the source files.
 
 ## Requirements
 
-- Node.js 22.13 or newer.
 - Python 3.11 or newer with ReMe installed.
 - A running ReMe HTTP service. Agent chat additionally requires a working Agent and model configuration.
+- Node.js 22.13 or newer is required only when developing or building Studio from source.
 
 See the [repository README](../README.md) for ReMe installation and backend configuration.
 
