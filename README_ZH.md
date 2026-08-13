@@ -79,13 +79,23 @@ ReMe 要求 Python 3.11+。
 pip install "reme-ai[core]"
 ```
 
+基础 `reme-ai` 包只包含 Python 服务和库。ReMe Studio 单独分发，并通过 `web` 和 `core` extra 安装。
+对于不需要前端的嵌入式或无头集成，请使用 `pip install reme-ai`；如果只需要 Studio，而不需要 `core` 中的其他集成，
+请使用 `pip install "reme-ai[web]"`。
+
 从源码安装：
 
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e ".[core]"
+pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
+
+静态构建步骤需要 Node.js 22.13 或更高版本，用于在从源码运行 ReMe 时提供 Studio。
 
 ### 环境变量
 

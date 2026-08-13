@@ -16,7 +16,13 @@ pip install "reme-ai[core]"
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
 pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
+
+静态构建步骤需要 Node.js 22.13 或更高版本，用于在从源码运行 ReMe 时提供 Studio。
 
 `core` extra 建议安装：当前代码会导入 AgentScope wrapper，自进化记忆也依赖它。
 

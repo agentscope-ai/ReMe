@@ -10,6 +10,8 @@ REPOSITORY_DIR = Path(__file__).resolve().parents[1]
 WEBSITE_DIR = REPOSITORY_DIR / "website"
 PACKAGE_DIR = REPOSITORY_DIR / "packages" / "reme_ai_studio"
 STATIC_DIR = PACKAGE_DIR / "src" / "reme_ai_studio" / "static"
+LICENSE_FILE = REPOSITORY_DIR / "LICENSE"
+STATIC_GITIGNORE = "*\n!.gitignore\n"
 
 _RAW_WEBSITE_URL = "https://raw.githubusercontent.com/agentscope-ai/ReMe/main/website"
 _REPOSITORY_URL = "https://github.com/agentscope-ai/ReMe"
@@ -35,15 +37,20 @@ def build_readme() -> str:
 
 
 def prepare_package(*, copy_static: bool = True) -> None:
-    """Generate the PyPI README and optionally stage the static build."""
+    """Generate package metadata files and optionally stage the static build."""
     (PACKAGE_DIR / "README.md").write_text(build_readme(), encoding="utf-8")
+    shutil.copyfile(LICENSE_FILE, PACKAGE_DIR / "LICENSE")
     if not copy_static:
         return
     source = WEBSITE_DIR / "dist-static"
     if not (source / "index.html").is_file():
         raise FileNotFoundError(f"Studio static build is unavailable: {source}")
-    shutil.rmtree(STATIC_DIR, ignore_errors=True)
-    shutil.copytree(source, STATIC_DIR)
+    try:
+        shutil.rmtree(STATIC_DIR, ignore_errors=True)
+        shutil.copytree(source, STATIC_DIR)
+    finally:
+        STATIC_DIR.mkdir(parents=True, exist_ok=True)
+        (STATIC_DIR / ".gitignore").write_text(STATIC_GITIGNORE, encoding="utf-8")
 
 
 def main() -> None:

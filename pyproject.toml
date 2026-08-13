@@ -43,7 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 web = [
-    "reme-ai-studio==0.4.1.6",
+    "reme-ai-studio==0.4.1.7",
 ]
 core = [
     "agentscope==2.0.4.post1",
@@ -58,7 +58,7 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "reme-ai-studio==0.4.1.6",
+    "reme-ai-studio==0.4.1.7",
 ]
 dev = [
     "pre-commit>=4.6.1",

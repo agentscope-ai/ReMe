@@ -23,6 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -33,6 +40,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -e packages/reme_ai_studio -e ".[dev,core]"
+
+      - name: Build Studio static workspace
+        working-directory: website
+        run: |
+          npm ci
+          npm run build:static
+
+      - name: Verify editable source installation serves Studio
+        shell: pwsh
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          python -c "from reme.utils import resolve_web_static_dir; assert (resolve_web_static_dir() / 'index.html').is_file()"
+          Pop-Location
 
       - name: Run version job
         run: reme start service.backend=cli job=version

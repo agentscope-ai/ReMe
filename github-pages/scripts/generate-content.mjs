@@ -228,7 +228,7 @@ for (const product of productDocuments) {
   }
 }
 await mkdir(path.join(outputDir, "website", "public"), { recursive: true });
-await cp(path.join(repoDir, "website", "public", "og.png"), path.join(outputDir, "website", "public", "og.png"));
+await cp(path.join(repoDir, "website", "public", "og.jpg"), path.join(outputDir, "website", "public", "og.jpg"));
 await mkdir(path.join(outputDir, "skills", "reme_memory"), { recursive: true });
 await cp(
   path.join(repoDir, "skills", "reme_memory", "SKILL.md"),

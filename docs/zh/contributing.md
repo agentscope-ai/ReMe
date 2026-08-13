@@ -38,6 +38,10 @@ ReMe 的核心代码位于：
 python -m venv .venv
 source .venv/bin/activate
 pip install -e packages/reme_ai_studio -e ".[dev,full]"
+cd website
+npm ci
+npm run build:static
+cd ..
 pre-commit install
 ```
 

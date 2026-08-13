@@ -51,8 +51,14 @@ jobs:
     - name: Test installation
       run: |
         REME_WHEEL="$(pwd)/$(ls dist/reme_ai-[0-9]*.whl)"
+        STUDIO_WHEEL="$(pwd)/$(ls dist/reme_ai_studio-*.whl)"
+        STUDIO_SDIST="$(pwd)/$(ls dist/reme_ai_studio-*.tar.gz)"
         python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme/web/')
+        python -m zipfile -l "${STUDIO_WHEEL}" | grep 'dist-info/licenses/LICENSE'
+        python -m tarfile -l "${STUDIO_SDIST}" | grep '/LICENSE'
         pip install --find-links "$(pwd)/dist" "${REME_WHEEL}[core]"
+        SMOKE_DIR="$(mktemp -d)"
+        cd "${SMOKE_DIR}"
         python -c "import reme; print(reme.__version__)"
         python -c "from reme_ai_studio import static_dir; assert (static_dir() / 'index.html').is_file()"
         python -c "from reme.utils import resolve_web_static_dir; assert (resolve_web_static_dir() / 'index.html').is_file()"

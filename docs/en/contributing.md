@@ -40,6 +40,10 @@ The project requires Python 3.11 or later. A virtual environment is recommended:
 python -m venv .venv
 source .venv/bin/activate
 pip install -e packages/reme_ai_studio -e ".[dev,full]"
+cd website
+npm ci
+npm run build:static
+cd ..
 pre-commit install
 ```
 
