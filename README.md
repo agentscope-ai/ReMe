@@ -84,8 +84,6 @@ Install from pip:
 pip install "reme-ai[core]"
 ```
 
-The `core` extra includes the common integrations. For a minimal or headless installation, use `pip install reme-ai`.
-
 Install from source:
 
 ```bash
@@ -212,9 +210,8 @@ another row in this table.
 > Memory as File, File as Memory.
 
 ReMe treats **memory as files**, progressively processing filtered conversation source records and external resources
-from `session/` and `resource/` into `daily/`, then consolidating them into reusable long-term memory nodes under
-`digest/`. The default workspace is `.reme/` under the current directory; `workspace_dir=...` selects a different
-user-owned location.
+from `session/` and `resource/` into `daily/`, then `digest/`. The default workspace is `.reme/` under the current
+directory; `workspace_dir=...` selects a different user-owned location.
 
 ### Directory Structure
 
@@ -254,16 +251,8 @@ user-owned location.
 
 ## 🧭 Memory Design Philosophy
 
-> Capture conversation source records and resources, refine them into long-term preferences, reusable experience, and
-> valuable knowledge,
-> while keeping the result editable by humans and agents.
-
-### Automatic Memory Flow
-
-ReMe follows a capture → index → consolidate → recall loop. Conversations and resources first become daily memory cards;
-background jobs keep files searchable; `auto_dream` distills stable knowledge into `digest/`; agents recall memory
-through search, wikilinks, or proactive topics. The files are the durable source of truth—indexes, graphs, catalogs, and
-caches under `metadata/` can be rebuilt from them.
+ReMe follows a capture → index → consolidate → recall loop. Workspace files remain the durable source of truth;
+everything under `metadata/` is rebuildable.
 
 | Capability                                  | Entry point                                     | What it does                                                                                                                                                   | Output                                                        |
 |---------------------------------------------|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
@@ -292,10 +281,8 @@ caches under `metadata/` can be rebuilt from them.
   </tr>
 </table>
 
-Search returns the best matching chunks with file paths and line ranges, then lists bounded incoming and outgoing
-wikilink neighbors by metadata. An agent can read a promising source or traverse the graph only when needed. With
-embeddings enabled, BM25 and vector rankings are fused with reciprocal rank fusion (RRF); otherwise the default remains
-BM25 plus wikilink expansion.
+Search returns matching chunks with line ranges and bounded wikilink neighbors. Optional vector results are fused with
+BM25 through reciprocal rank fusion (RRF).
 
 > [!IMPORTANT]
 > `proactive` only reads and exposes interest topics produced by Auto Dream. It does not independently browse the web,
@@ -321,8 +308,7 @@ dependencies, and underspecified requests.
 ## 🤝 Agent-friendly Integration
 
 ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the
-host process through its Python API. Agents can choose the path that fits their runtime and share a local memory
-workspace when appropriate.
+host process through its Python API.
 
 | Agents                                        | Recommended path                                                                                        | Available after integration                                                                             |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
@@ -361,28 +347,21 @@ workspace when appropriate.
 
 ## 🛠️ ReMe Operations
 
-ReMe operates the workspace through a unified job interface exposed by the CLI. Agents usually only need retrieval,
-reading, writing, editing, and automatic memory commands. Lower-level indexing, frontmatter, and file operation commands
-are mainly for maintenance, debugging, or advanced integration. Run `reme help` for the full job list.
+Run `reme help` for the full job list. Common workspace and maintenance commands are:
 
 | Command                                   | Purpose                                                                                |
 |-------------------------------------------|----------------------------------------------------------------------------------------|
-| `reme start`                              | Start the local ReMe service.                                                          |
-| `reme version` / `reme health_check`      | Check package and component status.                                                    |
 | `reme status`                             | Show stateful data-component memory estimates and process RSS.                         |
 | [`reme search`](docs/en/memory_search.md) | Retrieve memory with BM25 and wikilinks by default, plus vectors when enabled.         |
 | `reme read` / `reme write` / `reme edit`  | Inspect and maintain Markdown memory files.                                            |
 | `reme traverse` / `reme graph_snapshot`   | Explore wikilink neighborhoods or the category-rooted digest graph.                    |
 | `reme chat`                               | Stream a read-only, workspace-aware agent conversation. Requires LLM credentials.      |
-| `reme auto_memory`                        | Turn conversation messages into daily memory cards. Requires LLM credentials.          |
-| `reme auto_resource`                      | Interpret files under `resource/` into daily resource cards. Requires LLM credentials. |
-| `reme auto_dream` / `reme proactive`      | Consolidate daily memory into long-term digest and surface topics worth attention.     |
 | `reme reindex`                            | Rebuild search and wikilink indexes from existing files.                               |
 
 ## 🤝 Community and Support
 
-- **Issues and requests**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
-  related discussion, open a new issue with background, expected behavior, and impact scope.
+- **Issues, requests, and help**: Check [Open Issues](https://github.com/agentscope-ai/ReMe/issues) first. If there is no
+  related discussion, open one with the background, expected behavior, and impact scope.
 - **Code contributions**: Before making changes, read
   the [contribution guide](https://docs.agentscope.io/reme/latest/en/contribution). Source, schemas, and tests are the
   authoritative architecture and extension guide.
@@ -392,8 +371,7 @@ are mainly for maintenance, debugging, or advanced integration. Run `reme help` 
   `docs(zh): update quick start`.
 - **Pre-submit checks**: Before submitting a PR, try to run `pre-commit run --all-files` and `pytest`. If tests that
   depend on LLMs, embeddings, or external services cannot run, explain that in the PR.
-- **Get help**: Use [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues) for bugs and feature requests. Project
-  documentation is available at [https://reme.agentscope.io](https://reme.agentscope.io).
+- **Documentation**: Visit [reme.agentscope.io](https://reme.agentscope.io).
 
 ### Contributors
 

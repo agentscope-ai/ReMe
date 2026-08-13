@@ -77,8 +77,6 @@ ReMe 要求 Python 3.11+。
 pip install "reme-ai[core]"
 ```
 
-`core` extra 包含常用集成。最小化安装或无头环境可使用 `pip install reme-ai`。
-
 从源码安装：
 
 ```bash
@@ -203,8 +201,8 @@ cookbook 会继续在表格中按行追加。
 
 > Memory as File, File as Memory.
 
-ReMe 将 **记忆视为文件**，让过滤后的对话来源记录和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为 `digest/`
-中可长期复用的知识节点。默认 workspace 是当前目录下的 `.reme/`；可通过 `workspace_dir=...` 选择其他由用户控制的位置。
+ReMe 将 **记忆视为文件**，让过滤后的对话来源记录和外部资料从 `session/`、`resource/` 渐进加工到 `daily/`，再沉淀为
+`digest/`。默认 workspace 是当前目录下的 `.reme/`；可通过 `workspace_dir=...` 选择其他由用户控制的位置。
 
 ### 目录结构
 
@@ -244,13 +242,7 @@ ReMe 将 **记忆视为文件**，让过滤后的对话来源记录和外部资�
 
 ## 🧭 记忆设计理念
 
-> 捕获过滤后的对话来源记录和资料，将其整理为长期偏好、可复用经验和有价值的知识，并让结果始终能被用户和 Agent 直接编辑。
-
-### 自动记忆流程
-
-ReMe 遵循 capture → index → consolidate → recall 的循环。对话和资料先变成 daily 记忆卡片；后台任务保持文件可检索；
-`auto_dream` 将稳定知识沉淀到 `digest/`；Agent 再通过搜索、wikilink 或 proactive topics 召回记忆。文件是持久化的事实来源，
-`metadata/` 中的索引、图谱、catalog 和缓存都可以由它们重建。
+ReMe 遵循 capture → index → consolidate → recall 的循环。workspace 文件是持久化的事实来源，`metadata/` 中的内容均可重建。
 
 | 能力                                        | 入口                                      | 作用                                                                                         | 输出                                                         |
 |---------------------------------------------|-------------------------------------------|----------------------------------------------------------------------------------------------|--------------------------------------------------------------|
@@ -279,8 +271,7 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。对话和�
   </tr>
 </table>
 
-搜索会先返回最相关的 chunks、文件路径和行号范围，再以元数据形式列出数量受限的入链与出链邻居。Agent 只需在判断确实相关后再读取原文或继续遍历图谱。
-启用 embedding 时，BM25 和向量排名通过 RRF 融合；默认未启用 embedding 时，则使用 BM25 + wikilink 扩展。
+搜索返回带行号范围的相关 chunks 和数量受限的 wikilink 邻居；可选向量结果通过 RRF 与 BM25 融合。
 
 > [!IMPORTANT]
 > `proactive` 只读取并暴露 Auto Dream 生成的兴趣主题，不会自行联网、发送通知或改写知识库；是否以及如何使用主题，由宿主 Agent
@@ -302,7 +293,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 ## 🤝 Agent-friendly Integration
 
 ReMe 既可以作为本地记忆服务，通过 CLI、HTTP API 或 MCP server 接入，也可以通过 Python API 嵌入宿主进程。不同 Agent 可以选择适合自身
-runtime 的路径，并按需共享同一个本地 memory workspace。
+runtime 的路径。
 
 | Agent                                         | 推荐接入方式                                                                                    | 接入后能力                                                                   |
 |-----------------------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
@@ -341,26 +332,20 @@ runtime 的路径，并按需共享同一个本地 memory workspace。
 
 ## 🛠️ ReMe Operations
 
-ReMe 通过 CLI 暴露的统一 job interface 操作 workspace。Agent 通常只需要使用检索、读取、写入、编辑和自动记忆相关命令；更底层的索引、
-frontmatter 和文件操作接口主要用于维护、调试或高级集成。完整 job 列表可以运行 `reme help` 查看。
+运行 `reme help` 可查看完整 job 列表。常用 workspace 与维护命令如下：
 
 | 命令                                      | 作用                                                          |
 |-------------------------------------------|---------------------------------------------------------------|
-| `reme start`                              | 启动本地 ReMe 服务。                                          |
-| `reme version` / `reme health_check`      | 检查包版本和组件状态。                                        |
 | `reme status`                             | 查看有状态数据组件的内存估算及进程 RSS。                      |
 | [`reme search`](docs/zh/memory_search.md) | 默认使用 BM25 和 wikilink 检索，启用后增加向量检索。          |
 | `reme read` / `reme write` / `reme edit`  | 检查和维护 Markdown 记忆文件。                                |
 | `reme traverse` / `reme graph_snapshot`   | 浏览 wikilink 邻域或按类别组织的 digest 图。                  |
 | `reme chat`                               | 与可感知 workspace 的只读 Agent 进行流式对话；需要 LLM 凭证。 |
-| `reme auto_memory`                        | 将对话 messages 转为 daily 记忆卡片；需要 LLM 凭证。          |
-| `reme auto_resource`                      | 将 `resource/` 下的文件解读为 daily 资料卡片；需要 LLM 凭证。 |
-| `reme auto_dream` / `reme proactive`      | 将 daily 记忆整理为长期 digest，并暴露值得关注的主题。        |
 | `reme reindex`                            | 基于已有文件重建检索和 wikilink 索引。                        |
 
 ## 🤝 社区与支持
 
-- **问题反馈与需求**：请先查看 [Open Issues](https://github.com/agentscope-ai/ReMe/issues)；如无相关讨论，可新建 Issue
+- **问题反馈、需求与帮助**：请先查看 [Open Issues](https://github.com/agentscope-ai/ReMe/issues)；如无相关讨论，可新建 Issue
   说明背景、目标行为和影响范围。
 - **代码贡献**：改动前建议阅读 [贡献指南](https://docs.agentscope.io/reme/latest/zh/contribution)。架构与扩展方式以源码、schema
   和测试为准。
@@ -369,8 +354,7 @@ frontmatter 和文件操作接口主要用于维护、调试或高级集成。�
   `docs(zh): update quick start`。
 - **提交前检查**：提交 PR 前请尽量运行 `pre-commit run --all-files` 和 `pytest`；如有依赖 LLM、embedding 或外部服务的测试无法运行，请在
   PR 中说明。
-- **获取帮助**：如需反馈 Bug 或功能请求，请使用 [GitHub Issues](https://github.com/agentscope-ai/ReMe/issues)；项目文档见
-  [https://reme.agentscope.io](https://reme.agentscope.io)。
+- **项目文档**：访问 [reme.agentscope.io](https://reme.agentscope.io)。
 
 ### 贡献者
 
