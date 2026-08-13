@@ -875,6 +875,52 @@ async def test_worker_calls_application_directly_and_always_closes(monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_worker_build_records_failed_job_and_continues(monkeypatch, tmp_path):
+    """A malformed tool call does not prevent later construction jobs from running."""
+
+    calls = []
+
+    class FakeReMe:
+        """Fail one construction job while allowing the next one to run."""
+
+        def __init__(self, **_config):
+            self.context = SimpleNamespace(
+                metadata={},
+                components={},
+                jobs={"auto_memory": object(), "index_update": object()},
+            )
+
+        async def start(self):
+            """Start without side effects."""
+
+        async def run_job(self, name, **_arguments):
+            """Return a structured failure only for the first job."""
+            calls.append(name)
+            if name == "auto_memory":
+                return SimpleNamespace(success=False, answer="function.arguments must be JSON", metadata={})
+            return SimpleNamespace(success=True, answer="indexed", metadata={})
+
+        async def close(self):
+            """Close without side effects."""
+
+    monkeypatch.setattr("reme.config.resolve_app_config", lambda **kwargs: kwargs)
+    monkeypatch.setattr("reme.reme.ReMe", FakeReMe)
+
+    result = await worker._run_build(  # pylint: disable=protected-access
+        {
+            "config": "lme.yaml",
+            "case_root": str(tmp_path),
+            "workspace_dir": str(tmp_path / "workspace"),
+            "jobs": [{"job": "auto_memory"}, {"job": "index_update"}],
+        },
+    )
+
+    assert calls == ["auto_memory", "index_update"]
+    assert result["success"] is False
+    assert [item["result"]["success"] for item in result["jobs"]] == [False, True]
+
+
+@pytest.mark.asyncio
 async def test_worker_reuses_one_application_per_phase_and_isolates_query_logs(monkeypatch, tmp_path):
     """Construction and all queries use two Applications while every query gets only its own log."""
     application_ids = []

@@ -233,8 +233,6 @@ async def _run_build(request: dict[str, Any]) -> dict[str, Any]:
             if result["success"] and checkpoint is not None:
                 item["memory_checkpoint"] = _commit_memory_checkpoint(case_root, app_config, checkpoint)
             results.append(item)
-            if not result["success"]:
-                break
     finally:
         logger.info("[sandbox] build phase finished")
         await app.close()

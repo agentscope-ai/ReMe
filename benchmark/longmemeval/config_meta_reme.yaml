@@ -34,13 +34,13 @@ dataset:
     - "gpt4_2655b836"
 
 validation:
-  concurrency: 5
+  concurrency: 16
   fail_fast: false  # true stops all cases after the first construction or query error
 
 search:
   enabled: true
   max_agent_iters: 80
-  max_code_iterations: 5
+  max_code_iterations: 15
   objective: >-
     Search for a better ReMe implementation on the installed LongMemEval search
     cases. Preserve every evaluated commit and compare candidates on identical

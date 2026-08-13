@@ -153,7 +153,7 @@ construction 阶段独有的内存状态。
 
 每个方法只为当前 case 发布一个阶段：
 
-- `run_build()` 至少需要一个 job；遇到第一个失败 job 后停止；如果
+- `run_build()` 至少需要一个 job；会记录单个 job 的失败并继续执行后续 job；如果
   `build_log/build.log` 已存在，则拒绝追加。
 - `run_queries()` 至少需要一个 query，query ID 必须唯一；单个 query 失败后仍继续
   后续 query；如果 `queries/summary.json` 或任一待运行 query 的目录已经存在，则

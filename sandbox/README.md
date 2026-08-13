@@ -162,8 +162,8 @@ the build/query boundary also guarantees that evaluation depends on persisted
 workspace state rather than construction-only in-memory state.
 
 Each method publishes one phase for the active case. `run_build()` requires at
-least one job, stops at the first failed job, and refuses to append to an
-existing `build_log/build.log`. `run_queries()` requires at least one unique
+least one job, records individual job failures while continuing the remaining
+jobs, and refuses to append to an existing `build_log/build.log`. `run_queries()` requires at least one unique
 query ID, continues after individual query failures, and refuses to append if
 `queries/summary.json` or any requested query directory already exists. Call
 `reset_case()` before starting another evaluation in the same container.
