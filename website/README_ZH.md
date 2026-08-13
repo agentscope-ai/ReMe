@@ -7,17 +7,6 @@ ReMe Studio 是 ReMe 的本地 Web 工作区。你可以在这里浏览和编辑
 
 ![ReMe Studio 工作区](./public/og.jpg)
 
-## 安装
-
-安装 Studio 和 ReMe 的可选集成功能：
-
-```bash
-pip install "reme-ai[core]"
-```
-
-如果只需要 Studio，不需要其他可选集成，可以使用 `pip install "reme-ai[web]"`。基础 `reme-ai` 包以无界面模式分发，
-不包含前端资源。
-
 ## 功能
 
 - **浏览工作区**：浏览完整工作区，或通过独立视图聚焦日记和知识文件；磁盘中的文件发生变化后，导航器会自动刷新。
@@ -31,9 +20,9 @@ pip install "reme-ai[core]"
 
 ## 环境要求
 
+- Node.js 22.13 或更高版本。
 - Python 3.11 或更高版本，并已安装 ReMe。
 - 正在运行的 ReMe HTTP 服务。Agent 对话还需要可用的 Agent 和模型配置。
-- 只有从源码开发或构建 Studio 时才需要 Node.js 22.13 或更高版本。
 
 ReMe 的安装和后端配置请参阅[仓库中文 README](../README_ZH.md)。
 

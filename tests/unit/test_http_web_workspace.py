@@ -1,8 +1,7 @@
 """HTTP service coverage for the optional bundled web workspace."""
 
-import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -101,13 +100,3 @@ def test_static_dir_configuration_precedes_environment(monkeypatch, tmp_path: Pa
 
     assert resolve_web_static_dir(str(configured)) == configured.resolve()
     assert resolve_web_static_dir() == environment.resolve()
-
-
-def test_static_dir_uses_optional_studio_package(monkeypatch, tmp_path: Path) -> None:
-    """Use static assets supplied by the separately installed Studio wheel."""
-    static_dir = _static_build(tmp_path / "studio")
-    studio = ModuleType("reme_ai_studio")
-    studio.static_dir = lambda: static_dir  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "reme_ai_studio", studio)
-
-    assert resolve_web_static_dir() == static_dir.resolve()

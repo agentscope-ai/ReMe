@@ -166,10 +166,10 @@ HTTP service behavior:
 | `enable_serve: false`                     | No endpoint is registered.                        |
 
 After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
-`service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
-`reme-ai-studio` package installed by the `web` and `core` extras, and source-tree locations such as
-`website/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
-Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
+`service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, packaged
+`reme/web`, and source-tree locations such as `website/dist-static`. If no `index.html` is found, only the frontend is
+skipped and the Job API remains available. The Studio `GET` fallback does not replace existing `POST /<job.name>`
+routes.
 
 MCP service behavior:
 

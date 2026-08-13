@@ -23,7 +23,7 @@ jobs:
           pip install -U setuptools wheel
       - name: Install
         run: |
-          pip install -q -e packages/reme_ai_studio -e ".[dev,core]"
+          pip install -q -e ".[dev,core]"
       - name: Install pre-commit
         run: |
           pre-commit install

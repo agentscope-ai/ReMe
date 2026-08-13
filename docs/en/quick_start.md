@@ -15,7 +15,7 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
+pip install -e ".[core]"
 ```
 
 Installing the `core` extra is recommended. The current code imports the AgentScope wrapper, and self-evolving memory
@@ -56,8 +56,7 @@ reme help
 
 `reme help` lists server actions. Ordinary commands invoke server Jobs over HTTP.
 
-The base `reme-ai` package does not include frontend assets. Install `reme-ai[web]` or `reme-ai[core]`, then open
-<http://127.0.0.1:2333/> for ReMe Studio. It uses the same service to
+When the package includes the web build, open <http://127.0.0.1:2333/> for ReMe Studio. It uses the same service to
 browse, edit, and search the workspace and inspect the digest wikilink graph. Disable it with
 `service.web_enabled=false`, or provide a custom build with `service.web_static_dir` / `REME_WEB_STATIC_DIR`. The Job
 API still starts if no web build is found.

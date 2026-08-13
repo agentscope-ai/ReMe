@@ -42,9 +42,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-web = [
-    "reme-ai-studio==0.4.1.6",
-]
 core = [
     "agentscope==2.0.4.post1",
     "claude-agent-sdk>=0.2.126",
@@ -58,7 +55,6 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "reme-ai-studio==0.4.1.6",
 ]
 dev = [
     "pre-commit>=4.6.1",
@@ -84,6 +80,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "*" = ["py.typed", "**/*.yaml", "**/*.json"]
+"reme" = ["web/**"]
 "reme.components.tokenizer" = ["stopwords"]
 
 [tool.setuptools.dynamic]

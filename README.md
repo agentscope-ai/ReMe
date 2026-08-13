@@ -86,16 +86,12 @@ Install from pip:
 pip install "reme-ai[core]"
 ```
 
-The base `reme-ai` package contains only the Python service and library. ReMe Studio is distributed separately and is
-installed by the `web` and `core` extras. Use `pip install reme-ai` for embedded or headless integrations that do not
-need the frontend, or `pip install "reme-ai[web]"` when Studio is needed without the other `core` integrations.
-
 Install from source:
 
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
+pip install -e ".[core]"
 ```
 
 ### Environment Variables
@@ -138,8 +134,7 @@ reme start service.port=8181
 
 After startup, check the service status. If you use a custom port, replace `2333` in the URL below with that port.
 
-When the `web` or `core` extra is installed, the HTTP service also serves **ReMe Studio** at
-<http://127.0.0.1:2333/>. Studio can
+When the web build is available, the HTTP service also serves **ReMe Studio** at <http://127.0.0.1:2333/>. Studio can
 browse, edit, and search the workspace, chat with the read-only workspace agent, and inspect the digest wikilink graph.
 Set `service.web_enabled=false` to disable it, or use `service.web_static_dir` / `REME_WEB_STATIC_DIR` to provide a
 custom static build. The Job API remains available when no web build is found.

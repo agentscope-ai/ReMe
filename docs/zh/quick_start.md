@@ -15,7 +15,7 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
+pip install -e ".[core]"
 ```
 
 `core` extra 建议安装：当前代码会导入 AgentScope wrapper，自进化记忆也依赖它。
@@ -55,8 +55,7 @@ reme help
 
 `reme help` 会列出服务端 action。普通命令会通过 HTTP 调用服务端 Job。
 
-基础 `reme-ai` 包不包含前端资源。安装 `reme-ai[web]` 或 `reme-ai[core]` 后，浏览器打开
-<http://127.0.0.1:2333/> 即可进入 ReMe Studio，在同一服务中浏览、编辑和搜索
+如果安装包中包含 Web 构建产物，浏览器打开 <http://127.0.0.1:2333/> 即可进入 ReMe Studio，在同一服务中浏览、编辑和搜索
 workspace，并查看 digest Wikilink 图。可用 `service.web_enabled=false` 关闭，或通过 `service.web_static_dir` /
 `REME_WEB_STATIC_DIR`
 指定自定义静态目录；找不到构建产物时，Job API 仍会正常启动。
