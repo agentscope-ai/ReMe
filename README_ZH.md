@@ -53,7 +53,7 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 ## 📰 新闻
 
-- [2026.08] - 发布 [ReMe 博客](docs/zh/reme-blog.md)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
+- [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 新增 [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh)：用于浏览、编辑和搜索记忆文件，与只读 ReMe Agent
   对话，查看 digest wikilink 图，并管理本地服务。
@@ -225,7 +225,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 | [Agent 接入场景](docs/zh/reme_scene.md) | 在 CLI/SKILL.md、HTTP、MCP 和嵌入式 Python 集成之间选择。 |
 | [框架说明](docs/zh/framework.md) | 理解 Application、Job、Step、Component、service、配置和生命周期边界。 |
 | [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh) | 使用、配置、开发、测试和构建 Web 前端。 |
-| [ReMe 博客](docs/zh/reme-blog.md) | 了解完整产品故事、设计动机、使用示例和评测摘要。 |
+| [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog) | 了解完整产品故事、设计动机、使用示例和评测摘要。 |
 
 ## 🧑‍🍳 Cookbooks
 

@@ -61,7 +61,7 @@ keeping the files under the user's control.
 
 ## 📰 News
 
-- [2026.08] - Published the [ReMe blog](docs/en/reme-blog.md), an end-to-end introduction to its local-first memory
+- [2026.08] - Published the [ReMe blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - Introduced [ReMe Studio](https://reme.agentscope.io/?doc=studio-en), a local web workspace for browsing, editing, and searching
   memory files, chatting with the read-only ReMe Agent, inspecting the digest wikilink graph, and managing the local service.
@@ -234,7 +234,7 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 | [Agent Integration Scenarios](docs/en/reme_scene.md) | Choose among CLI/SKILL.md, HTTP, MCP, and embedded Python integration. |
 | [Framework](docs/en/framework.md) | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries. |
 | [ReMe Studio](https://reme.agentscope.io/?doc=studio-en) | Use, configure, develop, test, and build the web frontend. |
-| [ReMe Blog](docs/en/reme-blog.md) | Read the product story, design rationale, examples, and benchmark summary. |
+| [ReMe Blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog) | Read the product story, design rationale, examples, and benchmark summary. |
 
 ## 🧑‍🍳 Cookbooks
 
