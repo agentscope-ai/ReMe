@@ -91,8 +91,7 @@ a { color: inherit; }
 .article[data-group="home"] { max-width: 980px; }
 .home-hero { padding: 34px 0 76px; }
 .home-eyebrow, .section-kicker { margin: 0 0 17px; color: #12806d; font: 750 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.13em; }
-.home-hero h1 { max-width: 800px; margin: 0; color: #102019; font-size: clamp(46px, 6.3vw, 76px); line-height: 0.99; letter-spacing: -0.055em; }
-html[lang="zh-CN"] .home-hero h1 { line-height: 1.12; }
+.home-hero h1 { max-width: 800px; margin: 0; color: #102019; font-size: clamp(46px, 6.3vw, 76px); line-height: 1.12; letter-spacing: -0.055em; }
 .home-lead { max-width: 720px; margin: 27px 0 0; color: #526159; font-size: 18px; line-height: 1.72; }
 .home-actions { display: flex; flex-wrap: wrap; gap: 11px; margin-top: 31px; }
 .home-actions a { padding: 11px 17px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 720; }
