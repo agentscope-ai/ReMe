@@ -63,8 +63,6 @@ keeping the files under the user's control.
 
 - [2026.08] - Published the [ReMe blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
-- [2026.08] - Introduced [ReMe Studio](https://reme.agentscope.io/?doc=studio-en), a local web workspace for browsing, editing, and searching
-  memory files, chatting with the read-only ReMe Agent, inspecting the digest wikilink graph, and managing the local service.
 - [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/?doc=toolmemory-en) of agent tool-use execution built
   on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
 - [2026.07] - Introduced optional Cookbooks: [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) for paper discovery and
@@ -86,23 +84,15 @@ Install from pip:
 pip install "reme-ai[core]"
 ```
 
-The base `reme-ai` package contains only the Python service and library. ReMe Studio is distributed separately and is
-installed by the `web` and `core` extras. Use `pip install reme-ai` for embedded or headless integrations that do not
-need the frontend, or `pip install "reme-ai[web]"` when Studio is needed without the other `core` integrations.
+The `core` extra includes the common integrations. For a minimal or headless installation, use `pip install reme-ai`.
 
 Install from source:
 
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
-npm ci
-npm run build:static
-cd ..
+pip install -e ".[core]"
 ```
-
-The static build step requires Node.js 22.13 or newer and makes Studio available when running ReMe from the source tree.
 
 ### Environment Variables
 
@@ -142,14 +132,6 @@ reme start service.port=8181
 # reme start workspace_dir=/tmp/reme-demo service.port=8181
 ```
 
-After startup, check the service status. If you use a custom port, replace `2333` in the URL below with that port.
-
-When the `web` or `core` extra is installed, the HTTP service also serves **ReMe Studio** at
-<http://127.0.0.1:2333/>. Studio can
-browse, edit, and search the workspace, chat with the read-only workspace agent, and inspect the digest wikilink graph.
-Set `service.web_enabled=false` to disable it, or use `service.web_static_dir` / `REME_WEB_STATIC_DIR` to provide a
-custom static build. The Job API remains available when no web build is found.
-
 ```bash
 reme version
 reme health_check
@@ -157,32 +139,11 @@ reme help
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
-### Use ReMe Studio
+### ReMe Studio (Optional)
 
-Open <http://127.0.0.1:2333/> after starting the default HTTP service. Studio provides:
-
-- **Files, Daily, and Knowledge views** for navigating the whole workspace or focusing on `daily/` and `digest/`.
-- **Markdown tabs** with preview, split editing, optimistic save checks, and local download.
-- **Memory Graph** for exploring indexed `personal`, `procedure`, and `wiki` nodes and opening their Markdown sources.
-- **Read-only Agent chat** with streamed tool activity and usage; drag a workspace file into the composer to reference it.
-- **Settings** for service/component status, redacted effective configuration, version information, and safe index rebuilding.
-- English/Chinese language switching and light, dark, or system appearance.
-
-For frontend development, run ReMe and Studio in separate terminals:
-
-```bash
-# Terminal 1, repository root
-reme start
-
-# Terminal 2
-cd website
-npm install
-npm run dev
-```
-
-Then open <http://localhost:3000>. The development server uses `http://127.0.0.1:2333` by default; set
-`NEXT_PUBLIC_REME_API_URL` to connect to another ReMe HTTP service. Static-build and frontend configuration instructions are
-in the [ReMe Studio guide](https://reme.agentscope.io/?doc=studio-en).
+The `core` installation above includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and
+search the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
+[ReMe Studio guide](https://reme.agentscope.io/?doc=studio-en) for source builds, configuration, and development.
 
 ### 5-Minute Memory Demo
 
@@ -224,7 +185,7 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 
 | Guide | What you will learn |
 |-------|---------------------|
-| [Quick Start](docs/en/quick_start.md) | Install ReMe, start the service, use Studio, and run the first file and memory operations. |
+| [Quick Start](docs/en/quick_start.md) | Install ReMe, start the service, and run the first file and memory operations. |
 | [Memory as File](docs/en/memory_as_file.md) | Understand workspace layers, frontmatter, wikilinks, chunks, and the file-as-source-of-truth model. |
 | [Auto Memory](docs/en/auto_memory.md) | Preserve source conversations and distill reusable daily memory cards. |
 | [Auto Resource](docs/en/auto_resource.md) | Import supported text resources and turn them into source-linked daily cards. |
@@ -233,7 +194,6 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 | [Proactive](docs/en/proactive.md) | Read interest topics safely and integrate them into a host agent's decision flow. |
 | [Agent Integration Scenarios](docs/en/reme_scene.md) | Choose among CLI/SKILL.md, HTTP, MCP, and embedded Python integration. |
 | [Framework](docs/en/framework.md) | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries. |
-| [ReMe Studio](https://reme.agentscope.io/?doc=studio-en) | Use, configure, develop, test, and build the web frontend. |
 | [ReMe Blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog) | Read the product story, design rationale, examples, and benchmark summary. |
 
 ## 🧑‍🍳 Cookbooks
@@ -361,8 +321,8 @@ dependencies, and underspecified requests.
 ## 🤝 Agent-friendly Integration
 
 ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the
-host process through its Python API. The default HTTP service can serve ReMe Studio at the same address. Agents can
-choose the path that fits their runtime and share a local memory workspace when appropriate.
+host process through its Python API. Agents can choose the path that fits their runtime and share a local memory
+workspace when appropriate.
 
 | Agents                                        | Recommended path                                                                                        | Available after integration                                                                             |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|

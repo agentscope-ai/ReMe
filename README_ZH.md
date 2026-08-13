@@ -55,8 +55,6 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 - [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
-- [2026.08] - 新增 [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh)：用于浏览、编辑和搜索记忆文件，与只读 ReMe Agent
-  对话，查看 digest wikilink 图，并管理本地服务。
 - [2026.08] - 基于 ReMe 的智能体工具使用
   [经验驱动增强方法](https://reme.agentscope.io/?doc=toolmemory-zh)已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
@@ -79,23 +77,15 @@ ReMe 要求 Python 3.11+。
 pip install "reme-ai[core]"
 ```
 
-基础 `reme-ai` 包只包含 Python 服务和库。ReMe Studio 单独分发，并通过 `web` 和 `core` extra 安装。
-对于不需要前端的嵌入式或无头集成，请使用 `pip install reme-ai`；如果只需要 Studio，而不需要 `core` 中的其他集成，
-请使用 `pip install "reme-ai[web]"`。
+`core` extra 包含常用集成。最小化安装或无头环境可使用 `pip install reme-ai`。
 
 从源码安装：
 
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
-npm ci
-npm run build:static
-cd ..
+pip install -e ".[core]"
 ```
-
-静态构建步骤需要 Node.js 22.13 或更高版本，用于在从源码运行 ReMe 时提供 Studio。
 
 ### 环境变量
 
@@ -135,13 +125,6 @@ reme start service.port=8181
 # reme start workspace_dir=/tmp/reme-demo service.port=8181
 ```
 
-启动后可以检查服务状态；如果使用了自定义端口，请将下面 URL 中的 `2333` 替换为对应端口。
-
-如果安装包中包含 Web 构建产物，HTTP 服务还会在 <http://127.0.0.1:2333/> 提供 **ReMe Studio**，用于浏览、编辑和搜索
-workspace，与只读 workspace agent 对话，以及查看 digest wikilink 图。可以设置
-`service.web_enabled=false` 关闭，或通过 `service.web_static_dir` / `REME_WEB_STATIC_DIR` 指定自定义静态目录。找不到 Web
-构建产物时，Job API 仍可正常使用。
-
 ```bash
 reme version
 reme health_check
@@ -149,31 +132,11 @@ reme help
 curl -s http://127.0.0.1:2333/version -H 'Content-Type: application/json' -d '{}'
 ```
 
-### 使用 ReMe Studio
+### ReMe Studio（可选）
 
-启动默认 HTTP 服务后，在浏览器打开 <http://127.0.0.1:2333/>。Studio 提供：
-
-- **文件、日记和知识库视图**：浏览整个 workspace，或聚焦 `daily/` 和 `digest/`。
-- **Markdown 多标签页**：支持预览、分栏编辑、基于修改时间的冲突检查、保存和本地下载。
-- **记忆图谱**：浏览已索引的 `personal`、`procedure` 和 `wiki` 节点，并打开对应 Markdown 源文件。
-- **只读 Agent 对话**：流式查看工具调用和模型用量；可将 workspace 文件拖入输入框作为引用。
-- **设置与服务管理**：查看服务/组件状态、脱敏后的生效配置和版本，并安全重建派生索引。
-- 支持中英文切换，以及浅色、深色和跟随系统外观。
-
-如需开发前端，在两个终端中分别启动 ReMe 和 Studio：
-
-```bash
-# 终端 1：仓库根目录
-reme start
-
-# 终端 2
-cd website
-npm install
-npm run dev
-```
-
-然后打开 <http://localhost:3000>。开发服务默认连接 `http://127.0.0.1:2333`；如需连接其他 ReMe HTTP
-服务，请设置 `NEXT_PUBLIC_REME_API_URL`。静态构建和前端配置说明见 [ReMe Studio 指南](https://reme.agentscope.io/?doc=studio-zh)。
+上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
+如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
+[ReMe Studio 指南](https://reme.agentscope.io/?doc=studio-zh)。
 
 ### 5 分钟记忆 Demo
 
@@ -215,7 +178,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 | 文档 | 主要内容 |
 |------|----------|
-| [快速开始](docs/zh/quick_start.md) | 安装 ReMe、启动服务、使用 Studio，并执行首次文件和记忆操作。 |
+| [快速开始](docs/zh/quick_start.md) | 安装 ReMe、启动服务，并执行首次文件和记忆操作。 |
 | [Memory as File](docs/zh/memory_as_file.md) | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
 | [Auto Memory](docs/zh/auto_memory.md) | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。 |
 | [Auto Resource](docs/zh/auto_resource.md) | 导入支持的文本资料，转换为可追溯来源的 daily 卡片。 |
@@ -224,7 +187,6 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 | [Proactive](docs/zh/proactive.md) | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。 |
 | [Agent 接入场景](docs/zh/reme_scene.md) | 在 CLI/SKILL.md、HTTP、MCP 和嵌入式 Python 集成之间选择。 |
 | [框架说明](docs/zh/framework.md) | 理解 Application、Job、Step、Component、service、配置和生命周期边界。 |
-| [ReMe Studio](https://reme.agentscope.io/?doc=studio-zh) | 使用、配置、开发、测试和构建 Web 前端。 |
 | [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog) | 了解完整产品故事、设计动机、使用示例和评测摘要。 |
 
 ## 🧑‍🍳 Cookbooks
@@ -340,7 +302,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 ## 🤝 Agent-friendly Integration
 
 ReMe 既可以作为本地记忆服务，通过 CLI、HTTP API 或 MCP server 接入，也可以通过 Python API 嵌入宿主进程。不同 Agent 可以选择适合自身
-runtime 的路径，并按需共享同一个本地 memory workspace。默认 HTTP 服务还可以在同一地址提供 ReMe Studio。
+runtime 的路径，并按需共享同一个本地 memory workspace。
 
 | Agent                                         | 推荐接入方式                                                                                    | 接入后能力                                                                   |
 |-----------------------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
