@@ -108,6 +108,36 @@ def test_check_versions_reports_release_tag_mismatch(tmp_path: Path) -> None:
         bump_version.check_versions(tmp_path, "v1.2.4")
 
 
+def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
+    """Point maintainers to the invalid Python version declaration."""
+    _write_version_fixture(tmp_path)
+    version_file = tmp_path / "reme" / "__init__.py"
+    version_file.write_text('__version__ = "1..2"\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match=rf"{version_file}.*Fix the __version__ declaration"):
+        bump_version.check_versions(tmp_path)
+
+
+def test_check_versions_identifies_invalid_toml_file(tmp_path: Path) -> None:
+    """Point maintainers to malformed package metadata."""
+    _write_version_fixture(tmp_path)
+    config_file = tmp_path / "pyproject.toml"
+    config_file.write_text("[project\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=rf"{config_file}.*cannot read valid TOML.*Fix this file"):
+        bump_version.check_versions(tmp_path)
+
+
+def test_check_versions_identifies_missing_table(tmp_path: Path) -> None:
+    """Explain which required TOML table must be restored."""
+    _write_version_fixture(tmp_path)
+    config_file = tmp_path / "pyproject.toml"
+    config_file.write_text('[project]\nname = "reme-ai"\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match=rf"{config_file}.*\[project.optional-dependencies\].*Add or fix"):
+        bump_version.check_versions(tmp_path)
+
+
 def test_bump_version_rolls_back_when_a_write_fails(monkeypatch, tmp_path: Path) -> None:
     """Restore earlier files when a later atomic replacement fails."""
     # pylint: disable=protected-access

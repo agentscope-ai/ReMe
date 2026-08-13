@@ -38,6 +38,28 @@ def _canonical_version(value: str) -> str:
     return canonical
 
 
+def _read_toml(source: Path) -> dict:
+    """Read one TOML file or identify the file that needs correction."""
+    try:
+        return tomllib.loads(source.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        raise ValueError(f"{source}: cannot read valid TOML ({error}). Fix this file and retry.") from error
+
+
+def _required_table(config: dict, keys: tuple[str, ...], source: Path) -> dict:
+    """Return a required TOML table or explain where to add it."""
+    value: object = config
+    for key in keys:
+        if not isinstance(value, dict) or key not in value:
+            table = ".".join(keys)
+            raise ValueError(f"{source}: missing or invalid [{table}] table. Add or fix this table and retry.")
+        value = value[key]
+    if not isinstance(value, dict):
+        table = ".".join(keys)
+        raise ValueError(f"{source}: [{table}] must be a TOML table. Fix this table and retry.")
+    return value
+
+
 def _match_version(text: str, pattern: re.Pattern[str], source: Path) -> str:
     matches = list(pattern.finditer(text))
     if len(matches) != 1:
@@ -68,25 +90,30 @@ def read_version(repository: Path = REPOSITORY_DIR) -> str:
     """Read and validate the main distribution version."""
     version_file, _, _ = _paths(repository)
     version = _match_version(version_file.read_text(encoding="utf-8"), _VERSION_PATTERN, version_file)
-    return _canonical_version(version)
+    try:
+        return _canonical_version(version)
+    except ValueError as error:
+        raise ValueError(f"{version_file}: {error} Fix the __version__ declaration and retry.") from error
 
 
 def check_versions(repository: Path = REPOSITORY_DIR, expected_version: str | None = None) -> str:
     """Validate both distributions and their exact optional-dependency pins."""
     version_file, main_config_file, studio_config_file = _paths(repository)
     version = read_version(repository)
-    main_config = tomllib.loads(main_config_file.read_text(encoding="utf-8"))
-    studio_config = tomllib.loads(studio_config_file.read_text(encoding="utf-8"))
+    main_config = _read_toml(main_config_file)
+    studio_config = _read_toml(studio_config_file)
     dependency = f"reme-ai-studio=={version}"
-    optional_dependencies = main_config["project"]["optional-dependencies"]
+    optional_dependencies = _required_table(main_config, ("project", "optional-dependencies"), main_config_file)
+    studio_project = _required_table(studio_config, ("project",), studio_config_file)
     problems: list[str] = []
 
-    studio_version = studio_config["project"].get("version")
+    studio_version = studio_project.get("version")
     if studio_version != version:
         problems.append(f"{studio_config_file}: project.version is {studio_version!r}; expected {version!r}")
     if optional_dependencies.get("web") != [dependency]:
         problems.append(f"{main_config_file}: web must be exactly [{dependency!r}]")
-    if optional_dependencies.get("core", []).count(dependency) != 1:
+    core_dependencies = optional_dependencies.get("core")
+    if not isinstance(core_dependencies, list) or core_dependencies.count(dependency) != 1:
         problems.append(f"{main_config_file}: core must contain {dependency!r} exactly once")
 
     expected = None
