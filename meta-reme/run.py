@@ -324,8 +324,6 @@ def _load_search_config(value: Any) -> SearchConfig:
     for field, number in (("max_agent_iters", max_agent_iters), ("max_code_iterations", max_code_iterations)):
         if not isinstance(number, int) or isinstance(number, bool) or number < 1:
             raise ValueError(f"search.{field} must be a positive integer")
-    if max_code_iterations > 5:
-        raise ValueError("search.max_code_iterations cannot exceed 5")
     if not isinstance(objective, str) or not objective.strip():
         raise ValueError("search.objective must be a non-empty string")
     return SearchConfig(

@@ -197,6 +197,11 @@ def test_search_config_does_not_allow_model_overrides() -> None:
         run._load_search_config({"compression": True})
 
 
+def test_search_config_allows_any_positive_code_iteration_limit() -> None:
+    assert run._load_search_config({}).max_code_iterations == 5
+    assert run._load_search_config({"max_code_iterations": 15}).max_code_iterations == 15
+
+
 def test_prepare_and_validate_workspace_uses_all_installed_cases(tmp_path: Path) -> None:
     source = tmp_path / "longmemeval.json"
     source.write_text(json.dumps([_lme_item("case-2"), _lme_item("case-1")]), encoding="utf-8")
