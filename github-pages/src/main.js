@@ -1,5 +1,6 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { stripMarkdownFrontmatter } from "./markdown.js";
 import "./styles.css";
 
 const baseUrl = import.meta.env.BASE_URL;
@@ -370,7 +371,7 @@ async function openDocument(id, pushHistory = true) {
   const response = await fetch(`${baseUrl}content/${document.path}`);
   if (!response.ok) throw new Error(`Unable to load ${document.path}`);
   configureMarkdown(document);
-  const markdown = await response.text();
+  const markdown = stripMarkdownFrontmatter(await response.text());
   const body = DOMPurify.sanitize(await marked.parse(markdown), {
     ADD_ATTR: ["target"],
   });
