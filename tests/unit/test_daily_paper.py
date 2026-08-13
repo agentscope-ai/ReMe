@@ -503,6 +503,11 @@ def test_daily_paper_topics_parameter_defaults_to_empty():
     }
 
 
+def test_daily_paper_cron_prioritizes_long_term_llm_memory():
+    """The scheduled workflow prioritizes papers about long-term LLM memory."""
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["topics"] == "大模型长期记忆"
+
+
 def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
     """The public job schema exposes an explicit Hugging Face mirror switch."""
     use_hf_mirror = _load_config("daily_cookbook")["jobs"]["daily_paper"]["parameters"]["properties"]["use_hf_mirror"]
@@ -514,13 +519,13 @@ def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
     }
 
 
-def test_daily_paper_cron_hf_mirror_uses_explicit_environment_switch(monkeypatch):
-    """The scheduled workflow can opt in to the Hugging Face mirror."""
+def test_daily_paper_cron_hf_mirror_defaults_enabled_with_environment_override(monkeypatch):
+    """The scheduled workflow uses the mirror by default and supports an explicit override."""
     monkeypatch.delenv("DAILY_PAPER_USE_HF_MIRROR", raising=False)
-    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
-
-    monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "true")
     assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is True
+
+    monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "false")
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
 
 
 def test_paper_pick_list_uses_an_object_root_for_tool_output():

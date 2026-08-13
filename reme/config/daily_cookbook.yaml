@@ -441,7 +441,8 @@ jobs:
   daily_paper_cron:
     backend: cron
     cron: "0 8 * * *"
-    use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-false}
+    topics: "大模型长期记忆"
+    use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-true}
     candidate_limit: *candidate_limit
     rrf_k: *rrf_k
     weekly_weight: *weekly_weight
