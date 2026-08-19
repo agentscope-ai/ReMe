@@ -21,7 +21,8 @@ def test_load_builtin_config_by_filename_with_suffix():
     assert cfg["service"]["backend"] == "http"
 
 
-def test_builtin_and_external_config_name_collision_fails(monkeypatch):
+@pytest.mark.parametrize("provider_count", [1, 2])
+def test_builtin_and_external_config_name_collision_fails(monkeypatch, provider_count):
     """An installed config cannot be silently shadowed by a built-in name."""
 
     class FakeEntryPoint:
@@ -45,7 +46,7 @@ def test_builtin_and_external_config_name_collision_fails(monkeypatch):
 
     monkeypatch.setattr(
         "reme.entry_point.metadata.entry_points",
-        lambda: FakeEntryPoints([FakeEntryPoint()]),
+        lambda: FakeEntryPoints([FakeEntryPoint() for _ in range(provider_count)]),
     )
 
     with pytest.raises(ValueError, match="provided by both ReMe and an installed distribution"):

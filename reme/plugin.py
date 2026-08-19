@@ -9,7 +9,7 @@ from typing import Any
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry
 from .config import deep_merge_config, expand_env_vars
-from .entry_point import find_entry_point, load_entry_point
+from .entry_point import find_entry_points, load_entry_point, unique_entry_point
 
 PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
 
@@ -49,7 +49,8 @@ class PluginManager:
                 raise ValueError("Plugin name cannot be empty")
             if name in seen:
                 raise ValueError(f"Plugin '{name}' is enabled more than once")
-            entry = find_entry_point(PLUGIN_ENTRY_POINT_GROUP, name, provider="Plugin")
+            entries = find_entry_points(PLUGIN_ENTRY_POINT_GROUP, name)
+            entry = unique_entry_point(entries, name, provider="Plugin")
             if entry is None:
                 raise ValueError(f"Plugin '{name}' is not installed")
             plugin = load_entry_point(entry, invoke=True)

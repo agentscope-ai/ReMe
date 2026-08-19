@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from ..entry_point import find_entry_point, load_entry_point
+from ..entry_point import find_entry_points, load_entry_point, unique_entry_point
 
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
@@ -145,12 +145,13 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
         raise ValueError(f"Circular config inheritance: {chain}")
 
     built_in = _CONFIG_REGISTRY.get(name_or_path)
-    external_entry = find_entry_point(_CONFIG_ENTRY_POINT_GROUP, name_or_path, provider="Config")
-    if built_in is not None and external_entry is not None:
+    external_entries = find_entry_points(_CONFIG_ENTRY_POINT_GROUP, name_or_path)
+    if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
         return _load_config_path(built_in, name_or_path, encoding, _stack)
 
+    external_entry = unique_entry_point(external_entries, name_or_path, provider="Config")
     external = _external_config_path(name_or_path, external_entry)
     if external is not None:
         return _load_config_path(external, name_or_path, encoding, _stack)
