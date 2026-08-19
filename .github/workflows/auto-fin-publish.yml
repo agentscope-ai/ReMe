@@ -45,7 +45,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install build packaging pytest pytest-asyncio twine
-          python -m pip install -e .
+          python -m pip install -e ".[core]"
           python -m pip install --no-deps -e plugin/auto-fin
 
       - name: Validate package name and release version
@@ -57,6 +57,7 @@ jobs:
           import tomllib
           from pathlib import Path
 
+          from packaging.requirements import Requirement
           from packaging.version import Version
 
           project = tomllib.loads(Path("plugin/auto-fin/pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -69,8 +70,11 @@ jobs:
           requirements = [requirement for requirement in project["dependencies"] if requirement.startswith("reme-ai")]
           if len(requirements) != 1:
               raise SystemExit(f"Expected one reme-ai dependency, found {requirements!r}")
+          reme_requirement = Requirement(requirements[0])
+          if reme_requirement.name != "reme-ai" or set(reme_requirement.extras) != {"core"}:
+              raise SystemExit(f"Expected a reme-ai[core] dependency, found {requirements[0]!r}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-              print(f"reme_requirement={requirements[0]}", file=output)
+              print(f"reme_requirement={reme_requirement}", file=output)
           print(f"Publishing {project['name']} {actual}")
           PY
 
@@ -89,9 +93,12 @@ jobs:
           python -m build plugin/auto-fin --outdir dist/auto-fin
           python -m twine check dist/auto-fin/*
 
-      - name: Verify wheel metadata and entry points
+      - name: Verify distributions and isolated installation
         run: |
           AUTO_FIN_WHEEL="$(pwd)/$(ls dist/auto-fin/reme_auto_fin-*.whl)"
+          AUTO_FIN_SDIST="$(pwd)/$(ls dist/auto-fin/reme_auto_fin-*.tar.gz)"
+          python -m zipfile -l "${AUTO_FIN_WHEEL}" | grep 'dist-info/licenses/LICENSE'
+          python -m tarfile -l "${AUTO_FIN_SDIST}" | grep '/LICENSE'
           python -m venv "${RUNNER_TEMP}/reme-auto-fin-smoke"
           "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install "${AUTO_FIN_WHEEL}"
           cd "${RUNNER_TEMP}"

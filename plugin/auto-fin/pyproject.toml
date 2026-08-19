@@ -4,9 +4,10 @@ version = "0.1.0"
 description = "Auto Fin example plugin for ReMe."
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "reme-ai>=0.4.1.8",
+    "reme-ai[core]>=0.4.1.8",
 ]
 
 [project.entry-points."reme.plugins"]

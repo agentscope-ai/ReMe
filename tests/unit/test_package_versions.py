@@ -5,6 +5,7 @@ from pathlib import Path
 import tomllib
 from types import ModuleType
 
+from packaging.requirements import Requirement
 import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -179,6 +180,23 @@ def test_studio_package_preparation_copies_license(monkeypatch, tmp_path: Path) 
     assert (package_dir / "LICENSE").read_text(encoding="utf-8") == (REPOSITORY / "LICENSE").read_text(
         encoding="utf-8",
     )
+
+
+def test_auto_fin_license_matches_repository() -> None:
+    """Keep the independently distributed Auto Fin license complete and current."""
+    assert (REPOSITORY / "plugin" / "auto-fin" / "LICENSE").read_text(encoding="utf-8") == (
+        REPOSITORY / "LICENSE"
+    ).read_text(encoding="utf-8")
+
+
+def test_auto_fin_requires_reme_core() -> None:
+    """Install the optional runtime packages needed while loading Auto Fin's entry points."""
+    config = tomllib.loads((REPOSITORY / "plugin" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = [Requirement(value) for value in config["project"]["dependencies"]]
+    reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
+
+    assert len(reme_requirements) == 1
+    assert set(reme_requirements[0].extras) == {"core"}
 
 
 def test_studio_package_preparation_preserves_static_gitignore(monkeypatch, tmp_path: Path) -> None:
