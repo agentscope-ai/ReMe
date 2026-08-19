@@ -44,7 +44,7 @@ If nothing useful comes back, say so plainly rather than guessing.
 To check ReMe is up: call `version` and `health_check`, then summarize the version and the health
 snapshot (components, workspace). If the `mcp__reme__…` tools are not available at all, the server
 is not running — tell the user to start it with the command above. The plugin connects at
-`http://127.0.0.1:2333/mcp`; a different host/port must match the `url` in `plugins/reme/.mcp.json`.
+`http://127.0.0.1:2333/mcp`; a different host/port must match the `url` in the bundled `.mcp.json`.
 
 ## Workspace model
 

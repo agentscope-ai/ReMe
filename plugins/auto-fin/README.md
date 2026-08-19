@@ -91,7 +91,7 @@ successful skip.
 ## Validation
 
 ```bash
-python -m pytest plugin/auto-fin -v
+python -m pytest plugins/auto-fin -v
 ```
 
 Unit tests mock the CLS and Agent boundaries and do not contact external services.

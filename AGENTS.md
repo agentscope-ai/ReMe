@@ -53,10 +53,11 @@ and concise documentation together.
 - `tests/unit/`: primary fast, isolated validation suite.
 - `tests/integration/`: service/model tests that may need credentials or external processes.
 - `website/`: ReMe Workspace frontend source; its static build can be served by the HTTP service.
-- `plugins/claude_code/` and `plugins/hermes_agent/`: agent integrations.
+- `plugins/`: installable ReMe extensions, such as Auto Fin.
+- `integrations/`: adapters that connect ReMe to external agent hosts, such as Claude Code, DSH, and Hermes Agent.
 - `skills/`: standalone skills; `reme_memory` calls ReMe, while other skills may use separate tools or direct-file
   conventions.
-- `benchmark/` and `plugin/`: runnable evaluations and external plugin examples.
+- `benchmark/` and `cookbook/`: runnable evaluations and example workflows.
 - `docs/`: README-linked supporting pages and figures.
 
 ## Development Setup

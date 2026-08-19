@@ -47,7 +47,7 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 - **Personal assistants**：为 [QwenPaw](https://github.com/agentscope-ai/QwenPaw)、
   [OpenClaw](https://github.com/openclaw/openclaw)、[Hermes](https://github.com/nousresearch/hermes-agent)
   等个人助理提供用户可编辑的长期记忆层。
-- **Coding agents**：在接入 [Claude Code](plugins/claude_code/reme) 等 coding agent 时，跨会话保留代码风格、项目背景、仓库决策和流程经验。
+- **Coding agents**：在接入 [Claude Code](integrations/claude_code/reme) 等 coding agent 时，跨会话保留代码风格、项目背景、仓库决策和流程经验。
 - **LLM Wiki**：把对话、笔记和资料转化为可检索、可追溯、可链接的 Markdown 知识库，由用户和 Agent 共同维护。
 - **Self-evolving agents**：帮助 Agent 从经验中学习，把成功路径、失败尝试、可复用流程和阶段性反思沉淀为记忆。
 
@@ -304,8 +304,8 @@ runtime 的路径。
 | Agent                                         | 推荐接入方式                                                                                    | 接入后能力                                                                   |
 |-----------------------------------------------|-------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
 | **QwenPaw**                                   | 通过 Python API 在进程内嵌入 ReMe。                                                             | 复用宿主应用的生命周期和模型配置，同时保持 memory 本地、文件化。             |
-| **Claude Code**                               | 启动 streamable HTTP MCP service，并安装 [plugins/claude_code/reme](plugins/claude_code/reme)。 | MCP recall tools、`reme-memory` skill，以及自动记录会话的 Stop hook。        |
-| **Hermes**                                    | 启动 HTTP service，并安装 [plugins/hermes_agent](plugins/hermes_agent)。                        | 在模型调用前自动召回相关记忆，并在每轮对话完成后异步调用 `auto_memory`。     |
+| **Claude Code**                               | 启动 streamable HTTP MCP service，并安装 [integrations/claude_code/reme](integrations/claude_code/reme)。 | MCP recall tools、`reme-memory` skill，以及自动记录会话的 Stop hook。        |
+| **Hermes**                                    | 启动 HTTP service，并安装 [integrations/hermes_agent](integrations/hermes_agent)。                        | 在模型调用前自动召回相关记忆，并在每轮对话完成后异步调用 `auto_memory`。     |
 | **Other CLI-capable agents (OpenClaw/Codex)** | 复制或安装 [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md)。                         | 通过 CLI 搜索、读取和写入记忆；自动记录需要宿主 Agent 显式接入会话生命周期。 |
 
 <p align="center"><b>集成演示</b></p>

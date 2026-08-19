@@ -33,12 +33,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install -e packages/reme_ai_studio -e ".[dev,core]"
-          pip install --no-deps -e plugin/auto-fin
+          pip install --no-deps -e plugins/auto-fin
           pip install coverage
 
       - name: Run unit tests
         run: |
-          coverage run -m pytest tests/unit plugin/auto-fin \
+          coverage run -m pytest tests/unit plugins/auto-fin \
             -v \
             --tb=long \
             -s \

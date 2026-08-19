@@ -184,14 +184,14 @@ def test_studio_package_preparation_copies_license(monkeypatch, tmp_path: Path) 
 
 def test_auto_fin_license_matches_repository() -> None:
     """Keep the independently distributed Auto Fin license complete and current."""
-    assert (REPOSITORY / "plugin" / "auto-fin" / "LICENSE").read_text(encoding="utf-8") == (
+    assert (REPOSITORY / "plugins" / "auto-fin" / "LICENSE").read_text(encoding="utf-8") == (
         REPOSITORY / "LICENSE"
     ).read_text(encoding="utf-8")
 
 
 def test_auto_fin_requires_reme_core() -> None:
     """Install the optional runtime packages needed while loading Auto Fin's entry points."""
-    config = tomllib.loads((REPOSITORY / "plugin" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"))
+    config = tomllib.loads((REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = [Requirement(value) for value in config["project"]["dependencies"]]
     reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
 

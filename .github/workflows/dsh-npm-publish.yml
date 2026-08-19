@@ -1,0 +1,122 @@
+# Release checklist:
+# 1. Update integrations/dsh/package.json and package-lock.json to the release version and merge them.
+# 2. Configure the NPM_TOKEN repository secret with publish access to the @agentscope-ai scope.
+# 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
+# 4. Use the `next` tag for prereleases and `latest` only for stable releases.
+
+name: Publish ReMe DSH integration to npm
+
+run-name: Publish ReMe DSH integration ${{ inputs.version }} (${{ inputs.npm_tag }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from integrations/dsh/package.json (for example, 0.1.0)
+        required: true
+        type: string
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: next
+        type: choice
+        options:
+          - next
+          - latest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-reme-dsh-memory
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.19'
+
+      - name: Validate package name and release version
+        working-directory: integrations/dsh
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          const expected = process.env.RELEASE_VERSION.replace(/^v/, '');
+          if (manifest.name !== '@agentscope-ai/reme-dsh-memory') {
+            throw new Error(`Unexpected package name: ${manifest.name}`);
+          }
+          if (manifest.version !== expected) {
+            throw new Error(`package.json is ${manifest.version}, workflow input is ${expected}`);
+          }
+          console.log(`Preparing ${manifest.name}@${manifest.version}`);
+          JS
+
+      - name: Install dependencies
+        working-directory: integrations/dsh
+        run: npm ci
+
+      - name: Type-check and test
+        working-directory: integrations/dsh
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Pack npm tarball
+        working-directory: integrations/dsh
+        run: |
+          mkdir -p "${RUNNER_TEMP}/reme-dsh-package"
+          npm pack --pack-destination "${RUNNER_TEMP}/reme-dsh-package"
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: reme-dsh-memory-${{ inputs.version }}
+          path: ${{ runner.temp }}/reme-dsh-package/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Set up Node for npm
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Download npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: reme-dsh-memory-${{ inputs.version }}
+          path: dist/dsh
+
+      - name: Reject an existing package version
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          PACKAGE_VERSION="${PACKAGE_VERSION#v}"
+          if npm view "@agentscope-ai/reme-dsh-memory@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "@agentscope-ai/reme-dsh-memory@${PACKAGE_VERSION} already exists" >&2
+            exit 1
+          fi
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: npm publish dist/dsh/*.tgz --access public --tag "${NPM_TAG}" --provenance

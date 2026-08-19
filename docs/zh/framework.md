@@ -77,8 +77,11 @@ reme/
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory、auto_resource、auto_dream、proactive
     transfer/                # upload/download
-plugin/
+plugins/
   auto-fin/                  # 独立发布的示例插件
+integrations/
+  claude_code/               # Claude Code 适配器及 marketplace
+  hermes_agent/              # Hermes Agent memory provider 适配器
 ```
 
 默认 workspace 目录由 `ApplicationConfig` 定义：
@@ -223,7 +226,7 @@ backend class 和默认配置。插件注册因此只影响当前 Application；
 不会互相覆盖。
 
 插件还可以通过 `reme.configs` 暴露命名配置；配置的 `extends` 可以继承内置配置、插件配置或文件配置。完整打包示例见
-[Auto Fin 插件](../../plugin/auto-fin/README_ZH.md)。
+[Auto Fin 插件](../../plugins/auto-fin/README_ZH.md)。
 
 ### 4.3 Component.bind
 

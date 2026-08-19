@@ -83,7 +83,7 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 ## 验证
 
 ```bash
-python -m pytest plugin/auto-fin -v
+python -m pytest plugins/auto-fin -v
 ```
 
 单元测试 mock CLS 与 Agent 边界，不访问外部服务。

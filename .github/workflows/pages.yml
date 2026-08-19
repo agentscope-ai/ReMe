@@ -10,7 +10,7 @@ on:
       - "README_ZH.md"
       - "website/README*.md"
       - "website/public/og.jpg"
-      - "plugin/*/README*.md"
+      - "plugins/*/README*.md"
       - "benchmark/*/README*.md"
       - "skills/reme_memory/SKILL.md"
       - "AGENTS.md"

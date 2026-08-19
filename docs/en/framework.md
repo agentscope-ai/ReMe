@@ -82,8 +82,11 @@ reme/
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory, auto_resource, auto_dream, proactive
     transfer/                # upload/download
-plugin/
+plugins/
   auto-fin/                  # independent example plugin distribution
+integrations/
+  claude_code/               # Claude Code adapter and marketplace
+  hermes_agent/              # Hermes Agent memory-provider adapter
 ```
 
 The default workspace directories are defined by `ApplicationConfig`:
@@ -234,7 +237,7 @@ its named backend classes and default configuration. Plugin registration therefo
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
 Installed plugins may also expose named configuration files through `reme.configs`. Configuration can use `extends` to
-inherit another built-in, plugin, or file-based configuration. The [Auto Fin plugin](../../plugin/auto-fin/README.md)
+inherit another built-in, plugin, or file-based configuration. The [Auto Fin plugin](../../plugins/auto-fin/README.md)
 is the complete packaging example.
 
 ### 4.3 Component.bind

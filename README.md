@@ -53,7 +53,7 @@ keeping the files under the user's control.
   [QwenPaw](https://github.com/agentscope-ai/QwenPaw), [OpenClaw](https://github.com/openclaw/openclaw), and
   [Hermes](https://github.com/nousresearch/hermes-agent) a user-editable long-term memory layer.
 - **Coding agents**: Preserve coding style, project background, repository decisions, and workflow experience across
-  sessions when integrating with coding agents such as [Claude Code](plugins/claude_code/reme).
+  sessions when integrating with coding agents such as [Claude Code](integrations/claude_code/reme).
 - **LLM Wiki**: Turn conversations, notes, and resources into a searchable, traceable, and linked Markdown knowledge
   base that both users and agents can maintain.
 - **Self-evolving agents**: Support agents that learn from experience by saving successful paths, failed attempts,
@@ -319,8 +319,8 @@ host process through its Python API.
 | Agents                                        | Recommended path                                                                                        | Available after integration                                                                             |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | **QwenPaw**                                   | Embed ReMe in-process through its Python API.                                                           | Reuse the host application's lifecycle and model config while keeping memory local and file-based.      |
-| **Claude Code**                               | Start the streamable HTTP MCP service and install [plugins/claude_code/reme](plugins/claude_code/reme). | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.           |
-| **Hermes**                                    | Start the HTTP service and install [plugins/hermes_agent](plugins/hermes_agent).                        | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.          |
+| **Claude Code**                               | Start the streamable HTTP MCP service and install [integrations/claude_code/reme](integrations/claude_code/reme). | MCP recall tools, a `reme-memory` skill, and a Stop hook that records sessions automatically.           |
+| **Hermes**                                    | Start the HTTP service and install [integrations/hermes_agent](integrations/hermes_agent).                        | Recall relevant memory before model calls and enqueue `auto_memory` after each completed turn.          |
 | **Other CLI-capable agents (OpenClaw/Codex)** | Copy or install [skills/reme_memory/SKILL.md](skills/reme_memory/SKILL.md).                             | Search, read, and write memory via the CLI; automatic recording requires explicit host lifecycle hooks. |
 
 <p align="center"><b>Integration demos</b></p>

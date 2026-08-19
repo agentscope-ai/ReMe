@@ -218,6 +218,6 @@ ReMe does not independently notify the user or take external action.
 - Keep one stable workspace for contexts that should share memory. Use separate workspaces when profiles must be isolated.
 - Call `auto_memory` after useful conversation turns only when the host owns lifecycle integration.
 - Use ReMe's in-process `ReMe` Python API instead of the CLI when embedding it into a Python host application.
-- Prefer the dedicated integrations under `plugins/claude_code/reme` and `plugins/hermes_agent` for those hosts.
+- Prefer the dedicated integrations under `integrations/claude_code/reme` and `integrations/hermes_agent` for those hosts.
 - Treat user-owned memory files as source data. Do not delete, rewrite, or migrate a workspace merely to repair an index;
   use rebuildable index operations such as `reme reindex` when appropriate.

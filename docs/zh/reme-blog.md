@@ -335,8 +335,8 @@ ReMe 既可以作为本地记忆服务，通过 CLI、HTTP API 或 MCP Server �
 | Agent                                  | 推荐接入方式                                                                                     | 接入后能力                                                                                                   |
 |----------------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | **QwenPaw**                            | 通过 Python API 在进程内嵌入 ReMe。                                                              | 复用宿主应用的生命周期和模型配置，同时保持记忆本地、文件化。                                                 |
-| **Claude Code**                        | 启动 streamable HTTP MCP Service，并安装 [`plugins/claude_code/reme`](../../plugins/claude_code/reme)。 | MCP 记忆召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。                                        |
-| **Hermes**                             | 启动 HTTP Service，并安装 [`plugins/hermes_agent`](../../plugins/hermes_agent)。                  | 在模型调用前自动召回相关记忆，并在每轮对话完成后异步调用 `auto_memory`。                                     |
+| **Claude Code**                        | 启动 streamable HTTP MCP Service，并安装 [`integrations/claude_code/reme`](../../integrations/claude_code/reme)。 | MCP 记忆召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。                                        |
+| **Hermes**                             | 启动 HTTP Service，并安装 [`integrations/hermes_agent`](../../integrations/hermes_agent)。                  | 在模型调用前自动召回相关记忆，并在每轮对话完成后异步调用 `auto_memory`。                                     |
 | **OpenClaw、Codex 等支持 CLI 的 Agent** | 复制或安装 [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md)。                    | 通过 CLI 搜索、读取和写入记忆；自动记录需要宿主 Agent 显式接入会话生命周期。                                 |
 
 安装、配置与集成演示可查看 [README 中文版](../../README_ZH.md)。

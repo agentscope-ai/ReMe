@@ -38,7 +38,7 @@ retrieval is enabled. Keep the service running while Hermes is active.
 Hermes supports installing a plugin from a repository subdirectory:
 
 ```bash
-hermes plugins install agentscope-ai/ReMe/plugins/hermes_agent
+hermes plugins install agentscope-ai/ReMe/integrations/hermes_agent
 hermes memory setup
 ```
 

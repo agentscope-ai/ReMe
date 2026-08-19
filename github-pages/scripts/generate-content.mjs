@@ -64,7 +64,7 @@ const productDocuments = [
   },
   {
     slug: "daily-paper",
-    source: "plugin/daily_paper",
+    source: "plugins/daily_paper",
     titles: { zh: "每日论文", en: "Daily Paper" },
     descriptions: {
       zh: "发现论文、解析 PDF，并生成阅读笔记与每日简报。",
@@ -74,7 +74,7 @@ const productDocuments = [
   },
   {
     slug: "auto-fin",
-    source: "plugin/auto-fin",
+    source: "plugins/auto-fin",
     titles: { zh: "财经研究", en: "Auto Fin" },
     descriptions: {
       zh: "结合最新财联社新闻与本地历史记忆生成研究报告。",
