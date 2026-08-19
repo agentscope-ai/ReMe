@@ -1,7 +1,6 @@
 """Dream unit integration step."""
 
 import asyncio
-import hashlib
 import json
 from pathlib import Path
 
@@ -15,9 +14,13 @@ from .utils import llm_available, pack_paths, parse_structured_reply, state_from
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
 
-def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, str]:
-    """Capture digest content for side-effect recovery and notification semantics."""
-    snapshot: dict[str, str] = {}
+def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, tuple[int, int]]:
+    """Capture lightweight digest fingerprints for side-effect recovery."""
+    # Content hashes are more exact, but auto-dream snapshots the whole digest
+    # tree around agent attempts, so hashing would turn each snapshot into a
+    # full-tree read. mtime_ns + size is an intentional, best-effort mutation
+    # signal that keeps the existing file-side-effect recovery inexpensive.
+    snapshot: dict[str, tuple[int, int]] = {}
     for bucket in DreamBucketEnum:
         root = workspace / digest_dir / bucket.value
         if not root.is_dir():
@@ -26,21 +29,23 @@ def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, str]:
             if not path.is_file():
                 continue
             try:
-                with path.open("rb") as file_obj:
-                    digest = hashlib.file_digest(file_obj, "sha256").hexdigest()
+                stat = path.stat()
             except OSError:
                 continue
-            snapshot[path.relative_to(workspace).as_posix()] = digest
+            snapshot[path.relative_to(workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
     return snapshot
 
 
-def _changed_digest_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
+def _changed_digest_paths(
+    before: dict[str, tuple[int, int]],
+    after: dict[str, tuple[int, int]],
+) -> list[str]:
     """Return files created or changed during one integration attempt."""
     return sorted(path for path, metadata in after.items() if before.get(path) != metadata)
 
 
 def _record_modified_paths(state, paths: list[str]) -> None:
-    """Record content changes once while preserving discovery order."""
+    """Record detected file changes once while preserving discovery order."""
     for path in paths:
         if path not in state.modified_paths:
             state.modified_paths.append(path)
@@ -111,8 +116,8 @@ class DreamIntegrateStep(BaseStep):
         # Keep the original baseline across the retry so a file created by attempt one
         # cannot be misclassified as a pre-existing cross-bucket UPDATE on attempt two.
         unit_before = _snapshot_digest(workspace, digest_dir)
+        before = unit_before
         for attempt in range(2):
-            before = _snapshot_digest(workspace, digest_dir)
             try:
                 result = await self.agent_wrapper.reply(
                     self.prompt_format(
@@ -133,7 +138,8 @@ class DreamIntegrateStep(BaseStep):
                     job_tools=list(_TOOLS),
                 )
             except Exception as e:  # noqa: BLE001
-                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                after = _snapshot_digest(workspace, digest_dir)
+                changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
                 if len(changed) == 1 and self._valid_target(
@@ -155,6 +161,7 @@ class DreamIntegrateStep(BaseStep):
                         f"[{self.name}] unit {index}/{len(state.units)} attempt 1 had no recoverable file change; "
                         f"retrying once: {type(e).__name__}: {e}",
                     )
+                    before = after
                     continue
                 self._record_failure(state, unit, paths, e)
                 self.logger.error(f"[{self.name}] unit {index}/{len(state.units)} failed: {type(e).__name__}: {e}")
@@ -173,7 +180,8 @@ class DreamIntegrateStep(BaseStep):
                 ):
                     raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
             except Exception as e:  # noqa: BLE001
-                changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                after = _snapshot_digest(workspace, digest_dir)
+                changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
                 if len(changed) == 1 and self._valid_target(
@@ -195,6 +203,7 @@ class DreamIntegrateStep(BaseStep):
                         f"[{self.name}] unit {index}/{len(state.units)} attempt 1 returned an invalid receipt; "
                         "retrying once",
                     )
+                    before = after
                     continue
                 # After the bounded retry, checkpoint the source so malformed input cannot loop forever.
                 self._record_skipped(state, unit, bucket, paths, e)
@@ -204,10 +213,8 @@ class DreamIntegrateStep(BaseStep):
                 )
                 return
 
-            _record_modified_paths(
-                state,
-                _changed_digest_paths(unit_before, _snapshot_digest(workspace, digest_dir)),
-            )
+            after = _snapshot_digest(workspace, digest_dir)
+            _record_modified_paths(state, _changed_digest_paths(unit_before, after))
             self._append_result(
                 state,
                 unit,

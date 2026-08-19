@@ -17,7 +17,7 @@ from reme.components.runtime_context import RuntimeContext
 from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
-from reme.steps.evolve.dream.integrate import DreamIntegrateStep
+from reme.steps.evolve.dream.integrate import DreamIntegrateStep, _snapshot_digest
 from reme.steps.evolve.dream.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import load_yaml_topics, parse_structured_reply, recent_dates, scan_day_files
@@ -321,12 +321,17 @@ def test_integrate_retries_one_invalid_receipt(tmp_path):
         )
         step = DreamIntegrateStep(agent_wrapper=agent)
 
-        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+        with patch(
+            "reme.steps.evolve.dream.integrate._snapshot_digest",
+            wraps=_snapshot_digest,
+        ) as snapshot:
+            await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
 
         assert target.is_file()
         assert state.integrate_results[0]["target_path"] == "digest/wiki/unit.md"
         assert state.skipped_units == []
         assert agent.calls == 2
+        assert snapshot.call_count == 3
 
     asyncio.run(run())
 
@@ -426,12 +431,17 @@ def test_integrate_accepts_cross_bucket_update_receipt(tmp_path):
         )
         step = DreamIntegrateStep(agent_wrapper=agent)
 
-        await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
+        with patch(
+            "reme.steps.evolve.dream.integrate._snapshot_digest",
+            wraps=_snapshot_digest,
+        ) as snapshot:
+            await step._integrate_one(state, unit, 1, tmp_path, "digest")  # pylint: disable=protected-access
 
         assert state.skipped_units == []
         assert state.integrate_results[0]["action"] == "REFINE"
         assert state.nodes_updated == ["digest/procedure/unit.md"]
         assert state.modified_paths == []
+        assert snapshot.call_count == 2
 
     asyncio.run(run())
 
