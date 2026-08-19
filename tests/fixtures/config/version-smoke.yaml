@@ -1,0 +1,17 @@
+workspace_dir: ${RUNNER_TEMP}/reme-version-smoke
+enable_logo: false
+log_to_console: false
+log_to_file: false
+
+service:
+  backend: cli
+
+jobs:
+  version:
+    backend: base
+    description: return reme package version
+    parameters:
+      type: object
+      properties: {}
+    steps:
+      - backend: version_step

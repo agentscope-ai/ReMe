@@ -55,7 +55,7 @@ jobs:
           Pop-Location
 
       - name: Run version job
-        run: reme start service.backend=cli job=version
+        run: reme start config=tests/fixtures/config/version-smoke.yaml job=version
 
       - name: Run Windows path tests
         run: |

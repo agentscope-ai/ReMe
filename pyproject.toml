@@ -43,10 +43,10 @@ dependencies = [
 
 [project.optional-dependencies]
 web = [
-    "reme-ai-studio==0.4.1.7",
+    "reme-ai-studio==0.4.1.8",
 ]
 core = [
-    "agentscope==2.0.6",
+    "agentscope[model-ollama]==2.0.6",
     "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
@@ -58,7 +58,7 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "reme-ai-studio==0.4.1.7",
+    "reme-ai-studio==0.4.1.8",
 ]
 dev = [
     "packaging>=24.2",
