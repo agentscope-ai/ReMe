@@ -52,8 +52,30 @@ def test_register_decorator():
 
 def test_register_rejects_missing_component_type():
     reg = ComponentRegistry()
-    with pytest.raises(TypeError, match="ComponentEnum"):
+    with pytest.raises(TypeError, match="component_type"):
         reg.register(_NoComponentType, "bad")
+
+
+def test_register_plugin_defined_component_type():
+    reg = ComponentRegistry()
+
+    class PluginComponent(BaseComponent):
+        component_type = "example.reranker"
+
+    reg.register(PluginComponent, "cross_encoder")
+
+    assert reg.get("example.reranker", "cross_encoder") is PluginComponent
+    assert reg.get_all("example.reranker") == {"cross_encoder": PluginComponent}
+
+
+def test_register_rejects_unsafe_plugin_component_type():
+    reg = ComponentRegistry()
+
+    class UnsafePluginComponent(BaseComponent):
+        component_type = "../outside"
+
+    with pytest.raises(TypeError, match="component_type"):
+        reg.register(UnsafePluginComponent, "unsafe")
 
 
 def test_register_rejects_empty_name():

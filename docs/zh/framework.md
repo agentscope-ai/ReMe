@@ -211,6 +211,9 @@ class VersionStep(BaseStep):
 
 所以同名 backend 在不同 component type 下可以共存。例如 `http` 同时可以是 service backend 和 client backend。
 
+`ComponentEnum` 提供内置类型标识；已安装插件也可以用 `example.reranker` 这样的命名空间字符串声明新类型。自定义标识仅使用
+小写字母和数字，并以 `.`、`_` 或 `-` 分隔。它们配置在 `components` 下，与内置组件参与相同的依赖排序和生命周期。
+
 ### 4.2 内置注册与插件注册
 
 内置实现仍通过 package import 填充内置注册表。每个 `Application` 先复制该注册表，再只加载最终配置中 `plugins`

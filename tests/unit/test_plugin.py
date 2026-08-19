@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from reme.components.base_component import ComponentMixin
+from reme.application import Application
+from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
@@ -16,6 +17,10 @@ from reme.plugin import Backend, Plugin, PluginManager
 
 class _PluginStep(ComponentMixin):
     component_type = ComponentEnum.STEP
+
+
+class _PluginComponent(BaseComponent):
+    component_type = "example.reranker"
 
 
 def test_plugin_defaults_are_below_application_config():
@@ -42,6 +47,46 @@ def test_plugin_registers_into_only_the_supplied_registry():
 
     assert first.get(ComponentEnum.STEP, "example_step") is _PluginStep
     assert second.get(ComponentEnum.STEP, "example_step") is None
+
+
+@pytest.mark.asyncio
+async def test_plugin_registers_and_runs_custom_component_type(monkeypatch, tmp_path):
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                backends=(Backend("cross_encoder", _PluginComponent),),
+                config={
+                    "components": {
+                        "example.reranker": {
+                            "default": {"backend": "cross_encoder"},
+                        },
+                    },
+                },
+            ),
+        ],
+    )
+    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs: manager))
+
+    app = Application(
+        plugins=["example"],
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+    )
+
+    component = app.context.components["example.reranker"]["default"]
+    assert isinstance(component, _PluginComponent)
+    assert app.context.registry.get("example.reranker", "cross_encoder") is _PluginComponent
+
+    await app.start()
+    assert component.is_started is True
+    await app.update_component("example.reranker", "default", backend="updated")
+    assert component.backend == "updated"
+    await app.close()
+    assert component.is_started is False
 
 
 def test_plugin_backend_collision_fails_with_both_owners():

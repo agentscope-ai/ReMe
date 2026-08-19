@@ -3,7 +3,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
-from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig
 from .component_registry import ComponentRegistry, R
 
@@ -28,7 +27,7 @@ class ApplicationContext:
 
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None
-        self.components: dict[ComponentEnum, dict[str, "BaseComponent"]] = {}
+        self.components: dict[str, dict[str, "BaseComponent"]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
 

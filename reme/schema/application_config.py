@@ -6,7 +6,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..enumeration import ComponentEnum
+from ..enumeration import component_type_name
 
 
 class ComponentConfig(BaseModel):
@@ -63,7 +63,7 @@ class ApplicationConfig(BaseModel):
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
     jobs: dict[str, JobConfig] = Field(default_factory=dict, description="Job definitions keyed by job name")
     thread_pool_max_workers: int = Field(default=0, description="Max worker threads; 0 to disable")
-    components: dict[ComponentEnum, dict[str, ComponentConfig]] = Field(
+    components: dict[str, dict[str, ComponentConfig]] = Field(
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
@@ -73,6 +73,16 @@ class ApplicationConfig(BaseModel):
     def normalize_plugins(cls, value):
         """Accept concise string names alongside expanded plugin objects."""
         return [{"name": item} if isinstance(item, str) else item for item in (value or [])]
+
+    @field_validator("components", mode="before")
+    @classmethod
+    def normalize_component_types(cls, value):
+        """Canonicalize built-in enums and allow plugin-defined component type names."""
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            return value
+        return {component_type_name(component_type): group for component_type, group in value.items()}
 
     @field_validator("workspace_dir", mode="before")
     @classmethod

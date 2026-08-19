@@ -1,9 +1,9 @@
-"""Registry mapping ``(ComponentEnum, backend)`` to implementation classes."""
+"""Registry mapping ``(component type, backend)`` to implementation classes."""
 
 from typing import Callable, TypeVar, cast
 
 from .base_component import ComponentMixin
-from ..enumeration import ComponentEnum
+from ..enumeration import ComponentType, component_type_name
 
 T = TypeVar("T", bound=ComponentMixin)
 
@@ -16,16 +16,15 @@ class ComponentRegistry:
     """
 
     def __init__(self) -> None:
-        self._registry: dict[ComponentEnum, dict[str, type[ComponentMixin]]] = {}
-        self._owners: dict[tuple[ComponentEnum, str], str] = {}
+        self._registry: dict[str, dict[str, type[ComponentMixin]]] = {}
+        self._owners: dict[tuple[str, str], str] = {}
 
     def _do_register(self, cls: type[T], name: str, *, owner: str | None = None) -> type[T]:
         """Insert ``cls`` under its component type and reject ambiguous providers."""
-        component_type = getattr(cls, "component_type", None)
-        if not isinstance(component_type, ComponentEnum):
-            raise TypeError(
-                f"{cls.__name__} must have a ComponentEnum 'component_type' attribute",
-            )
+        try:
+            component_type = component_type_name(getattr(cls, "component_type", None))
+        except (TypeError, ValueError) as exc:
+            raise TypeError(f"{cls.__name__} must have a non-empty string 'component_type' attribute") from exc
         if not name:
             raise ValueError("Component name cannot be empty")
 
@@ -38,7 +37,7 @@ class ComponentRegistry:
             if existing is cls and existing_owner == new_owner:
                 return cls
             raise ValueError(
-                f"Backend '{component_type.value}:{name}' is provided by both " f"'{existing_owner}' and '{new_owner}'",
+                f"Backend '{component_type}:{name}' is provided by both " f"'{existing_owner}' and '{new_owner}'",
             )
         group[name] = cls
         self._owners[key] = owner or cls.__module__
@@ -70,16 +69,17 @@ class ComponentRegistry:
 
         return decorator
 
-    def get(self, component_type: ComponentEnum, name: str) -> type[ComponentMixin] | None:
+    def get(self, component_type: ComponentType, name: str) -> type[ComponentMixin] | None:
         """Look up a registered class; return None if not found."""
-        return self._registry.get(component_type, {}).get(name)
+        return self._registry.get(component_type_name(component_type), {}).get(name)
 
-    def get_all(self, component_type: ComponentEnum) -> dict[str, type[ComponentMixin]]:
+    def get_all(self, component_type: ComponentType) -> dict[str, type[ComponentMixin]]:
         """Return a shallow copy of all classes registered under `component_type`."""
-        return dict(self._registry.get(component_type, {}))
+        return dict(self._registry.get(component_type_name(component_type), {}))
 
-    def unregister(self, component_type: ComponentEnum, name: str) -> bool:
+    def unregister(self, component_type: ComponentType, name: str) -> bool:
         """Remove an entry; return True if it existed, False otherwise."""
+        component_type = component_type_name(component_type)
         if (group := self._registry.get(component_type)) and name in group:
             del group[name]
             self._owners.pop((component_type, name), None)

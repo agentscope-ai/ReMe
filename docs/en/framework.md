@@ -219,6 +219,10 @@ The registry key is:
 The same backend name can therefore exist under different component types. For example, `http` can be both a service
 backend and a client backend.
 
+`ComponentEnum` provides the built-in identifiers, but installed plugins may declare a new type with a namespaced
+string such as `example.reranker`. Custom identifiers use lowercase letters and numbers separated by `.`, `_`, or `-`.
+They are configured under `components` and participate in the same dependency ordering and lifecycle as built-ins.
+
 ### 4.2 Built-in and Plugin Registration
 
 Built-in implementations still populate the built-in registry through package imports. Each `Application` copies that
