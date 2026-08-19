@@ -9,8 +9,7 @@ from typing import Any
 
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry
-from .config import expand_env_vars
-from .schema.application_config import PluginConfig
+from .config import deep_merge_config, expand_env_vars
 
 PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
 
@@ -33,22 +32,8 @@ class Plugin:
 
 
 def _entry_points(group: str, name: str) -> list[metadata.EntryPoint]:
-    """Return matching entry points across supported importlib.metadata APIs."""
-    discovered = metadata.entry_points()
-    if hasattr(discovered, "select"):
-        return list(discovered.select(group=group, name=name))
-    return [entry for entry in discovered.get(group, ()) if entry.name == name]
-
-
-def _merge(base: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
-    """Recursively merge configuration mappings without mutating either input."""
-    result = dict(base)
-    for key, value in update.items():
-        if key in result and isinstance(result[key], Mapping) and isinstance(value, Mapping):
-            result[key] = _merge(result[key], value)
-        else:
-            result[key] = value
-    return result
+    """Return matching entry points for one group and name."""
+    return list(metadata.entry_points().select(group=group, name=name))
 
 
 class PluginManager:
@@ -58,22 +43,13 @@ class PluginManager:
         self.plugins = tuple(plugins)
 
     @classmethod
-    def discover(cls, specs: Iterable[str | Mapping[str, Any] | PluginConfig]) -> "PluginManager":
+    def discover(cls, specs: Iterable[str]) -> "PluginManager":
         """Load explicitly enabled plugins by entry-point name."""
         plugins: list[Plugin] = []
         seen: set[str] = set()
-        for raw in specs:
-            if isinstance(raw, PluginConfig):
-                raw = raw.model_dump()
-            if isinstance(raw, str):
-                name, enabled = raw, True
-            elif isinstance(raw, Mapping):
-                name = str(raw.get("name", ""))
-                enabled = bool(raw.get("enabled", True))
-            else:
-                raise TypeError(f"Invalid plugin specification: {raw!r}")
-            if not enabled:
-                continue
+        for name in specs:
+            if not isinstance(name, str):
+                raise TypeError(f"Invalid plugin name: {name!r}")
             if not name:
                 raise ValueError("Plugin name cannot be empty")
             if name in seen:
@@ -98,8 +74,8 @@ class PluginManager:
         """Place plugin defaults below the user's resolved application config."""
         merged: dict[str, Any] = {}
         for plugin in self.plugins:
-            merged = _merge(merged, expand_env_vars(plugin.config))
-        return _merge(merged, application_config)
+            merged = deep_merge_config(merged, expand_env_vars(plugin.config))
+        return deep_merge_config(merged, application_config)
 
     def register(self, registry: ComponentRegistry) -> None:
         """Register every backend into an application-local registry."""

@@ -123,6 +123,11 @@ def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
     assert manager.plugins == (descriptor,)
 
 
+def test_plugin_manager_rejects_non_string_name():
+    with pytest.raises(TypeError, match="Invalid plugin name"):
+        PluginManager.discover([{"name": "example"}])
+
+
 def test_config_can_extend_another_config(tmp_path: Path):
     parent = tmp_path / "parent.yaml"
     child = tmp_path / "child.yaml"

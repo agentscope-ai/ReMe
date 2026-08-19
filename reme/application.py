@@ -23,10 +23,10 @@ class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
     def __init__(self, **kwargs) -> None:
-        self.plugin_manager = PluginManager.discover(kwargs.get("plugins") or ())
-        resolved = self.plugin_manager.merge_config(kwargs)
-        registry = self._application_registry()
-        self.plugin_manager.register(registry)
+        plugin_manager = PluginManager.discover(kwargs.get("plugins") or ())
+        resolved = plugin_manager.merge_config(kwargs)
+        registry = R.copy()
+        plugin_manager.register(registry)
         self.context = ApplicationContext(registry=registry, **resolved)
         self._started_components: list[BaseComponent] = []
 
@@ -44,11 +44,6 @@ class Application(BaseComponent):
         logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         self._init_components()
         self._init_jobs()
-
-    @staticmethod
-    def _application_registry():
-        """Copy built-in registrations so plugins remain local to this application."""
-        return R.copy()
 
     @property
     def config(self):

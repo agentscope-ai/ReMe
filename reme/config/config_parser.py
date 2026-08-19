@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from collections.abc import Mapping
 from importlib import metadata
 from pathlib import Path
 from typing import Any
@@ -126,10 +127,7 @@ def _convert_value(value_str: str) -> Any:
 
 def _external_config_entries(name: str) -> list[metadata.EntryPoint]:
     """Find installed config providers without importing their packages."""
-    discovered = metadata.entry_points()
-    if hasattr(discovered, "select"):
-        return list(discovered.select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
-    return [entry for entry in discovered.get(_CONFIG_ENTRY_POINT_GROUP, ()) if entry.name == name]
+    return list(metadata.entry_points().select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
 
 
 def _external_config_path(name: str, entries: list[metadata.EntryPoint] | None = None) -> Path | None:
@@ -193,8 +191,8 @@ def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str
         relative = path.parent / parent
         if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
             parent_name = str(relative.resolve())
-        merged = _deep_merge(merged, _load_config(parent_name, encoding, (*stack, identity)))
-    return _deep_merge(merged, config)
+        merged = deep_merge_config(merged, _load_config(parent_name, encoding, (*stack, identity)))
+    return deep_merge_config(merged, config)
 
 
 def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
@@ -211,12 +209,12 @@ def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
     return _expand_env_vars(result)
 
 
-def _deep_merge(base: dict, update: dict) -> dict:
-    """Recursively merge dicts."""
-    result = base.copy()
+def deep_merge_config(base: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
+    """Recursively merge configuration mappings without mutating either input."""
+    result = dict(base)
     for k, v in update.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
+        if k in result and isinstance(result[k], Mapping) and isinstance(v, Mapping):
+            result[k] = deep_merge_config(result[k], v)
         else:
             result[k] = v
     return result
@@ -285,6 +283,6 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
 
     merged: dict = {}
     for cfg in configs:
-        merged = _deep_merge(merged, cfg)
+        merged = deep_merge_config(merged, cfg)
 
     return merged

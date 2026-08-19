@@ -26,6 +26,15 @@ def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
     assert config.workspace_dir == str(tmp_path / ".copaw/workspaces/default")
 
 
+def test_application_config_accepts_plugin_names_only():
+    """Plugin configuration remains a simple list of installed entry-point names."""
+    config = ApplicationConfig(plugins=["example"])
+
+    assert config.plugins == ["example"]
+    with pytest.raises(ValidationError):
+        ApplicationConfig(plugins=[{"name": "example"}])
+
+
 def test_application_config_accepts_plugin_defined_component_type():
     """Plugin component type names remain typed configuration buckets."""
     config = ApplicationConfig(

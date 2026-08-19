@@ -1,6 +1,6 @@
 """Schema"""
 
-from .application_config import ApplicationConfig, ComponentConfig, JobConfig, PluginConfig
+from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .daily_paper import (
     AnalyzedPaper,
     DailyPaperMarkdownOutput,
@@ -48,7 +48,6 @@ __all__ = [
     "GraphSnapshotNode",
     "IntegrateOutcome",
     "JobConfig",
-    "PluginConfig",
     "PaperInfo",
     "PaperPick",
     "PaperPickList",
