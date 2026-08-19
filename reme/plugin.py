@@ -8,7 +8,7 @@ from importlib import metadata
 from typing import Any
 
 from .components.base_component import ComponentMixin
-from .components.component_registry import ComponentRegistry
+from .components.component_registry import ComponentRegistry, R
 from .config import deep_merge_config, expand_env_vars
 
 PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
@@ -45,6 +45,14 @@ class PluginManager:
     @classmethod
     def discover(cls, specs: Iterable[str]) -> "PluginManager":
         """Load explicitly enabled plugins by entry-point name."""
+        # Loading an entry point imports third-party code. Roll back any legacy
+        # ``@R.register`` side effects so only declared backends reach an app.
+        with R.preserve():
+            return cls._discover(specs)
+
+    @classmethod
+    def _discover(cls, specs: Iterable[str]) -> "PluginManager":
+        """Load plugin descriptors while the global registry is protected."""
         plugins: list[Plugin] = []
         seen: set[str] = set()
         for name in specs:

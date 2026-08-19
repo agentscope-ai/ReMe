@@ -394,3 +394,36 @@ def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch
     assert seen["action"] == "search"
     assert seen["payload"] == {"query": "hello"}
     assert capsys.readouterr().out == "plugin-ok\n"
+
+
+def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, capsys):
+    """A usable running config prevents eager parsing of the local fallback."""
+
+    class FakeClient:
+        """Minimal running-service client."""
+
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def __call__(self, action: str, **kwargs):
+            assert action == "version"
+            assert not kwargs
+            yield "ok"
+
+    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: {"service": {"backend": "http"}})
+
+    def fail_local_resolution(**_kwargs):
+        raise AssertionError("local fallback should not be resolved")
+
+    monkeypatch.setattr(reme_module, "resolve_app_config", fail_local_resolution)
+
+    asyncio.run(reme_module.call_server("version"))
+
+    assert capsys.readouterr().out == "ok\n"

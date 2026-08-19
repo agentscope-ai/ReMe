@@ -9,7 +9,7 @@ import pytest
 
 from reme.application import Application
 from reme.components.base_component import BaseComponent, ComponentMixin
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager
@@ -121,6 +121,41 @@ def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
     manager = PluginManager.discover(["example"])
 
     assert manager.plugins == (descriptor,)
+
+
+def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_path):
+    class UndeclaredClient(ComponentMixin):
+        component_type = ComponentEnum.CLIENT
+
+    descriptor = Plugin(name="example")
+
+    class FakeEntryPoint:
+        name = "example"
+        value = "example:plugin"
+
+        @staticmethod
+        def load():
+            R.register(UndeclaredClient, "undeclared-client")
+            return descriptor
+
+    class FakeEntryPoints(list):
+        def select(self, *, group, name):
+            assert group == "reme.plugins"
+            return [entry for entry in self if entry.name == name]
+
+    monkeypatch.setattr("reme.plugin.metadata.entry_points", lambda: FakeEntryPoints([FakeEntryPoint()]))
+
+    app = Application(
+        plugins=["example"],
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+    )
+
+    assert R.get(ComponentEnum.CLIENT, "undeclared-client") is None
+    assert app.context.registry.get(ComponentEnum.CLIENT, "undeclared-client") is None
 
 
 def test_plugin_manager_rejects_non_string_name():

@@ -37,10 +37,11 @@ async def call_server(action: str, **kwargs):
     if isinstance(kwargs.get("service"), dict):
         resolve_kwargs["service"] = kwargs.pop("service")
 
-    local_config = resolve_app_config(log_config=False, **resolve_kwargs)
     # Prefer the running server's complete config so its enabled client plugins
     # are available even when the caller does not repeat config=<name>.
-    app_config = running_app_config() or local_config
+    app_config = running_app_config()
+    if app_config is None:
+        app_config = resolve_app_config(log_config=False, **resolve_kwargs)
     plugin_manager = PluginManager.discover(app_config.get("plugins") or ())
     app_config = plugin_manager.merge_config(app_config)
     service = app_config.get("service")
