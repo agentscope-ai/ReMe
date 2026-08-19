@@ -1,3 +1,13 @@
+# 发布操作手册：
+# 1. 先将 plugin/auto-fin/pyproject.toml 中的 project.version 更新为待发布版本并合入目标分支。
+# 2. 确认插件依赖的 reme-ai 版本已经发布到 PyPI；本工作流会在构建阶段验证该依赖可下载。
+# 3. 确认仓库 Actions Secret 已配置 PYPI_API_TOKEN，且 PyPI 上不存在相同版本。
+# 4. 在 GitHub 仓库的 Actions 页面选择“Publish reme-auto-fin to PyPI”，点击“Run workflow”。
+# 5. 输入与 project.version 完全一致的版本号（例如 0.1.0）后运行；版本也可以带 v 前缀。
+#
+# 推荐发布顺序：reme-ai -> reme-auto-fin -> QwenPaw 更新依赖并通过 plugins: [auto-fin] 启用。
+# 当前仅支持 workflow_dispatch 手动触发，不会因 push、tag 或 release 自动发布。
+
 name: Publish reme-auto-fin to PyPI
 
 run-name: Publish reme-auto-fin ${{ inputs.version }}
