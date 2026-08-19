@@ -11,6 +11,9 @@ import pytest
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
+from reme.components.base_component import ComponentMixin
+from reme.enumeration import ComponentEnum
+from reme.plugin import Backend, Plugin, PluginManager
 
 
 def test_package_import_does_not_load_optional_core_dependencies():
@@ -258,7 +261,7 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
             yield "ok"
 
     monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
-    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
         await reme_module.call_server(
@@ -300,7 +303,7 @@ def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
             yield "ok"
 
     monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
-    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
         await reme_module.call_server("version", backend="http", show_metadata=True)
@@ -335,7 +338,7 @@ def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
             yield "ok"
 
     monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
-    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
         await reme_module.call_server("shell", backend="http", cmd="ls", shell_timeout=5)
@@ -345,3 +348,49 @@ def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
     assert seen["action"] == "shell"
     assert seen["payload"] == {"cmd": "ls", "shell_timeout": 5}
     assert capsys.readouterr().out == "ok\n"
+
+
+def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch, capsys):
+    """A bare client call can load the Client backend enabled by the running app."""
+    seen = {}
+
+    class PluginClient(ComponentMixin):
+        """Client backend supplied by an enabled plugin."""
+
+        component_type = ComponentEnum.CLIENT
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            seen["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def __call__(self, action: str, **kwargs):
+            seen["action"] = action
+            seen["payload"] = kwargs
+            yield "plugin-ok"
+
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                backends=(Backend("plugin-client", PluginClient),),
+                config={"service": {"backend": "plugin-client", "host": "127.0.0.9", "port": 9911}},
+            ),
+        ],
+    )
+    monkeypatch.setattr(reme_module, "resolve_app_config", lambda **_kwargs: {"service": {"backend": "http"}})
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: {"plugins": ["example"]})
+    monkeypatch.setattr(reme_module.PluginManager, "discover", lambda _specs: manager)
+
+    asyncio.run(reme_module.call_server("search", query="hello"))
+
+    assert seen["client_kwargs"]["host"] == "127.0.0.9"
+    assert seen["client_kwargs"]["port"] == 9911
+    assert seen["action"] == "search"
+    assert seen["payload"] == {"query": "hello"}
+    assert capsys.readouterr().out == "plugin-ok\n"

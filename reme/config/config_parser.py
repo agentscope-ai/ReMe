@@ -124,13 +124,17 @@ def _convert_value(value_str: str) -> Any:
     return s
 
 
-def _external_config_path(name: str) -> Path | None:
-    """Resolve an installed plugin config exposed through ``reme.configs``."""
+def _external_config_entries(name: str) -> list[metadata.EntryPoint]:
+    """Find installed config providers without importing their packages."""
     discovered = metadata.entry_points()
     if hasattr(discovered, "select"):
-        entries = list(discovered.select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
-    else:
-        entries = [entry for entry in discovered.get(_CONFIG_ENTRY_POINT_GROUP, ()) if entry.name == name]
+        return list(discovered.select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
+    return [entry for entry in discovered.get(_CONFIG_ENTRY_POINT_GROUP, ()) if entry.name == name]
+
+
+def _external_config_path(name: str, entries: list[metadata.EntryPoint] | None = None) -> Path | None:
+    """Resolve an installed plugin config exposed through ``reme.configs``."""
+    entries = _external_config_entries(name) if entries is None else entries
     if not entries:
         return None
     if len(entries) > 1:
@@ -150,10 +154,15 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
         chain = " -> ".join((*_stack, name_or_path))
         raise ValueError(f"Circular config inheritance: {chain}")
 
-    if name_or_path in _CONFIG_REGISTRY:
-        return _load_config_path(_CONFIG_REGISTRY[name_or_path], name_or_path, encoding, _stack)
+    built_in = _CONFIG_REGISTRY.get(name_or_path)
+    external_entries = _external_config_entries(name_or_path)
+    if built_in is not None and external_entries:
+        raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
+    if built_in is not None:
+        return _load_config_path(built_in, name_or_path, encoding, _stack)
 
-    if external := _external_config_path(name_or_path):
+    external = _external_config_path(name_or_path, external_entries)
+    if external is not None:
         return _load_config_path(external, name_or_path, encoding, _stack)
 
     p = Path(name_or_path)

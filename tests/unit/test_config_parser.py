@@ -21,6 +21,37 @@ def test_load_builtin_config_by_filename_with_suffix():
     assert cfg["service"]["backend"] == "http"
 
 
+def test_builtin_and_external_config_name_collision_fails(monkeypatch):
+    """An installed config cannot be silently shadowed by a built-in name."""
+
+    class FakeEntryPoint:
+        """Installed config entry point with a built-in name."""
+
+        name = "default"
+        value = "example:CONFIG_PATH"
+
+        @staticmethod
+        def load():
+            """The provider need not be imported to detect the collision."""
+            raise AssertionError("colliding provider should not be loaded")
+
+    class FakeEntryPoints(list):
+        """Minimal selectable entry-point collection."""
+
+        def select(self, *, group, name):
+            """Return entries matching the requested group and name."""
+            assert group == "reme.configs"
+            return [entry for entry in self if entry.name == name]
+
+    monkeypatch.setattr(
+        "reme.config.config_parser.metadata.entry_points",
+        lambda: FakeEntryPoints([FakeEntryPoint()]),
+    )
+
+    with pytest.raises(ValueError, match="provided by both ReMe and an installed distribution"):
+        _load_config("default")
+
+
 def test_resolve_app_config_can_suppress_config_log(monkeypatch):
     """Client-side config resolution can avoid polluting command output."""
     messages = []
