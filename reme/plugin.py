@@ -47,7 +47,7 @@ class PluginManager:
         """Load explicitly enabled plugins by entry-point name."""
         # Loading an entry point imports third-party code. Roll back any legacy
         # ``@R.register`` side effects so only declared backends reach an app.
-        with R.preserve():
+        with R.preserve(allow_mutation=True):
             return cls._discover(specs)
 
     @classmethod

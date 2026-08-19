@@ -260,7 +260,11 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
             seen["payload"] = kwargs
             yield "ok"
 
-    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(
+        reme_module,
+        "create_application_registry",
+        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
+    )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -302,7 +306,11 @@ def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
             seen["payload"] = kwargs
             yield "ok"
 
-    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(
+        reme_module,
+        "create_application_registry",
+        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
+    )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -337,7 +345,11 @@ def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
             seen["payload"] = kwargs
             yield "ok"
 
-    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(
+        reme_module,
+        "create_application_registry",
+        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
+    )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -416,7 +428,11 @@ def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, ca
             assert not kwargs
             yield "ok"
 
-    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(
+        reme_module,
+        "create_application_registry",
+        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
+    )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: {"service": {"backend": "http"}})
 
     def fail_local_resolution(**_kwargs):

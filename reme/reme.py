@@ -4,7 +4,7 @@ import asyncio
 import sys
 
 from .application import Application
-from .components import R
+from .components import create_application_registry
 from .components.service.cli_service import prepare_start_config, should_precheck_start
 from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
@@ -55,7 +55,7 @@ async def call_server(action: str, **kwargs):
     client_kwargs = {k: seed[k] for k in _CLIENT_KWARGS if k in seed}
     client_kwargs.update({key: kwargs.pop(key) for key in list(kwargs) if key in _CLIENT_KWARGS})
 
-    registry = R if not plugin_manager.plugins else R.copy()
+    registry = create_application_registry()
     plugin_manager.register(registry)
     client_cls = registry.get(ComponentEnum.CLIENT, backend)
     if client_cls is None:

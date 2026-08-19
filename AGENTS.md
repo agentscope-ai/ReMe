@@ -41,7 +41,7 @@ and concise documentation together.
 - `reme/components/application_context.py`: application-wide wiring and in-memory shared state.
 - `reme/components/runtime_context.py`: request-scoped data, response, streaming queue, and stop event.
 - `reme/components/base_component.py`: component lifecycle, dependency binding, and workspace helpers.
-- `reme/components/component_registry.py`: the process-wide `(component type, backend)` registry.
+- `reme/components/component_registry.py`: the frozen built-in registry template and application-local registry factory.
 - `reme/components/job/`: base, stream, background, and cron job implementations.
 - `reme/components/service/`: local CLI, HTTP, and MCP service backends.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and

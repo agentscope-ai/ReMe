@@ -5,7 +5,7 @@
 import pytest
 
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R, create_application_registry
 from reme.enumeration import ComponentEnum
 
 
@@ -147,6 +147,21 @@ def test_clear():
     reg.clear()
     assert not reg.get_all(ComponentEnum.FILE_CHUNKER)
     assert not reg.get_all(ComponentEnum.KEYWORD_INDEX)
+
+
+def test_builtin_registry_is_frozen_after_package_bootstrap():
+    assert R.frozen is True
+    with pytest.raises(RuntimeError, match="frozen"):
+        R.register(_DummyComponent, "runtime-mutation")
+
+
+def test_application_registry_copy_remains_mutable():
+    reg = create_application_registry()
+
+    assert reg.frozen is False
+    reg.register(_DummyComponent, "runtime-component")
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is _DummyComponent
+    assert R.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is None
 
 
 if __name__ == "__main__":

@@ -22,6 +22,12 @@ class ComponentRegistry:
         self._registry: dict[str, dict[str, type[ComponentMixin]]] = {}
         self._owners: dict[tuple[str, str], str] = {}
         self._lock = RLock()
+        self._frozen = False
+
+    def _ensure_mutable(self) -> None:
+        """Reject changes after this registry becomes an immutable template."""
+        if self._frozen:
+            raise RuntimeError("Component registry is frozen")
 
     def _do_register(self, cls: type[T], name: str, *, owner: str | None = None) -> type[T]:
         """Insert ``cls`` under its component type and reject ambiguous providers."""
@@ -33,6 +39,7 @@ class ComponentRegistry:
             raise ValueError("Component name cannot be empty")
 
         with self._lock:
+            self._ensure_mutable()
             group = self._registry.setdefault(component_type, {})
             key = (component_type, name)
             if name in group:
@@ -88,6 +95,7 @@ class ComponentRegistry:
         """Remove an entry; return True if it existed, False otherwise."""
         component_type = component_type_name(component_type)
         with self._lock:
+            self._ensure_mutable()
             if (group := self._registry.get(component_type)) and name in group:
                 del group[name]
                 self._owners.pop((component_type, name), None)
@@ -97,8 +105,20 @@ class ComponentRegistry:
     def clear(self) -> None:
         """Drop every registered entry."""
         with self._lock:
+            self._ensure_mutable()
             self._registry.clear()
             self._owners.clear()
+
+    def freeze(self) -> None:
+        """Make this registry an immutable template for future copies."""
+        with self._lock:
+            self._frozen = True
+
+    @property
+    def frozen(self) -> bool:
+        """Whether mutating operations are disabled."""
+        with self._lock:
+            return self._frozen
 
     def copy(self) -> "ComponentRegistry":
         """Return an independent registry containing the same providers."""
@@ -110,17 +130,27 @@ class ComponentRegistry:
         return copied
 
     @contextmanager
-    def preserve(self) -> Iterator[None]:
+    def preserve(self, *, allow_mutation: bool = False) -> Iterator[None]:
         """Restore the registry after code that may register through import side effects."""
         with self._lock:
             registry = {component_type: dict(group) for component_type, group in self._registry.items()}
             owners = dict(self._owners)
+            frozen = self._frozen
+            if allow_mutation:
+                self._frozen = False
             try:
                 yield
             finally:
                 self._registry = registry
                 self._owners = owners
+                self._frozen = frozen
 
 
-# Process-wide singleton used throughout the codebase.
+# Import-time registry for built-in implementations. Runtime code should use
+# ``create_application_registry`` rather than mutate this template.
 R = ComponentRegistry()
+
+
+def create_application_registry() -> ComponentRegistry:
+    """Return a mutable registry initialized from the frozen built-in template."""
+    return R.copy()

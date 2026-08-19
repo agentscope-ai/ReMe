@@ -225,8 +225,10 @@ They are configured under `components` and participate in the same dependency or
 
 ### 4.2 Built-in and Plugin Registration
 
-Built-in implementations still populate the built-in registry through package imports. Each `Application` copies that
-registry, then loads only the installed plugins explicitly named by `plugins` in the resolved configuration. A plugin
+Built-in implementations populate the built-in registry through package imports. ReMe freezes that template after
+bootstrap, and each `Application` receives a mutable copy. Runtime code resolves backends through the application's
+registry rather than changing the process-wide template. ReMe then loads only the installed plugins explicitly named by
+`plugins` in the resolved configuration. A plugin
 is exposed through the `reme.plugins` Python entry-point group and returns a declarative `reme.plugin.Plugin` containing
 its named backend classes and default configuration. Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from ..schema import ApplicationConfig
-from .component_registry import ComponentRegistry, R
+from .component_registry import ComponentRegistry, create_application_registry
 
 if TYPE_CHECKING:
     from .base_component import BaseComponent
@@ -23,7 +23,7 @@ class ApplicationContext:
     def __init__(self, *, registry: ComponentRegistry | None = None, **kwargs):
         # Parse raw kwargs into a typed, validated config object.
         self.app_config: ApplicationConfig = ApplicationConfig(**kwargs)
-        self.registry = registry or R.copy()
+        self.registry = registry or create_application_registry()
 
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None

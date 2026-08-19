@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
 from . import __version__
-from .components import ApplicationContext, BaseComponent, R
+from .components import ApplicationContext, BaseComponent, create_application_registry
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
 from .enumeration import ComponentEnum, ComponentType, component_type_name
@@ -25,7 +25,7 @@ class Application(BaseComponent):
     def __init__(self, **kwargs) -> None:
         plugin_manager = PluginManager.discover(kwargs.get("plugins") or ())
         resolved = plugin_manager.merge_config(kwargs)
-        registry = R.copy()
+        registry = create_application_registry()
         plugin_manager.register(registry)
         self.context = ApplicationContext(registry=registry, **resolved)
         self._started_components: list[BaseComponent] = []
