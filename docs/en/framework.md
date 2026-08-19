@@ -55,11 +55,12 @@ Core layers:
 reme/
   reme.py                    # CLI entry point
   application.py             # Application assembly and lifecycle
+  plugin.py                  # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
-    component_registry.py    # global registry R
+    component_registry.py    # backend registry and application-local copies
     base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
     runtime_context.py       # context for one Job execution
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
@@ -81,6 +82,8 @@ reme/
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory, auto_resource, auto_dream, proactive
     transfer/                # upload/download
+plugin/
+  auto-fin/                  # independent example plugin distribution
 ```
 
 The default workspace directories are defined by `ApplicationConfig`:
@@ -216,14 +219,17 @@ The registry key is:
 The same backend name can therefore exist under different component types. For example, `http` can be both a service
 backend and a client backend.
 
-### 4.2 Registration Through Module Imports
+### 4.2 Built-in and Plugin Registration
 
-Registration happens when a module is imported. `reme/components/__init__.py` imports component packages, while
-`reme/steps/__init__.py` imports `benchmark/common/cookbook/evolve/file_io/index/transfer`. Each package's `__init__.py`
-then imports its concrete modules, causing `@R.register(...)` to execute.
+Built-in implementations still populate the built-in registry through package imports. Each `Application` copies that
+registry, then loads only the installed plugins explicitly named by `plugins` in the resolved configuration. A plugin
+is exposed through the `reme.plugins` Python entry-point group and returns a declarative `reme.plugin.Plugin` containing
+its named backend classes and default configuration. Plugin registration therefore stays local to one application;
+duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
-After adding a Step file, make sure the package's `__init__.py` imports it. Otherwise, the backend will not appear in
-the registry.
+Installed plugins may also expose named configuration files through `reme.configs`. Configuration can use `extends` to
+inherit another built-in, plugin, or file-based configuration. The [Auto Fin plugin](../../plugin/auto-fin/README.md)
+is the complete packaging example.
 
 ### 4.3 Component.bind
 

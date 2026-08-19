@@ -26,6 +26,13 @@ class JobConfig(ComponentConfig):
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
 
 
+class PluginConfig(BaseModel):
+    """One explicitly enabled installed plugin."""
+
+    name: str = Field(min_length=1)
+    enabled: bool = True
+
+
 class ApplicationConfig(BaseModel):
     """Root config for the ReMe application."""
 
@@ -52,6 +59,7 @@ class ApplicationConfig(BaseModel):
     log_to_console: bool = Field(default=True, description="Log to console")
     log_to_file: bool = Field(default=True, description="Log to file")
     mcp_servers: dict[str, dict] = Field(default_factory=dict, description="MCP server configs by name")
+    plugins: list[PluginConfig] = Field(default_factory=list, description="Installed plugins enabled for this app")
     service: ComponentConfig = Field(default_factory=ComponentConfig, description="Service endpoint config")
     jobs: dict[str, JobConfig] = Field(default_factory=dict, description="Job definitions keyed by job name")
     thread_pool_max_workers: int = Field(default=0, description="Max worker threads; 0 to disable")
@@ -59,6 +67,12 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
+
+    @field_validator("plugins", mode="before")
+    @classmethod
+    def normalize_plugins(cls, value):
+        """Accept concise string names alongside expanded plugin objects."""
+        return [{"name": item} if isinstance(item, str) else item for item in (value or [])]
 
     @field_validator("workspace_dir", mode="before")
     @classmethod

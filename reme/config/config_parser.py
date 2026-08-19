@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import yaml
 _CONFIG_DIR = Path(__file__).parent
 # Extensions in priority order: yaml > yml > json when stems collide
 _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
+_CONFIG_ENTRY_POINT_GROUP = "reme.configs"
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 # Strings like "007" / "00501" must stay as strings, not be coerced to numbers
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
@@ -39,6 +41,11 @@ def _expand_env_vars(value: Any) -> Any:
     if isinstance(value, list):
         return [_expand_env_vars(v) for v in value]
     return value
+
+
+def expand_env_vars(value: Any) -> Any:
+    """Expand environment placeholders in an arbitrary plugin config value."""
+    return _expand_env_vars(value)
 
 
 def _discover_configs() -> dict[str, Path]:
@@ -117,17 +124,38 @@ def _convert_value(value_str: str) -> Any:
     return s
 
 
-def _load_config(name_or_path: str, encoding: str = "utf-8") -> dict:
-    """Load a YAML or JSON config file.
+def _external_config_path(name: str) -> Path | None:
+    """Resolve an installed plugin config exposed through ``reme.configs``."""
+    discovered = metadata.entry_points()
+    if hasattr(discovered, "select"):
+        entries = list(discovered.select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
+    else:
+        entries = [entry for entry in discovered.get(_CONFIG_ENTRY_POINT_GROUP, ()) if entry.name == name]
+    if not entries:
+        return None
+    if len(entries) > 1:
+        providers = ", ".join(sorted(entry.value for entry in entries))
+        raise ValueError(f"Config '{name}' has multiple installed providers: {providers}")
+    loaded = entries[0].load()
+    value = loaded() if callable(loaded) else loaded
+    path = Path(value)
+    if path.suffix not in _SUPPORTED_EXTS or not path.is_file():
+        raise ValueError(f"Config entry point '{name}' did not resolve to a YAML or JSON file")
+    return path
 
-    First check if name_or_path matches a pre-discovered config (key in _CONFIG_REGISTRY).
-    If not, treat as a file path and load directly.
-    """
-    # 1. Try pre-discovered configs first
+
+def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, ...] = ()) -> dict:
+    """Load a built-in, installed-plugin, or direct YAML/JSON config."""
+    if name_or_path in _stack:
+        chain = " -> ".join((*_stack, name_or_path))
+        raise ValueError(f"Circular config inheritance: {chain}")
+
     if name_or_path in _CONFIG_REGISTRY:
-        return _read_config_file(_CONFIG_REGISTRY[name_or_path], encoding)
+        return _load_config_path(_CONFIG_REGISTRY[name_or_path], name_or_path, encoding, _stack)
 
-    # 2. Treat as file path
+    if external := _external_config_path(name_or_path):
+        return _load_config_path(external, name_or_path, encoding, _stack)
+
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
         candidates = [p]
@@ -135,11 +163,29 @@ def _load_config(name_or_path: str, encoding: str = "utf-8") -> dict:
             candidates.append(_CONFIG_DIR / p)
         for candidate in candidates:
             if candidate.exists():
-                return _read_config_file(candidate, encoding)
+                identity = str(candidate.resolve())
+                return _load_config_path(candidate, identity, encoding, _stack)
         raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
     raise FileNotFoundError(f"Config file not found: {name_or_path}. Available: {known}")
+
+
+def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str, ...]) -> dict:
+    """Load one config and merge its optional parents before its own values."""
+    config = _read_config_file(path, encoding)
+    raw_parents = config.pop("extends", ())
+    parents = [raw_parents] if isinstance(raw_parents, str) else list(raw_parents or ())
+    merged: dict = {}
+    for parent in parents:
+        if not isinstance(parent, str) or not parent:
+            raise ValueError(f"Config 'extends' entries must be non-empty strings: {path}")
+        parent_name = parent
+        relative = path.parent / parent
+        if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
+            parent_name = str(relative.resolve())
+        merged = _deep_merge(merged, _load_config(parent_name, encoding, (*stack, identity)))
+    return _deep_merge(merged, config)
 
 
 def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:

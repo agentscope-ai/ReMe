@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from ...base_step import BaseStep
+from reme.steps import BaseStep
 
 AGENT_INPUT_LOG_LIMIT = 2000
 AGENT_OUTPUT_LOG_LIMIT = 4000

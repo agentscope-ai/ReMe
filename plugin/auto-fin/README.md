@@ -1,12 +1,12 @@
-# Auto Fin Cookbook
+# Auto Fin Plugin
 
 [中文](README_ZH.md)
 
 Auto Fin fetches a rolling window of CLS telegraph news (24 hours by default), selects items related to configured
 topics, searches ReMe for useful historical context, and writes one Chinese Markdown report with validated wikilinks.
-Current news and topic selection stay in runtime memory; only the final report becomes durable memory. The
-implementation lives in [`reme/steps/cookbook/auto_fin/`](../../reme/steps/cookbook/auto_fin/) and is assembled by
-[`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml).
+Current news and topic selection stay in runtime memory; only the final report becomes durable memory. This directory
+is an independent Python distribution. Its `reme.plugins` entry point contributes the three Step backends and their Job
+configuration; its `reme.configs` entry point exposes the runnable `auto-fin` configuration.
 
 > Auto Fin has no reliable market-price feed. It does not calculate returns, targets, or entry points and is not
 > investment advice.
@@ -14,11 +14,11 @@ implementation lives in [`reme/steps/cookbook/auto_fin/`](../../reme/steps/cookb
 ## Quick start
 
 ```bash
-python -m pip install -e ".[core]"
+python -m pip install "reme-ai[core]>=0.4.1.8" reme-auto-fin
 export LLM_API_KEY="your-api-key"
 export LLM_MODEL_NAME="qwen3.7-plus"
 export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=daily_cookbook job=auto_fin
+reme start config=auto-fin job=auto_fin
 ```
 
 `LLM_MODEL_NAME` defaults to `qwen3.7-plus`. There is no built-in `LLM_BASE_URL`, so set the OpenAI-compatible endpoint
@@ -27,7 +27,7 @@ required by the selected provider.
 The default topics are `黄金,机器人,半导体`. Override them per run:
 
 ```bash
-reme start config=daily_cookbook job=auto_fin topics="黄金,AI,存储芯片"
+reme start config=auto-fin job=auto_fin topics="黄金,AI,存储芯片"
 ```
 
 An empty value also uses the defaults.
@@ -76,23 +76,22 @@ refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent 
 | `request_interval` |                   `10` | Minimum delay in seconds after every CLS request attempt; may be zero    |
 | `max_retries`      |                    `3` | Maximum attempts for each CLS page request; must be at least one         |
 
-The built-in schedules run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
+The plugin-provided schedules run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
 
 ## Output
 
 ```text
-reme_workspace/daily/YYYY-MM-DD/auto_fin.md
+.reme/daily/YYYY-MM-DD/auto_fin.md
 ```
 
 The report includes a title, description, current CLS evidence, historical analysis, contextual wikilinks, and a fixed
 non-investment disclaimer. Network errors and invalid Agent output fail explicitly; no relevant current news is a
-successful skip. If `DINGTALK_CONVERSATION_IDS` is empty, delivery is a no-op. If it is set, the DingTalk credentials
-described in the [Daily Paper cookbook](../daily_paper/README.md#6-dingtalk) are required.
+successful skip.
 
 ## Validation
 
 ```bash
-pytest tests/unit/test_auto_fin.py -v
+python -m pytest plugin/auto-fin -v
 ```
 
 Unit tests mock the CLS and Agent boundaries and do not contact external services.

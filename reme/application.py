@@ -7,10 +7,11 @@ from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
 from . import __version__
-from .components import BaseComponent, ApplicationContext
+from .components import ApplicationContext, BaseComponent, R
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
 from .enumeration import ComponentEnum
+from .plugin import PluginManager
 from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
 
@@ -22,7 +23,11 @@ class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
     def __init__(self, **kwargs) -> None:
-        self.context = ApplicationContext(**kwargs)
+        self.plugin_manager = PluginManager.discover(kwargs.get("plugins") or ())
+        resolved = self.plugin_manager.merge_config(kwargs)
+        registry = self._application_registry()
+        self.plugin_manager.register(registry)
+        self.context = ApplicationContext(registry=registry, **resolved)
         self._started_components: list[BaseComponent] = []
 
         self._setup_workspace_directories()
@@ -39,6 +44,11 @@ class Application(BaseComponent):
         logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         self._init_components()
         self._init_jobs()
+
+    @staticmethod
+    def _application_registry():
+        """Copy built-in registrations so plugins remain local to this application."""
+        return R.copy()
 
     @property
     def config(self):
@@ -113,12 +123,9 @@ class Application(BaseComponent):
         `name` is forwarded to the constructor for named components/jobs;
         leave it None for the service, which is keyed solely by type.
         """
-        # Lazy import: the registry self-populates as component modules load.
-        from .components import R
-
         if not cfg.backend:
             raise ValueError(f"{label} is missing the required 'backend' field")
-        backend_cls = R.get(ctype, cfg.backend)
+        backend_cls = self.context.registry.get(ctype, cfg.backend)
         if backend_cls is None:
             raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
 

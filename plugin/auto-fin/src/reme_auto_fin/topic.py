@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 
-from ....components import R
-from ....schema import AutoFinTopicOutput
-from ._base import AutoFinStep
+from .base import AutoFinStep
+from .schema import AutoFinTopicOutput
 
 
-@R.register("auto_fin_topic_step")
 class AutoFinTopicStep(AutoFinStep):
     """Filter current news in bounded Agent batches without writing files."""
 

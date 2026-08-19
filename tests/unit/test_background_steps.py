@@ -23,6 +23,7 @@ import numpy as np
 import pytest
 from watchfiles import Change
 
+from reme.components import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker
 from reme.components.file_catalog import LocalFileCatalog
@@ -115,6 +116,7 @@ def _make_app_context(workspace_path: Path, daily_dir="daily", digest_dir="diges
     ctx.app_config.resource_dir = resource_dir
     ctx.app_config.session_dir = "session"
     ctx.app_config.timezone = None
+    ctx.registry = R.copy()
     return ctx
 
 

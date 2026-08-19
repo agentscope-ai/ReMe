@@ -193,12 +193,12 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 | [框架说明](docs/zh/framework.md) | 理解 Application、Job、Step、Component、service、配置和生命周期边界。 |
 | [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog) | 了解完整产品故事、设计动机、使用示例和评测摘要。 |
 
-## 🧑‍🍳 Cookbooks
+## 🔌 插件
 
-Cookbook 是由 ReMe jobs 和 steps 组装而成的可选端到端工作流。默认配置不会开启它们；启动 ReMe 时选择对应的独立配置即可启用。后续新增的
-cookbook 会继续在表格中按行追加。
+插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。Auto Fin
+是完整的外部插件示例；每日论文在迁移到同一打包模型前仍作为可选研究工作流提供。
 
-| Cookbook                                      | 能力                                                                           |
+| 插件 / 工作流                                 | 能力                                                                           |
 |-----------------------------------------------|--------------------------------------------------------------------------------|
 | [每日论文](https://reme.agentscope.io/?doc=daily-paper-zh) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
 | [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |

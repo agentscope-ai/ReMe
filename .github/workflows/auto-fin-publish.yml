@@ -1,0 +1,121 @@
+name: Publish reme-auto-fin to PyPI
+
+run-name: Publish reme-auto-fin ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from plugin/auto-fin/pyproject.toml (for example, 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-reme-auto-fin
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install test and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build packaging pytest pytest-asyncio twine
+          python -m pip install -e .
+          python -m pip install --no-deps -e plugin/auto-fin
+
+      - name: Validate package name and release version
+        id: package
+        run: |
+          python - "${RELEASE_VERSION}" <<'PY'
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          from packaging.version import Version
+
+          project = tomllib.loads(Path("plugin/auto-fin/pyproject.toml").read_text(encoding="utf-8"))["project"]
+          expected = Version(sys.argv[1].removeprefix("v"))
+          actual = Version(project["version"])
+          if project["name"] != "reme-auto-fin":
+              raise SystemExit(f"Expected project name 'reme-auto-fin', found {project['name']!r}")
+          if actual != expected:
+              raise SystemExit(f"Package version is {actual}, but workflow input is {expected}")
+          requirements = [requirement for requirement in project["dependencies"] if requirement.startswith("reme-ai")]
+          if len(requirements) != 1:
+              raise SystemExit(f"Expected one reme-ai dependency, found {requirements!r}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"reme_requirement={requirements[0]}", file=output)
+          print(f"Publishing {project['name']} {actual}")
+          PY
+
+      - name: Run Auto Fin tests
+        run: python -m pytest plugin/auto-fin -q
+
+      - name: Require the plugin-enabled ReMe release on PyPI
+        run: |
+          python -m pip download --no-deps \
+            --dest "${RUNNER_TEMP}/reme-auto-fin-core" \
+            "${{ steps.package.outputs.reme_requirement }}"
+
+      - name: Build and check distributions
+        run: |
+          mkdir -p dist/auto-fin
+          python -m build plugin/auto-fin --outdir dist/auto-fin
+          python -m twine check dist/auto-fin/*
+
+      - name: Verify wheel metadata and entry points
+        run: |
+          AUTO_FIN_WHEEL="$(pwd)/$(ls dist/auto-fin/reme_auto_fin-*.whl)"
+          python -m venv "${RUNNER_TEMP}/reme-auto-fin-smoke"
+          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install "${AUTO_FIN_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" - <<'PY'
+          from importlib.metadata import distribution
+
+          package = distribution("reme-auto-fin")
+          plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
+          configs = {entry.name: entry for entry in package.entry_points if entry.group == "reme.configs"}
+          assert plugins["auto-fin"].load().name == "auto-fin"
+          assert configs["auto-fin"].load().is_file()
+          PY
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: reme-auto-fin-${{ inputs.version }}
+          path: dist/auto-fin/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: reme-auto-fin-${{ inputs.version }}
+          path: dist/auto-fin
+
+      - name: Publish reme-auto-fin
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/auto-fin

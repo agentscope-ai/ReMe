@@ -50,11 +50,12 @@ flowchart LR
 reme/
   reme.py                    # CLI 入口
   application.py             # Application 装配与生命周期
+  plugin.py                  # 已安装插件契约与 entry-point loader
   config/
     default.yaml             # 默认 service / jobs / components
     config_parser.py         # config=、dot notation、env 占位符解析
   components/
-    component_registry.py    # 全局注册表 R
+    component_registry.py    # backend 注册表及 Application 局部副本
     base_component.py        # ComponentMixin / BaseComponent / bind 依赖声明
     runtime_context.py       # 单次 Job 执行上下文
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
@@ -76,6 +77,8 @@ reme/
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory、auto_resource、auto_dream、proactive
     transfer/                # upload/download
+plugin/
+  auto-fin/                  # 独立发布的示例插件
 ```
 
 默认 workspace 目录由 `ApplicationConfig` 定义：
@@ -208,13 +211,15 @@ class VersionStep(BaseStep):
 
 所以同名 backend 在不同 component type 下可以共存。例如 `http` 同时可以是 service backend 和 client backend。
 
-### 4.2 模块导入触发注册
+### 4.2 内置注册与插件注册
 
-注册发生在模块 import 时。`reme/components/__init__.py` 会 import 各组件包，`reme/steps/__init__.py` 会 import
-`benchmark/common/cookbook/evolve/file_io/index/transfer`。这些包的 `__init__.py` 再 import 具体模块，从而执行
-`@R.register(...)`。
+内置实现仍通过 package import 填充内置注册表。每个 `Application` 先复制该注册表，再只加载最终配置中 `plugins`
+明确启用的已安装插件。插件通过 Python `reme.plugins` entry-point group 暴露，返回声明式 `reme.plugin.Plugin`，其中包含命名
+backend class 和默认配置。插件注册因此只影响当前 Application；两个插件提供相同 `(component_type, backend)` 时会在装配阶段失败，
+不会互相覆盖。
 
-新增 Step 文件后，必须保证它所在包的 `__init__.py` 会 import 该模块，否则注册表里找不到这个 backend。
+插件还可以通过 `reme.configs` 暴露命名配置；配置的 `extends` 可以继承内置配置、插件配置或文件配置。完整打包示例见
+[Auto Fin 插件](../../plugin/auto-fin/README_ZH.md)。
 
 ### 4.3 Component.bind
 

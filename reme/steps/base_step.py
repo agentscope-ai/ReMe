@@ -201,7 +201,8 @@ class BaseStep(ComponentMixin, ABC):
         backend = params.get("backend", "")
         if not backend:
             raise ValueError("Dispatch step is missing the required 'backend' field")
-        step_cls = R.get(ComponentEnum.STEP, backend)
+        registry = self.app_context.registry if self.app_context is not None else R
+        step_cls = registry.get(ComponentEnum.STEP, backend)
         if step_cls is None:
             raise RuntimeError(f"Unregistered step '{backend}'")
         params["app_context"] = self.app_context

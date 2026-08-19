@@ -8,6 +8,7 @@ from .components import R
 from .components.service.cli_service import prepare_start_config, should_precheck_start
 from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
+from .plugin import PluginManager
 from .utils import cli_find_reme, load_env, precheck_start, running_service_config
 
 _CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "show_metadata"}
@@ -36,10 +37,10 @@ async def call_server(action: str, **kwargs):
     if isinstance(kwargs.get("service"), dict):
         resolve_kwargs["service"] = kwargs.pop("service")
 
-    # Prefer the running server's real config; fall back to the local config file.
-    service = running_service_config()
-    if service is None:
-        service = resolve_app_config(log_config=False, **resolve_kwargs).get("service")
+    local_config = resolve_app_config(log_config=False, **resolve_kwargs)
+    # Prefer the running server's real service config; use local config to load
+    # any client backend supplied by an explicitly enabled plugin.
+    service = running_service_config() or local_config.get("service")
     service = service if isinstance(service, dict) else {}
 
     backend: str = kwargs.pop("backend", None) or service.get("backend", "http")
@@ -50,7 +51,10 @@ async def call_server(action: str, **kwargs):
     client_kwargs = {k: seed[k] for k in _CLIENT_KWARGS if k in seed}
     client_kwargs.update({key: kwargs.pop(key) for key in list(kwargs) if key in _CLIENT_KWARGS})
 
-    client_cls = R.get(ComponentEnum.CLIENT, backend)
+    plugin_manager = PluginManager.discover(local_config.get("plugins") or ())
+    registry = R if not plugin_manager.plugins else R.copy()
+    plugin_manager.register(registry)
+    client_cls = registry.get(ComponentEnum.CLIENT, backend)
     if client_cls is None:
         raise ValueError(f"Unknown client backend: {backend!r}")
     async with client_cls(**client_kwargs) as client:

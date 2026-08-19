@@ -1,22 +1,22 @@
-# Auto Fin Cookbook
+# Auto Fin 插件
 
 [English](README.md)
 
 Auto Fin 自动拉取一个滚动时间窗口内的财联社电报（默认 24 小时），按配置 topics 筛选相关新闻，搜索 ReMe 中有回顾价值的历史材料，最后写入一份带校验
-wikilink 的中文 Markdown 报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告成为持久记忆。实现位于
-[`reme/steps/cookbook/auto_fin/`](../../reme/steps/cookbook/auto_fin/)，并由
-[`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml) 装配。
+wikilink 的中文 Markdown 报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告成为持久记忆。本目录是一个独立 Python
+distribution：`reme.plugins` entry point 贡献三个 Step backend 及其 Job 配置，`reme.configs` entry point 暴露可直接运行的
+`auto-fin` 配置。
 
 > Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。
 
 ## 快速开始
 
 ```bash
-python -m pip install -e ".[core]"
+python -m pip install "reme-ai[core]>=0.4.1.8" reme-auto-fin
 export LLM_API_KEY="your-api-key"
 export LLM_MODEL_NAME="qwen3.7-plus"
 export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=daily_cookbook job=auto_fin
+reme start config=auto-fin job=auto_fin
 ```
 
 `LLM_MODEL_NAME` 默认是 `qwen3.7-plus`。代码没有内置 `LLM_BASE_URL`，请设置所选服务商提供的 OpenAI 兼容 endpoint。
@@ -24,7 +24,7 @@ reme start config=daily_cookbook job=auto_fin
 默认 topics 是 `黄金,机器人,半导体`。可在运行时覆盖：
 
 ```bash
-reme start config=daily_cookbook job=auto_fin topics="黄金,AI,存储芯片"
+reme start config=auto-fin job=auto_fin topics="黄金,AI,存储芯片"
 ```
 
 传入空值也会使用默认 topics。
@@ -69,22 +69,21 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 | `request_interval` |                   `10` | 每次财联社请求尝试后的最小等待秒数，可设为 0 |
 | `max_retries`      |                    `3` | 每页财联社请求的最大尝试次数，至少为 1       |
 
-内置定时任务每天按 `Asia/Shanghai` 在 09:30、11:30 和 18:00 运行。
+插件提供的定时任务每天按 `Asia/Shanghai` 在 09:30、11:30 和 18:00 运行。
 
 ## 产物
 
 ```text
-reme_workspace/daily/YYYY-MM-DD/auto_fin.md
+.reme/daily/YYYY-MM-DD/auto_fin.md
 ```
 
 报告包含标题、说明、当前 CLS 证据、历史分析、上下文 wikilink 和固定非投资建议声明。网络错误与无效 Agent 输出
-会明确失败；没有相关当前新闻则成功跳过。`DINGTALK_CONVERSATION_IDS` 为空时发送步骤无副作用；设置该变量后，
-还必须提供[每日论文 Cookbook](../daily_paper/README_ZH.md#6-dingtalk)中列出的钉钉凭据。
+会明确失败；没有相关当前新闻则成功跳过。
 
 ## 验证
 
 ```bash
-pytest tests/unit/test_auto_fin.py -v
+python -m pytest plugin/auto-fin -v
 ```
 
 单元测试 mock CLS 与 Agent 边界，不访问外部服务。

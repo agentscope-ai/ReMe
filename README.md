@@ -200,13 +200,13 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 | [Framework](docs/en/framework.md) | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries. |
 | [ReMe Blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog) | Read the product story, design rationale, examples, and benchmark summary. |
 
-## 🧑‍🍳 Cookbooks
+## 🔌 Plugins
 
-Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps. They are not enabled by the default
-configuration; select the cookbook's standalone configuration when starting ReMe. Each new cookbook will be added as
-another row in this table.
+Plugins are optional Python distributions that contribute Component, Step, or Job backends and configuration. They are
+installed separately and enabled explicitly by configuration. Auto Fin is the complete external-plugin example; Daily
+Paper remains an optional research workflow while it is migrated to the same packaging model.
 
-| Cookbook                                      | Capability                                                                                                    |
+| Plugin / workflow                             | Capability                                                                                                    |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
 | [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |

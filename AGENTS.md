@@ -56,7 +56,7 @@ and concise documentation together.
 - `plugins/claude_code/` and `plugins/hermes_agent/`: agent integrations.
 - `skills/`: standalone skills; `reme_memory` calls ReMe, while other skills may use separate tools or direct-file
   conventions.
-- `benchmark/` and `cookbook/`: runnable evaluation and example workflows.
+- `benchmark/` and `plugin/`: runnable evaluations and external plugin examples.
 - `docs/`: README-linked supporting pages and figures.
 
 ## Development Setup

@@ -9,8 +9,7 @@ from typing import Any
 
 import httpx
 
-from ....components import R
-from ._base import AutoFinStep, _plain_text
+from .base import AutoFinStep, _plain_text
 
 API_URL = "https://www.cls.cn/v1/roll/get_roll_list"
 HEADERS = {
@@ -23,7 +22,6 @@ DEFAULT_TOPICS = ("黄金", "机器人", "半导体")
 WINDOW = timedelta(hours=24)
 
 
-@R.register("auto_fin_data_step")
 class AutoFinDataStep(AutoFinStep):
     """Fetch and normalize one rolling day of CLS news without writing files."""
 

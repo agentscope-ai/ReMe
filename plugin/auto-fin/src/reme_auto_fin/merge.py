@@ -8,10 +8,10 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-from ....components import R
-from ....schema import AutoFinReportOutput
-from ...file_io import refresh_day_index
-from ._base import AutoFinStep, _write
+from reme.steps.file_io import refresh_day_index
+
+from .base import AutoFinStep, _write
+from .schema import AutoFinReportOutput
 
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
 _HYBRID_WIKILINK_RE = re.compile(
@@ -19,7 +19,6 @@ _HYBRID_WIKILINK_RE = re.compile(
 )
 
 
-@R.register("auto_fin_merge_step")
 class AutoFinMergeStep(AutoFinStep):
     """Give one Agent read-only ReMe tools, then validate links in its Markdown."""
 

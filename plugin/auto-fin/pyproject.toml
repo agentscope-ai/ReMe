@@ -1,0 +1,33 @@
+[project]
+name = "reme-auto-fin"
+version = "0.1.0"
+description = "Auto Fin example plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+    "reme-ai>=0.4.1.8",
+]
+
+[project.entry-points."reme.plugins"]
+auto-fin = "reme_auto_fin:plugin"
+
+[project.entry-points."reme.configs"]
+auto-fin = "reme_auto_fin:CONFIG_PATH"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["reme_auto_fin"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+reme_auto_fin = ["*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src", "../.."]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

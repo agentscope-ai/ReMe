@@ -10,11 +10,14 @@ from . import steps
 from . import utils
 from .application import Application
 from .components import BaseComponent
+from .plugin import Backend, Plugin
 from .reme import ReMe
 
 __all__ = [
     "Application",
     "BaseComponent",
+    "Backend",
+    "Plugin",
     "ReMe",
     # submodules
     "config",

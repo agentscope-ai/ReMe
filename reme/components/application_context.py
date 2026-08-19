@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..enumeration import ComponentEnum
 from ..schema import ApplicationConfig
+from .component_registry import ComponentRegistry, R
 
 if TYPE_CHECKING:
     from .base_component import BaseComponent
@@ -20,9 +21,10 @@ class ApplicationContext:
     components, jobs, and the service can find each other at runtime.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, *, registry: ComponentRegistry | None = None, **kwargs):
         # Parse raw kwargs into a typed, validated config object.
         self.app_config: ApplicationConfig = ApplicationConfig(**kwargs)
+        self.registry = registry or R.copy()
 
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None

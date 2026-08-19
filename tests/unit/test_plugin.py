@@ -1,0 +1,113 @@
+"""Tests for installed plugin discovery and application-local registration."""
+
+# pylint: disable=missing-class-docstring,missing-function-docstring
+
+from importlib.metadata import EntryPoint
+from pathlib import Path
+
+import pytest
+
+from reme.components.base_component import ComponentMixin
+from reme.components.component_registry import ComponentRegistry
+from reme.config.config_parser import _load_config
+from reme.enumeration import ComponentEnum
+from reme.plugin import Backend, Plugin, PluginManager
+
+
+class _PluginStep(ComponentMixin):
+    component_type = ComponentEnum.STEP
+
+
+def test_plugin_defaults_are_below_application_config():
+    manager = PluginManager([Plugin(name="example", config={"jobs": {"task": {"backend": "base", "value": 1}}})])
+
+    merged = manager.merge_config({"jobs": {"task": {"value": 2}}})
+
+    assert merged["jobs"]["task"] == {"backend": "base", "value": 2}
+
+
+def test_plugin_defaults_expand_environment(monkeypatch):
+    monkeypatch.setenv("PLUGIN_LIMIT", "12")
+    manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
+
+    assert manager.merge_config({})["limit"] == 12
+
+
+def test_plugin_registers_into_only_the_supplied_registry():
+    manager = PluginManager([Plugin(name="example", backends=(Backend("example_step", _PluginStep),))])
+    first = ComponentRegistry()
+    second = ComponentRegistry()
+
+    manager.register(first)
+
+    assert first.get(ComponentEnum.STEP, "example_step") is _PluginStep
+    assert second.get(ComponentEnum.STEP, "example_step") is None
+
+
+def test_plugin_backend_collision_fails_with_both_owners():
+    registry = ComponentRegistry()
+    registry.add("same", _PluginStep, owner="first")
+
+    class OtherStep(ComponentMixin):
+        component_type = ComponentEnum.STEP
+
+    with pytest.raises(ValueError, match="both 'first' and 'second'"):
+        registry.add("same", OtherStep, owner="second")
+
+
+def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
+    descriptor = Plugin(name="example", backends=(Backend("example_step", _PluginStep),))
+
+    class FakeEntryPoint:
+        name = "example"
+        value = "example:plugin"
+
+        @staticmethod
+        def load():
+            return descriptor
+
+    class FakeEntryPoints(list):
+        def select(self, *, group, name):
+            assert group == "reme.plugins"
+            return [entry for entry in self if entry.name == name]
+
+    monkeypatch.setattr("reme.plugin.metadata.entry_points", lambda: FakeEntryPoints([FakeEntryPoint()]))
+
+    manager = PluginManager.discover(["example"])
+
+    assert manager.plugins == (descriptor,)
+
+
+def test_config_can_extend_another_config(tmp_path: Path):
+    parent = tmp_path / "parent.yaml"
+    child = tmp_path / "child.yaml"
+    parent.write_text("service:\n  backend: http\n  port: 8000\n", encoding="utf-8")
+    child.write_text("extends: parent.yaml\nservice:\n  port: 9000\n", encoding="utf-8")
+
+    assert _load_config(str(child))["service"] == {"backend": "http", "port": 9000}
+
+
+def test_config_can_come_from_installed_entry_point(tmp_path: Path, monkeypatch):
+    config = tmp_path / "example.yaml"
+    config.write_text("plugins: [example]\n", encoding="utf-8")
+    entry = EntryPoint(name="example", value="pathlib:Path", group="reme.configs")
+
+    class LoadedEntryPoint:
+        name = entry.name
+        value = entry.value
+
+        @staticmethod
+        def load():
+            return config
+
+    class FakeEntryPoints(list):
+        def select(self, *, group, name):
+            assert group == "reme.configs"
+            return [item for item in self if item.name == name]
+
+    monkeypatch.setattr(
+        "reme.config.config_parser.metadata.entry_points",
+        lambda: FakeEntryPoints([LoadedEntryPoint()]),
+    )
+
+    assert _load_config("example") == {"plugins": ["example"]}

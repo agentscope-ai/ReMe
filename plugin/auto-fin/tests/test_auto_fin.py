@@ -8,14 +8,15 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from reme_auto_fin.base import _plain_text, _write
+from reme_auto_fin.data import AutoFinDataStep
+from reme_auto_fin.merge import AutoFinMergeStep
+from reme_auto_fin.plugin import plugin
+from reme_auto_fin.schema import AutoFinReportOutput, AutoFinTopicOutput
+from reme_auto_fin.topic import AutoFinTopicStep
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
-from reme.schema import AutoFinReportOutput, AutoFinTopicOutput
-from reme.steps.cookbook.auto_fin._base import _plain_text, _write
-from reme.steps.cookbook.auto_fin.data import AutoFinDataStep
-from reme.steps.cookbook.auto_fin.merge import AutoFinMergeStep
-from reme.steps.cookbook.auto_fin.topic import AutoFinTopicStep
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 
@@ -28,7 +29,7 @@ def test_atomic_write_preserves_existing_file_on_failure(tmp_path: Path, monkeyp
     path = tmp_path / "result.md"
     path.write_text("existing", encoding="utf-8")
     monkeypatch.setattr(
-        "reme.steps.cookbook.auto_fin._base.os.replace",
+        "reme_auto_fin.base.os.replace",
         lambda *_args: (_ for _ in ()).throw(OSError()),
     )
 
@@ -210,7 +211,7 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
 
 
 def test_hybrid_wikilink_normalization_is_conservative_and_failure_safe(tmp_path: Path, monkeypatch):
-    import reme.steps.cookbook.auto_fin.merge as merge_module
+    import reme_auto_fin.merge as merge_module
 
     step = AutoFinMergeStep(
         app_context=ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai"),
@@ -237,11 +238,8 @@ def test_hybrid_wikilink_normalization_is_conservative_and_failure_safe(tmp_path
     assert step._normalize_hybrid_wikilinks(body) == body
 
 
-def test_config_has_default_topics_and_no_intermediate_index_step():
-    from reme.config.config_parser import _load_config
-
-    config = _load_config("daily_cookbook")
-    job = config["jobs"]["auto_fin"]
+def test_plugin_config_has_default_topics_and_no_intermediate_index_step():
+    job = plugin.config["jobs"]["auto_fin"]
     assert job["parameters"]["properties"]["topics"]["default"] == "黄金,机器人,半导体"
     assert job["parameters"]["properties"]["window_hours"]["default"] == 24
     assert job["parameters"]["properties"]["request_interval"]["default"] == 10
@@ -251,7 +249,6 @@ def test_config_has_default_topics_and_no_intermediate_index_step():
         "auto_fin_data_step",
         "auto_fin_topic_step",
         "auto_fin_merge_step",
-        "dingtalk_markdown_send_step",
     ]
     assert job["steps"][2]["job_tools"] == ["memory_search", "read"]
     for name, schedule in {
@@ -259,8 +256,8 @@ def test_config_has_default_topics_and_no_intermediate_index_step():
         "auto_fin_1130_cron": "30 11 * * *",
         "auto_fin_1800_cron": "0 18 * * *",
     }.items():
-        assert config["jobs"][name]["cron"] == schedule
-        assert config["jobs"][name]["steps"] == job["steps"]
+        assert plugin.config["jobs"][name]["cron"] == schedule
+        assert plugin.config["jobs"][name]["steps"] == job["steps"]
 
 
 def test_agent_schemas_are_small_and_required():

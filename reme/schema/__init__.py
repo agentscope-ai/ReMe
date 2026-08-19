@@ -1,7 +1,6 @@
 """Schema"""
 
-from .application_config import ApplicationConfig, ComponentConfig, JobConfig
-from .auto_fin import AutoFinReportOutput, AutoFinTopicOutput
+from .application_config import ApplicationConfig, ComponentConfig, JobConfig, PluginConfig
 from .daily_paper import (
     AnalyzedPaper,
     DailyPaperMarkdownOutput,
@@ -32,8 +31,6 @@ from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
     "ApplicationConfig",
-    "AutoFinReportOutput",
-    "AutoFinTopicOutput",
     "ComponentConfig",
     "AnalyzedPaper",
     "DailyPaperMarkdownOutput",
@@ -51,6 +48,7 @@ __all__ = [
     "GraphSnapshotNode",
     "IntegrateOutcome",
     "JobConfig",
+    "PluginConfig",
     "PaperInfo",
     "PaperPick",
     "PaperPickList",
