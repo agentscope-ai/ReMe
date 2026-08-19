@@ -4,13 +4,13 @@ import json
 import os
 import re
 from collections.abc import Mapping
-from importlib import metadata
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from ..entry_point import load_entry_point
+from ..entry_point import find_entry_point, load_entry_point
 
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
@@ -127,20 +127,11 @@ def _convert_value(value_str: str) -> Any:
     return s
 
 
-def _external_config_entries(name: str) -> list[metadata.EntryPoint]:
-    """Find installed config providers without importing their packages."""
-    return list(metadata.entry_points().select(group=_CONFIG_ENTRY_POINT_GROUP, name=name))
-
-
-def _external_config_path(name: str, entries: list[metadata.EntryPoint] | None = None) -> Path | None:
+def _external_config_path(name: str, entry: EntryPoint | None) -> Path | None:
     """Resolve an installed plugin config exposed through ``reme.configs``."""
-    entries = _external_config_entries(name) if entries is None else entries
-    if not entries:
+    if entry is None:
         return None
-    if len(entries) > 1:
-        providers = ", ".join(sorted(entry.value for entry in entries))
-        raise ValueError(f"Config '{name}' has multiple installed providers: {providers}")
-    value = load_entry_point(entries[0], invoke=True)
+    value = load_entry_point(entry, invoke=True)
     path = Path(value)
     if path.suffix not in _SUPPORTED_EXTS or not path.is_file():
         raise ValueError(f"Config entry point '{name}' did not resolve to a YAML or JSON file")
@@ -154,13 +145,13 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
         raise ValueError(f"Circular config inheritance: {chain}")
 
     built_in = _CONFIG_REGISTRY.get(name_or_path)
-    external_entries = _external_config_entries(name_or_path)
-    if built_in is not None and external_entries:
+    external_entry = find_entry_point(_CONFIG_ENTRY_POINT_GROUP, name_or_path, provider="Config")
+    if built_in is not None and external_entry is not None:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
         return _load_config_path(built_in, name_or_path, encoding, _stack)
 
-    external = _external_config_path(name_or_path, external_entries)
+    external = _external_config_path(name_or_path, external_entry)
     if external is not None:
         return _load_config_path(external, name_or_path, encoding, _stack)
 

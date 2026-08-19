@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from importlib import metadata
 from typing import Any
 
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry
 from .config import deep_merge_config, expand_env_vars
-from .entry_point import load_entry_point
+from .entry_point import find_entry_point, load_entry_point
 
 PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
 
@@ -32,11 +31,6 @@ class Plugin:
     config: Mapping[str, Any] = field(default_factory=dict)
 
 
-def _entry_points(group: str, name: str) -> list[metadata.EntryPoint]:
-    """Return matching entry points for one group and name."""
-    return list(metadata.entry_points().select(group=group, name=name))
-
-
 class PluginManager:
     """Resolve enabled plugins and apply their contributions to one application."""
 
@@ -55,13 +49,10 @@ class PluginManager:
                 raise ValueError("Plugin name cannot be empty")
             if name in seen:
                 raise ValueError(f"Plugin '{name}' is enabled more than once")
-            entries = _entry_points(PLUGIN_ENTRY_POINT_GROUP, name)
-            if not entries:
+            entry = find_entry_point(PLUGIN_ENTRY_POINT_GROUP, name, provider="Plugin")
+            if entry is None:
                 raise ValueError(f"Plugin '{name}' is not installed")
-            if len(entries) > 1:
-                providers = ", ".join(sorted(entry.value for entry in entries))
-                raise ValueError(f"Plugin '{name}' has multiple installed providers: {providers}")
-            plugin = load_entry_point(entries[0], invoke=True)
+            plugin = load_entry_point(entry, invoke=True)
             if not isinstance(plugin, Plugin):
                 raise TypeError(f"Plugin entry point '{name}' did not return reme.plugin.Plugin")
             if plugin.name != name:

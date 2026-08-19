@@ -2,7 +2,6 @@
 
 # pylint: disable=missing-class-docstring,missing-function-docstring
 
-from importlib.metadata import EntryPoint
 from pathlib import Path
 
 import pytest
@@ -23,8 +22,35 @@ class _PluginComponent(BaseComponent):
     component_type = "example.reranker"
 
 
+class _FakeEntryPoint:
+    def __init__(self, name, value, loader, group):
+        self.name = name
+        self.value = value
+        self._loader = loader
+        self.group = group
+
+    def load(self):
+        return self._loader()
+
+
+class _FakeEntryPoints(list):
+    def select(self, *, group, name):
+        return [entry for entry in self if entry.group == group and entry.name == name]
+
+
+def _set_entry_points(monkeypatch, *entries):
+    monkeypatch.setattr("reme.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
+
+
 def test_plugin_defaults_are_below_application_config():
-    manager = PluginManager([Plugin(name="example", config={"jobs": {"task": {"backend": "base", "value": 1}}})])
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={"jobs": {"task": {"backend": "base", "value": 1}}},
+            ),
+        ],
+    )
 
     merged = manager.merge_config({"jobs": {"task": {"value": 2}}})
 
@@ -102,25 +128,29 @@ def test_plugin_backend_collision_fails_with_both_owners():
 
 def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
     descriptor = Plugin(name="example", backends=(Backend("example_step", _PluginStep),))
-
-    class FakeEntryPoint:
-        name = "example"
-        value = "example:plugin"
-
-        @staticmethod
-        def load():
-            return descriptor
-
-    class FakeEntryPoints(list):
-        def select(self, *, group, name):
-            assert group == "reme.plugins"
-            return [entry for entry in self if entry.name == name]
-
-    monkeypatch.setattr("reme.plugin.metadata.entry_points", lambda: FakeEntryPoints([FakeEntryPoint()]))
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("example", "example:plugin", lambda: descriptor, "reme.plugins"),
+    )
 
     manager = PluginManager.discover(["example"])
 
     assert manager.plugins == (descriptor,)
+
+
+def test_plugin_manager_rejects_multiple_entry_point_providers(monkeypatch):
+    descriptor = Plugin(name="example")
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("example", "first:plugin", lambda: descriptor, "reme.plugins"),
+        _FakeEntryPoint("example", "second:plugin", lambda: descriptor, "reme.plugins"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Plugin 'example' has multiple installed providers: first:plugin, second:plugin",
+    ):
+        PluginManager.discover(["example"])
 
 
 def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_path):
@@ -129,21 +159,14 @@ def test_plugin_entry_point_import_side_effect_does_not_leak(monkeypatch, tmp_pa
 
     descriptor = Plugin(name="example")
 
-    class FakeEntryPoint:
-        name = "example"
-        value = "example:plugin"
+    def load_plugin():
+        R.register(UndeclaredClient, "undeclared-client")
+        return descriptor
 
-        @staticmethod
-        def load():
-            R.register(UndeclaredClient, "undeclared-client")
-            return descriptor
-
-    class FakeEntryPoints(list):
-        def select(self, *, group, name):
-            assert group == "reme.plugins"
-            return [entry for entry in self if entry.name == name]
-
-    monkeypatch.setattr("reme.plugin.metadata.entry_points", lambda: FakeEntryPoints([FakeEntryPoint()]))
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("example", "example:plugin", load_plugin, "reme.plugins"),
+    )
 
     app = Application(
         plugins=["example"],
@@ -175,24 +198,9 @@ def test_config_can_extend_another_config(tmp_path: Path):
 def test_config_can_come_from_installed_entry_point(tmp_path: Path, monkeypatch):
     config = tmp_path / "example.yaml"
     config.write_text("plugins: [example]\n", encoding="utf-8")
-    entry = EntryPoint(name="example", value="pathlib:Path", group="reme.configs")
-
-    class LoadedEntryPoint:
-        name = entry.name
-        value = entry.value
-
-        @staticmethod
-        def load():
-            return config
-
-    class FakeEntryPoints(list):
-        def select(self, *, group, name):
-            assert group == "reme.configs"
-            return [item for item in self if item.name == name]
-
-    monkeypatch.setattr(
-        "reme.config.config_parser.metadata.entry_points",
-        lambda: FakeEntryPoints([LoadedEntryPoint()]),
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("example", "example:CONFIG_PATH", lambda: config, "reme.configs"),
     )
 
     assert _load_config("example") == {"plugins": ["example"]}
@@ -205,23 +213,13 @@ def test_config_entry_point_import_side_effect_does_not_leak(tmp_path: Path, mon
     class UndeclaredClient(ComponentMixin):
         component_type = ComponentEnum.CLIENT
 
-    class LoadedEntryPoint:
-        name = "side-effect"
-        value = "example:CONFIG_PATH"
+    def load_config():
+        R.register(UndeclaredClient, "config-side-effect-client")
+        return config
 
-        @staticmethod
-        def load():
-            R.register(UndeclaredClient, "config-side-effect-client")
-            return config
-
-    class FakeEntryPoints(list):
-        def select(self, *, group, name):
-            assert group == "reme.configs"
-            return [item for item in self if item.name == name]
-
-    monkeypatch.setattr(
-        "reme.config.config_parser.metadata.entry_points",
-        lambda: FakeEntryPoints([LoadedEntryPoint()]),
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("side-effect", "example:CONFIG_PATH", load_config, "reme.configs"),
     )
 
     loaded = _load_config("side-effect")

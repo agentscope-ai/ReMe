@@ -16,6 +16,37 @@ from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager
 
 
+def _recording_client(seen, output="ok", base=object):
+    """Build an async client stub that records construction and calls."""
+
+    class RecordingClient(base):
+        """Async client stub backed by a shared call record."""
+
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def __call__(self, action: str, **kwargs):
+            seen["action"] = action
+            seen["payload"] = kwargs
+            yield output
+
+    return RecordingClient
+
+
+def _set_client_backend(monkeypatch, client_cls):
+    monkeypatch.setattr(
+        reme_module,
+        "create_application_registry",
+        lambda: SimpleNamespace(get=lambda component_type, backend: client_cls),
+    )
+
+
 def test_package_import_does_not_load_optional_core_dependencies():
     """The base package leaves optional core dependencies unloaded."""
     script = """
@@ -242,29 +273,7 @@ def test_cli_service_exits_nonzero_on_failed_response(capsys):
 def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
     """CLI helper forwards connection options to the selected client."""
     seen = {}
-
-    class FakeClient:
-        """Async client stub that records call arguments."""
-
-        def __init__(self, **kwargs):
-            seen["client_kwargs"] = kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
-            yield "ok"
-
-    monkeypatch.setattr(
-        reme_module,
-        "create_application_registry",
-        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
-    )
+    _set_client_backend(monkeypatch, _recording_client(seen))
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -288,29 +297,7 @@ def test_call_server_passes_client_kwargs_to_client(monkeypatch, capsys):
 def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
     """show_metadata controls client display and is not sent as a tool argument."""
     seen = {}
-
-    class FakeClient:
-        """Async client stub that records call arguments."""
-
-        def __init__(self, **kwargs):
-            seen["client_kwargs"] = kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
-            yield "ok"
-
-    monkeypatch.setattr(
-        reme_module,
-        "create_application_registry",
-        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
-    )
+    _set_client_backend(monkeypatch, _recording_client(seen))
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -327,29 +314,7 @@ def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
 def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
     """Shell-specific parameter names do not collide with client options."""
     seen = {}
-
-    class FakeClient:
-        """Async client stub that records shell request arguments."""
-
-        def __init__(self, **kwargs):
-            seen["client_kwargs"] = kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
-            yield "ok"
-
-    monkeypatch.setattr(
-        reme_module,
-        "create_application_registry",
-        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
-    )
+    _set_client_backend(monkeypatch, _recording_client(seen))
     monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
 
     async def run():
@@ -365,37 +330,29 @@ def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
 def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch, capsys):
     """A bare client call can load the Client backend enabled by the running app."""
     seen = {}
-
-    class PluginClient(ComponentMixin):
-        """Client backend supplied by an enabled plugin."""
-
-        component_type = ComponentEnum.CLIENT
-
-        def __init__(self, **kwargs):
-            super().__init__(**kwargs)
-            seen["client_kwargs"] = kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def __call__(self, action: str, **kwargs):
-            seen["action"] = action
-            seen["payload"] = kwargs
-            yield "plugin-ok"
+    plugin_client = _recording_client(seen, output="plugin-ok", base=ComponentMixin)
+    plugin_client.component_type = ComponentEnum.CLIENT
 
     manager = PluginManager(
         [
             Plugin(
                 name="example",
-                backends=(Backend("plugin-client", PluginClient),),
-                config={"service": {"backend": "plugin-client", "host": "127.0.0.9", "port": 9911}},
+                backends=(Backend("plugin-client", plugin_client),),
+                config={
+                    "service": {
+                        "backend": "plugin-client",
+                        "host": "127.0.0.9",
+                        "port": 9911,
+                    },
+                },
             ),
         ],
     )
-    monkeypatch.setattr(reme_module, "resolve_app_config", lambda **_kwargs: {"service": {"backend": "http"}})
+    monkeypatch.setattr(
+        reme_module,
+        "resolve_app_config",
+        lambda **_kwargs: {"service": {"backend": "http"}},
+    )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: {"plugins": ["example"]})
     monkeypatch.setattr(reme_module.PluginManager, "discover", lambda _specs: manager)
 
@@ -410,29 +367,8 @@ def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch
 
 def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, capsys):
     """A usable running config prevents eager parsing of the local fallback."""
-
-    class FakeClient:
-        """Minimal running-service client."""
-
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def __call__(self, action: str, **kwargs):
-            assert action == "version"
-            assert not kwargs
-            yield "ok"
-
-    monkeypatch.setattr(
-        reme_module,
-        "create_application_registry",
-        lambda: SimpleNamespace(get=lambda component_type, backend: FakeClient),
-    )
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
     monkeypatch.setattr(reme_module, "running_app_config", lambda: {"service": {"backend": "http"}})
 
     def fail_local_resolution(**_kwargs):
@@ -442,4 +378,6 @@ def test_call_server_skips_local_fallback_when_server_is_running(monkeypatch, ca
 
     asyncio.run(reme_module.call_server("version"))
 
+    assert seen["action"] == "version"
+    assert seen["payload"] == {}
     assert capsys.readouterr().out == "ok\n"

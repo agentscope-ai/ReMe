@@ -44,7 +44,7 @@ def test_builtin_and_external_config_name_collision_fails(monkeypatch):
             return [entry for entry in self if entry.name == name]
 
     monkeypatch.setattr(
-        "reme.config.config_parser.metadata.entry_points",
+        "reme.entry_point.metadata.entry_points",
         lambda: FakeEntryPoints([FakeEntryPoint()]),
     )
 
