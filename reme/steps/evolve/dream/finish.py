@@ -51,6 +51,7 @@ class DreamFinishStep(BaseStep):
         store_state(self, state)
         self.context.response.success = not state.errors
         self.context.response.answer = state.summary
+        self.context.response.metadata["modified"] = bool(state.modified_paths)
         self.logger.info(
             f"[{self.name}] finish success={self.context.response.success} "
             f"checkpointed={len(state.checkpoint_paths)} failed_units={len(state.failed_units)} "

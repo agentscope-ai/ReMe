@@ -94,9 +94,12 @@ class DreamTopicsStep(BaseStep):
                 "diversity_days": diversity_days,
                 "topics": topics,
             }
+            before_content = abs_path.read_bytes() if abs_path.is_file() else None
             self.logger.info(f"[{self.name}] write yaml start path={rel_path}")
             write_yaml(abs_path, payload)
             self.logger.info(f"[{self.name}] write yaml done path={rel_path}")
+            if before_content != abs_path.read_bytes() and rel_path not in state.modified_paths:
+                state.modified_paths.append(rel_path)
             self.logger.info(f"[{self.name}] refresh index start date={target_day} daily_dir={state.daily_dir}")
             await refresh_day_index(self.file_store, target_day, state.daily_dir)
             self.logger.info(f"[{self.name}] refresh index done date={target_day}")

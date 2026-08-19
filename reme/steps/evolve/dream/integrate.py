@@ -1,6 +1,7 @@
 """Dream unit integration step."""
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,9 +15,9 @@ from .utils import llm_available, pack_paths, parse_structured_reply, state_from
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
 
 
-def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, tuple[int, int]]:
-    """Capture all supported digest buckets for best-effort side-effect recovery."""
-    snapshot: dict[str, tuple[int, int]] = {}
+def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, str]:
+    """Capture digest content for side-effect recovery and notification semantics."""
+    snapshot: dict[str, str] = {}
     for bucket in DreamBucketEnum:
         root = workspace / digest_dir / bucket.value
         if not root.is_dir():
@@ -25,16 +26,24 @@ def _snapshot_digest(workspace: Path, digest_dir: str) -> dict[str, tuple[int, i
             if not path.is_file():
                 continue
             try:
-                stat = path.stat()
+                with path.open("rb") as file_obj:
+                    digest = hashlib.file_digest(file_obj, "sha256").hexdigest()
             except OSError:
                 continue
-            snapshot[path.relative_to(workspace).as_posix()] = (stat.st_mtime_ns, stat.st_size)
+            snapshot[path.relative_to(workspace).as_posix()] = digest
     return snapshot
 
 
-def _changed_digest_paths(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int]]) -> list[str]:
+def _changed_digest_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
     """Return files created or changed during one integration attempt."""
     return sorted(path for path, metadata in after.items() if before.get(path) != metadata)
+
+
+def _record_modified_paths(state, paths: list[str]) -> None:
+    """Record content changes once while preserving discovery order."""
+    for path in paths:
+        if path not in state.modified_paths:
+            state.modified_paths.append(path)
 
 
 @R.register("dream_integrate_step")
@@ -125,6 +134,7 @@ class DreamIntegrateStep(BaseStep):
                 )
             except Exception as e:  # noqa: BLE001
                 changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
                 if len(changed) == 1 and self._valid_target(
                     workspace,
@@ -164,6 +174,7 @@ class DreamIntegrateStep(BaseStep):
                     raise ValueError(f"invalid or missing digest target_path: {outcome.target_path!r}")
             except Exception as e:  # noqa: BLE001
                 changed = _changed_digest_paths(before, _snapshot_digest(workspace, digest_dir))
+                _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
                 if len(changed) == 1 and self._valid_target(
                     workspace,
@@ -193,6 +204,10 @@ class DreamIntegrateStep(BaseStep):
                 )
                 return
 
+            _record_modified_paths(
+                state,
+                _changed_digest_paths(unit_before, _snapshot_digest(workspace, digest_dir)),
+            )
             self._append_result(
                 state,
                 unit,

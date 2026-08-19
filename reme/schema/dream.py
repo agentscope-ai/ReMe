@@ -84,6 +84,10 @@ class DreamState(BaseModel):
     skipped_units: list[dict] = Field(default_factory=list)
     nodes_created: list[str] = Field(default_factory=list)
     nodes_updated: list[str] = Field(default_factory=list)
+    modified_paths: list[str] = Field(
+        default_factory=list,
+        description="Durable digest or interests files whose content changed during this run.",
+    )
     failed_units: list[dict] = Field(default_factory=list)
     failed_paths: list[str] = Field(default_factory=list)
     interests_path: str = ""
