@@ -196,3 +196,43 @@ def test_config_can_come_from_installed_entry_point(tmp_path: Path, monkeypatch)
     )
 
     assert _load_config("example") == {"plugins": ["example"]}
+
+
+def test_config_entry_point_import_side_effect_does_not_leak(tmp_path: Path, monkeypatch):
+    config = tmp_path / "side-effect.yaml"
+    config.write_text("service:\n  backend: cli\n", encoding="utf-8")
+
+    class UndeclaredClient(ComponentMixin):
+        component_type = ComponentEnum.CLIENT
+
+    class LoadedEntryPoint:
+        name = "side-effect"
+        value = "example:CONFIG_PATH"
+
+        @staticmethod
+        def load():
+            R.register(UndeclaredClient, "config-side-effect-client")
+            return config
+
+    class FakeEntryPoints(list):
+        def select(self, *, group, name):
+            assert group == "reme.configs"
+            return [item for item in self if item.name == name]
+
+    monkeypatch.setattr(
+        "reme.config.config_parser.metadata.entry_points",
+        lambda: FakeEntryPoints([LoadedEntryPoint()]),
+    )
+
+    loaded = _load_config("side-effect")
+    app = Application(
+        **loaded,
+        workspace_dir=str(tmp_path / "workspace"),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+    )
+
+    assert loaded == {"service": {"backend": "cli"}}
+    assert R.get(ComponentEnum.CLIENT, "config-side-effect-client") is None
+    assert app.context.registry.get(ComponentEnum.CLIENT, "config-side-effect-client") is None

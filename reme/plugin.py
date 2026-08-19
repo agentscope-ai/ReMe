@@ -8,8 +8,9 @@ from importlib import metadata
 from typing import Any
 
 from .components.base_component import ComponentMixin
-from .components.component_registry import ComponentRegistry, R
+from .components.component_registry import ComponentRegistry
 from .config import deep_merge_config, expand_env_vars
+from .entry_point import load_entry_point
 
 PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
 
@@ -45,14 +46,6 @@ class PluginManager:
     @classmethod
     def discover(cls, specs: Iterable[str]) -> "PluginManager":
         """Load explicitly enabled plugins by entry-point name."""
-        # Loading an entry point imports third-party code. Roll back any legacy
-        # ``@R.register`` side effects so only declared backends reach an app.
-        with R.preserve(allow_mutation=True):
-            return cls._discover(specs)
-
-    @classmethod
-    def _discover(cls, specs: Iterable[str]) -> "PluginManager":
-        """Load plugin descriptors while the global registry is protected."""
         plugins: list[Plugin] = []
         seen: set[str] = set()
         for name in specs:
@@ -68,8 +61,7 @@ class PluginManager:
             if len(entries) > 1:
                 providers = ", ".join(sorted(entry.value for entry in entries))
                 raise ValueError(f"Plugin '{name}' has multiple installed providers: {providers}")
-            loaded = entries[0].load()
-            plugin = loaded() if callable(loaded) and not isinstance(loaded, Plugin) else loaded
+            plugin = load_entry_point(entries[0], invoke=True)
             if not isinstance(plugin, Plugin):
                 raise TypeError(f"Plugin entry point '{name}' did not return reme.plugin.Plugin")
             if plugin.name != name:

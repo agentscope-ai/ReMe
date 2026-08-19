@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from ..entry_point import load_entry_point
+
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
 # Extensions in priority order: yaml > yml > json when stems collide
@@ -138,8 +140,7 @@ def _external_config_path(name: str, entries: list[metadata.EntryPoint] | None =
     if len(entries) > 1:
         providers = ", ".join(sorted(entry.value for entry in entries))
         raise ValueError(f"Config '{name}' has multiple installed providers: {providers}")
-    loaded = entries[0].load()
-    value = loaded() if callable(loaded) else loaded
+    value = load_entry_point(entries[0], invoke=True)
     path = Path(value)
     if path.suffix not in _SUPPORTED_EXTS or not path.is_file():
         raise ValueError(f"Config entry point '{name}' did not resolve to a YAML or JSON file")
