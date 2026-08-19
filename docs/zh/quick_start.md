@@ -39,6 +39,17 @@ EOF
 
 只跑基础文件读写和 BM25 检索，可以先不配。
 
+`LLM_BACKEND` 选择 `reme/components/as_llm` 中注册的 provider wrapper。除内置 provider（`openai`、`anthropic`、`deepseek`、`dashscope`、`gemini`、`moonshot`、`ollama`、`xai`）外，也可以接入兼容 OpenAI 协议的中转网关
+[OrcaRouter](https://www.orcarouter.ai)：
+
+```bash
+LLM_BACKEND=orcarouter
+LLM_MODEL_NAME=orcarouter/auto
+LLM_API_KEY=sk-orca-...
+```
+
+`LLM_BASE_URL` 可不填，缺省时默认 `https://api.orcarouter.ai/v1`。
+
 ---
 
 ## 启动
