@@ -1,6 +1,6 @@
 # ReMe 接入 Codex、DSH、OpenClaw、Claude Code 与 Hermes Agent 的方案
 
-> 状态：设计方案；DSH 适配器已完成首版，其余统一接入能力与宿主适配器尚未实施
+> 状态：设计方案；统一 TypeScript 包及 DSH、OpenClaw 适配器已完成首版，统一服务端接入能力尚未实施
 > 调研基线：ReMe、OpenViking、DSH 与 OpenClaw 的本地检出版本，以及 2026-08-19 的 Codex 官方文档
 
 ## 1. 结论
@@ -19,10 +19,9 @@
 ```text
 integrations/
   codex/reme/
-  dsh/
-  openclaw/
   claude_code/reme/       # 已有，增量升级
   hermes_agent/           # 已有，增量升级
+packages/typescript/      # @agentscope-ai/reme：共享客户端 + DSH/OpenClaw 适配器
 skills/
   reme_memory/            # 通用、无 hook 时的降级入口
 ```
@@ -264,7 +263,7 @@ compact/end/shutdown ──> agent_session_flush ─┤
 
 ### 5.1 Codex 插件
 
-建议目录：
+当前目录：
 
 ```text
 integrations/codex/reme/
@@ -299,20 +298,19 @@ integrations/codex/reme/
 
 ### 5.2 DSH bundle
 
-建议目录：
+当前目录：
 
 ```text
-integrations/dsh/
+packages/typescript/
   package.json
-  cordis.patch.yml
-  index.mjs
-  client.mjs
-  runtime.mjs
-  tools.mjs
-  *.test.mjs
+  dsh/cordis.patch.yml
+  src/core/
+  src/dsh/
+  src/openclaw/
+  tests/
 ```
 
-事件映射：
+统一服务端契约完成后的目标事件映射：
 
 | DSH 事件 | ReMe 行为 |
 | --- | --- |
@@ -323,40 +321,42 @@ integrations/dsh/
 | `session/flush` | 等待本地 append 队列排空，再 enqueue flush |
 | `ctx.effect` | dispose session runtime 和网络资源 |
 
-显式工具第一版只注册只读工具：`reme_search`、`reme_read`、`reme_traverse`、`reme_daily_list`。写入工具可提供 `reme_remember`，但必须明确描述其持久副作用；不默认暴露删除工具。
+当前兼容版只注册 `reme_search`，并继续使用 `auto_memory`、客户端批处理和 DSH 进程中的 `auto_dream`。统一服务端契约完成后再迁移到上表的 append/flush 与自动召回路径，并增补 `reme_read`、`reme_traverse`、`reme_daily_list`；写入工具可提供 `reme_remember`，但必须明确描述其持久副作用，不默认暴露删除工具。
 
 安装目标：
 
 ```bash
-dsh plugin --profile default add @agentscope-ai/reme-dsh-memory
+dsh plugin --profile web add @agentscope-ai/reme
 ```
 
-实现和测试以本地 DSH rc.7 为准，peerDependencies 使用已验证的精确 prerelease 范围；升级 DSH 时由 CI matrix 显式放开，不自动假定兼容。
+实现和测试以本地 DSH rc.8 为准，peerDependencies 使用已验证的 prerelease 范围；升级 DSH 时由 CI matrix 显式放开，不自动假定兼容。
 
 ### 5.3 OpenClaw memory plugin
 
-建议目录：
+当前 OpenClaw 入口与 DSH 入口从同一包发布：
 
 ```text
-integrations/openclaw/
+packages/typescript/
   openclaw.plugin.json
   package.json
-  index.ts
-  client.ts
-  config.ts
-  setup.ts
+  src/openclaw/index.ts
+  src/openclaw/config.ts
+  src/openclaw/messages.ts
+  src/openclaw/runtime.ts
+  src/openclaw/tools.ts
   tests/
 ```
 
-第一版使用当前本地 OpenClaw 已有接口：
+当前兼容版使用本地 OpenClaw `2026.3.12` 已有接口：
 
 - manifest：`id: "reme"`、`kind: "memory"`；
 - `before_agent_start`：调用 recall，返回 `prependContext`；
-- `agent_end`：从 messages 提取本轮 user/assistant 内容，append 后 enqueue flush；
-- `registerTool`：提供 search/read/traverse/remember；
-- `registerCli`：提供 `openclaw reme setup|status`；
-- config schema：endpoint、recall limit/timeout、autoRecall、autoCapture、scope、flush policy；
-- API key 暂不加入，直到 ReMe 服务端有正式鉴权契约。本地模式默认 loopback。
+- `agent_end`：从 messages 提取最后一组 user/assistant 内容，在串行后台队列中调用兼容 `auto_memory`；
+- `registerTool`：提供 `reme_search`；
+- config schema：endpoint、recall limit/score、timeout、autoRecall、autoCapture 与可选 API key；
+- `registerService.stop`：在关闭预算内排空写入，超时则取消请求。
+
+统一服务端契约完成后，capture 改用 append/flush，并另行增加 read/traverse/remember、setup/status 与持久重试；这些尚未由当前兼容版承诺。
 
 不要在第一版复制 OpenViking 的 context engine、peer 多租户、recall trace、tool-result store 和动态 query config。它们会显著扩大范围，也与 ReMe 以 workspace 文件为事实来源的模型不一致。
 
@@ -506,7 +506,7 @@ CI 建议分层：
 1. `gateway` 是新增 backend，还是扩展现有 `http`。本方案推荐新增 backend，兼容性最好。
 2. `agent_session_flush` 是“只 enqueue”还是允许 `wait=true`。本方案推荐默认只 enqueue，CLI 手工调试可显式等待。
 3. daily note 是每 session 一份还是按主题拆分。第一版继续沿用 `AutoMemoryStep` 当前的一 session note 语义，避免改变用户文件布局。
-4. 插件包命名空间。建议统一 `@agentscope-ai/reme-*`，最终以现有 npm/PyPI 发布权限为准。
+4. TypeScript 插件包使用 `@agentscope-ai/reme`，通过根入口、`/dsh` 和 `/openclaw` 隔离共享客户端与宿主代码。
 
 ### 已建议不做
 

@@ -1,0 +1,54 @@
+{
+  "id": "reme",
+  "name": "ReMe",
+  "description": "ReMe file-native long-term memory",
+  "kind": "memory",
+  "uiHints": {
+    "endpoint": {
+      "label": "ReMe endpoint",
+      "placeholder": "http://127.0.0.1:2333"
+    },
+    "apiKey": {
+      "label": "ReMe API key",
+      "sensitive": true,
+      "advanced": true
+    },
+    "autoRecall": {
+      "label": "Auto recall"
+    },
+    "autoCapture": {
+      "label": "Auto capture"
+    },
+    "recallLimit": {
+      "label": "Recall limit",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": { "type": "string" },
+      "apiKey": { "type": "string" },
+      "requestTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000
+      },
+      "backgroundTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 3600000
+      },
+      "shutdownTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 60000
+      },
+      "autoCapture": { "type": "boolean" },
+      "autoRecall": { "type": "boolean" },
+      "recallLimit": { "type": "integer", "minimum": 1, "maximum": 50 },
+      "recallMinScore": { "type": "number", "minimum": 0 }
+    }
+  }
+}
