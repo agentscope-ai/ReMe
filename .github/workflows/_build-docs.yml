@@ -51,6 +51,6 @@ jobs:
 
       - name: Upload Pages artifact
         if: inputs.upload_pages_artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: github-pages/dist
