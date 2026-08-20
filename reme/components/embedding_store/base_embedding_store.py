@@ -69,7 +69,7 @@ class BaseEmbeddingStore(BaseComponent):
 
     @abstractmethod
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
-        """Get embeddings for texts."""
+        """Get embeddings; cache hits must not change is_healthy."""
 
     def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
         """Return whether an embedding matches the configured model dimension."""
