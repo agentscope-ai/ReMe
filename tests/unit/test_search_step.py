@@ -667,6 +667,45 @@ def test_plain_search_steps_all_deduped_shows_all_returned_message():
     asyncio.run(run())
 
 
+def test_search_step_and_range_dedup_states_coexist_in_both_call_orders():
+    """Chunk-id and range dedup keep independent state in a shared tool context."""
+
+    async def run_order(search_first: bool):
+        chunk = _chunk("a", "daily/a.md", "first", "keyword", 5.0)
+        shared_tool_contexts: dict = {}
+        search = SearchStep(
+            file_store=FakeSearchStore(keyword_results=[chunk]),
+            tool_contexts=shared_tool_contexts,
+            vector_weight=0,
+            expand_links=False,
+        )
+        bm25 = Bm25SearchStep(
+            file_store=FakeSearchStore(keyword_results=[chunk]),
+            tool_contexts=shared_tool_contexts,
+            include_source=False,
+        )
+        ordered_steps = (search, bm25) if search_first else (bm25, search)
+
+        for step in ordered_steps:
+            first = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
+            assert [result["id"] for result in first.metadata["results"]] == ["a"]
+
+        state = shared_tool_contexts["ctx-1"]
+        assert set(state) == {"search_seen_chunk_ids", "search_seen_chunk_ranges"}
+        assert set(state["search_seen_chunk_ids"]) == {"a"}
+        assert set(state["search_seen_chunk_ranges"]) == {"daily/a.md"}
+
+        for step in ordered_steps:
+            second = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
+            assert second.metadata["results"] == []
+
+    async def run():
+        await run_order(search_first=True)
+        await run_order(search_first=False)
+
+    asyncio.run(run())
+
+
 def test_search_steps_no_results_shows_no_results_message():
     """When there are no results at all (before dedup), the answer explains that nothing was found."""
 
