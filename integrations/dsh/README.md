@@ -12,7 +12,7 @@ plugin does not copy or rewrite those files.
 
 ## Requirements
 
-- DeepSeek Harness `0.1.0-rc.7`
+- DeepSeek Harness `0.1.0-rc.7` or later compatible `0.1.x` release
 - Node.js `^22.19.0` or `>=24`
 - A running ReMe HTTP service with the `search`, `auto_memory`, and `auto_dream` jobs enabled
 

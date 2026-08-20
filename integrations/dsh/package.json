@@ -30,8 +30,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.7"
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-llm": "0.1.0-rc.7",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { apply } from "./dist/index.js";
 
-test("composes the root-agent guidance and reme_search tool on DSH rc.7", async () => {
+test("composes root-agent guidance and reme_search on supported DSH releases", async () => {
   const handlers = new Map();
   const tools = [];
   const cleanups = [];

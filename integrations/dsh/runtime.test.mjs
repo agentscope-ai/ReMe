@@ -52,6 +52,36 @@ test("requeues failed auto-memory batches and flushes them on disposal", async (
   assert.equal(runtime.states.has(session.id), false);
 });
 
+test("retries an in-flight failed batch before disposal completes", async () => {
+  let attempts = 0;
+  let markStarted;
+  let releaseFirst;
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const firstRequest = new Promise(resolve => { releaseFirst = resolve; });
+  const client = {
+    async autoMemory() {
+      attempts += 1;
+      if (attempts === 1) {
+        markStarted();
+        await firstRequest;
+        return { ok: false, error: "offline" };
+      }
+      return { ok: true };
+    },
+  };
+  const runtime = new ReMeRuntime(client, { ...CONFIG, autoMemoryInterval: 1 }, silentLogger());
+  const session = { id: "in-flight-retry-session" };
+  completeTurn(runtime, session, 1, 10);
+  await started;
+
+  const disposal = runtime.dispose(session);
+  releaseFirst();
+  await disposal;
+
+  assert.equal(attempts, 2);
+  assert.equal(runtime.states.has(session.id), false);
+});
+
 test("runs only one auto-dream task at a time", async () => {
   let calls = 0;
   let release;

@@ -147,6 +147,7 @@ export class ReMeRuntime {
   async dispose(session: DshSession): Promise<void> {
     const state = this.states.get(session.id);
     if (!state) return;
+    await state.writes;
     this.scheduleAutoMemory(state, true);
     await state.writes;
     this.states.delete(session.id);
