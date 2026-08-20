@@ -53,7 +53,7 @@ export function resolveOpenClawConfig(
     stringValue(input.endpoint) ||
     env.REME_URL ||
     `http://${env.REME_HOST || "127.0.0.1"}:${env.REME_PORT || "2333"}`;
-  const normalizedEndpoint = endpoint.replace(/\/+$/, "");
+  const normalizedEndpoint = stripTrailingSlashes(endpoint);
   const url = new URL(normalizedEndpoint);
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
@@ -105,6 +105,12 @@ function integer(
     minimum,
     Math.min(maximum, Math.round(finite(value, fallback))),
   );
+}
+
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
 }
 
 function finite(value: unknown, fallback: number): number {

@@ -91,7 +91,7 @@ export function resolveConfig(
       input.dreamCron || env.REME_DSH_DREAM_CRON || DEFAULT_CONFIG.dreamCron,
   };
 
-  config.endpoint = String(config.endpoint).replace(/\/+$/, "");
+  config.endpoint = stripTrailingSlashes(String(config.endpoint));
   assertEndpoint(config.endpoint);
   config.requestTimeoutMs = integer(
     config.requestTimeoutMs,
@@ -171,6 +171,12 @@ function assertEndpoint(value: string): void {
   if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
     throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
   }
+}
+
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return value.slice(0, end);
 }
 
 function integer(
