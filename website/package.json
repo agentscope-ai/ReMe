@@ -51,7 +51,7 @@
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vinext": "1.0.0-beta.2",
+    "vinext": "1.0.0-beta.6",
     "vite": "8.2.1",
     "wrangler": "4.121.0"
   },
