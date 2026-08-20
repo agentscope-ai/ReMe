@@ -252,6 +252,11 @@ class FaissLocalFileStore(LocalFileStore):
             self._add_to_index([c.id for c in to_add], vectors)
         self._compact_if_needed()
 
+    async def _reset_vector_index(self) -> None:
+        """Discard all vectors before rebuilding a changed vector space."""
+        await self._stop_reindex_worker()
+        self._rebuild_index()
+
     # -- async reindex ----------------------------------------------------
 
     def _submit_reindex(self) -> None:
@@ -626,8 +631,9 @@ class FaissLocalFileStore(LocalFileStore):
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         index_empty = self._faiss_index is None or self._faiss_index.ntotal == 0
+        embedding_unavailable = self.embedding_store is None or self._embedding_rebuild_pending
         if (
-            self.embedding_store is None
+            embedding_unavailable
             or not query
             or limit <= 0
             or (index_empty and getattr(self.embedding_store, "is_healthy", True))
@@ -646,7 +652,7 @@ class FaissLocalFileStore(LocalFileStore):
                     f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
                 )
             return []
-        self._recover_after_real_request(was_healthy)
+        await self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() drops the
         # index to None once embedding is disabled, and a reindex may have swapped

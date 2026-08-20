@@ -68,6 +68,7 @@ class CountingFakeEmbeddingStore(FakeEmbeddingStore):
 
     def __init__(self):
         self.node_embedding_calls: list[list[str]] = []
+        self.is_healthy = True
 
     async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
         self.node_embedding_calls.append([node.id for node in nodes])
@@ -128,6 +129,44 @@ class BlockingEmbeddingStore(FakeEmbeddingStore):
         self.started.set()
         await self.release.wait()
         return await super().get_node_embeddings(nodes, **kwargs)
+
+
+class CancellationResistantHealthStore(CountingFakeEmbeddingStore):
+    """Startup probe that completes stale after cancellation is requested."""
+
+    def __init__(self):
+        super().__init__()
+        self.is_healthy = True
+        self.health_started = asyncio.Event()
+        self.release_health = asyncio.Event()
+
+    async def health_check(self, _timeout: float = 2.0) -> bool:
+        self.health_started.set()
+        try:
+            await self.release_health.wait()
+        except asyncio.CancelledError:
+            await self.release_health.wait()
+        self.is_healthy = False
+        return False
+
+
+class DelayedOldVectorStore(CountingFakeEmbeddingStore):
+    """First batch returns an old-space vector after rebuild was requested."""
+
+    def __init__(self):
+        super().__init__()
+        self.first_batch_started = asyncio.Event()
+        self.release_first_batch = asyncio.Event()
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
+        self.node_embedding_calls.append([node.id for node in nodes])
+        if len(self.node_embedding_calls) == 1:
+            self.first_batch_started.set()
+            await self.release_first_batch.wait()
+            for chunk_node in nodes:
+                chunk_node.embedding = np.array([0.0, 1.0], dtype=np.float16)
+            return nodes
+        return await FakeEmbeddingStore.get_node_embeddings(self, nodes)
 
 
 class WrongDimEmbeddingStore(FakeEmbeddingStore):
@@ -648,6 +687,101 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
             assert store.embedding_store is fake
             assert fake.is_healthy is False
             assert store.file_chunks["a"].embedding is None
+            await store.close()
+
+    run(go())
+
+
+def test_verified_resume_supersedes_inflight_startup_health_check():
+    """A stale startup probe cannot consume or overwrite verified recovery."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_embedding_verified_resume_race")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            fake = CancellationResistantHealthStore()
+            store.embedding_store = fake
+            store._start_embedding_backfill()
+            startup_task = store._embedding_backfill_task
+            await fake.health_started.wait()
+
+            recovery = asyncio.create_task(store.resume_embedding(verified=True))
+            await asyncio.sleep(0)
+            assert await recovery is True
+            assert store._embedding_backfill_pending == (True, False)
+            fake.release_health.set()
+
+            await startup_task
+            assert store._embedding_backfill_task is not startup_task
+            if store._embedding_backfill_task is not None:
+                await store._embedding_backfill_task
+            assert fake.is_healthy is True
+            assert fake.node_embedding_calls == [["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_verified_rebuild_discards_same_dimension_vectors_before_backfill(store_factory):
+    """A changed vector space never searches compatible-shaped stale vectors."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_embedding_verified_rebuild")
+            await store.start()
+            stale = chunk("a", "a.md", "alpha text")
+            stale.embedding = np.array([0.0, 1.0], dtype=np.float16)
+            await set_chunks_with_graph(store, {"a": stale})
+            fake = CountingFakeEmbeddingStore()
+            fake.is_healthy = False
+            store.embedding_store = fake
+            if isinstance(store, FaissLocalFileStore):
+                store._rebuild_index()
+            elif isinstance(store, ZvecLocalFileStore):
+                store._rebuild_collection()
+
+            assert await store.resume_embedding(verified=True, rebuild=True) is True
+            assert store._embedding_rebuild_pending is True
+            assert store.file_chunks["a"].embedding is None
+            assert await store.vector_search("alpha", 5, {}) == []
+
+            await store._embedding_backfill_task
+            assert store._embedding_rebuild_pending is False
+            assert fake.node_embedding_calls == [["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert [item.id for item in await store.vector_search("alpha", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
+def test_verified_rebuild_discards_late_result_from_previous_vector_space():
+    """A queued rebuild clears old-space vectors written by an in-flight batch."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_embedding_verified_rebuild_race")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            fake = DelayedOldVectorStore()
+            store.embedding_store = fake
+            store._start_embedding_backfill(skip_health_check=True)
+            old_task = store._embedding_backfill_task
+            await fake.first_batch_started.wait()
+
+            assert await store.resume_embedding(verified=True, rebuild=True) is True
+            assert store._embedding_backfill_pending == (True, True)
+            fake.release_first_batch.set()
+
+            await old_task
+            if store._embedding_backfill_task is not None:
+                await store._embedding_backfill_task
+            assert fake.node_embedding_calls == [["a"], ["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert store._embedding_rebuild_pending is False
             await store.close()
 
     run(go())

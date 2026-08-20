@@ -109,6 +109,9 @@ file_store:
 Embedding store 可通过 `health_check_timeout` 配置启动探测。临时失败只会跳过本次向量回填，BM25 仍可使用；
 后续真实请求成功后会自动恢复缺失向量的回填。
 
+已经完成真实服务验证的嵌入式集成可以调用 `resume_embedding(verified=True)`。切换 Embedding 向量空间时应同时传入
+`rebuild=True`；ReMe 会先使旧向量失效，再串行后台重建，并在新向量安全持久化前暂停向量搜索。
+
 ## 怎么搜索
 
 `search` Job 也是在 `default.yaml` 中配置：
