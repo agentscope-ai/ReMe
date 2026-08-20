@@ -3,7 +3,6 @@
 from .extract import DreamExtractStep
 from .finish import DreamFinishStep
 from .integrate import DreamIntegrateStep
-from .proactive import ProactiveStep
 from .topics import DreamTopicsStep
 
 __all__ = [
@@ -11,5 +10,4 @@ __all__ = [
     "DreamFinishStep",
     "DreamIntegrateStep",
     "DreamTopicsStep",
-    "ProactiveStep",
 ]

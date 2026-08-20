@@ -14,7 +14,7 @@ from reme.components.runtime_context import RuntimeContext
 from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
-from reme.steps.evolve.dream.proactive import ProactiveStep
+from reme.steps.evolve.proactive.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
 
@@ -332,7 +332,7 @@ def test_proactive_keeps_skipped_and_error_answers_explicit(tmp_path):
         assert skipped.metadata["skipped"] is True
 
         _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", "topics: []\n")
-        with patch("reme.steps.evolve.dream.proactive.load_yaml_topics", side_effect=ValueError("bad topics")):
+        with patch("reme.steps.evolve.proactive.proactive.load_yaml_topics", side_effect=ValueError("bad topics")):
             failed = await step(RuntimeContext(date="2026-05-28", file_store=_FileStore(tmp_path)))
 
         assert failed.success is False

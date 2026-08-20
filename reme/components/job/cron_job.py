@@ -35,7 +35,7 @@ class CronJob(BackgroundJob):
         return max(0.0, (nxt - now).total_seconds())
 
     async def _execute_steps(self) -> Response:
-        context = RuntimeContext(**self.kwargs)
+        context = RuntimeContext(stop_event=self._stop_event, **self.kwargs)
         for step in self._build_steps():
             await step(context)
         return context.response
@@ -46,11 +46,13 @@ class CronJob(BackgroundJob):
             await self._wait_or_stop(self._next_fire_delay())
             if self._stop_event.is_set():
                 break
+            self._record_call()
             try:
-                self._record_call()
                 await self._execute_steps()
             except Exception as exc:
                 self.logger.exception(f"Cron job '{self.name}' failed: {exc}")
+            finally:
+                self._finish_call()
         response = Response()
         response.success = True
         return response

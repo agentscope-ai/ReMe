@@ -74,6 +74,30 @@ jobs:
     steps:
       - backend: optimize_index_step
 
+  proactive_refresh_cron:
+    backend: cron
+    cron: "0 3,9,15,21 * * *"      # avoids 23:00 dream_cron and 02:00 optimize_index_cron
+    steps:
+      - backend: wait_for_idle_step
+        skip_key: proactive_skip
+      - backend: proactive_extract_step
+        file_catalog: proactive
+        agent_wrapper: proactive
+        scan_days: 2
+        resource_lookback_days: 7
+        max_resource_files: 20
+        carry_forward_days: 14
+        max_carry_forward_topics: 20
+        llm_timeout_seconds: 300
+        max_chars_per_file: 60000
+      - backend: proactive_topics_step
+        known_threshold: 0.85
+        known_threshold_calibrated_for: text-embedding-v4@1024
+        min_push_confidence: 0.5
+        max_topics: 10
+      - backend: proactive_finish_step
+        file_catalog: proactive
+
   auto_dream:
     backend: base
     description: "Auto-dream: scan today's day-index and daily notes, globally extract merged units/topics, integrate digest units, write interests.yaml, and persist the dream catalog."
@@ -199,8 +223,17 @@ jobs:
           type: boolean
           description: "whether to include the raw YAML content in the response answer and metadata"
           default: true
+        horizon_days:
+          type: integer
+          description: "merge interests.yaml across this many recent days (1 = single-day legacy behaviour)"
+          default: 1
+        min_confidence:
+          type: number
+          description: "minimum topic confidence to return (default 0.4 sits safely below the 0.5 fallback; v1 topics fall back to 0.5)"
+          default: 0.4
     steps:
       - backend: proactive_step
+        min_confidence: 0.4
 
   version:
     backend: base
@@ -735,6 +768,7 @@ components:
 #        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
 #      parameters: { }
 #
+
 #  embedding_store:
 #    default:
 #      backend: local
@@ -765,6 +799,14 @@ components:
         trigger_ratio: 0.8
         reserve_ratio: 0.1
         tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+    proactive:
+      backend: agentscope
+      as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 5
       model_config:
         max_retries: 1
     claude_code:
@@ -801,6 +843,8 @@ components:
     digest:
       backend: local
     dream:
+      backend: local
+    proactive:
       backend: local
 
   file_chunker:

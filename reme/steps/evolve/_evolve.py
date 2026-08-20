@@ -5,6 +5,8 @@ import zoneinfo
 
 from agentscope.message import Msg
 
+from ...schema import Response
+
 
 def now(timezone: str | None = None) -> datetime.datetime:
     """Return current datetime in the given IANA timezone, falling back to local."""
@@ -40,3 +42,22 @@ def agent_reply_result_text(reply_result: dict) -> str:
                 if text:
                     return text
     return str(reply_result.get("result") or "").strip()
+
+
+def passthrough_response(step, skip_key: str) -> Response:
+    """Return a success response when a short-circuit flag is set (INV-7).
+
+    Short-circuited rounds never write interests.yaml or checkpoint catalogs;
+    the job still reports success so the skipped round is not counted as a failure.
+    """
+    assert step.context is not None
+    response = step.context.response
+    response.success = True
+    flag = step.context.get(skip_key)
+    if isinstance(flag, dict):
+        reason = str(flag.get("reason") or "skipped")
+    else:
+        reason = str(flag or "skipped")
+    response.answer = f"Skipped: {reason}"
+    step.logger.info(f"[{step.name}] short-circuit via {skip_key!r} reason={reason}")
+    return response

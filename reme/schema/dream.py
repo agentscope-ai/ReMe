@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 
 from ..enumeration import DreamBucketEnum
 
+# ProactiveResult moved to reme.schema.proactive; re-exported for import compatibility.
+from .proactive import ProactiveResult  # noqa: F401  # pylint: disable=unused-import
+
 
 class DreamUnit(BaseModel):
     """One cross-file memory unit emitted by global extract."""
@@ -45,18 +48,6 @@ class TopicSelectionOutput(BaseModel):
     """Structured output for daily topic selection."""
 
     topics: list[DreamTopic] = Field(default_factory=list)
-
-
-class ProactiveResult(BaseModel):
-    """Result of reading daily interest topics."""
-
-    date: str = ""
-    path: str = ""
-    topics: list[dict] = Field(default_factory=list)
-    content: str = ""
-    skipped: bool = False
-    error: str = ""
-    summary: str = ""
 
 
 class DreamState(BaseModel):

@@ -1,5 +1,6 @@
 """Base job component for sequential step execution."""
 
+import time
 from typing import TYPE_CHECKING
 
 from ..base_component import BaseComponent
@@ -59,10 +60,27 @@ class BaseJob(BaseComponent):
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
     def _record_call(self) -> None:
-        """Increment this job's application-lifetime call counter."""
+        """Increment this job's application-lifetime call counter and mark it running.
+
+        ``__job_last_run`` feeds the idle gate (``wait_for_idle_step``): metadata
+        is process-local, so a restart always leaves every job looking idle.
+        """
         metadata = getattr(self.app_context, "metadata", None)
         if isinstance(metadata, dict):
             global_counter_inc(metadata, ["__job_counter", self.name])
+            last_run = metadata.setdefault("__job_last_run", {})
+            entry = dict(last_run.get(self.name) or {})
+            entry.update(running=True, last_start=time.monotonic())
+            last_run[self.name] = entry
+
+    def _finish_call(self) -> None:
+        """Mark this job's run as finished for the idle gate."""
+        metadata = getattr(self.app_context, "metadata", None)
+        if isinstance(metadata, dict):
+            last_run = metadata.setdefault("__job_last_run", {})
+            entry = dict(last_run.get(self.name) or {})
+            entry.update(running=False, last_end=time.monotonic())
+            last_run[self.name] = entry
 
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
@@ -76,4 +94,6 @@ class BaseJob(BaseComponent):
             self.logger.exception(f"Failed to execute job: {e}")
             context.response.success = False
             context.response.answer = str(e)
+        finally:
+            self._finish_call()
         return context.response

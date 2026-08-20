@@ -1,0 +1,255 @@
+"""Proactive refresh extract step: material scan + follow_ups/extends/updates (F2.0-F2.3)."""
+
+import asyncio
+import json
+import time
+
+from ...base_step import BaseStep
+from .._evolve import agent_reply_result_text, passthrough_response
+from ....components import R
+from ....schema import ProactiveState
+from ..dream.utils import daily_dir, pack_paths, today, workspace_dir
+from .utils import (
+    clean_candidate,
+    current_now,
+    load_carry_forward,
+    load_state,
+    parse_extract_reply,
+    resolve_agent_wrapper,
+    scan_material_daily,
+    scan_material_resource,
+)
+
+_EXTRACT_SECTIONS = ("follow_ups", "extends", "updates")
+
+
+@R.register("proactive_extract_step")
+class ProactiveExtractStep(BaseStep):
+    """Scan the proactive material set and extract follow-ups, extends and updates.
+
+    Owns the ``proactive`` catalog watermark (never touches the dream catalog)
+    and the daily LLM budget. Short-circuits via ``context[skip_key]`` on
+    busy/budget/timeout per F4.3; early-exits with zero LLM calls when no new
+    evidence exists (F2.0).
+    """
+
+    def __init__(
+        self,
+        scan_days: int = 2,
+        resource_lookback_days: int = 7,
+        max_resource_files: int = 20,
+        carry_forward_days: int = 14,
+        max_carry_forward_topics: int = 20,
+        llm_timeout_seconds: float = 300,
+        max_chars_per_file: int = 60000,
+        extends_enabled: bool = True,
+        skip_key: str = "proactive_skip",
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.scan_days = max(int(scan_days), 1)
+        self.resource_lookback_days = max(int(resource_lookback_days), 0)
+        self.max_resource_files = max(int(max_resource_files), 0)
+        self.carry_forward_days = max(int(carry_forward_days), 1)
+        self.max_carry_forward_topics = max(int(max_carry_forward_topics), 0)
+        self.llm_timeout_seconds = float(llm_timeout_seconds)
+        self.max_chars_per_file = max(int(max_chars_per_file), 1000)
+        self.extends_enabled = bool(extends_enabled)
+        self.skip_key = skip_key
+
+    async def execute(self):
+        assert self.context is not None
+        if self.context.get(self.skip_key):
+            return passthrough_response(self, self.skip_key)
+        started = time.monotonic()
+        day = today(self, str(self.context.get("date", "") or ""))
+        now_dt = current_now(self)
+        ws = workspace_dir(self)
+        daily = daily_dir(self)
+        if self.file_catalog is None:
+            raise RuntimeError("proactive_extract_step requires file_catalog")
+        state = ProactiveState(
+            date=day,
+            daily_dir=daily,
+            workspace=str(ws),
+            scan_days=self.scan_days,
+            carry_forward_days=self.carry_forward_days,
+        )
+        self.logger.info(f"[{self.name}] start date={day} scan_days={self.scan_days} extends={self.extends_enabled}")
+
+        # 1) Material set M (F2.0) - all cheap, before any LLM work.
+        m_daily = scan_material_daily(ws, day, daily, self.scan_days)
+        m_resource = scan_material_resource(ws, self.resource_lookback_days, self.max_resource_files, now_dt)
+        state.material_paths = list(dict.fromkeys(m_daily + m_resource))
+
+        # 2) Truth source + carry-forward (F1.3/F1.4).
+        state_file, needs_bootstrap = load_state(ws, daily)
+        carry_all, carry_prompt = await load_carry_forward(
+            ws,
+            state_file,
+            day,
+            self.carry_forward_days,
+            self.max_carry_forward_topics,
+            daily,
+            needs_bootstrap,
+        )
+        state.carry_forward_all = carry_all
+        state.carry_forward_prompt = carry_prompt
+
+        # 3) Change detection against the proactive catalog watermark.
+        # Resources share the same watermark (v5.1): an upload only TRIGGERS in
+        # the first round that sees it, so an unchanged resource cannot keep
+        # firing LLM rounds for the whole lookback.
+        existing = {}
+        for rel in dict.fromkeys(m_daily + m_resource):
+            try:
+                existing[rel] = (ws / rel).stat().st_mtime
+            except OSError as e:
+                self.logger.error(f"[{self.name}] stat failed on {rel}: {e}")
+        nodes = await self.file_catalog.get_nodes()
+        indexed = {n.path: n.st_mtime for n in nodes}
+        state.changed_paths = [rel for rel, mt in existing.items() if indexed.get(rel) != mt]
+        # Trigger vs context (v5.2): the watermark diff alone decides whether the
+        # round fires (a resource consumed once cannot keep firing rounds), but a
+        # fired round keeps the full recent-resource window in the blob so delayed
+        # associations (survey uploaded today, discussion next week) remain
+        # discoverable by the extends branch.
+        state.resource_paths = m_resource
+        self.logger.info(
+            f"[{self.name}] material daily={len(m_daily)} resource={len(m_resource)} "
+            f"changed={len(state.changed_paths)} carry_forward={len(carry_all)}",
+        )
+
+        # 4) Zero-consumption early exit (A4 row 1).
+        if not state.changed_paths:
+            state.early_exit = "no_new_evidence"
+            return self._finish(state, started, "Skipped: no new evidence; 0 LLM calls")
+
+        # 5) LLM channel (F4.4): structurally one reply per round plus at most
+        # one parse-failure retry, so no persistent budget is needed (v5 R5).
+        wrapper = resolve_agent_wrapper(self)
+        if wrapper is None:
+            state.early_exit = "no_agent_wrapper"
+            self.logger.warning(f"[{self.name}] no agent_wrapper available; skipping round")
+            return self._finish(state, started, "Skipped: no agent_wrapper configured")
+
+        # 6) One LLM call with sectioned output (A3); retry once on parse failure.
+        meta = await self._extract_with_retry(wrapper, state, ws, day)
+        if meta is None:
+            self.context[self.skip_key] = {"reason": "llm_timeout"}
+            self._store(state)
+            return passthrough_response(self, self.skip_key)
+        self._clean_output(state, meta, set(state.material_paths), day)
+        answer = (
+            f"Extracted {len(state.follow_ups)} follow_up(s), {len(state.extends)} extend(s), "
+            f"{len(state.updates)} update(s) from {len(state.changed_paths)} changed file(s)"
+        )
+        return self._finish(state, started, answer)
+
+    def _build_messages(self, state: ProactiveState, ws, day: str, material_blob: str) -> tuple[str, str]:
+        carry_forward_json = json.dumps(
+            [
+                {
+                    "id": t.id,
+                    "title": t.title,
+                    "kind": t.kind,
+                    "confidence": t.confidence,
+                    "reason": t.reason,
+                    "last_evidence_at": t.last_evidence_at,
+                    "evidence": t.evidence,
+                }
+                for t in state.carry_forward_prompt
+            ],
+            ensure_ascii=False,
+        )
+        changed = list(dict.fromkeys(state.changed_paths + state.resource_paths))
+        user_message = self.prompt_format(
+            "extract_user_message",
+            date=day,
+            changed_paths_json=json.dumps(changed, ensure_ascii=False),
+            carry_forward_json=carry_forward_json,
+            material_blob=material_blob,
+            extends=self.extends_enabled,
+        )
+        system_prompt = self.prompt_format(
+            "extract_system_prompt",
+            workspace_dir=str(ws),
+            extends=self.extends_enabled,
+        )
+        return user_message, system_prompt
+
+    async def _extract_with_retry(self, wrapper, state, ws, day: str) -> dict | None:
+        """Returns parsed meta; None means LLM timeout."""
+        material_blob = pack_paths(
+            ws,
+            list(dict.fromkeys(state.changed_paths + state.resource_paths)),
+            limit_per_file=self.max_chars_per_file,
+        )
+        user_message, system_prompt = self._build_messages(state, ws, day, material_blob)
+        for attempt in (1, 2):
+            raw = await self._reply(wrapper, state, user_message, system_prompt)
+            if raw is None:
+                return None
+            meta = parse_extract_reply(raw)
+            if meta:
+                return meta
+            self.logger.warning(f"[{self.name}] parse failed on attempt {attempt}; raw={raw[:200]!r}")
+        return {}
+
+    async def _reply(self, wrapper, state, user_message, system_prompt):
+        """One timeout-wrapped reply; returns raw text or None on timeout."""
+        state.llm_calls += 1
+        try:
+            result = await asyncio.wait_for(
+                wrapper.reply(user_message, system_prompt=system_prompt),
+                timeout=self.llm_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            self.logger.warning(f"[{self.name}] LLM reply timed out after {self.llm_timeout_seconds}s")
+            return None
+        return agent_reply_result_text(result)
+
+    def _clean_output(self, state: ProactiveState, meta: dict, allowed: set[str], day: str) -> None:
+        for raw in meta.get("follow_ups") or []:
+            if candidate := clean_candidate(raw, allowed, "follow_up", day):
+                state.follow_ups.append(candidate)
+            else:
+                state.dropped_missing += 1
+        if self.extends_enabled:
+            for raw in meta.get("extends") or []:
+                if candidate := clean_candidate(raw, allowed, "interest_extend", day):
+                    state.extends.append(candidate)
+                else:
+                    state.dropped_missing += 1
+        for raw in meta.get("updates") or []:
+            if not isinstance(raw, dict):
+                continue
+            topic_id = str(raw.get("id") or "").strip()
+            if not topic_id:
+                continue
+            action = str(raw.get("action") or "keep").strip()
+            if action not in ("keep", "update", "resolve"):
+                action = "keep"
+            state.updates.append(
+                {
+                    "id": topic_id,
+                    "action": action,
+                    "evidence": str(raw.get("evidence") or "").strip()[:120],
+                    "reason": str(raw.get("reason") or "").strip(),
+                    "confidence": raw.get("confidence"),
+                },
+            )
+
+    def _store(self, state: ProactiveState) -> None:
+        assert self.context is not None
+        data = state.model_dump()
+        self.context["proactive"] = data
+        self.context.response.metadata["proactive"] = data
+
+    def _finish(self, state: ProactiveState, started: float, answer: str):
+        state.duration_ms = int((time.monotonic() - started) * 1000)
+        self._store(state)
+        self.context.response.success = True
+        self.context.response.answer = answer
+        self.logger.info(f"[{self.name}] finish answer={answer!r}")
+        return self.context.response
